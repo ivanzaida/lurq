@@ -6,7 +6,10 @@
 mod components;
 mod kit;
 mod legacy;
+mod signals;
 mod snapshot;
+#[cfg(feature = "persistent_storage")]
+mod storage;
 
 use std::sync::{
   Arc,
@@ -18,8 +21,9 @@ pub use snapshot::{DevToolsNode, DevToolsSnapshot, FrameProfileSnapshot};
 pub use self::snapshot::DevToolsSnapshot as Snapshot;
 use self::{
   components::{ComponentsState, Inspected},
-  kit::{FILL, line},
-  legacy::{profiler, profiler_analysis, signals},
+  kit::FILL,
+  legacy::{profiler, profiler_analysis},
+  signals::SignalsState,
 };
 use crate::{
   app::{
@@ -31,13 +35,12 @@ use crate::{
     window::SystemSettings,
   },
   components::{Column, Row},
-  core::{Signal, Store},
-  layout::Alignment,
+  core::Signal,
   node::Element,
-  ui::{Button, ButtonSize, ButtonVariant, Tab, Tabs, TabsPart, TabsVariant, WindowChrome, icons},
+  ui::{Tab, Tabs, TabsPart, TabsVariant, WindowChrome, icons},
 };
 
-/// The icon font of the tabs not rebuilt yet (`legacy`): it goes with the last of them.
+/// The icon font of the tab not rebuilt yet (`legacy`): it goes with it.
 static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
 
 pub type DevToolsDebugOverlayCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
@@ -118,16 +121,14 @@ pub struct DevTools {
   theme: Theme,
   active_tab: Signal<DevToolsTab>,
   components: ComponentsState,
+  signals: SignalsState,
   profiler: Signal<profiler::ProfilerState>,
   /// Rereads a running recording's status; runs only while one does.
   profiler_status_ticker: Interval,
-  signals_recording: Store<signals::SignalsRecordingState>,
-  selected_signal: Signal<Option<String>>,
-  #[cfg(feature = "persistent_storage")]
-  persistent_storage_type_tooltip: Signal<Option<String>>,
   last_picked_revision: AtomicU64,
 }
 
+/// The tabs of the window, in the order the board has them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, crate::DevtoolsInspectable)]
 pub(crate) enum DevToolsTab {
   Components,
@@ -150,12 +151,9 @@ impl Component for DevTools {
       theme: Theme::new(),
       active_tab: ctx.signal(DevToolsTab::Components),
       components: ComponentsState::new(ctx),
+      signals: SignalsState::new(ctx),
       profiler,
       profiler_status_ticker,
-      signals_recording: ctx.store(signals::SignalsRecordingState::default()),
-      selected_signal: ctx.signal(None),
-      #[cfg(feature = "persistent_storage")]
-      persistent_storage_type_tooltip: ctx.signal(None),
       last_picked_revision: AtomicU64::new(0),
     }
   }
@@ -186,21 +184,30 @@ impl Component for DevTools {
         DevToolsTab::Components => components::view(ctx, &props.snapshot, &self.components, &inspected),
         DevToolsTab::Profiler => self.profiler_tab(ctx, &props),
         #[cfg(feature = "persistent_storage")]
-        DevToolsTab::PersistentStorage => self.storage_tab(ctx),
-        DevToolsTab::Signals => self.signals_tab(&props.snapshot),
+        DevToolsTab::PersistentStorage => storage::view(ctx),
+        DevToolsTab::Signals => signals::view(ctx, &props.snapshot, &self.signals),
       };
-      let (tab, tree) = (self.active_tab.clone(), self.components.clone());
+      let (tab, tree, signals) = (
+        self.active_tab.clone(),
+        self.components.search_key.clone(),
+        self.signals.filter_key.clone(),
+      );
       let window = Column::new()
         .size(FILL, FILL)
         .background(PaletteColor::Background)
         .foreground(PaletteColor::Foreground)
-        // Every key pressed in the window comes by here, whatever has the focus: the key of the tree's search.
+        // Every key pressed in the window comes by here, whatever has the focus: the key of a tab's search.
         .on_key_down(move |event: KeyboardEvent| {
-          let find = (event.ctrl || event.meta) && !event.alt && !event.shift && event.code == "KeyF";
-          if find && tab.get_untracked() == DevToolsTab::Components {
-            event.prevent_default();
-            tree.ask_search();
+          if !kit::is_find_key(&event) {
+            return;
           }
+          let search = match tab.get_untracked() {
+            DevToolsTab::Components => &tree,
+            DevToolsTab::Signals => &signals,
+            _ => return,
+          };
+          event.prevent_default();
+          search.ask();
         })
         .child(self.top_bar())
         .child(Row::new().width(FILL).flex(1.0).child(body));
@@ -248,61 +255,6 @@ impl DevTools {
       .child(profiler::profiler_view(&state, self.profiler.clone(), analysis))
       .size(FILL, FILL)
       .flex(1.0)
-      .into()
-  }
-
-  #[cfg(feature = "persistent_storage")]
-  fn storage_tab(&self, ctx: &mut Ctx) -> Element {
-    use legacy::persistent_storage_panel as panel;
-    match ctx.app_ref().persistent_storage().snapshot() {
-      Ok(entries) => panel::persistent_storage_view(ctx, &entries, self.persistent_storage_type_tooltip.clone()),
-      Err(error) => panel::persistent_storage_error_view(&error.to_string()),
-    }
-  }
-
-  fn signals_tab(&self, snapshot: &DevToolsSnapshot) -> Element {
-    let mut recording = self.signals_recording.get();
-    if recording.recording() {
-      signals::record_signal_changes(snapshot, &self.signals_recording);
-      recording = self.signals_recording.get();
-    }
-    let on = recording.recording();
-    let (record, clear) = (self.signals_recording.clone(), self.signals_recording.clone());
-    Column::new()
-      .size(FILL, FILL)
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(44.0)
-          .padding_horizontal(12.0)
-          .spacing(8.0)
-          .align_items(Alignment::Center)
-          .border_bottom(line())
-          .child(
-            Button::new(if on { "Stop recording" } else { "Start recording" })
-              .variant(if on {
-                ButtonVariant::Destructive
-              } else {
-                ButtonVariant::Outline
-              })
-              .size(ButtonSize::Xs)
-              .icon(if on { icons::SQUARE } else { icons::DOT_CIRCLE })
-              .on_click(move |_| record.update(move |state| state.set_recording(!on))),
-          )
-          .child(
-            Button::new("Clear")
-              .variant(ButtonVariant::Outline)
-              .size(ButtonSize::Xs)
-              .icon(icons::TRASH)
-              .on_click(move |_| clear.update(|state| state.clear())),
-          ),
-      )
-      .child(Row::new().width(FILL).flex(1.0).child(signals::signals_view(
-        snapshot,
-        self.selected_signal.get(),
-        self.selected_signal.clone(),
-        &recording,
-      )))
       .into()
   }
 }

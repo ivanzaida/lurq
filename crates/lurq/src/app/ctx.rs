@@ -961,10 +961,17 @@ pub struct ComponentMemoDebug {
 #[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComponentValueChangeDebug {
+  /// Which change this is among all the changes of every signal and memo of the process, from 1: a later one has
+  /// a greater number, so what happened after a moment is told from what happened before it.
+  pub sequence: u64,
   pub timestamp: String,
   pub from_value: String,
   pub to_value: String,
 }
+
+/// Numbers the changes DevTools is told of ([`ComponentValueChangeDebug::sequence`]).
+#[cfg(feature = "devtools")]
+static NEXT_VALUE_CHANGE: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq)]
@@ -1103,6 +1110,7 @@ fn update_debug_value_history(
   if let Some(previous) = current_value.as_ref() {
     let mut history = history.lock();
     history.push(ComponentValueChangeDebug {
+      sequence: NEXT_VALUE_CHANGE.fetch_add(1, Ordering::Relaxed),
       timestamp: current_compact_timestamp(),
       from_value: previous.to_string(),
       to_value: next_value

@@ -7,17 +7,17 @@ use crate::{
     component::ComponentInfo,
     ctx::ComponentContextKind,
     devtools::{
-      kit::{FILL, line, mono, sans, short_tag, short_type_name},
+      kit::{self, FILL, line, mono, sans, short_tag, short_type_name},
       snapshot::{DevToolsNode, DevToolsNodeKind, DevToolsSnapshot},
     },
-    theme::{Density, PaletteColor},
+    theme::PaletteColor,
   },
   components::{Column, Row, Spacer},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, border::Border},
+  node::Element,
   ui::{
-    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, EmptyState, Icon, Length, Separator, Switch,
-    Tab, Table, TableColumn, TablePart, Tabs, TabsPart, TabsVariant, icons,
+    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, EmptyState, Icon, Separator, Switch, Tab, Table,
+    TableColumn, Tabs, TabsPart, TabsVariant, icons,
   },
 };
 
@@ -25,8 +25,7 @@ use crate::{
 const HEADER_HEIGHT: f32 = 48.0;
 const RENDER_INFO_HEIGHT: f32 = 36.0;
 const TABS_HEIGHT: f32 = 40.0;
-const LABELS_HEIGHT: f32 = 32.0;
-const PADDING: f32 = 20.0;
+const PADDING: f32 = kit::DETAIL_PADDING;
 const ID_WIDTH: f32 = 104.0;
 const NAME_WIDTH: f32 = 200.0;
 const VALUE_WIDTH: f32 = 200.0;
@@ -204,26 +203,9 @@ fn detail(node: &DevToolsNode, state: &ComponentsState) -> Column {
     .child(Column::new().width(FILL).flex(1.0).child(table))
 }
 
-/// A table of the inspector as the board draws them: flat to the panel's edges, a row as low as the compact
-/// density's, its columns one after the other with nothing between.
+/// A table of the inspector as the board draws them, called by what it lists and saying what it has none of.
 fn flat<R: Clone + Send + Sync + 'static>(table: Table<R>, label: &str, empty: &str) -> Element {
-  table
-    .label(label)
-    .density(Density::Compact)
-    .height(Length::Fill)
-    .empty_text(empty)
-    .style(TablePart::Root, |s| {
-      s.radius(0.0).border(Border::inside(0.0, PaletteColor::Border))
-    })
-    .style(TablePart::Header, |s| {
-      s.height(LABELS_HEIGHT)
-        .padding_x(PADDING)
-        .gap(0.0)
-        .background(PaletteColor::Background)
-    })
-    .style(TablePart::HeaderCell, |s| s.font_size(12.0))
-    .style(TablePart::Row, |s| s.padding_x(PADDING).gap(0.0))
-    .into()
+  kit::flat_table(table.label(label).empty_text(empty)).into()
 }
 
 fn value_text(value: Option<&str>) -> Element {

@@ -142,6 +142,28 @@ fn app_snapshot_shows_derived_persistent_value_struct_fields() {
     prefs.value,
     "UserPrefs { name: \"Ada\", launch_count: 12, compact: true }"
   );
+  // The same fields apart, each with its value as it is written: what DevTools shows a row for.
+  let fields = prefs
+    .fields
+    .iter()
+    .map(|(name, value)| (name.as_str(), value.as_str()))
+    .collect::<Vec<_>>();
+  assert_eq!(
+    fields,
+    [("name", "\"Ada\""), ("launch_count", "12"), ("compact", "true")]
+  );
+}
+
+#[test]
+fn a_snapshot_of_a_plain_value_has_no_fields() {
+  let app = App::new();
+  app.set_persistent_value("count", 42_u32).unwrap();
+
+  let snapshot = app.persistent_storage().snapshot().unwrap();
+
+  assert_eq!(snapshot.len(), 1);
+  assert_eq!(snapshot[0].value, "42");
+  assert!(snapshot[0].fields.is_empty());
 }
 
 #[test]

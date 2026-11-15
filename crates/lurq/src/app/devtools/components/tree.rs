@@ -8,33 +8,25 @@ use crate::{
   app::{
     ctx::Ctx,
     devtools::{
-      kit::{FILL, line, mono, sans, short_tag},
+      kit::{self, FILL, line, mono, sans, short_tag},
       snapshot::{DevToolsNode, DevToolsNodeKind, DevToolsSnapshot},
     },
     events::MouseEvent,
-    theme::{BorderSize, Density, PaletteColor},
+    theme::PaletteColor,
   },
   components::{Column, Row},
   core::NodeId,
   layout::{Alignment, text_style::FontWeight},
-  node::{CursorIcon, Element, border::Border},
-  ui::{
-    Icon, Length, Recipe, SearchField, SearchFieldSize, Table, TableColumn, TableCount, TablePart, Toggle, TogglePart,
-    ToggleSize, ToggleState, icons,
-  },
+  node::{CursorIcon, Element},
+  ui::{Icon, SearchField, SearchFieldSize, Table, TableColumn, TableCount, Toggle, ToggleSize, icons},
 };
 
 /// The sizes the board gives the tree (`pencil/lurq-devtools.pen`, Components · dark, Tree Panel).
-const TOOLBAR_HEIGHT: f32 = 44.0;
-const HEADER_HEIGHT: f32 = 28.0;
-const ROW_HEIGHT: f32 = 26.0;
+const ROW_HEIGHT: f32 = kit::DENSE_ROW_HEIGHT;
 const INDENT: f32 = 12.0;
 const CHEVRON: f32 = 12.0;
 const KIND_WIDTH: f32 = 76.0;
 const CHILDREN_WIDTH: f32 = 52.0;
-
-/// What the search box says reaches it: the key the window binds.
-const SEARCH_KEY: &str = if cfg!(target_os = "macos") { "⌘F" } else { "Ctrl+F" };
 
 /// One row of the tree: a node of the inspected window that is shown.
 #[derive(Clone, Debug, PartialEq)]
@@ -157,9 +149,7 @@ pub(super) fn panel(
   state: &ComponentsState,
   inspected: &Inspected,
 ) -> Element {
-  if state.search_wanted() {
-    ctx.focus(&state.search_field);
-  }
+  state.search_key.answer(ctx);
   let query = SearchQuery::parse(&state.search.get());
   let lines = lines(snapshot, &state.closed.get(), query.as_ref());
   Column::new()
@@ -177,17 +167,12 @@ pub(super) fn panel(
 
 fn toolbar(state: &ComponentsState, inspected: &Inspected) -> Row {
   let (picking, inspected) = (state.clone(), inspected.clone());
-  Row::new()
-    .width(FILL)
-    .height(TOOLBAR_HEIGHT)
-    .padding_horizontal(12.0)
-    .spacing(8.0)
-    .align_items(Alignment::Center)
+  kit::toolbar()
     .child(
       Toggle::new("Pick")
         .icon(icons::CROSSHAIR)
         .size(ToggleSize::Xs)
-        .rules(&outlined_toggle())
+        .rules(&kit::outlined_toggle())
         .on(state.pick.get())
         .on_change(move |on| picking.set_pick(on, &inspected))
         .id("devtools-pick"),
@@ -197,36 +182,14 @@ fn toolbar(state: &ComponentsState, inspected: &Inspected) -> Row {
         SearchField::new(state.search.clone())
           .placeholder("Search components...")
           .label("Search components")
-          .shortcut(SEARCH_KEY)
-          .ref_element(state.search_field.clone())
+          .shortcut(kit::FIND_KEY)
+          .ref_element(state.search_key.field.clone())
           .size(SearchFieldSize::Sm)
-          .input_rules(&compact_input())
+          .input_rules(&kit::compact_input())
           .full_width(true)
           .id("devtools-search"),
       ),
     )
-}
-
-/// The board's Pick: a toggle in an edge, on the window's fill, picked out while it is on.
-fn outlined_toggle() -> Recipe {
-  use PaletteColor::{Background, Highlight, HighlightForeground, Input, MutedForeground};
-  Recipe::new()
-    .base(TogglePart::Root, |s| {
-      s.background(Background)
-        .border(Border::inside(BorderSize::Sm, Input))
-        .foreground(MutedForeground)
-        .padding_x(10.0)
-        .gap(6.0)
-    })
-    .state(ToggleState::On, TogglePart::Root, |s| {
-      s.background(Highlight).foreground(HighlightForeground)
-    })
-}
-
-/// The board's search: as high as the toolbar's other controls, in their type.
-fn compact_input() -> Recipe {
-  use crate::ui::InputPart;
-  Recipe::new().base(InputPart::Control, |s| s.height(Density::Compact).font_size(12.0))
 }
 
 fn table(ctx: &mut Ctx, lines: Vec<Line>, searching: bool, state: &ComponentsState, inspected: &Inspected) -> Element {
@@ -256,7 +219,7 @@ fn table(ctx: &mut Ctx, lines: Vec<Line>, searching: bool, state: &ComponentsSta
       })
       .numeric(),
   ];
-  Table::new_shared(columns, rows)
+  let tree = Table::new_shared(columns, rows)
     .row_key(|line: &Line| line.path.clone())
     .label("Component tree")
     .id("devtools-tree")
@@ -275,8 +238,6 @@ fn table(ctx: &mut Ctx, lines: Vec<Line>, searching: bool, state: &ComponentsSta
     })
     // A node picked in the inspected window is selected from outside the table: its row is brought into view.
     .reveal(state.selected_path.get(), state.shown())
-    .density(Density::Compact)
-    .height(Length::Fill)
     .count(true)
     .count_text(move |count: TableCount| match (searching, found, count.total) {
       (true, 1, _) => "1 match".to_owned(),
@@ -288,18 +249,8 @@ fn table(ctx: &mut Ctx, lines: Vec<Line>, searching: bool, state: &ComponentsSta
       "No components match the search"
     } else {
       "Nothing is mounted in the inspected window"
-    })
-    // The board's tree runs to the panel's edges, with rows as low as a line of code.
-    .style(TablePart::Root, |s| {
-      s.radius(0.0).border(Border::inside(0.0, PaletteColor::Border))
-    })
-    .style(TablePart::Header, |s| s.height(HEADER_HEIGHT).padding_x(12.0).gap(12.0))
-    .style(TablePart::HeaderCell, |s| s.font_size(12.0))
-    .style(TablePart::Row, |s| s.height(ROW_HEIGHT).padding_x(12.0).gap(12.0))
-    .style(TablePart::Cell, |s| s.font_size(12.0))
-    .style(TablePart::Footer, |s| s.height(HEADER_HEIGHT).padding_x(12.0))
-    .style(TablePart::Count, |s| s.font_size(12.0))
-    .mount(ctx)
+    });
+  kit::dense_table(tree).mount(ctx)
 }
 
 /// The tree's cell of a row: its indent, its chevron where it holds something, its name and what is said of it.

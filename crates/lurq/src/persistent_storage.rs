@@ -111,7 +111,10 @@ pub struct PersistentStorageSnapshotEntry {
   pub key: String,
   pub type_name: String,
   pub full_type_name: String,
+  /// The value as it is written on one line: a struct with its fields between braces.
   pub value: String,
+  /// The fields of a struct, each with its value as it is written, in their order: empty for any other value.
+  pub fields: Vec<(String, String)>,
   pub byte_len: usize,
 }
 
@@ -387,12 +390,17 @@ fn fixed<const N: usize>(bytes: &[u8], tag: u8) -> Option<[u8; N]> {
 
 fn snapshot_entry((key, value): (String, Vec<u8>)) -> PersistentStorageSnapshotEntry {
   let byte_len = value.len();
+  let fields = (value.first().copied() == Some(TYPE_STRUCT))
+    .then(|| struct_fields(&value))
+    .flatten()
+    .map_or_else(Vec::new, |(_, fields)| fields);
   let (type_name, full_type_name, value) = describe_persistent_value(&value);
   PersistentStorageSnapshotEntry {
     key,
     type_name,
     full_type_name,
     value,
+    fields,
     byte_len,
   }
 }
@@ -462,15 +470,29 @@ fn describe_char(bytes: &[u8]) -> (String, String, String) {
 }
 
 fn describe_struct(bytes: &[u8]) -> Option<(String, String, String)> {
+  let (type_name, fields) = struct_fields(bytes)?;
+  let fields = fields
+    .into_iter()
+    .map(|(label, value)| format!("{label}: {value}"))
+    .collect::<Vec<_>>()
+    .join(", ");
+  let short_type = type_name.rsplit("::").next().unwrap_or(&type_name).to_owned();
+
+  Some((short_type.clone(), type_name, format!("{short_type} {{ {fields} }}")))
+}
+
+/// The type of a stored struct and its fields, each with its value as it is written: `None` for bytes that are
+/// not a struct's.
+fn struct_fields(bytes: &[u8]) -> Option<(String, Vec<(String, String)>)> {
   let mut offset = 1;
   let type_name = read_len_bytes(bytes, &mut offset)?;
   let type_name = String::from_utf8(type_name.to_vec()).ok()?;
   let field_count = read_u32(bytes, &mut offset)?;
-  let mut fields = Vec::with_capacity(field_count as usize);
-  for index in 0..field_count {
+  let mut values = Vec::with_capacity(field_count as usize);
+  for _ in 0..field_count {
     let field = read_len_bytes(bytes, &mut offset)?;
     let (_, _, value) = describe_persistent_value(field);
-    fields.push((index, value));
+    values.push(value);
   }
 
   let labels = read_optional_struct_field_names(bytes, &mut offset, field_count as usize)?;
@@ -483,15 +505,7 @@ fn describe_struct(bytes: &[u8]) -> Option<(String, String, String)> {
       .map(|index| format!("field{index}"))
       .collect::<Vec<_>>()
   });
-  let fields = fields
-    .into_iter()
-    .zip(labels)
-    .map(|((_, value), label)| format!("{label}: {value}"))
-    .collect::<Vec<_>>()
-    .join(", ");
-  let short_type = type_name.rsplit("::").next().unwrap_or(&type_name).to_owned();
-
-  Some((short_type.clone(), type_name, format!("{short_type} {{ {fields} }}")))
+  Some((type_name, labels.into_iter().zip(values).collect()))
 }
 
 fn read_optional_struct_field_names(

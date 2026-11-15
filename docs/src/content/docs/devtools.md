@@ -30,15 +30,16 @@ The winit shell sees DevTools as a secondary window. It does not need inspector-
 
 ## What DevTools Shows
 
-DevTools is drawn in a theme of its own: the design system's, light or dark with the system. What the inspected app does to its theme (another palette, recipes of its own, another renderer for a component) does not reach the tool that inspects it. The Components tab is built with the design system's components from its board (`pencil/lurq-devtools.pen`); the Profiler, Signals and Storage tabs are as they were before the design system, in the same window, until theirs are built.
+DevTools is drawn in a theme of its own: the design system's, light or dark with the system. What the inspected app does to its theme (another palette, recipes of its own, another renderer for a component) does not reach the tool that inspects it. The Components, Signals and Storage tabs are built with the design system's components from their boards (`pencil/lurq-devtools.pen`); the Profiler tab is as it was before the design system, in the same window, until its board is built.
 
-The current DevTools UI has three primary tabs:
+The DevTools window has these tabs:
 
 | Tab | Shows |
 | --- | --- |
 | Components | Retained component/element tree, selected node details, props, signals, contexts, effects, shape/style rows, and optional overlay. Author-supplied `id`/`class` attributes appear first in each tree row and in the Attributes section, like browser devtools. |
 | Profiler | A recording of every pass of the inspected windows between Start and Stop: a frame timeline with counter tracks (FPS, nodes, draw calls, memory, allocations) and input and UI-update markers, an opt-in filmstrip of frame screenshots, FPS, and each frame's phases, counters and full frame profile. |
-| Signals | Signal list, value, owner component, subscriber count, dependency graph, and change history. |
+| Storage | With the `persistent_storage` feature: what the app keeps in its [persistent storage](../persistent-storage/), a row for each key with the type of its value, the value and its bytes. |
+| Signals | Every signal, memo and effect with its value, type, subscriber count and owner component, and for the one selected what owns it, what it notifies and its changes. |
 
 ## Components
 
@@ -146,15 +147,23 @@ let doubled = ctx.memo({
 });
 ```
 
-DevTools records:
+The engine keeps, for each signal and memo: its id, its type, its value as it is written, the component that owns it, how many subscribers it has, and its last 64 changes, each with the moment it happened, the value before and the value after.
 
-- signal id,
-- signal type,
-- formatted value,
-- owner component,
-- subscriber count,
-- recent value changes,
-- memo recomputes.
+## Signals
+
+The tab lists every signal, memo and effect of the inspected window, the signals first, then the memos, then the effects, each in the order they were made. **Filter** shows the rows that have every word typed, in their number, value, type or owner; Ctrl+F (Cmd+F on macOS) goes to it. The count under the list says how many of each are shown.
+
+Beside the list is the row selected in it: what it is, the component that owns it, its value, and how many subscribers it notifies, over its **change history**, the newest change first.
+
+The history is the engine's own record of the changes, not a reading taken by DevTools, so a value that changed twice between two frames shows both changes. **Recording** says which of them the tab shows:
+
+- It is on when DevTools opens: every change the engine still has is shown.
+- Turned off, it leaves out what changes from then on. Turned on again, it shows what changes after that; what changed in between stays out.
+- **Clear** forgets what was shown and goes on as it was: recording, it shows what changes from now on.
+
+## Storage
+
+With the `persistent_storage` feature the window has a Storage tab: the values of the app's [persistent storage](../persistent-storage/) as they are now, a row for each key in the order of the keys, with the type of the value, the value as it is written and how many bytes it takes, and under them how many keys there are and how many bytes in all. A stored struct has a row for each of its fields. A type of the app's is called by its last name, and the pointer resting on it shows the whole path.
 
 ## Overlay And Pick Mode
 
@@ -218,7 +227,7 @@ Phases recorded on another thread can overlap: each span is trimmed to its paren
 
 Measured on a synthetic recording of 2000 passes with 62,000 spans and the analysis over all of it (`a_recording_of_2000_frames_stays_interactive`, Windows, headless pass of the whole tab, no GPU): opening it takes about 75 ms; in a release build, a hover takes about 1 ms (at most 3 ms), a zoom step 0.7 ms (at most 10 ms), a pan step 0.2 ms, and the first call tree or bottom-up table 8–9 ms, then under 1 ms; a debug build takes 3, 1.6 and 1 ms per hover, zoom and pan step.
 
-The recording holds only phase names, times and counts, and in a detailed recording the static type names of components and of the signals, memos, stores and contexts that made them render: type names, never values. No text, prop or signal values, keys, element or signal ids, input values, pointer positions or paths. With **Screenshots** on it also holds the pixels of the frames it took, as the window showed them except for sensitive text, which is covered. The Signals tab records signal changes.
+The recording holds only phase names, times and counts, and in a detailed recording the static type names of components and of the signals, memos, stores and contexts that made them render: type names, never values. No text, prop or signal values, keys, element or signal ids, input values, pointer positions or paths. With **Screenshots** on it also holds the pixels of the frames it took, as the window showed them except for sensitive text, which is covered. The Signals tab shows signal values and their changes, which the engine keeps apart from any recording.
 
 `Tree::last_profile()` returns the latest low-level frame profile for custom tooling. In a build with neither `devtools` nor `perf_profile` it holds default values.
 

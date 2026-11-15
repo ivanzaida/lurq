@@ -12,12 +12,14 @@ use std::sync::{
 };
 
 use super::{
-  DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsPathCallback, kit::FILL, snapshot::DevToolsSnapshot,
+  DevToolsBoolCallback, DevToolsDebugOverlayCallback, DevToolsPathCallback,
+  kit::{FILL, KeyFocus},
+  snapshot::DevToolsSnapshot,
 };
 use crate::{
   app::ctx::Ctx,
   components::Row,
-  core::{ElementRef, NodeId, Signal},
+  core::{NodeId, Signal},
   node::Element,
   ui::{Splitter, SplitterPane},
 };
@@ -59,10 +61,8 @@ pub(crate) struct ComponentsState {
   /// Whether the next press in the inspected window selects the node under it.
   pub(crate) pick: Signal<bool>,
   pub(crate) detail: Signal<DetailTab>,
-  /// The search box, and how many times its key was pressed: the focus goes to it once for each.
-  pub(crate) search_field: ElementRef,
-  search_asked: Signal<u64>,
-  search_answered: Arc<AtomicU64>,
+  /// The search box and the key that goes to it.
+  pub(crate) search_key: KeyFocus,
   /// How many times the tree was asked to bring the selected row into view.
   shown: Arc<AtomicU64>,
 }
@@ -76,9 +76,7 @@ impl ComponentsState {
       overlay: ctx.signal(true),
       pick: ctx.signal(false),
       detail: ctx.signal(DetailTab::Props),
-      search_field: ElementRef::new(),
-      search_asked: ctx.signal(0),
-      search_answered: Arc::default(),
+      search_key: KeyFocus::new(ctx),
       shown: Arc::default(),
     }
   }
@@ -93,23 +91,9 @@ impl ComponentsState {
       overlay: Signal::new(true),
       pick: Signal::new(false),
       detail: Signal::new(DetailTab::Props),
-      search_field: ElementRef::new(),
-      search_asked: Signal::new(0),
-      search_answered: Arc::default(),
+      search_key: KeyFocus::detached(),
       shown: Arc::default(),
     }
-  }
-
-  /// The key of the search was pressed: the focus goes to the box at the next render.
-  pub(crate) fn ask_search(&self) {
-    self.search_asked.update(|asked| *asked += 1);
-  }
-
-  /// Whether the key of the search was pressed since this was last asked. It reads the count, so what asks is
-  /// rendered again at the next press.
-  pub(crate) fn search_wanted(&self) -> bool {
-    let asked = self.search_asked.get();
-    self.search_answered.swap(asked, Ordering::Relaxed) != asked
   }
 
   /// Which asking to bring the selected row into view is the last: the tree answers each once.
@@ -211,15 +195,6 @@ mod tests {
     assert_eq!(state.closed.get_untracked(), [id]);
     state.toggle(id);
     assert!(state.closed.get_untracked().is_empty());
-  }
-
-  #[test]
-  fn the_search_is_focused_once_for_each_press_of_its_key() {
-    let state = ComponentsState::detached();
-    assert!(!state.search_wanted());
-    state.ask_search();
-    assert!(state.search_wanted());
-    assert!(!state.search_wanted(), "one press is one focus");
   }
 
   #[test]

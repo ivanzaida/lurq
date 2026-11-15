@@ -90,7 +90,3 @@ pub(crate) fn icon(name: &str, size: f32, color: &str) -> Text {
     },
   )
 }
-
-pub(crate) fn short_tag(tag: &str) -> &str {
-  tag.rsplit("::").next().unwrap_or(tag)
-}
