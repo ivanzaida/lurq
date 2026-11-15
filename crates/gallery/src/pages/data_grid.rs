@@ -186,7 +186,49 @@ pub struct DataGridPage {
   summed_rows: Signal<Vec<File>>,
   summed_open: Signal<Vec<GroupKey>>,
   numbered_selected: Signal<Vec<String>>,
-  many: Arc<Vec<File>>,
+  big: Signal<bool>,
+  big_selected: Signal<Vec<usize>>,
+}
+
+/// A row of the grid of a million: its place, which every cell is made from.
+#[derive(Clone)]
+struct Job(u32);
+
+/// A million rows, made once and shared by every grid that shows them.
+fn million() -> Arc<Vec<Job>> {
+  static ROWS: std::sync::OnceLock<Arc<Vec<Job>>> = std::sync::OnceLock::new();
+  ROWS.get_or_init(|| Arc::new((0..1_000_000).map(Job).collect())).clone()
+}
+
+/// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
+fn million_columns() -> Vec<TableColumn<Job>> {
+  let mut columns = vec![
+    TableColumn::new("job", "Job")
+      .width(110.0)
+      .mono(true)
+      .pin(ColumnPin::Start)
+      .text(|job: &Job| format!("job-{:07}", job.0)),
+    TableColumn::new("note", "Note")
+      .width(220.0)
+      .wrap(true)
+      .text(|job: &Job| {
+        if job.0 % 7 == 0 {
+          format!(
+            "Rerun {} after the cache was cleared: the first build took the long way round",
+            job.0 / 7
+          )
+        } else {
+          "-".to_owned()
+        }
+      }),
+  ];
+  columns.extend((2..200).map(|index| {
+    TableColumn::new(&format!("m{index}"), &format!("Metric {index}"))
+      .width(110.0)
+      .numeric()
+      .text(move |job: &Job| format!("{:.1}", (job.0 as f64 * index as f64) % 997.0 / 7.0))
+  }));
+  columns
 }
 
 impl DataGridPage {
@@ -379,12 +421,40 @@ impl DataGridPage {
       self.played_open.clone(),
       self.summary.clone(),
       self.row_numbers.clone(),
+      self.big.clone(),
     );
     let still = {
       let rows = rows.get();
       move || -> Element { DataGrid::new(columns(pin_name), rows.clone()).label("Files").into() }
     };
-    let shown = grid.mount(ctx);
+    let big = self.big.get();
+    let shown = if big {
+      // The same props over a million rows of 200 columns, a note on every seventh that wraps.
+      let mut grid = DataGrid::new_shared(million_columns(), million())
+        .label("Jobs")
+        .density(density)
+        .read_only(read_only)
+        .resizable(resizable)
+        .column_menu(column_menu)
+        .row_numbers(row_numbers)
+        .count(footer)
+        .height(400.0)
+        .force(self.playground.forced())
+        .key("played-million");
+      if selection > 0 {
+        grid = grid.selected(self.big_selected.clone()).checkboxes(selection == 1);
+      }
+      code = vec![
+        "// rows: Arc<Vec<Job>>, a million; columns: the job pinned, a note that wraps, 198 metrics".to_owned(),
+        "DataGrid::new_shared(columns, rows)".to_owned(),
+        ".label(\"Jobs\")".to_owned(),
+        ".height(400.0)".to_owned(),
+        ".mount(ctx)".to_owned(),
+      ];
+      grid.mount(ctx)
+    } else {
+      grid.mount(ctx)
+    };
     self.playground.card(
       ctx,
       Spec {
@@ -393,12 +463,19 @@ impl DataGridPage {
         shown: Shown::of(shown),
         fill: true,
         forceable: true,
-        facts: format!(
-          "{} rows · {} selected · {} cells in the range",
-          rows.get().len(),
-          self.played_selected.get().len(),
-          self.played_range.get().map_or(0, |range| range.len())
-        ),
+        facts: if big {
+          format!(
+            "1,000,000 rows · 200 columns · {} selected",
+            self.big_selected.get().len()
+          )
+        } else {
+          format!(
+            "{} rows · {} selected · {} cells in the range",
+            rows.get().len(),
+            self.played_selected.get().len(),
+            self.played_range.get().map_or(0, |range| range.len())
+          )
+        },
         event: "on_edit / on_selection_change / on_cell_selection_change / on_column_layout_change / on_open_change",
         code,
         tree,
@@ -428,6 +505,7 @@ impl DataGridPage {
           flag("cell_selection(signal): told the range", &self.bind_range),
           flag("column_menu: a menu on each header", &self.column_menu),
           flag("row_numbers: a column of numbers at the start", &self.row_numbers),
+          flag("a million rows by 200 columns", &self.big),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -462,6 +540,7 @@ impl DataGridPage {
           !grouping.is_empty(),
           summary.is_some(),
           row_numbers,
+          big,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -487,6 +566,7 @@ impl DataGridPage {
           reset.15.set(Vec::new());
           reset.16.set(0);
           reset.17.set(false);
+          reset.18.set(false);
         }),
       },
     )
@@ -570,14 +650,8 @@ impl Component for DataGridPage {
       summed_rows: ctx.signal(files(16)),
       summed_open: ctx.signal(vec![GroupKey::new(["Building"]), GroupKey::new(["Modified"])]),
       numbered_selected: ctx.signal(vec!["canvas.rs".to_owned()]),
-      many: Arc::new(
-        (0..10_000)
-          .map(|index| File {
-            name: format!("file_{index:05}.rs"),
-            ..files(8)[index % 8].clone()
-          })
-          .collect(),
-      ),
+      big: ctx.signal(false),
+      big_selected: ctx.signal(Vec::new()),
     }
   }
 
@@ -872,26 +946,14 @@ impl Component for DataGridPage {
       .key("pinned")
       .mount(ctx);
 
-    // Ten thousand rows of fifty columns: the cells in view are built.
-    let mut wide_columns = vec![
-      TableColumn::new("name", "Name")
-        .width(160.0)
-        .mono(true)
-        .pin(ColumnPin::Start)
-        .text(|row: &File| row.name.clone()),
-    ];
-    wide_columns.extend((1..50).map(|index| {
-      TableColumn::new(&format!("m{index}"), &format!("Metric {index}"))
-        .width(110.0)
-        .numeric()
-        .text(move |row: &File| format!("{:.1}", row.size * index as f64 / 7.0))
-    }));
-    let thousands = DataGrid::new_shared(wide_columns, self.many.clone())
-      .label("Metrics")
+    // A million rows of two hundred columns: the cells in view are built, the notes that wrap measured.
+    let thousands = DataGrid::new_shared(million_columns(), million())
+      .label("Jobs")
       .read_only(true)
+      .row_numbers(true)
       .count(true)
-      .height(360.0)
-      .key("thousands")
+      .height(400.0)
+      .key("million")
       .mount(ctx);
 
     let read_only = DataGrid::new(columns(false), files(3))
@@ -1181,19 +1243,24 @@ impl Component for DataGridPage {
           ),
         ),
         Section::new(
-          "Ten thousand rows, fifty columns",
+          "A million rows, two hundred columns",
           "A mounted grid builds the rows in view and a few around them, and of those the cells of the columns in \
-           view, two past each side, the pinned ones and the focused one. Ctrl+End goes to the last cell.",
+           view, two past each side, the pinned ones and the focused one: a million rows cost what a screen of them \
+           does. Every seventh note wraps and its row grows; the rows not built yet are taken to be a row high, and \
+           what is in view stays still as they are measured. Drag the bar's thumb anywhere, or press Ctrl+End.",
           self.frame.demo(
             3,
             thousands,
             "DataGrid::new_shared(columns, rows)",
             &[
-              "// rows: Arc<Vec<File>>, ten thousand; columns: a name pinned and 49 metrics",
+              "// rows: Arc<Vec<Job>>, a million, given again at every render without a copy",
+              "// columns: the job pinned, a note that wraps, 198 metrics",
+              "TableColumn::new(\"note\", \"Note\").width(220.0).wrap(true).text(|job| job.note())",
               "DataGrid::new_shared(columns, rows)",
               "    .read_only(true)",
+              "    .row_numbers(true)",
               "    .count(true)",
-              "    .height(360.0)",
+              "    .height(400.0)",
               "    .mount(ctx)",
             ],
           ),

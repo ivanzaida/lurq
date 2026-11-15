@@ -1662,3 +1662,284 @@ fn a_summary_is_computed_when_what_it_is_computed_from_changes_not_at_each_rende
   stage.pass();
   assert_eq!(*computed.lock().unwrap(), after, "and once");
 }
+
+/// The ids of the elements of the tree that start with `prefix`.
+fn ids_with(stage: &Stage, prefix: &str) -> Vec<String> {
+  fn walk(element: lurq::node::ElementRef<'_>, prefix: &str, out: &mut Vec<String>) {
+    if let Some(id) = element.id().filter(|id| id.starts_with(prefix)) {
+      out.push(id.to_owned());
+    }
+    for child in element.children() {
+      walk(child, prefix, out);
+    }
+  }
+  let mut out = Vec::new();
+  if let Some(root) = stage.tree.root() {
+    walk(root, prefix, &mut out);
+  }
+  out
+}
+
+/// The places of the rows built.
+fn rows_built(stage: &Stage) -> Vec<usize> {
+  let mut rows: Vec<usize> = ids_with(stage, "g-row-")
+    .iter()
+    .filter_map(|id| id.strip_prefix("g-row-")?.parse().ok())
+    .collect();
+  rows.sort_unstable();
+  rows
+}
+
+#[test]
+fn a_grid_of_a_million_rows_by_two_hundred_columns_builds_what_is_in_view_wherever_it_is() {
+  #[derive(Clone)]
+  struct Cell(u32);
+  let rows: Arc<Vec<Cell>> = Arc::new((0..1_000_000).map(Cell).collect());
+  let columns: Vec<TableColumn<Cell>> = (0..200)
+    .map(|column| {
+      TableColumn::new(&format!("c{column}"), &format!("Column {column}"))
+        .width(120.0)
+        .text(move |row: &Cell| format!("{}·{column}", row.0))
+    })
+    .collect();
+  let selected = Signal::new(Vec::<usize>::new());
+  let held = selected.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(
+        DataGrid::new_shared(columns.clone(), rows.clone())
+          .id("g")
+          .label("Big")
+          .height(560.0)
+          .checkboxes(true)
+          .selected(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // The view holds 12 rows of 44 under the header, and some columns of 120: those are built, and a few around.
+  let cells = |stage: &Stage| ids_with(stage, "g-cell-").len();
+  let built = rows_built(&stage);
+  assert!(built.len() <= 30, "rows built at the top: {built:?}");
+  assert!(cells(&stage) <= 30 * 12, "cells built: {}", cells(&stage));
+
+  // The bar's thumb dragged to the middle lands among the rows there, and those are what is built.
+  let (x, y, width, height) = stage.bounds("g");
+  let bar_x = x + width - 4.0;
+  stage.tree.mouse_move(bar_x, y + 48.0);
+  stage
+    .tree
+    .mouse_down(bar_x, y + 48.0, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_move(bar_x, y + 48.0 + (height - 48.0) / 2.0);
+  stage.tree.mouse_up(
+    bar_x,
+    y + 48.0 + (height - 48.0) / 2.0,
+    lurq::app::events::MouseButton::Left,
+  );
+  stage.pass();
+  let built = rows_built(&stage);
+  assert!(built.len() <= 40, "rows built in the middle: {}", built.len());
+  let first = built[0];
+  assert!(
+    (400_000..600_000).contains(&first),
+    "the thumb at the middle of the bar shows the rows at the middle: {first}"
+  );
+  assert!(cells(&stage) <= 40 * 12);
+
+  // The header's box selects every row without building one more, and a range by Shift spans the rows between
+  // without building them.
+  stage.click("g-select-all");
+  assert_eq!(selected.get().len(), 1_000_000);
+  assert!(rows_built(&stage).len() <= 40);
+  stage.click("g-select-all");
+  assert!(selected.get().is_empty());
+
+  // PageDown held: the keys come faster than the frames, and each goes a page on from where the last went.
+  stage.click(&format!("g-cell-{}-0", first + 10));
+  let from = first + 10;
+  for press in 0..30 {
+    stage
+      .tree
+      .key_down("PageDown".into(), "PageDown".into(), false, false, false);
+    if press % 3 == 2 {
+      stage.pass();
+    }
+  }
+  stage
+    .tree
+    .key_up("PageDown".into(), "PageDown".into(), false, false, false);
+  stage.pass();
+  stage.pass();
+  let row: usize = focused(&stage)
+    .and_then(|id| id.strip_prefix("g-cell-")?.split('-').next()?.parse().ok())
+    .unwrap();
+  assert!(row >= from + 30 * 9, "thirty pages on from {from}: {row}");
+  assert!(rows_built(&stage).len() <= 40);
+
+  // The keys reach the last row.
+  modified(&mut stage, "End", false, true);
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-999999-199"));
+  let built = rows_built(&stage);
+  assert!(built.len() <= 40 && built.contains(&999_999), "{built:?}");
+  assert!(cells(&stage) <= 40 * 12);
+}
+
+#[test]
+fn rows_that_wrap_grow_and_the_view_stays_still_as_their_heights_become_known() {
+  #[derive(Clone)]
+  struct Note(usize);
+  let text = |row: &Note| {
+    if row.0 % 5 == 0 {
+      format!(
+        "Note {}: a long note that wraps onto more than one line in a column this narrow",
+        row.0
+      )
+    } else {
+      format!("Note {}", row.0)
+    }
+  };
+  let rows: Arc<Vec<Note>> = Arc::new((0..10_000).map(Note).collect());
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        DataGrid::new_shared(
+          vec![
+            TableColumn::new("n", "#")
+              .width(80.0)
+              .text(|row: &Note| row.0.to_string()),
+            TableColumn::new("note", "Note").width(200.0).wrap(true).text(text),
+          ],
+          rows.clone(),
+        )
+        .id("g")
+        .label("Notes")
+        .row_numbers(true)
+        .count(true)
+        .height(360.0)
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let (_, _, _, short) = stage.bounds("g-row-1");
+  let (_, _, _, long) = stage.bounds("g-row-0");
+  assert_eq!(short, 44.0, "a row whose text fits is a row's height");
+  assert!(long > 44.0, "a row whose text wraps grows: {long}");
+
+  // Far down by the wheel, then back up a little at a time over rows not measured yet: what is in view moves by
+  // what the wheel moves it, and no more.
+  for _ in 0..40 {
+    stage
+      .tree
+      .scroll(300.0, 200.0, 0.0, -2000.0, lurq::app::events::ScrollPhase::Scroll);
+    stage.pass();
+  }
+  for _ in 0..30 {
+    let built = rows_built(&stage);
+    let anchor = built[built.len() / 2];
+    let (_, before, ..) = stage.bounds(&format!("g-row-{anchor}"));
+    stage
+      .tree
+      .scroll(300.0, 200.0, 0.0, 30.0, lurq::app::events::ScrollPhase::Scroll);
+    stage.pass();
+    let (_, after, ..) = stage.bounds(&format!("g-row-{anchor}"));
+    assert!(
+      (after - before - 30.0).abs() < 0.6,
+      "row {anchor} moved by {} for a scroll of 30",
+      after - before
+    );
+  }
+}
+
+#[test]
+fn grouped_rows_with_summaries_numbers_and_pins_are_laid_out_once_and_built_in_view() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  #[derive(Clone)]
+  struct Job(u32);
+  const KINDS: [&str; 4] = ["build", "test", "lint", "docs"];
+  let grouped_texts = Arc::new(AtomicUsize::new(0));
+  let rows: Arc<Vec<Job>> = Arc::new((0..100_000).map(Job).collect());
+  let selected = Signal::new(Vec::<usize>::new());
+  let (counted, held) = (grouped_texts.clone(), selected.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let counted = counted.clone();
+    let mut columns: Vec<TableColumn<Job>> = vec![
+      TableColumn::new("id", "Id")
+        .width(90.0)
+        .pin(lurq::ui::ColumnPin::Start)
+        .text(|job: &Job| job.0.to_string()),
+      TableColumn::new("kind", "Kind").width(100.0).text(move |job: &Job| {
+        counted.fetch_add(1, Ordering::Relaxed);
+        KINDS[job.0 as usize % 4].to_owned()
+      }),
+      TableColumn::new("ms", "Time")
+        .width(100.0)
+        .numeric()
+        .text(|job: &Job| format!("{} ms", job.0 % 97))
+        .editor(CellEditor::number(|job: &Job| (job.0 % 97) as f64))
+        .summary(lurq::ui::SummaryKind::Sum),
+    ];
+    columns.extend((0..20).map(|column| {
+      TableColumn::new(&format!("x{column}"), &format!("X {column}"))
+        .width(100.0)
+        .text(move |job: &Job| format!("{}·{column}", job.0))
+    }));
+    Column::new()
+      .size(800.0, 600.0)
+      .child(
+        DataGrid::new_shared(columns, rows.clone())
+          .id("g")
+          .label("Jobs")
+          .height(560.0)
+          .group_by(["kind"])
+          .open(Signal::new(vec![GroupKey::new(["test"])]))
+          .row_numbers(true)
+          .checkboxes(true)
+          .selected(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let laid_out = grouped_texts.load(Ordering::Relaxed);
+  assert!(laid_out >= 100_000, "the rows are grouped by their kind: {laid_out}");
+
+  // A render that changes nothing the groups are made of takes them as they were.
+  selected.set(vec![1]);
+  stage.pass();
+  let again = grouped_texts.load(Ordering::Relaxed) - laid_out;
+  assert!(
+    again < 1_000,
+    "a selection lays out no group again: {again} texts asked"
+  );
+
+  // Down to the end of the open group: the rows there are built, its summary and the pinned and numbered cells
+  // with them, and no more than a view's worth.
+  stage.click("g-cell-1-1");
+  modified(&mut stage, "End", false, true);
+  let built = rows_built(&stage);
+  assert!(built.len() <= 40, "rows built: {}", built.len());
+  assert!(
+    built.contains(&99_997),
+    "the last row of the open group, the 25,000th test: {built:?}"
+  );
+  assert!(!ids_with(&stage, "g-summary-").is_empty(), "its summary row is built");
+  assert!(
+    ids_with(&stage, "g-cell-").iter().any(|id| id.ends_with("-0")),
+    "the pinned column's cells are built with the rows, wherever the columns are scrolled"
+  );
+  let numbers = ids_with(&stage, "g-row-99997-number");
+  assert_eq!(numbers.len(), 1, "the row's number is built with it");
+}
