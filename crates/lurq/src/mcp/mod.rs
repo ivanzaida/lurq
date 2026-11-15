@@ -607,7 +607,7 @@ impl Tree {
       return;
     }
     let rendered = report.rendered;
-    let idle = !self.needs_redraw() && !self.has_active_timeline();
+    let idle = !self.needs_redraw() && !self.has_active_timeline() && !self.has_moving_canvas();
     let mut keep_producing_frames = false;
     self.mcp_wait_entries.retain_mut(|entry| {
       let Some(reply) = entry.reply.take() else {

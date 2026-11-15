@@ -11,18 +11,18 @@ use std::{
 use parking_lot::Mutex;
 
 use super::{
-  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartPart, ChartPlot, ChartPoint,
-  ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text, series_color,
-  step,
+  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartMotion, ChartPart, ChartPlot,
+  ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text,
+  series_color, step,
 };
 use crate::{
   app::{
     component::Component,
     ctx::Ctx,
     events::{KeyboardEvent, MouseEvent},
-    theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
+    theme::{BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  canvas::CanvasHandle,
+  canvas::{CanvasHandle, CanvasMotion, CanvasMove},
   components::{Canvas, Column, Row, Stack},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
@@ -59,6 +59,8 @@ pub struct ChartProps {
   pub value_axis: Option<bool>,
   pub empty_text: Option<Arc<str>>,
   pub loading: bool,
+  /// Whether the plot stands still: drawn where it is, not moved in or to a change.
+  pub still: bool,
   pub on_select: Vec<Selected>,
   pub states: Vec<Name>,
   pub rules: Recipe,
@@ -207,6 +209,13 @@ macro_rules! chart_props {
     /// Whether the data is on its way: the plot is a skeleton.
     pub fn loading(mut self, loading: bool) -> Self {
       self.props.loading = loading;
+      self
+    }
+
+    /// Whether the plot moves: in as it is first shown, and to its new place when its data changes, for a short
+    /// while. On unless told; off, too, where motion is reduced.
+    pub fn motion(mut self, motion: bool) -> Self {
+      self.props.still = !motion;
       self
     }
 
@@ -393,11 +402,24 @@ impl ChartFrame {
     active.hash(&mut hasher);
     self.grid().hash(&mut hasher);
     let key = hasher.finish();
-    let (plot, look, grid) = (self.plot.clone(), self.look.clone(), self.grid());
+    let (look, grid) = (self.look.clone(), self.grid());
+    let paint = move |canvas: &CanvasHandle, at: CanvasMove<'_, Arc<dyn ChartPlot>>| {
+      let motion = ChartMotion {
+        from: at.from.map(|plot| &**plot),
+        progress: at.progress,
+      };
+      draw(canvas, &**at.to, &look, active, grid, motion)
+    };
+    // The plot moves in as it is first shown, and to a change of what it draws (its signature), not of the point
+    // under the pointer.
+    let motion = chart_motion(self.recipe.theme());
+    let motion = if self.props.still {
+      CanvasMotion::new(std::time::Duration::ZERO)
+    } else {
+      motion
+    };
     let mut canvas = Canvas::new()
-      .paint(key, move |canvas: &CanvasHandle| {
-        draw(canvas, &*plot, &look, active, grid)
-      })
+      .paint_moving(key, motion, self.plot.signature(), Arc::new(self.plot.clone()), paint)
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
       .part(&part)
@@ -474,6 +496,9 @@ impl ChartFrame {
       ));
     }
     let gutter = self.gutter(area);
+    if self.plot.across() {
+      return self.with_names(stack.into(), gutter, height);
+    }
     if gutter <= 0.0 {
       return stack.into();
     }
@@ -508,7 +533,19 @@ impl ChartFrame {
   /// How wide the room of the ticks' numbers is: the widest of them in the mono type of 11 (an advance of 0.6 of
   /// its size) and the room after it, or none where the chart does not write them.
   fn gutter(&self, area: ChartArea) -> f32 {
-    if !self.value_axis() || self.props.loading || self.plot.is_empty() {
+    if self.props.loading || self.plot.is_empty() {
+      return 0.0;
+    }
+    if self.plot.across() {
+      // The names of the categories at the start, as wide as the widest in the axis's mono type, at most 160.
+      let ChartAxis::Bands { labels, .. } = self.plot.axis() else {
+        return 0.0;
+      };
+      let size = self.recipe.part(ChartPart::AxisLabel).rest().text.size.unwrap_or(11.0);
+      let widest = labels.iter().map(|name| name.chars().count()).max().unwrap_or(0);
+      return ((widest as f32 * size * 0.6).ceil() + GUTTER_GAP).min(160.0);
+    }
+    if !self.value_axis() {
       return 0.0;
     }
     let size = self.recipe.part(ChartPart::ValueLabel).rest().text.size.unwrap_or(11.0);
@@ -520,6 +557,47 @@ impl ChartFrame {
       .max()
       .unwrap_or(0);
     (widest as f32 * size * 0.6).ceil() + GUTTER_GAP
+  }
+
+  /// The plot of a chart whose values run across, with the names of its categories at its start, each at the
+  /// height of its band and cut with an ellipsis where it is longer than the room.
+  fn with_names(&self, plot: Element, gutter: f32, height: f32) -> Element {
+    let ChartAxis::Bands { labels, gap } = self.plot.axis() else {
+      return plot;
+    };
+    let label = self.part(ChartPart::AxisLabel);
+    let names = Column::new()
+      .width(gutter)
+      .height(height)
+      .spacing(gap)
+      .describe("a11y_hidden", "true")
+      .with_children(labels.iter().map(|name| {
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_height(Dimension::Px(0.0))
+          .width(gutter - GUTTER_GAP)
+          .justify(Justify::End)
+          .align_items(Alignment::Center)
+          .child(
+            label
+              .text(name)
+              .part(&label)
+              .nowrap()
+              .text_overflow(TextOverflow::Elipsis)
+              .min_width(Dimension::Px(0.0)),
+          )
+      }));
+    Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Start)
+      .child(names)
+      .child(
+        Column::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(Dimension::Px(0.0))
+          .child(plot),
+      )
+      .into()
   }
 
   /// The plot's behavior on the canvas of a mounted chart: the pointer finds the point it is on, a press selects
@@ -653,6 +731,42 @@ impl ChartFrame {
         .text_overflow(TextOverflow::Elipsis)
         .min_width(Dimension::Px(0.0))
     };
+    if self.plot.across() {
+      // The names are at the plot's start; under it, the ticks' numbers at their places, where it writes them.
+      if !self.value_axis() {
+        return None;
+      }
+      let value = self.part(ChartPart::ValueLabel);
+      // The ticks of a plot one wide are where they are as a share of its width, whatever width it is laid out at.
+      let area = ChartArea {
+        width: 1.0,
+        height: self.plot_height(),
+      };
+      let mut numbers = Row::new().width(Dimension::Pct(100.0)).overflow_visible();
+      let mut before = 0.0;
+      for tick in self.plot.ticks(area, &self.look) {
+        let share = tick.position.clamp(0.0, 1.0);
+        // The numbers at the ends stand inside the plot, the others centred on their line.
+        let across = if share < 0.001 {
+          0.0
+        } else if share > 0.999 {
+          -1.0
+        } else {
+          -0.5
+        };
+        numbers = numbers
+          .child(Row::new().flex_full(share - before, 0.0, Some(0.0)))
+          .child(
+            Row::new()
+              .width(1.0)
+              .overflow_visible()
+              .child(value.text(&tick.text).part(&value).nowrap().offset_by_size(across, 0.0)),
+          );
+        before = share;
+      }
+      numbers = numbers.child(Row::new().flex_full(1.0 - before, 0.0, Some(0.0)));
+      return Some(row.child(numbers).into());
+    }
     match self.plot.axis() {
       ChartAxis::None => None,
       ChartAxis::Bands { labels, gap } => Some(
@@ -735,7 +849,19 @@ fn at(x: f32, y: f32, child: Element) -> Row {
 }
 
 /// Draws `plot` on `canvas`, its grid first: what a chart's canvas is painted with.
-fn draw(canvas: &CanvasHandle, plot: &dyn ChartPlot, look: &ChartLook, active: Option<ChartPoint>, grid: bool) {
+/// How a chart's plot moves, in `theme`: for its slow duration, eased as what stays on screen and changes.
+pub fn chart_motion(theme: &Theme) -> CanvasMotion {
+  CanvasMotion::new(theme.duration_value(MotionDuration::Slow)).easing(theme.easing_value(MotionEasing::Standard))
+}
+
+fn draw(
+  canvas: &CanvasHandle,
+  plot: &dyn ChartPlot,
+  look: &ChartLook,
+  active: Option<ChartPoint>,
+  grid: bool,
+  motion: ChartMotion<'_>,
+) {
   let size = canvas.size();
   let area = ChartArea {
     width: size.width,
@@ -756,11 +882,17 @@ fn draw(canvas: &CanvasHandle, plot: &dyn ChartPlot, look: &ChartLook, active: O
     } else {
       ChartPart::Grid
     });
-    let y = snap((tick.position - line).max(0.0).min(area.height - line), scale);
     context.set_fill_style(color);
-    context.fill_rect(0.0, y, area.width, line);
+    if plot.across() {
+      let x = snap(tick.position.max(0.0).min(area.width - line), scale);
+      context.fill_rect(x, 0.0, line, area.height);
+    } else {
+      let y = snap((tick.position - line).max(0.0).min(area.height - line), scale);
+      context.fill_rect(0.0, y, area.width, line);
+    }
   }
-  plot.paint(&context, area, look, active);
+  plot.paint_moving(&context, area, look, active, motion);
+  // Tooling reads the data where it is, not where it is drawn on its way.
   canvas.set_items(plot.items(area, look));
 }
 

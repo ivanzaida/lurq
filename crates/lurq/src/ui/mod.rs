@@ -23,8 +23,8 @@ mod badge;
 mod banner;
 #[cfg(feature = "canvas")]
 mod bar_chart;
-mod blockquote;
 mod bar_list;
+mod blockquote;
 mod breadcrumb;
 mod button;
 mod button_group;
@@ -58,12 +58,12 @@ mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
-#[cfg(feature = "canvas")]
-mod gauge;
 mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+#[cfg(feature = "canvas")]
+mod gauge;
 mod highlight;
 mod hover_card;
 mod icon;
@@ -107,17 +107,17 @@ mod segmented;
 mod select;
 mod selection;
 mod separator;
-#[cfg(feature = "canvas")]
-mod sparkline;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod spinner;
-mod stat_card;
 mod splitter;
+mod stat_card;
 mod status_bar;
 mod steps;
 mod swatch_picker;
@@ -159,14 +159,8 @@ pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeSta
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 #[cfg(feature = "canvas")]
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
+pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView};
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
-pub use bar_list::{
-  BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView,
-};
-#[cfg(feature = "canvas")]
-pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve};
-#[cfg(feature = "canvas")]
-pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
@@ -184,10 +178,11 @@ pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, C
 #[cfg(feature = "canvas")]
 pub use chart::{
   BandScale, BarEnd, ChartArea, ChartAxis, ChartFrame, ChartLegend, ChartLegendItem, ChartLegendPart,
-  ChartLegendRenderer, ChartLegendShape, ChartLegendState, ChartLegendView, ChartLook, ChartPart, ChartPlot,
-  ChartPoint, ChartProps, ChartRenderer, ChartSeries, ChartSize, ChartState, ChartTick, ChartTip, ChartTooltip,
-  ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale, TipPlace, chart_recipe,
-  default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap, step as chart_step,
+  ChartLegendRenderer, ChartLegendShape, ChartLegendState, ChartLegendView, ChartLook, ChartMotion, ChartPart,
+  ChartPlot, ChartPoint, ChartProps, ChartRenderer, ChartSeries, ChartSize, ChartState, ChartTick, ChartTip,
+  ChartTooltip, ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale,
+  TipPlace, chart_motion, chart_recipe, default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap,
+  step as chart_step,
 };
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupRenderer, CheckboxGroupState, CheckboxGroupView,
@@ -256,8 +251,6 @@ pub use empty_state::{
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
-#[cfg(feature = "canvas")]
-pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
@@ -270,6 +263,8 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
+#[cfg(feature = "canvas")]
+pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
@@ -286,6 +281,8 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+#[cfg(feature = "canvas")]
+pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
@@ -357,6 +354,8 @@ pub use rating::{
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
+#[cfg(feature = "canvas")]
+pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};
 pub use scroll_area::{
   ScrollArea, ScrollAreaOrientation, ScrollAreaPart, ScrollAreaRenderer, ScrollAreaScrollbars, ScrollAreaState,
   ScrollAreaView,
@@ -369,8 +368,6 @@ pub use segmented::{
 };
 pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
-#[cfg(feature = "canvas")]
-pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{
@@ -394,17 +391,19 @@ pub use skeleton::{
 pub use slider::{
   RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
 };
+#[cfg(feature = "canvas")]
+pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
   SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
   SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
 };
-pub use stat_card::{
-  StatCard, StatCardPart, StatCardRenderer, StatCardSize, StatCardState, StatCardVariant, StatCardView,
-};
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
+};
+pub use stat_card::{
+  StatCard, StatCardPart, StatCardRenderer, StatCardSize, StatCardState, StatCardVariant, StatCardView,
 };
 pub use status_bar::{
   StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry,
