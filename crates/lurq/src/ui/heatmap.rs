@@ -5,8 +5,8 @@ use std::{hash::Hash, sync::Arc};
 
 use super::{
   chart::{
-    ChartArea, ChartFrame, ChartLabel, ChartLook, ChartPart, ChartPlot, ChartPoint, ChartProps, ChartRenderer,
-    ChartSeries, ChartSize, ChartTip, bits, chart_recipe, resolve, signature_of,
+    ChartArea, ChartFrame, ChartLabel, ChartLook, ChartMotion, ChartPart, ChartPlot, ChartPoint, ChartProps,
+    ChartRenderer, ChartSeries, ChartSize, ChartTip, bits, chart_recipe, resolve, signature_of,
   },
   names,
   part_style::{FontFamily, Length},
@@ -216,6 +216,7 @@ impl Heatmap {
       },
       column_axis: self.column_axis,
       missing: self.missing_text.clone(),
+      fixed: self.props.height.is_some(),
     }
   }
 
@@ -294,6 +295,14 @@ struct Colors {
 }
 
 impl Colors {
+  /// The two roles in a plot's look.
+  fn from_look(look: &ChartLook) -> Self {
+    Self {
+      cell: look.color(HeatmapPart::Cell),
+      fill: look.color(HeatmapPart::Fill),
+    }
+  }
+
   fn of(recipe: &ResolvedRecipe) -> Self {
     let color = |part: HeatmapPart, or: PaletteColor| {
       recipe
@@ -334,6 +343,8 @@ struct HeatPlot {
   room: f32,
   column_axis: bool,
   missing: Arc<str>,
+  /// Whether the app gave the plot its height: the cells fill it, and it does not follow the width.
+  fixed: bool,
 }
 
 impl HeatPlot {
@@ -356,56 +367,63 @@ impl HeatPlot {
     ((share * top as f64).ceil() as usize).clamp(1, top)
   }
 
-  /// The cells' side in `area`: the plot's, smaller where the grid is wider than the plot.
+  /// The cells' side in `area`: the plot's, smaller where the grid is wider than the plot, its gaps smaller with it.
   fn side(&self, area: ChartArea) -> f32 {
     let columns = self.columns.len() as f32;
     if area.width <= 0.0 || columns == 0.0 {
       return self.cell;
     }
-    let fits = (area.width - self.room - GAP * (columns - 1.0)) / columns;
-    self.cell.min(fits).max(1.0)
+    // A cell and the gap after it are `pitch` of the cell's side; the last has no gap after it.
+    let pitch = 1.0 + GAP / self.cell;
+    let fits = (area.width - self.room) / (columns * pitch - GAP / self.cell);
+    self.cell.min(fits).max(0.5)
+  }
+
+  /// The room between two cells of `side`: the board's 4 beside its cell of 14, as much smaller as the cell is.
+  fn gap(&self, side: f32) -> f32 {
+    GAP * (side / self.cell).min(1.0)
   }
 
   /// Where the cell of `row` and `column` is drawn: x, y and its side.
   fn cell(&self, area: ChartArea, row: usize, column: usize) -> (f32, f32, f32) {
     let side = self.side(area);
-    (
-      self.room + column as f32 * (side + GAP),
-      row as f32 * (side + GAP),
-      side,
-    )
+    let pitch = side + self.gap(side);
+    (self.room + column as f32 * pitch, row as f32 * pitch, side)
   }
 
-  fn name(&self, row: usize, column: usize) -> String {
-    format!("{}, {}", self.rows[row], self.columns[column])
+  /// The color of the cell of `row` and `column`: its step's, or none where it has no value.
+  fn color(&self, colors: &Colors, row: usize, column: usize) -> Option<Color> {
+    self
+      .value(row, column)
+      .map(|value| colors.step(self.step(value), self.steps))
   }
-}
 
-impl ChartPlot for HeatPlot {
-  fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
-    let colors = Colors {
-      cell: look.color(HeatmapPart::Cell),
-      fill: look.color(HeatmapPart::Fill),
-    };
-    let radius = RADIUS;
+  /// Draws the cells, each filled with the color `color` gives it (a cell with no value has its edge, and is filled
+  /// too where `color` gives it one: its old color fading out), and the ring of `active`.
+  fn paint_cells(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    color: impl Fn(usize, usize) -> Option<Color>,
+  ) {
     for row in 0..self.rows.len() {
       for column in 0..self.columns.len() {
         let (x, y, side) = self.cell(area, row, column);
-        let r = radius.min(side / 2.0);
-        match self.value(row, column) {
-          Some(value) => {
-            canvas.set_fill_style(colors.step(self.step(value), self.steps));
-            canvas.begin_path();
-            let _ = canvas.round_rect(x, y, side, side, r);
-            canvas.fill();
-          }
-          None => {
-            canvas.set_stroke_style(look.color(HeatmapPart::Missing));
-            canvas.set_line_width(1.0);
-            canvas.begin_path();
-            let _ = canvas.round_rect(x + 0.5, y + 0.5, side - 1.0, side - 1.0, (r - 0.5).max(0.0));
-            canvas.stroke();
-          }
+        let r = RADIUS.min(side / 2.0);
+        if self.value(row, column).is_none() {
+          canvas.set_stroke_style(look.color(HeatmapPart::Missing));
+          canvas.set_line_width(1.0);
+          canvas.begin_path();
+          let _ = canvas.round_rect(x + 0.5, y + 0.5, side - 1.0, side - 1.0, (r - 0.5).max(0.0));
+          canvas.stroke();
+        }
+        if let Some(fill) = color(row, column) {
+          canvas.set_fill_style(fill);
+          canvas.begin_path();
+          let _ = canvas.round_rect(x, y, side, side, r);
+          canvas.fill();
         }
       }
     }
@@ -417,20 +435,76 @@ impl ChartPlot for HeatPlot {
       canvas.set_stroke_style(look.color(HeatmapPart::Ring));
       canvas.set_line_width(1.5);
       canvas.begin_path();
-      let _ = canvas.round_rect(x - 1.25, y - 1.25, side + 2.5, side + 2.5, radius + 1.25);
+      let _ = canvas.round_rect(x - 1.25, y - 1.25, side + 2.5, side + 2.5, RADIUS + 1.25);
       canvas.stroke();
     }
   }
 
+  fn name(&self, row: usize, column: usize) -> String {
+    format!("{}, {}", self.rows[row], self.columns[column])
+  }
+}
+
+impl ChartPlot for HeatPlot {
+  fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
+    let colors = Colors::from_look(look);
+    self.paint_cells(canvas, area, look, active, |row, column| {
+      self.color(&colors, row, column)
+    });
+  }
+
+  /// The cells fade in as the heatmap first shows; on a change each cell goes from its old step's color to its new
+  /// one, a cell that comes fading in and one that goes fading out.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() {
+      return self.paint(canvas, area, look, active);
+    }
+    let colors = Colors::from_look(look);
+    let from = motion.from_as::<HeatPlot>();
+    self.paint_cells(canvas, area, look, active, |row, column| {
+      let to = self.color(&colors, row, column);
+      let was = from.and_then(|from| {
+        (row < from.rows.len() && column < from.columns.len())
+          .then(|| from.color(&colors, row, column))
+          .flatten()
+      });
+      match (was, to) {
+        (Some(was), Some(to)) => Some(mix(was, to, motion.progress)),
+        (None, Some(to)) => Some(mix(to.with_alpha(0), to, motion.progress)),
+        (Some(was), None) => Some(mix(was, was.with_alpha(0), motion.progress)),
+        (None, None) => None,
+      }
+    });
+  }
+
+  fn height_for(&self, width: f32) -> Option<f32> {
+    if self.fixed || self.is_empty() {
+      return None;
+    }
+    let side = self.side(ChartArea { width, height: 0.0 });
+    let rows = self.rows.len() as f32;
+    let under = if self.column_axis { COLUMN_ROOM } else { 0.0 };
+    let gap = self.gap(side);
+    Some((rows * (side + gap) - gap).max(side) + under)
+  }
+
   fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
     let side = self.side(area);
-    let pitch = side + GAP;
+    let gap = self.gap(side);
+    let pitch = side + gap;
     if x < self.room || y < 0.0 {
       return None;
     }
     // A cell and half the gaps round it.
-    let column = ((x - self.room + GAP / 2.0) / pitch) as usize;
-    let row = ((y + GAP / 2.0) / pitch) as usize;
+    let column = ((x - self.room + gap / 2.0) / pitch) as usize;
+    let row = ((y + gap / 2.0) / pitch) as usize;
     (row < self.rows.len() && column < self.columns.len()).then(|| ChartPoint::new(row, column))
   }
 
@@ -469,10 +543,7 @@ impl ChartPlot for HeatPlot {
 
   fn tip_color(&self, point: ChartPoint, _series: usize, look: &ChartLook) -> Option<Color> {
     let value = self.value(point.series, point.index)?;
-    let colors = Colors {
-      cell: look.color(HeatmapPart::Cell),
-      fill: look.color(HeatmapPart::Fill),
-    };
+    let colors = Colors::from_look(look);
     // The key as opaque as the cell looks on the card.
     let color = colors.step(self.step(value), self.steps);
     Some(over(color, look.theme().palette_color(PaletteColor::Popover)))
@@ -499,10 +570,15 @@ impl ChartPlot for HeatPlot {
 
   fn labels(&self, area: ChartArea, _look: &ChartLook) -> Vec<ChartLabel> {
     let side = self.side(area);
-    let pitch = side + GAP;
+    let pitch = side + self.gap(side);
     // Every row's name where the rows are roomy or few, every other's where there are more than four as close as
-    // the board's.
-    let every = if pitch < 24.0 && self.rows.len() > 4 { 2 } else { 1 };
+    // the board's, and fewer where the cells are smaller still: a name of 10 needs 14 of height.
+    let apart = ((14.0 / pitch).ceil() as usize).max(1);
+    let every = if pitch < 24.0 && self.rows.len() > 4 {
+      apart.max(2)
+    } else {
+      apart
+    };
     let mut labels: Vec<ChartLabel> = (0..self.rows.len())
       .step_by(every)
       .map(|row| {
@@ -551,6 +627,17 @@ impl ChartPlot for HeatPlot {
   fn is_empty(&self) -> bool {
     self.columns.is_empty() || self.rows.is_empty()
   }
+}
+
+/// `progress` of the way from `from` to `to`, each channel and the opacity.
+fn mix(from: Color, to: Color, progress: f32) -> Color {
+  let channel = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * progress.clamp(0.0, 1.0)).round() as u8;
+  Color::new(
+    channel(from.r(), to.r()),
+    channel(from.g(), to.g()),
+    channel(from.b(), to.b()),
+    channel(from.a(), to.a()),
+  )
 }
 
 /// `color` over `ground`, as the engine lays a translucent color over an opaque one.

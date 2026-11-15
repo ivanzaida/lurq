@@ -189,3 +189,69 @@ fn a_missing_value_is_not_read_the_rings_numbers_are_written_where_told_and_no_d
   });
   assert!(empty.text_quad("No runs yet").is_some());
 }
+
+#[test]
+fn the_radar_moves_as_every_chart() {
+  super::chart_motion::moves_as_every_chart(|ctx, values, moves| {
+    RadarChart::new(["a", "b", "c"], [ChartSeries::new("v", values)])
+      .motion(moves)
+      .id("c")
+      .mount(ctx)
+  });
+}
+
+/// How far from the middle the polygon of a series reaches up the first axis: the first pixel of its fill (a series'
+/// color at 0.2, not a ring's line) from the top, along the axis, 2 to its right.
+fn reach(stage: &mut Stage) -> Option<f32> {
+  use super::chart_motion::pixel;
+  (0..62)
+    .map(|step| 75.0 - 62.0 + step as f32)
+    .find(|y| {
+      let drawn = pixel(stage, 77.0, *y);
+      drawn.a() > 20 && drawn.a() < 120
+    })
+    .map(|y| 75.0 - y)
+}
+
+#[test]
+fn the_polygons_grow_from_the_middle_and_a_corner_moves_to_its_new_value() {
+  use super::chart_motion::software;
+  let (shown, first) = (Signal::new(false), Signal::new(100.0));
+  let (on, bound) = (shown.clone(), first.clone());
+  let mut stage = software(move |ctx| {
+    if !on.get() {
+      return Column::new().into();
+    }
+    RadarChart::new(
+      AREAS,
+      [
+        ChartSeries::new("a", [bound.get(), 50.0, 50.0, 50.0, 50.0, 50.0]),
+        // Holds the scale at 100, small on the first axis.
+        ChartSeries::new("top", [5.0, 5.0, 5.0, 100.0, 5.0, 5.0]),
+      ],
+    )
+    .legend(false)
+    .id("c")
+    .mount(ctx)
+  });
+  shown.set(true);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  let growing = reach(&mut stage).expect("drawn on its way");
+  assert!(growing < 52.0, "growing from the middle: {growing}");
+  stage.pass();
+  let full = reach(&mut stage).unwrap();
+  assert!(full > 55.0, "at rest at 100, the outer ring of 60: {full}");
+
+  first.set(30.0);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  let half = reach(&mut stage).unwrap();
+  stage.pass();
+  let rest = reach(&mut stage).unwrap();
+  assert!(rest < 22.0, "at rest at 30: {rest}");
+  assert!(
+    half > rest + 3.0 && half < full - 3.0,
+    "on its way from 100 to 30: {half}"
+  );
+}

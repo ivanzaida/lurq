@@ -19,12 +19,11 @@ use windows::{
   Win32::{
     Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
     Graphics::Gdi::{
-      AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BitBlt, CAPTUREBLT,
-      CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush,
-      DEFAULT_CHARSET, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, FW_NORMAL, FillRect, FrameRect,
-      GdiFlush, GetDC, GetMonitorInfoW, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-      MonitorFromPoint, OUT_DEFAULT_PRECIS, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
-      TextOutW,
+      AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BitBlt, CLEARTYPE_QUALITY,
+      CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
+      DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, FW_NORMAL, FillRect, FrameRect, GdiFlush, GetDC,
+      GetMonitorInfoW, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+      OUT_DEFAULT_PRECIS, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -312,7 +311,10 @@ fn read(area: Rect) -> Option<Vec<u32>> {
         Some(screen),
         area.left,
         area.top,
-        SRCCOPY | CAPTUREBLT,
+        // Not `CAPTUREBLT`: the desktop is composed (Windows 8 and later), so what is read has the layered windows of
+        // other apps in it without it, and it hides the cursor for each read, which flickers it as the pick reads
+        // at each move and ten times a second.
+        SRCCOPY,
       );
       let pixels = copied
         .is_ok()

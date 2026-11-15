@@ -229,3 +229,70 @@ fn a_slice_too_small_to_see_is_still_read_one_slice_is_the_whole_and_all_zero_sa
     light(PaletteColor::MutedForeground)
   );
 }
+
+#[test]
+fn the_pie_moves_as_every_chart() {
+  super::chart_motion::moves_as_every_chart(|ctx, values, moves| {
+    PieChart::new(["a", "b", "c"], ChartSeries::new("v", values))
+      .motion(moves)
+      .id("c")
+      .mount(ctx)
+  });
+}
+
+/// The place `degrees` clockwise from the top, `radius` from the middle of the pie of 96.
+fn on_pie(degrees: f32, radius: f32) -> (f32, f32) {
+  let angle = degrees.to_radians();
+  (48.0 + radius * angle.sin(), 48.0 - radius * angle.cos())
+}
+
+#[test]
+fn the_slices_sweep_in_from_the_top_and_a_slices_end_moves_to_its_new_share() {
+  use super::chart_motion::{near, pixel, software};
+  let (shown, values) = (Signal::new(false), Signal::new(vec![1.0, 1.0]));
+  let (on, bound) = (shown.clone(), values.clone());
+  let mut stage = software(move |ctx| {
+    if !on.get() {
+      return Column::new().into();
+    }
+    PieChart::new(["a", "b"], ChartSeries::new("v", bound.get()))
+      .legend(false)
+      .id("c")
+      .mount(ctx)
+  });
+  let at = |stage: &mut Stage, degrees: f32| {
+    let (x, y) = on_pie(degrees, 30.0);
+    pixel(stage, x, y)
+  };
+  shown.set(true);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  assert!(stage.tree.has_moving_canvas(), "sweeping in");
+  assert!(at(&mut stage, 20.0).a() > 0, "drawn from the top, clockwise");
+  assert_eq!(at(&mut stage, 340.0).a(), 0, "not yet round to its end");
+  stage.pass();
+  assert!(
+    near(at(&mut stage, 340.0), light(PaletteColor::Chart2)),
+    "the whole pie at rest"
+  );
+
+  // a: half of the whole, then three quarters: the line between a and b goes from the bottom to the left.
+  assert!(near(at(&mut stage, 200.0), light(PaletteColor::Chart2)));
+  values.set(vec![3.0, 1.0]);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  assert!(stage.tree.has_moving_canvas(), "on its way");
+  assert!(
+    near(at(&mut stage, 190.0), light(PaletteColor::Chart1)),
+    "a's end past the bottom"
+  );
+  assert!(
+    near(at(&mut stage, 262.0), light(PaletteColor::Chart2)),
+    "and not yet at the left"
+  );
+  stage.pass();
+  assert!(
+    near(at(&mut stage, 262.0), light(PaletteColor::Chart1)),
+    "at rest, a three quarters of the whole"
+  );
+}

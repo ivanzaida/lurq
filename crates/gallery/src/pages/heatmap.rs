@@ -105,11 +105,13 @@ pub struct HeatmapPage {
   column_axis: Signal<bool>,
   legend: Signal<bool>,
   selected: Signal<Option<ChartPoint>>,
+  motion: Signal<bool>,
 }
 
 impl HeatmapPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let choice = self.data.get().min(DATA.len() - 1);
+    let motion = self.motion.get();
     let (column_axis, legend) = (self.column_axis.get(), self.legend.get());
     let steps = self.steps.get();
     let size = if self.size.get() == 1 {
@@ -134,7 +136,8 @@ impl HeatmapPage {
           .steps(steps)
           .column_axis(column_axis)
           .legend(legend)
-          .loading(choice == 6);
+          .loading(choice == 6)
+          .motion(motion);
         if choice == 2 {
           chart = chart
             .range(-12.0, 24.0)
@@ -182,6 +185,9 @@ impl HeatmapPage {
     if choice == 6 {
       code.push("    .loading(true)".to_owned());
     }
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .on_select(|point| ..)".to_owned());
     code.push("    .mount(ctx)".to_owned());
     let tree = vec![
@@ -200,6 +206,7 @@ impl HeatmapPage {
       self.column_axis.clone(),
       self.legend.clone(),
       self.selected.clone(),
+      self.motion.clone(),
     );
     let facts = format!(
       "{} rows · {} columns{}",
@@ -252,11 +259,19 @@ impl HeatmapPage {
           divider(),
           flag("column_axis", &self.column_axis),
           flag("legend: the scale", &self.legend),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
-        changed: [choice != 0, self.size.get() != 0, steps != 5, column_axis, !legend]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          choice != 0,
+          self.size.get() != 0,
+          steps != 5,
+          column_axis,
+          !legend,
+          !motion,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset: Arc::new(move || {
           reset.0.set(0);
           reset.1.set(0);
@@ -264,6 +279,7 @@ impl HeatmapPage {
           reset.3.set(false);
           reset.4.set(true);
           reset.5.set(None);
+          reset.6.set(true);
         }),
       },
     )
@@ -283,6 +299,7 @@ impl Component for HeatmapPage {
       column_axis: ctx.signal(false),
       legend: ctx.signal(true),
       selected: ctx.signal(None),
+      motion: ctx.signal(true),
     }
   }
 
@@ -295,7 +312,6 @@ impl Component for HeatmapPage {
     let year = Heatmap::new(weeks(52), commits(52))
       .title("Commits")
       .description("Per day, the last year")
-      .cell_size(10.0)
       .column_axis(true)
       .key("year")
       .mount(ctx);
@@ -340,7 +356,7 @@ impl Component for HeatmapPage {
         "cell_size",
         "f32",
         "14",
-        "A cell's side; smaller where the grid is wider than the frame.",
+        "A cell's side; smaller, its gaps with it, where the grid is wider than the frame, the grid as high as they are.",
       ),
       (
         "column_axis",
@@ -385,6 +401,12 @@ impl Component for HeatmapPage {
         "&str / bool",
         "\"No data\" / false",
         "No data, and the skeleton while it comes.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "Cells fading in, and each going to its new step's color on a change of the data; off where motion is reduced, still while it is resized.",
       ),
       (
         "on_select",
@@ -441,12 +463,13 @@ impl Component for HeatmapPage {
         ),
         Section::new(
           "A year in its frame",
-          "Fifty-two weeks on cells of 10, the weeks' names written where they have room. A grid wider than its frame has smaller cells.",
+          "Fifty-two weeks: where the grid is wider than its frame its cells are smaller, its gaps with them, and the \
+           grid as high as they are; the weeks' names written where they have room.",
           self.frame.demo(
             1,
             Column::new().width(crate::kit::FILL).child(year),
-            ".cell_size(10.0).column_axis(true)",
-            &["Heatmap::new(weeks, days).cell_size(10.0).column_axis(true).mount(ctx)"],
+            ".column_axis(true)",
+            &["Heatmap::new(weeks, days).column_axis(true).mount(ctx)"],
           ),
         ),
         Section::new(

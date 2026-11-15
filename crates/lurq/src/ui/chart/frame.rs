@@ -5,16 +5,15 @@
 use std::{
   hash::{Hash, Hasher},
   marker::PhantomData,
-  sync::Arc,
+  sync::{Arc, Weak},
 };
 
 use parking_lot::Mutex;
 
 use super::{
-  super::Orientation,
-  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartMotion, ChartPart, ChartPlot,
-  ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text,
-  series_color, step,
+  super::Orientation, ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartMotion,
+  ChartPart, ChartPlot, ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn,
+  default_value_text, series_color, step,
 };
 use crate::{
   app::{
@@ -122,6 +121,7 @@ impl ChartProps {
       plot_justify: Justify::Start,
       beside: None,
       own_legend: None,
+      laid_width: 0.0,
     }
   }
 }
@@ -299,6 +299,8 @@ pub struct ChartFrame {
   plot_justify: Justify,
   beside: Option<Beside>,
   own_legend: Option<Element>,
+  /// The plot's width as it was laid out last, for a plot whose height follows it: none yet.
+  laid_width: f32,
 }
 
 /// The legend beside the plot: each item's value, and the size of the chart.
@@ -387,6 +389,7 @@ impl ChartFrame {
   }
 
   fn render_with(mut self, host: Option<Arc<ChartHostState>>) -> Element {
+    self.laid_width = host.as_ref().map_or(0.0, |host| host.canvas.width());
     let plot = self.plot_element(host.as_ref());
     let axis = self.axis_element();
     let legend = self.legend_element();
@@ -410,9 +413,18 @@ impl ChartFrame {
     }
   }
 
-  /// The height of the plot: the props', or the size's in the recipe.
+  /// The height of the plot: the plot's at the width it was laid out at, where it follows its width; else the
+  /// props', or the size's in the recipe.
   fn plot_height(&self) -> f32 {
-    self.props.plot_height(&self.recipe)
+    let width = if self.laid_width > 0.0 {
+      self.laid_width
+    } else {
+      f32::INFINITY
+    };
+    self
+      .plot
+      .height_for(width)
+      .unwrap_or_else(|| self.props.plot_height(&self.recipe))
   }
 
   fn plot_element(&self, host: Option<&Arc<ChartHostState>>) -> Element {
@@ -457,7 +469,18 @@ impl ChartFrame {
     self.grid().hash(&mut hasher);
     let key = hasher.finish();
     let (look, grid) = (self.look.clone(), self.grid());
+    // A plot whose height follows its width is laid out again when the width it is drawn at asks another height.
+    let follows = host
+      .filter(|_| self.plot.height_for(f32::INFINITY).is_some())
+      .map(Arc::downgrade);
+    let laid = height;
     let paint = move |canvas: &CanvasHandle, at: CanvasMove<'_, Arc<dyn ChartPlot>>| {
+      if let Some(host) = follows.as_ref().and_then(Weak::upgrade)
+        && let Some(wanted) = at.to.height_for(canvas.size().width.max(1.0))
+        && (wanted - laid).abs() > 0.5
+      {
+        host.rebuild();
+      }
       let motion = ChartMotion {
         from: at.from.map(|plot| &**plot),
         progress: at.progress,

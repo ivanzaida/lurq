@@ -494,6 +494,13 @@ pub trait ChartPlot: std::any::Any + Send + Sync + 'static {
     None
   }
 
+  /// The plot's height at `width`, where it follows its width (a heatmap's grid, whose cells are smaller in a
+  /// narrower frame): the frame lays the plot out at that height, and again when the plot's width changes. `width` is
+  /// infinite where it is not known yet (a still chart). `None`, the props' or the size's height, unless told.
+  fn height_for(&self, _width: f32) -> Option<f32> {
+    None
+  }
+
   /// Draws the plot on its way: entering, when it is first shown, or from the plot it was before its signature
   /// changed (`motion.from`), `motion.progress` along the way, eased. The frame calls it at each frame while the
   /// plot moves, for a short while, and [`paint`](Self::paint) at rest; it moves nothing where motion is reduced,

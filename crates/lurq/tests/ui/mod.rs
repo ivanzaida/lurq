@@ -13,6 +13,8 @@ mod breadcrumb;
 mod button;
 mod calendar;
 mod card;
+#[cfg(feature = "canvas")]
+mod chart_motion;
 mod checkbox;
 mod choice_card;
 mod code_block;
