@@ -24,6 +24,7 @@ mod banner;
 #[cfg(feature = "canvas")]
 mod bar_chart;
 mod blockquote;
+mod bar_list;
 mod breadcrumb;
 mod button;
 mod button_group;
@@ -57,6 +58,8 @@ mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
+#[cfg(feature = "canvas")]
+mod gauge;
 mod fieldset;
 mod file_upload;
 mod find_bar;
@@ -76,6 +79,7 @@ mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod meter;
 mod month_picker;
 mod multi_select;
 mod navbar;
@@ -99,6 +103,8 @@ mod segmented;
 mod select;
 mod selection;
 mod separator;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
@@ -106,6 +112,7 @@ mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
+mod stat_card;
 mod splitter;
 mod status_bar;
 mod steps;
@@ -149,6 +156,9 @@ pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 #[cfg(feature = "canvas")]
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
+pub use bar_list::{
+  BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView,
+};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
@@ -238,6 +248,8 @@ pub use empty_state::{
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
+#[cfg(feature = "canvas")]
+pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
@@ -285,6 +297,7 @@ pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState, MessageBoxVariant,
   MessageBoxView,
 };
+pub use meter::{Meter, MeterPart, MeterRenderer, MeterSegment, MeterState, MeterVariant, MeterView};
 pub use month_picker::{
   CellShown, MonthPicker, MonthPickerPart, MonthPickerRenderer, MonthPickerState, MonthPickerView, PeriodsView,
 };
@@ -348,6 +361,8 @@ pub use segmented::{
 };
 pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
+#[cfg(feature = "canvas")]
+pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{
@@ -376,6 +391,9 @@ pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
   SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
   SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+};
+pub use stat_card::{
+  StatCard, StatCardPart, StatCardRenderer, StatCardSize, StatCardState, StatCardVariant, StatCardView,
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,

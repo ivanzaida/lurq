@@ -1989,6 +1989,80 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 - To what reads the tree (`lurq_snapshot` of the MCP server) a progress and a ring are a `progressbar` called by their label, with `a11y_valuenow`, `a11y_valuemin` (0), `a11y_valuemax` and `a11y_valuetext` (the value as it is said); one that does not know how far the work is has no value.
 - A renderer that draws another progress has `view.fraction()`, `view.value()`, `view.max()`, `view.value_text()`, `view.root()` (the root with its name to tooling), `view.header()` and `view.track()` (the rail with what is filled, or with the moving segment). A meter is the same parts restyled: `Progress::new(96).max(128).label("Disk space").show_value(true).variant(ProgressVariant::Warning).format(..)` with a radius of 2 on the `Track` and the `Fill`; a meter of cells is a renderer that draws a row of them from `view.fraction()`. A ring's renderer has `view.fraction()`, `view.value_text()`, `view.side()`, `view.thickness()`, `view.root()`, `view.track()`, `view.arc()` (the fill with its dash) and `view.middle()`. A gauge is such a renderer: half a ring, its arc's box turned a quarter back so that the dash starts at 9 o'clock, in a box that clips the lower half.
 
+## Meter
+
+How much of a known range a value takes, in segments, and whether that is good: the space a disk has used, a battery's charge, the seats of a plan. Where a [progress bar](#progress) says how far a task has come, a meter says where a value stands.
+
+```rust
+use lurq::ui::{Meter, MeterVariant};
+
+// The board's: good under 64, a warning to 96, bad past it.
+Meter::new(96)
+  .max(128)
+  .low(64)
+  .high(96)
+  .label("Disk space")
+  .value_text(|used| format!("{used} of 128 GB"))
+  .description("Running low. Free up space soon.");
+
+// A battery: the higher the better.
+Meter::new(18).low(20).high(80).optimum(100).label("Battery");
+
+// One tone, no parts.
+Meter::new(12).max(20).segments(20).variant(MeterVariant::Info).label("Seats used");
+```
+
+| Builder | |
+| --- | --- |
+| `Meter::new(value)`, `value(..)` | The value, `impl Into<f64>` |
+| `min(..)`, `max(..)` | The range, 0 to 100 unless given, as a [progress bar](#progress) and a [slider](#slider) say it |
+| `low(..)`, `high(..)` | Where the low part of the range ends and the high part starts: each filled segment is in the tone of its part |
+| `optimum(..)` | The best value, `min` unless given: the part it is in is good (`Success`), the part next to it a warning (`Warning`), the far one bad (`Destructive`), as a web page's meter judges them |
+| `variant(impl Into<Name>)` | A `MeterVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), or a variant a theme adds: the tone of every filled segment of a meter with no `low` and no `high` |
+| `segments(usize)` | How many segments the range is cut into, the board's 16 unless given |
+| `label(&str)` | What it measures, over the segments: its name to tooling |
+| `description(&str)` | The line under the segments: what the value means. In the tone of the value where that is a warning or bad |
+| `value_text(Fn(f64) -> String)` | Writes the value as the app does. Not given, "96 of 128" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The value fills the segments it reaches, to the nearest: 96 of 128 fills 12 of 16. A value under `min` fills none and one over `max` fills them all; its text says what it is.
+- A segment's tone is that of the part of the range its middle is in, so the board's 64 to 96 are the four warning segments 9 to 12.
+- To what reads the tree it is a `meter` called by its label and described by its description, with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and `a11y_valuetext`.
+- Parts: `MeterPart::Root`, `Header`, `Label`, `Value`, `Segments`, `Segment`, `Description`. States: `MeterState::Filled` (of a segment). The variant a segment is resolved with is the tone of its part of the range; the root's is the tone of the value.
+- In the design the meter is 260 on the board and as wide as what holds it here, its header, its segments and its description 8 apart. The label is 13 at 500 in `Foreground`, the value the mono type at 11 in `MutedForeground` at the end of its row. The 16 segments are 8 high, 2 apart, with a radius of 2: a filled one in the tone of its part, an empty one in `Secondary`. The description is 12, in `Warning` or `Destructive` where the value is, and in `MutedForeground` where it is good.
+- A theme's renderer is given `MeterView`: `view.segments` (each a `MeterSegment` with its tone and whether it is filled, and `segment.render()`), the value, its range, its tone and its text, `view.header()`, `view.segments()`, `view.description()` and `view.root(content)`.
+
+## Gauge
+
+A value of a known range as the share of a half ring, its reading in it: the load of a processor, the speed of a link, the heat of a card. Its ring is drawn on the canvas, behind the `canvas` feature.
+
+```rust
+use lurq::ui::Gauge;
+
+Gauge::new(70).label("CPU");
+
+// A temperature: bad past 85, its reading as the app writes it.
+Gauge::new(86).min(20).max(100).low(60).high(85).label("GPU").value_text(|degrees| format!("{degrees}°"));
+```
+
+| Builder | |
+| --- | --- |
+| `Gauge::new(value)`, `value(..)` | The value, `impl Into<f64>` |
+| `min(..)`, `max(..)` | The range, from the ring's start to its end: 0 to 100 unless given, as a [meter](#meter) says it |
+| `low(..)`, `high(..)`, `optimum(..)` | The parts of the range, as a [meter](#meter)'s: the value's share is in the tone of its part |
+| `color(impl Into<BackgroundColor>)` | The color of the value's share of a gauge with no parts, a role of the palette or a color: `Chart1` unless given |
+| `label(&str)` | What it measures, under the ring between its bounds: its name to tooling |
+| `value_text(Fn(f64) -> String)` | Writes the reading. Not given, the value's share of the range in percent, "70%" |
+| `bound_text(Fn(f64) -> String)` | Writes the bounds under the ring. Not given, as they are: "0", "100" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The half ring runs from the least value at its start, the left, to the greatest at its end, and the value takes its share from the start. A value outside the range takes none or all of it; its reading says what it is.
+- The ring is painted with [`Canvas::paint`](../canvas/#a-painter-drawing-from-a-builder), sharp at every scale; its reading, its label and its bounds are text, laid over it and under it. Its canvas holds a `value` [item](../canvas/#describing-what-you-drew) where the value's share ends, with the reading as its text.
+- To what reads the tree it is a `meter` called by its label, with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and its reading as `a11y_valuetext`.
+- Parts: `GaugePart::Root`, `Arc` (the canvas: its width and height), `Track` and `Value` (drawn in their part's background, the track as thick as its part's width), `Reading`, `Range`, `Label`, `Bound`. The variant it is resolved with is the tone of the value where it has parts.
+- In the design the gauge is 140 wide, a half ring 140 across and 72 high whose inner edge is 0.78 of its outer, so 15.4 thick: the track in `Secondary`, the value's share in `Chart1`, both with square ends. The reading is 20 at 600 in `Foreground` in the ring, its foot 10 over the ring's. Under the ring, 4 from it, the bounds at the ends, the mono type at 11 in `MutedForeground`, and the label between them, 12 at 500 in `Foreground`.
+- A theme's renderer is given `GaugeView`: its value, range, share and reading, the bounds' texts, its label, `view.arc()`, `view.range()`, `view.root(content)` and `view.render()`.
+
 ## Password Input
 
 An input whose text is masked, with an eye at its end that shows it and hides it again, and under it, where the app says so, a meter of how strong the password is.
@@ -5428,6 +5502,116 @@ Timeline::new(entries)
 - The board draws nothing else of it, and these follow its parts: a tone colors the dot (`Primary`, `Info`, `Success`, `Warning`, `Destructive`), and the edge of a hollow one; the current dot has a ring of 2 in its color, 2 out from it; an icon is 14 in a well of 24 on `Muted`, in the tone's color; media stands in a mark of 24, and every rail of a timeline with a mark is 24 wide, its line stopping 4 over the next mark; a pending item's mark is a spinner of 12; the mark of a current item is ringed as its dot would be, and the well of an upcoming one is hollow. A body is 8 under the time. An item that is pressed has the `StateHover` and `StatePressed` veils and a ring of 2 in `Ring` inside it, with the medium radius, and is half opaque where it is disabled.
 - The small size: a dot of 8 on a rail of 8, 10 from the content, the title 13 with the time at the end of its row, the description 12, 4 under the content; a mark is 20, its icon 12. The time column is 80 (64 small), its time at its end, 2 down to stand by the title. Alternate, the two sides share the room, the text before the line at its end. Across, the rail is a row 12 high (10 small, 24 with marks), its mark in its middle and its line 4 short of the next mark, the content 8 under it (6 small) and 12 from the next item. The item that shows more is a small ghost button, its hollow dot in the middle of it.
 - A theme's renderer is given `TimelineView`: `view.items` (each a `TimelineItemView` with its title, description, time, whether it is current, pending, the last and before the line, and `item.mark()`, `item.rail()`, `item.content()`, `item.opposite()`, `item.action()`, `item.root(children)`, `item.render()`), `view.more` (a `TimelineMore` with `more.mark()`, `more.button()`, `more.render()`), `view.horizontal`, `view.grouped` and `view.root(items)`.
+
+## Bar List
+
+Named values as bars of one scale: the slowest tests of a run, the largest folders, the pages visited most.
+
+```rust
+use lurq::ui::{BarList, BarListItem};
+
+BarList::new([("text_pipeline", 9.2), ("canvas_mesh", 7.0), ("layout_flex", 4.7), ("theme_roles", 2.5)])
+  .title("Slowest tests")
+  .description("Seconds");
+
+// Rows that are pressed, told which by name: one stop of Tab, the arrows between them.
+BarList::new([BarListItem::new("target/", 27.4), BarListItem::new("node_modules/", 3.1)])
+  .title("Largest folders")
+  .value_text(|gigabytes| format!("{gigabytes:.1} GB"))
+  .on_select(|folder| open(folder));
+```
+
+| Builder | |
+| --- | --- |
+| `BarList::new(items)` | The rows in the app's order: `BarListItem::new(name, value)` or `(name, value)`; `item(..)` and `items(..)` add more |
+| `title(&str)`, `description(&str)` | Over the rows: what they are, and the line under it ("Seconds") |
+| `label(&str)` | What the list is called to tooling, where it has no title or another name is wanted |
+| `max(impl Into<f64>)` | The value a bar fills its track at. Not given, the largest value rounded up to 1, 2, 2.5 or 5 of a power of ten |
+| `color(impl Into<BackgroundColor>)` | The color of the bars, a role of the palette or a color as a chart's series takes it: `Chart1` (`series_color(0)`) unless given; `BarListItem::color` for one row's |
+| `value_text(Fn(f64) -> String)` | Writes a row's value as the app does. Not given, with as many decimals as the most precise value has, up to 2 |
+| `empty_text(&str)` | What a list with no rows says, "No data" when not given |
+| `framed(bool)` | The board's card, as it is unless told otherwise; off, the rows stand on what holds them |
+| `on_select(Fn(&str))` | Told the key of the row pressed (its name, unless it has a `key`), after the row's own handlers: every row that is not disabled is then pressed |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first row that is pressed |
+| `BarListItem::on_select(Fn())`, `disabled(bool)`, `key(..)`, `id(..)`, `color(..)` | A row's own handler, called before the list's; a row that takes nothing; what the list's `on_select` is told in its place |
+
+- The bars share one scale, from 0 to `max`: 9.2 of a scale to 10 fills 92% of its track. A value under 0 draws no bar, and one over the scale fills its track; the value is written as it is either way.
+- A name longer than its column of 92 is cut with an ellipsis; the track gives way, the value keeps its room.
+- A row is as high as the theme's [density](../theme/#density) makes a row of 26 (18, 34 and 38 at compact, comfortable and touch); its bar keeps its 14.
+- It is read and not operated, but where a row is pressed the pressed rows are one stop of Tab, a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`: Up and Down move between them, Home and End to the ends, a letter to the next name it starts, and a disabled row is passed by.
+- To what reads the tree it is a `figure` called by its label or its title and described by its description, holding a `list` whose `listitem`s are called by their names and say their value as `a11y_valuetext`; inside a row that is pressed is a `button`.
+- Parts: `BarListPart::Root`, `Header`, `Title`, `Description`, `Rows`, `Row`, `Name`, `Track`, `Bar`, `Value`, `Empty`. States: `BarListState::Framed` (of the list), and of a row `Pressable`, `Disabled`.
+- In the design the list is a card (`Card` with an edge of 1 in `Border`, the extra large radius and the small shadow), 20 in, its header and its rows 16 apart. The title is 15 at 600 in `CardForeground` over the description, 12 in `MutedForeground`, 3 under it. A row is its name, the mono type at 11 in `CardForeground` in a column of 92, a track of 26 with a bar of 14 in `Chart1` and the small radius, and its value, the mono type at 11 in `MutedForeground`, 10 apart. The board draws nothing else of it: a row that is pressed has the `StateHover` and `StatePressed` veils and a ring of 2 in `Ring` inside it, and is half opaque where it is disabled.
+- A theme's renderer is given `BarListView`: `view.rows` (each a `BarListRow` with its name, value, value text, the share of its track and its color, and `row.name()`, `row.track()`, `row.value()`, `row.root(children)`, `row.render()`), `view.max`, `view.header()`, `view.rows(rows)` and `view.root(content)`.
+
+## Sparkline
+
+A series as a line with no axes, small enough to stand beside a number: the frames of the last minute, the builds of the week. It is drawn on the canvas, behind the `canvas` feature.
+
+```rust
+use lurq::{app::theme::PaletteColor, ui::Sparkline};
+
+Sparkline::new([118.0, 124.0, 121.0, 133.0, 129.0, 141.0, 138.0, 144.0])
+  .color(PaletteColor::Success)
+  .label("Frames per second, the last minute");
+```
+
+| Builder | |
+| --- | --- |
+| `Sparkline::new(values)` | The values, `impl Into<f64>`, the first at the start |
+| `min(..)`, `max(..)` | The values at the bottom and at the top: the least and the greatest of the values unless given |
+| `color(impl Into<BackgroundColor>)` | The color of the line, a role of the palette or a color as a chart's series takes it: `Chart1` (`series_color(0)`) unless given, or a tone where the series is good or bad (the board's frames are `Success`) |
+| `width(..)`, `height(..)` | Its size, `impl Into<Length>`: the board's 80 by 28 unless given |
+| `label(&str)` | What it shows, to tooling |
+| `summary_text(Fn(&[f64]) -> String)` | What its values are, to tooling. Not given, "8 values from 118 to 144, the last 144" |
+| `empty_text(&str)` | What a sparkline of no values says to tooling, "No data" when not given |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- Its values run from the first at the start to the last at the end, evenly apart, the least at the bottom and the greatest at the top, as a line of straight steps with round joins and ends, kept half its width in from every edge.
+- Values on both sides of 0 have a line at 0 under them; values all the same make a line across the middle; one value is a dot in the middle; none draw nothing. A value that is not a number is left out.
+- It is painted with [`Canvas::paint`](../canvas/#a-painter-drawing-from-a-builder): sharp at every scale, and painted again when its values, its size, its scale or the theme change.
+- To what reads the tree it is an `img` called by its label and described by its summary, and its canvas holds a `point` [item](../canvas/#describing-what-you-drew) for each value with the value as its text, which a reader can go through.
+- Parts: `SparklinePart::Root` (the canvas: its width and height), `Line`, `Baseline`, `Point`, each drawn in its part's background and as wide as its part's width.
+- In the design the line is 80 by 28 of straight steps, 1.75 wide with round joins and ends. The board draws nothing else of it: the line at 0 is 1 in `Border`, and a single value a dot of 4 in `Chart1`.
+- A theme's renderer is given `SparklineView`: its values, their range, its label, its summary, and `view.render()`.
+
+## Stat Card
+
+One number with what it is and how it moved: frames per second, the time a build takes, the runs that failed.
+
+```rust
+use lurq::{
+  app::theme::PaletteColor,
+  ui::{Sparkline, StatCard, StatCardSize, StatCardVariant},
+};
+
+StatCard::new("Frames per second", "144")
+  .delta("+12.5%")
+  .variant(StatCardVariant::Success)
+  .description("vs 0.59");
+
+// With a sparkline beside its number, in the small size the board draws it in.
+StatCard::new("Frames per second", "144")
+  .size(StatCardSize::Sm)
+  .media(Sparkline::new(frames).color(PaletteColor::Success));
+```
+
+| Builder | |
+| --- | --- |
+| `StatCard::new(label, value)` | What the number is, and the number as the app writes it |
+| `delta(&str)` | How it moved, as the app writes it ("+12.5%"): a [badge](#badge) in the variant's tone |
+| `variant(impl Into<Name>)` | A `StatCardVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), or a variant a theme adds: whether the change is for the better or the worse |
+| `description(&str)` | What the change is measured against: "vs 0.59" |
+| `media(impl Into<Element>)` | What stands at the end of the number's row: a [sparkline](#sparkline) of its last values |
+| `size(impl Into<Name>)` | A `StatCardSize`: `Md`, the board's stat card, or `Sm`, the card the board draws around its sparkline |
+| `on_click(impl IntoMouseEventHandler)` | The card is pressed and a stop of Tab; a second handler is called after the first |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- Its number, its change and what it is measured against are the app's words. A label or a value longer than the card wraps.
+- To what reads the tree it is a `group` called by its label and described by its value, its change and what it is measured against ("144, +12.5% vs 0.59"); a card that is pressed is a `button`.
+- Parts: `StatCardPart::Root`, `Label`, `Body` (the value and the media), `Value`, `Media`, `Footer` (the change and the description), `Description`. States: `StatCardState::Pressable`, `Media`. Sizes: `StatCardSize::Sm`, `Md`.
+- In the design the card is `Card` with an edge of 1 in `Border`, the extra large radius and the small shadow, 200 on the board and as wide as what holds it here, 20 in, its label, its value and its change 8 apart. The label is 13 in `MutedForeground`, the value 28 at 600 in `CardForeground`, 0.5 closer, the change a badge in its tone 8 from what it is measured against, the mono type at 11 in `MutedForeground`. The small size is the card around the board's sparkline: 16 in, the label 12, the value 24, 0.4 closer, the media at the end of the value's row, at its foot. A card that is pressed has the `Ring` edge and the medium shadow under the pointer, and a ring of 2 in `Ring` around it from the keyboard.
+- A theme's renderer is given `StatCardView`: its label, value, change, description and tone, `view.label()`, `view.body()`, `view.footer()`, `view.root(content)` and `view.render()`.
 
 ## Tab And The Design System's Controls
 
