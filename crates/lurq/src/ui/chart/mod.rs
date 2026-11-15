@@ -23,10 +23,10 @@
 //!    builds the header, the plot with its grid, its axis, its tooltip and its keys, and the legend; `mount(ctx)` keeps
 //!    the pointer, the focus and the drawing, `build()` is its still form.
 //! 5. Its motion: the frame draws the plot on its way ([`ChartPlot::paint_moving`], given a [`ChartMotion`]) as it is
-//!    first shown and when its signature changes, for the theme's slow duration ([`chart_motion`]), drawn again at
-//!    each frame only while it moves; nothing moves where motion is reduced, nor while the chart is resized. A plot
-//!    draws its own marks on their way (bars grow from their baseline and move to their new place); unless it does,
-//!    it is revealed from its start as it enters and fades to a change.
+//!    first shown and when its signature changes, for the theme's slow duration ([`chart_motion`]), drawn again at each
+//!    frame only while it moves; nothing moves where motion is reduced, nor while the chart is resized. A plot draws
+//!    its own marks on their way (bars grow from their baseline and move to their new place); unless it does, it is
+//!    revealed from its start as it enters and fades to a change.
 //!
 //! The names every chart gives its props:
 //!
@@ -365,6 +365,17 @@ pub enum ChartAxis {
   Spread(Vec<String>),
 }
 
+/// Where a plot's tooltip stands: [`ChartPlot::tip_place`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TipPlace {
+  /// Over the point, kept inside the plot; under it where there is no room over it.
+  #[default]
+  Over,
+  /// Beside the line at the point's x, 10 from it and 4 from the plot's top: before it, or after it where there is no
+  /// room before it.
+  Beside,
+}
+
 /// What the tooltip of a point says: its title, and a row for each series the point has a value of.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChartTip {
@@ -403,6 +414,12 @@ pub trait ChartPlot: std::any::Any + Send + Sync + 'static {
 
   /// Where the tooltip of `point` points to.
   fn anchor(&self, area: ChartArea, point: ChartPoint) -> Option<(f32, f32)>;
+
+  /// Where the tooltip stands: over the point (a bar's), or beside the line the plot draws at the point's x, at the
+  /// plot's top, before it where there is room and after it where there is not (a line chart's cursor).
+  fn tip_place(&self) -> TipPlace {
+    TipPlace::Over
+  }
 
   /// How many points each series has, in the order the arrows go through them.
   fn counts(&self) -> Vec<usize>;

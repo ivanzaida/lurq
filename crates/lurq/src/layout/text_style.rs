@@ -74,6 +74,64 @@ pub struct TextStyle {
   /// A line through the text, like CSS `text-decoration-line: line-through`.
   /// `None` by default. Drawn as the underline is, over the glyphs.
   pub strikethrough: Option<TextStrikethrough>,
+  /// The case the text is drawn in, like CSS `text-transform`: as it is
+  /// written (the default), in capitals, or in small letters. Only what is
+  /// drawn changes: the text itself, what is copied of it, what tooling reads
+  /// and where a caret stands are the text as written. A letter whose capital
+  /// is more than one letter or is written in more bytes (`ß`, some ligatures)
+  /// stays as it is written.
+  pub case: TextCase,
+}
+
+/// The case a text is drawn in: see [`TextStyle::case`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextCase {
+  /// As it is written.
+  #[default]
+  AsWritten,
+  /// In capitals, as a small heading over a group is drawn.
+  Upper,
+  /// In small letters.
+  Lower,
+}
+
+impl TextCase {
+  /// `text` in this case. Each letter is replaced where its other case is one
+  /// letter of as many bytes, so every byte offset into the text is an offset
+  /// into what is drawn too.
+  pub fn apply(self, text: &str) -> std::borrow::Cow<'_, str> {
+    let change = |c: char| -> char {
+      let mut other = match self {
+        Self::AsWritten => return c,
+        Self::Upper => CaseIter::Upper(c.to_uppercase()),
+        Self::Lower => CaseIter::Lower(c.to_lowercase()),
+      };
+      match (other.next(), other.next()) {
+        (Some(one), None) if one.len_utf8() == c.len_utf8() => one,
+        _ => c,
+      }
+    };
+    if self == Self::AsWritten || text.chars().all(|c| change(c) == c) {
+      return std::borrow::Cow::Borrowed(text);
+    }
+    std::borrow::Cow::Owned(text.chars().map(change).collect())
+  }
+}
+
+enum CaseIter {
+  Upper(std::char::ToUppercase),
+  Lower(std::char::ToLowercase),
+}
+
+impl Iterator for CaseIter {
+  type Item = char;
+
+  fn next(&mut self) -> Option<char> {
+    match self {
+      Self::Upper(chars) => chars.next(),
+      Self::Lower(chars) => chars.next(),
+    }
+  }
 }
 
 impl Default for TextStyle {
@@ -94,6 +152,7 @@ impl Default for TextStyle {
       shadow: None,
       underline: None,
       strikethrough: None,
+      case: TextCase::AsWritten,
     }
   }
 }

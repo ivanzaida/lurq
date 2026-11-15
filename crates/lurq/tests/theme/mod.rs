@@ -21,6 +21,7 @@ mod subscription {
 }
 
 mod text {
+  mod document_scale;
   mod variant_resolves;
 }
 

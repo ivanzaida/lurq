@@ -23,6 +23,8 @@ mod badge;
 mod banner;
 #[cfg(feature = "canvas")]
 mod bar_chart;
+mod bar_list;
+mod blockquote;
 mod breadcrumb;
 mod button;
 mod button_group;
@@ -34,6 +36,7 @@ mod chart;
 mod checkbox;
 mod chip;
 mod choice_card;
+mod code_block;
 mod collapsible;
 mod color_field;
 mod color_picker;
@@ -59,6 +62,8 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+#[cfg(feature = "canvas")]
+mod gauge;
 mod highlight;
 mod hover_card;
 mod icon;
@@ -67,6 +72,8 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+#[cfg(feature = "canvas")]
+mod line_chart;
 mod link;
 mod list_item;
 mod listbox;
@@ -74,6 +81,7 @@ mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod meter;
 mod month_picker;
 mod multi_select;
 mod navbar;
@@ -91,6 +99,8 @@ mod property_grid;
 mod radio;
 mod rating;
 mod recipe;
+#[cfg(feature = "canvas")]
+mod scatter_chart;
 mod scroll_area;
 mod search_field;
 mod segmented;
@@ -103,8 +113,11 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod spinner;
 mod splitter;
+mod stat_card;
 mod status_bar;
 mod steps;
 mod swatch_picker;
@@ -146,6 +159,8 @@ pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeSta
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 #[cfg(feature = "canvas")]
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
+pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView};
+pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
@@ -166,7 +181,7 @@ pub use chart::{
   ChartLegendRenderer, ChartLegendShape, ChartLegendState, ChartLegendView, ChartLook, ChartMotion, ChartPart,
   ChartPlot, ChartPoint, ChartProps, ChartRenderer, ChartSeries, ChartSize, ChartState, ChartTick, ChartTip,
   ChartTooltip, ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale,
-  chart_motion, chart_recipe, default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap,
+  TipPlace, chart_motion, chart_recipe, default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap,
   step as chart_step,
 };
 pub use checkbox::{
@@ -180,6 +195,9 @@ pub use choice_card::{
   CheckboxCard, CheckboxCardGroup, ChoiceCardGroupPart, ChoiceCardGroupRenderer, ChoiceCardGroupState,
   ChoiceCardGroupView, ChoiceCardKind, ChoiceCardPart, ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, RadioCard,
   RadioCardGroup,
+};
+pub use code_block::{
+  CODE_BLOCK_COPIED_FOR, CodeBlock, CodeBlockPart, CodeBlockRenderer, CodeBlockState, CodeBlockView,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use color_field::{
@@ -245,6 +263,8 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
+#[cfg(feature = "canvas")]
+pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
@@ -261,6 +281,8 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+#[cfg(feature = "canvas")]
+pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
@@ -280,6 +302,7 @@ pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState, MessageBoxVariant,
   MessageBoxView,
 };
+pub use meter::{Meter, MeterPart, MeterRenderer, MeterSegment, MeterState, MeterVariant, MeterView};
 pub use month_picker::{
   CellShown, MonthPicker, MonthPickerPart, MonthPickerRenderer, MonthPickerState, MonthPickerView, PeriodsView,
 };
@@ -331,6 +354,8 @@ pub use rating::{
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
+#[cfg(feature = "canvas")]
+pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};
 pub use scroll_area::{
   ScrollArea, ScrollAreaOrientation, ScrollAreaPart, ScrollAreaRenderer, ScrollAreaScrollbars, ScrollAreaState,
   ScrollAreaView,
@@ -366,6 +391,8 @@ pub use skeleton::{
 pub use slider::{
   RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
 };
+#[cfg(feature = "canvas")]
+pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
@@ -374,6 +401,9 @@ pub use spinner::{
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
+};
+pub use stat_card::{
+  StatCard, StatCardPart, StatCardRenderer, StatCardSize, StatCardState, StatCardVariant, StatCardView,
 };
 pub use status_bar::{
   StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry,

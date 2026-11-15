@@ -278,18 +278,28 @@ Available roles:
 
 | `TypographyStyle` | `ThemeTypography` field | Default |
 | --- | --- | --- |
-| `Heading` | `heading` | `24px`, semibold, letter spacing `-0.5` |
-| `Title` | `title` | `20px`, semibold, letter spacing `-0.3` |
-| `Body` | `body` | `14px` |
-| `Description` | `description` | `14px` |
-| `Caption` | `caption` | `12px` |
-| `Label` | `label` | `13px`, medium |
-| `FieldLabel` | `field_label` | `13px`, medium |
-| `Button` | `button` | `13px`, medium |
+| `Heading` | `heading` | `24px`, semibold, letter spacing `-0.5`, lines of 1.2 |
+| `Title` | `title` | `20px`, semibold, letter spacing `-0.3`, lines of 1.2 |
+| `Body` | `body` | `14px`, lines of 1.2 |
+| `Description` | `description` | `14px`, lines of 1.2 |
+| `Caption` | `caption` | `12px`, lines of 1.2 |
+| `Label` | `label` | `13px`, medium, lines of 1.2 |
+| `FieldLabel` | `field_label` | `13px`, medium, lines of 1.2 |
+| `Button` | `button` | `13px`, medium, lines of 1.2 |
 | `Link` | `link` | body defaults |
-| `Mono` | `mono` | `13px`, in the family of code |
+| `Mono` | `mono` | `13px`, in the family of code, lines of 1.3 |
+| `Heading1` | `heading1` | `30px`, bold, letter spacing `-0.6`, lines of 1.2 |
+| `Heading2` | `heading2` | `24px`, semibold, letter spacing `-0.4`, lines of 1.2 |
+| `Heading3` | `heading3` | `20px`, semibold, lines of 1.2 |
+| `Heading4` | `heading4` | `16px`, semibold, lines of 1.2 |
+| `Heading5` | `heading5` | `14px`, semibold, lines of 1.2 |
+| `Heading6` | `heading6` | `12px`, semibold, letter spacing `0.8`, in capitals, lines of 1.2 |
+| `Prose` | `prose` | `14px`, lines of 1.6 |
+| `Article` | `article` | `15px`, lines of 1.65 |
 
-The sizes and weights are the design's type scale. Every style has a line height of 1.2 and names no color, so its text takes the theme's `Foreground`; text that says less (a description, a caption) is given `PaletteColor::MutedForeground` where it is used. `ThemeTypography::legacy()` is the typography of lurq 0.61: body text of 16, bold headings, and code as large as body text.
+The sizes and weights are the design's type scale. The roles of the interface are on the line their family draws, 1.2 (1.3 for code, whose family's own line is taller): a label, a button, a line of body text are as high as the design draws them. A document has roles of its own: `Heading1` to `Heading6` are its headings, as Markdown's `#` to `######` and the design's Prose and Markdown boards draw them, apart from `Heading` and `Title`, which head a page or a panel of the interface; `Prose` is text read at length in the interface (a paragraph of help, a long description), and `Article` the text of a document, Markdown's paragraphs and lists, each on lines further apart. `Heading6` is drawn in capitals by its style (`TextStyle::case`, `TextCase::Upper`); where it is used it is given `PaletteColor::MutedForeground`, as the design draws it.
+
+No style names a color, so its text takes the theme's `Foreground`; text that says less (a description, a caption) is given `PaletteColor::MutedForeground` where it is used. `ThemeTypography::legacy()` is the typography of lurq 0.61: body text of 16, bold headings, and code as large as body text.
 
 ### The Theme's Two Families
 
