@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::theme::{Density, PaletteColor, ThemePalette},
-  components::Column,
+  components::{Column, ScrollVertical},
   core::Signal,
   layout::{
     Constraints, Size,
@@ -2388,4 +2388,122 @@ fn rows_whose_range_has_not_come_are_skeletons() {
     !stage.paints("These rows could not be loaded"),
     "and nothing said of them: they are on their way"
   );
+}
+
+#[test]
+fn what_sticks_stays_still_in_every_frame_of_a_scroll_over_rows_measured_as_they_come() {
+  #[derive(Clone)]
+  struct Note(usize);
+  // Every fourth note wraps onto three lines: a row higher than it is taken to be until it is measured.
+  let text = |row: &Note| {
+    if row.0 % 4 == 0 {
+      format!(
+        "Note {}: a long note that wraps onto three lines in a column as narrow as this one is",
+        row.0
+      )
+    } else {
+      format!("Note {}", row.0)
+    }
+  };
+  let rows: Arc<Vec<Note>> = Arc::new((0..5_000).map(Note).collect());
+  // A grid in a page that scrolls, as the gallery's is.
+  let mut stage = Stage::new(move |ctx| {
+    ScrollVertical::new(
+      Column::new()
+        .width(640.0)
+        .child(lurq::components::Rect::new(600.0, 300.0))
+        .child(
+          DataGrid::new_shared(
+            vec![
+              TableColumn::new("n", "Number")
+                .width(90.0)
+                .pin(lurq::ui::ColumnPin::Start)
+                .text(|row: &Note| row.0.to_string()),
+              TableColumn::new("note", "Note").width(180.0).wrap(true).text(text),
+              TableColumn::new("more", "More")
+                .width(400.0)
+                .text(|row: &Note| format!("more {}", row.0)),
+            ],
+            rows.clone(),
+          )
+          .id("g")
+          .label("Notes")
+          .row_numbers(true)
+          .height(400.0)
+          .mount(ctx),
+        )
+        .child(lurq::components::Rect::new(600.0, 900.0)),
+    )
+    .size(640.0, 420.0)
+    .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // The page scrolled until the grid is near its top, and the grid sideways a little, so that the pinned column
+  // stays while what is beside it moves.
+  stage
+    .tree
+    .scroll(300.0, 100.0, 0.0, -260.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  stage
+    .tree
+    .scroll(300.0, 200.0, -60.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.frame();
+  // At a scale of 150%, as a window on a screen of that scale is.
+  stage.tree.set_scale_factor(1.5);
+  stage.frame();
+  // Where a text is painted.
+  let painted = |stage: &Stage, content: &str| {
+    stage
+      .text_quad(content)
+      .map(|quad| (quad.x, quad.y))
+      .unwrap_or_else(|| panic!("{content:?} painted"))
+  };
+  let (header, pinned) = (painted(&stage, "Note"), painted(&stage, "Number"));
+  let grid_top = stage.bounds("g").1;
+  // A wheel's notches, each scrolling over the frames that follow, as a wheel does, down and back up.
+  stage.app.theme().set_smooth_scroll(true);
+  let mut frame = 0;
+  for delta in std::iter::repeat_n(-120.0, 30).chain(std::iter::repeat_n(120.0, 30)) {
+    stage
+      .tree
+      .wheel(300.0, 200.0, 0.0, delta, lurq::app::events::ScrollPhase::Scroll);
+    for _ in 0..4 {
+      stage.frame();
+      frame += 1;
+      assert_eq!(painted(&stage, "Note"), header, "the header moved in frame {frame}");
+      assert_eq!(
+        painted(&stage, "Number"),
+        pinned,
+        "the pinned column's header moved in frame {frame}"
+      );
+      assert_eq!(stage.bounds("g").1, grid_top, "the grid moved in frame {frame}");
+      // The rows' words are cut at the grid's edge: none is drawn over what is above it.
+      for quad in stage.quads() {
+        if let QuadContent::Text { text, .. } = &quad.content {
+          let top = if quad.clip.active {
+            quad.y.max(quad.clip.y)
+          } else {
+            quad.y
+          };
+          assert!(top >= grid_top, "{text:?} drawn above the grid in frame {frame}");
+        }
+      }
+      // The pinned column's cells stay at its place.
+      for quad in stage.quads() {
+        if let QuadContent::Text { text, .. } = &quad.content
+          && text.parse::<usize>().is_ok()
+          && quad.x > pinned.0 - 1.0
+          && quad.x < pinned.0 + 60.0
+        {
+          assert_eq!(
+            quad.x, pinned.0,
+            "the pinned column's cell {text:?} moved sideways in frame {frame}"
+          );
+        }
+      }
+    }
+  }
 }

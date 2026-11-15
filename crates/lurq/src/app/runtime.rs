@@ -13826,6 +13826,13 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
 /// past the box. Where that pixel falls follows the text's place, so a page
 /// scrolled by fractions of a pixel showed it on some frames and not others.
 ///
+/// Where the clip cuts the text, it cuts on whole pixels inside its edge. An
+/// edge at a fraction of a pixel (a grid's rows under its header, at 150%)
+/// falls inside a row of pixels that the scissor, rounding out, draws whole:
+/// the rows' words showed in that row of the header's top edge, in and out as
+/// they scrolled under it, though the header painted over them covered the
+/// rest of it.
+///
 /// A glyph drawn through a transform is not its rect: a run with one keeps
 /// the clip let out on every side.
 fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> ClipRect {
@@ -13845,13 +13852,34 @@ fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> C
     right = right.max(glyph.x + glyph.width - inset);
     bottom = bottom.max(glyph.y + glyph.height - inset);
   }
+  let cut = [
+    left < clip.x - RASTERIZATION_SLOP_PX,
+    top < clip.y - RASTERIZATION_SLOP_PX,
+    right > clip.x + clip.width + RASTERIZATION_SLOP_PX,
+    bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX,
+  ];
   let slop = |cut: bool| if cut { 0.0 } else { RASTERIZATION_SLOP_PX };
-  clip.outset(
-    slop(left < clip.x - RASTERIZATION_SLOP_PX),
-    slop(top < clip.y - RASTERIZATION_SLOP_PX),
-    slop(right > clip.x + clip.width + RASTERIZATION_SLOP_PX),
-    slop(bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX),
-  )
+  let mut clip = clip.outset(slop(cut[0]), slop(cut[1]), slop(cut[2]), slop(cut[3]));
+  // A side that cuts goes in to the next whole pixel; its rounded clips stay where they are, cutting in the shaders.
+  let (mut x0, mut y0) = (clip.x, clip.y);
+  let (mut x1, mut y1) = (clip.x + clip.width, clip.y + clip.height);
+  if cut[0] {
+    x0 = x0.ceil();
+  }
+  if cut[1] {
+    y0 = y0.ceil();
+  }
+  if cut[2] {
+    x1 = x1.floor();
+  }
+  if cut[3] {
+    y1 = y1.floor();
+  }
+  clip.x = x0;
+  clip.y = y0;
+  clip.width = (x1 - x0).max(0.0);
+  clip.height = (y1 - y0).max(0.0);
+  clip
 }
 
 /// Draws the glyphs of one text under [`text_glyph_clip`].
@@ -13958,6 +13986,19 @@ mod tests {
       "cut where the text goes on"
     );
     assert_eq!((clip.x, clip.y + clip.height), (9.0, 61.0), "let out where it does not");
+  }
+
+  #[test]
+  fn a_text_the_clip_cuts_at_a_fraction_of_a_pixel_is_cut_on_the_whole_pixel_inside() {
+    // A row's words scrolled under the top edge of a grid's rows at 271.25: the row of pixels from 271 is the
+    // header's top edge, its border's and its fill's, and holds none of them. The words run past the right edge at
+    // 110.75 too, and end at 110. The sides the words do not reach past are let out.
+    let edge = ClipRect::rect(10.5, 271.25, 100.25, 40.0);
+    let glyphs = [glyph(12.0, 264.0), glyph(104.0, 280.0)];
+
+    let clip = text_glyph_clip(edge, [20.0, 262.0, 60.0, 290.0], &glyphs);
+
+    assert_eq!(edges(clip), (9.5, 272.0, 110.0, 312.25));
   }
 
   #[test]
