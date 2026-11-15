@@ -497,7 +497,10 @@ struct RootComponentWrapper<C: Component> {
 
 impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx).into()
+    let mut element: Element = self.component.render(ctx).into();
+    // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
+    element.node.mount_declared_components(ctx);
+    element
   }
 
   fn after_layout(&self) {
@@ -2469,6 +2472,8 @@ impl Tree {
     }
     self.clear_animation_runtime_state();
     let mut node = element.into().into_node();
+    // No component renders this tree: what it declares has no `Ctx` to be mounted in.
+    node.warn_of_declared_components();
     let old_parts = old_root.map(overlay_host_parts);
     if let Some(mut parts) = old_parts {
       node.preserve_runtime_state_from(&parts.base);

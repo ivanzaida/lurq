@@ -12,10 +12,42 @@
 //! mounting component's cached output keeps the decoration on its placeholder
 //! for the component (`component_output.rs`), and hands it to the root it is
 //! put together with.
+//!
+//! An element can also declare a component where it stands, with no `Ctx` at
+//! hand (`Element::component`): `Row::new().child(Picture::from_url(..))` is
+//! a picture with a state of its own. Such an element is a node that holds
+//! what mounts the component and nothing else. Every render's output is
+//! searched for them once the render returned, when its `Ctx` is free again,
+//! and each is mounted in that `Ctx` as `Ctx::mount` would have mounted it
+//! (`Node::mount_declared_components`): the component that renders the
+//! element is the one that keeps the component's slot. What was put on the
+//! element meanwhile, an id, a key, classes, a wrapper's decoration, is this
+//! file's record, and goes to the component's root as it does after `mount`.
+//! A tree no component renders (`Tree::set_root` with an element) has no
+//! `Ctx` to mount in: what it declares shows nothing, and says so in the log.
 
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
 
-use crate::node::Node;
+use crate::{
+  app::ctx::Ctx,
+  node::{Element, Node},
+};
+
+/// Whether any element of the process ever declared a component. Until one does, no render's output is searched.
+static DECLARED_IN_USE: AtomicBool = AtomicBool::new(false);
+
+/// What mounts a declared component: in the `Ctx` of the render it is found in, by the key it was given.
+pub(crate) type DeclaredMount = Arc<dyn Fn(&mut Ctx, Option<&str>) -> Element + Send + Sync>;
+
+/// A component an element declares where it stands: see the module.
+#[derive(Clone)]
+pub(crate) struct DeclaredComponent {
+  pub(crate) mount: DeclaredMount,
+  pub(crate) key: Option<Arc<str>>,
+}
 
 /// A decoration that can be put on a node again, on a component's fresh root.
 pub(crate) type NodeDecoration = Arc<dyn Fn(Node) -> Node + Send + Sync>;
@@ -29,14 +61,104 @@ pub(crate) struct OuterDecoration {
   key: Option<Arc<str>>,
   classes: Vec<Arc<str>>,
   decorations: Vec<NodeDecoration>,
+  /// The component the node stands for until a render's output is searched: `Element::component`.
+  declared: Option<DeclaredComponent>,
 }
 
 impl Node {
   /// The decoration record of a component's root (a node `mount` returned),
   /// created on first use; `None` for any other node, which records nothing.
   fn outer_decoration_mut(&mut self) -> Option<&mut OuterDecoration> {
-    self.component_slot_id?;
+    // A node that declares a component records as its root will: what is put on it goes to that root.
+    if self.component_slot_id.is_none() && !self.declares_component() {
+      return None;
+    }
     Some(self.outer_decoration.get_or_insert_with(Box::default))
+  }
+
+  /// A node that stands for `component` until the render that returns it has returned.
+  pub(crate) fn declaring(component: DeclaredComponent) -> Self {
+    DECLARED_IN_USE.store(true, Ordering::Relaxed);
+    let mut node = Node::new();
+    node.outer_decoration = Some(Box::new(OuterDecoration {
+      declared: Some(component),
+      ..OuterDecoration::default()
+    }));
+    node
+  }
+
+  /// Whether the node stands for a component still to be mounted.
+  pub(crate) fn declares_component(&self) -> bool {
+    self
+      .outer_decoration
+      .as_deref()
+      .is_some_and(|outer| outer.declared.is_some())
+  }
+
+  /// Mounts in `ctx` the components this output of its render declares, each in the place of the node that
+  /// declared it, in the order of the tree. The root of a component the render mounted is passed by: its own
+  /// render mounted what is declared in it.
+  pub(crate) fn mount_declared_components(&mut self, ctx: &mut Ctx) {
+    if DECLARED_IN_USE.load(Ordering::Relaxed) {
+      self.replace_declared(ctx);
+    }
+  }
+
+  /// Says once in the log that this tree, which no component renders, declares a component: there is no `Ctx`
+  /// to mount it in, and it shows nothing.
+  pub(crate) fn warn_of_declared_components(&self) {
+    if DECLARED_IN_USE.load(Ordering::Relaxed) && self.holds_declared() {
+      static SAID: std::sync::Once = std::sync::Once::new();
+      SAID.call_once(|| {
+        tracing::warn!(
+          "an element declares a component (`Element::component`) in a tree no component renders: it shows \
+           nothing. Give the window a root component (`Tree::mount_root`)."
+        );
+      });
+    }
+  }
+
+  fn holds_declared(&self) -> bool {
+    self.declares_component()
+      || self.children.iter().any(Node::holds_declared)
+      || self
+        .overlay_declaration
+        .as_deref()
+        .is_some_and(|overlay| overlay.node.holds_declared())
+      || self
+        .modal_declaration
+        .as_deref()
+        .is_some_and(|modal| modal.node.holds_declared())
+  }
+
+  fn replace_declared(&mut self, ctx: &mut Ctx) {
+    let declared = self
+      .outer_decoration
+      .as_deref_mut()
+      .and_then(|outer| outer.declared.take());
+    if let Some(declared) = declared {
+      let marker = std::mem::take(self);
+      let key = declared
+        .key
+        .clone()
+        .or_else(|| marker.outer_decoration.as_deref().and_then(|outer| outer.key.clone()));
+      let mut output = (declared.mount)(ctx, key.as_deref()).into_node();
+      output.adopt_outer_decoration(&marker);
+      *self = output;
+      return;
+    }
+    if self.component_slot_id.is_some() {
+      return;
+    }
+    for child in &mut self.children {
+      child.replace_declared(ctx);
+    }
+    if let Some(overlay) = self.overlay_declaration.as_deref_mut() {
+      overlay.node.replace_declared(ctx);
+    }
+    if let Some(modal) = self.modal_declaration.as_deref_mut() {
+      modal.node.replace_declared(ctx);
+    }
   }
 
   /// Records an id put on a component's root by the code that mounted it.

@@ -1279,7 +1279,10 @@ struct ComponentWrapper<C: Component> {
 
 impl<C: Component> AnyComponent for ComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx).into()
+    let mut element: Element = self.component.render(ctx).into();
+    // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
+    element.node.mount_declared_components(ctx);
+    element
   }
 
   fn after_layout(&self) {

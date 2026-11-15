@@ -160,6 +160,34 @@ lurq::components::Column::new().with_children(
 )
 ```
 
+### Declared Components
+
+`Element::component::<C>(props)` is the element of a component with no `Ctx` at hand: what a builder, or a function
+that is given no `Ctx`, puts in a tree. The component whose `render` returns the element mounts it once the render has
+returned, as `ctx.mount::<C>(props)` would have, and keeps its slot: `C` is created once, keeps its signals between
+renders, and is unmounted when a render no longer returns it.
+
+```rust
+fn avatar(user: &User) -> Element {
+  Element::component::<Avatar>(AvatarProps { user: user.id })
+}
+
+fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+  lurq::components::Row::new().children(self.users.get().iter().map(avatar))
+}
+```
+
+- It is told from its siblings as an unkeyed mount is: by its order among what the component mounts, the declared ones
+  after those mounted with `ctx`, in the order of the tree. In a list that changes give it a key:
+  `Element::component_keyed::<C>(key, props)`, or `.key(..)` on the element.
+- `.id(..)`, `.key(..)` and `.class(..)` on the element go to the component's root, as on an element `ctx.mount`
+  returned.
+- The props are cloned for the mount, so they are `Clone + Sync`.
+- An element handed down to another component (slot children, an element in its props) is mounted by the component
+  whose render returns it.
+- A tree no component renders, `Tree::set_root` with an element, has nothing to mount it in: it shows nothing there, and
+  a warning says so. Give the window a root component.
+
 ### Slot Children
 
 Use `mount_with` or `mount_keyed_with` when a component needs children supplied by its parent.

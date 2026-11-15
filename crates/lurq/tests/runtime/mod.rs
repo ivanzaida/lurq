@@ -1,6 +1,7 @@
 mod app_lifetime;
 mod click;
 mod cursor;
+mod declared_component;
 mod double_click;
 mod drag;
 mod dropdown_switch;
