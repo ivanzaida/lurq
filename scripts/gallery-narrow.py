@@ -380,7 +380,10 @@ class Gallery:
       root, size = self.tree()
       known = {(found["kind"], found["key"]) for found in faults}
       more, more_controls, more_texts = measure(root, size)
-      faults += [found for found in more if (found["kind"], found["key"]) not in known]
+      # Of what the end of the page adds, what is in view there: what moves for ever stands still while it is
+      # out of view, wherever it was, and would be read as past its box.
+      faults += [found for found in more if (found["kind"], found["key"]) not in known
+                 and found["box"][1] + found["box"][3] > 0 and found["box"][1] < size[1]]
       for key, value in more_controls.items():
         controls.setdefault(key, value)
       for key, value in more_texts.items():
