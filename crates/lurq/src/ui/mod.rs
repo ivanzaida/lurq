@@ -182,6 +182,8 @@ pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, Cal
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 #[cfg(feature = "canvas")]
+pub use chart::ChartLabel;
+#[cfg(feature = "canvas")]
 pub use chart::{
   BandScale, BarEnd, ChartArea, ChartAxis, ChartFrame, ChartLegend, ChartLegendItem, ChartLegendPart,
   ChartLegendRenderer, ChartLegendShape, ChartLegendState, ChartLegendView, ChartLook, ChartMotion, ChartPart,
@@ -190,8 +192,6 @@ pub use chart::{
   TipPlace, chart_motion, chart_recipe, default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap,
   step as chart_step,
 };
-#[cfg(feature = "canvas")]
-pub use chart::ChartLabel;
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupRenderer, CheckboxGroupState, CheckboxGroupView,
   CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView,
@@ -273,10 +273,10 @@ pub use floating_panel::{
 };
 #[cfg(feature = "canvas")]
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
-pub(crate) use highlight::fill_of;
-pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 #[cfg(feature = "canvas")]
 pub use heatmap::{Heatmap, HeatmapPart};
+pub(crate) use highlight::fill_of;
+pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
@@ -335,12 +335,12 @@ pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
   TransitionEasing,
 };
-#[cfg(feature = "canvas")]
-pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
 };
+#[cfg(feature = "canvas")]
+pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use popconfirm::{Popconfirm, PopconfirmPart, PopconfirmRenderer, PopconfirmState, PopconfirmView};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub(crate) use progress::keyframes as progress_keyframes;
@@ -430,10 +430,10 @@ pub use swatch_picker::{
 };
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
-  BodyWindow, CellEdit, CellEditor, CellKey, CellRange, CellValue, ColumnAlign, ColumnLayout, ColumnMenuLabels,
-  ColumnPin, ColumnPlace, Geometry, GridCell, GroupKey, SortDirection, SummaryKind, SummaryLabels, Table, TableCell,
-  TableColumn, TableGroup, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState, TableSummary,
-  TableTextError, TableView, in_tracks,
+  BodyWindow, CellEdit, CellEditor, CellKey, CellRange, CellValue, ColumnAlign, ColumnFilter, ColumnLayout,
+  ColumnMenuLabels, ColumnPin, ColumnPlace, FilterLabels, Geometry, GridCell, GroupKey, SortDirection, SummaryKind,
+  SummaryLabels, Table, TableCell, TableColumn, TableCount, TableFilters, TableGroup, TableHeader, TablePart,
+  TableRenderer, TableRow, TableSort, TableState, TableSummary, TableTextError, TableView, TextMatch, in_tracks,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};

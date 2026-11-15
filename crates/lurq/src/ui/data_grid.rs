@@ -12,7 +12,8 @@ use std::{hash::Hash, sync::Arc};
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
   table::{
-    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, GroupKey, SummaryLabels, Table, TableColumn, TableSort,
+    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, FilterLabels, GroupKey, SummaryLabels, Table, TableColumn,
+    TableCount, TableFilters, TableSort,
   },
 };
 use crate::{
@@ -435,8 +436,41 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   }
 
   /// What the footer's count says: see [`Table::count_text`].
-  pub fn count_text(self, text: impl Fn(usize, Option<usize>) -> String + Send + Sync + 'static) -> Self {
+  pub fn count_text(self, text: impl Fn(TableCount) -> String + Send + Sync + 'static) -> Self {
     self.with(|table| table.count_text(text))
+  }
+
+  /// What the rows are filtered by: see [`Table::filters`]. A person sets the filter of a column that filters
+  /// from its menu, and, with [`filter_row`](Self::filter_row), in the row under the header.
+  pub fn filters(self, filters: Signal<TableFilters>) -> Self
+  where
+    TableFilters: SignalValue,
+  {
+    self.with(|table| table.filters(filters))
+  }
+
+  /// What the rows are filtered by, as the app holds it: see [`Table::filters_controlled`].
+  pub fn filters_controlled(
+    self,
+    filters: TableFilters,
+    on_change: impl Fn(TableFilters) + Send + Sync + 'static,
+  ) -> Self {
+    self.with(|table| table.filters_controlled(filters, on_change))
+  }
+
+  /// Called with the next filters each time a person changes them: see [`Table::on_filters_change`].
+  pub fn on_filters_change(self, handler: impl Fn(&TableFilters) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_filters_change(handler))
+  }
+
+  /// Whether the grid has a row of filters under its header: see [`Table::filter_row`].
+  pub fn filter_row(self, filter_row: bool) -> Self {
+    self.with(|table| table.filter_row(filter_row))
+  }
+
+  /// Every word of filtering, in place of the English: see [`Table::filter_labels`].
+  pub fn filter_labels(self, labels: FilterLabels) -> Self {
+    self.with(|table| table.filter_labels(labels))
   }
 
   /// The name of the header's checkbox: "Select all" unless told.

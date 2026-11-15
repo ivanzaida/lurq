@@ -174,6 +174,10 @@ pub(super) enum MenuChoice {
   /// Shows a hidden column, or hides a shown one: the menu's list of columns.
   Toggle(Arc<str>),
   ShowAll,
+  /// Opens the column's filter.
+  Filter,
+  ClearFilter,
+  ClearAllFilters,
 }
 
 /// Where a column dragged by its header goes, drawn on a header: before it, or after the last.
@@ -212,6 +216,9 @@ pub(super) struct ColumnMenuLink {
   /// What the menu's items say, and what its trigger is called.
   pub labels: Arc<ColumnMenuLabels>,
   pub trigger_label: String,
+  /// Where the column filters the rows: whether it does now, and whether any column does; and the words of it.
+  pub filtering: Option<(bool, bool)>,
+  pub filter_labels: Arc<super::FilterLabels>,
 }
 
 impl HostState {

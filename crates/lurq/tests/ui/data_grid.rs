@@ -1943,3 +1943,170 @@ fn grouped_rows_with_summaries_numbers_and_pins_are_laid_out_once_and_built_in_v
   let numbers = ids_with(&stage, "g-row-99997-number");
   assert_eq!(numbers.len(), 1, "the row's number is built with it");
 }
+
+/// A grid of the files whose columns filter, its filters bound to `filters`.
+fn filtering(filters: Signal<lurq::ui::TableFilters>, filter_row: bool) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .text(|row: &File| row.name.clone())
+        .filter_text(true),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .text(|row: &File| STATUSES[row.status].to_owned())
+        .filter_set(true),
+      TableColumn::new("size", "Size")
+        .width(90.0)
+        .numeric()
+        .text(|row: &File| format!("{} KB", row.size))
+        .filter_number(|row: &File| row.size)
+        .summary(lurq::ui::SummaryKind::Sum),
+      TableColumn::new("shared", "Shared")
+        .width(90.0)
+        .text(|row: &File| if row.shared { "yes" } else { "no" }.to_owned())
+        .filter_bool(|row: &File| row.shared),
+    ];
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns, files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .label("Files")
+          .read_only(true)
+          .count(true)
+          .filters(filters.clone())
+          .filter_row(filter_row)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+#[test]
+fn filters_show_the_rows_they_let_through_and_the_count_and_summary_are_of_those() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new());
+  let mut stage = filtering(filters.clone(), false);
+  assert_eq!(rows_built(&stage), [0, 1, 2]);
+  assert!(stage.paints("3 rows"));
+
+  filters.set(TableFilters::new().with("size", ColumnFilter::at_least(10.0)));
+  stage.pass();
+  assert_eq!(rows_built(&stage), [0, 1], "blur.rs of 12 and canvas.rs of 48");
+  assert!(stage.paints("2 of 3 rows"), "the count says how many of all are shown");
+  assert!(
+    stage.paints("60 KB") || stage.paints("60"),
+    "the summary is of the rows shown"
+  );
+
+  filters.set(
+    TableFilters::new()
+      .with("size", ColumnFilter::at_least(10.0))
+      .with("name", ColumnFilter::contains("CANVAS")),
+  );
+  stage.pass();
+  assert_eq!(rows_built(&stage), [1], "every filter, whatever the case");
+  filters.set(TableFilters::new().with("status", ColumnFilter::one_of(["Passing"])));
+  stage.pass();
+  assert_eq!(rows_built(&stage), [1, 2]);
+  filters.set(TableFilters::new().with("shared", ColumnFilter::is(true)));
+  stage.pass();
+  assert_eq!(rows_built(&stage), [0]);
+}
+
+#[test]
+fn a_columns_menu_opens_its_filter_and_clears_it() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new());
+  let mut stage = filtering(filters.clone(), false);
+  stage.hover("g-header-size");
+  stage.click("g-header-size-menu");
+  click_text(&mut stage, "Filter…");
+  assert!(
+    stage.paints("At least"),
+    "the panel of a number's filter, its editors under their words"
+  );
+  assert!(stage.paints("At most"));
+  stage.bounds("g-header-size-filter-panel");
+  key(&mut stage, "Escape");
+  filters.set(TableFilters::new().with("size", ColumnFilter::at_most(10.0)));
+  stage.pass();
+  stage.hover("g-header-size");
+  stage.click("g-header-size-menu");
+  click_text(&mut stage, "Clear all filters");
+  assert!(filters.get().is_empty());
+}
+
+#[test]
+fn the_filter_row_reads_a_text_a_range_and_a_choice() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new());
+  let mut stage = filtering(filters.clone(), true);
+  // A box under each header that filters: typed into, the filter is set as it is typed.
+  let (_, _, width, _) = stage.bounds("g-filter-size");
+  assert!(width <= 90.0, "a filter takes the room of its column: {width}");
+  stage.click("g-filter-size");
+  stage.tree.text_input_replace(0..0, ">=12");
+  stage.pass();
+  assert_eq!(filters.get().get("size"), Some(&ColumnFilter::at_least(12.0)));
+  assert_eq!(rows_built(&stage), [0, 1]);
+}
+
+/// Presses the text `content` where it is painted.
+fn click_text(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} should be painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn filtered_rows_are_grouped_and_a_groups_count_is_of_those_let_through() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new().with("size", ColumnFilter::at_least(10.0)));
+  let held = filters.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let columns = vec![
+      TableColumn::new("name", "Name").text(|row: &File| row.name.clone()),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .text(|row: &File| STATUSES[row.status].to_owned()),
+      TableColumn::new("size", "Size")
+        .width(90.0)
+        .text(|row: &File| format!("{} KB", row.size))
+        .filter_number(|row: &File| row.size),
+    ];
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns, files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .group_by(["status"])
+          .open(Signal::new(vec![GroupKey::new(["Passing"])]))
+          .filters(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // theme.rs of 9 is filtered out: Passing holds canvas.rs alone, and Building blur.rs.
+  assert_eq!(rows_built(&stage), [1], "the open group's rows the filter lets through");
+  assert_eq!(ids_with(&stage, "g-group-").len(), 2, "a group for each status left");
+  filters.set(TableFilters::new());
+  stage.pass();
+  assert_eq!(rows_built(&stage), [1, 2]);
+}

@@ -306,6 +306,20 @@ fn a_data_grids_arrangement_sort_and_groups_open_roundtrip_through_storage() {
   assert_eq!(storage.value::<Option<TableSort>>("unsorted"), Some(None));
   assert_eq!(storage.value::<Vec<TableSort>>("several"), Some(several.clone()));
   assert_eq!(storage.value::<Vec<TableSort>>("none"), Some(Vec::new()));
+  let filters = lurq::ui::TableFilters::new()
+    .with("name", lurq::ui::ColumnFilter::starts_with("crates/"))
+    .with("size", lurq::ui::ColumnFilter::between(1.5, 20.0))
+    .with(
+      "updated",
+      lurq::ui::ColumnFilter::dates(
+        lurq::core::Date::new(2026, 1, 1).unwrap(),
+        lurq::core::Date::new(2026, 2, 1).unwrap(),
+      ),
+    )
+    .with("status", lurq::ui::ColumnFilter::one_of(["Passing", "Fa\"iled"]))
+    .with("shared", lurq::ui::ColumnFilter::is(false));
+  storage.set_value("filters", filters.clone()).unwrap();
+  assert_eq!(storage.value::<lurq::ui::TableFilters>("filters"), Some(filters));
   assert_eq!(TableSort::parse_list(&TableSort::list_to_text(&several)), Some(several));
   assert_eq!(storage.value::<Vec<GroupKey>>("open"), Some(open));
   assert_eq!(layout.to_string().parse::<ColumnLayout>(), Ok(layout.clone()));

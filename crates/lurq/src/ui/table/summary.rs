@@ -135,6 +135,8 @@ pub(super) struct SummaryKey {
   pub columns: Vec<(Arc<str>, Option<SummaryKind>)>,
   pub grouping: Vec<Arc<str>>,
   pub group: Option<Vec<String>>,
+  /// The filters' text: a summary is of the rows they let through.
+  pub filters: String,
 }
 
 /// What the column says of `rows`: the kind it computed, and its value.
