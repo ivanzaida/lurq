@@ -35,6 +35,7 @@ mod futures {
 mod headless_pass;
 mod hidden_overlay;
 mod hover_after_scroll;
+mod hover_drawn_after_wheel;
 mod hover_frames;
 mod input_after_rebuild;
 mod input_source;

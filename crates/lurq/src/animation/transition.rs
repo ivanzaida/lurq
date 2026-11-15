@@ -385,12 +385,18 @@ impl TransitionEngine {
       .insert(node_id, self.theme_identity)
       .is_some_and(|before| before != self.theme_identity);
     for (prop, duration, delay, easing) in &properties {
-      let current = match read_target(node, *prop, &self.theme) {
-        Some(v) => v,
-        None => continue,
-      };
-
       let key = (node_id, *prop);
+      let Some(current) = read_target(node, *prop, &self.theme) else {
+        // The node has no value of the property any more: a fill that only its hovered style gave it, after
+        // the pointer left. Nothing is there to head to, so a run on its way ends here and the value it was
+        // heading to is forgotten. Left running, it went on to that value and drew it on a node that no
+        // longer has it (a row faded to its hovered fill after the pointer had gone), and the value kept as
+        // the last one seen started the next run from a color the node had long lost.
+        if self.prev_values.remove(&key).is_some() {
+          self.active.remove(&key);
+        }
+        continue;
+      };
 
       // A value that is another one because the theme is, a color of the other appearance, is there at
       // once, with the rest of the window: only what an element does itself is a transition. A window
