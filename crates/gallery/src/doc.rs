@@ -391,7 +391,12 @@ fn page_actions(source: &'static str) -> Row {
 const ROOMY: f32 = 760.0;
 
 fn page_header(header: Header, wide: bool) -> Column {
-  let mut way = Row::new().spacing(8.0).align_items(Alignment::Center);
+  // A way longer than the page goes on to a second line between its steps.
+  let mut way = Row::new()
+    .width(FILL)
+    .spacing(8.0)
+    .wrap()
+    .align_items(Alignment::Center);
   let last = header.breadcrumb.len().saturating_sub(1);
   for (index, step) in header.breadcrumb.iter().enumerate() {
     if index > 0 {

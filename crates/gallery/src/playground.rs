@@ -23,7 +23,9 @@ use lurq::{
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, border::Border},
-  ui::{Button, ButtonSize, ButtonVariant, Interaction, Switch, Tab, Tabs, TabsVariant, Toggle, icons},
+  ui::{
+    Button, ButtonSize, ButtonVariant, Interaction, SegmentedControlPart, Switch, Tab, Tabs, TabsVariant, Toggle, icons,
+  },
 };
 
 use crate::kit::{
@@ -60,6 +62,16 @@ const FACTS: f32 = 36.0;
 const PANEL: f32 = 320.0;
 /// How wide the card of the last playground laid out was, as the bits of an `f32`: 0 until one was.
 static LAST_ROOM: AtomicU32 = AtomicU32::new(0);
+
+/// The room a control of the panel has in a card `room` wide: the panel's beside the stage, and the card's less
+/// its edges and the panel's padding under it.
+fn panel_room(room: f32) -> f32 {
+  if room <= 0.0 || room >= BESIDE {
+    PANEL_ROOM
+  } else {
+    (room - 2.0 - 32.0).max(0.0)
+  }
+}
 
 /// What a page keeps between renders for its playground.
 pub struct Playground {
@@ -208,6 +220,7 @@ impl Playground {
       let window = ctx.window().info().resolved_width;
       if window > 0.0 && window < PHONE {
         LAST_ROOM.store((window - 32.0).to_bits(), Ordering::Relaxed);
+        set_panel_room(panel_room(window - 32.0));
       }
     }
     Self {
@@ -386,7 +399,13 @@ impl Playground {
             .width(FILL)
             .padding_horizontal(12.0)
             .padding_bottom(12.0)
-            .child(states().size(ButtonSize::Xs).full_width(true)),
+            // As high as it is over a wide stage, so that a state is as easy to press: the names have less
+            // room beside them, and share the card's width.
+            .child(
+              states()
+                .full_width(true)
+                .style(SegmentedControlPart::Segment, |s| s.padding_x(4.0)),
+            ),
         )
         .into()
     } else {
@@ -621,6 +640,9 @@ impl Playground {
     let room = self.room.clone();
     self.card.observe_rect(move |rect| {
       if (room.get() - rect.width).abs() >= 0.5 {
+        // The page builds the controls of the panel before the card: the render this change asks for has the
+        // panel's room when it does.
+        set_panel_room(panel_room(rect.width));
         room.set(rect.width);
         LAST_ROOM.store(rect.width.to_bits(), Ordering::Relaxed);
       }
@@ -633,12 +655,7 @@ impl Playground {
     } else {
       ctx.breakpoint() >= Some(Breakpoint::Lg)
     };
-    // A control of the panel has the panel's room beside the stage, and the card's under it.
-    set_panel_room(if wide || room <= 0.0 {
-      PANEL_ROOM
-    } else {
-      (room - 2.0 - 32.0).max(0.0)
-    });
+    set_panel_room(panel_room(room));
     let toolbar = self.toolbar(ctx, &spec);
     // The stage is the card less its edges, and less the panel and the line before it where that is beside it.
     let stage_room = match (room > 0.0, wide) {
@@ -717,10 +734,18 @@ pub fn prop(label: &str, kind: &str, control: impl Into<Element>) -> Element {
     .child(
       Row::new()
         .width(FILL)
+        .spacing(8.0)
         .align_items(Alignment::Center)
-        .justify(Justify::SpaceBetween)
-        .child(name(label, 12.0))
-        .child(quiet(kind, 11.0)),
+        .child(name(label, 12.0).nowrap().flex_shrink(0.0))
+        // The type stands at the panel's end, and one longer than the room beside the name goes on to a
+        // second line there.
+        .child(
+          Column::new()
+            .flex(1.0)
+            .min_width(0.0)
+            .align_items(Alignment::End)
+            .child(quiet(kind, 11.0)),
+        ),
     )
     .child(control)
     .into()
