@@ -503,6 +503,43 @@ fn the_still_form_is_moved_and_reads_nothing_of_a_pointer_that_does_not_press_it
 }
 
 #[test]
+fn the_chip_goes_with_a_drag_to_the_time_it_is_dragged_to() {
+  let heard = Heard::default();
+  let told = heard.clone();
+  let position = Signal::new(20.0_f32);
+  let bound = position.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let told = told.clone();
+    scene(
+      SeekBar::new(bound.clone(), 250.0)
+        .on_hover(move |time| told.tell(format!("{time:?}")))
+        .id("bar")
+        .mount(ctx),
+    )
+  });
+  let (x, y, ..) = stage.bounds("bar");
+  let at = |share: f32| x + 8.0 + 304.0 * share;
+  stage.tree.mouse_move(at(0.4), y + 8.0);
+  stage.tree.mouse_down(at(0.4), y + 8.0, MouseButton::Left);
+  stage.pass();
+  assert!(stage.paints("1:40"), "under the pointer where it is pressed");
+  // The runtime gives the moves of a drag to the slider alone: the bar hears of them as changes.
+  stage.tree.mouse_move(at(0.8), y + 8.0);
+  stage.pass();
+  assert_eq!(position.get(), 200.0);
+  assert!(stage.paints("3:20"), "the chip is over the time it is dragged to");
+  assert!(!stage.paints("1:40"), "and not left where it was pressed");
+  stage.tree.mouse_up(at(0.8), y + 8.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(heard.take(), ["Some(100.0)", "Some(200.0)"]);
+  // Let go, the keys move the position and not the chip: the pointer has not moved.
+  stage.key("ArrowRight");
+  assert_eq!(position.get(), 205.0);
+  assert!(stage.paints("3:20"));
+  assert!(heard.take().is_empty());
+}
+
+#[test]
 fn mounted_and_drawn_hovered_it_shows_its_position_in_the_chip_over_it() {
   let mut stage = Stage::new(|ctx| {
     scene(

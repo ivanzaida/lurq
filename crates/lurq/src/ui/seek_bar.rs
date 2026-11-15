@@ -1,7 +1,10 @@
 //! A seek bar: where a player is in what it plays, how much of it is loaded, and the handle that moves it; over
 //! the pointer, the time it is on, and a picture of that moment where the app has one.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+  Arc, Mutex,
+  atomic::{AtomicBool, Ordering},
+};
 
 use super::{
   FontFamily, media_time_text, names,
@@ -393,9 +396,14 @@ impl SeekBar {
     };
     // The still form holds no element ref: one made anew each render makes the bar a new element to the runtime
     // each time, and it loses the focus and the drag at the first change it makes.
-    let (hover, anchor, room) = match self.hover {
-      Some(Hover { time, anchor, width }) => (Some(time), Some(anchor), width.get()),
-      None => (None, None, 0.0),
+    let (hover, anchor, room, held) = match self.hover {
+      Some(Hover {
+        time,
+        anchor,
+        width,
+        held,
+      }) => (Some(time), Some(anchor), width.get(), held),
+      None => (None, None, 0.0, Arc::default()),
     };
     let view = SeekBarView {
       position,
@@ -417,6 +425,7 @@ impl SeekBar {
       on_change_end: self.on_change_end,
       on_hover: self.on_hover,
       hover,
+      held,
       preview: self.preview,
       anchor,
       forced: self.forced,
@@ -453,6 +462,8 @@ struct Hover {
   time: Signal<Option<f64>>,
   anchor: ElementRef,
   width: Signal<f32>,
+  /// Whether the bar is held by the pointer: from a press on it to the end of what the press changes.
+  held: Arc<AtomicBool>,
 }
 
 /// A seek bar, mounted.
@@ -479,6 +490,7 @@ impl Component for SeekBarHost {
         time: ctx.signal(None),
         anchor,
         width,
+        held: Arc::default(),
       },
     }
   }
@@ -638,6 +650,8 @@ pub struct SeekBarView {
   on_change_end: Vec<SeekHandler>,
   on_hover: Vec<Arc<dyn Fn(Option<f64>) + Send + Sync>>,
   hover: Option<Signal<Option<f64>>>,
+  /// Whether a mounted bar is held by the pointer, kept between its renders.
+  held: Arc<AtomicBool>,
   preview: Option<SeekPreview>,
   /// What the chip hangs from and the pointer is read against: a mounted bar's.
   anchor: Option<ElementRef>,
@@ -774,13 +788,48 @@ impl SeekBarView {
     } else {
       (self.position, self.duration)
     };
+    // What tells the time under the pointer, to the chip and to the app: a mounted bar's, while it is operated.
+    let tell: Option<Arc<dyn Fn(Option<f64>) + Send + Sync>> = match (self.operated(), &self.anchor) {
+      (true, Some(_)) => {
+        let last = Mutex::new(self.hovered.filter(|_| self.hover.is_some()));
+        let (hover, handlers) = (self.hover.clone(), self.on_hover.clone());
+        Some(Arc::new(move |time: Option<f64>| {
+          let mut held = last.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+          if *held == time {
+            return;
+          }
+          *held = time;
+          drop(held);
+          if let Some(hover) = &hover {
+            hover.set(time);
+          }
+          for handler in &handlers {
+            handler(time);
+          }
+        }))
+      }
+      _ => None,
+    };
+    let (mut on_change, mut on_change_end) = (self.on_change.clone(), self.on_change_end.clone());
+    if let Some(tell) = &tell {
+      // The runtime gives a slider that is dragged every move of the pointer and tells no one else of them: the
+      // time under the pointer is then the one the bar is dragged to.
+      let (tell, held) = (tell.clone(), self.held.clone());
+      on_change.push(Arc::new(move |to| {
+        if held.load(Ordering::Relaxed) {
+          tell(Some((to * 100.0).round() / 100.0));
+        }
+      }));
+      let held = self.held.clone();
+      on_change_end.push(Arc::new(move |_| held.store(false, Ordering::Relaxed)));
+    }
     let mut slider = seek_control(
       now,
       max,
       self.step,
       self.bound.clone(),
-      &self.on_change,
-      &self.on_change_end,
+      &on_change,
+      &on_change_end,
       !self.operated(),
     )
     .part(&self.part(SeekBarPart::Control))
@@ -796,28 +845,11 @@ impl SeekBarView {
         format!("{} of {}", self.time_text(self.position), self.time_text(self.duration))
       },
     );
-    if let (true, Some(anchor)) = (self.operated(), &self.anchor) {
+    if let (Some(tell), Some(anchor)) = (tell, &self.anchor) {
       let (anchor, duration, half) = (anchor.clone(), self.duration, self.thumb_width() / 2.0);
-      let last = Arc::new(Mutex::new(self.hovered.filter(|_| self.hover.is_some())));
-      let tell = {
-        let (hover, handlers, last) = (self.hover.clone(), self.on_hover.clone(), last.clone());
-        Arc::new(move |time: Option<f64>| {
-          let mut held = last.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-          if *held == time {
-            return;
-          }
-          *held = time;
-          drop(held);
-          if let Some(hover) = &hover {
-            hover.set(time);
-          }
-          for handler in &handlers {
-            handler(time);
-          }
-        })
-      };
-      let moved = tell.clone();
+      let (moved, pressed, left) = (tell.clone(), self.held.clone(), self.held.clone());
       slider = slider
+        .on_mouse_down(move |_: MouseEvent| pressed.store(true, Ordering::Relaxed))
         .on_mouse_move(move |event: MouseEvent| {
           let travel = anchor.width() - 2.0 * half;
           let along = if travel > 0.0 {
@@ -828,7 +860,10 @@ impl SeekBarView {
           // To the hundredth of a second: a move within one tells nothing.
           moved(Some((along * duration * 100.0).round() / 100.0));
         })
-        .on_mouse_leave(move || tell(None));
+        .on_mouse_leave(move || {
+          left.store(false, Ordering::Relaxed);
+          tell(None);
+        });
     }
     if let Some(id) = &self.id {
       slider = slider.id(id.clone());
