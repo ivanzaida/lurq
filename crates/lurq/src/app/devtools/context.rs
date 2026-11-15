@@ -28,7 +28,6 @@ use crate::{
 };
 
 /// The sizes the board gives the tab.
-const VALUE_WIDTH: f32 = 102.0;
 const USES_WIDTH: f32 = 38.0;
 const PROVIDER_WIDTH: f32 = 102.0;
 const LINE_HEIGHT: f32 = 20.0;
@@ -68,14 +67,19 @@ impl Provided {
     held_type(&self.name)
   }
 
-  /// What it holds on one line, or `None` where that is not known.
-  fn written(&self) -> Option<String> {
+  /// What it holds on one line where its type writes itself for DevTools, and `None` where it does not.
+  fn known(&self) -> Option<String> {
     self.value.as_deref().and_then(|fields| one_line(self.held(), fields))
+  }
+
+  /// What it holds on one line: of a type DevTools cannot read, the type with its value unknown.
+  fn written(&self) -> String {
+    self.known().unwrap_or_else(|| unknown(self.held()))
   }
 
   /// What the filter looks in: its type, its value and its provider.
   fn said(&self) -> String {
-    format!("{} {} {}", self.name, self.written().unwrap_or_default(), self.provider)
+    format!("{} {} {}", self.name, self.written(), self.provider)
   }
 
   /// Its changes that are shown, the newest first.
@@ -96,6 +100,12 @@ pub(crate) fn held_type(name: &str) -> &str {
     .strip_prefix("ReactiveContext<")
     .and_then(|inner| inner.strip_suffix('>'))
     .unwrap_or(name)
+}
+
+/// What stands for a value of a type that does not write itself for DevTools: the type is known, what it
+/// holds is not.
+pub(crate) fn unknown(held: &str) -> String {
+  format!("{held} {{ unknown }}")
 }
 
 /// A value on one line, from what its type wrote of it: the value itself where it is one, or its type and its
@@ -279,14 +289,15 @@ fn list(
         .child(changes::cut(mono(&context.name, 12.0, FontWeight::Normal)).flex(1.0))
         .into()
     }),
-    TableColumn::new("value", "Value")
-      .width(VALUE_WIDTH)
-      .cell(|context: &Provided| match context.written() {
-        Some(value) => changes::cut(mono(&value, 12.0, FontWeight::Medium)).into(),
-        None => mono("<unknown>", 12.0, FontWeight::Normal)
-          .color(PaletteColor::MutedForeground)
-          .into(),
-      }),
+    // The board gives the value 102: here it shares the room with the type, so that a type DevTools cannot
+    // read is read whole, `Navigator { unknown }`.
+    TableColumn::new("value", "Value").cell(|context: &Provided| match context.known() {
+      Some(value) => changes::cut(mono(&value, 12.0, FontWeight::Medium)).into(),
+      None => {
+        changes::cut(mono(&unknown(context.held()), 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
+          .into()
+      }
+    }),
     TableColumn::new("uses", "Uses")
       .width(USES_WIDTH)
       .text(|context: &Provided| context.uses.to_string())
@@ -332,10 +343,7 @@ fn detail(selected: Option<&Provided>, recording: &Recording) -> Element {
     );
   };
   let shown = context.shown(recording);
-  let (written, uses) = (
-    context.written().unwrap_or_else(|| "<unknown>".to_owned()),
-    context.uses.to_string(),
-  );
+  let (written, uses) = (context.written(), context.uses.to_string());
   Column::new()
     .size(FILL, FILL)
     .child(changes::header(&context.name, "Context", &context.path))
@@ -469,7 +477,7 @@ fn written_out(held: &str, fields: &[ComponentInfo], new: bool) -> Column {
   let line = |what: Row| what.height(LINE_HEIGHT).align_items(Alignment::Center);
   let mut written = Column::new();
   match fields {
-    [] => written = written.child(line(Row::new().child(quiet("<unknown>")))),
+    [] => written = written.child(line(Row::new().child(quiet(&unknown(held))))),
     [only] if is_whole(only) => {
       written = written.child(line(
         Row::new().child(value(only.formatted_value().unwrap_or_default())),
@@ -524,10 +532,12 @@ mod tests {
     }
   }
 
+  // Written by hand, so registered by hand: a derive registers what it derives for.
+  crate::register_inspectable!(Depth);
+
+  /// A type that says nothing of itself to DevTools: it is provided all the same.
   #[derive(Clone)]
   struct Opaque;
-
-  impl crate::app::component::DevtoolsInspectable for Opaque {}
 
   fn node(ids: &crate::core::IdGenerator, tag: &str, ctx: &Ctx, children: Vec<DevToolsNode>) -> DevToolsNode {
     let mut node = DevToolsNode::for_test(ids.next(), tag, DevToolsNodeKind::Component, children);
@@ -563,13 +573,14 @@ mod tests {
     assert_eq!(all.len(), 2);
     assert_eq!(all[0].name, "Depth");
     assert!(all[0].path.ends_with("::Depth"));
-    assert_eq!(all[0].written().as_deref(), Some("Depth(0)"));
+    assert_eq!(all[0].written(), "Depth(0)");
     assert_eq!(all[0].uses, 2);
     assert_eq!(all[0].provider, "Router");
     assert!(!all[0].reactive);
-    // A type that writes nothing of itself is listed, and what it holds is not known.
+    // A type that writes nothing of itself is listed with its type, and what it holds is not known.
     assert_eq!(all[1].name, "Opaque");
-    assert_eq!(all[1].written(), None);
+    assert_eq!(all[1].known(), None);
+    assert_eq!(all[1].written(), "Opaque { unknown }");
     assert_eq!(all[1].uses, 0);
   }
 
@@ -593,8 +604,8 @@ mod tests {
     )));
 
     let said = |context: &Provided| (context.provider.clone(), context.written(), context.uses);
-    assert_eq!(said(&all[0]), ("Router".to_owned(), Some("Depth(0)".to_owned()), 1));
-    assert_eq!(said(&all[1]), ("Outlet".to_owned(), Some("Depth(1)".to_owned()), 1));
+    assert_eq!(said(&all[0]), ("Router".to_owned(), "Depth(0)".to_owned(), 1));
+    assert_eq!(said(&all[1]), ("Outlet".to_owned(), "Depth(1)".to_owned(), 1));
     assert_ne!(
       all[0].key, all[1].key,
       "the same type from two providers is two contexts"
@@ -627,8 +638,8 @@ mod tests {
     assert_eq!(context.name, "ReactiveContext<Locale>");
     assert_eq!(context.held(), "Locale");
     assert_eq!(
-      context.written().as_deref(),
-      Some("Locale { locale: \"en-GB\", greeting: \"Hello there!\" }")
+      context.written(),
+      "Locale { locale: \"en-GB\", greeting: \"Hello there!\" }"
     );
     assert_eq!(context.changes.len(), 1);
     let change = &context.changes[0];
@@ -662,11 +673,33 @@ mod tests {
 
     let all = contexts(&snapshot(node(&ids, "Router", &provider, vec![])));
 
-    assert_eq!(all[0].written().as_deref(), Some("Depth(2)"));
+    assert_eq!(all[0].written(), "Depth(2)");
     assert_eq!(all[0].changes.len(), 1, "the same value provided again is no change");
     assert_eq!(
       one_line("Depth", &all[0].changes[0].from_value).as_deref(),
       Some("Depth(0)")
+    );
+  }
+
+  #[test]
+  fn a_reactive_context_of_a_type_devtools_cannot_read_is_listed_with_its_value_unknown() {
+    let ids = crate::core::IdGenerator::new();
+
+    #[derive(Clone, Hash)]
+    struct Session(u8);
+
+    let mut provider = Ctx::new_root();
+    let session = provider.create_context(Session(1));
+    session.set(Session(2));
+
+    let all = contexts(&snapshot(node(&ids, "Auth", &provider, vec![])));
+
+    assert_eq!(all.len(), 1);
+    assert!(all[0].reactive);
+    assert_eq!(all[0].written(), "Session { unknown }");
+    assert!(
+      all[0].changes.is_empty(),
+      "a change of what cannot be read has nothing to show"
     );
   }
 

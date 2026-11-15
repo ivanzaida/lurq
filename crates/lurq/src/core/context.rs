@@ -15,20 +15,6 @@ fn next_revision() -> u64 {
   NEXT_CONTEXT_REVISION.fetch_add(1, Ordering::Relaxed)
 }
 
-/// What a context holds. With the `devtools` feature it writes itself for DevTools, as the value of a signal
-/// does: derive `DevtoolsInspectable` for it, or give it an empty `impl` to show it as unknown.
-#[cfg(feature = "devtools")]
-pub trait ContextValue: crate::app::component::DevtoolsInspectable {}
-
-#[cfg(feature = "devtools")]
-impl<T: crate::app::component::DevtoolsInspectable> ContextValue for T {}
-
-#[cfg(not(feature = "devtools"))]
-pub trait ContextValue {}
-
-#[cfg(not(feature = "devtools"))]
-impl<T> ContextValue for T {}
-
 /// A provided value with the revision of its providing. A component that read
 /// the value's type renders again when the revision of the entry it would
 /// read now differs from the one it last inherited.

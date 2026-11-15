@@ -11,10 +11,6 @@ pub(crate) struct FormContext {
   form: FormHandle,
 }
 
-/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
-#[cfg(feature = "devtools")]
-impl crate::app::component::DevtoolsInspectable for FormContext {}
-
 impl FormContext {
   pub(crate) fn new(form: FormHandle) -> Self {
     Self { form }

@@ -518,10 +518,6 @@ pub(crate) struct NavigationSlot {
   bottom: Signal<(bool, bool)>,
 }
 
-/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
-#[cfg(feature = "devtools")]
-impl crate::app::component::DevtoolsInspectable for NavigationSlot {}
-
 impl NavigationSlot {
   pub(crate) fn set(&self, item: NavigationItem) {
     let same = {

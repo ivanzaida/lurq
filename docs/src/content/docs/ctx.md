@@ -200,7 +200,7 @@ struct Locale(String);
 ctx.provide(Locale("en-US".into()));
 ```
 
-With the `devtools` feature the type also derives `lurq::DevtoolsInspectable`, so that DevTools shows what the context holds: see [Inspectable Contexts](../devtools/#inspectable-contexts).
+DevTools shows what the context holds where its type derives `lurq::DevtoolsInspectable`, and lists it with its value unknown where it does not: see [Inspectable Contexts](../devtools/#inspectable-contexts).
 
 Descendants can read the value by type:
 

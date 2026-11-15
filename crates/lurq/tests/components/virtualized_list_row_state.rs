@@ -27,10 +27,6 @@ const EXPANDED: f32 = 90.0;
 #[derive(Clone)]
 struct ExpandedRows(Signal<HashMap<usize, bool>>);
 
-// A context writes itself for DevTools; these say nothing of what they hold.
-impl lurq::app::component::DevtoolsInspectable for ExpandedRows {}
-impl lurq::app::component::DevtoolsInspectable for Creations {}
-
 /// Counts row component creations, to show rows are remounted.
 #[derive(Clone)]
 struct Creations(Arc<AtomicUsize>);

@@ -17,7 +17,7 @@ pub mod store;
 pub mod tracking;
 
 pub use cell_ref::Ref;
-pub use context::{ContextMap, ContextValue, ReactiveContext};
+pub use context::{ContextMap, ReactiveContext};
 pub use date::{Date, DateRange, ParseDateError, Weekday, YearMonth, days_in_month, is_leap_year};
 pub use time::{DayPeriod, HourCycle, ParseTimeError, Time};
 pub(crate) use date_locale::{AppDateText, english_date_text, shared_date_text};

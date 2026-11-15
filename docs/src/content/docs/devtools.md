@@ -118,6 +118,8 @@ struct Metadata {
 
 Nested structs that also derive `DevtoolsInspectable` are shown recursively. Scalar values are shown with type and value. Mark sensitive or noisy fields with `#[devtools_ignore]`.
 
+A field whose type does not write itself for DevTools (a handle of a library, a closure) does not stop the derive: it is shown with its type and nothing of its value. The numbers, `bool`, `char`, `String`, `&str`, `Duration`, `PathBuf`, and `Option`, `Result`, `Box`, `Arc` and `Rc` of what is inspectable write themselves; a `Vec`, an array, a `VecDeque`, a map or a set says how many it holds. A field of a type parameter is read only where the parameter is bound: `struct Page<T: DevtoolsInspectable>`.
+
 ```rust
 #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct Credentials {
@@ -152,7 +154,7 @@ The engine keeps, for each signal and memo: its id, its type, its value as it is
 
 ## Inspectable Contexts
 
-With `devtools`, what a component provides must be inspectable too, plain (`ctx.provide`, `ctx.provide_if_changed`) or reactive (`ctx.create_context`):
+What a component provides needs no trait: `ctx.provide`, `ctx.provide_if_changed` and `ctx.create_context` take any type, with `devtools` and without. DevTools shows what a context holds where its type derives `DevtoolsInspectable`:
 
 ```rust
 #[derive(Clone, Hash, lurq::DevtoolsInspectable)]
@@ -164,7 +166,9 @@ struct Locale {
 let locale = ctx.create_context(Locale { locale: "en-US", greeting: "Hello!" });
 ```
 
-A type that has nothing worth reading in DevTools is given an empty `impl lurq::app::component::DevtoolsInspectable for T {}`: its context is listed, and what it holds shows as `<unknown>`. The engine's own contexts are so (`Navigator`), or show their value (`OutletDepth(0)`).
+The derive registers an inspector for the type, and DevTools finds it by the type of the value it is given. A type that registered none is listed with its value unknown, `Navigator { unknown }`, and none of its changes are shown: there is nothing to tell two values of it apart by. A type whose `DevtoolsInspectable` is written by hand registers itself with `lurq::register_inspectable!(Depth);`, and so does a type with type parameters for each form of it that is provided, `lurq::register_inspectable!(Page<Settings>);`: a derive cannot register a type for every parameter it could have.
+
+The engine's own contexts show their value where it is worth reading (`OutletDepth(0)`), and are unknown where it is not (`Navigator`). The values an app provides as they are, a number, a `String`, a `bool`, are read too.
 
 The engine keeps, for each context a component provides: its type, what it holds as the type writes it, and its last 64 changes. A reactive context changes when it is set to another value; a plain one when the component provides another value than it did.
 
@@ -274,7 +278,7 @@ The overlay samples FPS once per second. Enable `perf_profile` to include frame 
 
 If a prop type fails to compile only with `devtools`, derive or implement `DevtoolsInspectable`.
 
-If a context type fails to compile only with `devtools`, derive `DevtoolsInspectable` for it, or give it an empty `impl` to show it as unknown.
+If a context shows as `Type { unknown }`, derive `DevtoolsInspectable` for its type, or register the type with `lurq::register_inspectable!` where its `DevtoolsInspectable` is written by hand or it has type parameters.
 
 If signal values show as unknown, check that the signal type implements `DevtoolsInspectable` and that the value is stored through `ctx.signal`, `ctx.store`, or `ctx.memo`.
 

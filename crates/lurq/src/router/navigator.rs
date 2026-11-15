@@ -8,10 +8,6 @@ pub struct Navigator {
   pub(crate) handle: RouterHandle,
 }
 
-/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
-#[cfg(feature = "devtools")]
-impl crate::app::component::DevtoolsInspectable for Navigator {}
-
 impl Navigator {
   pub fn push(&self, path: impl Into<String>) {
     self.handle.push(path);

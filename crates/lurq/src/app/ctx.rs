@@ -28,7 +28,7 @@ use super::{
 use crate::time::{SystemTime, UNIX_EPOCH};
 use crate::{
   core::{
-    ContextMap, ContextValue, ElementRef, ElementRefMut, ReactiveContext, Store,
+    ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
     cell_ref::Ref,
     effect::Effect,
     memo::Memo,
@@ -844,6 +844,8 @@ impl crate::app::component::DevtoolsInspectable for BottomBarInset {
   }
 }
 
+crate::register_inspectable!(BottomBarInset);
+
 /// A component keeps its descendants clear of everything at the window's edges itself: for them
 /// [`Ctx::safe_area`] is nothing at every side. A sheet's content is such: the sheet stands clear of the status
 /// bar, and pads its content by the home indicator and the keyboard.
@@ -857,6 +859,8 @@ impl crate::app::component::DevtoolsInspectable for SafeAreaTaken {
     formatter.value_debug(self);
   }
 }
+
+crate::register_inspectable!(SafeAreaTaken);
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
@@ -1091,12 +1095,12 @@ fn record_context_value(
   *held = Some(next);
 }
 
-/// What a value writes of itself for DevTools.
+/// What a value writes of itself for DevTools, where its type registered an inspector
+/// (`#[derive(DevtoolsInspectable)]`, `register_inspectable!`): nothing where it did not. No bound asks a
+/// context's type for one.
 #[cfg(feature = "devtools")]
-fn inspected<T: DevtoolsInspectable>(value: &T) -> Vec<ComponentInfo> {
-  let mut fields = Vec::new();
-  value.write_info(&mut fields);
-  fields
+fn inspected<T: 'static>(value: &T) -> Vec<ComponentInfo> {
+  crate::app::component::inspect_registered(value).unwrap_or_default()
 }
 
 #[cfg(feature = "devtools")]
@@ -2048,7 +2052,7 @@ impl Ctx {
   /// render that provides a value it computes every time passes it with
   /// [`provide_if_changed`](Self::provide_if_changed) so an equal value
   /// renders nothing again.
-  pub fn provide<T: Clone + Send + Sync + ContextValue + 'static>(&mut self, value: T) {
+  pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
     self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     #[cfg(feature = "router")]
@@ -2066,7 +2070,7 @@ impl Ctx {
   /// is compared with the previous render's, also when this render was
   /// caused by a change of the inherited contexts; in `create` or a
   /// handler, with the one provided there.
-  pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + ContextValue + 'static>(&mut self, value: T) {
+  pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
     self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     let id = TypeId::of::<T>();
@@ -2127,10 +2131,7 @@ impl Ctx {
     self.context_map.get::<T>()
   }
 
-  pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + ContextValue + 'static>(
-    &mut self,
-    value: T,
-  ) -> ReactiveContext<T> {
+  pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
     #[cfg(feature = "devtools")]
     let (held, history) = self.note_provided(std::any::type_name::<ReactiveContext<T>>(), true, inspected(&value));
     let ctx = ReactiveContext::new(value);

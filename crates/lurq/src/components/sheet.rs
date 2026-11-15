@@ -370,18 +370,10 @@ struct Behind {
   receded: Signal<Receded>,
 }
 
-/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
-#[cfg(feature = "devtools")]
-impl crate::app::component::DevtoolsInspectable for Behind {}
-
 /// The list a sheet's own content scrolls in, for a sheet that was not told it: a stack of screens in the
 /// sheet says which list its top screen has, and a finger at that list's top is the sheet's.
 #[derive(Clone, Default)]
 pub(crate) struct SheetScroll(pub(crate) Arc<Mutex<Option<ScrollState>>>);
-
-/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
-#[cfg(feature = "devtools")]
-impl crate::app::component::DevtoolsInspectable for SheetScroll {}
 
 /// No finger has the sheet.
 const NO_DRAG: f32 = f32::MIN;
