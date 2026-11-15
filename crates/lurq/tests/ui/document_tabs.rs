@@ -708,3 +708,95 @@ fn a_tab_dragged_away_from_the_bar_is_the_apps_and_moves_nothing_in_the_bar() {
   assert!(said(&told).is_empty(), "the bar moves nothing");
   assert_eq!(open.get(), "blur.rs");
 }
+
+#[test]
+fn a_press_that_shows_another_tab_leaves_the_focus_on_it_and_the_arrows_go_on_from_it() {
+  let (open, told) = (Signal::new("blur.rs"), log());
+  let mut stage = stage(860.0, &open, &told);
+  let node = |stage: &mut Stage| stage.tree.get_element_by_id_mut("canvas").unwrap().node_id();
+  let before = node(&mut stage);
+  stage.click("canvas");
+  assert_eq!(open.get(), "canvas.rs");
+  assert_eq!(
+    node(&mut stage),
+    before,
+    "the tab is the same element as it becomes the one shown"
+  );
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("canvas"),
+    "the pressed tab has the focus"
+  );
+  stage.key("ArrowLeft");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("theme"),
+    "and the arrows go on from it"
+  );
+}
+
+#[test]
+fn a_closed_tab_leaves_the_focus_on_the_tab_that_takes_its_place() {
+  // The app takes the tab out, as an editor does.
+  let open = Signal::new("blur.rs");
+  let files_open = Signal::new(vec!["blur.rs", "theme.rs", "canvas.rs"]);
+  let (shown, list) = (open.clone(), files_open.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let (closing, shown_now) = (list.clone(), shown.clone());
+    let tabs: Vec<DocumentTab<&'static str>> = list
+      .get()
+      .into_iter()
+      .map(|name| DocumentTab::new(name, name).id(name.trim_end_matches(".rs")))
+      .collect();
+    Column::new()
+      .size(860.0, 300.0)
+      .child(
+        DocumentTabs::new(shown.clone(), tabs)
+          .on_close(move |name| {
+            let mut files = closing.get_untracked();
+            let at = files.iter().position(|file| file == name).unwrap();
+            files.remove(at);
+            if shown_now.get_untracked() == *name {
+              shown_now.set(files[at.min(files.len() - 1)]);
+            }
+            closing.set(files);
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.click("blur");
+  assert_eq!(focused(&stage).as_deref(), Some("blur"));
+  let theme = stage.tree.get_element_by_id_mut("theme").unwrap().node_id();
+  stage.click("blur-close");
+  stage.pass();
+  assert_eq!(files_open.get(), ["theme.rs", "canvas.rs"]);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("theme"),
+    "the tab that takes its place"
+  );
+  assert_eq!(
+    stage.tree.get_element_by_id_mut("theme").unwrap().node_id(),
+    theme,
+    "the same element as before, now the one shown"
+  );
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("canvas"));
+}
+
+#[test]
+fn a_tab_chosen_from_the_menu_of_what_does_not_fit_has_the_focus() {
+  let (open, told) = (Signal::new("canvas.rs"), log());
+  let mut stage = stage(400.0, &open, &told);
+  stage.pass();
+  stage.click("bar-more");
+  stage.click("readme-item");
+  stage.pass();
+  assert_eq!(open.get(), "README.md");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("readme"),
+    "the tab chosen, in the bar now"
+  );
+}
