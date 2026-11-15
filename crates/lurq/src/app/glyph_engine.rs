@@ -398,6 +398,27 @@ fn text_align_to_u8(align: TextAlign) -> u8 {
   }
 }
 
+/// The spans with each one's text in the case its style asks for (`TextStyle::case`), at the same byte offsets;
+/// the spans themselves where none asks for another case.
+fn cased_spans(spans: &[RichTextSpan]) -> Cow<'_, [RichTextSpan]> {
+  if spans
+    .iter()
+    .all(|span| matches!(span.style.case.apply(&span.text), Cow::Borrowed(_)))
+  {
+    return Cow::Borrowed(spans);
+  }
+  Cow::Owned(
+    spans
+      .iter()
+      .map(|span| {
+        let mut span = span.clone();
+        span.text = span.style.case.apply(&span.text).into_owned();
+        span
+      })
+      .collect(),
+  )
+}
+
 /// Buffer setters only mark the buffer dirty; readers shape it with `shape_until_scroll`.
 fn set_buffer_text(buffer: &mut Buffer, text: &str, attrs: Attrs, text_align: TextAlign) {
   buffer.set_text(text, &attrs, Shaping::Advanced, Some(text_align.to_cosmic()));
@@ -760,6 +781,9 @@ impl GlyphEngine {
   }
 
   pub(crate) fn measure_text(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let wrap = is_bounded_text_width(max_width);
     let fingerprint = self.texts.fingerprint(text, style, max_width, wrap);
     if let Some(cached) = self
@@ -787,6 +811,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> Option<TextVerticalExtents> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let fingerprint = self.texts.fingerprint(text, style, max_width, wrap);
     if let Some(cached) = self
       .texts
@@ -820,6 +847,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> Option<(f32, f32)> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let fingerprint = self.texts.fingerprint(text, style, max_width, wrap);
     if let Some(extents) = self
       .texts
@@ -1005,6 +1035,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> std::sync::Arc<[SpanBox]> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let buffer = self.full_text_buffer(text, style, max_width, wrap);
     let boxes = span_boxes::line_boxes(&buffer, &mut self.font_system, &mut self.underline_metrics);
     self.retain_plain_buffer(buffer);
@@ -1035,6 +1068,8 @@ impl GlyphEngine {
   /// at `max_width`.
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
   pub(crate) fn measure_rich_text(&mut self, spans: &[RichTextSpan], scale: f32, max_width: f32) -> Size {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     if spans.is_empty() {
       return Size::default();
     }
@@ -1068,6 +1103,8 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> CaretPositions {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     match spans {
       [] => carets::buffer_caret_positions(&Buffer::new_empty(Metrics::new(1.0, 1.0)), 0),
       [span] => {
@@ -1134,6 +1171,8 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> (Size, std::sync::Arc<[SpanBox]>) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     if spans.is_empty() {
       return (Size::default(), Vec::<SpanBox>::new().into());
     }
@@ -1148,6 +1187,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> CaretPositions {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     // Selectable text recomputes caret positions on every layout; cache them
     // like measurements — a full per-character shaping walk per node per pass
     // makes lists of selectable text crawl.
@@ -1286,6 +1328,9 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let mut glyphs = Vec::new();
     self.rasterize_text_with_snap_into(
       text,
@@ -1312,6 +1357,9 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, true, None, out);
   }
 
@@ -1327,6 +1375,9 @@ impl GlyphEngine {
     clip: ClipRect,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, true, Some(clip), out);
   }
 
@@ -1340,6 +1391,8 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     self.rasterize_rich_text_with_snap_into(spans, max_width, wrap, origin_x, origin_y, true, out);
   }
 
@@ -1354,6 +1407,8 @@ impl GlyphEngine {
     clip: ClipRect,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     if let [span] = spans {
       self.rasterize_text_with_wrap_clipped_into(
         &span.text,
@@ -1391,6 +1446,9 @@ impl GlyphEngine {
     order: usize,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     // The offset and the glyphs are one entry when both are keyed alike; a
     // traced run goes the long way, which prints it.
     if effective_text_wrap(max_width, wrap) == wrap && glyph_debug_marker().is_none() {
@@ -1443,6 +1501,9 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let mut glyphs = Vec::new();
     self.rasterize_text_with_snap_into(
       text,
@@ -1468,6 +1529,9 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, false, None, out);
   }
 
@@ -1480,6 +1544,8 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     self.rasterize_rich_text_with_snap_into(spans, max_width, wrap, origin_x, origin_y, false, out);
   }
 
@@ -1496,6 +1562,9 @@ impl GlyphEngine {
     transform_origin: [f32; 2],
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let wrap = effective_text_wrap(max_width, wrap);
     let key = CacheKey::new_for_baked_transform(text, style, max_width, wrap);
     let swash_transform = swash_transform_from_screen(transform);
@@ -1572,6 +1641,8 @@ impl GlyphEngine {
     transform_origin: [f32; 2],
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     let Some(first) = spans.first() else {
       return;
     };

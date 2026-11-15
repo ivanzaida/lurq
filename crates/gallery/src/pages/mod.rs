@@ -11,6 +11,7 @@ mod avatar;
 mod badge;
 mod banner;
 mod bar_chart;
+mod blockquote;
 mod breadcrumb;
 mod button;
 mod calendar;
@@ -18,6 +19,7 @@ mod callout;
 mod card;
 mod checkbox;
 mod checkbox_card;
+mod code_block;
 mod color_field;
 mod color_picker;
 mod combobox;
@@ -864,6 +866,22 @@ pub const PAGES: &[Page] = &[
     about: "data list description list term definition value key details properties metadata dl text item vertical label style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
+  },
+  Page {
+    path: "/code-block",
+    name: "Code Block",
+    icon: Some("file-code"),
+    about: "code block snippet source syntax highlight rust language title file copy clipboard line numbers lines highlight_lines wrap scroll max_height min_height mono pre ode lock new language title label line_numbers first_line wrap copy_button copy_label copied_text on_copy selectable mount",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<code_block::CodeBlockPage>(()),
+  },
+  Page {
+    path: "/blockquote",
+    name: "Blockquote",
+    icon: Some("quote"),
+    about: "blockquote quote citation passage prose markdown said line italic lockquote new child children label",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<blockquote::BlockquotePage>(()),
   },
   Page {
     path: "/table",

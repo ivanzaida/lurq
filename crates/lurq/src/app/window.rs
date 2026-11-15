@@ -482,6 +482,8 @@ struct WindowInner {
   icon: Option<WindowIcon>,
   #[cfg(feature = "raster")]
   icon_image: Option<crate::images::ImageData>,
+  /// Texts the app asked to be put on the clipboard, which the runtime writes after the event that asked.
+  copies: Vec<String>,
 }
 
 /// How the app's maximize control is to look while the system has the pointer on it: on Windows 11 the system
@@ -558,6 +560,7 @@ impl Window {
         icon: None,
         #[cfg(feature = "raster")]
         icon_image: None,
+        copies: Vec::new(),
       })),
       version_signal: Signal::new(0),
     }
@@ -643,6 +646,23 @@ impl Window {
     if let Some(waker) = waker {
       waker();
     }
+  }
+
+  /// Asks for `text` to be put on the clipboard; the runtime writes it after the event, or at the next pass.
+  pub(crate) fn request_copy(&self, text: String) {
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.copies.push(text);
+      inner.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// The texts asked to be put on the clipboard since the last time, in order.
+  pub(crate) fn take_copies(&self) -> Vec<String> {
+    std::mem::take(&mut self.inner.write().unwrap().copies)
   }
 
   /// The window's icon, as the app set it.

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::role_name::RoleName;
-use crate::layout::text_style::{FontWeight, TextStyle};
+use crate::layout::text_style::{FontWeight, TextCase, TextStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypographyStyle {
@@ -15,6 +15,19 @@ pub enum TypographyStyle {
   Button,
   Link,
   Mono,
+  /// The headings of a document, as Markdown's `#` to `######` and the design's Prose draw them: 30 bold, 24, 20,
+  /// 16 and 14 semibold, and 12 semibold in capitals. Apart from `Heading` and `Title`, which head a page or a
+  /// panel of the interface.
+  Heading1,
+  Heading2,
+  Heading3,
+  Heading4,
+  Heading5,
+  Heading6,
+  /// Text read at length in the interface, as the design's Prose has it: 14 on lines of 1.6.
+  Prose,
+  /// The text of a document, as Markdown's paragraphs and lists are: 15 on lines of 1.65.
+  Article,
   /// An application-defined style stored in [`ThemeTypography::extra`].
   Extra(RoleName),
 }
@@ -37,6 +50,14 @@ impl TypographyStyle {
       Self::Button => "button",
       Self::Link => "link",
       Self::Mono => "mono",
+      Self::Heading1 => "heading1",
+      Self::Heading2 => "heading2",
+      Self::Heading3 => "heading3",
+      Self::Heading4 => "heading4",
+      Self::Heading5 => "heading5",
+      Self::Heading6 => "heading6",
+      Self::Prose => "prose",
+      Self::Article => "article",
       Self::Extra(name) => name.as_str(),
     }
   }
@@ -72,6 +93,17 @@ pub struct ThemeTypography {
   pub button: TextStyle,
   pub link: TextStyle,
   pub mono: TextStyle,
+  /// A document's headings, from `#` to `######`.
+  pub heading1: TextStyle,
+  pub heading2: TextStyle,
+  pub heading3: TextStyle,
+  pub heading4: TextStyle,
+  pub heading5: TextStyle,
+  pub heading6: TextStyle,
+  /// Text read at length in the interface.
+  pub prose: TextStyle,
+  /// The text of a document.
+  pub article: TextStyle,
   pub extra: HashMap<Arc<str>, TextStyle>,
 }
 
@@ -100,6 +132,14 @@ impl ThemeTypography {
       TypographyStyle::Button => &self.button,
       TypographyStyle::Link => &self.link,
       TypographyStyle::Mono => &self.mono,
+      TypographyStyle::Heading1 => &self.heading1,
+      TypographyStyle::Heading2 => &self.heading2,
+      TypographyStyle::Heading3 => &self.heading3,
+      TypographyStyle::Heading4 => &self.heading4,
+      TypographyStyle::Heading5 => &self.heading5,
+      TypographyStyle::Heading6 => &self.heading6,
+      TypographyStyle::Prose => &self.prose,
+      TypographyStyle::Article => &self.article,
       TypographyStyle::Extra(name) => self.extra.get(name.as_str())?,
     };
     Some(style.clone())
@@ -117,6 +157,14 @@ impl ThemeTypography {
       TypographyStyle::Button => self.button = value,
       TypographyStyle::Link => self.link = value,
       TypographyStyle::Mono => self.mono = value,
+      TypographyStyle::Heading1 => self.heading1 = value,
+      TypographyStyle::Heading2 => self.heading2 = value,
+      TypographyStyle::Heading3 => self.heading3 = value,
+      TypographyStyle::Heading4 => self.heading4 = value,
+      TypographyStyle::Heading5 => self.heading5 = value,
+      TypographyStyle::Heading6 => self.heading6 = value,
+      TypographyStyle::Prose => self.prose = value,
+      TypographyStyle::Article => self.article = value,
       TypographyStyle::Extra(name) => {
         self.extra.insert(Arc::from(name.as_str()), value);
       }
@@ -154,6 +202,14 @@ impl ThemeTypography {
       &mut self.button,
       &mut self.link,
       &mut self.mono,
+      &mut self.heading1,
+      &mut self.heading2,
+      &mut self.heading3,
+      &mut self.heading4,
+      &mut self.heading5,
+      &mut self.heading6,
+      &mut self.prose,
+      &mut self.article,
     ];
     for style in styles.into_iter().chain(self.extra.values_mut()) {
       if style.font_family == *old {
@@ -204,6 +260,14 @@ impl ThemeTypography {
       button: adjust(&self.button),
       link: adjust(&self.link),
       mono: adjust(&self.mono),
+      heading1: adjust(&self.heading1),
+      heading2: adjust(&self.heading2),
+      heading3: adjust(&self.heading3),
+      heading4: adjust(&self.heading4),
+      heading5: adjust(&self.heading5),
+      heading6: adjust(&self.heading6),
+      prose: adjust(&self.prose),
+      article: adjust(&self.article),
       extra: self
         .extra
         .iter()
@@ -258,10 +322,60 @@ impl Default for ThemeTypography {
         ..body.clone()
       },
       link: body.clone(),
+      // JetBrains Mono's own line, 17 at 13, as the design draws code.
       mono: TextStyle {
         font_family: mono_family,
         font_size: 13.0,
-        ..body
+        line_height: 1.3,
+        ..body.clone()
+      },
+      ..Self::document_roles(&body)
+    }
+  }
+}
+
+impl ThemeTypography {
+  /// The roles of a document, on `body`'s family: the headings of the design's Markdown and Prose (`hMuPL`,
+  /// `cS7gJ`), each on the line its family draws (1.2), and the text read at length on its own.
+  fn document_roles(body: &TextStyle) -> Self {
+    let heading = |size: f32, weight: FontWeight, letter_spacing: f32| TextStyle {
+      font_size: size,
+      weight,
+      letter_spacing,
+      line_height: 1.2,
+      ..body.clone()
+    };
+    Self {
+      sans: body.font_family.clone(),
+      mono_family: Arc::from("monospace"),
+      heading: body.clone(),
+      title: body.clone(),
+      body: body.clone(),
+      description: body.clone(),
+      caption: body.clone(),
+      label: body.clone(),
+      field_label: body.clone(),
+      button: body.clone(),
+      link: body.clone(),
+      mono: body.clone(),
+      heading1: heading(30.0, FontWeight::Bold, -0.6),
+      heading2: heading(24.0, FontWeight::SemiBold, -0.4),
+      heading3: heading(20.0, FontWeight::SemiBold, 0.0),
+      heading4: heading(16.0, FontWeight::SemiBold, 0.0),
+      heading5: heading(14.0, FontWeight::SemiBold, 0.0),
+      heading6: TextStyle {
+        case: TextCase::Upper,
+        ..heading(12.0, FontWeight::SemiBold, 0.8)
+      },
+      prose: TextStyle {
+        font_size: 14.0,
+        line_height: 1.6,
+        ..body.clone()
+      },
+      article: TextStyle {
+        font_size: 15.0,
+        line_height: 1.65,
+        ..body.clone()
       },
       extra: HashMap::new(),
     }
@@ -313,9 +427,10 @@ impl ThemeTypography {
       link: body.clone(),
       mono: TextStyle {
         font_family: mono_family,
-        ..body
+        ..body.clone()
       },
-      extra: HashMap::new(),
+      // 0.61 had no roles of a document: they are the design's, on its body text.
+      ..Self::document_roles(&body)
     }
   }
 }

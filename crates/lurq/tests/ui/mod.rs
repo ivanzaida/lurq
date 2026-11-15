@@ -7,12 +7,14 @@ mod avatar;
 mod badge;
 #[cfg(feature = "canvas")]
 mod bar_chart;
+mod blockquote;
 mod breadcrumb;
 mod button;
 mod calendar;
 mod card;
 mod checkbox;
 mod choice_card;
+mod code_block;
 mod collapsible;
 mod color_field;
 mod color_picker;

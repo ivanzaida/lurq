@@ -23,6 +23,7 @@ mod badge;
 mod banner;
 #[cfg(feature = "canvas")]
 mod bar_chart;
+mod blockquote;
 mod breadcrumb;
 mod button;
 mod button_group;
@@ -34,6 +35,7 @@ mod chart;
 mod checkbox;
 mod chip;
 mod choice_card;
+mod code_block;
 mod collapsible;
 mod color_field;
 mod color_picker;
@@ -146,6 +148,7 @@ pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeSta
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 #[cfg(feature = "canvas")]
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
+pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
@@ -179,6 +182,9 @@ pub use choice_card::{
   CheckboxCard, CheckboxCardGroup, ChoiceCardGroupPart, ChoiceCardGroupRenderer, ChoiceCardGroupState,
   ChoiceCardGroupView, ChoiceCardKind, ChoiceCardPart, ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, RadioCard,
   RadioCardGroup,
+};
+pub use code_block::{
+  CODE_BLOCK_COPIED_FOR, CodeBlock, CodeBlockPart, CodeBlockRenderer, CodeBlockState, CodeBlockView,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use color_field::{
