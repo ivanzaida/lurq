@@ -8,6 +8,8 @@
 mod doc;
 mod icon;
 mod kit;
+#[cfg(test)]
+mod narrow;
 mod pages;
 mod playground;
 mod shell;
