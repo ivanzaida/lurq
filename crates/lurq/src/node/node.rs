@@ -628,6 +628,13 @@ pub(crate) trait NodeUpdate {
   fn within_hovered_style(&mut self, style: Style);
   fn within_pressed_style(&mut self, style: Style);
   fn interaction_group(&mut self, group: bool);
+  /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
+  /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system so, which on
+  /// Windows answers the system's hit test with the minimize, the maximize or the close button where the element
+  /// is laid out and nothing covers it, so that Windows 11 opens its snap layouts over the maximize control. The
+  /// element is otherwise as before: its states, its `on_click`, its cursor and its keys are its own. On other
+  /// platforms this does nothing.
+  fn window_control(&mut self, control: WindowControl);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
@@ -862,6 +869,25 @@ pub enum HitTestBehavior {
   ContentOnly,
 }
 
+/// One of the window's controls: what an element of a title bar the app draws itself is to the window. See
+/// `.window_control(..)` on an element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowControl {
+  /// The control that minimizes the window.
+  Minimize,
+  /// The control that maximizes the window, or restores it while it is maximized.
+  Maximize,
+  /// The control that closes the window.
+  Close,
+}
+
+/// Whether any node of the process was ever one of a window's controls. Until one is, no tree has any to find.
+static WINDOW_CONTROLS_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn window_controls_in_use() -> bool {
+  WINDOW_CONTROLS_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SyntheticNodeRole {
   OverlayHost,
@@ -985,6 +1011,8 @@ pub(crate) struct RareStyle {
   /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
   /// see [`NodeUpdate::interaction_group`].
   pub(crate) interaction_group: bool,
+  /// Which of the window's controls the node is, if it is one; see [`NodeUpdate::window_control`].
+  pub(crate) window_control: Option<WindowControl>,
 }
 
 /// Whether any node of the process was ever disabled. Until one is, no tree
@@ -1681,6 +1709,11 @@ impl NodeUpdate for Node {
 
   fn interaction_group(&mut self, group: bool) {
     self.rare_style.interaction_group = group;
+  }
+
+  fn window_control(&mut self, control: WindowControl) {
+    self.rare_style.window_control = Some(control);
+    WINDOW_CONTROLS_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
   }
 
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style) {
@@ -5509,6 +5542,11 @@ impl Node {
   /// Whether the node is an interaction group: see [`NodeUpdate::interaction_group`].
   pub(crate) fn is_interaction_group(&self) -> bool {
     self.rare_style.interaction_group
+  }
+
+  /// Which of the window's controls the node is: see [`NodeUpdate::window_control`].
+  pub(crate) fn window_control(&self) -> Option<WindowControl> {
+    self.rare_style.window_control
   }
 
   /// Whether the node has a style for while its interaction group is lit.

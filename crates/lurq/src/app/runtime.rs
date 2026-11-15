@@ -131,6 +131,7 @@ mod touch_pointer_tests;
 mod touch_tests;
 mod typeahead;
 mod wheel_scroll;
+mod window_controls;
 
 use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
@@ -770,6 +771,8 @@ pub struct Tree {
   /// there; `None` once it left the window. The hover is hit-tested again
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
+  /// Whether a shell asked for where the window's controls are, after each layout: see `window_controls`.
+  publishes_window_controls: bool,
   hover_path: Vec<NodeId>,
   /// The row a group of rows stepped to that its list had not built: focused once it is (`nested_focus`).
   pending_row_focus: Option<nested_focus::PendingRowFocus>,
@@ -1263,6 +1266,7 @@ impl Tree {
       scale_factor: 1.0,
       window: crate::app::window::Window::new(),
       pointer: None,
+      publishes_window_controls: false,
       hover_path: Vec::new(),
       pending_row_focus: None,
       within_states: Vec::new(),
@@ -7616,6 +7620,7 @@ impl Tree {
         self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
       }
       self.last_layout = Some(layout);
+      self.leave_window_controls();
       self.blur_focus_in_dropped_child();
       self.apply_pending_row_focus();
       self.tree_rebuilt_since_layout = false;
