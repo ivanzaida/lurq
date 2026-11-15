@@ -296,3 +296,27 @@ pass    pass=12  root=OverlayHost  laid_out=41  hits=18  repairs=6  ms=1.284
 `reason` is `local-dirty` (the node changed, or was never laid out), `descendant-dirty` (a descendant changed and the cached result could not be repaired in place), `no-cached-result` (its cache was not carried over from the node it replaced), `other-constraints` (cached under other constraints only), `cached-tree-mismatch` (the cached result no longer fits its children), `collapsed`, a `repair-*` reason (repairing a dirty child had to lay the node out again) or `direct`. `component` is the tag of the nearest component root at or above the node. `hits` counts nodes served whole from their cache, `repairs` nodes kept while dirty children were laid out again. Compare traces of two builds on the same scenario rather than timings, which vary between runs.
 
 The trace writes tags, element ids, sizes and constraints, never text or input values. It is a development tool, not part of profiling sessions: without `perf_profile` it is compiled out, and without the variable it costs one branch per node laid out. A pass of a [detailed recording](#detailed-recordings) uses the same branch to count those nodes per component and reason into `PassSample::component_layouts`, without element ids, with or without the file.
+
+## Frame sections
+
+With `perf_profile`, a pass times its steps as named frame sections: the setup, `update_layout` and each walk in it
+(`ul:transition_tick`, `ul:animation_tick`, `ul:element_refs_walk`, `ul:verify_scroll_walk`, `ul:dropped_nodes_walk`,
+`compute:overlay_index_walk`, `compute:mark_dirty_walk`, `compute:clear_guards_walk`, `compute:layout_node`), the
+paint's `paint:resolve_quads` and its raster and render, `paint:glyphs_and_render`, and the steps of building
+again a component that changed on its own (`refresh:components`, `refresh:replace_slots`, `refresh:assign_ids`,
+`refresh:interaction`). A section nested in another counts in both.
+
+- `lurq::app::profiler::take_frame_sections()` gives each section's total and how many times it ran on this thread
+  since it was last called, in the order they first ran: a test takes them around the frames it measures.
+- `LURQ_FRAME_SECTIONS_LOG=<file>` appends, every 120 drawn frames, each section's mean over them and the tree's
+  number of nodes, while an app runs.
+
+```text
+passes 120 nodes 4507
+  update_layout: 4.117 ms a pass (120 runs)
+  compute:overlay_index_walk: 0.132 ms a pass (120 runs)
+  paint:resolve_quads: 0.454 ms a pass (120 runs)
+```
+
+The long Markdown document's speed probe prints a frame of scrolling's sections with `LURQ_FRAME_SECTIONS` set:
+`cargo test -p lurq --release --features markdown,perf_profile --test markdown_tests -- speed_of --ignored --nocapture`.

@@ -485,6 +485,7 @@ fn link_child_layout(child: &Node, span_boxes: &[SpanBox], top: f32) -> ChildLay
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }),
   }
 }

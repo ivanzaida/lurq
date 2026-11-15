@@ -34,5 +34,7 @@ const _: () = assert!(size_of::<Padding>() <= 48);
 // An element is a pointer to its heap-allocated root node.
 const _: () = assert!(size_of::<Element>() <= size_of::<usize>());
 const _: () = assert!(size_of::<Node>() <= 1272);
+// What every node keeps of its layout: the frame's subtree flags are packed in it.
+const _: () = assert!(size_of::<crate::node::layout_cache::LayoutCache>() <= 120);
 const _: () = assert!(size_of::<WindowChrome>() <= 1024);
 const _: () = assert!(size_of::<ChromeTitleBar>() <= 1024);

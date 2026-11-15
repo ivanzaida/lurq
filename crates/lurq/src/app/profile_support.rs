@@ -102,6 +102,101 @@ pub(crate) use profile_if;
 pub(crate) use profile_scope;
 pub(crate) use profile_value;
 
+/// What each named section of the frames since the last [`take_frame_sections`] took, on this thread: the walks of
+/// a pass, measured where they run (`perf_profile` only).
+#[cfg(feature = "perf_profile")]
+mod frame_sections {
+  use std::{cell::RefCell, time::Duration};
+
+  use crate::time::Instant;
+
+  thread_local! {
+    static SECTIONS: RefCell<Vec<(&'static str, Duration, u32)>> = const { RefCell::new(Vec::new()) };
+  }
+
+  /// Times a section until it is dropped, and adds that to its name's total.
+  pub(crate) struct FrameSection {
+    name: &'static str,
+    started: Instant,
+  }
+
+  impl FrameSection {
+    pub(crate) fn new(name: &'static str) -> Self {
+      Self {
+        name,
+        started: Instant::now(),
+      }
+    }
+  }
+
+  impl Drop for FrameSection {
+    fn drop(&mut self) {
+      let elapsed = self.started.elapsed();
+      SECTIONS.with(|sections| {
+        let mut sections = sections.borrow_mut();
+        match sections.iter_mut().find(|(name, ..)| *name == self.name) {
+          Some((_, total, count)) => {
+            *total += elapsed;
+            *count += 1;
+          }
+          None => sections.push((self.name, elapsed, 1)),
+        }
+      });
+    }
+  }
+
+  /// Each section's total time and how many times it ran since the last call, in the order they first ran.
+  pub fn take_frame_sections() -> Vec<(&'static str, Duration, u32)> {
+    SECTIONS.with(|sections| std::mem::take(&mut *sections.borrow_mut()))
+  }
+
+  thread_local! {
+    static PASSES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+  }
+
+  /// With `LURQ_FRAME_SECTIONS_LOG` set to a file, appends there every 120 passes each section's mean a pass and
+  /// the tree's size: where an app's frames spend their time, read while it runs.
+  pub(crate) fn log_frame_sections(nodes: impl FnOnce() -> usize) {
+    let Some(path) = std::env::var_os("LURQ_FRAME_SECTIONS_LOG") else {
+      return;
+    };
+    let passes = PASSES.with(|passes| {
+      passes.set(passes.get() + 1);
+      passes.get()
+    });
+    if passes % 120 != 0 {
+      return;
+    }
+    use std::io::Write;
+    let sections = take_frame_sections();
+    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) else {
+      return;
+    };
+    let _ = writeln!(file, "passes {passes} nodes {}", nodes());
+    for (name, total, runs) in sections {
+      let _ = writeln!(
+        file,
+        "  {name}: {:.3} ms a pass ({runs} runs)",
+        total.as_secs_f64() * 1000.0 / 120.0
+      );
+    }
+  }
+}
+
+#[cfg(feature = "perf_profile")]
+pub use frame_sections::take_frame_sections;
+#[cfg(feature = "perf_profile")]
+pub(crate) use frame_sections::{FrameSection, log_frame_sections};
+
+/// Times the rest of the enclosing block as the frame section `$name` (`perf_profile` only).
+macro_rules! frame_section {
+  ($name:expr) => {
+    #[cfg(feature = "perf_profile")]
+    let _frame_section = crate::app::profile_support::FrameSection::new($name);
+  };
+}
+pub(crate) use frame_section;
+
 /// Noisy video/frame timing diagnostics are explicitly opt-in, independently
 /// of the host application's tracing filter. Read once to keep hot paths cheap.
 pub(crate) fn video_diagnostics_enabled() -> bool {

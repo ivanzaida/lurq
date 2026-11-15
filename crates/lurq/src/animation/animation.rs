@@ -446,7 +446,8 @@ impl AnimationEngine {
   }
 
   fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {
-    if !node.prepare_layout_tracking().timeline {
+    // Only where an animation plays: a subtree of transitions alone has nothing for this engine.
+    if !node.prepare_layout_tracking().animations {
       return false;
     }
     #[cfg(test)]

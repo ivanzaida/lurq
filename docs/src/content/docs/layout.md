@@ -837,6 +837,31 @@ VirtualizedList::new(ctx, tasks)
   .mount_keyed::<TaskRow, _, _, _>(|task| task.id, |task| task.clone())
 ```
 
+## What a Frame Walks
+
+A frame costs what changed and what is in view, not what the tree holds. A frame that only scrolls a document of
+3,000 blocks (some 22,000 nodes) lays out the scroll container and draws what is in view, about the same as one of
+300 blocks does.
+
+- **Each subtree knows what is in it** that a frame's walks look for: an element ref, a layer (an overlay, a modal)
+  or a dropdown's anchor, a text input, a select, a scroll container, a child its line may drop
+  (`ShrinkLimit::Drop`, `shrink_drop_below`, a drop marker), a transition, an animation that plays. The walks that
+  index the tree's layers and refs, tell the refs where their elements are, list the dropped nodes and check scroll
+  offsets pass by a subtree that holds none. This knowledge is made again whenever the node, or anything under it,
+  changes or is built again, so a ref added deep in a subtree nothing else touched is found in the frame it appears.
+- **A cached subtree served as it was** is not prepared again: a long content scrolled in its container is the tree
+  laid out last frame, with no walk through its texts or its own scroll containers, while no text's layout changed.
+- **The paint culls a subtree that does not clip** (`overflow_visible`) where all it may paint is out of view: the
+  layout knows where each subtree paints (its box with its own shadows and outline, and its children's where it does
+  not clip them), and leaves 32 px of room for what states and text draw past it. A subtree that may move without a
+  layout (a transform, a transition or an animation of where it is, a canvas, a border outside its box) is never
+  culled for being out of view.
+- **Transitions tick what may have changed**: a subtree in which nothing runs is ticked clean, and not ticked again
+  until it changes, a state of interaction (a hover, a press, the focus) or a theme changes anywhere, or a
+  transition starts in it. Animations tick only where one plays.
+
+`perf_profile` names these steps as [frame sections](../profiling/#frame-sections), to see where a frame goes.
+
 ## Text
 
 Text is measured by the glyph engine and wraps within its width constraint.
