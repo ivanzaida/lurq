@@ -190,6 +190,22 @@ impl Highlight {
     self.view(theme, None)
   }
 
+  /// The fills of the marks in `theme`, the current one in its own style, for a text drawn in a style of its own
+  /// (a cell of a data grid): the find in it keeps the text's weight.
+  pub(crate) fn fills_in(self, theme: &Theme) -> Vec<TextHighlight> {
+    let view = HighlightView {
+      text: self.text,
+      marks: self.marks,
+      current: self.current,
+      keep_weight: true,
+      recipe: theme.resolve::<Highlight>(&Case::new().breakpoint(super::current_breakpoint()), Some(&self.rules)),
+      text_ref: None,
+      id: None,
+      key: None,
+    };
+    view.fills()
+  }
+
   fn view(self, theme: &Theme, text_ref: Option<ElementRef>) -> Element {
     let mut case = Case::new().breakpoint(super::current_breakpoint());
     for state in &self.states {

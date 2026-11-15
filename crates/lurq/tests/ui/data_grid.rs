@@ -2110,3 +2110,101 @@ fn filtered_rows_are_grouped_and_a_groups_count_is_of_those_let_through() {
   stage.pass();
   assert_eq!(rows_built(&stage), [1, 2]);
 }
+
+#[test]
+fn a_search_marks_its_matches_and_f3_goes_through_them_across_rows_not_built() {
+  use lurq::ui::SearchMatches;
+  #[derive(Clone)]
+  struct Number(u32);
+  let rows: Arc<Vec<Number>> = Arc::new((0..100_000).map(Number).collect());
+  let query = Signal::new(String::new());
+  let told: Arc<Mutex<Vec<SearchMatches>>> = Arc::default();
+  let (searched, heard) = (query.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        DataGrid::new_shared(
+          vec![
+            TableColumn::new("n", "Number")
+              .width(120.0)
+              .text(|row: &Number| row.0.to_string()),
+            TableColumn::new("half", "Half")
+              .width(120.0)
+              .text(|row: &Number| (row.0 / 2).to_string()),
+          ],
+          rows.clone(),
+        )
+        .id("g")
+        .label("Numbers")
+        .read_only(true)
+        .height(360.0)
+        .search(searched.clone())
+        .find_bar(true)
+        .on_matches_change(move |matches| heard.lock().unwrap().push(matches))
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+
+  // 99998 is in one cell only: the number of row 99,998 (no half under 50,000 has it).
+  query.set("99998".to_owned());
+  stage.pass();
+  let last = *told.lock().unwrap().last().unwrap();
+  assert_eq!(
+    last,
+    SearchMatches {
+      count: 1,
+      current: Some(0)
+    },
+    "one match, the current one"
+  );
+  assert!(
+    !rows_built(&stage).contains(&99_998),
+    "a match far down is not built until it is gone to"
+  );
+
+  // F3 goes to it, and it is built and in view.
+  into_cells(&mut stage);
+  key(&mut stage, "F3");
+  assert!(
+    rows_built(&stage).contains(&99_998),
+    "the current match is brought into view"
+  );
+
+  // Two columns: 4,000 is in the first column of its row and the second of row 8,000.
+  query.set("4000".to_owned());
+  stage.pass();
+  let matches = *told.lock().unwrap().last().unwrap();
+  assert!(matches.count >= 2, "{matches:?}");
+  key(&mut stage, "F3");
+  assert_eq!(
+    told.lock().unwrap().last().unwrap().current,
+    Some(1),
+    "F3 goes to the next"
+  );
+  assert!(
+    stage.quads().iter().any(
+      |quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::WarningMuted))
+    ),
+    "a match in a cell is marked as a find marks it"
+  );
+  modified(&mut stage, "F3", true, false);
+  assert_eq!(
+    told.lock().unwrap().last().unwrap().current,
+    Some(0),
+    "Shift+F3 to the one before"
+  );
+
+  // Ctrl+F opens the find bar over the grid, its count the matches.
+  modified(&mut stage, "f", false, true);
+  assert!(
+    stage.paints(&format!("1 of {}", matches.count)) || stage.paints(&format!("1/{}", matches.count)),
+    "the find bar says which match of how many"
+  );
+}

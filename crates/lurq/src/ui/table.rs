@@ -34,6 +34,7 @@ mod groups;
 mod heights;
 mod keys;
 mod range;
+mod search;
 mod summary;
 mod text;
 
@@ -49,6 +50,8 @@ use heights::Heights;
 use keys::{KeptIndex, RowKeys};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
+pub use search::SearchMatches;
+use search::{Found, SearchState};
 use summary::{Said, Summary, SummaryKey, summarize, summary_content};
 pub use summary::{SummaryKind, SummaryLabels, TableSummary};
 pub use text::TableTextError;
@@ -833,6 +836,13 @@ pub struct Table<R, K = usize> {
   write_filters: Option<FiltersFn>,
   on_filters_change: Vec<FiltersHeard>,
   filter_row: bool,
+  search: Arc<str>,
+  write_search: Option<Arc<dyn Fn(String) + Send + Sync>>,
+  on_search_change: Vec<Arc<dyn Fn(&str) + Send + Sync>>,
+  search_options: super::highlight::FindOptions,
+  on_matches_change: Vec<Arc<dyn Fn(SearchMatches) + Send + Sync>>,
+  find_bar: bool,
+  find_bar_with: Option<Arc<dyn Fn(super::find_bar::FindBar) -> super::find_bar::FindBar + Send + Sync>>,
   selected: Vec<K>,
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
   on_selection_change: Vec<SelectionHeard<K>>,
@@ -902,6 +912,13 @@ impl<R, K: Clone> Clone for Table<R, K> {
       write_filters: self.write_filters.clone(),
       on_filters_change: self.on_filters_change.clone(),
       filter_row: self.filter_row,
+      search: self.search.clone(),
+      write_search: self.write_search.clone(),
+      on_search_change: self.on_search_change.clone(),
+      search_options: self.search_options,
+      on_matches_change: self.on_matches_change.clone(),
+      find_bar: self.find_bar,
+      find_bar_with: self.find_bar_with.clone(),
       selected: self.selected.clone(),
       select: self.select.clone(),
       on_selection_change: self.on_selection_change.clone(),
@@ -971,6 +988,13 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_filters_change: Vec::new(),
       filter_row: false,
       on_sort_change: Vec::new(),
+      search: Arc::from(""),
+      write_search: None,
+      on_search_change: Vec::new(),
+      search_options: super::highlight::FindOptions::default(),
+      on_matches_change: Vec::new(),
+      find_bar: false,
+      find_bar_with: None,
       selected: Vec::new(),
       select: None,
       on_selection_change: Vec::new(),
@@ -1035,6 +1059,13 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       write_filters: self.write_filters,
       on_filters_change: self.on_filters_change,
       filter_row: self.filter_row,
+      search: self.search,
+      write_search: self.write_search,
+      on_search_change: self.on_search_change,
+      search_options: self.search_options,
+      on_matches_change: self.on_matches_change,
+      find_bar: self.find_bar,
+      find_bar_with: self.find_bar_with,
       selected: Vec::new(),
       select: None,
       on_selection_change: Vec::new(),
@@ -1154,6 +1185,61 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// or no). It stays under the header while the rows scroll.
   pub fn filter_row(mut self, filter_row: bool) -> Self {
     self.filter_row = filter_row;
+    self
+  }
+
+  /// What is searched for in the cells: the signal's query. Every match in the text of a cell of the rows shown
+  /// is marked as a find marks it ([`Highlight`](super::Highlight)), the current one stronger; F3 and Shift+F3 in
+  /// the grid, and the find bar's buttons, go to the next and the one before, across rows not built yet, each
+  /// brought into view. A cell whose content is an element is not searched.
+  pub fn search(mut self, query: Signal<String>) -> Self
+  where
+    String: SignalValue,
+  {
+    self.search = Arc::from(query.get().as_str());
+    self.write_search = Some(Arc::new(move |next| query.set(next)));
+    self
+  }
+
+  /// What is searched for, as the app holds it: `on_change` is told what the find bar has typed.
+  pub fn search_controlled(mut self, query: &str, on_change: impl Fn(String) + Send + Sync + 'static) -> Self {
+    self.search = Arc::from(query);
+    self.write_search = Some(Arc::new(on_change));
+    self
+  }
+
+  /// Called with what is searched for each time the find bar's query changes.
+  pub fn on_search_change(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_search_change.push(Arc::new(handler));
+    self
+  }
+
+  /// How the query matches: the case of its letters, whole words, a regular expression. Ignoring the case,
+  /// anywhere in a word, unless told; the find bar's toggles change it.
+  pub fn search_options(mut self, options: super::highlight::FindOptions) -> Self {
+    self.search_options = options;
+    self
+  }
+
+  /// Called with how many matches the search has and which is the current one, each time that changes.
+  pub fn on_matches_change(mut self, handler: impl Fn(SearchMatches) + Send + Sync + 'static) -> Self {
+    self.on_matches_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether Ctrl+F (Cmd+F) in the grid opens a find bar over it, its query the grid's search, its count the
+  /// matches, its arrows the next and the one before.
+  pub fn find_bar(mut self, find_bar: bool) -> Self {
+    self.find_bar = find_bar;
+    self
+  }
+
+  /// What the grid's find bar is made of besides its query and its matches: its words, the toggles it shows.
+  pub fn find_bar_with(
+    mut self,
+    with: impl Fn(super::find_bar::FindBar) -> super::find_bar::FindBar + Send + Sync + 'static,
+  ) -> Self {
+    self.find_bar_with = Some(Arc::new(with));
     self
   }
 
@@ -2153,6 +2239,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       *host.summaries.lock() = kept;
     }
     let tall = self.tall();
+    // A cell's text with the search's matches in it marked, the current one stronger.
+    let searched = window.as_ref().and_then(|window| window.search.clone());
+    let marked = |rank: usize, column: usize, text: components::Text, shown: &str| -> components::Text {
+      let Some((found, current)) = &searched else {
+        return text;
+      };
+      let (ranges, now) = SearchState::in_cell(found, *current, rank, column);
+      if ranges.is_empty() {
+        return text;
+      }
+      text.highlights(
+        super::highlight::Highlight::new(shown)
+          .marks(ranges)
+          .current(now)
+          .fills_in(theme),
+      )
+    };
     let rows = shown
       .iter()
       .filter_map(|&position| {
@@ -2183,12 +2286,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               .forced(self.forced);
             let content = match (&column.content, column.editor.as_ref().map(|editor| &editor.kind)) {
               // A text that wraps takes the room of its cell, and its lines as many as they need.
-              (Content::Text(text), _) if column.wrap => part
-                .text(&text(row))
+              (Content::Text(text), _) if column.wrap => marked(rank, column_index, part.text(&text(row)), &text(row))
                 .flex_full(1.0, 1.0, Some(0.0))
                 .min_width(Dimension::Px(0.0))
                 .into(),
-              (Content::Text(text), _) => part.text(&text(row)).nowrap().into(),
+              (Content::Text(text), _) => marked(rank, column_index, part.text(&text(row)), &text(row))
+                .nowrap()
+                .into(),
               (Content::Element(cell), _) => cell(row),
               // A column edited with a box that builds no cell of its own shows the box.
               (Content::Nothing, Some(EditorKind::Checkbox(checked))) => Row::new()
@@ -2920,6 +3024,8 @@ struct Window {
   /// The lines the table shows: its rows, or its groups and the rows of the open ones.
   lines: Arc<Lines>,
   on_scroll: Option<Arc<dyn Fn(ScrollEvent) + Send + Sync>>,
+  /// The search's matches and the current one.
+  search: Option<(Arc<Vec<Found>>, usize)>,
 }
 
 /// Where the rows of a mounted table are: the room the rows that are not built take.
@@ -5169,6 +5275,13 @@ struct HostState {
   filter_open: Signal<bool>,
   filter_anchor: ElementRef,
   filters: FilterState,
+  /// The matches of the search and the current one; the find bar's query, whether it is open, and its toggles.
+  search: Mutex<SearchState>,
+  find_open: Signal<bool>,
+  find_query: Signal<String>,
+  find_case: Signal<bool>,
+  find_word: Signal<bool>,
+  find_regex: Signal<bool>,
   group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
@@ -5342,6 +5455,46 @@ struct TableHost<R, K> {
   _marker: PhantomData<fn() -> R>,
 }
 
+impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> TableHost<R, K> {
+  /// The find bar over the grid: its query the grid's search, its count the matches, its arrows the next match
+  /// and the one before.
+  fn find_bar(&self, ctx: &mut Ctx, table: &Table<R, K>) -> Element {
+    let state = &self.state;
+    // The query the app gives is the bar's: one it clears elsewhere is cleared in the bar.
+    if state.find_query.get_untracked() != *table.search {
+      state.find_query.set(table.search.to_string());
+    }
+    let matches = state.search.lock().matches();
+    let (write, heard) = (table.write_search.clone(), table.on_search_change.clone());
+    let (next, previous) = (state.clone(), state.clone());
+    let mut bar = super::find_bar::FindBar::new(state.find_query.clone())
+      .open(state.find_open.clone())
+      .match_case(state.find_case.clone())
+      .whole_word(state.find_word.clone())
+      .matches(matches.current.map_or(0, |current| current + 1), matches.count)
+      .on_query(move |query: &str| {
+        if let Some(write) = &write {
+          write(query.to_owned());
+        }
+        for handler in &heard {
+          handler(query);
+        }
+      })
+      .on_next(move || {
+        next.step_match(1);
+        next.rebuild();
+      })
+      .on_previous(move || {
+        previous.step_match(-1);
+        previous.rebuild();
+      });
+    if let Some(with) = &table.find_bar_with {
+      bar = with(bar);
+    }
+    bar.mount(ctx)
+  }
+}
+
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Component for TableHost<R, K> {
   type Props = TableProps<R, K>;
 
@@ -5377,6 +5530,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         filter_open: ctx.signal(false),
         filter_anchor: ElementRef::new(),
         filters: FilterState::default(),
+        search: Mutex::default(),
+        find_open: ctx.signal(false),
+        find_query: ctx.signal(String::new()),
+        find_case: ctx.signal(false),
+        find_word: ctx.signal(false),
+        find_regex: ctx.signal(false),
         group_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
@@ -5521,6 +5680,39 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let columns_built = state.columns_at(state.scroll.scroll_x()).map(Arc::new);
     *state.columns_built.lock() = columns_built.clone();
 
+    // The matches of the search in the rows shown, kept while nothing they are found in changes.
+    let searched = (!table.search.is_empty()).then(|| {
+      let options = super::highlight::FindOptions {
+        match_case: state.find_case.get() || table.search_options.match_case,
+        whole_word: state.find_word.get() || table.search_options.whole_word,
+        regex: state.find_regex.get() || table.search_options.regex,
+      };
+      let texts: Vec<Option<TextFn<R>>> = table
+        .columns
+        .iter()
+        .map(|column| match &column.content {
+          Content::Text(text) => Some(text.clone()),
+          _ => None,
+        })
+        .collect();
+      let ids = table.columns.iter().map(|column| column.id.clone()).collect();
+      let mut search = state.search.lock();
+      search.heard = table.on_matches_change.clone();
+      let found = search.find(&table.rows, &lines, ids, &texts, &table.search, options);
+      (found, search.current)
+    });
+    if searched.is_none() {
+      let mut search = state.search.lock();
+      search.heard = table.on_matches_change.clone();
+      search.find(
+        &table.rows,
+        &lines,
+        Vec::new(),
+        &[],
+        "",
+        super::highlight::FindOptions::default(),
+      );
+    }
     // A recipe whose rows have no height in pixels builds every row: where they are cannot be reckoned.
     let window = (row_height > 0.0).then(|| {
       let (first, last) = state.range(OVERSCAN).unwrap_or((0, FIRST_ROWS.min(count)));
@@ -5616,19 +5808,51 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         rows: state.clone(),
         lines: lines.clone(),
         on_scroll: Some(on_scroll),
+        search: searched.clone(),
       }
     });
+    let find = table.find_bar.then(|| self.find_bar(ctx, &table));
     let view = table.view(&theme, tracks, window);
-    match theme.renderer::<Table<R, K>>() {
+    let element = match theme.renderer::<Table<R, K>>() {
       Some(renderer) => renderer(view),
       None => view.render(),
+    };
+    if !table.find_bar && table.search.is_empty() {
+      return element;
     }
+    // F3 and Shift+F3 go through the matches; Ctrl+F opens the find bar over the grid.
+    let (keys, opens) = (state.clone(), table.find_bar);
+    let mut stack = components::Stack::new()
+      .width(Dimension::Pct(100.0))
+      .on_key_down(move |event: KeyboardEvent| {
+        let command = event.ctrl || event.meta;
+        if event.key == "F3" {
+          event.prevent_default();
+          keys.step_match(if event.shift { -1 } else { 1 });
+          keys.rebuild();
+        } else if opens && command && !event.alt && (event.code == "KeyF" || event.key.eq_ignore_ascii_case("f")) {
+          event.prevent_default();
+          keys.find_open.set(true);
+        }
+      })
+      .child(element);
+    if let Some(bar) = find {
+      stack = stack.child(bar);
+    }
+    stack.into()
   }
 
   fn after_layout(&self) {
     // A scroll the handler did not see (the bar dragged, a row scrolled into view) or a height first known.
     if self.state.needs_rows() || self.state.needs_columns(self.state.scroll.scroll_x()) {
       self.state.rebuild();
+    }
+    // The app hears how many matches the search has once the render that found them is laid out.
+    let untold = self.state.search.lock().untold();
+    if let Some((matches, heard)) = untold {
+      for handler in &heard {
+        handler(matches);
+      }
     }
   }
 }
