@@ -871,6 +871,10 @@ Text::new("Read the docs").underline(TextUnderline::new());
 Text::new("12.99").strikethrough(TextStrikethrough::new().color(muted));
 ```
 
+- `TextStyle::case` draws a text in capitals (`TextCase::Upper`) or in small letters (`Lower`), like CSS
+  `text-transform`: a typography role says it, as `TypographyStyle::Heading6` does. Only what is drawn changes; the
+  text, what is copied of it, what tooling reads and where a caret stands are the text as written. A letter whose
+  other case is more than one letter or is written in more bytes (`ß`) is drawn as written.
 - `Text::underline(...)` and `Text::strikethrough(...)` set them on one text; `TextStyle::underline` and
   `TextStyle::strikethrough` set them in a style, a typography role's included.
 - Each unset value follows the text: its color (the [foreground](../styling-events/#foreground) it takes, when it names
