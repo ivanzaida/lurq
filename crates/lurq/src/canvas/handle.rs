@@ -179,7 +179,7 @@ impl CanvasHandle {
     &self,
     painter: &super::CanvasPainter,
     metrics_changed: bool,
-    now: std::time::Instant,
+    now: crate::time::Instant,
     still: bool,
   ) -> bool {
     let mut s = self.inner.lock();
@@ -242,7 +242,7 @@ impl CanvasHandle {
   }
 
   /// Draws a moving canvas where it is at `now`, and ends its motion once it is there. Returns whether it drew.
-  pub(crate) fn advance_motion(&self, now: std::time::Instant) -> bool {
+  pub(crate) fn advance_motion(&self, now: crate::time::Instant) -> bool {
     let mut s = self.inner.lock();
     if !s.attached {
       return false;

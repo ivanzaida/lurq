@@ -2057,7 +2057,7 @@ Gauge::new(86).min(20).max(100).low(60).high(85).label("GPU").value_text(|degree
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - The half ring runs from the least value at its start, the left, to the greatest at its end, and the value takes its share from the start. A value outside the range takes none or all of it; its reading says what it is.
-- The ring is painted with [`Canvas::paint`](../canvas/#a-painter-drawing-from-a-builder), sharp at every scale; its reading, its label and its bounds are text, laid over it and under it. Its canvas holds a `value` [item](../canvas/#describing-what-you-drew) where the value's share ends, with the reading as its text.
+- The ring is painted with [`Canvas::paint`](../canvas/#a-drawing-that-follows-from-a-key), sharp at every scale; its reading, its label and its bounds are text, laid over it and under it. Its canvas holds a `value` [item](../canvas/#describing-what-you-drew) where the value's share ends, with the reading as its text.
 - To what reads the tree it is a `meter` called by its label, with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and its reading as `a11y_valuetext`.
 - Parts: `GaugePart::Root`, `Arc` (the canvas: its width and height), `Track` and `Value` (drawn in their part's background, the track as thick as its part's width), `Reading`, `Range`, `Label`, `Bound`. The variant it is resolved with is the tone of the value where it has parts.
 - In the design the gauge is 140 wide, a half ring 140 across and 72 high whose inner edge is 0.78 of its outer, so 15.4 thick: the track in `Secondary`, the value's share in `Chart1`, both with square ends. The reading is 20 at 600 in `Foreground` in the ring, its foot 10 over the ring's. Under the ring, 4 from it, the bounds at the ends, the mono type at 11 in `MutedForeground`, and the label between them, 12 at 500 in `Foreground`.
@@ -5774,7 +5774,7 @@ Sparkline::new([118.0, 124.0, 121.0, 133.0, 129.0, 141.0, 138.0, 144.0])
 
 - Its values run from the first at the start to the last at the end, evenly apart, the least at the bottom and the greatest at the top, as a line of straight steps with round joins and ends, kept half its width in from every edge.
 - Values on both sides of 0 have a line at 0 under them; values all the same make a line across the middle; one value is a dot in the middle; none draw nothing. A value that is not a number is left out.
-- It is painted with [`Canvas::paint`](../canvas/#a-painter-drawing-from-a-builder): sharp at every scale, and painted again when its values, its size, its scale or the theme change.
+- It is painted with [`Canvas::paint`](../canvas/#a-drawing-that-follows-from-a-key): sharp at every scale, and painted again when its values, its size, its scale or the theme change.
 - To what reads the tree it is an `img` called by its label and described by its summary, and its canvas holds a `point` [item](../canvas/#describing-what-you-drew) for each value with the value as its text, which a reader can go through.
 - Parts: `SparklinePart::Root` (the canvas: its width and height), `Line`, `Baseline`, `Point`, each drawn in its part's background and as wide as its part's width.
 - In the design the line is 80 by 28 of straight steps, 1.75 wide with round joins and ends. The board draws nothing else of it: the line at 0 is 1 in `Border`, and a single value a dot of 4 in `Chart1`.
