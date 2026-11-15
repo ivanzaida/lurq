@@ -184,6 +184,75 @@ pub fn to_tsv<'a, R: 'a>(columns: &[TableColumn<R>], rows: impl IntoIterator<Ite
   to_delimited(columns, rows, ExportFormat::Tsv)
 }
 
+/// The words of a grid's bar ([`DataGrid::toolbar`](crate::ui::DataGrid::toolbar)), each said otherwise:
+///
+/// ```
+/// use lurq::ui::GridBarLabels;
+///
+/// let labels = GridBarLabels {
+///   search: "Шукати файли".into(),
+///   ..GridBarLabels::default()
+/// };
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GridBarLabels {
+  /// The bar's name to what reads the tree.
+  pub bar: String,
+  /// The search field's placeholder.
+  pub search: String,
+  /// The button that opens a column's filter, from a menu of the columns that filter.
+  pub filter: String,
+  pub columns: String,
+  pub export: String,
+  /// The group of the densities, and each, from the roomiest.
+  pub density: String,
+  pub comfortable: String,
+  pub default: String,
+  pub compact: String,
+}
+
+impl Default for GridBarLabels {
+  fn default() -> Self {
+    Self {
+      bar: "Grid tools".into(),
+      search: "Search rows".into(),
+      filter: "Filter".into(),
+      columns: "Columns".into(),
+      export: "Export".into(),
+      density: "Density".into(),
+      comfortable: "Comfortable".into(),
+      default: "Default".into(),
+      compact: "Compact".into(),
+    }
+  }
+}
+
+/// What a filter of a column lets through, in a few words: what the bar's tag of the filter says after the column's
+/// title ("Status: Passing, Failed", "Size: 10 to 20").
+pub(super) fn filter_said(filter: &super::ColumnFilter) -> String {
+  use super::{ColumnFilter, TextMatch};
+  let range = |from: Option<String>, to: Option<String>| match (from, to) {
+    (Some(from), Some(to)) if from == to => from,
+    (Some(from), Some(to)) => format!("{from} to {to}"),
+    (Some(from), None) => format!("from {from}"),
+    (None, Some(to)) => format!("to {to}"),
+    (None, None) => String::new(),
+  };
+  match filter {
+    ColumnFilter::Text { how, text } => match how {
+      TextMatch::Contains => text.clone(),
+      TextMatch::StartsWith => format!("{text}…"),
+      TextMatch::Equals => format!("= {text}"),
+    },
+    ColumnFilter::Number { at_least, at_most } => {
+      range(at_least.map(|n| n.to_string()), at_most.map(|n| n.to_string()))
+    }
+    ColumnFilter::Date { from, to } => range(from.map(|day| day.to_string()), to.map(|day| day.to_string())),
+    ColumnFilter::Set(values) => values.join(", "),
+    ColumnFilter::Bool(value) => if *value { "yes" } else { "no" }.to_owned(),
+  }
+}
+
 /// Where a column's menu writes the grid's rows out from: whether anything is selected to write, and the words.
 #[derive(Clone)]
 pub(super) struct ExportLink {

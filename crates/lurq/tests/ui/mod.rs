@@ -27,6 +27,7 @@ mod command_bar;
 mod command_palette;
 mod context_menu;
 mod data_grid;
+mod data_grid_bar;
 mod data_grid_editing;
 mod data_grid_scale;
 mod data_grid_tree;

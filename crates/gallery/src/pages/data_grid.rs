@@ -209,6 +209,9 @@ pub struct DataGridPage {
   exported: Signal<String>,
   /// Whether the playground's rows have a detail; the tree's rows open, and the details open of the section's grid.
   played_detail: Signal<bool>,
+  /// Whether the playground's grid has its bar, and the filters of the section's grid with its bar.
+  played_bar: Signal<bool>,
+  bar_filters: Signal<TableFilters>,
   tree_open: Signal<Vec<String>>,
   details_open: Signal<Vec<String>>,
 }
@@ -442,6 +445,7 @@ impl DataGridPage {
     );
     let exporting = self.exporting.get();
     let played_detail = self.played_detail.get();
+    let played_bar = self.played_bar.get();
     let mut grid = DataGrid::new(played_columns, sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -489,6 +493,9 @@ impl DataGridPage {
     }
     if played_detail {
       grid = grid.detail(file_detail);
+    }
+    if played_bar {
+      grid = grid.toolbar(true);
     }
     if fixed_height {
       grid = grid.height(240.0);
@@ -621,6 +628,7 @@ impl DataGridPage {
         self.played_filters.clone(),
         self.exporting.clone(),
         self.played_detail.clone(),
+        self.played_bar.clone(),
       ),
     );
     let still = {
@@ -713,6 +721,7 @@ impl DataGridPage {
             "detail(|row| ..): a panel under a row, opened at its chevron",
             &self.played_detail,
           ),
+          flag("toolbar: the bar of its tools over it", &self.played_bar),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -752,6 +761,7 @@ impl DataGridPage {
           filter_row,
           !exporting,
           played_detail,
+          played_bar,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -783,6 +793,7 @@ impl DataGridPage {
           reset.19.2.set(TableFilters::new());
           reset.19.3.set(true);
           reset.19.4.set(false);
+          reset.19.5.set(false);
         }),
       },
     )
@@ -883,6 +894,8 @@ impl Component for DataGridPage {
       export_selected: ctx.signal(vec!["canvas.rs".to_owned(), "layout.rs".to_owned()]),
       exported: ctx.signal(String::new()),
       played_detail: ctx.signal(false),
+      played_bar: ctx.signal(false),
+      bar_filters: ctx.signal(TableFilters::new().with("status", ColumnFilter::one_of(["Passing"]))),
       tree_open: ctx.signal(vec!["src".to_owned(), "render".to_owned()]),
       details_open: ctx.signal(vec!["layout.rs".to_owned()]),
     }
@@ -1358,6 +1371,16 @@ impl Component for DataGridPage {
         text => lurq::ui::CodeBlock::new(&text).into(),
       });
 
+    // The board's bar over a grid: the search, a tag for each filter set, Filter, the density, the columns, Export.
+    let bar_grid = DataGrid::new(filtered_columns(columns(false)), files(8))
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .toolbar(true)
+      .filters(self.bar_filters.clone())
+      .height(320.0)
+      .key("bar")
+      .mount(ctx);
+
     // A tree of folders and files, and files whose rows open on their details.
     let tree_grid = Column::new()
       .spacing(16.0)
@@ -1706,6 +1729,22 @@ impl Component for DataGridPage {
               "    })",
               "    .mount(ctx)",
               "// Without the grid: lurq::ui::to_csv(&columns, &rows)",
+            ],
+          ),
+        ),
+        Section::new(
+          "The bar over the grid",
+          "toolbar(true) puts the board's Table Toolbar over the grid, built from a Toolbar: a search field that is the grid's search, a tag for each filter set whose × takes it off, Filter for a column's filter, and at the end the density, which the grid takes, the columns to show, and Export. What does not fit goes into the bar's menu.",
+          self.frame.demo(
+            16,
+            bar_grid,
+            ".toolbar(true)",
+            &[
+              "DataGrid::new(columns, files.get())",
+              "    .filters(filters) // a tag for each filter set",
+              "    .toolbar(true)",
+              "    .toolbar_labels(GridBarLabels { search: \"Search files\".into(), ..GridBarLabels::default() })",
+              "    .mount(ctx)",
             ],
           ),
         ),

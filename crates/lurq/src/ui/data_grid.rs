@@ -103,6 +103,9 @@ use crate::{
 /// of each group open, with a sum, an average, a count, the least or the most the grid computes of a column of
 /// numbers, or the app's text.
 ///
+/// **The bar over it** ([`toolbar`](Self::toolbar)): the board's Table Toolbar, its search field the grid's search, a
+/// tag for each filter set, Filter, the density, the columns and Export.
+///
 /// **Tree rows** ([`tree`](Self::tree)): each row under the row its parent key names, indented in the first column
 /// with a chevron that opens and closes it, Right and Left there too. **A row's detail** ([`detail`](Self::detail)):
 /// an element under an open row, as wide as the view. Both are lines of the grid's windowing.
@@ -607,6 +610,20 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// The words of the export in the grid's menu.
   pub fn export_labels(self, labels: super::ExportLabels) -> Self {
     self.with(|table| table.export_labels(labels))
+  }
+
+  /// The bar of the grid's tools over it, as the board's Table Toolbar draws it, built from a
+  /// [`Toolbar`](super::Toolbar): a search field that is the grid's search (the app's, or the grid's own), a tag
+  /// for each filter set whose × takes it off, Filter (a menu of the columns that filter, each opening its filter),
+  /// and at the end the density, which the grid takes once a person chooses one, the columns to show, and Export.
+  /// What does not fit goes into the bar's menu, the search field last. Off unless told.
+  pub fn toolbar(self, toolbar: bool) -> Self {
+    self.with(|table| table.set_toolbar(toolbar))
+  }
+
+  /// The words of the grid's bar.
+  pub fn toolbar_labels(self, labels: super::GridBarLabels) -> Self {
+    self.with(|table| table.set_toolbar_labels(labels))
   }
 
   /// Whether Ctrl+F opens a find bar over the grid: see [`Table::find_bar`].
