@@ -382,20 +382,25 @@ fn near(a: f32, b: f32, what: &str) {
 }
 
 #[test]
-fn keys_stand_between_the_spaces_of_their_sentence() {
-  let space = width_of("a a") - width_of("aa");
+fn keys_stand_between_the_spaces_of_their_sentence_the_designs_gap_apart() {
+  // The design's Keyboard run: Press, Ctrl, K and the rest 6 apart.
+  let gap = 6.0;
   let (tree, x, width) = line_of("Press <kbd>Ctrl</kbd> <kbd>K</kbd> to search the docs.");
   let keys = boxes(&tree);
   assert_eq!(keys.len(), 2, "{keys:?}");
   let (ctrl, k) = (keys[0], keys[1]);
-  near(ctrl.0, x + width_of("Press") + space, "Ctrl after Press and a space");
-  near(k.0, ctrl.0 + ctrl.2 + space, "K a space after Ctrl");
+  near(ctrl.0, x + width_of("Press") + gap, "Ctrl 6 after Press");
+  near(k.0, ctrl.0 + ctrl.2 + gap, "K 6 after Ctrl");
   near(
     x + width,
-    k.0 + k.2 + space + width_of("to search the docs."),
-    "the rest a space after K",
+    k.0 + k.2 + gap + width_of("to search the docs."),
+    "the rest 6 after K",
   );
-  assert!(k.0 > ctrl.0 + ctrl.2, "their boxes apart");
+  // The spaces are the sentence's own: it copies as written.
+  assert_eq!(
+    MarkdownProps::new("Press <kbd>Ctrl</kbd> <kbd>K</kbd> to search the docs.").rendered_text(),
+    "Press Ctrl K to search the docs."
+  );
 }
 
 #[test]
@@ -441,8 +446,8 @@ fn code_beside_a_comma_ends_where_the_comma_starts() {
   );
   near(
     code.0,
-    x + width_of("Call") + (width_of("a a") - width_of("aa")),
-    "a space before the box",
+    x + width_of("Call") + 6.0,
+    "the design's gap before the box, where a space stands",
   );
 }
 
@@ -480,10 +485,26 @@ fn keys_and_code_keep_their_size_and_the_words_after_them_theirs() {
   let alone = width_of("closes it");
   let (tree, x, width) = line_of("<kbd>Esc</kbd> closes it");
   let key = boxes(&tree)[0];
-  let space = width_of("a a") - width_of("aa");
   near(
     x + width,
-    key.0 + key.2 + space + alone,
+    key.0 + key.2 + 6.0 + alone,
     "the words after the key at their own size",
+  );
+}
+
+#[test]
+fn a_footnotes_number_is_raised_above_the_line() {
+  let (_, tree) = mount(MarkdownProps::new("Frame time stayed under 7 ms[^1].\n\n[^1]: Measured.").width(500.0));
+  let reference = style_of(&tree, "1").expect("the reference is drawn");
+  assert_eq!(reference.font_size, 11.0);
+  // Its top at the line's top, as the design draws it: 0.45 of the text's 15 above the baseline.
+  assert!(
+    (reference.baseline_shift - 6.75).abs() < 0.01,
+    "{}",
+    reference.baseline_shift
+  );
+  assert_eq!(
+    style_of(&tree, "Frame time stayed under 7 ms").map(|style| style.baseline_shift),
+    Some(0.0)
   );
 }

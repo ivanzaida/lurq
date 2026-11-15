@@ -414,6 +414,21 @@ TextInput::new(query.clone()).letter_spacing(0.5);
 
 `Text::letter_spacing(...)` overrides the spacing of whatever style the text resolves to, including typography roles. `TextInput::letter_spacing(...)` sets it on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces it, as with `text_align(...)`. Markdown styles take `MarkdownTextStyle::letter_spacing`, which `font_size_scale` does not scale, and canvas text takes `CanvasFont::letter_spacing`. Within rich text every span's spacing is in pixels, whatever its font size. Non-finite values are treated as `0.0`.
 
+### Baseline Shift
+
+`TextStyle::baseline_shift` draws a span of a rich text above the line's baseline, in logical pixels, like CSS `vertical-align` with a length; negative values draw it below. The default is `0.0`. Only the glyphs move: the line's height, the wrapping, the carets and what a selection covers stay those of the baseline, so a raised footnote's number neither opens its line nor moves the text beside it. It scales with the display scale factor like `font_size`. A Markdown document raises a footnote's number with `MarkdownTextStyle::baseline_shift`, in ems of the text it is in: `ThemeMarkdown::footnote_reference` raises it 0.45 of it, its top at the line's top, as the design draws it.
+
+```rust
+use lurq::layout::{quad::RichTextSpan, text_style::TextStyle};
+
+let words = TextStyle::default();
+let note = TextStyle { font_size: words.font_size * 0.75, baseline_shift: 6.0, ..words.clone() };
+let spans = vec![
+  RichTextSpan { text: "Frame time".into(), style: words },
+  RichTextSpan { text: "1".into(), style: note },
+];
+```
+
 ### Font Features
 
 `TextStyle::font_features` holds OpenType feature settings, like CSS `font-feature-settings`. Each `FontFeature` is a four-byte tag and a value: `0` turns the feature off, `1` turns it on, and features that pick an alternate (`salt`, `cvNN`) take its index. The default is empty, which keeps the shaper's default features, including standard ligatures (`liga`), contextual alternates (`calt`), and kerning.

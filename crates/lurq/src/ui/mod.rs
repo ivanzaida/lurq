@@ -276,6 +276,7 @@ pub use floating_panel::{
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 #[cfg(feature = "canvas")]
 pub use heatmap::{Heatmap, HeatmapPart};
+#[cfg(feature = "markdown")]
 pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};

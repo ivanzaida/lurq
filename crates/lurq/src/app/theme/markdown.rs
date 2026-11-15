@@ -34,6 +34,9 @@ pub struct MarkdownTextStyle {
   pub underline: Option<TextUnderline>,
   /// Draws a line through the text; replaces the base style's.
   pub strikethrough: Option<TextStrikethrough>,
+  /// Draws the text above the line's baseline, in ems of the text it is in (`TextStyle::baseline_shift`): a
+  /// footnote's number.
+  pub baseline_shift: Option<f32>,
 }
 
 impl MarkdownTextStyle {
@@ -78,6 +81,9 @@ impl MarkdownTextStyle {
     }
     if let Some(strikethrough) = self.strikethrough {
       style.strikethrough = Some(strikethrough);
+    }
+    if let Some(shift) = self.baseline_shift {
+      style.baseline_shift = shift * base.font_size;
     }
     style
   }
@@ -262,6 +268,9 @@ pub struct ThemeMarkdown {
   pub list_marker_gap: f32,
   /// The room between a bullet or a task's box and its item.
   pub bullet_gap: f32,
+  /// The room from a key's or code's box to a word or a box beside it, where a space stands between them: a space
+  /// of the sentence and as much more as makes this.
+  pub box_gap: f32,
   /// The room before a bullet, from the start of the list.
   pub bullet_indent: f32,
   /// The side of a bullet: a dot at the first level, a ring under it.
@@ -531,6 +540,8 @@ impl Default for ThemeMarkdown {
     footnote_reference.text.font_size_scale = of_15(11.0);
     footnote_reference.text.weight = Some(FontWeight::SemiBold);
     footnote_reference.text.color = color(Info);
+    // Raised, its top at the line's top, as the design draws it: 7 over the text's 15.
+    footnote_reference.text.baseline_shift = Some(0.45);
 
     let mut footnote = MarkdownInlineStyle::default();
     footnote.text.font_size_scale = of_15(13.0);
@@ -543,6 +554,7 @@ impl Default for ThemeMarkdown {
       nested_block_spacing: 6.0,
       list_marker_gap: 8.0,
       bullet_gap: 10.0,
+      box_gap: 6.0,
       bullet_indent: 6.0,
       bullet_size: 5.0,
       unordered_list_marker_width: 11.0,

@@ -281,6 +281,7 @@ struct RichTextSpanCacheKey {
   font_size_bits: u32,
   line_height_bits: u32,
   letter_spacing_bits: u32,
+  baseline_shift_bits: u32,
   font_features: FontFeatures,
   weight: u16,
   style: u8,
@@ -297,6 +298,7 @@ impl RichTextSpanCacheKey {
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
       letter_spacing_bits: letter_spacing_bits(style.letter_spacing),
+      baseline_shift_bits: letter_spacing_bits(style.baseline_shift),
       font_features: style.font_features.clone(),
       weight: style.weight.value(),
       style: style_to_u8(style.style),
@@ -312,6 +314,7 @@ impl RichTextSpanCacheKey {
       && self.font_size_bits == (style.font_size * scale).to_bits()
       && self.line_height_bits == style.line_height.to_bits()
       && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing * scale)
+      && self.baseline_shift_bits == letter_spacing_bits(style.baseline_shift * scale)
       && self.font_features == style.font_features
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
@@ -373,6 +376,7 @@ fn hash_rich_text_spans(spans: &[RichTextSpan], scale: f32, hasher: &mut Default
     (style.font_size * scale).to_bits().hash(hasher);
     style.line_height.to_bits().hash(hasher);
     letter_spacing_bits(style.letter_spacing * scale).hash(hasher);
+    letter_spacing_bits(style.baseline_shift * scale).hash(hasher);
     style.font_features.hash(hasher);
     style.weight.value().hash(hasher);
     style_to_u8(style.style).hash(hasher);
@@ -2862,12 +2866,19 @@ impl GlyphEngine {
     #[cfg(feature = "perf_profile")]
     let phase_start = Instant::now();
     let mut glyphs = Vec::new();
+    // A span drawn above or below the baseline: its glyphs move, its line does not.
+    let shifted = spans.iter().any(|span| span.style.baseline_shift != 0.0);
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
         if glyph_cluster_is_whitespace(run.text, glyph) {
           continue;
         }
-        let physical = self.hinted_fonts.physical(glyph, run.line_y);
+        let shift = if shifted {
+          spans.get(glyph.metadata).map_or(0.0, |span| span.style.baseline_shift)
+        } else {
+          0.0
+        };
+        let physical = self.hinted_fonts.physical(glyph, run.line_y - shift);
         glyphs.push(CachedRichShapedGlyph {
           x: physical.x as f32,
           y: physical.y as f32,

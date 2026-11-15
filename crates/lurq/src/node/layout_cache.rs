@@ -36,6 +36,9 @@ pub struct LayoutCache {
   pub(crate) subtree: Cell<LayoutSubtree>,
   local_dirty: Cell<bool>,
   descendant_dirty: Cell<bool>,
+  /// The tree this node's served cache entry was last prepared into, and what it was prepared from: boxed, as few
+  /// nodes are served whole.
+  prepared: Cell<Option<Box<PreparedServe>>>,
   /// Whether every descendant cache's front entry belongs to this cache's
   /// front entry, i.e. no older entry was served since the last store.
   /// Serving an older entry skips the descendants, so their front entries
@@ -173,7 +176,17 @@ impl LayoutCache {
       local_dirty: Cell::new(false),
       descendant_dirty: Cell::new(false),
       descendants_match_front: Cell::new(true),
+      prepared: Cell::new(None),
     }
+  }
+
+  /// What this node's served entry was last prepared into, taken out.
+  pub(crate) fn take_prepared(&self) -> Option<Box<PreparedServe>> {
+    self.prepared.take()
+  }
+
+  pub(crate) fn set_prepared(&self, prepared: Option<Box<PreparedServe>>) {
+    self.prepared.set(prepared);
   }
 
   /// The node's watch, made here the first time anything reads or binds it.
@@ -450,6 +463,16 @@ impl LayoutCache {
       + slots_bytes
       + cached_bytes
   }
+}
+
+/// A cached entry served and prepared: its scroll containers synced and its texts' layouts written back. Served
+/// again with nothing moved since, it is the same tree.
+pub(crate) struct PreparedServe {
+  /// The cached entry it was prepared from, by address.
+  pub(crate) served: usize,
+  /// [`crate::node::node_kind::text_state_writes`] once it was prepared.
+  pub(crate) text_writes: u64,
+  pub(crate) result: Arc<LayoutResult>,
 }
 
 impl Default for LayoutCache {

@@ -56,6 +56,11 @@ pub struct TextStyle {
   /// measurement, wrapping, painting, carets and hit testing all use the spaced
   /// advances. Non-finite values are treated as `0.0`.
   pub letter_spacing: f32,
+  /// How far a span of a rich text is drawn above the line's baseline, in logical pixels, like CSS
+  /// `vertical-align: <length>`: a footnote's number, a superscript. Negative draws it below. Only where its glyphs
+  /// are drawn moves: the line's height, the wrapping, the carets and what a selection covers stay those of the
+  /// baseline. `0.0` by default; a plain text and a text input do not shift.
+  pub baseline_shift: f32,
   /// OpenType feature settings for shaping, like CSS `font-feature-settings`.
   /// Empty by default, which keeps the shaper's default features — including
   /// ligatures and contextual alternates. Programming ligatures can misrender
@@ -146,6 +151,7 @@ impl Default for TextStyle {
       vertical_align: VerticalAlign::default(),
       trim_line_box: false,
       letter_spacing: 0.0,
+      baseline_shift: 0.0,
       font_features: FontFeatures::default(),
       color: DEFAULT_TEXT_COLOR,
       caret_color: None,
@@ -163,6 +169,7 @@ impl TextStyle {
   pub(crate) fn scale_pixels(&mut self, factor: f32) {
     self.font_size *= factor;
     self.letter_spacing *= factor;
+    self.baseline_shift *= factor;
   }
 }
 

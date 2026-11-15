@@ -390,6 +390,20 @@ pub(crate) struct TextState {
   inner: Arc<Mutex<TextInner>>,
 }
 
+/// How many times a text's state took another layout than it held: a cached tree prepared after it last moved
+/// holds what its texts show while this stays where it was.
+static TEXT_STATE_WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Counts a text state that took another layout.
+pub(crate) fn note_text_state_write() {
+  TEXT_STATE_WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How many times a text state took another layout, so far.
+pub(crate) fn text_state_writes() -> u64 {
+  TEXT_STATE_WRITES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The carets of a text's painted layout: in device pixels, `scale` of
 /// them per logical pixel. The paint shapes a text at the display scale,
 /// and the carets stay in its pixels; a point is scaled into them and a
@@ -620,15 +634,21 @@ impl TextState {
     text_top: f32,
   ) {
     let mut inner = self.inner.lock().unwrap();
+    let mut changed = inner.render_wrap != render_wrap || inner.text_top != text_top;
     // Serving a cached layout usually writes back what the state already
     // holds; skip the reference-count traffic then.
     if inner.display_text.as_ref().map(Arc::as_ptr) != display_text.map(Arc::as_ptr) {
       inner.display_text = display_text.cloned();
+      changed = true;
     }
     inner.render_wrap = render_wrap;
     inner.text_top = text_top;
     if let Some(carets) = carets {
+      changed |= !inner.carets.positions.same(&carets.positions) || inner.carets.scale != carets.scale;
       inner.carets = carets.clone();
+    }
+    if changed {
+      note_text_state_write();
     }
   }
 
