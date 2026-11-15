@@ -79,6 +79,8 @@ mod line_chart;
 mod link;
 mod list_item;
 mod listbox;
+mod media_time;
+mod media_volume;
 mod mentions;
 mod menu;
 mod menubar;
@@ -96,6 +98,7 @@ mod part_style;
 mod password_input;
 #[cfg(feature = "canvas")]
 mod pie_chart;
+mod play_button;
 mod popconfirm;
 mod popover;
 mod progress;
@@ -110,6 +113,7 @@ mod recipe;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
+mod seek_bar;
 mod segmented;
 mod select;
 mod selection;
@@ -149,6 +153,7 @@ mod token_list;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -303,6 +308,8 @@ pub use list_item::{
   ListView,
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
+pub use media_time::{MEDIA_RATES, MediaTime, media_rate_text, media_time_text};
+pub use media_volume::{MediaVolume, MediaVolumeSize};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
   MentionsState, MentionsView,
@@ -344,6 +351,7 @@ pub use password_input::{
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
+pub use play_button::{PlayButton, PlayButtonSize, PlayButtonVariant};
 pub use popconfirm::{Popconfirm, PopconfirmPart, PopconfirmRenderer, PopconfirmState, PopconfirmView};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub(crate) use progress::keyframes as progress_keyframes;
@@ -381,6 +389,7 @@ pub use scroll_area::{
 pub use search_field::{
   SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldSize, SearchFieldState, SearchFieldView,
 };
+pub use seek_bar::SeekBar;
 pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
@@ -483,6 +492,7 @@ pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
 };
+pub use waveform::Waveform;
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,

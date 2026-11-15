@@ -178,6 +178,19 @@ pub const GRID: &str = "grid";
 pub const TRENDING_UP: &str = "trending-up";
 pub const COLUMNS: &str = "columns";
 pub const FILTER: &str = "filter";
+pub const CAPTIONS: &str = "captions";
+pub const EQUALIZER: &str = "equalizer";
+pub const FORWARD_10: &str = "forward-10";
+pub const FULLSCREEN_EXIT: &str = "fullscreen-exit";
+pub const MUSIC: &str = "music";
+pub const PICTURE_IN_PICTURE: &str = "picture-in-picture";
+pub const PLAY: &str = "play";
+pub const REPEAT: &str = "repeat";
+pub const REPEAT_ONE: &str = "repeat-one";
+pub const REWIND_10: &str = "rewind-10";
+pub const SHUFFLE: &str = "shuffle";
+pub const VOLUME_LOW: &str = "volume-low";
+pub const VOLUME_OFF: &str = "volume-off";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -352,4 +365,17 @@ pub const ALL: &[(&str, char)] = &[
   (TRENDING_UP, '\u{E0A8}'),
   (COLUMNS, '\u{E0A9}'),
   (FILTER, '\u{E0AA}'),
+  (CAPTIONS, '\u{E0AB}'),
+  (EQUALIZER, '\u{E0AC}'),
+  (FORWARD_10, '\u{E0AD}'),
+  (FULLSCREEN_EXIT, '\u{E0AE}'),
+  (MUSIC, '\u{E0AF}'),
+  (PICTURE_IN_PICTURE, '\u{E0B0}'),
+  (PLAY, '\u{E0B1}'),
+  (REPEAT, '\u{E0B2}'),
+  (REPEAT_ONE, '\u{E0B3}'),
+  (REWIND_10, '\u{E0B4}'),
+  (SHUFFLE, '\u{E0B5}'),
+  (VOLUME_LOW, '\u{E0B6}'),
+  (VOLUME_OFF, '\u{E0B7}'),
 ];
