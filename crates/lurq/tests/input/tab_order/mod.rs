@@ -15,6 +15,7 @@ mod moved_overlay;
 mod nested_focus_group;
 mod scroll_into_view;
 mod starting_point;
+mod trapped_overlay;
 mod typeahead;
 mod window_chrome;
 mod window_scope;

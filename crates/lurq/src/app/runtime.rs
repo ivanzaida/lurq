@@ -919,6 +919,8 @@ pub struct Tree {
   /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
   /// overlay that opens or closes from one that stays open.
   overlay_focus_movers: Vec<OwnedElementRef>,
+  /// The anchors of the open overlays that hold Tab while the focus is in them (`Overlay::traps_tab`).
+  overlay_tab_traps: Vec<OwnedElementRef>,
   /// The element the focus goes to in an overlay that takes it and has just opened, once the pass has put
   /// the interaction state back.
   overlay_focus_entry: Option<NodeId>,
@@ -1374,6 +1376,7 @@ impl Tree {
       overlay_focus_entry: None,
       overlay_focus_back: None,
       overlay_focus_returns: Vec::new(),
+      overlay_tab_traps: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
       focus_start: None,
@@ -4649,7 +4652,8 @@ impl Tree {
       .filter(|_| focused.is_none())
       .map(|start| start.point(root, &self.dropped_nodes));
     let moved = self.focus_moving_layers();
-    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, start, reverse) {
+    let trap = self.tab_trap();
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, trap, focused, start, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         if let Some(state) = self.current_slider_state(target.input_id) {
           state.enter_by_tab(reverse);
@@ -8018,6 +8022,7 @@ impl Tree {
         .or_else(|| self.focused_overlay_closed(had_host, &layers));
       self.note_focus_returns(&layers, focus_return.as_ref());
       self.overlay_focus_movers = layers.focus_movers;
+      self.overlay_tab_traps = layers.tab_traps;
       self.overlay_focus_entry = None;
       #[cfg(feature = "canvas")]
       detach_canvases_not_carried(old_parts.unused_canvas_bindings(), Some(&base));
@@ -8057,6 +8062,7 @@ impl Tree {
     self.overlay_focus_entry = self.opened_overlay_focus(&layers);
     self.note_focus_returns(&layers, focus_return.as_ref());
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
+    self.overlay_tab_traps = std::mem::take(&mut layers.tab_traps);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
     self.overlay_layer_parents = self.focus_layer_parents();
@@ -8866,8 +8872,11 @@ fn build_overlays_from_layout_index(
         // Hidden or drawn, it is open: it moves the focus when it opens, not when its anchor comes back. One
         // that Tab reaches after its anchor is walked and gives the focus back as one that takes it, and moves
         // nothing as it opens.
-        if spec.takes_focus || spec.tab_after_anchor {
+        if spec.takes_focus || spec.tab_after_anchor || spec.traps_tab {
           layers.focus_movers.push(spec.anchor.clone());
+        }
+        if spec.traps_tab {
+          layers.tab_traps.push(spec.anchor.clone());
         }
         if spec.takes_focus {
           layers.focus_takers.push(spec.anchor.clone());

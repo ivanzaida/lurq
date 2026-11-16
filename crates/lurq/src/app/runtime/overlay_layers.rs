@@ -48,6 +48,8 @@ pub(super) struct OverlayLayers {
   pub(super) focus_movers: Vec<OwnedElementRef>,
   /// Those of `focus_movers` that move the focus into them as they open (`Overlay::takes_focus`).
   pub(super) focus_takers: Vec<OwnedElementRef>,
+  /// Those of `focus_movers` that hold Tab while the focus is in them (`Overlay::traps_tab`).
+  pub(super) tab_traps: Vec<OwnedElementRef>,
   /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
   pub(super) focus_modals: Vec<NodeId>,
 }
@@ -203,6 +205,30 @@ impl Tree {
           .then(|| Some((anchor.clone(), host.children().get(index + 1)?)))?
       })
       .collect()
+  }
+
+  /// The layer of the overlay that holds Tab (`Overlay::traps_tab`) and has the focus in it, or in an overlay
+  /// hung from an element of it, and so on in: the scope of Tab. None where a modal is over it, which holds Tab
+  /// itself.
+  pub(super) fn tab_trap(&self) -> Option<&Node> {
+    let host = self.root.as_ref()?;
+    if self.overlay_tab_traps.is_empty() || !host.has_synthetic_role(crate::node::SyntheticNodeRole::OverlayHost) {
+      return None;
+    }
+    let mut layer = *self.focused_path.as_deref()?.first()?;
+    // Bounded by the number of layers: a layer's anchor is in a layer under it.
+    for _ in 0..=self.overlay_layer_parents.len() {
+      let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref();
+      if anchor.is_some_and(|anchor| self.overlay_tab_traps.iter().any(|trap| trap.same_handle(anchor))) {
+        let over = host.children().get(layer + 1..).unwrap_or_default();
+        let under_modal = over
+          .iter()
+          .any(|above| above.has_synthetic_role(crate::node::SyntheticNodeRole::Modal));
+        return host.children().get(layer).filter(|_| !under_modal);
+      }
+      layer = self.overlay_layer_parents.get(layer - 1).copied().flatten()?;
+    }
+    None
   }
 
   /// The first element that takes the focus in the topmost layer of the overlay host whose overlay takes the

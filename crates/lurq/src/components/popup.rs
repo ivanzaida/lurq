@@ -92,6 +92,13 @@ impl Popup {
     self
   }
 
+  /// Whether Tab stays in the popup while the focus is in it, going round from its last element to its first:
+  /// see [`Overlay::traps_tab`](crate::app::ctx::Overlay::traps_tab). Off by default.
+  pub fn traps_tab(mut self, traps: bool) -> Self {
+    self.overlay = self.overlay.traps_tab(traps);
+    self
+  }
+
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.overlay = self.overlay.dismiss_on_escape(dismiss);
     self
