@@ -676,7 +676,7 @@ pub const PAGES: &[Page] = &[
     path: "/breadcrumb",
     name: "Breadcrumb",
     icon: Some("chevron-right"),
-    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation step readcrumb tep value icon on_select max_items menu disabled",
+    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation step readcrumb tep value icon on_select max_items menu disabled path control pathcontrol file manager folder folders drive bar segments address variant overflow fold",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
   },

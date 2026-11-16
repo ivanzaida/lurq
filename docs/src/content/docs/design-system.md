@@ -1422,10 +1422,10 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 
 ## Breadcrumb
 
-The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on.
+The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on. As a path control, the folders of a path in a bar, as a file manager has them.
 
 ```rust
-use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, icons};
+use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, BreadcrumbVariant, icons};
 
 Breadcrumb::new([
   BreadcrumbStep::new("Settings").value("/settings"),
@@ -1441,15 +1441,30 @@ Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
   .max_shown(4)
   .separator(BreadcrumbSeparator::slash())
   .mount(ctx);
+
+// A path control: the parts of a path are its steps, each told as the path as far as it. Mounted, it folds the
+// middle of a path longer than its room into the menu of the ellipsis.
+Breadcrumb::path("H:\\projects\\lurq\\crates").on_select(|folder| open(folder)).mount(ctx);
+
+// The same bar for steps of the app's own.
+Breadcrumb::new([
+  BreadcrumbStep::new("Macintosh HD").icon(icons::DRIVE).value("/"),
+  BreadcrumbStep::new("projects").icon(icons::FOLDER).value("/projects"),
+])
+.variant(BreadcrumbVariant::Path);
 ```
 
 | Builder | |
 | --- | --- |
 | `new(steps)` | A breadcrumb of these steps, in order. The last is the page one is on: text, not a link. A `&str` is a step of that label. `Breadcrumb::default()` has none |
 | `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has |
+| `Breadcrumb::path(&str)` | A path control: the path of a folder or a file as a bar of its parts, the `Path` variant of `BreadcrumbStep::path`'s steps, called "Path", which overflows. `on_select` is told the path as far as the part pressed |
+| `BreadcrumbStep::path(&str)` | The steps of a path, apart at `/` and `\`: a drive (`H:`, whose value is `H:\`), the root (`/`) or a share (`\\nas\media`) first, with the icon of a drive, a `~` with a home's, the rest with a folder's. A path to a file is given the file's icon by the app, on the last step |
+| `variant(..)` | `BreadcrumbVariant::Plain` (the default: links in a line of text) or `Path` (segments in a bar, the last in a box of its own), or a variant the theme's recipe names |
+| `overflow(bool)` | Mounted, the steps it has no room for go into the menu of the ellipsis, the ones nearest the first first, the first and the last never, and come back as it is given room. With `max_shown` too, no more than that many are shown where there is room for more |
 | `on_select(Fn(&str))` | Called with the value of the step followed, after the step's own handlers |
 | `max_shown(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_shown - 1`; never fewer than two. All of them without it |
-| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu` |
+| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from, and which steps one that overflows has no room for. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu`, and it drops no step |
 | `menu(Signal<bool>, ElementRef)` | Whether the menu of the hidden steps is open, and what it hangs from, where the app keeps them, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
 | `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
@@ -1459,9 +1474,11 @@ Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
 - Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
 - In the design the steps are 8 apart in the body's 14; the links are in `MutedForeground` and the page in `Foreground` at 500; a chevron of 14 in `MutedForeground` stands between each two. The ellipsis is a square of 24 filled with `Highlight` (the board's `$accent`), with the small radius and an icon of 16 in `Foreground`. Under the pointer a link is in `Foreground`; the ring of the focus is around the link. A step's icon is 14, 4 before its text. A disabled breadcrumb is dimmed, follows nothing and is no stop of Tab.
+- The path control of the design (`Path Control`) is the `Path` variant: a bar 28 high on `Muted` with the medium radius, 4 in from its sides, its segments touching. A segment is 22 high with the small radius, 6 in, an icon of 13 in `MutedForeground` 5 before a text of 12 in `Foreground`; a chevron of 12 in `MutedForeground` stands between each two; the last, the folder one is in, is on `Background` in an edge of 1 in `Border`. The board draws no segment under the pointer and no ellipsis in the bar: a segment has the `StateHover` and `StatePressed` veils, and the ellipsis is a square of 22 with an icon of 13.
+- A breadcrumb is no wider than its room. One that overflows measures before the frame is painted, so its first frame at a width is the settled one; where even the first, the ellipsis and the last have no room, the last is cut with an ellipsis and the steps before it keep theirs. A breadcrumb that does not overflow cuts its last step the same way.
 - A theme gives the separator a renderer of its own with `set_part_renderer::<Breadcrumb, BreadcrumbPartRenderer>(BreadcrumbPart::Separator, ..)`, built once for each place between two steps; or restyles it by the recipe.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb" (or its `label`), each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis, called "Show the hidden steps" (or its `more_label`), says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
-- A renderer that draws another breadcrumb has `view.shown()` (the steps to draw, by index), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
+- A renderer that draws another breadcrumb has `view.shown()` (the steps to lay out, by index: all but those over `max_shown`; `view.hidden` is what the ellipsis stands for, those a row dropped among them), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
 
 ## Pagination
 

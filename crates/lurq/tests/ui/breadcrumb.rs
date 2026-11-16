@@ -15,7 +15,7 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbSeparator, BreadcrumbState, BreadcrumbStep,
-    BreadcrumbView, Case, Interaction, Opacity, icons,
+    BreadcrumbVariant, BreadcrumbView, Case, Interaction, Opacity, icons,
   },
 };
 
@@ -516,4 +516,353 @@ fn a_theme_s_renderer_builds_the_breadcrumb_and_its_links_still_follow() {
   assert!(appearance.1 > settings.1, "one under the other");
   stage.click("appearance");
   assert_eq!(*followed.lock().unwrap(), ["/settings/appearance"]);
+}
+
+/// The board's path control: Macintosh HD, projects, lurq, crates, each segment with an id.
+fn bar() -> Breadcrumb {
+  Breadcrumb::new([
+    BreadcrumbStep::new("Macintosh HD")
+      .icon(icons::DRIVE)
+      .value("/")
+      .id("hd"),
+    BreadcrumbStep::new("projects")
+      .icon(icons::FOLDER)
+      .value("/projects")
+      .id("projects"),
+    BreadcrumbStep::new("lurq")
+      .icon(icons::FOLDER)
+      .value("/projects/lurq")
+      .id("lurq"),
+    BreadcrumbStep::new("crates")
+      .icon(icons::FOLDER)
+      .value("/projects/lurq/crates")
+      .id("crates"),
+  ])
+  .variant(BreadcrumbVariant::Path)
+  .id("bar")
+}
+
+/// The color of the veil over the element with `id`: an inset shadow over its whole box.
+fn veil_of(stage: &mut Stage, id: &str) -> Option<Color> {
+  let (x, y, width, height) = stage.bounds(id);
+  stage.quads().into_iter().find_map(|quad| match &quad.content {
+    QuadContent::BoxShadow(shadow)
+      if shadow.inset && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height) =>
+    {
+      Some(shadow.color)
+    }
+    _ => None,
+  })
+}
+
+/// A press of the pointer on the text `content`.
+fn press_text(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} should be painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+}
+
+/// A path of seven parts, mounted in a window `width` wide with 10 around it: one frame painted.
+fn folding(width: f32, followed: impl Fn(&str) + Send + Sync + Clone + 'static) -> Stage {
+  Stage::first_frame(width, 300.0, move |ctx| {
+    Column::new()
+      .size(width, 300.0)
+      .padding(10.0)
+      .child(
+        Breadcrumb::path("H:\\projects\\lurq\\crates\\gallery\\src\\pages")
+          .id("bar")
+          .on_select(followed.clone())
+          .mount(ctx),
+      )
+      .into()
+  })
+}
+
+#[test]
+fn a_path_control_is_the_board_s_bar_of_segments_with_the_last_in_a_box() {
+  let mut stage = Stage::new(|_| page(bar()));
+  // The bar: 28 high on the muted fill with the medium radius, 4 in from its sides.
+  let way = stage.bounds("bar");
+  assert_eq!(way.3, 28.0);
+  assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Muted)));
+  assert!(
+    stage
+      .fill("bar")
+      .unwrap()
+      .border_radius
+      .is_some_and(|radius| radius.top_left == 6.0),
+    "radius-md"
+  );
+  // A segment: 22 high in the middle of the bar, 6 in, an icon of 13 in the muted foreground 5 before a text of 12.
+  let hd = stage.bounds("hd");
+  assert_eq!((hd.0 - way.0, hd.1 - way.1, hd.3), (4.0, 3.0, 22.0));
+  let drive = stage.text_quad(&glyph(icons::DRIVE)).unwrap();
+  assert_eq!(
+    stage.text(&glyph(icons::DRIVE)),
+    (light(PaletteColor::MutedForeground), 13.0)
+  );
+  assert!((drive.x - hd.0 - 6.0).abs() < 0.01, "6 in");
+  let label = stage.text_quad("Macintosh HD").unwrap();
+  assert_eq!(stage.text("Macintosh HD"), (light(PaletteColor::Foreground), 12.0));
+  assert!((label.x - (drive.x + 13.0) - 5.0).abs() < 0.01, "5 after the icon");
+  assert!(
+    (hd.0 + hd.2 - (label.x + label.width) - 6.0).abs() < 0.01,
+    "6 after the text"
+  );
+  assert_eq!(stage.fill_color("hd"), None, "a segment has no fill at rest");
+
+  // A chevron of 12 in the muted foreground between each two, touching both.
+  let chevron = glyph(icons::CHEVRON_RIGHT);
+  let chevrons: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == chevron))
+    .collect();
+  assert_eq!(chevrons.len(), 3);
+  assert_eq!(stage.text(&chevron), (light(PaletteColor::MutedForeground), 12.0));
+  let projects = stage.bounds("projects");
+  assert!((chevrons[0].x - (hd.0 + hd.2)).abs() < 0.01, "after the segment");
+  assert!((projects.0 - (chevrons[0].x + 12.0)).abs() < 0.01, "before the next");
+
+  // The last: on the background's fill in an edge of 1, with the small radius; 4 from the end of the bar.
+  let crates = stage.bounds("crates");
+  assert_eq!(crates.3, 22.0);
+  assert_eq!(stage.fill_color("crates"), Some(light(PaletteColor::Background)));
+  let edge = stage.border("crates").expect("the last segment has an edge");
+  let side = edge.border.and_then(|border| border.top).unwrap();
+  assert_eq!((side.width, side.color), (1.0, light(PaletteColor::Border)));
+  assert!(edge.border_radius.is_some_and(|radius| radius.top_left == 4.0));
+  assert!((way.0 + way.2 - (crates.0 + crates.2) - 4.0).abs() < 0.01);
+  assert_eq!(stage.text("crates"), (light(PaletteColor::Foreground), 12.0));
+}
+
+#[test]
+fn a_segment_of_a_path_control_is_veiled_under_the_pointer_and_its_press_tells_its_folder() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |_| page(bar().on_select(tell.clone())));
+  assert_eq!(veil_of(&mut stage, "lurq"), None);
+  stage.hover("lurq");
+  assert_eq!(veil_of(&mut stage, "lurq"), Some(light(PaletteColor::StateHover)));
+  stage.click("lurq");
+  assert_eq!(*followed.lock().unwrap(), ["/projects/lurq"]);
+  stage.click("crates");
+  assert_eq!(followed.lock().unwrap().len(), 1, "the last is where one is");
+  // From the keyboard: Tab goes on from the segment that was pressed, with the ring of the focus.
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.key("Tab");
+  assert!(stage.has_ring(light(PaletteColor::Ring)));
+  stage.key("Enter");
+  assert_eq!(followed.lock().unwrap().len(), 2, "Enter follows the focused segment");
+}
+
+#[test]
+fn the_steps_of_a_path_are_its_parts_each_told_as_the_path_as_far_as_it() {
+  let read = |path: &str| -> Vec<(String, String)> {
+    BreadcrumbStep::path(path)
+      .iter()
+      .map(|step| (step.label().to_owned(), step.value_of().to_owned()))
+      .collect()
+  };
+  let pairs = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+    pairs
+      .iter()
+      .map(|(label, value)| ((*label).to_owned(), (*value).to_owned()))
+      .collect()
+  };
+  assert_eq!(
+    read("H:\\projects\\lurq"),
+    pairs(&[
+      ("H:", "H:\\"),
+      ("projects", "H:\\projects"),
+      ("lurq", "H:\\projects\\lurq")
+    ])
+  );
+  assert_eq!(read("C:"), pairs(&[("C:", "C:\\")]));
+  assert_eq!(
+    read("/usr/local/bin/"),
+    pairs(&[
+      ("/", "/"),
+      ("usr", "/usr"),
+      ("local", "/usr/local"),
+      ("bin", "/usr/local/bin")
+    ]),
+    "a separator at the end is no part"
+  );
+  assert_eq!(
+    read("\\\\nas\\media\\films"),
+    pairs(&[("\\\\nas\\media", "\\\\nas\\media"), ("films", "\\\\nas\\media\\films")]),
+    "a share is one place"
+  );
+  assert_eq!(
+    read("~/notes/todo.md"),
+    pairs(&[("~", "~"), ("notes", "~/notes"), ("todo.md", "~/notes/todo.md")])
+  );
+  assert_eq!(
+    read("crates/lurq"),
+    pairs(&[("crates", "crates"), ("lurq", "crates/lurq")])
+  );
+  assert!(read("").is_empty());
+
+  // A drive, the root and a share have the icon of a drive, a home its own, every other part a folder's.
+  let icons_of = |path: &str| -> Vec<String> {
+    BreadcrumbStep::path(path)
+      .iter()
+      .map(|step| {
+        step
+          .icon_name()
+          .map(|name| name.as_str().to_owned())
+          .unwrap_or_default()
+      })
+      .collect()
+  };
+  assert_eq!(icons_of("H:\\projects"), [icons::DRIVE, icons::FOLDER]);
+  assert_eq!(icons_of("/usr"), [icons::DRIVE, icons::FOLDER]);
+  assert_eq!(icons_of("~/notes"), [icons::HOME, icons::FOLDER]);
+}
+
+#[test]
+fn a_path_s_press_tells_the_folder_and_the_still_form_drops_nothing() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |_| page(Breadcrumb::path("/usr/local/bin").id("bar").on_select(tell.clone())));
+  for part in ["usr", "local", "bin"] {
+    assert!(stage.paints(part), "{part} is shown");
+  }
+  assert!(!stage.paints(&glyph(icons::MORE_HORIZONTAL)), "nothing is hidden");
+  press_text(&mut stage, "local");
+  assert_eq!(*followed.lock().unwrap(), ["/usr/local"]);
+  press_text(&mut stage, "/");
+  assert_eq!(followed.lock().unwrap().last().map(String::as_str), Some("/"));
+}
+
+#[test]
+fn a_mounted_path_folds_its_middle_into_the_menu_where_it_has_no_room_from_its_first_frame() {
+  let middle = ["projects", "lurq", "crates", "gallery", "src"];
+  // With room for all of it, all of it is shown and there is no ellipsis.
+  let mut wide = folding(800.0, |_| {});
+  let first = wide.picture();
+  wide.frame();
+  assert_eq!(first, wide.picture(), "the first frame is the next one");
+  for part in middle {
+    assert!(wide.paints(part), "{part} has room");
+  }
+  assert!(!wide.paints(&glyph(icons::MORE_HORIZONTAL)));
+
+  // In a narrower room the parts nearest the first go, the first and the last stay, and the ellipsis is there.
+  for width in [420.0, 340.0, 260.0] {
+    let mut stage = folding(width, |_| {});
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(first, stage.picture(), "at {width}: the first frame is the next one");
+    assert!(stage.paints("H:") && stage.paints("pages"), "at {width}: the ends stay");
+    assert!(stage.paints(&glyph(icons::MORE_HORIZONTAL)), "at {width}: the ellipsis");
+    let shown: Vec<bool> = middle.iter().map(|part| stage.paints(part)).collect();
+    assert!(!shown[0], "at {width}: the part after the first went first");
+    assert!(
+      shown.windows(2).all(|pair| !pair[0] || pair[1]),
+      "at {width}: the parts that went are the ones nearest the first: {shown:?}"
+    );
+    let (x, _, bar_width, _) = stage.bounds("bar");
+    assert!(
+      x + bar_width <= width - 10.0 + 0.5,
+      "at {width}: the bar is in its room"
+    );
+  }
+  // The narrower, the fewer.
+  let count = |width: f32| {
+    let stage = folding(width, |_| {});
+    middle.iter().filter(|part| stage.paints(part)).count()
+  };
+  assert!(count(420.0) > count(260.0));
+}
+
+#[test]
+fn the_ellipsis_of_a_folded_path_opens_the_parts_that_went_and_choosing_one_tells_its_folder() {
+  let (followed, tell) = log();
+  let mut stage = folding(260.0, tell);
+  assert!(!stage.paints("projects"));
+  stage.click("bar-ellipsis");
+  assert!(stage.paints("projects"), "the menu lists what went");
+  press_text(&mut stage, "projects");
+  assert_eq!(*followed.lock().unwrap(), ["H:\\projects"]);
+  stage.pass();
+  assert!(!stage.paints("projects"), "choosing closed the menu");
+}
+
+#[test]
+fn a_last_step_longer_than_its_room_is_cut_and_the_steps_before_it_keep_theirs() {
+  let name = "a-folder-with-a-name-far-longer-than-the-room-it-is-given";
+  let mut stage = Stage::first_frame(240.0, 200.0, move |ctx| {
+    Column::new()
+      .size(240.0, 200.0)
+      .padding(10.0)
+      .child(Breadcrumb::path(&format!("H:\\projects\\{name}")).id("bar").mount(ctx))
+      .into()
+  });
+  stage.frame();
+  assert!(stage.paints("H:"), "the first keeps its room");
+  assert!(!stage.paints("projects"), "the middle went into the menu first");
+  assert!(!stage.paints(name), "the last has no room for all of itself");
+  let cut = stage.cut_text_quad(name).expect("the last is cut with an ellipsis");
+  let (x, _, width, _) = stage.bounds("bar");
+  assert!(x + width <= 230.5, "the bar is in its room");
+  assert!(cut.x + cut.width <= x + width, "the cut text is in the bar");
+
+  // The plain breadcrumb, not mounted, has the same rule for its page.
+  let mut plain = Stage::new(move |_| {
+    Column::new()
+      .size(240.0, 200.0)
+      .padding(10.0)
+      .child(Breadcrumb::new(["Home", name]).id("way"))
+      .into()
+  });
+  assert!(plain.paints("Home"));
+  assert!(plain.cut_text_quad(name).is_some() && !plain.paints(name));
+  let (x, _, width, _) = plain.bounds("way");
+  assert!(x + width <= 230.5);
+}
+
+#[test]
+fn a_path_that_overflows_and_has_a_most_shown_hides_by_both() {
+  let mut stage = Stage::first_frame(800.0, 300.0, move |ctx| {
+    Column::new()
+      .size(800.0, 300.0)
+      .padding(10.0)
+      .child(
+        Breadcrumb::path("H:\\projects\\lurq\\crates\\gallery\\src\\pages")
+          .id("bar")
+          .max_shown(4)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.frame();
+  // Room for all of it, and no more than four shown: the first, the ellipsis, the last three.
+  for part in ["H:", "gallery", "src", "pages"] {
+    assert!(stage.paints(part), "{part} is shown");
+  }
+  for part in ["projects", "lurq", "crates"] {
+    assert!(!stage.paints(part), "{part} is over the most shown");
+  }
+  assert!(stage.paints(&glyph(icons::MORE_HORIZONTAL)));
+  stage.click("bar-ellipsis");
+  assert!(stage.paints("projects") && stage.paints("crates"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_path_is_a_navigation_called_path_to_tooling() {
+  let mut stage = Stage::new(|_| page(Breadcrumb::path("/usr/local").id("bar")));
+  let said = |stage: &mut Stage, key: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("bar")
+      .and_then(|element| element.description(key))
+  };
+  assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("navigation"));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Path"));
 }

@@ -1,13 +1,18 @@
-//! A breadcrumb: the way to where one is, a step for each place on it.
+//! A breadcrumb: the way to where one is, a step for each place on it. As a path control, the folders of a path in
+//! a bar, as a file manager has them.
 
 use std::{ops::Range, sync::Arc};
+
+use parking_lot::Mutex;
 
 use super::{
   icons,
   menu::{Menu, MenuItem},
   names,
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  part_style::Length,
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
+  text_box::edge,
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -16,10 +21,14 @@ use crate::{
     ctx::{Ctx, Placement},
     theme::{IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::Row,
+  components::{Row, TextOverflow},
   core::{ElementRef, Signal},
-  layout::{Alignment, text_style::FontWeight},
-  node::{CursorIcon, Element},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ShrinkLimit},
+    text_style::FontWeight,
+  },
+  node::{CursorIcon, Element, color::Color},
 };
 
 /// The parts of a breadcrumb a recipe styles.
@@ -67,6 +76,21 @@ pub enum BreadcrumbState {
 names!(BreadcrumbState {
   Collapsed => "collapsed",
   Disabled => "disabled",
+});
+
+/// How a breadcrumb is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum BreadcrumbVariant {
+  /// Links in a line of text, the page one is on after them: the way through an app's pages.
+  #[default]
+  Plain,
+  /// Segments in a bar, the last in a box of its own: the path control of a file manager, the folders of a path.
+  Path,
+}
+
+names!(BreadcrumbVariant {
+  Plain => "plain",
+  Path => "path",
 });
 
 /// What builds a breadcrumb's nodes: a theme's in place of the default one.
@@ -183,6 +207,68 @@ impl BreadcrumbStep {
     self
   }
 
+  /// The steps of the path of a file or a folder, one for each part of it, the value of each the path as far as
+  /// it: what [`Breadcrumb::path`] is made of. Parts are told apart by `/` and by `\`; a drive (`H:`), the root
+  /// (`/`) and a share (`\\nas\media`) are the first step, with the icon of a drive, a `~` has the icon of a home,
+  /// and every other part the icon of a folder. The last part is a folder too: a path to a file is given the
+  /// file's icon by the app, `steps.pop().map(|file| file.icon(icons::FILE))`.
+  ///
+  /// ```
+  /// use lurq::ui::BreadcrumbStep;
+  ///
+  /// let steps = BreadcrumbStep::path("H:\\projects\\lurq");
+  /// let labels: Vec<_> = steps.iter().map(|step| step.label()).collect();
+  /// let values: Vec<_> = steps.iter().map(|step| step.value_of()).collect();
+  /// assert_eq!(labels, ["H:", "projects", "lurq"]);
+  /// assert_eq!(values, ["H:\\", "H:\\projects", "H:\\projects\\lurq"]);
+  /// ```
+  pub fn path(path: &str) -> Vec<Self> {
+    let separates = |c: char| c == '/' || c == '\\';
+    let mut parts: Vec<(usize, usize)> = Vec::new();
+    let mut start = None;
+    for (at, c) in path.char_indices() {
+      match (separates(c), start) {
+        (true, Some(from)) => {
+          parts.push((from, at));
+          start = None;
+        }
+        (false, None) => start = Some(at),
+        _ => {}
+      }
+    }
+    if let Some(from) = start {
+      parts.push((from, path.len()));
+    }
+    let folder = |(_, end): (usize, usize), label: &str| Self::new(label).value(&path[..end]).icon(icons::FOLDER);
+    let mut leading = path.chars().take_while(|c| separates(*c));
+    let (first, second) = (leading.next(), leading.next());
+    let mut steps = Vec::with_capacity(parts.len() + 1);
+    let mut rest = parts.as_slice();
+    match (first, second, rest) {
+      // A share: `\\server\share` is one place.
+      (Some(_), Some(_), [_, share, ..]) => {
+        steps.push(Self::new(&path[..share.1]).icon(icons::DRIVE));
+        rest = &rest[2..];
+      }
+      // The root of a file system.
+      (Some(root), None, _) => steps.push(Self::new(&root.to_string()).icon(icons::DRIVE)),
+      // A drive: its root is the drive with a separator after it.
+      (None, _, [drive, ..]) if path[drive.0..drive.1].ends_with(':') => {
+        let name = &path[drive.0..drive.1];
+        let separator = path[drive.1..].chars().next().unwrap_or('\\');
+        steps.push(Self::new(name).value(&format!("{name}{separator}")).icon(icons::DRIVE));
+        rest = &rest[1..];
+      }
+      (None, _, [home, ..]) if &path[home.0..home.1] == "~" => {
+        steps.push(Self::new("~").icon(icons::HOME));
+        rest = &rest[1..];
+      }
+      _ => {}
+    }
+    steps.extend(rest.iter().map(|part| folder(*part, &path[part.0..part.1])));
+    steps
+  }
+
   pub fn label(&self) -> &str {
     &self.label
   }
@@ -246,9 +332,34 @@ impl From<&str> for BreadcrumbStep {
 /// ([`mount`](Breadcrumb::mount)) keeps whether the menu is open and what it
 /// hangs from; one built on its own opens it only where the app gives it a
 /// signal and an anchor ([`menu`](Breadcrumb::menu)).
+///
+/// A breadcrumb that [overflows](Breadcrumb::overflow) hides the steps its room has no place for in the same menu,
+/// the ones nearest the first first, and shows them again as it is given room: what a mounted breadcrumb does.
+/// Whatever it is, its last step is cut with an ellipsis where it has no room, and the steps before it keep theirs.
+///
+/// ```
+/// use lurq::ui::{Breadcrumb, BreadcrumbStep, BreadcrumbVariant, icons};
+///
+/// # fn build(ctx: &mut lurq::app::ctx::Ctx) {
+/// // A path control: the folders of a path in a bar, each told as the path as far as it. It folds to its room.
+/// let path = Breadcrumb::path("H:\\projects\\lurq\\crates")
+///   .on_select(|folder| println!("open {folder}"))
+///   .mount(ctx);
+/// // The same bar for steps of the app's own.
+/// let places = Breadcrumb::new([
+///   BreadcrumbStep::new("Macintosh HD").icon(icons::DRIVE).value("/"),
+///   BreadcrumbStep::new("projects").icon(icons::FOLDER).value("/projects"),
+/// ])
+/// .variant(BreadcrumbVariant::Path);
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Breadcrumb {
   steps: Vec<BreadcrumbStep>,
+  variant: Name,
+  overflow: bool,
+  /// What a mounted breadcrumb keeps of the steps its row dropped.
+  fold: Option<Fold>,
   max_shown: Option<usize>,
   separator: BreadcrumbSeparator,
   menu: Option<(ElementRef, Signal<bool>)>,
@@ -275,6 +386,9 @@ impl Breadcrumb {
   pub fn new<S: Into<BreadcrumbStep>>(steps: impl IntoIterator<Item = S>) -> Self {
     Self {
       steps: steps.into_iter().map(Into::into).collect(),
+      variant: BreadcrumbVariant::default().into(),
+      overflow: false,
+      fold: None,
       max_shown: None,
       separator: BreadcrumbSeparator::default(),
       menu: None,
@@ -288,6 +402,32 @@ impl Breadcrumb {
       id: None,
       key: None,
     }
+  }
+
+  /// A path control: the path of a file or a folder as a bar of its parts ([`BreadcrumbStep::path`]), each but the
+  /// last pressed to go to that folder, which [`on_select`](Self::on_select) is told as the path as far as it. It
+  /// is the [`BreadcrumbVariant::Path`] of these steps, called "Path", and it [overflows](Self::overflow): mounted,
+  /// a path longer than its room folds its middle into the menu of the ellipsis.
+  pub fn path(path: &str) -> Self {
+    Self::new(BreadcrumbStep::path(path))
+      .variant(BreadcrumbVariant::Path)
+      .overflow(true)
+      .label("Path")
+  }
+
+  /// A [`BreadcrumbVariant`], or a variant the theme's recipe names.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
+    self
+  }
+
+  /// Whether the steps the breadcrumb has no room for go into the menu of the ellipsis: the ones nearest the first
+  /// first, the first and the last never, and back as it is given room. It is what a mounted breadcrumb does
+  /// ([`mount`](Self::mount)): it keeps which steps its row dropped. With [`max_shown`](Self::max_shown) too, no
+  /// more than that many are shown where there is room for more.
+  pub fn overflow(mut self, overflow: bool) -> Self {
+    self.overflow = overflow;
+    self
   }
 
   /// A step, after the steps the breadcrumb has already. The last is the page one is on.
@@ -395,7 +535,8 @@ impl Breadcrumb {
 
   /// Puts the breadcrumb where it goes, keeping whether the menu of the hidden
   /// steps is open and what it hangs from, where the app gives it neither
-  /// ([`menu`](Breadcrumb::menu)).
+  /// ([`menu`](Breadcrumb::menu)), and the steps its row dropped where it
+  /// [overflows](Breadcrumb::overflow).
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     ctx.mount::<BreadcrumbHost>(BreadcrumbProps { breadcrumb: self })
   }
@@ -405,9 +546,24 @@ impl Breadcrumb {
   /// opens the menu of the hidden steps where it is given a signal and an
   /// anchor ([`menu`](Breadcrumb::menu)), or mounted.
   pub fn build(self, theme: &Theme) -> Element {
-    let hidden = hidden(self.steps.len(), self.max_shown);
+    let count = self.steps.len();
+    let counted = hidden(count, self.max_shown);
+    let fold = self.fold.filter(|_| self.overflow);
+    // The steps the row dropped are those after the first, as far as the last of them.
+    let folded = fold.as_ref().and_then(|fold| {
+      (1..count.saturating_sub(1))
+        .rev()
+        .find(|index| fold.read.get(*index).copied().unwrap_or(false))
+        .map(|last| last + 1)
+    });
+    let hidden = match (&counted, folded) {
+      (Some(counted), Some(folded)) => Some(1..counted.end.max(folded)),
+      (Some(counted), None) => Some(counted.clone()),
+      (None, Some(folded)) => Some(1..folded),
+      (None, None) => None,
+    };
     let case = Case {
-      variant: None,
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
@@ -421,6 +577,8 @@ impl Breadcrumb {
     let view = BreadcrumbView {
       steps: self.steps,
       hidden,
+      counted,
+      fold,
       separator: self.separator,
       disabled: self.disabled,
       recipe: theme.resolve::<Breadcrumb>(&case, Some(&self.rules)),
@@ -462,11 +620,25 @@ impl PartialEq for BreadcrumbProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for BreadcrumbProps {}
 
+/// What a mounted breadcrumb that overflows gives the breadcrumb it builds: where each step was laid out, and which
+/// of them its row dropped.
+#[derive(Clone)]
+struct Fold {
+  /// Which steps the last layout dropped, by index: set as the layout drops one and takes one back.
+  dropped: Signal<Vec<bool>>,
+  /// What `dropped` held when this render began.
+  read: Vec<bool>,
+  /// A ref for each step, which says whether it is dropped: a dropped one has no size.
+  refs: Vec<ElementRef>,
+}
+
 /// What a mounted breadcrumb keeps between renders: whether the menu of the hidden steps is open and what it hangs
-/// from.
+/// from, and which steps its row dropped.
 struct BreadcrumbHost {
   anchor: ElementRef,
   open: Signal<bool>,
+  dropped: Signal<Vec<bool>>,
+  refs: Mutex<Vec<ElementRef>>,
 }
 
 impl Component for BreadcrumbHost {
@@ -476,6 +648,8 @@ impl Component for BreadcrumbHost {
     Self {
       anchor: ElementRef::new(),
       open: ctx.signal(false),
+      dropped: ctx.signal(Vec::new()),
+      refs: Mutex::new(Vec::new()),
     }
   }
 
@@ -483,6 +657,21 @@ impl Component for BreadcrumbHost {
     let mut breadcrumb = ctx.props::<BreadcrumbProps>().breadcrumb.clone();
     if breadcrumb.menu.is_none() {
       breadcrumb.menu = Some((self.anchor.clone(), self.open.clone()));
+    }
+    if breadcrumb.overflow {
+      let count = breadcrumb.steps.len();
+      let refs = {
+        let mut refs = self.refs.lock();
+        while refs.len() < count {
+          refs.push(ElementRef::new());
+        }
+        refs[..count].to_vec()
+      };
+      breadcrumb.fold = Some(Fold {
+        read: self.dropped.get(),
+        dropped: self.dropped.clone(),
+        refs,
+      });
     }
     breadcrumb.build(&current_theme())
   }
@@ -500,8 +689,13 @@ fn hidden(count: usize, max: Option<usize>) -> Option<Range<usize>> {
 pub struct BreadcrumbView {
   /// Every step, in order, the hidden ones too.
   pub steps: Vec<BreadcrumbStep>,
-  /// The steps the ellipsis stands for, if some are hidden.
+  /// The steps the ellipsis stands for, if some are hidden: those over [`Breadcrumb::max_shown`], and those the row
+  /// of a breadcrumb that overflows dropped.
   pub hidden: Option<Range<usize>>,
+  /// The steps hidden for being over the most shown: they are not laid out.
+  counted: Option<Range<usize>>,
+  /// What a mounted breadcrumb that overflows keeps.
+  fold: Option<Fold>,
   pub separator: BreadcrumbSeparator,
   pub disabled: bool,
   /// The style of each part of this breadcrumb.
@@ -564,11 +758,17 @@ impl BreadcrumbView {
     index + 1 == self.steps.len()
   }
 
-  /// The steps shown, in order, by their index: all of them but the hidden ones.
+  /// The steps laid out, in order, by their index: all of them but those over the most shown. In a breadcrumb that
+  /// overflows, the steps its row dropped are among them: they are laid out at no size until there is room.
   pub fn shown(&self) -> Vec<usize> {
     (0..self.steps.len())
-      .filter(|index| !self.hidden.as_ref().is_some_and(|hidden| hidden.contains(index)))
+      .filter(|index| !self.counted.as_ref().is_some_and(|counted| counted.contains(index)))
       .collect()
+  }
+
+  /// Whether the breadcrumb hides the steps it has no room for: it overflows, and is mounted.
+  pub fn overflows(&self) -> bool {
+    self.fold.is_some()
   }
 
   /// What following the step at `index` does: its own handlers, then the
@@ -597,6 +797,7 @@ impl BreadcrumbView {
     let mut root = Row::new()
       .align_items(Alignment::Center)
       .overflow_visible()
+      .min_width(0.0)
       .part(&self.part(BreadcrumbPart::Root))
       .describe("a11y_role", "navigation")
       .describe("a11y_name", self.label.clone());
@@ -629,7 +830,19 @@ impl BreadcrumbView {
       if let Some(icon) = self.icon(index) {
         page = page.child(icon);
       }
-      page = page.child(part.text(&step.label).nowrap());
+      // The page gives way last, after every step that can go into the menu, and is cut then: what is before it
+      // keeps its room.
+      page = page
+        .flex_shrink(1.0)
+        .min_width(0.0)
+        .shrink_order(self.steps.len() as i32)
+        .shrink_limit(ShrinkLimit::Content)
+        .child(
+          Row::new()
+            .flex_shrink(1.0)
+            .min_width(0.0)
+            .child(part.text(&step.label).nowrap().text_overflow(TextOverflow::Elipsis)),
+        );
       if let Some(id) = &step.id {
         page = page.id(id.clone());
       }
@@ -637,6 +850,7 @@ impl BreadcrumbView {
     }
     let part = self.step_part(index, BreadcrumbPart::Link);
     let mut link = pressable(&part, self.is_disabled(index))
+      .align_items(Alignment::Center)
       .describe("a11y_role", "link")
       .describe("a11y_name", step.label.clone());
     if let Some(follow) = self.follow(index) {
@@ -698,7 +912,9 @@ impl BreadcrumbView {
   /// The ellipsis, with the menu of the hidden steps it opens, if some are
   /// hidden: a button that turns the menu's open signal.
   pub fn ellipsis(&self) -> Option<Element> {
-    self.hidden.as_ref()?;
+    if self.hidden.is_none() && self.fold.is_none() {
+      return None;
+    }
     let part = self.part(BreadcrumbPart::Ellipsis);
     let (anchor, open) = match &self.menu {
       Some((anchor, open)) => (anchor.clone(), Some(open.clone())),
@@ -706,6 +922,8 @@ impl BreadcrumbView {
     };
     let expanded = open.as_ref().is_some_and(|open| open.get());
     let mut button = pressable(&part, self.disabled)
+      .justify(Justify::Center)
+      .align_items(Alignment::Center)
       .ref_element(anchor.clone())
       .describe("a11y_name", self.more_label.clone())
       .describe("a11y_haspopup", "menu")
@@ -733,21 +951,87 @@ impl BreadcrumbView {
     Some(holder.into())
   }
 
+  /// The room between two things of the root, in pixels: what a separator and its step are apart where they are
+  /// held together.
+  fn gap(&self) -> f32 {
+    self
+      .part(BreadcrumbPart::Root)
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+      .unwrap_or(0.0)
+  }
+
+  /// A separator and what stands after it, held together: what a row drops as one.
+  fn after_separator(&self, element: Element) -> Row {
+    Row::new()
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .spacing(self.gap())
+      .child(self.separator())
+      .child(element)
+  }
+
+  /// The step at `index` of a breadcrumb that overflows, with the separator before it: its row drops them
+  /// together where it has no room, the steps nearest the first first, and its ref says so before the frame is
+  /// painted.
+  fn droppable(&self, fold: &Fold, index: usize) -> Element {
+    let reference = fold.refs[index].clone();
+    let (dropped, count) = (fold.dropped.clone(), self.steps.len());
+    let open = self.menu.as_ref().map(|(_, open)| open.clone());
+    reference.observe_rect_before_paint(move |rect| {
+      let now = rect.width <= 0.0 && rect.height <= 0.0;
+      if dropped.get_untracked().get(index).copied().unwrap_or(false) == now {
+        return;
+      }
+      dropped.update(|dropped| {
+        dropped.resize(count.max(dropped.len()), false);
+        dropped[index] = now;
+      });
+      // With every step back in the row the ellipsis is gone, and its menu with it.
+      if let Some(open) = &open
+        && open.get_untracked()
+        && !dropped.get_untracked().contains(&true)
+      {
+        open.set(false);
+      }
+    });
+    self
+      .after_separator(self.step(index))
+      .flex_shrink(1.0)
+      .shrink_limit(ShrinkLimit::Drop)
+      .shrink_order(index as i32)
+      .ref_element(reference)
+      .into()
+  }
+
   /// How the default renderer builds a breadcrumb: the steps shown, a
   /// separator between each two, and the ellipsis in place of the hidden ones.
+  /// One that overflows holds each step after the first with its separator, for
+  /// its row to drop them together, and its ellipsis is there while one is dropped.
   pub fn render(self) -> Element {
     let mut root = self.root();
     let shown = self.shown();
     for (place, index) in shown.iter().enumerate() {
-      if place > 0 {
-        root = root.child(self.separator());
+      match &self.fold {
+        Some(fold) if place > 0 && !self.is_current(*index) => root = root.child(self.droppable(fold, *index)),
+        _ => {
+          if place > 0 {
+            root = root.child(self.separator());
+          }
+          root = root.child(self.step(*index));
+        }
       }
-      root = root.child(self.step(*index));
       // The ellipsis stands after the first step, where the hidden ones would be.
       if place == 0
         && let Some(ellipsis) = self.ellipsis()
       {
-        root = root.child(self.separator()).child(ellipsis);
+        root = match self.counted {
+          // Steps over the most shown are hidden whatever the room: so is the ellipsis there.
+          Some(_) => root.child(self.separator()).child(ellipsis),
+          None if self.fold.is_some() => root.child(self.after_separator(ellipsis).drop_marker(true)),
+          None => root.child(self.separator()).child(ellipsis),
+        };
       }
     }
     root.into()
@@ -765,11 +1049,22 @@ impl Themed for Breadcrumb {
   /// 24 filled with the highlight (the board's `$accent`), with the small
   /// radius and an icon of 16 in it. Under the pointer a link is in the
   /// foreground.
+  ///
+  /// As a path control (Path Control) it is a bar 28 high on the muted fill
+  /// with the medium radius, 4 in from its sides, its segments touching: each
+  /// 22 high with the small radius, 6 in, an icon of 13 in the muted
+  /// foreground 5 before a text of 12 in the foreground, a chevron of 12 in
+  /// the muted foreground between each two, and the last on the background's
+  /// fill in an edge of 1. The board draws no segment under the pointer and no
+  /// ellipsis in the bar: a segment has the veils of a pressed row, and the
+  /// ellipsis is a segment of its own, a square of 22 with an icon of 13.
   fn recipe() -> Recipe {
     use BreadcrumbPart::*;
-    use PaletteColor::{Foreground, Highlight, MutedForeground, StateHover, StatePressed};
+    use BreadcrumbVariant::Path;
+    use PaletteColor::{Background, Foreground, Highlight, Muted, MutedForeground, StateHover, StatePressed};
+    let path = || Selector::new().variant(Path);
     Recipe::new()
-      .base(Root, |s| s.gap(8.0))
+      .base(Root, |s| s.gap(8.0).max_width(Length::Fill))
       .base(Link, |s| {
         fading(
           s.gap(4.0)
@@ -805,6 +1100,42 @@ impl Themed for Breadcrumb {
       .pressed(Ellipsis, |s| s.veil(StatePressed))
       .focus_visible(Ellipsis, |s| s.focus_ring())
       .base(EllipsisIcon, |s| s.square(IconSize::Md))
+      // The path control: a bar of segments.
+      .variant(Path, Root, |s| {
+        s.height(28.0)
+          .padding_x(4.0)
+          .gap(0.0)
+          .radius(RadiusSize::Md)
+          .background(Muted)
+      })
+      .variant(Path, Link, |s| {
+        s.height(22.0)
+          .padding_x(6.0)
+          .gap(5.0)
+          .font_size(12.0)
+          .foreground(Foreground)
+      })
+      .when(path().hovered(), Link, |s| s.veil(StateHover))
+      .when(path().pressed(), Link, |s| s.veil(StatePressed))
+      .variant(Path, Page, |s| {
+        s.height(22.0)
+          .padding_x(6.0)
+          .gap(5.0)
+          .radius(RadiusSize::Sm)
+          .font_size(12.0)
+          .weight(FontWeight::Normal)
+          .background(Background)
+          .border(edge(PaletteColor::Border))
+      })
+      .variant(Path, Icon, |s| s.square(13.0).foreground(MutedForeground))
+      .variant(Path, Separator, |s| s.font_size(12.0))
+      .variant(Path, SeparatorIcon, |s| s.square(12.0))
+      .variant(Path, Ellipsis, |s| {
+        s.square(22.0)
+          .background(Color::new(0, 0, 0, 0))
+          .foreground(MutedForeground)
+      })
+      .variant(Path, EllipsisIcon, |s| s.square(13.0))
       // Dimmed part by part, so that a disabled step is dimmed alone: what a disabled breadcrumb shows is the same.
       .state(BreadcrumbState::Disabled, Link, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)

@@ -187,7 +187,7 @@ pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRo
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
-  BreadcrumbStep, BreadcrumbView,
+  BreadcrumbStep, BreadcrumbVariant, BreadcrumbView,
 };
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
