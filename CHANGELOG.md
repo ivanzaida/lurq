@@ -45,6 +45,7 @@ Deprecated:
 
 Added:
 
+- The gallery's pages open in tabs, as a browser's do: a strip in its title bar (`ui::WindowTabs` in a `ui::WindowChrome`) over the engine's set of tabs (`Tabs`, `TabOutlet` with no bar of its own), each tab a router with its own history, its page kept as it was left while another is shown. The add button and Ctrl+T open one, a press of the middle button or a press with Ctrl on a page of the side bar opens that page in one, a tab is closed by its button, the middle button or Ctrl+W and dragged along the strip; the last one stays. In a browser the gallery has the one tab, and the browser's own.
 - `RouterHandle::new(routes)`: a router made outside a render, for a place that is added while the app runs, such as a tab a person opens. `Ctx::router` makes the same.
 - `Tabs::move_to(key, index)`: moves a tab among the others, as a strip of tabs a person drags along asks for; the tab keeps its history, its screens and whether it is the one shown.
 - `ui::SidebarItem::on_open_aside(handler)`: called when a person asks for an item beside what is open in place of going to it, with the middle button or a press with Ctrl held (Cmd on macOS): an app with tabs opens it in a new one. Such a press does not choose the item.

@@ -786,6 +786,8 @@ Said on 2026-11-13: the board shows the shape of the app, and was drawn without 
 
 The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, then a page with each component as it lands. The Tokens and Icons pages under Getting started need no component.
 
+Its pages open in tabs, as a browser's do (Ivan, 2026-11-16: with the tabs made for iOS). The set is the engine's `Tabs`, a router with its own history for each tab, shown by a `TabOutlet` with no bar; the strip is `ui::WindowTabs` in the title bar, which is now a `ui::WindowChrome` in place of the title bar the shell drew by hand. The header, the side bar and the search are outside the outlet and go where the tab that is shown is. `crates/gallery/src/tabs.rs`. In a browser there is the one tab, whose router follows the address: the browser has tabs of its own.
+
 ### 15.5 What is built
 
 - **The window has no frame of the system's.** The gallery draws its title bar from the theme with `WindowChrome`: 36 high, the icon and name on the left, minimize, maximize and close on the right in icons of lurq's font, a close control that turns to the destructive color with white on it. `WindowControls::hover_foreground` was added for that: a control kept one foreground in every state.
