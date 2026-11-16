@@ -333,9 +333,14 @@ impl From<&str> for BreadcrumbStep {
 /// hangs from; one built on its own opens it only where the app gives it a
 /// signal and an anchor ([`menu`](Breadcrumb::menu)).
 ///
-/// A breadcrumb that [overflows](Breadcrumb::overflow) hides the steps its room has no place for in the same menu,
-/// the ones nearest the first first, and shows them again as it is given room: what a mounted breadcrumb does.
-/// Whatever it is, its last step is cut with an ellipsis where it has no room, and the steps before it keep theirs.
+/// In a room narrower than its steps a breadcrumb has two forms. The one that folds is
+/// [`overflow(true)`](Breadcrumb::overflow) with [`mount`](Breadcrumb::mount): it hides the steps its room has no
+/// place for in the same menu, the ones nearest the first first, and shows them again as it is given room. The
+/// still one is every other breadcrumb, one built on its own ([`build`](Breadcrumb::build), `.into()`) and a
+/// mounted one that does not overflow: it keeps nothing of what was measured and folds nothing. Its root is no
+/// wider than its room and its last step is cut with an ellipsis, but the steps before it keep their widths, so
+/// links wider together than the room run past its end. In a window a person can narrow, mount the one that
+/// folds.
 ///
 /// ```
 /// use lurq::ui::{Breadcrumb, BreadcrumbStep, BreadcrumbVariant, icons};
@@ -424,7 +429,8 @@ impl Breadcrumb {
   /// Whether the steps the breadcrumb has no room for go into the menu of the ellipsis: the ones nearest the first
   /// first, the first and the last never, and back as it is given room. It is what a mounted breadcrumb does
   /// ([`mount`](Self::mount)): it keeps which steps its row dropped. With [`max_shown`](Self::max_shown) too, no
-  /// more than that many are shown where there is room for more.
+  /// more than that many are shown where there is room for more. On a breadcrumb that is not mounted it does
+  /// nothing: built on its own a breadcrumb is its still form, which cuts its last step and folds none.
   pub fn overflow(mut self, overflow: bool) -> Self {
     self.overflow = overflow;
     self
@@ -544,7 +550,9 @@ impl Breadcrumb {
   /// Builds the breadcrumb in `theme`. Converting a breadcrumb into an
   /// element does this in the theme of what is being rendered. Its ellipsis
   /// opens the menu of the hidden steps where it is given a signal and an
-  /// anchor ([`menu`](Breadcrumb::menu)), or mounted.
+  /// anchor ([`menu`](Breadcrumb::menu)), or mounted. Built so it is the still
+  /// form: it folds no step into the menu for want of room, whatever
+  /// [`overflow`](Breadcrumb::overflow) says, and only its last step is cut.
   pub fn build(self, theme: &Theme) -> Element {
     let count = self.steps.len();
     let counted = hidden(count, self.max_shown);

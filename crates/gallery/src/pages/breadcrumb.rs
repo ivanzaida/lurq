@@ -102,6 +102,13 @@ pub struct BreadcrumbPage {
   opened: Signal<String>,
 }
 
+/// A breadcrumb as the page shows every one of them: mounted, and folding the steps it has no room for into the
+/// menu of its ellipsis, so that it holds in a window as narrow as a phone. Built on its own it would be its still
+/// form, which folds nothing.
+fn mounted(breadcrumb: Breadcrumb, ctx: &mut Ctx) -> Element {
+  breadcrumb.overflow(true).mount(ctx)
+}
+
 /// A breadcrumb of the first `count` steps of `way`, each step's value its route.
 fn along(way: &[(&str, &str)], count: usize, icon: bool) -> Breadcrumb {
   Breadcrumb::new(way.iter().take(count).enumerate().map(|(index, (label, route))| {
@@ -209,7 +216,8 @@ impl BreadcrumbPage {
     }
 
     let (to_steps, to_max, to_separator) = (self.steps.clone(), self.max_shown.clone(), self.separator.clone());
-    let flags = [self.overflow.clone(), self.icon.clone(), self.disabled.clone()];
+    let flags = [self.icon.clone(), self.disabled.clone()];
+    let to_overflow = self.overflow.clone();
     let (pick_steps, pick_max, pick_separator) = (self.steps.clone(), self.max_shown.clone(), self.separator.clone());
     let (to_variant, pick_variant) = (self.variant.clone(), self.variant.clone());
     let variant = self.variant.get();
@@ -271,7 +279,7 @@ impl BreadcrumbPage {
           max_shown != 0,
           separator != 0,
           path,
-          overflow,
+          !overflow,
           icon,
           disabled,
         ]
@@ -283,6 +291,7 @@ impl BreadcrumbPage {
           to_max.set(0);
           to_separator.set(0);
           to_variant.set(0);
+          to_overflow.set(true);
           for flag in &flags {
             flag.set(false);
           }
@@ -303,7 +312,7 @@ impl Component for BreadcrumbPage {
       max_shown: ctx.signal(0),
       separator: ctx.signal(0),
       variant: ctx.signal(0),
-      overflow: ctx.signal(false),
+      overflow: ctx.signal(true),
       icon: ctx.signal(false),
       disabled: ctx.signal(false),
       depth: ctx.signal(SETTINGS.len()),
@@ -317,11 +326,14 @@ impl Component for BreadcrumbPage {
     // The board's breadcrumb: following a step goes back to it, and the reset puts the whole way back.
     let depth = self.depth.get().clamp(1, SETTINGS.len());
     let back = self.depth.clone();
-    let board = along(&SETTINGS, depth, false).on_select(move |route| {
-      if let Some(index) = SETTINGS.iter().position(|(_, held)| *held == route) {
-        back.set(index + 1);
-      }
-    });
+    let board = mounted(
+      along(&SETTINGS, depth, false).on_select(move |route| {
+        if let Some(index) = SETTINGS.iter().position(|(_, held)| *held == route) {
+          back.set(index + 1);
+        }
+      }),
+      ctx,
+    );
     let again = self.depth.clone();
     let live = items().child(item(
       // Where the link has no room beside the breadcrumb it goes under it.
@@ -338,10 +350,12 @@ impl Component for BreadcrumbPage {
     let told = self.followed.clone();
     let followed = self.followed.get();
     let collapsed = items().child(item(
-      along(&ACCOUNT, ACCOUNT.len(), false)
-        .max_shown(2)
-        .on_select(move |route| told.set(route.to_owned()))
-        .mount(ctx),
+      mounted(
+        along(&ACCOUNT, ACCOUNT.len(), false)
+          .max_shown(2)
+          .on_select(move |route| told.set(route.to_owned())),
+        ctx,
+      ),
       &if followed.is_empty() {
         "the ellipsis opens the menu of the three hidden steps".to_owned()
       } else {
@@ -397,25 +411,28 @@ impl Component for BreadcrumbPage {
 
     let looks = items()
       .child(item(
-        along(&SETTINGS, 3, false).separator(BreadcrumbSeparator::slash()),
+        mounted(along(&SETTINGS, 3, false).separator(BreadcrumbSeparator::slash()), ctx),
         "a slash between the steps",
       ))
-      .child(item(along(&WAY, 3, true), "an icon on the first step"));
+      .child(item(mounted(along(&WAY, 3, true), ctx), "an icon on the first step"));
 
     let states = items()
       .child(item(
-        along(&SETTINGS, 3, false),
+        mounted(along(&SETTINGS, 3, false), ctx),
         "at rest: links muted, the page in the foreground",
       ))
       .child(item(
-        along(&SETTINGS, 3, false).force(Some(Interaction::Hovered)),
+        mounted(along(&SETTINGS, 3, false).force(Some(Interaction::Hovered)), ctx),
         "hover: a link in the foreground",
       ))
       .child(item(
-        along(&SETTINGS, 3, false).force(Some(Interaction::FocusVisible)),
+        mounted(along(&SETTINGS, 3, false).force(Some(Interaction::FocusVisible)), ctx),
         "focus-visible: the ring around a link",
       ))
-      .child(item(along(&SETTINGS, 3, false).disabled(true), "disabled"));
+      .child(item(
+        mounted(along(&SETTINGS, 3, false).disabled(true), ctx),
+        "disabled",
+      ));
 
     let rows = [
       (
@@ -475,7 +492,8 @@ impl Component for BreadcrumbPage {
         "bool",
         "false",
         "Mounted, the steps it has no room for go into the menu of the ellipsis, the ones nearest the first \
-         first, and come back as it is given room.",
+         first, and come back as it is given room. Built on its own a breadcrumb folds nothing: its steps keep \
+         their widths, and only the last is cut.",
       ),
       (
         "max_shown",
@@ -563,6 +581,9 @@ impl Component for BreadcrumbPage {
               "    BreadcrumbStep::new(\"Theme\").value(\"/settings/appearance/theme\"),",
               "])",
               ".on_select(|route| go_to(route))",
+              "// Mounted, it folds the steps it has no room for into the menu of its ellipsis.",
+              ".overflow(true)",
+              ".mount(ctx)",
             ],
           ),
         ),
@@ -579,6 +600,7 @@ impl Component for BreadcrumbPage {
               "Breadcrumb::new([\"Settings\", \"Account\", \"Security\", \"Sessions\", \"Theme\"])",
               "    .max_shown(2)",
               "    .on_select(|step| go_to(step))",
+              "    .overflow(true)",
               "    .mount(ctx)",
             ],
           ),
@@ -624,9 +646,13 @@ impl Component for BreadcrumbPage {
             &[
               "Breadcrumb::new([\"Settings\", \"Appearance\", \"Theme\"])",
               "    .separator(BreadcrumbSeparator::slash())",
+              "    .overflow(true)",
+              "    .mount(ctx)",
               "",
               "Breadcrumb::new([BreadcrumbStep::new(\"Home\").icon(icons::HOME)])",
               "    .steps([\"Projects\", \"lurq\"])",
+              "    .overflow(true)",
+              "    .mount(ctx)",
             ],
           ),
         ),
@@ -639,14 +665,14 @@ impl Component for BreadcrumbPage {
             states,
             ".force(Some(Interaction::Hovered))",
             &[
-              "let way = || Breadcrumb::new([\"Settings\", \"Appearance\", \"Theme\"]);",
-              "way()",
+              "let way = || Breadcrumb::new([\"Settings\", \"Appearance\", \"Theme\"]).overflow(true);",
+              "way().mount(ctx)",
               "",
               "// Drawn as under the pointer or focused, with nothing pointing at it: for a gallery, a test.",
-              "way().force(Some(Interaction::Hovered))",
-              "way().force(Some(Interaction::FocusVisible))",
+              "way().force(Some(Interaction::Hovered)).mount(ctx)",
+              "way().force(Some(Interaction::FocusVisible)).mount(ctx)",
               "",
-              "way().disabled(true)",
+              "way().disabled(true).mount(ctx)",
             ],
           ),
         ),
