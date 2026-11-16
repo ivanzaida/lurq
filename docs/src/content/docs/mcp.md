@@ -192,7 +192,14 @@ lurq_interact {"action":"paste","text":"from an agent","files":["C:/shots/a.png"
 → {"ok":true,"action":"paste","window":"main","text":true,"files":true,"note":"..."}
 ```
 
-`text` and/or `files` are required; an image cannot be pasted this way. The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
+`text`, `files` and/or `image` are required. `image` is the path of an image file: its pixels are what the paste
+holds, as a screenshot on the clipboard would be (`PasteEvent::image`), and the reply has `"image":true`:
+
+```text
+lurq_interact {"action":"paste","image":"C:/shots/a.png"}
+```
+
+The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
 
 Files from the OS are dragged with `drag_files` (enters the window at the point, or moves a drag in progress there, with `paths` of files or folders), ended without a drop with `file_drag_leave`, and dropped with `drop_files` (enters first when no drag is in progress). The reply reports `paths` and `folders`; `drag_files` adds whether the elements under the point `accepted` the drag, `drop_files` whether an element there `handled` the drop:
 
