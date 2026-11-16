@@ -25,7 +25,8 @@
 //! Without the feature `file_dialog`, [`FileDialog::pick`] and the others give nothing on
 //! every platform and say so through `tracing` once. Under an MCP server with
 //! a [`FileDialogBroker`](crate::mcp::FileDialogBroker) registered, the
-//! dialog is the broker's: an agent answers it, and no system dialog opens.
+//! dialog of a window of that tree is the broker's: an agent answers it, and
+//! no system dialog opens. A window asks the broker of its own tree only.
 
 use std::{
   future::Future,
@@ -331,12 +332,12 @@ impl FileDialog {
     async move { path_of(asked.await) }
   }
 
-  /// Opens the dialog for what it asks, over `window`: the broker's under an MCP server that has one, the
-  /// system's otherwise. A folder and a path to save at come back as one file with that path.
+  /// Opens the dialog for what it asks, over `window`: the broker's where the window's tree registered one
+  /// with its MCP server, the system's otherwise. A folder and a path to save at come back as one file with that path.
   fn ask(self, window: &WindowHandle) -> Picked {
     let this = self.over(window);
     #[cfg(feature = "mcp")]
-    if let Some(broker) = crate::mcp::FileDialogBroker::registered() {
+    if let Some(broker) = window.file_dialog_broker() {
       use crate::mcp::{FileDialogOperation, FileDialogRequest};
       let mut request = FileDialogRequest::new(match this.asks {
         Asks::Files if this.multiple => FileDialogOperation::OpenFiles,
@@ -632,8 +633,7 @@ mod tests {
     assert_eq!(chosen.as_deref(), Some(Path::new("/projects/lurq")));
   }
 
-  // With `mcp` the tests of the brokers register theirs in this process, and the dialog would ask one of them.
-  #[cfg(all(not(feature = "file_dialog"), not(feature = "mcp")))]
+  #[cfg(not(feature = "file_dialog"))]
   #[test]
   fn without_the_feature_a_folder_and_a_place_to_save_are_not_chosen() {
     use std::{pin::pin, task::Waker};
