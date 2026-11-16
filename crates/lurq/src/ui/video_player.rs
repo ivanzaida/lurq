@@ -937,10 +937,11 @@ impl VideoPlayer {
   /// loader, decodes it with the system's decoder ([`Media`](crate::media::Media)) and draws its frames as its
   /// picture; where it is, how long it is, whether it plays, waits, ended or failed are the media's, in place of
   /// what the app would say. A press on a control still tells the app's handlers, and does what it says to the
-  /// media: plays, pauses, goes to a time, changes the speed. An app that holds `playing` or `rate` moves the
-  /// media by changing them. With no source the player is drawn from the values it is given, as before.
+  /// media: plays, pauses, goes to a time, changes the speed, the volume and the mute. An app that holds
+  /// `playing`, `rate`, `volume` or `muted` moves the media by changing them. With no source the player is
+  /// drawn from the values it is given, as before.
   ///
-  /// The sound of what plays is not played yet: the volume and the mute are told and drawn, and change nothing.
+  /// Its sound is played through the system's output, and the video goes by what is heard.
   #[cfg(feature = "media")]
   pub fn source(mut self, source: &crate::resources::Source) -> Self {
     self.source = Some(source.clone());
@@ -1203,8 +1204,9 @@ struct Played {
   beat: Signal<u64>,
   /// Whether it plays: the clock that counts the beat runs while it does.
   plays: Arc<AtomicBool>,
-  /// What the app last said of playing and of the speed: a change of them moves the media.
-  said: Arc<Mutex<(Option<bool>, Option<f64>)>>,
+  /// What the app last said of playing, of the speed, of how loud it is and of whether it is silenced: a
+  /// change of them moves the media.
+  said: Arc<Mutex<(Option<bool>, Option<f64>, Option<f64>, Option<bool>)>>,
   _clock: crate::app::ctx::Interval,
 }
 
@@ -1598,7 +1600,7 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     let beat = played.beat.clone();
     media.on_change(move || beat.update(|count| *count += 1));
     *held = Some((key, media));
-    *played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (None, None);
+    *played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (None, None, None, None);
   }
   let media = held
     .as_ref()
@@ -1621,6 +1623,14 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     if said.1 != Some(player.rate.value) {
       media.set_rate(player.rate.value);
       said.1 = Some(player.rate.value);
+    }
+    if said.2 != Some(player.volume.value) {
+      media.set_volume(player.volume.value as f32);
+      said.2 = Some(player.volume.value);
+    }
+    if said.3 != Some(player.muted.value) {
+      media.set_muted(player.muted.value);
+      said.3 = Some(player.muted.value);
     }
   }
   // What a person does on a control is done to the media, after the app's own handlers heard of it.
@@ -1655,6 +1665,20 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
       again();
     }
   });
+  player.volume.add({
+    let (media, again) = (media.clone(), again.clone());
+    move |to| {
+      media.set_volume(to as f32);
+      again();
+    }
+  });
+  player.muted.add({
+    let (media, again) = (media.clone(), again.clone());
+    move |to| {
+      media.set_muted(to);
+      again();
+    }
+  });
   // Trying again opens the source anew.
   player.on_retry.push({
     let (held, again) = (played.media.clone(), again);
@@ -1668,6 +1692,8 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
   player.playing.value = state.playing;
   player.position.value = state.position;
   player.rate.value = state.rate;
+  player.volume.value = f64::from(state.volume);
+  player.muted.value = state.muted;
   if state.duration.is_some() {
     player.duration = state.duration;
     // All of a file is there to play: its bar is loaded to its end, unless the app says how far.

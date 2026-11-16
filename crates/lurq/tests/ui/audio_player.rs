@@ -529,3 +529,113 @@ fn given_to_a_tree_as_it_is_a_mini_player_has_the_form_of_its_width_from_the_fir
     );
   }
 }
+
+/// A tone of 440 Hz, `seconds` long, as the bytes of a WAV file: two channels of 16 bits at 44100 a second.
+#[cfg(all(windows, feature = "media"))]
+fn tone(seconds: f64) -> Vec<u8> {
+  const RATE: u32 = 44_100;
+  let frames = (seconds * f64::from(RATE)) as u32;
+  let data = frames * 4;
+  let mut wav = Vec::with_capacity(44 + data as usize);
+  wav.extend_from_slice(b"RIFF");
+  wav.extend_from_slice(&(36 + data).to_le_bytes());
+  wav.extend_from_slice(b"WAVEfmt ");
+  wav.extend_from_slice(&16_u32.to_le_bytes());
+  wav.extend_from_slice(&1_u16.to_le_bytes());
+  wav.extend_from_slice(&2_u16.to_le_bytes());
+  wav.extend_from_slice(&RATE.to_le_bytes());
+  wav.extend_from_slice(&(RATE * 4).to_le_bytes());
+  wav.extend_from_slice(&4_u16.to_le_bytes());
+  wav.extend_from_slice(&16_u16.to_le_bytes());
+  wav.extend_from_slice(b"data");
+  wav.extend_from_slice(&data.to_le_bytes());
+  for frame in 0..frames {
+    let at = f64::from(frame) / f64::from(RATE);
+    let sample = ((at * 440.0 * std::f64::consts::TAU).sin() * 8_000.0) as i16;
+    wav.extend_from_slice(&sample.to_le_bytes());
+    wav.extend_from_slice(&sample.to_le_bytes());
+  }
+  wav
+}
+
+/// Renders `stage` again until `is` holds, for at most ten seconds: a media works on a thread of its own.
+#[cfg(all(windows, feature = "media"))]
+#[track_caller]
+fn until(stage: &mut Stage, what: &str, mut is: impl FnMut(&mut Stage) -> bool) {
+  let started = std::time::Instant::now();
+  loop {
+    // The player's clock is a timer of its window, which a window with no loop does not run by itself.
+    stage.tree.tick_timers_at(std::time::Instant::now());
+    stage.pass();
+    if is(stage) {
+      return;
+    }
+    assert!(
+      started.elapsed() < std::time::Duration::from_secs(10),
+      "it never came to: {what}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+  }
+}
+
+#[cfg(all(windows, feature = "media"))]
+#[test]
+fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
+  use lurq::resources::Source;
+  let log = log();
+  let heard = log.clone();
+  let source = Source::bytes(tone(12.0));
+  // Given to the tree as it is, and silenced: a run of the tests is not heard.
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 0.0, |_| {})
+          .source(&source)
+          .muted_controlled(true, |_| {})
+          .on_playing_change(move |to| heard.lock().unwrap().push(format!("playing {to}")))
+          .title("Tone")
+          .id("p"),
+      )
+      .into()
+  });
+  // It opened: its length is the sound's, and it stands at its start.
+  until(&mut stage, "its length", |stage| stage.paints("0:12"));
+  assert!(stage.paints("0:00"));
+  // Play: the app hears of it, and the sound goes, by its own clock.
+  stage.click("p-play");
+  assert_eq!(said(&log), ["playing true"]);
+  until(&mut stage, "playing", |stage| stage.paints("0:01"));
+  // Sent on by the keys of its bar, it is there.
+  stage.click("p-seek");
+  until(&mut stage, "sent to the middle", |stage| stage.paints("0:06") || stage.paints("0:07"));
+  // Pause: it stands where it is.
+  stage.click("p-play");
+  assert_eq!(said(&log), ["playing true", "playing false"]);
+  stage.pass();
+  let stands = ["0:06", "0:07", "0:08"]
+    .into_iter()
+    .find(|time| stage.paints(time))
+    .expect("the time it was paused at");
+  std::thread::sleep(std::time::Duration::from_millis(1200));
+  stage.tree.tick_timers_at(std::time::Instant::now());
+  stage.pass();
+  assert!(stage.paints(stands), "paused, the time stands");
+
+  // What is no sound says so in the player's own line.
+  let mut broken = Stage::new(|_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 0.0, |_| {})
+          .source(&Source::bytes(b"not a sound".to_vec()))
+          .title("Nothing")
+          .id("p"),
+      )
+      .into()
+  });
+  until(&mut broken, "the error", |stage| {
+    stage.tree.get_element_by_id_mut("p-retry").is_some()
+  });
+}

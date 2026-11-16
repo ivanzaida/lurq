@@ -22,9 +22,11 @@ form = []
 image = ["raster", "dep:image"]
 # Shared raw RGBA transport and GPU composition; no image codecs.
 raster = ["dep:core-video-sys"]
-# Playing a video: `lurq::media` and `ui::VideoPlayer::source`. On Windows it decodes with Media Foundation.
+# Playing a video or a sound: `lurq::media`, `ui::VideoPlayer::source` and `ui::AudioPlayer::source`. On Windows it
+# decodes with Media Foundation and plays its sound through WASAPI. A sound at an address is loaded with `http`.
 media = [
     "raster",
+    "windows/Win32_Media_Audio",
     "windows/Win32_Media_MediaFoundation",
     "windows/Win32_System_Com",
     "windows/Win32_System_Com_StructuredStorage",
@@ -232,7 +234,13 @@ taffy = "0.15.1"
 
 # Extra Win32 surface for the dx12_capture_check example's bare test window.
 [target.'cfg(windows)'.dev-dependencies]
-windows = { version = "0.62.2", features = ["Win32_Graphics_Gdi"] }
+# The audio features are for the test that listens to what a media plays: the system's meter of this process.
+windows = { version = "0.62.2", features = [
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+] }
 
 [[test]]
 name = "resources_tests"

@@ -1502,10 +1502,12 @@ fn given_a_source_it_plays_the_file_and_its_controls_move_the_video() {
   let said = told.clone();
   let mut stage = mounted(move || {
     let say = said.say();
+    // Silenced: the clip has a tone, and a run of the tests is not heard.
     VideoPlayer::new()
       .id("v")
       .width(640.0)
       .source(&Source::file(&clip))
+      .muted_controlled(true, |_| {})
       .on_playing_change(move |to| say(format!("playing {to}")))
   });
   // It opened: its length is the file's, and its picture is the media's.
