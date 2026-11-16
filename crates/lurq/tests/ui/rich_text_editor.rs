@@ -205,12 +205,19 @@ fn the_editor_is_the_boards_box_with_its_bar_its_content_and_its_footer() {
   assert_eq!(stage.fill_color("editor-toolbar"), Some(light(PaletteColor::Muted)));
   let (style_x, _, style_width, style_height) = stage.bounds("editor-style");
   assert!(close(style_x - x, 6.0), "padded 6: {style_x}");
-  assert_eq!((style_width, style_height), (108.0, 28.0));
+  // The style's control hugs the name it shows: 10, the name, 6, a chevron of 12, 6.
+  assert_eq!(style_height, 28.0);
+  let name = stage.text_quad("Paragraph").expect("the style of the first paragraph");
+  assert!(
+    close(style_width, 10.0 + name.width + 6.0 + 12.0 + 6.0),
+    "{style_width} for {}",
+    name.width
+  );
   let (bold_x, bold_y, bold_width, bold_height) = stage.bounds("editor-bold");
   assert_eq!((bold_width, bold_height), (28.0, 28.0));
   assert!(close(bold_y - y, 6.0), "centred in the bar's 40");
   // A line of 1 with 4 on either side, 2 from each: 13 from the style to the first mark.
-  assert!(close(bold_x - (style_x + 108.0), 13.0), "{bold_x}");
+  assert!(close(bold_x - (style_x + style_width), 13.0), "{bold_x}");
   let (italic_x, ..) = stage.bounds("editor-italic");
   assert!(close(italic_x - (bold_x + 28.0), 2.0));
   // The history is at the bar's end.
@@ -241,17 +248,21 @@ fn the_document_is_laid_out_as_the_board_draws_it() {
   let _ = (left, top);
   assert!(close(heading.x, 0.0), "{}", heading.x);
   let paragraph = input.caret_point(text.find("Backdrop").unwrap()).unwrap();
-  // The heading's row is 26.4 high, and 10 stand between two paragraphs.
-  let heading_row = 22.0 * 1.2;
-  let row = 14.0 * 1.3;
-  assert!(paragraph.y > heading_row + 10.0 - 0.6, "{}", paragraph.y);
-  assert!(paragraph.y < heading_row + 10.0 + row, "{}", paragraph.y);
+  // The heading's row is 26 high and a row of text 18, whatever the font's own line is, and 10 stand between
+  // two paragraphs.
+  let (heading_row, row) = (26.0, 18.0);
+  // A caret point stands as far from the top of its row in every row: the rows are measured from the heading's.
+  assert!(
+    (paragraph.y - heading.y - (heading_row + 10.0)).abs() < 0.05,
+    "{}",
+    paragraph.y - heading.y
+  );
   // An item's text starts 21 in, a row and 10 under the paragraph.
   let first = input.caret_point(text.find("Faster").unwrap()).unwrap();
   let second = input.caret_point(text.find("Fixes").unwrap()).unwrap();
   assert!(close(first.x, 21.0), "{}", first.x);
   let pitch = first.y - paragraph.y;
-  assert!(pitch > row + 10.0 - 0.6 && pitch < row + 11.5, "{pitch}");
+  assert!((pitch - (row + 10.0)).abs() < 0.05, "{pitch}");
   assert!(close(second.y - first.y, pitch));
   // Its dot: 5 across in the muted foreground, 6 from the start of the text's box.
   let dots: Vec<_> = editor
@@ -266,11 +277,10 @@ fn the_document_is_laid_out_as_the_board_draws_it() {
     .collect();
   assert_eq!(dots.len(), 2);
   assert!(close(dots[0].x, x + 18.0 + 6.0), "{}", dots[0].x);
-  // The box is as high as the board's: 16, the heading, three rows and three gaps, 16. A font whose own line is
-  // higher than the recipe's makes a row a little higher than the 18 and the 26 of the board.
+  // The box is as high as its rows say: 16, the heading, three rows and three gaps, 16.
   let (.., height) = editor.stage.bounds(CONTENT);
   let board = 16.0 + heading_row + 3.0 * (row + 10.0) + 16.0;
-  assert!(height > board - 0.6 && height < board + 6.0, "{height}");
+  assert!((height - board).abs() < 0.05, "{height}");
 }
 
 #[test]
@@ -382,7 +392,37 @@ fn the_style_control_shows_what_the_paragraph_is_and_makes_it_something_else() {
   // Chosen from its list, a style is the paragraph's, and the focus goes back to the text.
   editor.stage.click("editor-style");
   let option = editor.stage.text_quad("Heading 1").expect("the list of styles is open");
-  // The list is wider than the control: the name of the style chosen is whole in it, beside its check.
+  // The list is as wide as its longest name with the check beside it, not as the control: every name is whole.
+  let names = ["Paragraph", "Heading 1", "Heading 2", "Heading 3", "Code block"];
+  let widest = names
+    .iter()
+    .map(|name| {
+      let quads = editor.stage.quads();
+      let found = quads
+        .iter()
+        .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == name))
+        .next_back()
+        .unwrap_or_else(|| panic!("{name} is whole in the list"));
+      found.width
+    })
+    .fold(0.0, f32::max);
+  let (.., control) = {
+    let (x, y, width, _) = editor.stage.bounds("editor-style");
+    (x, y, width)
+  };
+  // The list's edge: the nearest box with an edge that holds the option, the editor's own being further out.
+  let list = editor
+    .stage
+    .quads()
+    .into_iter()
+    .filter(|quad| quad.border.is_some() && quad.y < option.y && quad.x <= option.x && quad.height > 100.0)
+    .max_by(|a, b| a.y.total_cmp(&b.y))
+    .map_or(0.0, |quad| quad.width);
+  assert!(
+    list > widest + 16.0 && list < widest + 72.0,
+    "a list of {list} for a name of {widest}"
+  );
+  assert!(list > control, "wider than the control of {control}");
   let whole = editor
     .stage
     .quads()
@@ -616,7 +656,7 @@ fn an_empty_editor_shows_its_placeholder_and_keeps_its_rows() {
   assert_eq!((color, size), (light(PaletteColor::MutedForeground), 14.0));
   let (.., height) = editor.stage.bounds(CONTENT);
   assert!(
-    height >= 32.0 + 4.0 * 14.0 * 1.3 - 0.6,
+    height >= 32.0 + 4.0 * 18.0 - 0.5,
     "four rows of body text and its padding: {height}"
   );
   assert!(editor.stage.paints("0 words"));
@@ -995,4 +1035,191 @@ fn what_is_typed_right_after_a_markdown_mark_is_plain() {
       span(28..32, SpanStyle::new().code()),
     ]
   );
+}
+
+#[test]
+fn an_empty_editors_placeholder_is_drawn_as_its_first_paragraph_is() {
+  // A heading: the placeholder in the heading's type, in the placeholder's color.
+  let mut editor = Editor::with(640.0, RichText::new("", vec![], vec![Heading(1)]), |editor| {
+    editor.placeholder("Title")
+  });
+  assert_eq!(editor.stage.text("Title"), (light(PaletteColor::MutedForeground), 28.0));
+  let (x, y, ..) = editor.stage.bounds(CONTENT);
+  let title = editor.stage.text_quad("Title").unwrap();
+  assert!(
+    close(title.x, x + 18.0) && close(title.y, y + 16.0),
+    "{} {}",
+    title.x,
+    title.y
+  );
+
+  // An item of a list: its dot, and the placeholder after the item's indent.
+  let mut editor = Editor::with(640.0, RichText::new("", vec![], vec![Bullet]), |editor| {
+    editor.placeholder("An item")
+  });
+  let item = editor.stage.text_quad("An item").unwrap();
+  let (x, ..) = editor.stage.bounds(CONTENT);
+  assert!(close(item.x, x + 18.0 + 21.0), "{}", item.x);
+  let dots = editor
+    .stage
+    .quads()
+    .into_iter()
+    .filter(|quad| quad.width == 5.0 && quad.height == 5.0)
+    .count();
+  assert_eq!(dots, 1, "the dot of the empty item");
+
+  // What is typed takes the placeholder's place, and the placeholder comes back with the last character gone.
+  let mut editor = Editor::with(640.0, RichText::new("", vec![], vec![Heading(2)]), |editor| {
+    editor.placeholder("Title")
+  });
+  editor.focus();
+  editor.type_text("N");
+  assert!(!editor.stage.paints("Title"));
+  editor.stage.key("Backspace");
+  assert_eq!(editor.stage.text("Title").1, 22.0);
+  assert_eq!(editor.kinds(), [Heading(2)]);
+}
+
+/// A clipboard of the test's: the text written to it and the Markdown beside it.
+#[derive(Default)]
+struct Clipboard {
+  text: Mutex<Option<String>>,
+  markdown: Mutex<Option<String>>,
+}
+
+impl lurq::app::ClipboardWriter for Clipboard {
+  fn write_text(&self, text: &str) -> bool {
+    *self.text.lock().unwrap() = Some(text.to_owned());
+    *self.markdown.lock().unwrap() = None;
+    true
+  }
+
+  fn write_rich(&self, text: &str, markdown: &str) -> bool {
+    *self.text.lock().unwrap() = Some(text.to_owned());
+    *self.markdown.lock().unwrap() = Some(markdown.to_owned());
+    true
+  }
+}
+
+impl lurq::app::ClipboardReader for Clipboard {
+  fn read_text(&self) -> Option<String> {
+    self.text.lock().unwrap().clone()
+  }
+
+  fn read(&self) -> Option<lurq::app::events::ClipboardContent> {
+    self.read_text().map(lurq::app::events::ClipboardContent::text)
+  }
+
+  fn read_markdown(&self, text: &str) -> Option<String> {
+    (self.text.lock().unwrap().as_deref() == Some(text))
+      .then(|| self.markdown.lock().unwrap().clone())
+      .flatten()
+  }
+}
+
+#[test]
+fn what_is_copied_from_the_editor_comes_back_with_its_marks_and_kinds() {
+  let mut editor = Editor::new(notes());
+  let clipboard = Arc::new(Clipboard::default());
+  editor.stage.tree.set_clipboard_writer(Some(clipboard.clone()));
+  editor.stage.tree.set_clipboard_reader(Some(clipboard.clone()));
+  editor.focus();
+  // The paragraph with its bold words and the first item under it.
+  let text = editor.document().text;
+  let (from, to) = (text.find("Backdrop").unwrap(), text.find("Fixes").unwrap() - 1);
+  editor.select(from, to);
+  editor.shortcut("c", "KeyC", false, false);
+  assert_eq!(
+    clipboard.text.lock().unwrap().as_deref(),
+    Some("Backdrop blur now follows rounded clips and transforms.\nFaster text shaping"),
+    "the clipboard's text is the text"
+  );
+  assert_eq!(
+    clipboard.markdown.lock().unwrap().as_deref(),
+    Some("Backdrop blur now **follows rounded clips** and transforms.\n\n- Faster text shaping"),
+    "its Markdown is beside it"
+  );
+  // Pasted into a new paragraph at the end of the document: one change, told once, undone as one.
+  let end = text.len();
+  editor.select(end, end);
+  editor.stage.key("Enter");
+  editor.stage.key("Enter");
+  assert_eq!(editor.kinds(), [Heading(2), Body, Bullet, Bullet, Body]);
+  let told = editor.told().len();
+  editor.shortcut("v", "KeyV", false, false);
+  assert_eq!(editor.kinds(), [Heading(2), Body, Bullet, Bullet, Body, Bullet]);
+  assert!(
+    editor
+      .document()
+      .to_markdown()
+      .ends_with("Backdrop blur now **follows rounded clips** and transforms.\n\n- Faster text shaping"),
+    "{}",
+    editor.document().to_markdown()
+  );
+  assert_eq!(editor.told().len(), told + 1);
+  editor.shortcut("z", "KeyZ", false, false);
+  assert_eq!(editor.kinds(), [Heading(2), Body, Bullet, Bullet, Body]);
+
+  // Text from elsewhere that reads as Markdown is the document it says; any other is the text.
+  assert!(
+    editor
+      .stage
+      .tree
+      .paste(lurq::app::events::ClipboardContent::text("> Quoted **words**"))
+  );
+  editor.stage.pass();
+  assert_eq!(editor.kinds().last(), Some(&Quote));
+  assert!(editor.document().text.ends_with("Quoted words"));
+  editor.stage.key("Enter");
+  editor.stage.key("Enter");
+  assert!(
+    editor
+      .stage
+      .tree
+      .paste(lurq::app::events::ClipboardContent::text("2 * 3 = 6"))
+  );
+  editor.stage.pass();
+  assert!(editor.document().text.ends_with("2 * 3 = 6"));
+  assert_eq!(editor.kinds().last(), Some(&Body));
+}
+
+#[cfg(feature = "form")]
+#[test]
+fn a_named_editor_gives_its_document_to_the_form_as_markdown() {
+  use lurq::components::{Form, FormHandle, FormOptions, FormProps, FormValues};
+  let submitted = Arc::new(Mutex::new(None::<FormValues>));
+  let held = submitted.clone();
+  let document = Signal::new(notes());
+  let bound = document.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let held = held.clone();
+    Form::element(
+      FormProps::new(FormHandle::new(FormOptions::new()).on_submit(move |values| {
+        *held.lock().unwrap() = Some(values);
+      })),
+      Column::new()
+        .size(640.0, 480.0)
+        .child(RichTextEditor::new(bound.clone()).id(ID).name("notes").mount(ctx))
+        .child(
+          lurq::ui::Input::new(Signal::new("Ivan".to_owned()))
+            .name("who")
+            .id("who"),
+        ),
+    )
+  });
+  stage.pass();
+  let submit = |stage: &mut Stage| {
+    stage.tree.get_element_by_id_mut("who").unwrap().focus();
+    stage.pass();
+    stage.key("Enter");
+    submitted.lock().unwrap().take().expect("the form is submitted")
+  };
+  let values = submit(&mut stage);
+  assert_eq!(values.get_string("notes"), Some(notes().to_markdown().as_str()));
+  assert_eq!(values.get_string("who"), Some("Ivan"));
+  // The document as it is when the form is sent: an edit is in what is sent next.
+  document.set(RichText::from_markdown("# Changed\n\n- **one**"));
+  stage.pass();
+  let values = submit(&mut stage);
+  assert_eq!(values.get_string("notes"), Some("# Changed\n\n- **one**"));
 }

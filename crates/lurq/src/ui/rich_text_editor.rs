@@ -428,7 +428,9 @@ impl RichTextController {
 /// Its value is a [`RichText`]: the text, the marks over it and what each of its paragraphs is, which reads
 /// from Markdown and writes it ([`RichText::from_markdown`], [`RichText::to_markdown`]). The editor is the
 /// engine's styled text input with kinds of paragraphs, so the caret, the selection, the clipboard and the
-/// undo history are a text input's own.
+/// undo history are a text input's own; a copy keeps its formatting through the clipboard
+/// ([`TextInput::rich_clipboard`](crate::components::TextInput::rich_clipboard)). A document holds text: a
+/// picture is the app's to place outside it, and the image tool runs the app's [`on_image`](Self::on_image).
 ///
 /// A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is
 /// selected; a list, a quote or a style over every paragraph the selection touches. The bar shows what the
@@ -1168,6 +1170,8 @@ impl RichTextEditorView {
     let mut select = Select::controlled(self.format.style(), options, run)
       .label(&self.words.style)
       .disabled(!self.editable())
+      // The control is as wide as the one name it shows: its list is as wide as the longest of them.
+      .fit_options(true)
       .rules(&rules);
     if let Some(id) = self.sub_id("style") {
       select = select.id(id);
@@ -1413,6 +1417,8 @@ impl RichTextEditorView {
       .placeholder_style(placeholder)
       .spans(kept.spans.clone())
       .paragraphs(kept.kinds.clone(), self.paragraph_styles())
+      // What is copied keeps its marks and kinds beside its text, and comes back with them.
+      .rich_clipboard(true)
       .controller(kept.controller.input.clone())
       .multiline()
       .rows(self.min_rows, self.max_rows)
@@ -1913,8 +1919,9 @@ impl Themed for RichTextEditor {
       // it is filled with the background, as the style's control beside it is, so that it shows.
       .base(ToolOn, |s| s.background(Background))
       .base(ToolIcon, |s| s.square(15.0))
+      // As wide as the name of the style it shows, as the board's is.
       .base(Style, |s| {
-        s.width(108.0)
+        s.width(Length::Auto)
           .height(28.0)
           .padding_start(10.0)
           .padding_end(6.0)
@@ -1923,27 +1930,26 @@ impl Themed for RichTextEditor {
           .font_size(12.0)
       })
       .base(StyleChevron, |s| s.square(12.0))
-      // The list is wider than the control it hangs from: a style's name and the check beside it are whole.
-      .base(StyleList, |s| s.min_width(172.0))
       .base(Content, |s| {
         s.width(Length::Fill)
           .padding_x(18.0)
           .padding_y(16.0)
           .gap(10.0)
           .typography(TypographyStyle::Body)
-          .line_height(1.3)
+          // Rows of 18 in type of 14, the caret's height: a line in pixels, whatever the font's own line is.
+          .line_height(18.0 / 14.0)
           .foreground(Foreground)
           .cursor(CursorIcon::Text)
       })
       .base(Placeholder, |s| s.foreground(MutedForeground))
       .base(Heading1, |s| {
-        s.font_size(28.0).weight(FontWeight::Bold).line_height(1.2)
+        s.font_size(28.0).weight(FontWeight::Bold).line_height(34.0 / 28.0)
       })
       .base(Heading2, |s| {
-        s.font_size(22.0).weight(FontWeight::SemiBold).line_height(1.2)
+        s.font_size(22.0).weight(FontWeight::SemiBold).line_height(26.0 / 22.0)
       })
       .base(Heading3, |s| {
-        s.font_size(18.0).weight(FontWeight::SemiBold).line_height(1.2)
+        s.font_size(18.0).weight(FontWeight::SemiBold).line_height(22.0 / 18.0)
       })
       .base(Bullet, |s| s.padding_start(21.0))
       .base(BulletMark, |s| s.width(5.0).gap(10.0).foreground(MutedForeground))
@@ -1955,7 +1961,7 @@ impl Themed for RichTextEditor {
         s.padding_start(12.0)
           .font_family(FontFamily::Mono)
           .font_size(13.0)
-          .line_height(1.6)
+          .line_height(21.0 / 13.0)
           .background(Muted)
           .radius(RadiusSize::Sm)
       })

@@ -411,7 +411,8 @@ impl Component for RichTextEditorPage {
         "on_image",
         "impl Fn()",
         "",
-        "What the image tool does; with it the bar has the tool. The editor draws no picture in its text.",
+        "What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to \
+         place outside it.",
       ),
       (
         "controller",
@@ -453,7 +454,7 @@ impl Component for RichTextEditorPage {
       (
         "count_text",
         "impl Fn(usize) -> String",
-        "\"18 words\"",
+        "\"{n} words\"",
         "What the footer says of the count of words. `shortcuts_text` is what it says of the shortcuts.",
       ),
     ];
@@ -481,7 +482,9 @@ impl Component for RichTextEditorPage {
         Section::new(
           "Rich Text Editor",
           "The board's document, bound to a signal of the page. A tool works on the selection, and the bar shows \
-           what the selection is. Under the editor is the Markdown the app would store for it.",
+           what the selection is. Under the editor is the Markdown the app would store for it. A copy keeps the \
+           formatting: the clipboard is given the Markdown, and a paste of Markdown into an editor, of this app or \
+           of another, comes back with its marks and kinds. Ctrl+K in the text is a link, not the gallery's search.",
           self.frame.demo(
             0,
             live,

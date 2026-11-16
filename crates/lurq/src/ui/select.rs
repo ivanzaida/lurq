@@ -151,6 +151,7 @@ pub struct Select<V = ()> {
   read_only: bool,
   disabled: bool,
   full_width: bool,
+  fit_options: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -216,6 +217,7 @@ impl<V: 'static> Select<V> {
       read_only: false,
       disabled: false,
       full_width: false,
+      fit_options: false,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -293,6 +295,13 @@ impl<V: 'static> Select<V> {
   /// Whether the select is as wide as what holds it, in place of the design's 260.
   pub fn full_width(mut self, full_width: bool) -> Self {
     self.full_width = full_width;
+    self
+  }
+
+  /// Whether the list is as wide as its longest option, in place of as wide as its trigger: for a trigger that
+  /// hugs the one value it shows, as a toolbar's control does. The panel's `min_width` still holds.
+  pub fn fit_options(mut self, fit_options: bool) -> Self {
+    self.fit_options = fit_options;
     self
   }
 
@@ -379,6 +388,7 @@ impl<V: 'static> Select<V> {
       case,
       rules: self.rules,
       forced: self.forced,
+      fit_options: self.fit_options,
       choices: Arc::from(choices),
       name: self.name,
       id: self.id,
@@ -464,6 +474,8 @@ pub struct SelectView {
   case: Case,
   rules: Recipe,
   forced: Option<Interaction>,
+  /// Whether the list is as wide as its longest option.
+  fit_options: bool,
   choices: Arc<dyn Choices>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -495,7 +507,7 @@ impl SelectView {
   /// under the pointer or the keys, chosen and disabled, with its check and
   /// its detail.
   pub fn select_style(&self) -> SelectStyle {
-    engine_style(&self.recipe, self.forced, &|state| self.in_state(state))
+    engine_style(&self.recipe, self.forced, &|state| self.in_state(state)).menu_fits_options(self.fit_options)
   }
 
   /// The engine's select bound to the value and its options, in `style`, with
