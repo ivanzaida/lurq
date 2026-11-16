@@ -1,5 +1,6 @@
 //! A path field: the input and the button as the board draws them, what the button tells, what a drop sets, the
-//! keys, a field around it, its sizes, a narrow room, and what a theme changes.
+//! keys, a field around it, its sizes, a narrow room, what a theme changes, and, with `mcp`, the system's dialog
+//! answered by the broker of the tree: what is chosen set on the signal, and a dialog cancelled.
 
 use std::{
   path::PathBuf,
@@ -20,6 +21,11 @@ use lurq::{
 };
 
 use super::stage::Stage;
+
+/// The client an agent answers a dialog with, as the engine's own tests of its MCP server have it.
+#[cfg(feature = "mcp")]
+#[path = "../mcp_client/mod.rs"]
+mod mcp_client;
 
 fn light(role: PaletteColor) -> Color {
   ThemePalette::light().get(role)
@@ -445,4 +451,182 @@ fn a_theme_restyles_its_parts() {
   let (field, button) = (stage.bounds("path"), stage.bounds("path-browse"));
   assert!((button.0 - (field.0 + field.2) - 16.0).abs() < 0.01);
   assert_eq!(stage.text("/usr").1, 15.0);
+}
+
+/// What a press of Browse came to, with the dialog answered by the broker of the stage's tree in place of the
+/// system: as an agent answers it, over the tree's MCP server.
+#[cfg(feature = "mcp")]
+struct Browsed {
+  /// What the field's signal holds afterwards.
+  value: String,
+  /// How often `on_browse` was called.
+  browsed: usize,
+  /// What `on_pick` was told, in order.
+  picked: Vec<String>,
+  /// The dialog as the broker was asked for it.
+  request: serde_json::Value,
+}
+
+/// Mounts a path field that holds `start` and picks `kind` with `dialog`, presses its button, and answers the
+/// dialog it asks for: with `chosen`, or as a person who cancelled it.
+#[cfg(feature = "mcp")]
+fn browse(kind: PathKind, dialog: lurq::files::FileDialog, start: &str, chosen: Option<PathBuf>) -> Browsed {
+  use std::time::{Duration, Instant};
+
+  use lurq::mcp::{FileDialogBroker, McpConfig, Scope};
+  use serde_json::json;
+
+  let value = Signal::new(start.to_owned());
+  let (picked, tell) = log();
+  let browsed = Arc::new(Mutex::new(0_usize));
+  let (held, count) = (value.clone(), browsed.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let count = count.clone();
+    page(
+      PathField::new(held.clone())
+        .id("path")
+        .picks(kind)
+        .dialog(dialog.clone())
+        .on_browse(move || *count.lock().unwrap() += 1)
+        .on_pick(tell.clone())
+        .mount(ctx),
+    )
+  });
+  let mcp = stage.tree.enable_mcp(
+    McpConfig::new()
+      .app_name("lurq-path-field-test")
+      .scope(Scope::custom("file_dialogs"))
+      .file_dialogs(FileDialogBroker::new()),
+  );
+  let (port, token) = (mcp.port(), mcp.token().to_owned());
+  stage.click("path-browse");
+
+  let answer = chosen.map(|path| path.to_string_lossy().into_owned());
+  let agent = std::thread::spawn(move || {
+    let mut client = mcp_client::Client::new(port, token);
+    client.initialize();
+    // The dialog is asked for once the press is handled; the agent waits for it.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let request = loop {
+      let listed = client.tool_json("lurq_file_dialogs", json!({}));
+      if let Some(request) = listed["requests"].as_array().and_then(|requests| requests.first()) {
+        break request.clone();
+      }
+      assert!(Instant::now() < deadline, "no dialog was asked for: {listed}");
+      std::thread::sleep(Duration::from_millis(20));
+    };
+    let mut reply = json!({
+      "request_id": request["request_id"], "window": request["window"], "operation": request["operation"],
+    });
+    match answer {
+      Some(path) => {
+        reply["action"] = json!("select");
+        reply["paths"] = json!([path]);
+        if request["operation"] == "save_file" {
+          reply["overwrite"] = json!(false);
+        }
+      }
+      None => reply["action"] = json!("cancel"),
+    }
+    let answered = client.tool_json("lurq_file_dialog_respond", reply);
+    assert!(answered.get("error").is_none(), "{answered}");
+    request
+  });
+  let deadline = Instant::now() + Duration::from_secs(60);
+  while !agent.is_finished() {
+    assert!(Instant::now() < deadline, "the agent did not finish");
+    // As the shell's loop does: the requests, the futures woken, a pass.
+    stage.tree.drain_mcp_requests(&mut stage.app);
+    stage.tree.tick_futures();
+    stage.pass();
+    std::thread::sleep(Duration::from_millis(2));
+  }
+  let request = agent.join().expect("the agent's thread");
+  // The answer reaches the field's future on the passes after the agent is done.
+  for _ in 0..20 {
+    stage.tree.tick_futures();
+    stage.pass();
+    std::thread::sleep(Duration::from_millis(2));
+  }
+  stage.tree.shutdown_mcp();
+  Browsed {
+    value: value.get(),
+    browsed: *browsed.lock().unwrap(),
+    picked: picked.lock().unwrap().clone(),
+    request,
+  }
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn the_folder_chosen_in_the_dialog_is_set_on_the_signal_and_told_once() {
+  let folder = std::env::temp_dir().join("lurq-path-field-project");
+  let came = browse(
+    PathKind::Folder,
+    lurq::files::FileDialog::new().title("Project folder"),
+    "H:\\projects",
+    Some(folder.clone()),
+  );
+  let chosen = folder.to_string_lossy().into_owned();
+  assert_eq!(
+    came.request["operation"], "open_folder",
+    "a field of folders asks for a folder"
+  );
+  assert_eq!(
+    came.request["title"], "Project folder",
+    "with the dialog the app gave it"
+  );
+  assert_eq!(came.value, chosen, "what was chosen is the signal's");
+  assert_eq!(came.picked, [chosen], "and on_pick is told it, once");
+  assert_eq!(came.browsed, 1, "on_browse was told of the press");
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_dialog_the_person_cancelled_changes_nothing_and_tells_nobody() {
+  let came = browse(PathKind::Folder, lurq::files::FileDialog::new(), "H:\\projects", None);
+  assert_eq!(came.request["operation"], "open_folder");
+  assert_eq!(came.value, "H:\\projects", "the path is as it was");
+  assert!(came.picked.is_empty(), "on_pick heard nothing");
+  assert_eq!(came.browsed, 1, "the press was still told to on_browse");
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_field_of_a_file_to_save_asks_for_one_with_the_name_it_starts_with() {
+  let report = std::env::temp_dir().join("lurq-path-field-report.md");
+  let came = browse(
+    PathKind::SaveFile,
+    lurq::files::FileDialog::new()
+      .title("Save the report")
+      .filter("Markdown", &["md"])
+      .file_name("report.md"),
+    "",
+    Some(report.clone()),
+  );
+  let chosen = report.to_string_lossy().into_owned();
+  assert_eq!(came.request["operation"], "save_file");
+  assert_eq!(came.request["suggested_name"], "report.md");
+  assert_eq!(came.request["filters"], serde_json::json!([["Markdown", ["md"]]]));
+  assert_eq!(came.value, chosen);
+  assert_eq!(came.picked, [chosen]);
+  assert_eq!(came.browsed, 1);
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_field_of_a_file_to_open_asks_for_one_file() {
+  let notes = std::env::temp_dir().join("lurq-path-field-notes.txt");
+  let came = browse(
+    PathKind::File,
+    lurq::files::FileDialog::new().multiple(true),
+    "",
+    Some(notes.clone()),
+  );
+  assert_eq!(
+    came.request["operation"], "open_file",
+    "one file, whatever the dialog was told"
+  );
+  assert_eq!(came.value, notes.to_string_lossy());
+  assert_eq!(came.picked.len(), 1);
 }
