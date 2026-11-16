@@ -7,7 +7,6 @@ use std::{
   hash::Hash,
   marker::PhantomData,
   sync::Arc,
-  time::Instant,
 };
 
 use parking_lot::Mutex;
@@ -4924,7 +4923,7 @@ impl TableRow {
 thread_local! {
   /// The last plain press of a row: which row, when and where. A second one of it soon after at the same place,
   /// as the engine counts a double press, activates it.
-  static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
+  static LAST_PRESS: Cell<Option<(usize, crate::time::Instant, (f32, f32))>> = const { Cell::new(None) };
 }
 
 /// Whether a press of the row `index` is the second of a double press: then the next is a first again. A press
@@ -5466,7 +5465,7 @@ pub struct GridCell {
 thread_local! {
   /// The last plain press of a cell of a grid: which, when and where. A second one of it soon after at the
   /// same place edits it.
-  static LAST_CELL_PRESS: Cell<Option<((usize, usize), Instant, (f32, f32))>> = const { Cell::new(None) };
+  static LAST_CELL_PRESS: Cell<Option<((usize, usize), crate::time::Instant, (f32, f32))>> = const { Cell::new(None) };
 }
 
 fn second_cell_press(cell: (usize, usize), event: &MouseEvent) -> bool {
