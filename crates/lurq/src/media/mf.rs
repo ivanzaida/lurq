@@ -80,8 +80,19 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
     let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     match MFStartup(MF_VERSION, MFSTARTUP_FULL) {
       Ok(()) => {
-        if let Err(error) = play(shared, opened, heard) {
-          shared.fail(failed(&error));
+        // What is only heard has no frames to keep anywhere.
+        let mut card = if heard { None } else { OnCard::new() };
+        let mut before = None;
+        loop {
+          match play(shared, opened.clone(), heard, card.take(), before.take()) {
+            Ok(Next::Done) => break,
+            // Something draws on a card now: it is opened again with that card's device, where it was.
+            Ok(Next::Again(found, shown)) => (card, before) = (Some(found), Some(shown)),
+            Err(error) => {
+              shared.fail(failed(&error));
+              break;
+            }
+          }
         }
         let _ = MFShutdown();
       }
@@ -260,6 +271,20 @@ unsafe fn show(image: &ImageData, sample: &IMFSample, shape: &Shape) -> Result<(
     }
     Ok(())
   }
+}
+
+/// How long a media whose frames go through memory looks for something that draws on a card, and how often: a
+/// player on an app's first screen opens its video before the window has anything to draw with.
+const LOOKS_FOR: Duration = Duration::from_secs(10);
+const LOOKS_EVERY: Duration = Duration::from_millis(100);
+
+/// How a turn at playing ended.
+enum Next {
+  /// Nothing holds the media, or it cannot play.
+  Done,
+  /// Something draws on a card now, and this media's frames went through memory: it is to be opened again with
+  /// the device of that card, and the image it showed until then.
+  Again(OnCard, Option<ImageData>),
 }
 
 /// How many textures hold the frames of a video on the card: the one that is shown, the one the next frame is
@@ -705,10 +730,16 @@ unsafe fn go(reader: &IMFSourceReader, seconds: f64) -> Result<()> {
   unsafe { reader.SetCurrentPosition(&GUID::zeroed(), &PROPVARIANT::from((seconds * TICKS) as i64)) }
 }
 
-unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
+/// Plays `opened` until nothing holds the media. `card` is the device of the card that draws, where one does;
+/// `before` is there where the media was playing already and is opened again, with the image it showed.
+unsafe fn play(
+  shared: &Shared,
+  opened: Opened,
+  heard: bool,
+  mut card: Option<OnCard>,
+  before: Option<Option<ImageData>>,
+) -> Result<Next> {
   unsafe {
-    // What is only heard has no frames to keep anywhere.
-    let mut card = if heard { None } else { OnCard::new() };
     let reader = open(opened, card.as_ref())?;
     let (mut volume, mut muted) = {
       let inner = shared.inner();
@@ -720,8 +751,32 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
     if picture.is_none() && sound.is_none() {
       // What the system opened and found nothing in to play: a kind of picture or sound it has no decoder for.
       shared.fail(MediaError::Unsupported);
-      return Ok(());
+      return Ok(Next::Done);
     }
+    // Opened again, it goes on from where it was, and shows what it showed until its frame there is decoded.
+    if let Some(shown) = before {
+      let at = {
+        let mut inner = shared.inner();
+        inner.hold();
+        inner.at
+      };
+      if at > 0.0 {
+        go(&reader, at)?;
+        if let Some(sound) = &mut sound {
+          sound.sent(Some(at));
+        }
+      }
+      if let Some(picture) = &mut picture {
+        picture.sent(Some(at));
+        if let Some(shown) = shown
+          && (shown.width(), shown.height()) == (picture.shape.width as u32, picture.shape.height as u32)
+          && !shown.is_native()
+        {
+          picture.image = shown;
+        }
+      }
+    }
+    let looks_since = Instant::now();
     let duration = reader
       .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)
       .ok()
@@ -749,6 +804,12 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
         let inner = shared.inner();
         (inner.playing, inner.ended, inner.position(), inner.rate)
       };
+      // Its frames go through memory, and something may draw on a card by now: a window that had nothing to
+      // draw with when this opened. It starts over on that card.
+      let looks = card.is_none() && picture.is_some() && looks_since.elapsed() < LOOKS_FOR;
+      if looks && let Some(found) = OnCard::new() {
+        return Ok(Next::Again(found, picture.map(|picture| picture.image)));
+      }
       let wait = if worked {
         None
       } else if playing && !ended {
@@ -759,6 +820,8 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
             Duration::from_secs_f64(((time - now) / rate).max(0.0))
           });
         Some(due.min(STEP)).filter(|wait| !wait.is_zero())
+      } else if looks {
+        Some(LOOKS_EVERY)
       } else {
         // Nothing to do until it is told something.
         Some(Duration::from_secs(3600))
@@ -775,7 +838,7 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
           }
         }
         match command {
-          Command::Close => return Ok(()),
+          Command::Close => return Ok(Next::Done),
           Command::Play => {
             if shared.inner().ended {
               go(&reader, 0.0)?;
@@ -955,13 +1018,17 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
         // Whether it is taken now, and whether it is shown: one that is too late is passed over.
         let taken = if picture.owed {
           Some(true)
-        } else if playing {
-          let now = shared.inner().position();
+        } else {
+          // Whether it plays is read now, and not as the turn began: a pause is in the media's state at once,
+          // and a frame decoded before it is not shown after it.
+          let (plays, now) = {
+            let inner = shared.inner();
+            (inner.playing, inner.position())
+          };
           // A file may hold frames a little past the length it says: at its end the clock stands, and they are
           // due.
-          (time <= now + 0.001 || duration.is_some_and(|duration| now >= duration)).then_some(now - time <= LATE)
-        } else {
-          None
+          (plays && (time <= now + 0.001 || duration.is_some_and(|duration| now >= duration)))
+            .then_some(now - time <= LATE)
         };
         if let Some(shown) = taken {
           let owed = picture.owed;

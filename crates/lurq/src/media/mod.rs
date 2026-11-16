@@ -15,9 +15,12 @@
 //! `ui::VideoPlayer::source` and `ui::AudioPlayer::source` do all of this for a player. An app that draws its
 //! own asks for a media itself.
 //!
+//! On Windows, where the `wgpu` renderer draws on Direct3D 12, a frame stays on the graphics card from the
+//! decoder to the screen: decoded there, copied there once, drawn there. Elsewhere it is copied through memory
+//! once.
+//!
 //! What is not here yet: a speed that keeps the pitch of the sound (faster is higher); a video at an address
-//! read through the app's loader (the system reads it itself where it can); a frame that stays on the graphics
-//! card from the decoder to the screen (a frame is copied through memory once).
+//! read through the app's loader (the system reads it itself where it can).
 
 use std::{
   collections::VecDeque,
@@ -255,6 +258,7 @@ impl Drop for Handle {
 pub struct Media(Arc<Handle>);
 
 /// What a source is, for what opens it: the file it is read from, the bytes it is, or its address.
+#[derive(Clone)]
 pub(crate) enum Opened {
   File(std::path::PathBuf),
   /// The bytes, and the name they came by where they have one: its ending tells the decoder what they are.

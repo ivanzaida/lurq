@@ -32,11 +32,15 @@ fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
     .then_some(found)
 }
 
-/// The clip's first frame, paused: the image a media gives once its picture is the one of `backend` (frames of
-/// the card, or `None` for frames of memory) and its first frame was shown.
-fn first_frame(on_card: bool) -> ImageData {
+/// The clip, opened and silenced, paused at its start.
+fn opened() -> Media {
   let media = Media::open(&Loader::new(), &Source::file(clip()));
   media.set_muted(true);
+  media
+}
+
+/// The image `media` gives once its first frame is shown, in frames of the card (`on_card`) or of memory.
+fn first_frame(media: &Media, on_card: bool) -> ImageData {
   let started = Instant::now();
   loop {
     assert!(
@@ -57,6 +61,42 @@ fn first_frame(on_card: bool) -> ImageData {
     assert_eq!(media.state().error, None);
     std::thread::sleep(Duration::from_millis(10));
   }
+}
+
+/// The frame `image` shows, of the card, drawn by the renderer's own code and read back.
+fn drawn_from(device: &wgpu::Device, queue: &wgpu::Queue, image: &ImageData) -> Vec<u8> {
+  let frames = image
+    .native()
+    .and_then(|native| native.payload::<SharedNv12Frames>())
+    .expect("the frames of the card")
+    .clone();
+  let shown = frames.handles()[frames.shown()];
+  let texture = shared_nv12::open(device, shown, image.width(), image.height())
+    .expect("the renderer's device opens the frame");
+  drawn(device, queue, &texture, image.width(), image.height())
+}
+
+/// How many pixels of `pixels` (a sample of gray and two of color each) are not `memory`'s frame, in gray and
+/// in color, and the most one is off by.
+fn differing(pixels: &[u8], memory: &[u8], wide: usize, high: usize) -> (usize, usize, u8) {
+  let (mut gray, mut color, mut worst) = (0_usize, 0_usize, 0_u8);
+  for y in 0..high {
+    for x in 0..wide {
+      let pixel = &pixels[(y * wide + x) * 4..][..4];
+      let from = memory[y * wide + x];
+      let at = wide * high + (y / 2) * wide + (x / 2) * 2;
+      let (u, v) = (memory[at], memory[at + 1]);
+      if pixel[0] != from {
+        gray += 1;
+        worst = worst.max(pixel[0].abs_diff(from));
+      }
+      if pixel[1] != u || pixel[2] != v {
+        color += 1;
+        worst = worst.max(pixel[1].abs_diff(u)).max(pixel[2].abs_diff(v));
+      }
+    }
+  }
+  (gray, color, worst)
 }
 
 /// Draws the two planes of `texture` into a target of its size, a sample of gray and its two of color in each
@@ -214,11 +254,13 @@ fn a_frame_decoded_and_drawn_on_the_card_is_the_frame_memory_gives() {
   };
   // Nothing draws on a card yet: the frame goes through memory, as it always did.
   crate::images::set_shared_nv12_adapter(None);
-  let in_memory = first_frame(false);
+  let early = opened();
+  let in_memory = first_frame(&early, false);
   let (width, height) = (in_memory.width(), in_memory.height());
   assert_eq!((width, height), (640, 360));
   let memory = in_memory.data_arc();
   assert_eq!(memory.len(), (width * height * 3 / 2) as usize);
+  let (wide, high) = (width as usize, height as usize);
 
   // The renderer says which card it draws on: the decoder decodes there, and its frames stay there.
   shared_nv12::announce(&device);
@@ -226,41 +268,15 @@ fn a_frame_decoded_and_drawn_on_the_card_is_the_frame_memory_gives() {
     crate::images::shared_nv12_adapter().is_some(),
     "a device with NV12 on Direct3D 12 says so"
   );
-  let on_card = first_frame(true);
+  let late = opened();
+  let on_card = first_frame(&late, true);
   assert_eq!((on_card.width(), on_card.height()), (width, height));
-  let frames = on_card
-    .native()
-    .and_then(|native| native.payload::<SharedNv12Frames>())
-    .expect("the frames of the card")
-    .clone();
-  let shown = frames.handles()[frames.shown()];
-  let texture = shared_nv12::open(&device, shown, width, height).expect("the renderer's device opens the frame");
-  let pixels = drawn(&device, &queue, &texture, width, height);
-  crate::images::set_shared_nv12_adapter(None);
-
+  let pixels = drawn_from(&device, &queue, &on_card);
   // Every sample of gray, and the two of color of every two by two, are memory's.
-  let (wide, high) = (width as usize, height as usize);
-  let (mut gray, mut color, mut worst) = (0_usize, 0_usize, 0_u8);
-  for y in 0..high {
-    for x in 0..wide {
-      let pixel = &pixels[(y * wide + x) * 4..][..4];
-      let from = memory[y * wide + x];
-      let at = wide * high + (y / 2) * wide + (x / 2) * 2;
-      let (u, v) = (memory[at], memory[at + 1]);
-      if pixel[0] != from {
-        gray += 1;
-        worst = worst.max(pixel[0].abs_diff(from));
-      }
-      if pixel[1] != u || pixel[2] != v {
-        color += 1;
-        worst = worst.max(pixel[1].abs_diff(u)).max(pixel[2].abs_diff(v));
-      }
-    }
-  }
   assert_eq!(
-    (gray, color),
-    (0, 0),
-    "of {} pixels, {gray} differ in gray and {color} in color, the worst by {worst}",
+    differing(&pixels, &memory, wide, high),
+    (0, 0, 0),
+    "the pixels that differ in gray and in color of {}, and the most one is off by",
     wide * high
   );
   // The picture is a picture: the clip's first frame is not one flat color.
@@ -269,4 +285,39 @@ fn a_frame_decoded_and_drawn_on_the_card_is_the_frame_memory_gives() {
     pixels.chunks(4).any(|pixel| pixel[0].abs_diff(first) > 32),
     "the frame has light and dark in it"
   );
+
+  // The media that opened before anything drew on a card (a player on an app's first screen) starts over on
+  // the card by itself, where it was, and its frame there is the same one.
+  let moved = first_frame(&early, true);
+  assert_eq!(
+    differing(&drawn_from(&device, &queue, &moved), &memory, wide, high),
+    (0, 0, 0),
+    "the frame of the media that started over on the card"
+  );
+  let state = early.state();
+  assert_eq!((state.error, state.playing, state.position), (None, false, 0.0));
+
+  // Played, its frames go on coming on the card, each in another of its textures, and it is another picture.
+  let frames = moved
+    .native()
+    .and_then(|native| native.payload::<SharedNv12Frames>())
+    .expect("the frames of the card")
+    .clone();
+  let (before, slot) = (moved.version(), frames.shown());
+  early.play();
+  let started = Instant::now();
+  let mut slots = std::collections::BTreeSet::from([slot]);
+  while started.elapsed() < Duration::from_millis(600) {
+    slots.insert(frames.shown());
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  early.pause();
+  let shown = moved.version() - before;
+  assert!((10..=22).contains(&shown), "about 18 frames of 30 a second in 0.6 s: {shown}");
+  assert_eq!(slots.len(), frames.handles().len(), "every texture took its turn: {slots:?}");
+  let later = drawn_from(&device, &queue, &moved);
+  let (gray, ..) = differing(&later, &memory, wide, high);
+  assert!(gray > wide * high / 100, "a frame half a second on is another picture: {gray} pixels differ");
+  assert_eq!(early.state().error, None);
+  crate::images::set_shared_nv12_adapter(None);
 }

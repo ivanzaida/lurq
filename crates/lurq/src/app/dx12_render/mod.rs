@@ -4461,6 +4461,13 @@ impl Dx12State {
         return Err(dx12_invalid_arg("canvas backing unavailable".to_owned()));
       }
       crate::images::NativeImageBackend::Dx12Nv12 => {}
+      // Frames a media keeps on the card for the wgpu renderer, which alone says it draws them: none come here.
+      crate::images::NativeImageBackend::SharedNv12 => {
+        return Err(dx12_invalid_arg(format!(
+          "dx12 renderer is not given a video's shared frames: image id={}",
+          image.image_id
+        )));
+      }
       #[cfg(feature = "wgpu")]
       crate::images::NativeImageBackend::WgpuExternalRgba => {
         return Err(dx12_invalid_arg(format!(
