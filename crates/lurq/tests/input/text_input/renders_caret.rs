@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::time::Duration;
 
 use lurq::{
   app::{
@@ -40,6 +40,9 @@ fn focused_text_input_caret_blinks_and_resets_after_typing() {
   let value = Signal::new("A".to_owned());
   let mut runtime = Tree::new();
 
+  // The blink runs on the runtime's clock, which the test moves: a slow machine cannot make it blink early.
+  let start = lurq::time::Instant::now();
+  runtime.set_animation_clock(Some(start));
   runtime.set_root(lurq::components::TextInput::new(value).caret_color(caret_color));
   run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
@@ -49,7 +52,7 @@ fn focused_text_input_caret_blinks_and_resets_after_typing() {
   let visible = render_pass(&mut runtime);
   assert!(has_caret(&visible, caret_color));
 
-  thread::sleep(Duration::from_millis(600));
+  runtime.set_animation_clock(Some(start + Duration::from_millis(600)));
   let hidden = render_pass(&mut runtime);
   assert!(!has_caret(&hidden, caret_color));
 
@@ -78,6 +81,10 @@ fn caret_mode_uses_theme_and_text_input_override() {
       .caret_mode(CaretMode::Blinking),
   );
 
+  // Both blink on a clock the test moves, not on the machine's.
+  let start = lurq::time::Instant::now();
+  persistent_runtime.set_animation_clock(Some(start));
+  override_runtime.set_animation_clock(Some(start));
   focus_text_input(&mut persistent_runtime, &mut persistent_app);
   focus_text_input(&mut override_runtime, &mut override_app);
   assert!(has_caret_quad(
@@ -87,7 +94,8 @@ fn caret_mode_uses_theme_and_text_input_override() {
   ));
   assert!(has_caret_quad(&mut override_runtime, &mut override_app, override_color));
 
-  thread::sleep(Duration::from_millis(600));
+  persistent_runtime.set_animation_clock(Some(start + Duration::from_millis(600)));
+  override_runtime.set_animation_clock(Some(start + Duration::from_millis(600)));
 
   assert!(has_caret_quad(
     &mut persistent_runtime,

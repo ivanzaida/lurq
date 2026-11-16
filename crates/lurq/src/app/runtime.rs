@@ -2934,7 +2934,9 @@ impl Tree {
     }
     {
       crate::app::profile_support::frame_section!("caret_blink");
-      self.update_text_input_caret_blink(now, caret_mode);
+      // On the runtime's clock, as the blink was started on it: a test that drives time sets it.
+      let blink_now = self.now();
+      self.update_text_input_caret_blink(blink_now, caret_mode);
     }
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
@@ -7274,7 +7276,7 @@ impl Tree {
   }
 
   fn reset_text_input_caret_blink(&mut self) {
-    self.text_input_caret_blink_started_at = Instant::now();
+    self.text_input_caret_blink_started_at = self.now();
     self.set_text_input_caret_visible(true);
   }
 
