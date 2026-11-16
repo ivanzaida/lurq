@@ -62,7 +62,7 @@ pub struct LightboxPage {
 }
 
 /// `count` pictures: the three shots in turn, each with what it is called.
-fn pictures_of(shots: &[ImageData; 3], count: usize) -> Vec<Picture> {
+pub(super) fn pictures_of(shots: &[ImageData; 3], count: usize) -> Vec<Picture> {
   (0..count)
     .map(|at| {
       let (title, description) = TITLES[at % TITLES.len()];
