@@ -54,6 +54,7 @@ mod find_bar;
 mod floating_panel;
 mod hover_card;
 mod icons;
+mod info_label;
 mod input;
 mod input_group;
 mod input_otp;
@@ -432,6 +433,14 @@ pub const PAGES: &[Page] = &[
     about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag value controller ention on_mention tokens rows placeholder size invalid warning valid read_only disabled full_width label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
+  },
+  Page {
+    path: "/info-label",
+    name: "Info Label",
+    icon: Some("info"),
+    about: "info label field hint help tooltip mark explain explanation i icon more information placement arrow force_open nfo abel",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<info_label::InfoLabelPage>(()),
   },
   Page {
     path: "/calendar",

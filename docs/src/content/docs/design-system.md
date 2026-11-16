@@ -625,6 +625,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 | `disabled(bool)` | Its control takes no input, and a press of its label focuses nothing |
 | `required(bool)` | A `*` after the label |
 | `optional(bool)`, `optional_text(&str)` | "Optional" after the label, or the app's own words. A required field shows none |
+| `info(&str)` | What the label needs explained: the mark of an [info label](#info-label) after the label, 6 after what is before it, with the words in a tooltip above it. The tooltip shows on a field that is mounted (`mount(ctx)`), and the mark is then the field's first stop of Tab; on one converted into an element the mark says the words to tooling alone |
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
@@ -648,6 +649,42 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
+
+## Info Label
+
+What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.
+
+```rust
+use lurq::{app::ctx::Placement, ui::InfoLabel};
+
+InfoLabel::new("API key").info("Stored in the OS keychain").mount(ctx);
+
+// The tooltip on another side, with an arrow.
+InfoLabel::new("Region")
+  .info("Where the data of the workspace is kept")
+  .placement(Placement::Bottom)
+  .arrow(true)
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | The text of the label |
+| `info(&str)` | What the mark explains, in a few words: the text of its tooltip. Without one, or with an empty one, there is no mark |
+| `info_label(&str)` | What the mark is called to tooling, in place of "More information" |
+| `icon(name)` | The icon of the mark, in place of the "i" |
+| `placement(Placement)`, `offset(..)`, `collision(..)`, `arrow(bool)` | Where the tooltip stands, as a [tooltip](#tooltip) has them. Above the label, from its start (`Placement::TopStart`), unless told |
+| `force_open(Option<bool>)` | The tooltip shown whatever the pointer and the focus do, or never |
+| `mount(ctx)` | The label where it goes, with its tooltip on it. Converting it (`.into()`) builds its still form: the label and the mark, on which nothing shows |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and the mark is `<id>-mark`; `force` draws the mark under the pointer or focused |
+
+- The explanation is the theme's [tooltip](#tooltip), mounted on the label: it shows after the pointer has rested on the label or on its mark for the tooltip's delay, and at once when the keyboard's focus comes to the mark, which is a stop of Tab; it goes when they leave, on a press, and on Escape. It is a mounted component for that reason alone: `mount(ctx)` puts the tooltip on it.
+- A label longer than the room it has ends in an ellipsis on its one line, and the mark keeps its place after it.
+- To what reads the tree the mark is an `img` called "More information", or by `info_label`, and described by what it explains (`a11y_description`), in the still form too.
+- A [field](#field) draws the same mark after its own label: `Field::new(..).info("…")`. An explanation with a link in it, or one that opens on a press, is a [toggletip](#toggletip)'s.
+- Parts: `InfoLabelPart::Root` (the label and the mark, 6 apart), `Label`, `Mark` (the "i": its side, its color, and its ring while it is focused from the keyboard). State: `InfoLabelState::Info` (it has something to explain).
+- In the design the label is a field label's text (13, medium) in `Foreground`, and the mark an "i" of 14 in `MutedForeground` 6 after it; under the pointer and focused the mark is in `Foreground`, and focused from the keyboard it has the theme's ring around its circle. The board draws no state of the mark: these are a link's.
+- A renderer that draws another label has `view.root()`, `view.mark()` (`None` with nothing to explain) and `view.label`; when the tooltip shows stays the label's.
 
 ## Textarea
 

@@ -72,6 +72,7 @@ mod highlight;
 mod hover_card;
 mod icon;
 pub mod icons;
+mod info_label;
 mod input;
 mod input_group;
 mod input_otp;
@@ -300,6 +301,7 @@ pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use info_label::{InfoLabel, InfoLabelPart, InfoLabelRenderer, InfoLabelState, InfoLabelView};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use input_group::{
   InputAddon, InputGroup, InputGroupPart, InputGroupRenderer, InputGroupSize, InputGroupState, InputGroupView,

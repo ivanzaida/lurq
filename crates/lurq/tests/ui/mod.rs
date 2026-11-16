@@ -58,6 +58,7 @@ mod heatmap;
 mod highlight;
 mod hover_card;
 mod icon;
+mod info_label;
 mod input;
 mod input_kinds;
 mod input_otp;
