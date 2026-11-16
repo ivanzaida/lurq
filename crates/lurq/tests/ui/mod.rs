@@ -12,6 +12,7 @@ mod bar_chart;
 mod blockquote;
 mod bar_list;
 mod breadcrumb;
+mod bulleted_list;
 mod button;
 mod calendar;
 mod card;

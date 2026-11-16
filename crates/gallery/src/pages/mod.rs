@@ -21,6 +21,7 @@ mod stat_card;
 mod banner;
 mod bar_chart;
 mod blockquote;
+mod bulleted_list;
 mod breadcrumb;
 mod button;
 mod calendar;
@@ -922,6 +923,14 @@ pub const PAGES: &[Page] = &[
     about: "blockquote quote citation passage prose markdown said line italic lockquote new child children label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<blockquote::BlockquotePage>(()),
+  },
+  Page {
+    path: "/bulleted-list",
+    name: "Bulleted List",
+    icon: Some("list"),
+    about: "bulleted list bullet bullets numbered ordered unordered number numbers ol ul li item items nested mark marker icon check media prose markdown typography new item items marker start number_text label list icon media child children",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<bulleted_list::BulletedListPage>(()),
   },
   Page {
     path: "/table",

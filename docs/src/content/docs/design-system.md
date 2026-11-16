@@ -2962,6 +2962,56 @@ Blockquote::new("")
 - In the design it has a line of 2 in `Border` at its start, and is padded 16 after it and 4 above and below; its text is 14 in italics on lines of 1.5 in `MutedForeground`. The board draws no one who said it.
 - A renderer that draws another quote has `view.root()`, `view.label()`, `view.body()` and `view.render()`.
 
+## Bulleted List
+
+A list of lines, each with a mark before it: a bullet, a number, an icon or a mark of the app's own. The features of a plan, the steps of a recipe, what a release changed; Markdown's `-` and `1.` are drawn with the same numbers.
+
+```rust
+use lurq::ui::{BulletedList, BulletedListItem, BulletedListMarker, icons};
+
+BulletedList::new(["Semantic color roles", "Light and dark palettes"]);
+
+// Numbers, from 4, written as the app says.
+BulletedList::new(["Install", "Configure", "Run"])
+  .marker(BulletedListMarker::Number)
+  .start(4)
+  .number_text(|number| format!("{number})"));
+
+// An icon for every item: the name of one is a marker.
+BulletedList::new(["Signed", "Notarized"]).marker(icons::CHECK);
+
+// A list in an item, with a marker of its own.
+BulletedList::new(["Tokens"]).item(
+  BulletedListItem::new("Components")
+    .list(BulletedList::new(["Button", "Switch"]).marker(BulletedListMarker::Number)),
+);
+```
+
+| Builder | |
+| --- | --- |
+| `BulletedList::new(items)` | Its items: texts, or `BulletedListItem`s |
+| `item(..)`, `items(..)` | Adds to them |
+| `marker(impl Into<BulletedListMarker>)` | What stands before each item: `Bullet` (the default), `Number`, `Icon(name)`, or `None`, the lines alone. The name of an icon of the theme's set is a marker |
+| `start(u64)` | The number of the first item of a numbered list, in place of 1 |
+| `number_text(Fn(u64) -> String)` | How a numbered list writes a number, in place of `1.`: `a)`, a number in another script |
+| `label(&str)` | What it is called to tooling |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. What is said of a list is said of the lists in its items |
+
+| Item | |
+| --- | --- |
+| `BulletedListItem::new(&str)` | What it says, wrapping at the list's width. An empty text says nothing, for an item of elements alone |
+| `child(..)`, `children(..)` | Elements under its line, 6 apart: a paragraph, a block of code |
+| `list(BulletedList)` | A list in the item, under what it says and holds: set in to the item's text, its bullets rings, with the marker it was given |
+| `icon(name)` | An icon as this item's mark, in place of the list's |
+| `media(..)` | An element of the app's as this item's mark: a status dot, a picture |
+| `id`, `key` | Of the item's row |
+
+- It fills the width it is given. A mark stands in the middle of its item's first line, however many lines the item goes on to. It is read and not operated: no stop of Tab. To what reads the tree it is a `list` of `listitem`s, called by its label where it has one.
+- An icon or a mark of one item's own makes an icon's room before every item of that list, so that their lines start together; an item of it with neither keeps its bullet.
+- Parts: `BulletedListPart::Root` (the room between the items), `Item` (a mark and a body, and the room between them), `Mark` (the box a mark stands in, one line high: its width, and the type and color of a number), `Bullet`, `Label` (what an item says), `Body` (the line over what the item holds). States: `BulletedListState::Numbered`, `Icon`, `Nested` (it is in another list's item).
+- In the design (`btfDc`) its items are 6 apart, each a dot of 5 in `MutedForeground`, 10 before its text in the body's 14 in `Foreground`. Where the board is silent it has the Markdown document's lists: a number at the end of a width of 18 in `MutedForeground`, 8 before the text, a ring for the bullet of a list in an item, an icon of 14. The numbers of a Markdown document's lists (`ThemeMarkdown::list_item_spacing`, `bullet_size`, `bullet_gap`, `list_marker_gap`, `ordered_list_marker_width`) start from the same source, so the two are one look until a theme changes one.
+- A renderer that draws another list has `view.root()`, `view.item(index, item)`, `view.mark(index, icon, media)`, `view.label(text)`, `view.number(index)`, `view.line_height()` and `view.render()`.
+
 ## Empty State
 
 What stands where content would be when there is none, and what to do about it: no results, no windows yet, all caught up.

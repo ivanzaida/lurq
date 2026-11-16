@@ -12,6 +12,8 @@ use super::{PaletteColor, ThemePalette};
 use crate::{
   layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStrikethrough, TextStyle, TextUnderline},
   node::{TextColor, border::BorderRadius, padding::Padding},
+  // The numbers of a list are `ui::BulletedList`'s: one source for the two.
+  ui::bulleted_list::look as list,
 };
 
 /// What a part of a document changes of the text it is in: each set value
@@ -549,16 +551,16 @@ impl Default for ThemeMarkdown {
 
     Self {
       document_spacing: 16.0,
-      list_item_spacing: 6.0,
+      list_item_spacing: list::ITEM_GAP,
       task_item_spacing: 8.0,
-      nested_block_spacing: 6.0,
-      list_marker_gap: 8.0,
-      bullet_gap: 10.0,
+      nested_block_spacing: list::ITEM_GAP,
+      list_marker_gap: list::NUMBER_GAP,
+      bullet_gap: list::BULLET_GAP,
       box_gap: 6.0,
       bullet_indent: 6.0,
-      bullet_size: 5.0,
+      bullet_size: list::BULLET,
       unordered_list_marker_width: 11.0,
-      ordered_list_marker_width: 18.0,
+      ordered_list_marker_width: list::NUMBER_WIDTH,
       table_row_spacing: 0.0,
       table_column_spacing: 0.0,
       table_cell_min_width: 80.0,

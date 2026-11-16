@@ -28,6 +28,7 @@ mod bar_chart;
 mod bar_list;
 mod blockquote;
 mod breadcrumb;
+pub(crate) mod bulleted_list;
 mod button;
 mod button_group;
 mod calendar;
@@ -185,6 +186,10 @@ pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
 pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView};
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
+pub use bulleted_list::{
+  BulletedList, BulletedListItem, BulletedListMarker, BulletedListPart, BulletedListRenderer, BulletedListState,
+  BulletedListView,
+};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
