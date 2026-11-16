@@ -7920,6 +7920,67 @@ Carousel::new(cards)
 - A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
   what turns them) and `view.dots()`.
 
+## QR Code
+
+A text an app gives, drawn as a code a phone's camera reads: an address to open, a code to pair a device, a ticket.
+
+```rust
+use lurq::ui::{QrCode, QrLevel};
+
+QrCode::new("https://lurq.dev/pair?code=7F3K-92QD").label("Pair your phone");
+QrCode::new("TICKET-2026-11-16-0042").level(QrLevel::Quartile).length(220.0).quiet_zone(4);
+QrCode::new(address).media(logo);
+```
+
+| Builder | |
+| --- | --- |
+| `QrCode::new(text)` | The code of the text's UTF-8 bytes, in the smallest version (1 to 40) that holds them |
+| `level(QrLevel)` | How much can be lost and the code still read: `Low` (7%), `Medium` (15%, the default), `Quartile` (25%), `High` (30%) |
+| `length(length)` | The side of the card, its padding included: 160 unless the app or a recipe says another |
+| `quiet_zone(modules)` | Modules of light around the code inside the card's padding: none unless the app says |
+| `media(element)` | A logo over the middle, in a well of the light fill; the code is made at `High` |
+| `label(&str)` | What tooling calls it: "QR code" unless the app says what it is for |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- It is dark on light in the light look and in the dark one alike, as the design draws it: a phone reads a code dark on light, and not every phone reads it the other way. Its fills are the roles of its recipe read in the theme's light palette (`Theme::palette_color_for(Appearance::Light, role)`): the card `Background`, the modules `Foreground`. Its edge is the window's `Border`.
+- The modules are as large as fit in whole logical pixels, and the code stands in the middle of the room inside the card's padding. The card is drawn with `.snap_to_pixels(true)`, so every module's edge is on a whole device pixel: at 100% and 200% every module is as wide as the next, at 150% a module of 5 is 7 or 8 device pixels, and two modules side by side meet with no seam. A run of dark modules, and the same run in the rows under it, is one box.
+- The encoder is lurq's own, byte mode at every version and level, with the mask that scores best: no dependency, in every build and in the browser. A higher level is taken where it fits in the same version. A text too long for the level asked for is drawn at the highest level that holds it; one no level holds (over 2953 bytes) draws the card empty. `QrMatrix::encode(text, level)` gives the modules themselves, to print or to draw another way.
+- The card's padding of 10 is light, and is the quiet zone a phone needs where the modules are small; a code of large modules, or one that is printed, takes `quiet_zone(2)` to `quiet_zone(4)`.
+- A logo's well is a fifth of the code's side, an odd number of modules across so that it sits on the middle module, or the logo's size with the well's padding where the logo is larger: a logo larger than a fifth of the side may leave a code no phone reads.
+- To tooling it is an image (`img`) called by its label, whose description is the text, also where no code holds the text.
+- Parts: `QrCodePart::Root` (the card), `Module` (a dark module), `Media` (the logo's well). State: `QrCodeState::Media`.
+- In the design the card has an edge of 1 inside it in `Border`, `radius-lg` corners and 10 of padding, white, with modules of near black. The board draws eleven modules of 7, a picture of a code: a code of a real text has 21 or more, so the card is 160 by default. The board draws no logo, no loading and no expired code.
+
+## Watermark
+
+A text, or a picture, repeated across what it covers, turned and faint, over the content: who a shared screen is shown to, a draft, a confidential report.
+
+```rust
+use lurq::ui::Watermark;
+
+Watermark::new("lurq internal").child(card);
+Watermark::new("ivan@lurq.dev · 16 Nov 2026").child(page);
+Watermark::new("Draft").angle(-35.0).gap(16.0, 24.0).child(page);
+Watermark::new("lurq").media(logo).child(report);
+```
+
+| Builder | |
+| --- | --- |
+| `Watermark::new(text)` | The marks of a text |
+| `child(element)`, `children(elements)` | What it covers; the watermark is as large as that |
+| `media(element)` | A picture repeated in place of the text, turned and faint as the text would be |
+| `gap(x, y)` | The room between one mark's box and the next, across and down, before they are turned: 27 and 29 |
+| `angle(degrees)` | Clockwise where more than nothing: -20, rising to the right |
+| `offset(x, y)` | Where the first mark's box is from the top left: -20 and 18 |
+| `stagger(x)` | How much further along every other row is: 40 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The marks take nothing from the content: their layer is hit by no pointer, so the content is pressed, selected and scrolled through them, and it says `a11y_hidden`, so tooling reads the content and not the marks (see [the MCP page](../mcp/)). The layer's id is the watermark's with `-layer` after it.
+- The mark is in the tree once; the engine paints it again across the layer ([`.repeat(Repeat)`](../layout/#repeat)), only where it can be seen. Over a page of any length in a scroll a watermark costs the marks in view, scrolling builds nothing again, and what is laid out again is the mark when its text or look changes, and the layer when the size of what it covers does.
+- A mark's glyphs are drawn at its angle (`TextTransformMode::Rasterized`), so it is sharp at every scale. Its color is `Foreground` at 0.12: dark on the light look, light on the dark one.
+- Parts: `WatermarkPart::Root` (what holds the content and the layer), `Layer`, `Mark` (its type, color and faintness). State: `WatermarkState::Media`. The board's numbers are `WATERMARK_GAP`, `WATERMARK_ANGLE`, `WATERMARK_OFFSET` and `WATERMARK_STAGGER`.
+- In the design the marks are "lurq internal" in the sans of 12, medium, in `foreground` at 0.12, turned 20 degrees counter-clockwise, 96 apart along a row and 44 from row to row, every other row 40 further along, over a card of 220 by 120 with an edge and `radius-lg` corners. The card is the content it covers, not the watermark's: a watermark draws no box of its own.
+
 ## Action Sheet
 
 On a phone, the actions on something, risen from the bottom of the screen over a scrim, and Cancel under them.

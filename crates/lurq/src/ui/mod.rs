@@ -127,6 +127,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 #[cfg(feature = "canvas")]
 mod radar_chart;
 mod radio;
@@ -190,6 +191,7 @@ mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -468,6 +470,9 @@ pub use property_grid::{
   CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
   PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
 };
+pub use qr_code::{
+  QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect,
+};
 #[cfg(feature = "canvas")]
 pub use radar_chart::{RadarChart, RadarChartPart};
 pub use radio::{
@@ -635,6 +640,10 @@ pub use video_player::{
   VideoPlayerView,
 };
 pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
+pub use watermark::{
+  WATERMARK_ANGLE, WATERMARK_GAP, WATERMARK_OFFSET, WATERMARK_STAGGER, Watermark, WatermarkPart, WatermarkRenderer,
+  WatermarkState, WatermarkView,
+};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,

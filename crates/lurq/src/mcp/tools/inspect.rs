@@ -5,7 +5,8 @@ use super::{
   interact::interact_tool,
   resolve::{ResolvedRef, find_node, hits_node, locate_node, ref_bounds},
   semantics::{
-    can_hover, can_invoke, inspection_attrs, semantic_actions, semantic_description, semantic_name, semantic_role,
+    can_hover, can_invoke, hidden_from_tooling, inspection_attrs, semantic_actions, semantic_description,
+    semantic_name, semantic_role,
   },
   windows::{requested_window, window_tree_mut},
 };
@@ -158,6 +159,10 @@ pub(super) fn inspect_node(
 ) -> Option<serde_json::Value> {
   if ctx.visited >= ctx.max_nodes {
     ctx.truncated = true;
+    return None;
+  }
+  // What says it is nothing to tooling is left out with all it holds.
+  if hidden_from_tooling(node) {
     return None;
   }
   ctx.visited += 1;

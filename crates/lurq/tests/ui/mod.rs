@@ -115,6 +115,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 #[cfg(feature = "canvas")]
 mod radar_chart;
 mod radio;
@@ -170,5 +171,6 @@ mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;

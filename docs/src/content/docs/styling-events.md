@@ -592,6 +592,8 @@ Hover follows the content under a pointer that holds still: after a layout that 
 
 An element is under the pointer on the device pixels it covers: from its left and top edges up to, and not on, its right and bottom ones. The row of pixels under a row is the next row's, or the gap's between them, and of two rows that touch each has the pointer on its own pixels. `HitRect::contains` tells the same of a point.
 
+A box is drawn where it is laid out, at a fraction of a device pixel where the scale is no whole number (150%), and its edge there is a column of half covered pixels. `.snap_to_pixels(true)` draws the fills and borders of an element and of everything in it on whole device pixels: each edge goes to the device pixel nearest it when the frame is painted, and an edge half way between two goes to the lower one whichever box it is the edge of, so two boxes that meet still meet. It is for a grid of cells that must read sharp, as the modules of `ui::QrCode`. What is laid out and what the pointer hits are as before; a text, an image and a box that is turned are drawn where they are.
+
 The hover moves whenever the pointer comes onto another node, from a row onto the text inside it for one, and most nodes look the same under the pointer. Every such move updates the hover and the cursor and runs the handlers, but it asks for a frame only when it shows, that is, when a node that gained or lost the hover:
 
 - has a `hovered` style, whose paint, layout and transitions the frame draws, or any state style that changes frame, padding or flex, which lays the node out again when one of its states changes;
