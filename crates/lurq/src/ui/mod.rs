@@ -444,9 +444,10 @@ pub use slider::{
 pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
-  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
-  SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
-  SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, PageLoader,
+  PageLoaderPart, PageLoaderRenderer, PageLoaderState, PageLoaderView, SPINNER_BARS, SPINNER_BARS_PERIOD, SPINNER_DOTS,
+  SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer, SpinnerSize, SpinnerState, SpinnerVariant,
+  SpinnerView,
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,

@@ -1,9 +1,11 @@
 //! A spinner: something is being done, and how far it is is not known. And
-//! the overlay that lays one over a part of the page while that part loads.
+//! the overlay that lays one over a part of the page while that part loads,
+//! and the loader that stands for a whole page while it starts.
 
 use std::{sync::Arc, time::Duration};
 
 use super::{
+  empty_state::centred,
   icon::Icon,
   icons, names,
   part_style::{Length, Opacity, PartAnimation},
@@ -15,7 +17,7 @@ use crate::{
   animation::{AnimatableProperty, Animation, Easing, Keyframes, KeyframesId},
   app::theme::{IconSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{Column, Grid, Row},
-  layout::{Alignment, grid::GridTrack, layout_kind::Justify},
+  layout::{Alignment, grid::GridTrack, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, Element, dimension::Dimension, transform::Decomposed},
 };
 
@@ -179,8 +181,9 @@ const LOADING: &str = "Loading";
 /// "Loading" when it has none. It is drawn in the color of the text around
 /// it, the ring, the dots and the bars alike, so a spinner in a button is the
 /// color of the button's label.
-/// Spinners move whether or not motion is reduced: one that stood still would
-/// say nothing.
+/// While motion is reduced ([`Theme::reduced_motion`]) a spinner stands still,
+/// as the design draws it: the ring with its gap, the dots at the three
+/// strengths of a wave caught at a moment, the bars at their five heights.
 #[derive(Clone)]
 pub struct Spinner {
   kind: SpinnerKind,
@@ -303,6 +306,7 @@ impl Spinner {
       label: self.label,
       label_hidden: self.label_hidden,
       decorative: self.decorative,
+      reduced_motion: theme.reduced_motion(),
       recipe: theme.resolve::<Spinner>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -336,6 +340,8 @@ pub struct SpinnerView {
   pub label_hidden: bool,
   /// Whether it is no status of its own.
   pub decorative: bool,
+  /// Whether motion is reduced: the spinner then stands still, as the design draws it.
+  pub reduced_motion: bool,
   /// The style of each part of this spinner.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -366,16 +372,19 @@ impl SpinnerView {
   }
 
   /// An animation of the dots or the bars: once in `period`, without end, the `index`th a step after the one
-  /// before it.
-  fn wave(keyframes: KeyframesId, period: Duration, index: usize, count: usize) -> Animation {
-    Animation::new(keyframes)
-      .duration(period)
-      .delay(period / (2 * count as u32) * index as u32)
-      .easing(Easing::EASE_IN_OUT)
-      .infinite()
+  /// before it. `None` while motion is reduced: the dot or the bar stays as the design draws it.
+  fn wave(&self, keyframes: KeyframesId, period: Duration, index: usize, count: usize) -> Option<Animation> {
+    (!self.reduced_motion).then(|| {
+      Animation::new(keyframes)
+        .duration(period)
+        .delay(period / (2 * count as u32) * index as u32)
+        .easing(Easing::EASE_IN_OUT)
+        .infinite()
+    })
   }
 
-  /// What moves, in the style of its part: the ring, the dots or the bars.
+  /// What moves, in the style of its part: the ring, the dots or the bars. While motion is reduced it is what
+  /// the design draws, and does not move.
   pub fn indicator(&self) -> Element {
     let part = self.part(SpinnerPart::Indicator);
     match self.kind {
@@ -391,12 +400,11 @@ impl SpinnerView {
         let count = DOT_OPACITIES.len();
         let mut row = Row::new().part(&part).align_items(Alignment::Center);
         for (index, opacity) in DOT_OPACITIES.into_iter().enumerate() {
-          row = row.child(Row::new().part(&dot).opacity(opacity).animation(Self::wave(
-            SPINNER_DOTS,
-            SPINNER_DOTS_PERIOD,
-            index,
-            count,
-          )));
+          let mut dot = Row::new().part(&dot).opacity(opacity);
+          if let Some(wave) = self.wave(SPINNER_DOTS, SPINNER_DOTS_PERIOD, index, count) {
+            dot = dot.animation(wave);
+          }
+          row = row.child(dot);
         }
         row.into()
       }
@@ -406,12 +414,11 @@ impl SpinnerView {
         let count = BAR_HEIGHTS.len();
         let mut row = Row::new().part(&part).align_items(Alignment::Center);
         for (index, share) in BAR_HEIGHTS.into_iter().enumerate() {
-          row = row.child(Row::new().part(&bar).height(height * share).animation(Self::wave(
-            SPINNER_BARS,
-            SPINNER_BARS_PERIOD,
-            index,
-            count,
-          )));
+          let mut bar = Row::new().part(&bar).height(height * share);
+          if let Some(wave) = self.wave(SPINNER_BARS, SPINNER_BARS_PERIOD, index, count) {
+            bar = bar.animation(wave);
+          }
+          row = row.child(bar);
         }
         row.into()
       }
@@ -780,5 +787,275 @@ impl Themed for LoadingOverlay {
         ))
       })
       .base(Scrim, |s| s.background(PaletteColor::Background).opacity(0.85))
+  }
+}
+
+/// The parts of a page loader a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PageLoaderPart {
+  /// The loader: as large as the room it is given, with what it holds in its middle.
+  Root,
+  /// What the loader says of the ring it turns, laid over the theme's recipe for a spinner's indicator: its side.
+  Spinner,
+  /// The title over the description.
+  Text,
+  /// What is starting: "Starting lurq".
+  Title,
+  /// What it is doing meanwhile, under the title: "Loading your workspace…".
+  Description,
+}
+
+names!(PageLoaderPart {
+  Root => "root",
+  Spinner => "spinner",
+  Text => "text",
+  Title => "title",
+  Description => "description",
+});
+
+/// The states of a page loader a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PageLoaderState {
+  /// It has a description under its title.
+  Description,
+}
+
+names!(PageLoaderState {
+  Description => "description",
+});
+
+/// What builds a page loader's nodes: a theme's in place of the default one.
+pub type PageLoaderRenderer = Arc<dyn Fn(PageLoaderView) -> Element + Send + Sync>;
+
+/// A page loader: what stands in the place of a whole page, a window or a
+/// pane while it starts. A spinner over a title and a line that says what is
+/// being done.
+///
+/// ```
+/// use lurq::ui::{PageLoader, Spinner, SpinnerKind, SpinnerSize};
+///
+/// let starting = PageLoader::new("Starting lurq").description("Loading your workspace…");
+/// // With a spinner of its own in place of the ring.
+/// let dots = PageLoader::new("Opening the project")
+///   .spinner(Spinner::new().kind(SpinnerKind::Dots).size(SpinnerSize::Md));
+/// ```
+///
+/// It is as large as the room it is given, with what it holds in the middle of
+/// it; a title or a description longer than the room goes on to the next
+/// line, centred. It paints no surface of its own: it stands on the page's. To
+/// tooling that reads the tree it is a status, called by its title and
+/// described by its description. Its ring stands still while motion is
+/// reduced, as a [`Spinner`]'s does. What loads over content that stays in
+/// place is a [`LoadingOverlay`]'s.
+pub struct PageLoader {
+  title: Arc<str>,
+  description: Option<Arc<str>>,
+  spinner: Option<Spinner>,
+  states: Vec<Name>,
+  rules: Recipe,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl PageLoader {
+  /// A loader that says `title` under a ring of 28.
+  pub fn new(title: &str) -> Self {
+    Self {
+      title: Arc::from(title),
+      description: None,
+      spinner: None,
+      states: Vec::new(),
+      rules: Recipe::new(),
+      id: None,
+      key: None,
+    }
+  }
+
+  /// What is being done meanwhile, under the title in the muted color: "Loading your workspace…". It describes
+  /// the loader to tooling.
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// A spinner in place of the ring of 28, as it is given: its kind, its size and its color. It is no status
+  /// of its own in the loader, which says what is being done.
+  pub fn spinner(mut self, spinner: Spinner) -> Self {
+    self.spinner = Some(spinner);
+    self
+  }
+
+  /// Puts the loader in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Styles one part of this loader over what the theme gives it.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
+    self.rules = self.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this loader.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// The id of the root.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
+
+  /// Builds the loader in `theme`. Converting a loader into an element does
+  /// this in the theme of what is being rendered.
+  pub fn build(self, theme: &Theme) -> Element {
+    let case = Case {
+      variant: None,
+      size: None,
+      density: None,
+      breakpoint: super::current_breakpoint(),
+      states: self.states.clone(),
+    }
+    .state(PageLoaderState::Description, self.description.is_some());
+    let view = PageLoaderView {
+      title: self.title,
+      description: self.description,
+      spinner: self.spinner,
+      recipe: theme.resolve::<PageLoader>(&case, Some(&self.rules)),
+      id: self.id,
+      key: self.key,
+    };
+    match theme.renderer::<PageLoader>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+}
+
+impl From<PageLoader> for Element {
+  fn from(loader: PageLoader) -> Self {
+    loader.build(&current_theme())
+  }
+}
+
+/// A page loader as a renderer sees it: what it was given and the style of its parts.
+pub struct PageLoaderView {
+  pub title: Arc<str>,
+  pub description: Option<Arc<str>>,
+  /// The spinner the app gave it, if any.
+  pub spinner: Option<Spinner>,
+  /// The style of each part of this loader.
+  pub recipe: ResolvedRecipe,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl PageLoaderView {
+  /// The style of a part, as this loader is to be drawn.
+  pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
+    self.recipe.part(part)
+  }
+
+  pub fn theme(&self) -> &Theme {
+    self.recipe.theme()
+  }
+
+  /// The root in the style of its part, with nothing in it yet: what it holds is in its middle. A status to
+  /// tooling, called by the title and described by the description.
+  pub fn root(&self) -> Column {
+    let mut root = Column::new()
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .part(&self.part(PageLoaderPart::Root))
+      .describe("a11y_role", "status")
+      .describe("a11y_name", self.title.clone());
+    if let Some(description) = &self.description {
+      root = root.describe("a11y_description", description.clone());
+    }
+    if let Some(id) = &self.id {
+      root = root.id(id.clone());
+    }
+    if let Some(key) = &self.key {
+      root = root.key(key.clone());
+    }
+    root
+  }
+
+  /// What turns: the app's spinner as it was given, or a ring with what the loader's recipe says of it. No
+  /// status of its own.
+  pub fn spinner(&self) -> Element {
+    let spinner = match &self.spinner {
+      Some(spinner) => spinner.clone(),
+      None => Spinner::new().rules(&self.recipe.rules_for(PageLoaderPart::Spinner, SpinnerPart::Indicator)),
+    };
+    spinner.decorative(true).build(self.theme())
+  }
+
+  /// The title over the description, each centred and wrapping in the width it has.
+  pub fn text(&self) -> Column {
+    let mut text = Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Center)
+      .part(&self.part(PageLoaderPart::Text))
+      .child(centred(&self.part(PageLoaderPart::Title), &self.title));
+    if let Some(description) = &self.description {
+      text = text.child(centred(&self.part(PageLoaderPart::Description), description));
+    }
+    text
+  }
+
+  /// How the default renderer builds a page loader: the spinner over the text, in the middle of the root.
+  pub fn render(self) -> Element {
+    self.root().child(self.spinner()).child(self.text()).into()
+  }
+}
+
+impl Themed for PageLoader {
+  const NAME: &'static str = "page_loader";
+  type Renderer = PageLoaderRenderer;
+
+  /// The design's page loader (`pencil/lurq-design-system.pen`, Loader/Page):
+  /// a ring of 28 in the foreground, 14 over the text; the title in 14 at 500
+  /// in the foreground with the description 4 under it in 13 of the muted
+  /// foreground, all in the middle of the room. The board's box of 280 by 180
+  /// with an edge is the page it is drawn on. It keeps 24 from the sides of a
+  /// room narrower than its text.
+  fn recipe() -> Recipe {
+    use PageLoaderPart::{Description, Root, Spinner, Text, Title};
+    use PaletteColor::{Foreground, MutedForeground};
+    Recipe::new()
+      .base(Root, |s| {
+        s.width(Length::Fill)
+          .height(Length::Fill)
+          .padding_x(24.0)
+          .padding_y(24.0)
+          .gap(14.0)
+          .foreground(Foreground)
+      })
+      .base(Spinner, |s| s.square(28.0))
+      .base(Text, |s| s.gap(4.0))
+      .base(Title, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(14.0)
+          .weight(FontWeight::Medium)
+          .foreground(Foreground)
+      })
+      .base(Description, |s| {
+        s.typography(TypographyStyle::Description)
+          .font_size(13.0)
+          .foreground(MutedForeground)
+      })
   }
 }

@@ -446,3 +446,247 @@ fn the_veil_fades_in_and_out() {
   stage.pass();
   assert!(!stage.paints(&glyph(icons::SPINNER)));
 }
+
+#[test]
+fn while_motion_is_reduced_a_spinner_stands_as_the_design_draws_it() {
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .spacing(12.0)
+      .child(Spinner::new())
+      .child(Spinner::new().kind(SpinnerKind::Dots))
+      .child(Spinner::new().kind(SpinnerKind::Bars))
+      .child(Button::new("Saving…").loading(true))
+      .into()
+  });
+  let bars = |stage: &Stage| -> Vec<Quad> {
+    let mut bars: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Rect { .. }) && (quad.width - 3.0).abs() < 0.01)
+      .collect();
+    bars.sort_by(|a, b| a.x.total_cmp(&b.x));
+    bars
+  };
+  for part in 0..6 {
+    stage.pass_after(SPINNER_DOTS_PERIOD / 6 * part);
+    let rings: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::SPINNER)))
+      .collect();
+    assert_eq!(rings.len(), 2, "the spinner's ring and the button's");
+    assert!(
+      rings.iter().all(|ring| ring.transform.is_identity()),
+      "no ring is turned, the button's neither"
+    );
+    let dots: Vec<f32> = rects(&stage, 8.0, 8.0).iter().map(|dot| dot.opacity).collect();
+    assert_eq!(
+      dots,
+      [1.0, 0.6, 0.3],
+      "a wave caught at a moment, as the board draws it"
+    );
+    let still = bars(&stage);
+    assert_eq!(
+      still.iter().map(|bar| bar.height).collect::<Vec<_>>(),
+      [8.0, 18.0, 12.0, 20.0, 10.0],
+      "the board's heights"
+    );
+    assert!(still.iter().all(|bar| bar.transform.is_identity()), "no bar shrinks");
+  }
+}
+
+mod page_loader {
+  use lurq::{
+    app::{
+      App,
+      theme::{PaletteColor, ThemePalette},
+    },
+    components::{Column, Row},
+    layout::quad::QuadContent,
+    node::color::Color,
+    ui::{
+      Button, PageLoader, PageLoaderPart, PageLoaderRenderer, PageLoaderView, SPIN_PERIOD, Spinner, SpinnerKind, icons,
+    },
+  };
+
+  use super::{super::stage::Stage, glyph};
+
+  fn light(role: PaletteColor) -> Color {
+    ThemePalette::light().get(role)
+  }
+
+  fn starting() -> PageLoader {
+    PageLoader::new("Starting lurq").description("Loading your workspace…")
+  }
+
+  /// The loader in the board's room of 280 by 180.
+  fn room(loader: impl Fn() -> PageLoader + Send + Sync + 'static) -> Stage {
+    Stage::new(move |_| {
+      Column::new()
+        .size(400.0, 300.0)
+        .child(Column::new().size(280.0, 180.0).child(loader().id("loader")))
+        .into()
+    })
+  }
+
+  #[test]
+  fn a_page_loader_fills_its_room_with_a_ring_of_28_over_a_title_and_a_line_in_its_middle() {
+    let mut stage = room(starting);
+    assert_eq!(stage.bounds("loader"), (0.0, 0.0, 280.0, 180.0), "as large as its room");
+    assert_eq!(
+      stage.text(&glyph(icons::SPINNER)),
+      (light(PaletteColor::Foreground), 28.0)
+    );
+    assert_eq!(stage.text("Starting lurq"), (light(PaletteColor::Foreground), 14.0));
+    assert_eq!(
+      stage.text("Loading your workspace…"),
+      (light(PaletteColor::MutedForeground), 13.0)
+    );
+    let title = stage.text_quad("Starting lurq").unwrap();
+    let line = stage.text_quad("Loading your workspace…").unwrap();
+    assert!(
+      (line.y - (title.y + title.height) - 4.0).abs() < 0.01,
+      "the line 4 under the title: {}",
+      line.y - (title.y + title.height)
+    );
+    // The ring's own quad is wherever in its turn it is, so the title is read against the room: what the loader
+    // holds is the ring of 28, 14, the title, 4 and the line, in the middle of 180.
+    let held = 28.0 + 14.0 + title.height + 4.0 + line.height;
+    assert!(
+      (title.y - ((180.0 - held) / 2.0 + 28.0 + 14.0)).abs() < 0.51,
+      "the title 14 under a ring of 28, all in the middle: {}",
+      title.y
+    );
+    for words in [&title, &line] {
+      assert!(
+        (words.x + words.width / 2.0 - 140.0).abs() < 0.51,
+        "centred across the room: {} wide at {}",
+        words.width,
+        words.x
+      );
+    }
+  }
+
+  #[test]
+  fn its_ring_turns_and_stands_still_while_motion_is_reduced() {
+    let mut stage = room(starting);
+    stage.pass_after(SPIN_PERIOD / 4);
+    assert!(!stage.text_quad(&glyph(icons::SPINNER)).unwrap().transform.is_identity());
+
+    let app = App::new();
+    app.theme().set_reduced_motion(Some(true));
+    let mut stage = Stage::in_app(app, |_| Column::new().size(280.0, 180.0).child(starting()).into());
+    stage.pass_after(SPIN_PERIOD / 4);
+    assert!(stage.text_quad(&glyph(icons::SPINNER)).unwrap().transform.is_identity());
+  }
+
+  #[test]
+  fn a_title_alone_and_a_spinner_of_the_apps_own() {
+    let stage = room(|| PageLoader::new("Opening the project").spinner(Spinner::new().kind(SpinnerKind::Dots)));
+    assert!(stage.paints("Opening the project"));
+    assert!(!stage.paints(&glyph(icons::SPINNER)), "no ring");
+    let dots = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if color.a() > 0) && quad.width == 8.0)
+      .count();
+    assert_eq!(dots, 3, "the app's dots, at their own size");
+  }
+
+  #[test]
+  fn a_title_and_a_line_longer_than_the_room_wrap_inside_it() {
+    const TITLE: &str = "Starting the workspace of the design systems team";
+    const LINE: &str = "Fetching the projects, the members and the settings each of them keeps";
+    let stage = Stage::new(|_| {
+      Column::new()
+        .size(400.0, 300.0)
+        .child(
+          Row::new()
+            .width(200.0)
+            .child(PageLoader::new(TITLE).description(LINE).id("loader")),
+        )
+        .into()
+    });
+    let mut lines = 0;
+    for quad in stage.quads() {
+      if let QuadContent::Text { text, .. } = &quad.content {
+        if *text == glyph(icons::SPINNER) {
+          continue;
+        }
+        lines += 1;
+        assert!(
+          quad.x >= 24.0 - 0.5 && quad.x + quad.width <= 200.0 - 24.0 + 0.5,
+          "{text:?} keeps 24 from the sides of a room of 200: {} at {}",
+          quad.width,
+          quad.x
+        );
+      }
+    }
+    assert!(lines >= 2, "the title and the line are drawn: {lines}");
+    let title = stage.text_quad(TITLE).expect("the title, whole");
+    assert!(
+      title.height > 14.0 * 1.6,
+      "on more than one line: {} high",
+      title.height
+    );
+  }
+
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  #[test]
+  fn tooling_reads_one_status_called_by_the_title_and_described_by_the_line() {
+    let mut stage = room(starting);
+    let said = |stage: &mut Stage, name: &str| {
+      stage
+        .tree
+        .get_element_by_id_mut("loader")
+        .and_then(|element| element.description(name))
+    };
+    assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("status"));
+    assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Starting lurq"));
+    assert_eq!(
+      said(&mut stage, "a11y_description").as_deref(),
+      Some("Loading your workspace…")
+    );
+  }
+
+  #[test]
+  fn it_takes_no_focus_and_a_theme_restyles_it_or_draws_another() {
+    let mut stage = Stage::new(|_| {
+      Column::new()
+        .size(400.0, 300.0)
+        .child(Column::new().size(280.0, 180.0).child(starting()))
+        .child(Button::new("Cancel").id("cancel"))
+        .into()
+    });
+    stage.key("Tab");
+    let focused = stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned));
+    assert_eq!(focused.as_deref(), Some("cancel"));
+
+    let app = App::new();
+    app.theme().patch_recipe::<PageLoader>(|rules| {
+      rules
+        .base(PageLoaderPart::Spinner, |s| s.square(40.0))
+        .base(PageLoaderPart::Title, |s| s.foreground(PaletteColor::Info))
+        .base(PageLoaderPart::Root, |s| s.background(PaletteColor::Muted))
+    });
+    let mut stage = Stage::in_app(app, |_| {
+      Column::new().size(280.0, 180.0).child(starting().id("loader")).into()
+    });
+    assert_eq!(stage.text(&glyph(icons::SPINNER)).1, 40.0);
+    assert_eq!(stage.text("Starting lurq").0, light(PaletteColor::Info));
+    assert_eq!(stage.fill_color("loader"), Some(light(PaletteColor::Muted)));
+
+    let app = App::new();
+    let renderer: PageLoaderRenderer =
+      std::sync::Arc::new(|view: PageLoaderView| view.root().child(view.text()).into());
+    app.theme().set_renderer::<PageLoader>(renderer);
+    let stage = Stage::in_app(app, |_| Column::new().size(280.0, 180.0).child(starting()).into());
+    assert!(stage.paints("Starting lurq"));
+    assert!(!stage.paints(&glyph(icons::SPINNER)), "the theme's loader has no ring");
+  }
+}

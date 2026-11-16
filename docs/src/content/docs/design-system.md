@@ -278,7 +278,7 @@ Icon::new(icons::SPINNER).spin(true);                 // a spinner
 | `Icon::new(name)` | A constant of `ui::icons`, or a name the theme added |
 | `size(size)` | An [`IconSize`](../theme/#icon-size) (`Md`, 16, by default) or a number of logical pixels. The icon is a square of that side |
 | `color(color)` | A color in place of the foreground of what it is in |
-| `spin(bool)` | It turns once in `ui::SPIN_PERIOD`, a second |
+| `spin(bool)` | It turns once in `ui::SPIN_PERIOD`, a second. While motion is reduced (`Theme::reduced_motion`) it stands still, as it is drawn |
 | `id(id)`, `key(key)` | Its id and key |
 
 - An icon names no color: it is drawn in the `.foreground(..)` of what it is in, as text is, so the icon of a button is the color of its label.
@@ -1885,6 +1885,9 @@ Spinner::new().label("Loading results…");
 
 // A veil with a spinner over a part of the page while it loads.
 LoadingOverlay::new(loading.get(), panel);
+
+// In the place of a whole page while it starts.
+PageLoader::new("Starting lurq").description("Loading your workspace…");
 ```
 
 | Builder | |
@@ -1898,11 +1901,12 @@ LoadingOverlay::new(loading.get(), panel);
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - To what reads the tree a spinner is a `status`, called by its label, or "Loading" when it has none.
-- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. A spinner moves whether or not motion is reduced: one that stood still would say nothing.
+- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. While motion is reduced (`Theme::reduced_motion`) a spinner stands still, as the design draws it: the ring with its gap, the dots at the three strengths of a wave caught at a moment, the bars at their five heights; a button that loads holds its ring still too. `view.reduced_motion` says so to a renderer.
 - A spinner is drawn in the color of the text around it, so a spinner in a button is the color of its label: the ring as text is, and the dots and the bars by the fill `BackgroundColor::CurrentForeground`. Where nothing around it names a color, that is `Foreground`. A variant gives it a color of its own.
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
 - `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, and `Scrim`, whose background and opacity are the veil's fill. State: `LoadingOverlayState::Loading`.
+- `PageLoader::new(title)` stands in the place of a whole page, a window or a pane while it starts: a ring of 28 over the title and, with `.description(&str)`, a line that says what is being done, in the middle of the room it is given. It is as large as that room (it fills its width, and its height where what holds it has one) and keeps 24 from its sides; a title or a description longer than the room wraps, centred. It paints no surface: it stands on the page's, and the board's box of 280 by 180 is the page it is drawn on. `.spinner(Spinner)` gives a spinner of the app's in place of the ring, as it is given. To what reads the tree it is one `status`, called by its title and described by its description; the spinner in it is no status of its own. Parts: `PageLoaderPart::Root`, `Spinner` (laid over the spinner's `Indicator`: the ring's side), `Text`, `Title` (14, medium, `Foreground`), `Description` (13, `MutedForeground`, 4 under the title); the ring is 14 over the text. State: `PageLoaderState::Description`. A renderer has `view.root()`, `view.spinner()` and `view.text()`.
 - A renderer that draws another spinner starts from `view.indicator()` and `view.label()`; `view.name()` is what it is called.
 
 ## Skeleton

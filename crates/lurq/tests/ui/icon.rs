@@ -145,3 +145,21 @@ fn a_spinning_icon_turns_about_its_middle_once_in_its_period() {
     "a quarter of a turn on, clockwise: {first:?} then {second:?}"
   );
 }
+
+#[test]
+fn a_spinning_icon_stands_still_while_motion_is_reduced() {
+  let app = lurq::app::App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(20.0)
+      .child(Icon::new(icons::SPINNER).spin(true))
+      .into()
+  });
+  let spinner = glyph(icons::SPINNER);
+  stage.pass_after(SPIN_PERIOD / 4);
+  let quarter = stage.text_quad(&spinner).expect("it is drawn");
+  assert!(quarter.transform.is_identity(), "as it is drawn, not turned");
+  stage.pass_after(SPIN_PERIOD / 2);
+  assert!(stage.text_quad(&spinner).unwrap().transform.is_identity());
+}
