@@ -1794,6 +1794,52 @@ Card::new()
 - To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
 - A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
 
+## Expandable Tile
+
+A tile that is pressed to show more of itself: a fact with its details, a figure with where it comes from, a plan with what it includes.
+
+```rust
+use lurq::{components::Text, core::Signal, ui::{ExpandableTile, icons}};
+
+// The board's tile, open.
+ExpandableTile::text("Renderer", "wgpu 26 on DirectX 12. Frame time 6.9 ms median.").open(true);
+
+// Open while the signal is true, which a press of the tile turns.
+let open = Signal::new(false);
+ExpandableTile::text("Renderer", "wgpu 26 on DirectX 12.")
+  .bind(open.clone())
+  .on_open_change(|open| println!("open: {open}"));
+
+// What it always shows, over an element it opens.
+ExpandableTile::new("Team", Text::new("Unlimited seats, SSO, audit log."))
+  .child(Text::new("$12 a seat"))
+  .icon(icons::PLUS)
+  .open_icon(icons::MINUS);
+```
+
+| Builder | |
+| --- | --- |
+| `ExpandableTile::new(title, element)` | Its title, and what it shows while it is open |
+| `ExpandableTile::text(title, text)` | Its title, and a text it shows while it is open, in the detail's type |
+| `child(..)`, `children(..)` | What it always shows, under its header: a figure, a line, a chart |
+| `open(bool)` | Whether what it opens is shown |
+| `bind(Signal<bool>)` | Open while the signal is true; a press turns it |
+| `on_open_change(Fn(bool))` | Told of a press, with what the tile is to be: after the signal is set where it is bound, and not when the app sets it |
+| `icon(..)`, `open_icon(..)` | The icon of the chevron (`chevron-down`), and of the open tile's (`chevron-up`, or its `icon` where it was given one); `None` for no chevron |
+| `disabled(bool)` | It takes no input |
+| `full_width(bool)` | As wide as what holds it, in place of the design's 260 |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- The whole tile is pressed: by the pointer anywhere on it, and by Enter and Space once Tab has reached it. It does not keep whether it is open: the app says so (`open`), or binds it (`bind`). With neither a handler nor a signal a press does nothing.
+- A press of an element the app put in it (what `child` gave it, the element it opens) is that element's alone, and the controls in it are stops of Tab of their own, after the tile. A press of the text of `ExpandableTile::text` is the tile's.
+- What it opens opens and closes with its height over the theme's base duration and fades, as a [collapsible](#collapsible)'s does, at once where motion is reduced. While it is closed it is not there: the controls in it are not stops of Tab.
+- A long title goes on to the next line, and the chevron stays at the end of its first.
+- To what reads the tree it is a `button`, called by its label or its title, which says whether what it opens is open (`a11y_expanded`).
+- Parts: `ExpandableTilePart::Root` (what is pressed: the fill, the edge, the padding), `Header`, `Title`, `Chevron`, `Body` (what it always shows), `Panel` (what opens: its height), `Detail` (what the panel holds, and the type of its text). States: `ExpandableTileState::Open`, `Disabled`, `FullWidth`, `Body`.
+- In the design (`slE1t`) it is 260 wide on `Background` in an edge of 1 in `Border` with the large radius, padded 16; its title is 14 at medium weight, 8 before a chevron of 16 in `MutedForeground`; what it opens is 10 under the header, a text of 13 on lines of 1.5 in `MutedForeground`. The board draws it open and at rest: closed it has `chevron-down`, under the pointer its edge is in the ring's color, as a pressed [card](#card)'s is, the focus is the theme's ring around it, and what it always shows is 10 under its header.
+- A renderer that draws another tile has `view.root()`, `view.header()`, `view.title()`, `view.chevron()`, `view.body()`, `view.panel()` and `view.render()`.
+
 ## Scroll Area
 
 Content that scrolls in a room of its own: a dialog's long body, a list in a panel, a table's cells. Its bar is the design's.

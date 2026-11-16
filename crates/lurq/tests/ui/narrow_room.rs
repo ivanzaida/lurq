@@ -10,10 +10,10 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker,
-    DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions, MentionsController,
-    MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress, ProgressDialog, Property,
-    PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast,
-    TokenInput, Waveform,
+    DropZone, ErrorSummary, ExpandableTile, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions,
+    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress,
+    ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea,
+    TimeField, TimePicker, Toast, TokenInput, Waveform,
   },
 };
 
@@ -428,4 +428,17 @@ fn a_waveform_in_a_narrow_room_keeps_its_bars_and_closes_its_gaps() {
     (last.x + last.width - (room + room_width)).abs() < 0.5,
     "the last at its end"
   );
+}
+
+#[test]
+fn an_expandable_tile_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    ExpandableTile::text(
+      "Renderer of the second monitor",
+      "wgpu 26 on DirectX 12. Frame time 6.9 ms median.",
+    )
+    .open(true)
+    .id("it")
+    .into()
+  });
 }

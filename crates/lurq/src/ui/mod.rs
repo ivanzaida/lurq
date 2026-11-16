@@ -59,6 +59,7 @@ mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
+mod expandable_tile;
 mod fab;
 mod field;
 mod fieldset;
@@ -280,6 +281,9 @@ pub use drop_zone::{
 };
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
+};
+pub use expandable_tile::{
+  ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};

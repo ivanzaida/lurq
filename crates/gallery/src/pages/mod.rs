@@ -47,6 +47,7 @@ mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
+mod expandable_tile;
 mod family;
 mod family_play;
 mod fieldset;
@@ -931,6 +932,14 @@ pub const PAGES: &[Page] = &[
     about: "bulleted list bullet bullets numbered ordered unordered number numbers ol ul li item items nested mark marker icon check media prose markdown typography new item items marker start number_text label list icon media child children",
     group: Group::Data,
     mount: |ctx| ctx.mount::<bulleted_list::BulletedListPage>(()),
+  },
+  Page {
+    path: "/expandable-tile",
+    name: "Expandable Tile",
+    icon: Some("rows-2"),
+    about: "expandable tile expand collapse open close more details disclosure card fold chevron press tile new text child children open bind on_open_change icon open_icon disabled full_width label",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<expandable_tile::ExpandableTilePage>(()),
   },
   Page {
     path: "/table",
