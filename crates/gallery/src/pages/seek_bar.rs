@@ -661,8 +661,8 @@ impl Component for SeekBarPage {
         "mount",
         "(ctx)",
         "",
-        "Puts it where it goes, the only way, keeping the time under the pointer: the chip with the time and \
-         the preview.",
+        "Mounts it at once, keeping the time under the pointer: the chip with the time and the preview. Given \
+         to a tree as it is (.child(bar)), it is the same component.",
       ),
     ];
     let playground = self.play(ctx);

@@ -106,14 +106,14 @@ fn a_picture_made_of_the_same_plain_things_is_not_rendered_again_with_what_holds
 /// A picture of 160 by 90 with a lightbox, 8 in from the corner of a window of 600 by 400. The page fills the
 /// window, as a window's root does: what lies over the window is laid in the room the root has.
 fn with_a_lightbox(picture: impl Fn(Picture) -> Picture + Send + Sync + 'static) -> Stage {
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
       .title("Lake at dusk")
       .size_px(160.0, 90.0)
       .lightbox(true)
       .id("lake");
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(Row::new().padding(8.0).child(picture(lake)))
       .into()
   });
@@ -146,7 +146,7 @@ fn a_press_opens_the_picture_in_a_lightbox_and_escape_closes_it() {
   stage.click("lake");
   stage.pass();
   assert!(open.get());
-  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 600.0, 400.0), "over the window");
+  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 800.0, 400.0), "over the window");
   assert_eq!(level(&mut stage).as_deref(), Some("100%"), "the picture alone, fitted");
   assert!(
     stage.tree.get_element_by_id("lake-viewer-next").is_none(),
@@ -195,7 +195,7 @@ fn a_picture_that_is_chosen_by_a_press_opens_nothing_by_it() {
 
 #[test]
 fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
-  let mut stage = Stage::first_frame(600.0, 400.0, |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, |_| {
     let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
       .title("Lake at dusk")
       .size_px(320.0, 180.0)
@@ -205,7 +205,7 @@ fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
       .force_bar_shown(Some(true))
       .id("lake");
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(Row::new().padding(8.0).child(lake))
       .into()
   });
@@ -576,6 +576,98 @@ fn a_figure_wider_than_its_room_is_as_wide_as_the_room() {
     .map(|quad| quad.x + quad.width)
     .fold(0.0, f32::max);
   assert!(caption <= 200.5, "the caption wraps in the room: it ends at {caption}");
+}
+
+/// The board's Mobile/Picture: a picture of 360 by 240 at the top of a phone's screen, with a title, a badge, a
+/// download and an item of the app's.
+fn on_a_phone(told: Arc<std::sync::Mutex<Vec<String>>>, variant: bool) -> Stage {
+  let mut stage = Stage::first_frame(390.0, 844.0, move |_| {
+    let (saved, copied) = (told.clone(), told.clone());
+    let mut lake = Picture::new(pixels(8, 6))
+      .size_px(360.0, 240.0)
+      .title("Lake at dusk")
+      .description("Ivan Zaida · 4032 × 3024")
+      .badge(lurq::ui::Badge::new("New"))
+      .on_download(move || saved.lock().unwrap().push("saved".to_owned()))
+      .menu_item(lurq::ui::MenuItem::new("Copy").on_select(move || copied.lock().unwrap().push("copied".to_owned())))
+      .id("lake");
+    if variant {
+      lake = lake.variant(lurq::ui::PictureVariant::Phone);
+    }
+    Column::new().size(390.0, 844.0).child(lake).into()
+  });
+  stage.pass();
+  stage
+}
+
+#[test]
+fn on_a_phone_a_large_picture_runs_edge_to_edge_and_its_bar_has_no_buttons() {
+  let mut stage = on_a_phone(Arc::default(), true);
+  let quad = stage.fill("lake").expect("the box is filled");
+  assert!(
+    quad.border_radius.is_none_or(|radius| radius.to_array() == [0.0; 4]),
+    "no corners: {:?}",
+    quad.border_radius
+  );
+  assert!(stage.border("lake").is_none(), "no line around it");
+  // The bar is there with no pointer over it, and says what the picture is; its buttons are a long press's.
+  let (color, size) = stage.text("Lake at dusk");
+  assert_eq!((color, size), (Color::new(255, 255, 255, 255), 15.0));
+  for id in ["lake-download", "lake-more", "lake-open"] {
+    assert!(stage.tree.get_element_by_id(id).is_none(), "{id}");
+  }
+  let badge = stage.text_quad("New").expect("the badge");
+  assert!(
+    badge.x >= 16.0 && badge.x < 30.0 && badge.y >= 16.0 && badge.y < 30.0,
+    "16 in: {}, {}",
+    badge.x,
+    badge.y
+  );
+}
+
+#[test]
+fn on_a_phone_a_long_press_brings_its_actions_in_a_sheet() {
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let mut stage = on_a_phone(told.clone(), true);
+  assert!(!stage.paints("Download"));
+  let (x, y) = stage.center("lake");
+  assert!(stage.tree.touch_long_press(x, y));
+  stage.pass();
+  assert!(stage.paints("Download") && stage.paints("Copy"), "its actions");
+  assert!(stage.paints("Cancel"));
+  stage.click("lake-actions-option-0");
+  assert_eq!(*told.lock().unwrap(), ["saved"]);
+  assert!(!stage.paints("Copy"), "the sheet closed");
+}
+
+#[test]
+fn an_app_for_a_finger_has_the_phones_form_and_one_for_a_pointer_the_desktops() {
+  let mut stage = on_a_phone(Arc::default(), false);
+  assert!(
+    stage.tree.get_element_by_id("lake-download").is_some(),
+    "a pointer: the bar's buttons"
+  );
+
+  let app = lurq::app::App::new();
+  app.theme().set_density(lurq::app::theme::Density::Touch);
+  let mut stage = Stage::first_frame_in(app, 390.0, 844.0, |_| {
+    Column::new()
+      .size(390.0, 844.0)
+      .child(
+        Picture::new(pixels(8, 6))
+          .size_px(360.0, 240.0)
+          .title("Lake at dusk")
+          .on_download(|| {})
+          .id("lake"),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(
+    stage.tree.get_element_by_id("lake-download").is_none(),
+    "a finger: no buttons in the bar"
+  );
+  assert!(stage.paints("Lake at dusk"), "the bar is there");
 }
 
 #[cfg(feature = "image")]

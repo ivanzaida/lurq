@@ -733,6 +733,66 @@ pub trait Component: Send + Sync + 'static {
   fn on_unmounted(&self) {}
 }
 
+/// A value that stands in a tree as a component: a builder (`SeekBar::new(..)`) whose component keeps between
+/// renders what a builder cannot.
+///
+/// Converting it into an element declares that component where the element stands, as
+/// [`Element::component`] does, so `.child(builder)` is enough and no `Ctx` is asked for: the component whose
+/// render returns the element mounts it once the render has returned, and keeps its slot.
+///
+/// ```
+/// use std::sync::Arc;
+///
+/// use lurq::{
+///   app::{component::{Component, IntoComponent}, ctx::Ctx},
+///   components::{Row, Text},
+///   node::Element,
+/// };
+///
+/// /// What an app writes.
+/// #[derive(Clone, PartialEq)]
+/// pub struct Clock {
+///   key: Option<Arc<str>>,
+/// }
+///
+/// /// What keeps the clock between renders.
+/// pub struct ClockHost;
+///
+/// impl Component for ClockHost {
+///   type Props = Clock;
+///   fn create(_ctx: &mut Ctx) -> Self {
+///     Self
+///   }
+///   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+///     Text::new("12:00")
+///   }
+/// }
+///
+/// impl IntoComponent for Clock {
+///   type Component = ClockHost;
+///   fn into_props(self) -> Clock {
+///     self
+///   }
+///   fn component_key(&self) -> Option<Arc<str>> {
+///     self.key.clone()
+///   }
+/// }
+///
+/// let row = Row::new().child(Clock { key: None });
+/// ```
+pub trait IntoComponent: Sized {
+  /// The component that renders it.
+  type Component: Component<Props: Clone>;
+
+  /// What its component is given.
+  fn into_props(self) -> <Self::Component as Component>::Props;
+
+  /// What tells it from its siblings, where it has a key: as the key of [`Element::component_keyed`].
+  fn component_key(&self) -> Option<std::sync::Arc<str>> {
+    None
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::{ComponentInfo, DevtoolsFormatter, DevtoolsInspectable};

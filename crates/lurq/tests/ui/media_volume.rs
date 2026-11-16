@@ -437,3 +437,30 @@ fn a_rule_lays_over_the_recipe() {
   });
   assert_eq!(stage.bounds("volume").2, 32.0 + 4.0 + 120.0);
 }
+
+#[test]
+fn given_to_a_tree_as_it_is_a_collapsed_control_shows_its_slider_as_a_mounted_one_does() {
+  let volume = Signal::new(0.5_f32);
+  // No `mount` and no `Ctx`: the control is a child as any element is.
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .spacing(40.0)
+      .child(
+        Row::new()
+          .id("volume")
+          .child(MediaVolume::new(volume.clone()).collapsed(true).id("mute")),
+      )
+      .child(Button::new("After").id("after"))
+      .into()
+  });
+  let width = |stage: &mut Stage| stage.bounds("volume").2;
+  assert_eq!(width(&mut stage), 32.0, "the button alone");
+  stage.hover("mute");
+  assert_eq!(width(&mut stage), 32.0 + 4.0 + 72.0, "under the pointer");
+  stage.tree.mouse_move(600.0, 300.0);
+  stage.pass();
+  assert_eq!(width(&mut stage), 32.0, "the pointer has gone");
+  stage.key("Tab");
+  assert_eq!(width(&mut stage), 108.0, "the focus on the button");
+}

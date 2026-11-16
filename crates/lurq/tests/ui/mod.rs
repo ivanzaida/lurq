@@ -2,6 +2,7 @@
 
 mod accordion;
 mod action_bar;
+mod action_sheet;
 mod ai_label;
 mod alert;
 mod audio_player;
@@ -83,6 +84,7 @@ mod lightbox;
 mod line_chart;
 mod list_item;
 mod listbox;
+mod media_captions;
 mod media_speed_menu;
 mod media_time;
 mod media_volume;

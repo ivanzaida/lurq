@@ -307,8 +307,16 @@ impl Loader {
     self
   }
 
+  /// Whether `address` may be loaded: what [`allow`](Self::allow) says of it, and yes where nothing was said.
+  /// For what reads an address by itself and not through a load: a video.
+  #[cfg_attr(not(feature = "media"), allow(dead_code))]
+  pub(crate) fn allows(&self, address: &str) -> bool {
+    let allow = self.shared.settings.read().allow.clone();
+    allow.is_none_or(|allow| allow(address))
+  }
+
   /// The file a resource is: its path under the root.
-  fn resource_path(&self, resource: &str) -> PathBuf {
+  pub(crate) fn resource_path(&self, resource: &str) -> PathBuf {
     match &self.shared.settings.read().root {
       Some(root) => root.join(resource),
       None => PathBuf::from(resource),

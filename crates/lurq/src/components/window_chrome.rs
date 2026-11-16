@@ -204,8 +204,15 @@ impl WindowChrome {
   }
 
   pub fn mount(self, ctx: &mut Ctx) -> Element {
-    let metrics = self.metrics();
+    let mut metrics = self.metrics();
     let window = ctx.window();
+    // In full screen the window has no title bar, as a window of the system's own has none: what fills the
+    // screen (a video) is not under a bar, and no button over it closes the window in place of leaving the
+    // full screen. What took the window there takes it back.
+    let full_screen = window.info().is_full_screen;
+    if full_screen {
+      metrics.height = 0.0;
+    }
     // What is laid over the whole window keeps clear of the title bar by this.
     window.set_title_bar_inset(if metrics.enabled { metrics.height } else { 0.0 });
     if !metrics.enabled {
@@ -230,7 +237,11 @@ impl WindowChrome {
       .clone()
       .or_else(|| self.content.node.background_color())
       .unwrap_or_else(|| self.title_bar.background.clone());
-    let title_bar = self.title_bar.render(&window, metrics.height);
+    let title_bar = if full_screen {
+      Element::new()
+    } else {
+      self.title_bar.render(&window, metrics.height)
+    };
     let content = Row::new()
       .width(Dimension::Pct(100.0))
       .flex(1.0)

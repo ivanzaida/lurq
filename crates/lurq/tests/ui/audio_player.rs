@@ -507,3 +507,219 @@ fn under_480_the_mini_player_keeps_the_track_play_and_next() {
   }
   assert!(!stage.paints("1:24 "), "no time");
 }
+
+#[test]
+fn given_to_a_tree_as_it_is_a_mini_player_has_the_form_of_its_width_from_the_first_frame() {
+  let log = log();
+  // No `mount` and no `Ctx`: the player is a child as any element is.
+  let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+    Column::new().width(360.0).child(mini(&log)).into()
+  });
+  assert!(
+    stage.tree.get_element_by_id_mut("m-queue").is_none(),
+    "the first frame already has the narrow form"
+  );
+  stage.pass();
+  stage.bounds("m-play");
+  stage.bounds("m-next");
+  for id in ["m-previous", "m-volume", "m-queue", "m-expand"] {
+    assert!(
+      stage.tree.get_element_by_id_mut(id).is_none(),
+      "{id} is not there under 480"
+    );
+  }
+}
+
+/// A tone of 440 Hz, `seconds` long, as the bytes of a WAV file: two channels of 16 bits at 44100 a second.
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
+fn tone(seconds: f64) -> Vec<u8> {
+  const RATE: u32 = 44_100;
+  let frames = (seconds * f64::from(RATE)) as u32;
+  let data = frames * 4;
+  let mut wav = Vec::with_capacity(44 + data as usize);
+  wav.extend_from_slice(b"RIFF");
+  wav.extend_from_slice(&(36 + data).to_le_bytes());
+  wav.extend_from_slice(b"WAVEfmt ");
+  wav.extend_from_slice(&16_u32.to_le_bytes());
+  wav.extend_from_slice(&1_u16.to_le_bytes());
+  wav.extend_from_slice(&2_u16.to_le_bytes());
+  wav.extend_from_slice(&RATE.to_le_bytes());
+  wav.extend_from_slice(&(RATE * 4).to_le_bytes());
+  wav.extend_from_slice(&4_u16.to_le_bytes());
+  wav.extend_from_slice(&16_u16.to_le_bytes());
+  wav.extend_from_slice(b"data");
+  wav.extend_from_slice(&data.to_le_bytes());
+  for frame in 0..frames {
+    let at = f64::from(frame) / f64::from(RATE);
+    let sample = ((at * 440.0 * std::f64::consts::TAU).sin() * 8_000.0) as i16;
+    wav.extend_from_slice(&sample.to_le_bytes());
+    wav.extend_from_slice(&sample.to_le_bytes());
+  }
+  wav
+}
+
+/// Renders `stage` again until `is` holds, for at most ten seconds: a media works on a thread of its own.
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
+#[track_caller]
+fn until(stage: &mut Stage, what: &str, mut is: impl FnMut(&mut Stage) -> bool) {
+  let started = std::time::Instant::now();
+  loop {
+    // The player's clock is a timer of its window, which a window with no loop does not run by itself.
+    stage.tree.tick_timers_at(std::time::Instant::now());
+    stage.pass();
+    if is(stage) {
+      return;
+    }
+    assert!(
+      started.elapsed() < std::time::Duration::from_secs(10),
+      "it never came to: {what}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+  }
+}
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
+#[test]
+fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
+  use lurq::resources::Source;
+  let log = log();
+  let heard = log.clone();
+  let source = Source::bytes(tone(12.0));
+  // Given to the tree as it is, and silenced: a run of the tests is not heard.
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 0.0, |_| {})
+          .source(&source)
+          .muted_controlled(true, |_| {})
+          .on_playing_change(move |to| heard.lock().unwrap().push(format!("playing {to}")))
+          .title("Tone")
+          .id("p"),
+      )
+      .into()
+  });
+  // It opened: its length is the sound's, and it stands at its start.
+  until(&mut stage, "its length", |stage| stage.paints("0:12"));
+  assert!(stage.paints("0:00"));
+  // Play: the app hears of it, and the sound goes, by its own clock.
+  stage.click("p-play");
+  assert_eq!(said(&log), ["playing true"]);
+  until(&mut stage, "playing", |stage| stage.paints("0:01"));
+  // Sent on by the keys of its bar, it is there.
+  stage.click("p-seek");
+  until(&mut stage, "sent to the middle", |stage| stage.paints("0:06") || stage.paints("0:07"));
+  // Pause: it stands where it is.
+  stage.click("p-play");
+  assert_eq!(said(&log), ["playing true", "playing false"]);
+  stage.pass();
+  let stands = ["0:06", "0:07", "0:08"]
+    .into_iter()
+    .find(|time| stage.paints(time))
+    .expect("the time it was paused at");
+  std::thread::sleep(std::time::Duration::from_millis(1200));
+  stage.tree.tick_timers_at(std::time::Instant::now());
+  stage.pass();
+  assert!(stage.paints(stands), "paused, the time stands");
+
+  // What is no sound says so in the player's own line.
+  let mut broken = Stage::new(|_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 0.0, |_| {})
+          .source(&Source::bytes(b"not a sound".to_vec()))
+          .title("Nothing")
+          .id("p"),
+      )
+      .into()
+  });
+  until(&mut broken, "the error", |stage| {
+    stage.tree.get_element_by_id_mut("p-retry").is_some()
+  });
+}
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media", feature = "http"))]
+#[test]
+fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_drawn() {
+  use std::{
+    io::{Read, Write},
+    sync::atomic::{AtomicUsize, Ordering},
+  };
+
+  use lurq::resources::Source;
+  // A server on this machine that answers each request with the tone, and counts them.
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let address = format!("http://{}/tone.wav", listener.local_addr().unwrap());
+  let asked = Arc::new(AtomicUsize::new(0));
+  let counted = asked.clone();
+  std::thread::spawn(move || {
+    let body = tone(8.0);
+    for stream in listener.incoming() {
+      let Ok(mut stream) = stream else {
+        return;
+      };
+      let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
+      while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk) {
+          Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+          _ => break,
+        }
+      }
+      counted.fetch_add(1, Ordering::Relaxed);
+      let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+      );
+      let _ = stream.write_all(head.as_bytes());
+      let _ = stream.write_all(&body);
+    }
+  });
+  let source = Source::url(&address);
+  let shown = source.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 95.0, |_| {})
+          .source(&shown)
+          .muted_controlled(true, |_| {})
+          .title("Tone")
+          .id("p"),
+      )
+      .into()
+  });
+  // Drawn, and drawn again: nothing is asked of the server, and its length is what the app said.
+  for _ in 0..5 {
+    stage.tree.tick_timers_at(std::time::Instant::now());
+    stage.pass();
+    std::thread::sleep(std::time::Duration::from_millis(40));
+  }
+  assert_eq!(asked.load(Ordering::Relaxed), 0, "a player that is only drawn loads nothing");
+  assert!(stage.paints("1:35"), "the length the app gave");
+  assert!(!lurq::media::sound_cache().holds(&source));
+
+  // Play: it is loaded, its length is its own, it plays, and it is kept.
+  stage.click("p-play");
+  until(&mut stage, "its own length", |stage| stage.paints("0:08"));
+  until(&mut stage, "playing", |stage| stage.paints("0:01"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1);
+  assert!(lurq::media::sound_cache().holds(&source));
+
+  // Another player of the same address, later: kept, it is opened at once and asks the server for nothing.
+  let shown = source.clone();
+  let mut second = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 95.0, |_| {})
+          .source(&shown)
+          .muted_controlled(true, |_| {})
+          .id("p"),
+      )
+      .into()
+  });
+  until(&mut second, "its own length", |stage| stage.paints("0:08"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two players");
+}

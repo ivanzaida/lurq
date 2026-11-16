@@ -17,6 +17,7 @@
 
 mod accordion;
 mod action_bar;
+mod action_sheet;
 mod ai_label;
 mod alert;
 mod audio_player;
@@ -36,9 +37,9 @@ mod button_group;
 mod calendar;
 mod callout;
 mod card;
+mod carousel;
 #[cfg(feature = "canvas")]
 mod chart;
-mod carousel;
 mod checkbox;
 mod chip;
 mod choice_card;
@@ -92,6 +93,7 @@ mod line_chart;
 mod link;
 mod list_item;
 mod listbox;
+mod media_captions;
 mod media_speed_menu;
 mod media_time;
 mod media_volume;
@@ -190,6 +192,7 @@ pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, 
 pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
+pub use action_sheet::{ActionSheet, ActionSheetPart, ActionSheetRenderer, ActionSheetState, ActionSheetView};
 pub use ai_label::{AiLabel, AiLabelPart, AiLabelRenderer, AiLabelSize, AiLabelState, AiLabelView};
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use audio_player::{
@@ -231,6 +234,7 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
+pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use chart::ChartLabel;
 #[cfg(feature = "canvas")]
@@ -333,7 +337,9 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
-pub use gallery::{GALLERY_LEAST_PICTURE, Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
+pub use gallery::{
+  GALLERY_LEAST_PICTURE, Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView,
+};
 #[cfg(feature = "canvas")]
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 #[cfg(feature = "canvas")]
@@ -357,8 +363,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
-pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
-pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
+pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxVariant, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
@@ -367,6 +372,7 @@ pub use list_item::{
   ListView,
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
+pub use media_captions::{MediaCaptions, MediaCue};
 pub use media_speed_menu::{
   MediaSpeedMenu, MediaSpeedMenuPart, MediaSpeedMenuRenderer, MediaSpeedMenuState, MediaSpeedMenuView,
 };
@@ -430,7 +436,7 @@ pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaSta
 pub use picture::{
   PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
   PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall, PictureState,
-  PictureView,
+  PictureVariant, PictureView,
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
@@ -489,9 +495,7 @@ pub use selection_marquee::{
   SelectionMarqueeView,
 };
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
-pub use settings_card::{
-  SettingsCard, SettingsCardPart, SettingsCardRenderer, SettingsCardState, SettingsCardView,
-};
+pub use settings_card::{SettingsCard, SettingsCardPart, SettingsCardRenderer, SettingsCardState, SettingsCardView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{
@@ -608,8 +612,9 @@ pub use tree_view::{
 };
 pub use video_player::{
   VIDEO_PLAYER_COMPACT_BELOW, VIDEO_PLAYER_HIDE_AFTER, VIDEO_PLAYER_MINIMAL_BELOW, VIDEO_PLAYER_SEEK_STEP,
-  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoPlayer, VideoPlayerBar, VideoPlayerMenu,
-  VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerView,
+  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoFullscreen, VideoPlayer, VideoPlayerBar,
+  VideoPlayerMenu, VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerTouch,
+  VideoPlayerView,
 };
 pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{

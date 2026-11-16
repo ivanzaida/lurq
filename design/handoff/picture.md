@@ -24,6 +24,8 @@
   `ui::MessageBox`, `components::DragContainer`: what they change on a root goes through `decorate_root`, so that it
   reaches a root that is a declared component.
 - `#[derive(Clone)]` on `ui::Menu`, `ui::MenuItem`, `MenuEntry`.
+- `ui::MenuItem`: `label_of`, `is_destructive`, `select_handlers` (crate-private), for the action sheet that shows a
+  menu's items as its options.
 
 ## For `docs/src/content/docs/design-system.md`
 
@@ -75,6 +77,7 @@ Picture::from_resource("images/lake.jpg")
 | `on_click(handler)` | A press of the picture as a whole |
 | `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
 | `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
+| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's where the theme is at `Density::Touch`, an app for a finger, unless told |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
@@ -137,9 +140,13 @@ Picture::from_resource("images/lake.jpg")
   gallery turns on.
 - Loading is `lurq::resources`, not the picture's own: a video, a sound and a font are read the same way.
 
+- The phone's form is chosen by the theme's density, not by the window's width: what changes is how it is
+  pressed (no pointer to bring a bar in, a long press for its actions), and a narrow window on a desktop still
+  has a pointer. The lightbox's phone form follows the window, since it is a layout of the screen.
+- On a phone a small picture keeps its corners: the board draws a large one alone, edge to edge.
+
 ## Not done
 
-- The board's Mobile Picture (`VmTdR`, dark `zzLvV`): the phone's forms are not built.
 - `ctx.mount` does not hold an unchanged component's nodes as `Element::component` does: the design is in
   `held-components-for-every-mount-handover.md`.
 

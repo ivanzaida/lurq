@@ -325,7 +325,8 @@ impl Component for AudioQueuePage {
         "mount",
         "&mut Ctx",
         "",
-        "Puts it where it goes, the only way: it keeps the tooltips of the more buttons.",
+        "Mounts it at once, with the tooltips of the more buttons. Given to a tree as it is (.child(queue)), \
+         it is a component that has them too.",
       ),
     ];
     let playground = self.play(ctx);

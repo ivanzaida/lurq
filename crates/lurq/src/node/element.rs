@@ -243,6 +243,19 @@ impl Default for Element {
   }
 }
 
+/// What stands in a tree as a component is that component, declared where the element stands: the component whose
+/// render returns the element mounts it, with the value's key where it has one.
+impl<T: crate::app::component::IntoComponent> From<T> for Element {
+  fn from(value: T) -> Self {
+    let key = value.component_key();
+    let props = value.into_props();
+    match key {
+      Some(key) => Self::component_keyed::<T::Component>(key, props),
+      None => Self::component::<T::Component>(props),
+    }
+  }
+}
+
 impl<'a> ElementRef<'a> {
   /// Returns an owned drawing capability for an attached canvas.
   #[cfg(feature = "canvas")]

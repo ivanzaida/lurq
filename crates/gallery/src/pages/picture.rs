@@ -12,8 +12,8 @@ use lurq::{
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
   node::Element,
   ui::{
-    Avatar, AvatarSize, Badge, Button, ButtonShape, ButtonSize, ButtonVariant, MenuItem, Picture, PictureFit,
-    PicturePlaceholder, PictureShape, PictureSize, icons,
+    ActionSheet, Avatar, AvatarSize, Badge, Button, ButtonShape, ButtonSize, ButtonVariant, MenuItem, Picture,
+    PictureFit, PicturePlaceholder, PictureShape, PictureSize, PictureVariant, icons,
   },
 };
 
@@ -764,6 +764,38 @@ impl Component for PicturePage {
             ),
         ),
     );
+    let on_a_phone = items()
+      .id("picture-phone")
+      .child(item(
+        self
+          .lake()
+          .size_px(360.0, 240.0)
+          .variant(PictureVariant::Phone)
+          .title("Lake at dusk")
+          .description("Ivan Zaida · 4032 × 3024")
+          .badge(Badge::new("New"))
+          .on_download(|| {})
+          .menu_items([MenuItem::new("Copy"), MenuItem::new("Share…")])
+          .lightbox(true)
+          .id("picture-phone-lake"),
+        "phone · 360 × 240 · a tap opens it, a long press its actions",
+      ))
+      .child(item(
+        Column::new().width(360.0).max_width(FILL).child(
+          ActionSheet::new(
+            Signal::new(true),
+            [
+              MenuItem::new("Download"),
+              MenuItem::new("Copy"),
+              MenuItem::new("Share…"),
+            ],
+          )
+          .title("Lake at dusk")
+          .inline(true),
+        ),
+        "long press · the actions in a sheet",
+      ));
+
     let without = items()
       .id("picture-without")
       .child(item(
@@ -930,6 +962,12 @@ impl Component for PicturePage {
          whether it is open, to read and to set, and what tells of it. A picture that is chosen by a press is \
          opened by the button.",
       ),
+      (
+        "variant",
+        "PictureVariant",
+        "by the density",
+        "Desktop, Phone: the phone's in an app for a finger (Density::Touch), unless told. A large picture runs          edge to edge, its bar is always there with no buttons, and a long press brings its actions in a sheet.",
+      ),
       ("disabled", "bool", "false", "Half the opacity; it takes nothing."),
     ];
     let playground = self.play(ctx);
@@ -1074,6 +1112,24 @@ impl Component for PicturePage {
             without,
             ".bare(true)",
             &["picture.bare(true)", "picture.bar(false).child(your_layer)"],
+          ),
+        ),
+        Section::new(
+          "On a phone",
+          "In an app for a finger (the theme at `Density::Touch`) a large picture runs edge to edge with no corners            and no line, and its bar is always there with no buttons: there is no pointer to bring it in. A tap            opens it, and a long press brings its actions, Download and the menu's items, in an action sheet.",
+          self.frame.demo(
+            8,
+            on_a_phone,
+            ".variant(PictureVariant::Phone)",
+            &[
+              "// In an app at Density::Touch a picture is the phone's on its own.",
+              "Picture::from_file(\"photos/lake.jpg\")",
+              "    .title(\"Lake at dusk\")",
+              "    .on_download(save)",
+              "    .menu_items(items)",
+              "    .lightbox(true)",
+              "    .variant(PictureVariant::Phone)",
+            ],
           ),
         ),
         Section::new(
