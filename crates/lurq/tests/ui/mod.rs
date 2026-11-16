@@ -53,6 +53,7 @@ mod file_upload;
 mod find_bar;
 mod floating_panel;
 mod forced_on_one_item;
+mod gallery;
 #[cfg(feature = "canvas")]
 mod heatmap;
 mod highlight;

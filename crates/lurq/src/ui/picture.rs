@@ -814,7 +814,6 @@ impl Picture {
   }
 
   /// A count over a veil: "+5" on the last picture of a row that could not hold them all. A gallery's.
-  #[allow(dead_code)]
   pub(crate) fn count(mut self, count: &str) -> Self {
     self.count = Some(Arc::from(count));
     self
@@ -928,6 +927,18 @@ impl Picture {
     self.size = None;
     // What holds it is what tooling reads.
     self.decorative = true;
+    self
+  }
+
+  /// The picture as one of a gallery's: the pixels covering all of the room it is given, with nothing over
+  /// them and nothing a press does yet. What it is called and how it loads stay, and so do its box and its
+  /// corners.
+  pub(crate) fn in_grid(mut self) -> Self {
+    self = self.stripped();
+    self.width = Some(Length::Fill);
+    self.height = Some(Length::Fill);
+    self.aspect_ratio = None;
+    self.fit = PictureFit::Cover;
     self
   }
 
