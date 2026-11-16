@@ -1,6 +1,11 @@
 //! The thread of a media on Windows: Media Foundation's source reader decodes the picture to NV12 and the sound
 //! to samples, each frame is shown when the media's clock comes to its time, and the sound is given to the
 //! system's output, whose own clock the media's then follows.
+//!
+//! A frame stays on the graphics card where something draws there ([`OnCard`]): the decoder is given a device
+//! of the card the renderer draws on, gives its frames as textures of it, and each is copied, on the card, into
+//! a texture the renderer has opened. Where nothing draws on a card (a test, another renderer), or the decoder
+//! gives memory all the same, a frame is copied through memory once, as it always was.
 
 use std::{
   collections::VecDeque,
@@ -10,7 +15,22 @@ use std::{
 
 use windows::{
   Win32::{
+    Foundation::{HMODULE, LUID},
+    Graphics::{
+      Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1},
+      Direct3D11::{
+        D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+        D3D11_QUERY_DESC, D3D11_QUERY_EVENT, D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE,
+        D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11CreateDevice, ID3D11Device,
+        ID3D11DeviceContext, ID3D11Multithread, ID3D11Query, ID3D11Texture2D,
+      },
+      Dxgi::{
+        Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
+        CreateDXGIFactory1, DXGI_SHARED_RESOURCE_READ, IDXGIAdapter, IDXGIFactory4, IDXGIResource1,
+      },
+    },
     Media::MediaFoundation::{
+      IMFDXGIBuffer, IMFDXGIDeviceManager, MF_SOURCE_READER_D3D_MANAGER, MFCreateDXGIDeviceManager,
       IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM,
       MF_E_INVALID_FILE_FORMAT,
       MF_E_INVALID_FORMAT, MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE,
@@ -28,14 +48,14 @@ use windows::{
     System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage::PROPVARIANT},
     UI::Shell::SHCreateMemStream,
   },
-  core::{GUID, HSTRING, Interface, Result},
+  core::{BOOL, GUID, HSTRING, Interface, PCWSTR, Result},
 };
 
 use super::{
   Command, MediaError, Opened, Shared,
   output::{CHANNELS, Output},
 };
-use crate::images::ImageData;
+use crate::images::{ImageData, NativeImageData, SharedNv12Frames};
 
 /// The streams that are decoded: the first video and the first sound of what is opened.
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -100,11 +120,15 @@ fn failed(error: &windows::core::Error) -> MediaError {
 
 /// A reader of `opened`, with none of its streams chosen yet. It decodes on the graphics card where the system
 /// can.
-unsafe fn open(opened: Opened) -> Result<IMFSourceReader> {
+unsafe fn open(opened: Opened, card: Option<&OnCard>) -> Result<IMFSourceReader> {
   unsafe {
     let mut attributes: Option<IMFAttributes> = None;
-    MFCreateAttributes(&mut attributes, 2)?;
+    MFCreateAttributes(&mut attributes, 3)?;
     let attributes = attributes.expect("the attributes Media Foundation made");
+    // Given a device of the card, the decoder gives its frames as textures of it.
+    if let Some(card) = card {
+      attributes.SetUnknown(&MF_SOURCE_READER_D3D_MANAGER, &card.manager)?;
+    }
     // Its own conversion to the format asked for, and the decoders of the hardware where there are some.
     attributes.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)?;
     attributes.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
@@ -238,10 +262,199 @@ unsafe fn show(image: &ImageData, sample: &IMFSample, shape: &Shape) -> Result<(
   }
 }
 
+/// How many textures hold the frames of a video on the card: the one that is shown, the one the next frame is
+/// copied into, and one between them, which what draws may still be reading.
+const FRAMES: usize = 3;
+/// How long a copy on the card is waited for before its frame is shown all the same.
+const COPIED_WITHIN: Duration = Duration::from_millis(100);
+
+/// What decodes on the graphics card the renderer draws on: the device the system's decoder is given, and the
+/// textures its frames are copied into, which the renderer opens by their handles.
+struct OnCard {
+  device: ID3D11Device,
+  context: ID3D11DeviceContext,
+  manager: IMFDXGIDeviceManager,
+  /// What tells when the card has done what it was told: a copy is finished before its frame is shown.
+  done: ID3D11Query,
+  held: Option<Held>,
+}
+
+/// The textures of a video's frames, of one size, and the frames an image draws from.
+struct Held {
+  textures: Vec<ID3D11Texture2D>,
+  frames: SharedNv12Frames,
+  width: u32,
+  height: u32,
+}
+
+impl OnCard {
+  /// A device on the card that draws shared frames; `None` where nothing draws them, or the card has no such
+  /// device, and a frame goes through memory.
+  unsafe fn new() -> Option<Self> {
+    unsafe {
+      let (low, high) = crate::images::shared_nv12_adapter()?;
+      let cards: IDXGIFactory4 = CreateDXGIFactory1().ok()?;
+      let card: IDXGIAdapter = cards
+        .EnumAdapterByLuid(LUID {
+          LowPart: low,
+          HighPart: high,
+        })
+        .ok()?;
+      let (mut device, mut context): (Option<ID3D11Device>, Option<ID3D11DeviceContext>) = (None, None);
+      D3D11CreateDevice(
+        &card,
+        D3D_DRIVER_TYPE_UNKNOWN,
+        HMODULE::default(),
+        D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        Some(&[D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0]),
+        D3D11_SDK_VERSION,
+        Some(&mut device),
+        None,
+        Some(&mut context),
+      )
+      .ok()?;
+      let (device, context) = (device?, context?);
+      // The decoder uses the device from threads of its own.
+      let _ = device
+        .cast::<ID3D11Multithread>()
+        .ok()?
+        .SetMultithreadProtected(true);
+      let (mut token, mut manager) = (0_u32, None);
+      MFCreateDXGIDeviceManager(&mut token, &mut manager).ok()?;
+      let manager = manager?;
+      manager.ResetDevice(&device, token).ok()?;
+      let mut done = None;
+      device
+        .CreateQuery(
+          &D3D11_QUERY_DESC {
+            Query: D3D11_QUERY_EVENT,
+            MiscFlags: 0,
+          },
+          Some(&mut done),
+        )
+        .ok()?;
+      Some(Self {
+        device,
+        context,
+        manager,
+        done: done?,
+        held: None,
+      })
+    }
+  }
+
+  /// The textures of frames `width` by `height`, each shared by a handle.
+  unsafe fn hold(&self, width: u32, height: u32) -> Result<Held> {
+    unsafe {
+      let like = D3D11_TEXTURE2D_DESC {
+        Width: width,
+        Height: height,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_NV12,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0) as u32,
+      };
+      let (mut textures, mut handles) = (Vec::with_capacity(FRAMES), Vec::with_capacity(FRAMES));
+      for _ in 0..FRAMES {
+        let mut texture = None;
+        self.device.CreateTexture2D(&like, None, Some(&mut texture))?;
+        let texture = texture.expect("the texture Direct3D made");
+        let handle =
+          texture
+            .cast::<IDXGIResource1>()?
+            .CreateSharedHandle(None, DXGI_SHARED_RESOURCE_READ.0, PCWSTR::null())?;
+        handles.push(handle.0 as isize);
+        textures.push(texture);
+      }
+      Ok(Held {
+        textures,
+        // SAFETY: the handles are of shared NV12 textures of one size, made here and given away to be closed.
+        frames: SharedNv12Frames::new(handles),
+        width,
+        height,
+      })
+    }
+  }
+
+  /// Waits until the card has done what it was told so far, for as long as a copy may take.
+  unsafe fn settle(&self) {
+    unsafe {
+      self.context.End(&self.done);
+      self.context.Flush();
+      let started = Instant::now();
+      loop {
+        let mut finished = BOOL(0);
+        let asked = self.context.GetData(
+          &self.done,
+          Some((&raw mut finished).cast()),
+          std::mem::size_of::<BOOL>() as u32,
+          0,
+        );
+        if asked.is_err() || finished.as_bool() || started.elapsed() > COPIED_WITHIN {
+          return;
+        }
+        std::thread::yield_now();
+      }
+    }
+  }
+
+  /// Copies the frame `sample` holds into the texture after the one that is shown, and shows it. `None` where
+  /// the sample is no texture of the card: the decoder gave memory. The frames themselves where they were made
+  /// anew (the first frame, another size), and an image is to be made of them.
+  unsafe fn show(&mut self, sample: &IMFSample, shape: &Shape) -> Result<Option<Option<SharedNv12Frames>>> {
+    unsafe {
+      let Ok(buffer) = sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>() else {
+        return Ok(None);
+      };
+      let mut decoded = std::ptr::null_mut();
+      buffer.GetResource(&ID3D11Texture2D::IID, &mut decoded)?;
+      // SAFETY: the buffer answered with a texture, counted for the caller.
+      let decoded = ID3D11Texture2D::from_raw(decoded);
+      let slice = buffer.GetSubresourceIndex()?;
+      let (width, height) = (shape.width as u32, shape.height as u32);
+      let made = self
+        .held
+        .as_ref()
+        .is_none_or(|held| (held.width, held.height) != (width, height));
+      if made {
+        self.held = Some(self.hold(width, height)?);
+      }
+      let held = self.held.as_ref().expect("the frames just held");
+      let slot = if made {
+        0
+      } else {
+        (held.frames.shown() + 1) % held.textures.len()
+      };
+      // The picture's part of the decoder's frame, which is rounded up to whole blocks.
+      let picture = D3D11_BOX {
+        left: shape.left as u32,
+        top: shape.top as u32,
+        front: 0,
+        right: shape.left as u32 + width,
+        bottom: shape.top as u32 + height,
+        back: 1,
+      };
+      self
+        .context
+        .CopySubresourceRegion(&held.textures[slot], 0, 0, 0, 0, &decoded, slice, Some(&picture));
+      // Shown once it is all there: what draws never reads a frame half copied.
+      self.settle();
+      held.frames.show(slot);
+      Ok(Some(made.then(|| held.frames.clone())))
+    }
+  }
+}
+
 /// The picture of a media: what its frames are like, the image they are put into, and the frame that waits.
 struct Picture {
   shape: Shape,
   image: ImageData,
+  /// The image's frames on the card, where they are there and not in memory.
+  native: Option<NativeImageData>,
   /// The frame decoded and not shown yet, with its time.
   pending: Option<(f64, IMFSample)>,
   /// A frame is owed whether it plays or not: the first one, and the one at a time it was sent to.
@@ -265,11 +478,46 @@ impl Picture {
       Ok(Self {
         shape,
         image: ImageData::streaming_nv12(shape.black(), shape.width as u32, shape.height as u32),
+        native: None,
         pending: None,
         owed: true,
         from: None,
         done: false,
       })
+    }
+  }
+
+  /// Shows the frame `sample` holds: copied on the card into the frames the image draws from, where the decoder
+  /// gave it as a texture of that card, and through memory otherwise. Answers whether the picture's image is
+  /// another one now, which who draws the media is to be told.
+  unsafe fn show(&mut self, sample: &IMFSample, card: Option<&mut OnCard>) -> Result<bool> {
+    unsafe {
+      let (width, height) = (self.shape.width as u32, self.shape.height as u32);
+      if let Some(card) = card
+        && let Some(made) = card.show(sample, &self.shape)?
+      {
+        return Ok(match made {
+          Some(frames) => {
+            let native = NativeImageData::from_shared_nv12(width, height, frames);
+            self.image = native.image_data();
+            self.native = Some(native);
+            true
+          }
+          None => {
+            if let Some(native) = &self.native {
+              native.bump_version();
+            }
+            false
+          }
+        });
+      }
+      // Through memory, into an image of memory: one whose frames were on the card is let go.
+      let another = self.native.take().is_some();
+      if another {
+        self.image = ImageData::streaming_nv12(self.shape.black(), width, height);
+      }
+      show(&self.image, sample, &self.shape)?;
+      Ok(another)
     }
   }
 
@@ -459,7 +707,9 @@ unsafe fn go(reader: &IMFSourceReader, seconds: f64) -> Result<()> {
 
 unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
   unsafe {
-    let reader = open(opened)?;
+    // What is only heard has no frames to keep anywhere.
+    let mut card = if heard { None } else { OnCard::new() };
+    let reader = open(opened, card.as_ref())?;
     let (mut volume, mut muted) = {
       let inner = shared.inner();
       (inner.volume, inner.muted)
@@ -606,6 +856,7 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
           if (next.width, next.height) != (picture.shape.width, picture.shape.height) {
             // Another size is another image: who draws the media takes it when it is told.
             picture.image = ImageData::streaming_nv12(next.black(), next.width as u32, next.height as u32);
+            picture.native = None;
             let mut inner = shared.inner();
             inner.size = Some((next.width as u32, next.height as u32));
             inner.frame = Some(picture.image.clone());
@@ -695,23 +946,33 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
 
       // The frame that waits is shown when it is owed, and when the clock comes to its time.
       if let Some(picture) = &mut picture
-        && let Some((time, sample)) = &picture.pending
+        && let Some(time) = picture.pending.as_ref().map(|(time, _)| *time)
       {
-        if picture.owed {
-          show(&picture.image, sample, &picture.shape)?;
-          (picture.pending, picture.owed) = (None, false);
-          worked = true;
-          shared.wake();
+        // Whether it is taken now, and whether it is shown: one that is too late is passed over.
+        let taken = if picture.owed {
+          Some(true)
         } else if playing {
           let now = shared.inner().position();
           // A file may hold frames a little past the length it says: at its end the clock stands, and they are
           // due.
-          if *time <= now + 0.001 || duration.is_some_and(|duration| now >= duration) {
-            if now - time <= LATE {
-              show(&picture.image, sample, &picture.shape)?;
-            }
-            picture.pending = None;
-            worked = true;
+          (time <= now + 0.001 || duration.is_some_and(|duration| now >= duration)).then_some(now - time <= LATE)
+        } else {
+          None
+        };
+        if let Some(shown) = taken {
+          let owed = picture.owed;
+          if let Some((_, sample)) = picture.pending.take()
+            && shown
+            && picture.show(&sample, card.as_mut())?
+          {
+            // Another image holds the frames now: who draws the media takes it when it is told.
+            shared.inner().frame = Some(picture.image.clone());
+            shared.wake();
+          }
+          picture.owed = false;
+          worked = true;
+          if owed {
+            shared.wake();
           }
         }
       }
