@@ -167,7 +167,7 @@ impl LayoutEngine {
       if wrap {
         layout.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
       } else if multiline {
-        layout.size.width + super::TEXT_INPUT_CARET_WIDTH
+        layout.size.width + self.caret.borrow().width().max(super::TEXT_INPUT_CARET_WIDTH)
       } else {
         DEFAULT_TEXT_INPUT_WIDTH
       },
@@ -184,6 +184,7 @@ impl LayoutEngine {
       text_height: layout.size.height,
       line_height: layout.line_height,
       text_band: Some(layout.selection_band(0.0)),
+      caret_width: self.caret.borrow().width().max(super::TEXT_INPUT_CARET_WIDTH),
       token_layout: Some(layout),
       padding,
     };

@@ -291,14 +291,15 @@ impl Component for TextEditingPage {
         "caret",
         "the text's color",
         "",
-        "A line where the next character goes, as high as the type. It blinks unless the theme's `CaretMode` is \
-         `Persistent`. `TextInput::caret_color` for one field.",
+        "A line where the next character goes, as wide and as high as the theme's caret says: 1.5 by 18 in type \
+         of 14. It blinks unless the theme's `CaretMode` is `Persistent`. `TextInput::caret_color` for one field.",
       ),
       (
         "composition",
         "the text's color",
         "",
-        "A line under what an input method is composing, until it is committed.",
+        "A line under what an input method is composing, until it is committed, as thick as the theme's caret \
+         says: 1.5.",
       ),
       (
         "squiggles",

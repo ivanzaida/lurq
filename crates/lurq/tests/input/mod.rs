@@ -51,6 +51,7 @@ mod text_input {
   mod style;
   #[cfg(feature = "markdown")]
   mod styled;
+  mod theme_caret;
   mod token_chips;
   mod tokens;
   mod typing_updates_value;

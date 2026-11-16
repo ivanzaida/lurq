@@ -55,12 +55,14 @@ fn a_selection_is_filled_with_the_themes_selection_role_and_the_caret_is_the_tex
   let (mut stage, _) = scene("The quick brown fox jumps", |input| input);
   focus(&mut stage);
   let (x, y, width, height) = stage.bounds(ID);
-  // The caret: a line in the foreground, inside the box.
+  // The caret: a line in the foreground inside the box, the board's 1.5 wide and 18 high in type of 14.
   let carets: Vec<_> = rects(&stage, light(PaletteColor::Foreground))
     .into_iter()
     .filter(|quad| quad.width <= 2.0 && quad.height >= 12.0)
     .collect();
   assert_eq!(carets.len(), 1, "one caret");
+  assert_eq!(carets[0].width, 1.5);
+  assert!((carets[0].height - 18.0).abs() < 0.01, "{}", carets[0].height);
   assert!(
     carets[0].x > x && carets[0].x < x + width && carets[0].y >= y && carets[0].y + carets[0].height <= y + height
   );
@@ -92,6 +94,7 @@ fn a_composition_is_underlined_in_the_color_of_the_text() {
     .filter(|quad| quad.height <= 2.0 && quad.width > 20.0)
     .collect();
   assert_eq!(lines.len(), 1, "a line under what is being composed");
+  assert_eq!(lines[0].height, 1.5, "the board's line");
 }
 
 #[test]

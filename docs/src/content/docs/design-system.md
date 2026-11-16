@@ -4714,8 +4714,8 @@ ContextMenu::new(open.clone(), Input::new(text.clone()))
 | Mark | What draws it | |
 | --- | --- | --- |
 | Selection | The engine, in `PaletteColor::Selection` | Behind the band of the selected text (the font's ascent and descent), while the field has the focus. `TextInput::selection_color` for one field |
-| Caret | The engine, in the color of the text | A line where the next character goes. It blinks unless the theme's `CaretMode` is `Persistent`. `TextInput::caret_color` for one field |
-| Composition | The engine, in the color of the text | A line under what an input method is composing, until it is committed |
+| Caret | The engine, in the color of the text | A line where the next character goes, as wide and as high as [the theme's caret](../theme/#caret) says: the board's 1.5 by 18 in type of 14. It blinks unless the theme's `CaretMode` is `Persistent`. `TextInput::caret_color` for one field |
+| Composition | The engine, in the color of the text | A line under what an input method is composing, until it is committed, as thick as the theme's caret says: the board's 1.5 |
 | Spell check | `Input::squiggles(ranges)`, `Textarea::squiggles(ranges)` | A wavy line in `Destructive` under each range, bytes of the text, on every row the range is on. lurq has no checker: the app finds the ranges, and again after an edit. The part `Squiggle` (`InputPart`, `TextareaPart`) gives them another color |
 | Ghost completion | `Input::completion(&str)` | What would complete what is typed, drawn after it in `MutedForeground` at 0.7 while the field has the focus, holds text, and has the caret at its end with nothing selected. Tab puts it in the field as an edit (through `on_input`, one step of the undo) and the focus stays; anywhere else Tab goes on. The part `InputPart::Completion` gives it another color and opacity |
 | Edit menu | [`ContextMenu::bar(true)`](#context-menu) | The commands of selected text in one row over a field |

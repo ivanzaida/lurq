@@ -127,7 +127,7 @@ impl Fixture {
       .tree
       .painted_quads()
       .iter()
-      .filter(|quad| quad.height == 1.0 && quad.width > 1.0)
+      .filter(|quad| quad.height == crate::support::composition_line() && quad.width > crate::support::composition_line())
       .filter(|quad| matches!(quad.content, QuadContent::Rect { .. }))
       .map(|quad| (quad.x, quad.width))
       .collect()
