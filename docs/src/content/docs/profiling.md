@@ -307,7 +307,9 @@ again a component that changed on its own (`refresh:components`, `refresh:replac
 `refresh:interaction`). A section nested in another counts in both.
 
 - `lurq::app::profiler::take_frame_sections()` gives each section's total and how many times it ran on this thread
-  since it was last called, in the order they first ran: a test takes them around the frames it measures.
+  since it was last called, in the order they first ran: a test takes them around the frames it measures. The
+  first call starts the timing on its thread, and gives nothing: until something asks for the sections, a section
+  reads no clock and keeps nothing, so a build with `perf_profile` allocates for a tree what one without it does.
 - `LURQ_FRAME_SECTIONS_LOG=<file>` appends, every 120 drawn frames, each section's mean over them and the tree's
   number of nodes, while an app runs.
 
