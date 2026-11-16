@@ -95,6 +95,7 @@ mod scroll_area;
 mod search_field;
 mod seek_bar;
 mod select;
+mod selection_marquee;
 mod separator;
 mod sheet;
 mod shortcut_recorder;
@@ -1173,6 +1174,14 @@ pub const PAGES: &[Page] = &[
     about: "sortable list reorder drag drop rows order move handle grip ghost insertion line count selection keyboard alt arrows SortableList SortableItem on_reorder on_reorder_many move_rows selected selected_controlled on_selected_change handle handle_only disabled label mount",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<sortable_list::SortableListPage>(()),
+  },
+  Page {
+    path: "/selection-marquee",
+    name: "Selection Marquee",
+    icon: Some("crosshair"),
+    about: "selection marquee rubber band lasso rectangle drag select tiles grid files canvas shift ctrl add toggle escape scroll autoscroll SelectionMarquee Marquee MarqueeMode on_start on_change on_change_end on_cancel scroll rect disabled label touches contains select mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<selection_marquee::SelectionMarqueePage>(()),
   },
   Page {
     path: "/play-button",

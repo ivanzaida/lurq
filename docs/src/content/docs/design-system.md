@@ -4532,6 +4532,54 @@ SortableList::new(settings.map(|name| SortableItem::new(name, name).trailing(swi
 - In the design the rows are 4 apart, each 36 high on `Card` in an edge of 1 in `Border`, `radius-md`, with a grip of 14 in `MutedForeground` 6 from its start, its text 8 after it at 13 and 10 from its end. The ghost is on `Muted` in an edge of 1 in `Input` at 0.6; the line is 2 in `Info` with a dot of 6; the count is a disc of 20 in `Info` with its number in white at 11 and 600, 4 past the row's end and 8 over it. A selected row is on `Highlight`.
 - A theme's renderer is given `SortableListView`: `view.rows` (each a `SortableRow` with its title, whether it is selected, disabled, a ghost, dragged), `view.list()`, `view.line()`, `view.lifted(row)`, `view.dragged()` and `view.dragged_count()`; on a row `row.handle()` and `row.render()`.
 
+## Selection Marquee
+
+The rectangle a person drags over a surface to select what it touches: the tiles of a grid, the files of a folder, the nodes of a canvas.
+
+```rust
+use lurq::ui::SelectionMarquee;
+
+// selected, before: Signal<Vec<usize>>
+SelectionMarquee::new(tiles)
+  // What was selected when the drag began: what Shift adds to, and what Escape puts back.
+  .on_start(move |_| before.set(selected.get_untracked()))
+  .on_change(move |marquee| {
+    let touched = (0..count).filter(|tile| {
+      let (x, y, width, height) = place(*tile);
+      marquee.touches(x, y, width, height)
+    });
+    selected.set(marquee.select(&before.get_untracked(), touched));
+  })
+  .on_cancel(move || selected.set(before.get_untracked()))
+  .mount(ctx);
+
+// In a scroll container the marquee wraps what scrolls, and is given the container's state.
+ScrollVertical::new(SelectionMarquee::new(tiles).scroll(&state).mount(ctx)).with_scroll_state(state.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(child)` | The app's surface: what the rectangle is dragged over |
+| `on_start(handler)` | Told the rectangle once, as a drag becomes a marquee: where the app keeps what was selected before it |
+| `on_change(handler)` | Told the rectangle (`&Marquee`) each time it changes, the first too: as the pointer moves, and as the surface scrolls under it |
+| `on_change_end(handler)` | Told the last rectangle when the button comes up; not for a marquee Escape ended |
+| `on_cancel(handler)` | Told when Escape ends a marquee: where the app puts back what was selected before it |
+| `scroll(&ScrollState)` | The state of the scroll container the surface is in: the rectangle keeps its start on the content while the container scrolls under the drag |
+| `rect(x, y, width, height)` | Draws the rectangle at a place with nothing dragging it: for a gallery, a test |
+| `label(&str)` | What the surface is called to what reads the tree |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the surface's, and the rectangle has it with `-marquee` |
+| `mount(ctx)` | In place of converting it: the marquee keeps a drag from one render to the next, and draws the rectangle |
+
+- The marquee draws nothing and takes nothing until a press on its surface moves past a few pixels: a press that does not is the press of what is under it. From then the rectangle runs from where the button went down to the pointer, kept on the surface, and the release presses nothing.
+- A `Marquee` is `x`, `y`, `width` and `height` in the surface's own coordinates (from the top left corner of what the marquee wraps, whatever it is scrolled to) and `mode`, what the keys held at the press ask for: `MarqueeMode::Replace` with none, `Add` with Shift, `Toggle` with Ctrl (Cmd). `touches(x, y, width, height)` says whether it shares some room with a box of the surface, `contains(..)` whether the box is wholly in it, `touches_element(&element_ref)` the same of an element of the surface by where it is laid out, and `select(&before, touched)` what is selected with it: the touched alone, `before` and the touched, or `before` with each of the touched put in or taken out.
+- What is selected is the app's: the marquee tells the rectangle and keeps no selection. A press of the surface's own room that is no drag is the app's too, which selects none there.
+- Escape ends a marquee under way and tells `on_cancel`; the release that follows tells nothing.
+- Something on the surface that is dragged itself (it has `on_drag_*` handlers) keeps its drag: a press on it starts no marquee.
+- In a scroll container the marquee is what scrolls. A drag held at the container's edge scrolls it, faster the further the pointer is past the edge (the engine's [`drag_autoscroll`](../styling-events/#a-drag-that-scrolls-its-container)), and with the container's state the rectangle keeps its start on the content and grows over what comes into sight.
+- Converted into an element on its own the marquee keeps nothing: a drag still tells the app its rectangle, and none is drawn.
+- Parts: `SelectionMarqueePart::Root` (the surface, which the recipe gives nothing) and `Marquee`. States: `SelectionMarqueeState::Active` (a rectangle is drawn) and `Disabled`.
+- In the design the rectangle is on `InfoMuted` in an edge of 1 in `Info`, the whole of it at 0.55.
+- A theme's renderer is given `SelectionMarqueeView`: `view.rect` (the rectangle to draw, if any), `view.root()` (the surface with the drag), `view.marquee()` and `view.render()`.
 
 ## Highlight
 

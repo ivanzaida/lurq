@@ -100,6 +100,7 @@ mod scatter_chart;
 mod scroll_area;
 mod seek_bar;
 mod select;
+mod selection_marquee;
 mod separator;
 #[cfg(feature = "canvas")]
 mod sparkline;

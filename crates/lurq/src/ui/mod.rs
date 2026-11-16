@@ -121,6 +121,7 @@ mod seek_bar;
 mod segmented;
 mod select;
 mod selection;
+mod selection_marquee;
 mod separator;
 mod shared;
 mod sheet;
@@ -422,6 +423,10 @@ pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
 pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
+pub use selection_marquee::{
+  Marquee, MarqueeMode, SelectionMarquee, SelectionMarqueePart, SelectionMarqueeRenderer, SelectionMarqueeState,
+  SelectionMarqueeView,
+};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
