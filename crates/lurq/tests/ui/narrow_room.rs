@@ -11,9 +11,9 @@ use lurq::{
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker,
     DropZone, ErrorSummary, Field, FieldError, Fieldset, FieldsetVariant, FileUpload, Input, InputGroup, Mentions,
-    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress,
-    ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea,
-    TimeField, TimePicker, Toast, TokenInput, Waveform,
+    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, PathField,
+    Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder,
+    Textarea, TimeField, TimePicker, Toast, TokenInput, Waveform,
   },
 };
 
@@ -84,6 +84,11 @@ fn a_password_input_is_no_wider_than_a_narrow_room() {
 #[test]
 fn a_search_field_is_no_wider_than_a_narrow_room() {
   fits(|| SearchField::new(text()).id("it").into());
+}
+
+#[test]
+fn a_path_field_is_no_wider_than_a_narrow_room() {
+  fits(|| PathField::new(text()).id("it").into());
 }
 
 #[test]

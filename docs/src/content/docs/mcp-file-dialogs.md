@@ -5,7 +5,7 @@ description: Request-scoped paths in an application's normal picker handler
 
 File selection is explicitly opt-in. Lurq does not intercept an app's own `rfd` calls, read files, validate formats, add filename extensions or perform saves. Adapt the same handler used by the normal UI: it either awaits the broker or uses its existing native picker. Never launch both.
 
-Lurq's own dialog, [`lurq::files::FileDialog`](../styling-events/#files-a-person-gives) (what `ui::DropZone` and `ui::FileUpload` open), does this itself: with a broker registered it asks the broker as `open_file` or `open_files`, with its title and filters, and opens no system dialog; a cancel, a refusal or a revocation gives nothing chosen.
+Lurq's own dialog, [`lurq::files::FileDialog`](../styling-events/#files-a-person-gives) (what `ui::DropZone` and `ui::FileUpload` open), does this itself: with a broker registered it asks the broker as `open_file` or `open_files`, with its title and filters, and opens no system dialog; a cancel, a refusal or a revocation gives nothing chosen. Its dialog for a folder (`pick_folder`, what a `ui::PathField` of folders opens) asks as `open_folder`, and the one for where to save (`pick_save`) as `save_file`, with the name the file starts with as `suggested_name`.
 
 ```rust,ignore
 let dialogs = lurq::mcp::FileDialogBroker::new();

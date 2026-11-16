@@ -99,6 +99,7 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+mod path_field;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -368,6 +369,9 @@ pub use part_style::{
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
+};
+pub use path_field::{
+  PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};

@@ -78,6 +78,7 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod path_field;
 mod pie_chart;
 mod play_button;
 mod popconfirm;
@@ -1146,6 +1147,14 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/path-field",
+    name: "Path Field",
+    icon: Some("folder"),
+    about: "path field pathfield file folder directory browse choose pick save dialog system rfd input mono drop on_browse on_pick picks PathKind FileDialog browse_label placeholder size invalid read_only disabled full_width mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<path_field::PathFieldPage>(()),
   },
   Page {
     path: "/play-button",

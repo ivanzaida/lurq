@@ -22,6 +22,16 @@ fn fixture() -> (FileDialogBroker, Arc<McpShared>, Tree) {
   (broker, shared, Tree::new())
 }
 
+/// Held by a test that opens lurq's own dialog: the dialog asks whichever broker was registered last in the
+/// process, so two such tests at once would find each other's requests in their brokers.
+static OWN_DIALOG: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Whether `broker` is the one lurq's own dialog would ask now: the fixtures of the tests beside this one register
+/// theirs in parallel.
+fn is_asked(broker: &FileDialogBroker) -> bool {
+  FileDialogBroker::registered().is_some_and(|asked| Arc::ptr_eq(&asked.0, &broker.0))
+}
+
 fn path() -> PathBuf {
   std::env::current_dir().unwrap().join("Unicode-α.txt")
 }
@@ -310,8 +320,12 @@ fn file_dialogs_opt_in_tools_and_actual_drain_cancel_without_later_mcp_call() {
 fn lurqs_own_file_dialog_asks_the_registered_broker_and_never_opens_a_native_one() {
   // Brokers of other tests register in parallel; the dialog asks the last one, so this tries until the one it
   // made is the one asked.
+  let _own = OWN_DIALOG.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
   for _ in 0..100 {
     let (broker, _shared, tree) = fixture();
+    if !is_asked(&broker) {
+      continue;
+    }
     let picked = crate::files::FileDialog::new()
       .title("Add files")
       .filter("Text", &["txt"])
@@ -348,4 +362,58 @@ fn lurqs_own_file_dialog_asks_the_registered_broker_and_never_opens_a_native_one
     return;
   }
   panic!("the dialog never asked the broker this test registered");
+}
+
+#[test]
+fn lurqs_dialog_for_a_folder_and_for_where_to_save_ask_the_broker_as_what_they_are() {
+  // As above: the dialog asks the last broker registered, so each is tried until the one made here is the one asked.
+  let _own = OWN_DIALOG.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  let asked = |operation: FileDialogOperation| -> bool {
+    for _ in 0..100 {
+      let (broker, _shared, tree) = fixture();
+      if !is_asked(&broker) {
+        continue;
+      }
+      let window = tree.window().handle();
+      let dialog = crate::files::FileDialog::new().title("Choose").file_name("report.md");
+      let picked: std::pin::Pin<Box<dyn std::future::Future<Output = Option<PathBuf>>>> = match operation {
+        FileDialogOperation::OpenFolder => Box::pin(dialog.pick_folder(&window)),
+        _ => Box::pin(dialog.pick_save(&window)),
+      };
+      let pending: Vec<(String, FileDialogRequest)> = broker
+        .0
+        .lock()
+        .unwrap()
+        .pending
+        .iter()
+        .map(|(id, pending)| (id.clone(), pending.request.clone()))
+        .collect();
+      let Some((id, request)) = pending.into_iter().next() else {
+        continue;
+      };
+      assert_eq!(request.operation, operation);
+      assert_eq!(request.title, "Choose");
+      // The name a file starts with is said of a file to save, and of nothing else.
+      assert_eq!(
+        request.suggested_name.as_deref(),
+        (operation == FileDialogOperation::SaveFile).then_some("report.md")
+      );
+      broker.respond(&id, tree.window(), operation, Some(selected())).unwrap();
+      let chosen = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(picked);
+      assert_eq!(chosen.as_deref(), Some(path().as_path()), "the path that was chosen");
+      return true;
+    }
+    false
+  };
+  assert!(
+    asked(FileDialogOperation::OpenFolder),
+    "the dialog for a folder never asked the broker this test registered"
+  );
+  assert!(
+    asked(FileDialogOperation::SaveFile),
+    "the dialog for where to save never asked the broker this test registered"
+  );
 }

@@ -4405,6 +4405,52 @@ view.on_key_down(move |event: KeyboardEvent| {
 - The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
 
+## Path Field
+
+The path of a folder or a file in an input, with a button beside it that browses for one: where a project is kept, the file a report is written to.
+
+```rust
+use lurq::{files::FileDialog, ui::{PathField, PathKind}};
+
+// path: Signal<String>. The app answers the button: it opens what it likes and sets the signal.
+PathField::new(path.clone()).on_browse(move || choose_a_folder(&path));
+
+// Told what its path is of and mounted, the button opens the system's dialog and sets what is chosen.
+PathField::new(folder.clone())
+  .picks(PathKind::Folder)
+  .dialog(FileDialog::new().title("Project folder"))
+  .on_pick(|path| open_project(path))
+  .mount(ctx);
+
+PathField::new(report.clone())
+  .picks(PathKind::SaveFile)
+  .browse_label("Save as…")
+  .dialog(FileDialog::new().filter("Markdown", &["md"]).file_name("report.md"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `PathField::new(Signal<String>)` | A field bound to the path: it shows what the signal holds, and what is typed or chosen is set on it |
+| `on_browse(Fn())` | Called on a press of the button, before the system's dialog opens where the field opens one. A second one is called after the first |
+| `picks(PathKind)` | What the path is of: `PathKind::Folder`, `File` (one that is there, to open) or `SaveFile`. Mounted, the button then opens the system's dialog for it and sets the path chosen; of what is dropped on the field, a folder or a file of that kind is taken. Without it the button only tells `on_browse`, and a drop is taken whatever it is |
+| `dialog(FileDialog)` | The dialog as the button opens it: its title, the kinds of file it shows, the name a file to save starts with. It opens where the field's path is (in the folder itself for a folder, in the file's folder for a file) unless it is given a folder of its own |
+| `on_pick(Fn(&str))` | Called with the path a person chose in the dialog or dropped on the field, once the signal is set. Not for what is typed (`on_input`), nor for what the app sets |
+| `mount(ctx)` | Puts it where it goes, keeping the dialog it opens: a second press while the dialog is open opens no second one. `build(theme)` and `From<PathField> for Element` are its still form, whose button tells `on_browse` and opens nothing |
+| `browse_label(&str)` | What the button says, and is called to what reads the tree: "Browse…" unless told otherwise |
+| `icon(..)` | The glyph at the start of the box, by its name in the theme's set: a folder, or a file for a field that picks one, unless told otherwise. `icon(None)` takes it away |
+| `placeholder(&str)`, `size(..)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `label(&str)`, `name(..)`, `on_input(..)`, `on_submit(..)` | As an [input](#input) has them. `PathFieldSize` is the input's sizes, the button's too, and the small one unless told: the board's. A read-only field's button takes nothing; `full_width` is in place of 440 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, what is typed in; the button has it with `-browse` after it |
+
+- It is an [input](#input) and an outlined [button](#button) side by side: Tab stops in the input, then on the button; Enter in the input is told to `on_submit`, Enter and Space on the button press it.
+- The dialog is the system's with the feature `file_dialog`, through `lurq::files::FileDialog` (`pick_folder`, `pick`, `pick_save`): see [Files a person gives](../styling-events/#files-a-person-gives) for what each platform has. A browser has no dialog for a folder or for where to save, and no path of a file: there the button tells `on_browse` and nothing is chosen. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) the broker answers in the dialog's place.
+- A folder or a file dragged from the system and dropped on the field is its path, as one chosen in the dialog is: set on the signal, then told to `on_pick`. A field that is disabled or read only takes none.
+- In a [field](#field) it is called by the field's label and judged as the field is: `Field::new("Output folder", PathField::new(path))`, mounted by a field that is mounted.
+- Parts: `PathFieldPart::Root` (the two side by side), `Field` (laid over the input's root), `Control` (over the input's box: the type of the path), `Icon` (over the input's icon), `Button` (over the button's root). States: `PathFieldState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design (`Path Field`) it is 440 wide, the input and the button 8 apart and 32 high. The path is in the mono type at 12 in `Foreground`, 10 from the edge of the box, after a folder of 16 in `MutedForeground` and 8; the button is outlined, 12 in from its sides. A medium field is 36 with a path of 13, a large one 40 with a path of 14. A path longer than the box scrolls in it as in any input, and the button keeps its room.
+- To what reads the tree the input is a `textbox` called by its label, and the button a `button` called by what it says.
+- A renderer that draws another path field (`PathFieldRenderer`) is given `view.input` (the input's own view), `view.field()` (the input in its place, which takes a drop), `view.button()`, `view.root()` and `view.browse()` (what a press of the button does).
+
 ## Highlight
 
 A text with marks on ranges of it: the matches of a search, one of them the current one.

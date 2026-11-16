@@ -1512,4 +1512,22 @@ let choose = ctx.future_action(move |()| {
 | A browser | None: winit reports no drop from the system | The browser's file input, which a press must open: names and sizes, no path. Its bytes are not read through lurq yet |
 | iOS | None | None: `pick` gives nothing |
 
+The same dialog chooses a folder and where a file is to be saved, each given as its path, or `None` when the person cancelled:
+
+```rust
+// In a component's `create`: a folder, and a place to save a file.
+let window = ctx.window();
+let folder = ctx.future_action(move |()| {
+  let chosen = FileDialog::new().title("Project folder").pick_folder(&window);
+  async move { Ok::<_, ()>(chosen.await) }
+});
+let window = ctx.window();
+let save = ctx.future_action(move |()| {
+  let chosen = FileDialog::new().filter("Markdown", &["md"]).file_name("report.md").pick_save(&window);
+  async move { Ok::<_, ()>(chosen.await) }
+});
+```
+
+`pick_folder` takes the dialog's title and the `folder` it opens in; `pick_save` its filters too, as the kinds the file can be saved as, and the `file_name` it starts with. The system asks before a file that is there is chosen, and lurq writes nothing. A browser has neither dialog (a page is given no path) and iOS none at all: both give `None` there. `ui::PathField` is made of these.
+
 Without the feature `file_dialog`, `pick` gives nothing and says so once through `tracing`. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) registered, `pick` asks the broker and no system dialog opens: an agent answers it. `ui::DropZone` and `ui::FileUpload` are made of these.
