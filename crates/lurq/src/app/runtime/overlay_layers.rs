@@ -97,6 +97,40 @@ impl Tree {
     layers.is_hidden(anchor).then(|| anchor.clone())
   }
 
+  /// The anchor that the overlay which moves the focus and is anchored to `anchor` in `layers` had in the last
+  /// layout, where it had another: the same node declares it, and what it was anchored to then anchors nothing
+  /// that moves the focus now. A tour's card, which goes from one element to the next, is one overlay: it took
+  /// the focus as it first opened, and gives it back to what had it then.
+  pub(super) fn anchor_before(&self, anchor: &OwnedElementRef, layers: &OverlayLayers) -> Option<&OwnedElementRef> {
+    let index = layers
+      .anchors
+      .iter()
+      .position(|now| now.as_ref().is_some_and(|now| now.same_handle(anchor)))?;
+    let origin = (*layers.origins.get(index)?)?;
+    let old = self
+      .overlay_layer_origins
+      .iter()
+      .position(|declared| *declared == Some(origin))?;
+    let before = self.overlay_layer_anchors.get(old)?.as_ref()?;
+    let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(before));
+    let open = layers.focus_movers.iter().any(|mover| mover.same_handle(before));
+    (moved && !open && !before.same_handle(anchor)).then_some(before)
+  }
+
+  /// The anchor that the overlay which moved the focus and was anchored to `anchor` in the last layout has in
+  /// `layers`, where it has another: see [`anchor_before`](Self::anchor_before).
+  fn anchor_after<'a>(&self, anchor: &OwnedElementRef, layers: &'a OverlayLayers) -> Option<&'a OwnedElementRef> {
+    let old = self
+      .overlay_layer_anchors
+      .iter()
+      .position(|before| before.as_ref().is_some_and(|before| before.same_handle(anchor)))?;
+    let origin = (*self.overlay_layer_origins.get(old)?)?;
+    let index = layers.origins.iter().position(|declared| *declared == Some(origin))?;
+    let now = layers.anchors.get(index)?.as_ref()?;
+    let moves = layers.focus_movers.iter().any(|mover| mover.same_handle(now));
+    (moves && !now.same_handle(anchor)).then_some(now)
+  }
+
   /// The anchor of the overlay that takes the focus (`Overlay::takes_focus`) and held keyboard focus in the
   /// last layout, when it is not open in `layers` any more: the focus goes back to it. Where the anchor was in
   /// a layer that closed with it, as a submenu's item is in its menu when an item of the submenu is chosen, the
@@ -109,7 +143,8 @@ impl Tree {
       let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
       let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
       let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
-      (moved && !open).then_some(anchor)
+      // One that went to another anchor is open still.
+      (moved && !open && self.anchor_after(anchor, layers).is_none()).then_some(anchor)
     };
     let mut layer = *self.focused_path.as_deref()?.first()?;
     let mut anchor = closed(layer)?;
@@ -179,6 +214,8 @@ impl Tree {
       .focus_takers
       .iter()
       .filter(|mover| !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)))
+      // One that came from another anchor opened before: the focus is where it was left.
+      .filter(|mover| self.anchor_before(mover, layers).is_none())
       .filter_map(|mover| {
         layers
           .anchors
@@ -205,6 +242,16 @@ impl Tree {
       .map(|(input_id, event_id)| FocusTarget { input_id, event_id });
     for mover in movers {
       if !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)) {
+        // One that came from another anchor keeps what it gives the focus back to, under its new anchor.
+        if let Some(before) = self.anchor_before(mover, layers).cloned()
+          && let Some(kept) = self
+            .overlay_focus_returns
+            .iter_mut()
+            .find(|(anchor, _)| anchor.same_handle(&before))
+        {
+          kept.0 = mover.clone();
+          continue;
+        }
         let takes = layers.focus_takers.iter().any(|taker| taker.same_handle(mover));
         self.overlay_focus_returns.push((mover.clone(), had.filter(|_| takes)));
       }

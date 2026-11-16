@@ -8008,6 +8008,9 @@ impl Tree {
       self.overlay_focus_back = Some(target);
     }
     let leaving = self.leaving_layers(&mut old_parts, &layers, &old_origins, now);
+    // What declared the old layers, for what follows to tell an overlay that went to another anchor from one that
+    // closed.
+    self.overlay_layer_origins = old_origins;
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
       let focus_return = self
@@ -8023,6 +8026,7 @@ impl Tree {
       // Overlays hidden with their anchor are still dismissed.
       self.overlay_dismiss_entries = layers.dismiss_entries;
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_origins.clear();
       self.overlay_layer_parents.clear();
       self.dropdown_anchors.clear();
       return focus_return;

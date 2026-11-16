@@ -11,6 +11,7 @@ mod keyed_focus;
 mod list_keys;
 mod menu_row;
 mod modal_trap;
+mod moved_overlay;
 mod nested_focus_group;
 mod scroll_into_view;
 mod starting_point;
