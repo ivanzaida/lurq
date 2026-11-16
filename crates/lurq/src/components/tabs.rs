@@ -826,6 +826,7 @@ impl Component for TabOutlet {
 
 /// A tab's symbol in a color, where the platform draws symbols.
 #[allow(unused_variables)]
+#[allow(deprecated)]
 fn symbol(name: &str, size: f32, color: Color) -> Option<Element> {
   #[cfg(all(target_os = "ios", feature = "raster"))]
   if let Some(symbol) = crate::app::ios_symbol::symbol(name, size, color) {

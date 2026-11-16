@@ -17,10 +17,12 @@
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 mod banner;
 #[cfg(feature = "canvas")]
@@ -43,6 +45,7 @@ mod collapsible;
 mod color_field;
 mod color_picker;
 mod color_swatch;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
@@ -72,10 +75,12 @@ mod highlight;
 mod hover_card;
 mod icon;
 pub mod icons;
+mod info_label;
 mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod link;
@@ -100,6 +105,8 @@ mod pagination;
 mod part_style;
 mod password_input;
 mod path_field;
+mod picture;
+mod persona;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -121,6 +128,7 @@ mod seek_bar;
 mod segmented;
 mod select;
 mod selection;
+mod selection_marquee;
 mod separator;
 mod settings_card;
 mod shared;
@@ -129,6 +137,7 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 #[cfg(feature = "canvas")]
 mod sparkline;
 mod spinner;
@@ -157,6 +166,7 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
@@ -168,6 +178,7 @@ pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, 
 pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
+pub use ai_label::{AiLabel, AiLabelPart, AiLabelRenderer, AiLabelSize, AiLabelState, AiLabelView};
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use audio_player::{
   AUDIO_MINI_NARROW, AUDIO_MINI_TIME_FROM, AUDIO_MINI_VOLUME_FROM, AudioControls, AudioPlayer, AudioPlayerPart,
@@ -179,7 +190,10 @@ pub use audio_queue::{
 };
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
-  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
+  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView, Presence,
+};
+pub use back_to_top::{
+  BACK_TO_TOP_THRESHOLD, BackToTop, BackToTopPart, BackToTopRenderer, BackToTopState, BackToTopView,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
@@ -238,6 +252,9 @@ pub use color_picker::{
 pub use color_swatch::{
   ColorSwatch, ColorSwatchPart, ColorSwatchRenderer, ColorSwatchShape, ColorSwatchSize, ColorSwatchState,
   ColorSwatchView,
+};
+pub use column_view::{
+  ColumnView, ColumnViewColumn, ColumnViewItem, ColumnViewPart, ColumnViewRenderer, ColumnViewState, ColumnViewView,
 };
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use command_bar::{
@@ -301,6 +318,7 @@ pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use info_label::{InfoLabel, InfoLabelPart, InfoLabelRenderer, InfoLabelState, InfoLabelView};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use input_group::{
   InputAddon, InputGroup, InputGroupPart, InputGroupRenderer, InputGroupSize, InputGroupState, InputGroupView,
@@ -314,6 +332,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
@@ -374,6 +393,12 @@ pub use password_input::{
 pub use path_field::{
   PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
 };
+pub use picture::{
+  PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
+  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
+  PictureState, PictureView,
+};
+pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use play_button::{
@@ -421,6 +446,10 @@ pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
 pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
+pub use selection_marquee::{
+  Marquee, MarqueeMode, SelectionMarquee, SelectionMarqueePart, SelectionMarqueeRenderer, SelectionMarqueeState,
+  SelectionMarqueeView,
+};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
 pub use settings_card::{
   SettingsCard, SettingsCardPart, SettingsCardRenderer, SettingsCardState, SettingsCardView,
@@ -448,13 +477,18 @@ pub use skeleton::{
 pub use slider::{
   RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
 };
+pub use sortable_list::{
+  SORTABLE_LIST_TILT, SortableItem, SortableList, SortableListPart, SortableListRenderer, SortableListState,
+  SortableListView, SortableRow, move_rows,
+};
 #[cfg(feature = "canvas")]
 pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
-  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
-  SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
-  SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, PageLoader,
+  PageLoaderPart, PageLoaderRenderer, PageLoaderState, PageLoaderView, SPINNER_BARS, SPINNER_BARS_PERIOD, SPINNER_DOTS,
+  SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer, SpinnerSize, SpinnerState, SpinnerVariant,
+  SpinnerView,
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
@@ -518,6 +552,9 @@ pub use toolbar::{
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tree_select::{
+  TreeSelect, TreeSelectPart, TreeSelectRenderer, TreeSelectSize, TreeSelectState, TreeSelectView,
 };
 pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
@@ -602,6 +639,9 @@ inspectable!(
   kbd::KeyPlatform,
   message_box::MessageBoxRole,
   pagination::PageItem,
+  picture::PictureFit,
+  picture::PictureShape,
+  selection_marquee::Marquee,
   part_style::Length,
   part_style::Opacity,
   part_style::FontFamily,

@@ -17,7 +17,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -315,7 +315,10 @@ impl CommandBarPage {
   fn narrow(&self, ctx: &mut Ctx) -> Element {
     let record: Record = Arc::new(|_| {});
     let mut row = Column::new().width(FILL).spacing(20.0).overflow_visible();
-    for width in [600.0, 420.0] {
+    let room = self.frame.stage_room();
+    for width in [600.0_f32, 420.0] {
+      // On a stage narrower than a bar the bar is as wide as the stage, and says so.
+      let width = if room > 0.0 { width.min(room) } else { width };
       row = row.child(
         Column::new()
           .spacing(8.0)
@@ -533,8 +536,7 @@ impl Component for CommandBarPage {
            chevron opens a menu of them under their labels, a toggle checked.",
           self.frame.demo(
             1,
-            // The bars are as wide as they say: a card narrower than the wider one scrolls them sideways.
-            fit("narrow", self.frame.stage_room(), 600.0, narrow),
+            narrow,
             "a group whole, under its label",
             &["CommandBar::new(tab, tabs).mount(ctx)"],
           ),

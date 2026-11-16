@@ -1317,7 +1317,8 @@
                   "width": "fill_container",
                   "content": "Changes apply to every open window.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -1360,7 +1361,8 @@
                   "width": "fill_container",
                   "content": "Shown under a title to explain it.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -1491,7 +1493,8 @@
                   "width": "fill_container",
                   "content": "Last synced 2 minutes ago",
                   "fontFamily": "$font-sans",
-                  "fontSize": 12
+                  "fontSize": 12,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -1534,7 +1537,8 @@
                   "width": "fill_container",
                   "content": "cargo add lurq --features wgpu",
                   "fontFamily": "$font-mono",
-                  "fontSize": 13
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8564,7 +8568,8 @@
                   "width": "fill_container",
                   "content": "Changes apply to every open window.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8607,7 +8612,8 @@
                   "width": "fill_container",
                   "content": "Shown under a title to explain it.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8738,7 +8744,8 @@
                   "width": "fill_container",
                   "content": "Last synced 2 minutes ago",
                   "fontFamily": "$font-sans",
-                  "fontSize": 12
+                  "fontSize": 12,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8781,7 +8788,8 @@
                   "width": "fill_container",
                   "content": "cargo add lurq --features wgpu",
                   "fontFamily": "$font-mono",
-                  "fontSize": 13
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -22141,7 +22149,8 @@
                                       "fill": "$foreground",
                                       "content": "08",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22185,7 +22194,8 @@
                                       "fill": "$foreground",
                                       "content": "10",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22206,7 +22216,8 @@
                                       "fill": "$foreground",
                                       "content": "11",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -22237,7 +22248,8 @@
                                       "fill": "$foreground",
                                       "content": "00",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22258,7 +22270,8 @@
                                       "fill": "$foreground",
                                       "content": "15",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22302,7 +22315,8 @@
                                       "fill": "$foreground",
                                       "content": "45",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -24559,7 +24573,8 @@
                                       "width": "fill_container",
                                       "content": "Asia",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "BeZa1",
@@ -24643,7 +24658,8 @@
                                       "width": "fill_container",
                                       "content": "Americas",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "gxCdW",
@@ -24699,7 +24715,8 @@
                                       "width": "fill_container",
                                       "content": "Poland",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "PWjqC",
@@ -24783,7 +24800,8 @@
                                       "width": "fill_container",
                                       "content": "Spain",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "Tx6Dg",
@@ -24863,7 +24881,8 @@
                                       "width": "fill_container",
                                       "content": "Lviv",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -24890,7 +24909,8 @@
                                       "width": "fill_container",
                                       "content": "Odesa",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -26781,7 +26801,8 @@
                                   "width": "fill_container",
                                   "content": "DirectX 12",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -26808,7 +26829,8 @@
                                   "width": "fill_container",
                                   "content": "Metal",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -26836,7 +26858,8 @@
                                   "width": "fill_container",
                                   "content": "OpenGL (legacy)",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27130,7 +27153,8 @@
                                   "fill": "$foreground",
                                   "content": "Jan",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27151,7 +27175,8 @@
                                   "fill": "$foreground",
                                   "content": "Feb",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27172,7 +27197,8 @@
                                   "fill": "$foreground",
                                   "content": "Mar",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27193,7 +27219,8 @@
                                   "fill": "$foreground",
                                   "content": "Apr",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27223,7 +27250,8 @@
                                   "fill": "$foreground",
                                   "content": "May",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27244,7 +27272,8 @@
                                   "fill": "$foreground",
                                   "content": "Jun",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27265,7 +27294,8 @@
                                   "fill": "$foreground",
                                   "content": "Jul",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27286,7 +27316,8 @@
                                   "fill": "$foreground",
                                   "content": "Aug",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27316,7 +27347,8 @@
                                   "fill": "$foreground",
                                   "content": "Sep",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27337,7 +27369,8 @@
                                   "fill": "$foreground",
                                   "content": "Oct",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27381,7 +27414,8 @@
                                   "fill": "$foreground",
                                   "content": "Dec",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27634,7 +27668,8 @@
                                   "fill": "$foreground",
                                   "content": "2020",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27655,7 +27690,8 @@
                                   "fill": "$foreground",
                                   "content": "2021",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27676,7 +27712,8 @@
                                   "fill": "$foreground",
                                   "content": "2022",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27697,7 +27734,8 @@
                                   "fill": "$foreground",
                                   "content": "2023",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27727,7 +27765,8 @@
                                   "fill": "$foreground",
                                   "content": "2024",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27748,7 +27787,8 @@
                                   "fill": "$foreground",
                                   "content": "2025",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27792,7 +27832,8 @@
                                   "fill": "$foreground",
                                   "content": "2027",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27822,7 +27863,8 @@
                                   "fill": "$foreground",
                                   "content": "2028",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27843,7 +27885,8 @@
                                   "fill": "$foreground",
                                   "content": "2029",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27864,7 +27907,8 @@
                                   "fill": "$foreground",
                                   "content": "2030",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27885,7 +27929,8 @@
                                   "fill": "$foreground",
                                   "content": "2031",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -30147,7 +30192,8 @@
                           "fill": "$muted-foreground",
                           "content": "All",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30177,7 +30223,8 @@
                           "fill": "$muted-foreground",
                           "content": "Profiles",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30207,7 +30254,8 @@
                           "fill": "$muted-foreground",
                           "content": "MCP servers",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30237,7 +30285,8 @@
                           "fill": "$muted-foreground",
                           "content": "Instructions",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30267,7 +30316,8 @@
                           "fill": "$muted-foreground",
                           "content": "Skills",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30297,7 +30347,8 @@
                           "fill": "$muted-foreground",
                           "content": "Tools",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30370,7 +30421,8 @@
                           "fill": "$muted-foreground",
                           "content": "Archived",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30575,7 +30627,8 @@
                               "fill": "$muted-foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -30598,7 +30651,8 @@
                               "fill": "$muted-foreground",
                               "content": "Keyboard",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -30621,7 +30675,8 @@
                               "fill": "$muted-foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -30717,7 +30772,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Canvas",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30759,7 +30815,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Text",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30777,7 +30834,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Theme",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30795,7 +30853,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Router",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30813,7 +30872,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Forms",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -32052,7 +32112,8 @@
                               "width": "fill_container",
                               "content": "crates",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32109,7 +32170,8 @@
                               "width": "fill_container",
                               "content": "lurq",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32211,7 +32273,8 @@
                               "width": "fill_container",
                               "content": "theme.rs",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32268,7 +32331,8 @@
                               "width": "fill_container",
                               "content": "demo",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32316,7 +32380,8 @@
                               "width": "fill_container",
                               "content": "Cargo.toml",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -33648,7 +33713,8 @@
                               "fill": "$muted-foreground",
                               "content": "Runtime theme",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -33709,7 +33775,8 @@
                               "fill": "$muted-foreground",
                               "content": "Extra roles",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -33739,7 +33806,8 @@
                               "fill": "$muted-foreground",
                               "content": "Typography",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -33769,7 +33837,8 @@
                               "fill": "$muted-foreground",
                               "content": "Font weight",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -37019,7 +37088,8 @@
                                       "fill": "$muted-foreground",
                                       "content": "Insert",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -37041,7 +37111,8 @@
                                       "fill": "$muted-foreground",
                                       "content": "View",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -37063,7 +37134,8 @@
                                       "fill": "$muted-foreground",
                                       "content": "Help",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -37962,7 +38034,8 @@
                               "width": "fill_container",
                               "content": "Overview",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38073,7 +38146,8 @@
                               "width": "fill_container",
                               "content": "Components",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38116,7 +38190,8 @@
                               "width": "fill_container",
                               "content": "Buttons",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38159,7 +38234,8 @@
                               "width": "fill_container",
                               "content": "Inputs",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38214,7 +38290,8 @@
                               "width": "fill_container",
                               "content": "Tokens",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38280,7 +38357,8 @@
                               "width": "fill_container",
                               "content": "Members",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38321,7 +38399,8 @@
                               "width": "fill_container",
                               "content": "Settings",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -39723,7 +39802,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Position",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -39854,7 +39934,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Size",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -39985,7 +40066,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Rotation",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40127,7 +40209,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Fill",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40222,7 +40305,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Opacity",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40428,7 +40512,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Blend",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40525,7 +40610,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Visible",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -49744,7 +49830,8 @@
                                   "width": "fill_container",
                                   "content": "Mark published 0.60",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -105182,7 +105269,8 @@
                                   "fill": "$foreground",
                                   "content": "10",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105203,7 +105291,8 @@
                                   "fill": "$foreground",
                                   "content": "11",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105245,7 +105334,8 @@
                                   "fill": "$foreground",
                                   "content": "13",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105266,7 +105356,8 @@
                                   "fill": "$foreground",
                                   "content": "14",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -105296,7 +105387,8 @@
                                   "fill": "$foreground",
                                   "content": "Sep",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105317,7 +105409,8 @@
                                   "fill": "$foreground",
                                   "content": "Oct",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105359,7 +105452,8 @@
                                   "fill": "$foreground",
                                   "content": "Dec",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105380,7 +105474,8 @@
                                   "fill": "$foreground",
                                   "content": "Jan",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -105410,7 +105505,8 @@
                                   "fill": "$foreground",
                                   "content": "2024",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105431,7 +105527,8 @@
                                   "fill": "$foreground",
                                   "content": "2025",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105473,7 +105570,8 @@
                                   "fill": "$foreground",
                                   "content": "2027",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105494,7 +105592,8 @@
                                   "fill": "$foreground",
                                   "content": "2028",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -110878,7 +110977,8 @@
                                           "fill": "$foreground",
                                           "content": "26",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110911,7 +111011,8 @@
                                           "fill": "$foreground",
                                           "content": "27",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110944,7 +111045,8 @@
                                           "fill": "$foreground",
                                           "content": "28",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110977,7 +111079,8 @@
                                           "fill": "$foreground",
                                           "content": "29",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111010,7 +111113,8 @@
                                           "fill": "$foreground",
                                           "content": "30",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111043,7 +111147,8 @@
                                           "fill": "$foreground",
                                           "content": "31",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111075,7 +111180,8 @@
                                           "fill": "$foreground",
                                           "content": "1",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111115,7 +111221,8 @@
                                           "fill": "$foreground",
                                           "content": "2",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111147,7 +111254,8 @@
                                           "fill": "$foreground",
                                           "content": "3",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111179,7 +111287,8 @@
                                           "fill": "$foreground",
                                           "content": "4",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111211,7 +111320,8 @@
                                           "fill": "$foreground",
                                           "content": "5",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111243,7 +111353,8 @@
                                           "fill": "$foreground",
                                           "content": "6",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111275,7 +111386,8 @@
                                           "fill": "$foreground",
                                           "content": "7",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111307,7 +111419,8 @@
                                           "fill": "$foreground",
                                           "content": "8",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111350,7 +111463,8 @@
                                           "fill": "$foreground",
                                           "content": "9",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111382,7 +111496,8 @@
                                           "fill": "$foreground",
                                           "content": "10",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111414,7 +111529,8 @@
                                           "fill": "$foreground",
                                           "content": "11",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111480,7 +111596,8 @@
                                           "fill": "$foreground",
                                           "content": "13",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111512,7 +111629,8 @@
                                           "fill": "$foreground",
                                           "content": "14",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111544,7 +111662,8 @@
                                           "fill": "$foreground",
                                           "content": "15",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111584,7 +111703,8 @@
                                           "fill": "$foreground",
                                           "content": "16",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111616,7 +111736,8 @@
                                           "fill": "$foreground",
                                           "content": "17",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111648,7 +111769,8 @@
                                           "fill": "$foreground",
                                           "content": "18",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111680,7 +111802,8 @@
                                           "fill": "$foreground",
                                           "content": "19",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111712,7 +111835,8 @@
                                           "fill": "$foreground",
                                           "content": "20",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111744,7 +111868,8 @@
                                           "fill": "$foreground",
                                           "content": "21",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111776,7 +111901,8 @@
                                           "fill": "$foreground",
                                           "content": "22",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111816,7 +111942,8 @@
                                           "fill": "$foreground",
                                           "content": "23",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111848,7 +111975,8 @@
                                           "fill": "$foreground",
                                           "content": "24",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111880,7 +112008,8 @@
                                           "fill": "$foreground",
                                           "content": "25",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111912,7 +112041,8 @@
                                           "fill": "$foreground",
                                           "content": "26",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111944,7 +112074,8 @@
                                           "fill": "$foreground",
                                           "content": "27",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111976,7 +112107,8 @@
                                           "fill": "$foreground",
                                           "content": "28",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -112008,7 +112140,8 @@
                                           "fill": "$foreground",
                                           "content": "29",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -113364,7 +113497,8 @@
                                   "fill": "$foreground",
                                   "content": "Mark as read",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 15
+                                  "fontSize": 15,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -127813,7 +127947,8 @@
                               "fill": "$foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127852,7 +127987,8 @@
                               "fill": "$foreground",
                               "content": "Keyboard",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127891,7 +128027,8 @@
                               "fill": "$foreground",
                               "content": "Notifications",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127930,7 +128067,8 @@
                               "fill": "$foreground",
                               "content": "Privacy",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127969,7 +128107,8 @@
                               "fill": "$foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -128378,7 +128517,8 @@
                               "fill": "$muted-foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128415,7 +128555,8 @@
                               "fill": "$muted-foreground",
                               "content": "Keys",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128452,7 +128593,8 @@
                               "fill": "$muted-foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -128788,7 +128930,8 @@
                               "fill": "$foreground",
                               "content": "Welcome",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128834,7 +128977,8 @@
                               "fill": "$foreground",
                               "content": "Location",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128921,7 +129065,8 @@
                               "fill": "$muted-foreground",
                               "content": "Summary",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -129010,7 +129155,8 @@
                                       "fill": "$foreground",
                                       "content": "Empty window",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -129091,7 +129237,8 @@
                                       "fill": "$foreground",
                                       "content": "Document",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -133031,7 +133178,8 @@
                               "fill": "$foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133070,7 +133218,8 @@
                               "fill": "$foreground",
                               "content": "Keyboard",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133109,7 +133258,8 @@
                               "fill": "$foreground",
                               "content": "Notifications",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133148,7 +133298,8 @@
                               "fill": "$foreground",
                               "content": "Privacy",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133187,7 +133338,8 @@
                               "fill": "$foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -133596,7 +133748,8 @@
                               "fill": "$muted-foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133633,7 +133786,8 @@
                               "fill": "$muted-foreground",
                               "content": "Keys",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133670,7 +133824,8 @@
                               "fill": "$muted-foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -134006,7 +134161,8 @@
                               "fill": "$foreground",
                               "content": "Welcome",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -134052,7 +134208,8 @@
                               "fill": "$foreground",
                               "content": "Location",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -134139,7 +134296,8 @@
                               "fill": "$muted-foreground",
                               "content": "Summary",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -134228,7 +134386,8 @@
                                       "fill": "$foreground",
                                       "content": "Empty window",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -134309,7 +134468,8 @@
                                       "fill": "$foreground",
                                       "content": "Document",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -138681,7 +138841,7 @@
                           "fill": "$foreground",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "181 glyphs; every icon in this file is a lurq glyph",
+                          "content": "182 glyphs; every icon in this file is a lurq glyph",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
                           "fontWeight": "normal"
@@ -149494,6 +149654,112 @@
                               "textGrowth": "fixed-width",
                               "width": 40,
                               "content": "18",
+                              "textAlign": "right",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "RyHkW",
+                          "name": "Row / marquee",
+                          "width": "fill_container",
+                          "height": 40,
+                          "stroke": "$border",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "gap": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Q7TSI",
+                              "name": "Lucide name",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 182,
+                              "content": "square-dashed",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "w4oMom",
+                              "name": "Arrow",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 16,
+                              "content": "→",
+                              "textAlign": "center",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "NLU4V",
+                              "name": "Icon/marquee",
+                              "reusable": true,
+                              "width": 24,
+                              "height": 24,
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "b8Be5K",
+                                  "name": "Glyph",
+                                  "geometry": "M5 3a2 2 0 0 0-2 2m16-2a2 2 0 0 1 2 2m0 14a2 2 0 0 1-2 2m-14 0a2 2 0 0 1-2-2m6-16h1m-1 18h1m4-18h1m-1 18h1m-12-12v1m18-1v1m-18 4v1m18-1v1",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": "fill_container",
+                                  "height": "fill_container",
+                                  "stroke": "$foreground",
+                                  "strokeWidth": 2,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "cYVqF",
+                              "type": "ref",
+                              "ref": "NLU4V",
+                              "name": "marquee 16",
+                              "width": 16,
+                              "height": 16,
+                              "descendants": {
+                                "b8Be5K": {
+                                  "strokeWidth": 1.33
+                                }
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "d8ryyL",
+                              "name": "lurq name",
+                              "fill": "$foreground",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "marquee",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "nufd6",
+                              "name": "Uses",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 40,
+                              "content": "1",
                               "textAlign": "right",
                               "fontFamily": "$font-mono",
                               "fontSize": 11,
@@ -161801,7 +162067,7 @@
                           "fill": "$foreground",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "181 glyphs; every icon in this file is a lurq glyph",
+                          "content": "182 glyphs; every icon in this file is a lurq glyph",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
                           "fontWeight": "normal"

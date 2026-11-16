@@ -1,3 +1,6 @@
+// `components::Image` is deprecated for apps; this is the engine's image node, which `ui::Picture` draws with.
+#![allow(deprecated)]
+
 use lurq::{
   app::Tree,
   components::{Image, Rect, Stack},

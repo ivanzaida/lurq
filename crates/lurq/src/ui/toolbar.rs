@@ -29,9 +29,9 @@ use crate::{
     events::{EventControl, MouseButton, MouseEvent, MouseEventKind, PointerKind},
     theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  components::{Column, Row},
+  components::{Column, Row, ScrollHorizontal},
   core::{ElementRef, NodeId, Signal},
-  layout::{Alignment, layout_kind::ShrinkLimit},
+  layout::{Alignment, layout_kind::ShrinkLimit, scrollbar::ScrollBarStyle},
   node::{Element, FocusGroup, NodeUpdate, border::Border, node::Node, outline::Outline},
 };
 
@@ -137,7 +137,7 @@ impl ToolbarCommand {
   }
 
   /// The item of the menu, with `shortcut` beside it.
-  fn item(&self, shortcut: Option<&str>) -> MenuItem {
+  pub(crate) fn item(&self, shortcut: Option<&str>) -> MenuItem {
     let run = self.run.clone();
     let mut item = MenuItem::new(&self.label)
       .disabled(self.disabled)
@@ -463,7 +463,12 @@ impl ToolbarGroup {
 /// at the end of the bar, behind a More button, the last first: each as an
 /// item of the menu with its label, its icon, its shortcut, checked for a
 /// toggle, and its press; a control that [`stays`](ToolbarItem::stays) never
-/// does.
+/// does, nor a select, a field or any element that was given nothing to
+/// stand for it ([`in_menu`](ToolbarItem::in_menu)). What is kept is never
+/// past the bar: a bar narrower than what stays in it, and one that puts
+/// nothing in a menu and is narrower than its controls, scrolls sideways to
+/// it, by the wheel, a drag, and the keys, which bring the control the focus
+/// goes to into view.
 pub struct Toolbar {
   items: Vec<ToolbarItem>,
   variant: Name,
@@ -657,7 +662,7 @@ impl Toolbar {
 
   /// Builds the bar in `theme` once, with nothing kept: its controls without
   /// their tooltips, the focus entering at the first, and no menu, so that a
-  /// bar narrower than its controls cuts them off. For a gallery, a test, a
+  /// bar narrower than its controls scrolls sideways to them. For a gallery, a test, a
   /// window of its own; converting a toolbar into an element does this in the
   /// theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
@@ -1347,19 +1352,43 @@ impl ToolbarView {
   /// to what reads the tree.
   pub fn render(mut self) -> Element {
     let across = if self.top { Alignment::Start } else { Alignment::Center };
+    let root = self.part(ToolbarPart::Root);
+    let gap = root
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+      .unwrap_or(0.0);
     let mut root = Row::new()
-      .part(&self.part(ToolbarPart::Root))
+      .part(&root)
       .align_items(across)
       .focus_group(FocusGroup::horizontal().one_stop(true))
       .describe("a11y_role", "toolbar")
       .describe("a11y_name", self.label.clone().unwrap_or_default())
       .describe("a11y_orientation", "horizontal");
+    // The controls are a line of their own, which is as wide as the bar while what stays in it has room there,
+    // and as wide as what stays where it has not: the bar then scrolls sideways to it, and nothing is past it.
+    let mut line = Row::new().spacing(gap).align_items(across).overflow_visible();
     for index in 0..self.slots.len() {
-      root = root.child(self.slot(index));
+      line = line.child(self.slot(index));
     }
     if let Some(more) = self.more() {
-      root = root.child(more);
+      line = line.child(more);
     }
+    // With a spacer the line takes all the room the bar is given; without one the bar is as wide as its controls.
+    let grows = if self.slots.iter().any(|slot| slot.spacer) {
+      1.0
+    } else {
+      0.0
+    };
+    root = root.child(
+      ScrollHorizontal::new(line)
+        .fill_width(true)
+        .fit_width(true)
+        .wheel_across(true)
+        .scrollbar(ScrollBarStyle::hidden())
+        .flex_full(grows, 1.0, None)
+        .min_width(0.0),
+    );
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }

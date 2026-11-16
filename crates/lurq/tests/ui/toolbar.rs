@@ -803,7 +803,9 @@ fn a_group_in_the_menu_stays_there_after_escape_closes_the_menu_a_press_opened()
 }
 
 /// The grouped bar's scene, `width` wide, in a window of 700 by 600.
-fn grouped_scene(width: lurq::core::Signal<f32>) -> impl Fn(&mut lurq::app::ctx::Ctx) -> Element + Send + Sync + 'static {
+fn grouped_scene(
+  width: lurq::core::Signal<f32>,
+) -> impl Fn(&mut lurq::app::ctx::Ctx) -> Element + Send + Sync + 'static {
   let pressed = Arc::new(AtomicUsize::new(0));
   move |ctx| {
     let group = |label: &str, tools: [(&str, &str); 2]| {
@@ -816,7 +818,10 @@ fn grouped_scene(width: lurq::core::Signal<f32>) -> impl Fn(&mut lurq::app::ctx:
       .id("bar")
       .variant(ToolbarVariant::Plain)
       .overflow(true)
-      .item(group("Text", [("Strike", icons::STRIKETHROUGH), ("Underline", icons::UNDERLINE)]))
+      .item(group(
+        "Text",
+        [("Strike", icons::STRIKETHROUGH), ("Underline", icons::UNDERLINE)],
+      ))
       .item(group("Lists", [("List", icons::LIST), ("Bold", icons::BOLD)]))
       .item(group("Insert", [("Link", icons::LINK), ("Image", icons::IMAGE)]));
     Column::new()
@@ -834,7 +839,11 @@ fn the_first_frame_at_a_width_is_the_settled_one() {
     let mut stage = Stage::first_frame(700.0, 600.0, grouped_scene(lurq::core::Signal::new(width)));
     let first = stage.picture();
     stage.frame();
-    assert_eq!(first, stage.picture(), "built at {width}: the first frame is the next one");
+    assert_eq!(
+      first,
+      stage.picture(),
+      "built at {width}: the first frame is the next one"
+    );
   }
   let width = lurq::core::Signal::new(600.0f32);
   let mut stage = Stage::first_frame(700.0, 600.0, grouped_scene(width.clone()));
@@ -844,6 +853,164 @@ fn the_first_frame_at_a_width_is_the_settled_one() {
     stage.frame();
     let first = stage.picture();
     stage.frame();
-    assert_eq!(first, stage.picture(), "dragged to {at}: the first frame is the next one");
+    assert_eq!(
+      first,
+      stage.picture(),
+      "dragged to {at}: the first frame is the next one"
+    );
   }
+}
+
+/// A bar of a field 100 wide that stays, a button that goes into the menu and a pin that stays, with the More
+/// button: 4, 100, 2, 32, 2, the line of 9, 2, 32 and 4, which is 187.
+fn kept(overflow: bool) -> Toolbar {
+  Toolbar::new()
+    .id("bar")
+    .overflow(overflow)
+    .item(ToolbarItem::element(Row::new().id("field").size(100.0, 32.0)))
+    .item(Button::new("A").icon(icons::BOLD).icon_only(true).id("a"))
+    .item(ToolbarItem::from(Button::new("Pin").icon(icons::LINK).icon_only(true).id("pin")).stays(true))
+}
+
+/// Says whether the element with `id` is whole inside the bar, across.
+fn in_the_bar(stage: &mut Stage, id: &str) -> bool {
+  let (bar, _, bar_width, _) = stage.bounds("bar");
+  let (x, _, width, _) = stage.bounds(id);
+  x >= bar - 0.5 && x + width <= bar + bar_width + 0.5
+}
+
+#[test]
+fn a_bar_narrower_than_what_stays_in_it_scrolls_sideways_to_it() {
+  let mut stage = Stage::first_frame(400.0, 300.0, |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(Column::new().id("room").width(120.0).child(kept(true).mount(ctx)))
+      .into()
+  });
+  // The bar is as wide as its room: what may go has gone into the menu, and what stays keeps its size.
+  assert_eq!(stage.bounds("bar").2, 120.0, "no wider than its room");
+  assert_eq!(stage.bounds("a").2, 0.0, "what may go is in the menu");
+  assert_eq!(stage.bounds("field").2, 100.0);
+  assert_eq!(stage.bounds("pin").2, 32.0);
+  assert_eq!(stage.bounds("bar-more").2, 32.0);
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), first, "settled in its first frame");
+  // Nothing is drawn past the bar: what has no room in it is scrolled to.
+  let (bar, _, bar_width, _) = stage.bounds("bar");
+  for quad in stage.quads() {
+    // What reaches past the bar is cut off at it, and is drawn where the bar is scrolled to it.
+    let (start, end) = if quad.clip.active {
+      (
+        quad.x.max(quad.clip.x),
+        (quad.x + quad.width).min(quad.clip.x + quad.clip.width),
+      )
+    } else {
+      (quad.x, quad.x + quad.width)
+    };
+    assert!(
+      end <= start || (start >= bar - 0.5 && end <= bar + bar_width + 0.5),
+      "a quad drawn at {start}..{end} past a bar at {bar}..{}",
+      bar + bar_width
+    );
+  }
+  assert!(in_the_bar(&mut stage, "field") && !in_the_bar(&mut stage, "bar-more"));
+  // The keys go to what is out of sight, and the bar scrolls to it.
+  stage.key("Tab");
+  stage.key("End");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("bar-more"));
+  assert!(in_the_bar(&mut stage, "bar-more"), "End scrolls the bar to More");
+  stage.key("Enter");
+  stage.pass();
+  assert!(stage.paints("A"), "its menu holds what went");
+  stage.key("Escape");
+  stage.key("Home");
+  stage.pass();
+  assert!(
+    in_the_bar(&mut stage, "pin") || in_the_bar(&mut stage, "field"),
+    "Home scrolls it back"
+  );
+}
+
+#[test]
+fn a_bar_that_puts_nothing_in_a_menu_scrolls_to_the_controls_it_has_no_room_for() {
+  let mut stage = stage(100.0, || kept(false));
+  // Nothing goes anywhere: every control keeps its size, and the bar is as wide as its room.
+  assert_eq!(stage.bounds("bar").2, 100.0);
+  for (id, width) in [("field", 100.0), ("a", 32.0), ("pin", 32.0)] {
+    assert_eq!(stage.bounds(id).2, width, "{id} keeps its size");
+  }
+  assert!(!in_the_bar(&mut stage, "pin"));
+  stage.key("Tab");
+  stage.key("End");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("pin"));
+  assert!(in_the_bar(&mut stage, "pin"), "End scrolls the bar to its last control");
+}
+
+#[test]
+fn a_bar_with_room_is_as_it_was_whether_or_not_it_can_scroll() {
+  // 8 of padding, 100, two of 32 and two gaps of 2 are 176: with room for that the bar scrolls nowhere, has no
+  // More button, and is as wide as its controls, not as its room.
+  for width in [176.0, 360.0] {
+    let mut stage = stage(width, || kept(true));
+    assert_eq!(stage.bounds("a").2, 32.0, "at {width}");
+    assert_eq!(stage.bounds("bar-more").2, 0.0, "at {width}: no More button");
+    assert_eq!(stage.bounds("bar").2, 176.0, "at {width}");
+    for id in ["field", "a", "pin"] {
+      assert!(in_the_bar(&mut stage, id), "at {width}: {id} is in the bar");
+    }
+  }
+  // One narrower, A goes into the menu, and what stays with More is wider than the bar: it scrolls.
+  let mut stage = stage(175.0, || kept(true));
+  assert_eq!(stage.bounds("a").2, 0.0);
+  assert_eq!(stage.bounds("bar").2, 175.0);
+  assert!(!in_the_bar(&mut stage, "bar-more"));
+}
+
+#[test]
+fn content_that_fits_its_width_gives_way_in_the_viewport_and_scrolls_only_to_what_it_kept() {
+  // A line of an item of 60 that may drop, one of 80 that stays and a marker of 20, in a scroll container: 160
+  // at its natural width with the item, and 100 with the marker in the item's place.
+  let scene = |width: f32, fits: bool| {
+    Stage::new(move |_| {
+      let line = Row::new()
+        .id("line")
+        .child(
+          Row::new()
+            .id("item")
+            .size(60.0, 10.0)
+            .flex_shrink(1.0)
+            .shrink_limit(ShrinkLimit::Drop),
+        )
+        .child(Row::new().id("kept").size(80.0, 10.0).flex_shrink(0.0))
+        .child(Row::new().id("marker").size(20.0, 10.0).drop_marker(true));
+      Column::new()
+        .size(400.0, 300.0)
+        .child(
+          lurq::components::ScrollHorizontal::new(line)
+            .fill_width(true)
+            .fit_width(fits)
+            .width(width),
+        )
+        .into()
+    })
+  };
+  // With room for all of it nothing gives way, and the line is as wide as the viewport.
+  let mut stage = scene(200.0, true);
+  assert_eq!((stage.bounds("item").2, stage.bounds("marker").2), (60.0, 0.0));
+  assert_eq!(stage.bounds("line").2, 200.0);
+  // Narrower than the line, it gives way in the viewport: the item drops, and nothing is scrolled to.
+  let mut stage = scene(120.0, true);
+  assert_eq!((stage.bounds("item").2, stage.bounds("marker").2), (0.0, 20.0));
+  assert_eq!(stage.bounds("line").2, 120.0);
+  // Narrower than what it kept, the line is as wide as that, and stays as it gave way.
+  let mut stage = scene(90.0, true);
+  assert_eq!((stage.bounds("item").2, stage.bounds("marker").2), (0.0, 20.0));
+  assert_eq!(stage.bounds("line").2, 100.0, "what stays and the marker");
+  // A container that is not told to lays the line out at its natural width, and scrolls to all of it.
+  let mut stage = scene(120.0, false);
+  assert_eq!(stage.bounds("item").2, 60.0);
 }

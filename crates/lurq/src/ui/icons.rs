@@ -191,6 +191,7 @@ pub const REWIND_10: &str = "rewind-10";
 pub const SHUFFLE: &str = "shuffle";
 pub const VOLUME_LOW: &str = "volume-low";
 pub const VOLUME_OFF: &str = "volume-off";
+pub const MARQUEE: &str = "marquee";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -378,4 +379,5 @@ pub const ALL: &[(&str, char)] = &[
   (SHUFFLE, '\u{E0B5}'),
   (VOLUME_LOW, '\u{E0B6}'),
   (VOLUME_OFF, '\u{E0B7}'),
+  (MARQUEE, '\u{E0B8}'),
 ];

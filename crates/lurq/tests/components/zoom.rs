@@ -154,3 +154,116 @@ fn content_shown_smaller_than_the_list_scrolls_nowhere() {
   assert_eq!((scroll.content_width(), scroll.content_height()), (200.0, 200.0));
   assert_eq!((scroll.scroll_x(), scroll.scroll_y()), (0.0, 0.0));
 }
+
+/// As [`Page`], for a mouse: the wheel brings the content closer, and a drag carries it.
+struct MousePage;
+
+impl Component for MousePage {
+  type Props = Setup;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let setup = ctx.props::<Setup>().clone();
+    ZoomScroll::mount(
+      ctx,
+      ZoomScrollProps::new(400.0, 400.0)
+        .range(setup.range.0, setup.range.1)
+        .wheel_zoom(2.0)
+        .drag_pan(true)
+        .zoom(setup.zoom)
+        .scroll(setup.scroll),
+      Spacer::new().width(400.0).height(400.0),
+    )
+  }
+}
+
+/// Content 400 by 400 in a window 200 by 200, for a mouse, shown at `at` to start with.
+fn mouse_stage(range: (f32, f32), at: f32) -> (Tree, Signal<f32>, ScrollState) {
+  let (zoom, scroll) = (Signal::new(at), ScrollState::new());
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(200, 200);
+  tree.mount_root::<MousePage>(
+    &mut app,
+    Setup {
+      zoom: zoom.clone(),
+      scroll: scroll.clone(),
+      range,
+    },
+  );
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  (tree, zoom, scroll)
+}
+
+fn wheel(tree: &mut Tree, at: (f32, f32), delta_y: f32) {
+  tree.scroll(at.0, at.1, 0.0, delta_y, lurq::app::events::ScrollPhase::Scroll);
+  run_pass(tree);
+  run_pass(tree);
+}
+
+#[test]
+fn the_wheel_brings_the_content_closer_about_the_pointer() {
+  let (mut tree, zoom, scroll) = mouse_stage((1.0, 4.0), 1.0);
+  wheel(&mut tree, (50.0, 50.0), -120.0);
+  assert_eq!(zoom.get(), 2.0, "a notch away from the hand is a step closer");
+  assert_eq!(
+    (scroll.scroll_x(), scroll.scroll_y()),
+    (50.0, 50.0),
+    "the point under the pointer is under it still"
+  );
+  wheel(&mut tree, (50.0, 50.0), 120.0);
+  assert_eq!(zoom.get(), 1.0);
+  assert_eq!((scroll.scroll_x(), scroll.scroll_y()), (0.0, 0.0));
+}
+
+#[test]
+fn the_wheel_is_the_contents_where_the_list_has_nowhere_to_scroll() {
+  // At half its size the content is as large as the window: a list that cannot move hears of no scroll.
+  let (mut tree, zoom, _) = mouse_stage((0.5, 4.0), 0.5);
+  wheel(&mut tree, (100.0, 100.0), -120.0);
+  assert_eq!(zoom.get(), 1.0);
+}
+
+#[test]
+fn without_it_the_wheel_scrolls_the_content() {
+  let (mut tree, zoom, scroll) = stage((1.0, 4.0));
+  wheel(&mut tree, (50.0, 50.0), -60.0);
+  assert_eq!(zoom.get(), 1.0);
+  assert!(scroll.scroll_y() > 0.0, "as in any list");
+}
+
+#[test]
+fn a_scale_set_from_outside_keeps_the_middle_of_the_view() {
+  let (mut tree, zoom, scroll) = mouse_stage((1.0, 4.0), 1.0);
+  // The middle of the window is over the content's point (100, 100).
+  zoom.set(2.0);
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  assert_eq!(
+    (scroll.scroll_x(), scroll.scroll_y()),
+    (100.0, 100.0),
+    "and is over it still"
+  );
+}
+
+#[test]
+fn a_press_held_and_moved_carries_the_content() {
+  use lurq::app::events::MouseButton;
+
+  let (mut tree, _, scroll) = mouse_stage((1.0, 4.0), 1.0);
+  tree.mouse_move(120.0, 120.0);
+  tree.mouse_down(120.0, 120.0, MouseButton::Left);
+  tree.mouse_move(100.0, 90.0);
+  tree.mouse_move(80.0, 70.0);
+  tree.mouse_up(80.0, 70.0, MouseButton::Left);
+  run_pass(&mut tree);
+  assert_eq!(
+    (scroll.scroll_x(), scroll.scroll_y()),
+    (40.0, 50.0),
+    "by as far as the pointer went, the other way"
+  );
+}

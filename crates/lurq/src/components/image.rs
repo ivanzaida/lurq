@@ -1,6 +1,16 @@
+// The type is deprecated for apps; what it does here is what `ui::Picture` and the engine's own parts draw with.
+#![allow(deprecated)]
+
 use crate::{images::ImageData, impl_into_node, node::BackgroundSize};
 
-impl_into_node!(Image);
+impl_into_node!(
+  /// The engine's image element: pixels in a box.
+  #[deprecated(
+    since = "0.63.0",
+    note = "use `lurq::ui::Picture`: the same sources, with a box, what stands in while it loads, and a load of             its own"
+  )]
+  Image
+);
 
 impl Image {
   pub fn new(data: ImageData) -> Self {
@@ -60,6 +70,7 @@ impl Image {
       source,
       fit: BackgroundSize::Stretch,
       error_view: None,
+      placeholder_view: None,
       failed: false,
     }))
   }
@@ -94,6 +105,25 @@ impl Image {
     self.update_node(|node| {
       if matches!(node.node_kind(), crate::node::node_kind::NodeKind::LoadingImage { .. }) {
         crate::node::NodeUpdate::child(node, placeholder);
+      }
+    });
+    self
+  }
+
+  /// [`placeholder`](Self::placeholder) given as what builds it, so that it can be built again: an image
+  /// asked for anew after it failed ([`DecodedImages::forget`](crate::images::DecodedImages::forget)) shows
+  /// its placeholder again while it decodes, in place of its error view.
+  #[cfg(feature = "image")]
+  pub fn placeholder_view<E: Into<crate::node::Element>>(
+    mut self,
+    view: impl Fn() -> E + Send + Sync + 'static,
+  ) -> Self {
+    let view: crate::node::node_kind::PlaceholderViewCallback = std::sync::Arc::new(move || view().into());
+    let placeholder = view().into_node();
+    self.update_node(|node| {
+      if matches!(node.node_kind(), crate::node::node_kind::NodeKind::LoadingImage { .. }) {
+        crate::node::NodeUpdate::child(node, placeholder);
+        node.update_loading_image(|request| request.placeholder_view = Some(view));
       }
     });
     self

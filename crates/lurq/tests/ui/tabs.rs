@@ -725,3 +725,206 @@ fn the_ring_of_a_focused_panel_stands_clear_of_its_text() {
     inner_bottom - (text.y + text.height)
   );
 }
+
+/// The names of tabs too many for a narrow room, with ids of the same in lower case.
+const MANY: [&str; 8] = [
+  "Canvas", "Layout", "Text", "Theme", "Router", "Forms", "Motion", "Charts",
+];
+
+/// Mounted tabs of `variant` that the app did not ask to overflow, in a room `width` wide whose id is `room`.
+fn roomed(width: &Signal<f32>, section: &Signal<usize>, variant: TabsVariant) -> Stage {
+  let (width, section) = (width.clone(), section.clone());
+  Stage::first_frame(1000.0, 300.0, move |ctx| {
+    let tabs = MANY
+      .iter()
+      .enumerate()
+      .map(|(index, name)| Tab::new(index, name).id(name.to_lowercase()));
+    Column::new()
+      .size(1000.0, 300.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(width.get())
+          .child(Tabs::new(section.clone(), tabs).variant(variant).id("tabs").mount(ctx)),
+      )
+      .into()
+  })
+}
+
+/// Says that the element with `id` is whole within the one with `within`, across.
+#[track_caller]
+fn inside(stage: &mut Stage, id: &str, within: &str) {
+  let (x, _, width, _) = stage.bounds(id);
+  let (room, _, room_width, _) = stage.bounds(within);
+  assert!(
+    x >= room - 0.5 && x + width <= room + room_width + 0.5,
+    "{id} at {x}..{} in {within} at {room}..{}",
+    x + width,
+    room + room_width
+  );
+}
+
+#[test]
+fn mounted_tabs_too_wide_for_their_room_scroll_between_their_buttons_from_the_first_frame() {
+  for variant in [TabsVariant::Line, TabsVariant::Default, TabsVariant::Pill] {
+    let (width, section) = (Signal::new(320.0f32), Signal::new(0usize));
+    let mut stage = roomed(&width, &section, variant);
+    // The first frame painted is the one that scrolls: none shows the list past its room.
+    assert!(laid_out(&mut stage, "tabs-more"), "{variant:?}: the overflowing form");
+    for id in ["tabs", "tabs-back", "tabs-on", "tabs-more", "canvas"] {
+      inside(&mut stage, id, "room");
+    }
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(stage.picture(), first, "{variant:?}: settled in its first frame");
+
+    // It is the form the app asks for with `overflow`: the buttons scroll, and More's menu selects.
+    let before = stage.bounds("canvas").0;
+    stage.click("tabs-on");
+    stage.pass();
+    assert!(stage.bounds("canvas").0 < before, "{variant:?}: scrolled on");
+    stage.click("tabs-more");
+    stage.pass();
+    stage.click("charts-item");
+    assert_eq!(section.get_untracked(), 7, "{variant:?}: chosen from the menu");
+  }
+}
+
+#[test]
+fn mounted_tabs_with_room_are_the_plain_form_and_take_it_back_when_their_room_grows() {
+  let places = |stage: &mut Stage| -> Vec<(f32, f32, f32, f32)> {
+    MANY.iter().map(|name| stage.bounds(&name.to_lowercase())).collect()
+  };
+  let (width, section) = (Signal::new(900.0f32), Signal::new(0usize));
+  let mut stage = roomed(&width, &section, TabsVariant::Line);
+  // With room for every tab the tabs are as they were: a row 44 high, labels of 14, no button.
+  assert!(!laid_out(&mut stage, "tabs-more"));
+  assert_eq!(stage.bounds("canvas").3, 44.0);
+  assert_eq!(stage.text("Layout").1, 14.0);
+  let wide = places(&mut stage);
+  // What the list needs: from the start of its room to the end of its last tab.
+  let needs = wide[7].0 + wide[7].2 - stage.bounds("room").0;
+
+  width.set(320.0);
+  stage.frame();
+  assert!(laid_out(&mut stage, "tabs-more"), "the frame the room narrowed in");
+  inside(&mut stage, "tabs-more", "room");
+  let narrow = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), narrow, "settled in that frame");
+
+  width.set(900.0);
+  stage.frame();
+  assert!(!laid_out(&mut stage, "tabs-more"), "the frame the room grew in");
+  assert_eq!(places(&mut stage), wide, "as tabs laid out at 900 first");
+
+  // A room dragged across the width they need: the form of each side of it, at once.
+  for (room, overflows) in [
+    (needs - 1.0, true),
+    (needs - 20.0, true),
+    (needs, false),
+    (needs + 20.0, false),
+    (needs - 1.0, true),
+  ] {
+    width.set(room);
+    stage.frame();
+    assert_eq!(laid_out(&mut stage, "tabs-more"), overflows, "at {room}");
+  }
+}
+
+#[test]
+fn tabs_that_take_the_overflowing_form_show_their_selected_tab() {
+  let (width, section) = (Signal::new(320.0f32), Signal::new(7usize));
+  let mut stage = roomed(&width, &section, TabsVariant::Line);
+  // The last is the selected one: the list is scrolled the least that shows it whole, before the first frame.
+  let (x, _, charts, _) = stage.bounds("charts");
+  let (back, _, back_width, _) = stage.bounds("tabs-back");
+  let on = stage.bounds("tabs-on").0;
+  assert!(
+    x >= back + back_width - 0.5 && x + charts <= on + 0.5,
+    "{x}..{} between {} and {on}",
+    x + charts,
+    back + back_width
+  );
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), first, "settled in its first frame");
+}
+
+#[test]
+fn tabs_whose_labels_change_take_the_form_their_new_labels_have_room_for() {
+  let long = Signal::new(true);
+  let held = long.clone();
+  let mut stage = Stage::first_frame(600.0, 300.0, move |ctx| {
+    let names: [&str; 3] = if held.get() {
+      ["A general section", "The look of things", "Every keyboard shortcut"]
+    } else {
+      ["One", "Two", "Three"]
+    };
+    let tabs = names
+      .into_iter()
+      .enumerate()
+      .map(|(index, name)| Tab::new(index, name).id(format!("tab-{index}")));
+    Column::new()
+      .size(600.0, 300.0)
+      .child(
+        Column::new().id("room").width(300.0).child(
+          Tabs::controlled(0usize, tabs, |_| {})
+            .variant(TabsVariant::Line)
+            .id("tabs")
+            .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  assert!(laid_out(&mut stage, "tabs-more"), "three long labels do not fit 300");
+  long.set(false);
+  stage.frame();
+  assert!(!laid_out(&mut stage, "tabs-more"), "three short ones do");
+  assert_eq!(stage.text("Two").1, 14.0);
+  long.set(true);
+  stage.frame();
+  assert!(laid_out(&mut stage, "tabs-more"), "and the long ones again do not");
+}
+
+#[test]
+fn built_tabs_too_wide_for_their_room_end_their_labels_in_an_ellipsis_inside_it() {
+  for variant in [TabsVariant::Line, TabsVariant::Default, TabsVariant::Pill] {
+    let names = ["General", "Appearance", "Shortcuts", "Advanced"];
+    let mut stage = Stage::new(move |_| {
+      let tabs = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| Tab::new(index, name).id(name.to_lowercase()));
+      let tabs: Element = Tabs::controlled(0usize, tabs, |_| {})
+        .variant(variant)
+        .id("tabs")
+        .into();
+      Column::new()
+        .size(400.0, 300.0)
+        .child(Column::new().id("room").width(240.0).child(tabs))
+        .into()
+    });
+    // Built with nothing kept, they cannot measure their room: every tab stays in it, its label cut.
+    for name in names {
+      inside(&mut stage, &name.to_lowercase(), "room");
+    }
+    assert!(!stage.paints("Appearance"), "{variant:?}: cut");
+    assert!(
+      stage.cut_text_quad("Appearance").is_some(),
+      "{variant:?}: with an ellipsis"
+    );
+  }
+  // With room they are whole, and as wide as they were.
+  let mut stage = Stage::new(|_| {
+    let tabs: Element = Tabs::controlled(0u8, settings(), |_| {}).id("tabs").into();
+    Column::new().size(400.0, 300.0).child(tabs).into()
+  });
+  assert!(stage.paints("Appearance"));
+  let (_, _, width, _) = stage.bounds("appearance");
+  let label = stage.text_quad("Appearance").unwrap();
+  assert!(
+    (width - label.width - 24.0).abs() < 0.5,
+    "padded 12 each side of its label"
+  );
+}
