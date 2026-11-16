@@ -9,3 +9,4 @@ mod opacity_and_offset;
 mod paint_values;
 mod reduced_motion;
 mod respects_easing;
+mod value_that_goes_away;

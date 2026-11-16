@@ -35,6 +35,7 @@ const SIZES: [(TextareaSize, &str, &str, f32); 3] = [
 /// A textarea as wide as the board draws one, with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .width(WIDTH)
     .spacing(9.0)
     .child(shown)
@@ -315,7 +316,7 @@ impl Component for TextareaPage {
         field.description(&format!("{told} characters.")).valid(true)
       }
     };
-    let in_field = items().child(Column::new().width(360.0).child(in_field));
+    let in_field = items().child(Column::new().width(360.0).max_width(FILL).child(in_field));
     let rows = items()
       .child(item(
         Textarea::new(Signal::new(String::new()))

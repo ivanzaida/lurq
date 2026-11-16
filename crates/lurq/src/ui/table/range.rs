@@ -229,7 +229,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
 
   /// What a cell says as text, as a copy takes it: the value its editor edits, which a paste reads back, or its
   /// column's text, or nothing for a cell the app builds.
-  fn cell_text(&self, row: usize, column: usize) -> String {
+  pub(super) fn cell_text(&self, row: usize, column: usize) -> String {
     let Some(values) = self.row(row) else {
       return String::new();
     };

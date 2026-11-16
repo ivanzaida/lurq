@@ -449,7 +449,7 @@ impl Component for HeatmapPage {
             0,
             Row::new()
               .width(crate::kit::FILL)
-              .child(Column::new().width(420.0).child(board)),
+              .child(Column::new().width(420.0).max_width(crate::kit::FILL).child(board)),
             "Heatmap::new(weeks, days)",
             &[
               "Heatmap::new(weeks, [\"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\"].map(|day| {",

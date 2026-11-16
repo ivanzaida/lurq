@@ -621,7 +621,8 @@ impl PasswordInputView {
       .width
       .and_then(|width| width.resolve(self.theme()))
     {
-      root = root.width(width);
+      // The most it takes: in a narrower room it is as wide as the room, and the input with it.
+      root = root.width(width).max_width(Dimension::Pct(100.0));
     }
     let mut root = root.child(input);
     if let Some(meter) = meter {

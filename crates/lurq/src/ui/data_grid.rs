@@ -12,8 +12,8 @@ use std::{hash::Hash, sync::Arc};
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
   table::{
-    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, FilterLabels, GroupKey, SummaryLabels, Table, TableColumn,
-    TableCount, TableFilters, TableSort,
+    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, FilterLabels, GridPage, GridQuery, GridRequest, GroupKey,
+    SourceLabels, SourceRow, SummaryLabels, Table, TableColumn, TableCount, TableFilters, TableSort,
   },
 };
 use crate::{
@@ -103,6 +103,17 @@ use crate::{
 /// of each group open, with a sum, an average, a count, the least or the most the grid computes of a column of
 /// numbers, or the app's text.
 ///
+/// **The bar over it** ([`toolbar`](Self::toolbar)): the board's Table Toolbar, its search field the grid's search, a
+/// tag for each filter set, Filter, the density, the columns and Export.
+///
+/// **Tree rows** ([`tree`](Self::tree)): each row under the row its parent key names, indented in the first column
+/// with a chevron that opens and closes it, Right and Left there too. **A row's detail** ([`detail`](Self::detail)):
+/// an element under an open row, as wide as the view. Both are lines of the grid's windowing.
+///
+/// **Export** ([`on_export`](Self::on_export)): each column's menu writes the rows shown, or those selected, out as
+/// comma-separated or tab-separated text, the titles of the columns shown first, for the app to save; with no
+/// handler, onto the clipboard. [`to_csv`](super::to_csv) writes any rows in the grid's columns.
+///
 /// **Row numbers** ([`row_numbers`](Self::row_numbers)): a column of them at the start that stays, a number pressed
 /// to select its row, its header to select every row.
 ///
@@ -126,6 +137,28 @@ use crate::{
 /// `gridcell`s with `a11y_colindex` and `a11y_readonly`, its headers `columnheader`s.
 pub struct DataGrid<R, K = usize> {
   table: Table<R, K>,
+}
+
+impl<X: Send + Sync + 'static> DataGrid<SourceRow<X>, usize> {
+  /// A grid over rows the app gives on demand, as a server's table gives them: there are `total` at first, and
+  /// as rows come into view the grid asks `fetch` for their range ([`GridRequest`]), which answers now or later
+  /// ([`GridPage`]: the rows and how many there are in all), through the engine's futures. Rows whose range has
+  /// not come are skeletons; a range that failed says so, with a retry. Each request carries the sort, the filters
+  /// and the search a person set ([`GridQuery`]): the app applies them, and another of them asks for every range
+  /// again. A row is told apart by its place; it is a [`SourceRow`], its row where it has come. The cells are not
+  /// edited, and the rows are not grouped or summed: those are the app's.
+  pub fn on_demand<Fut>(
+    columns: impl IntoIterator<Item = TableColumn<X>>,
+    total: usize,
+    fetch: impl Fn(GridRequest) -> Fut + Send + Sync + 'static,
+  ) -> Self
+  where
+    Fut: std::future::Future<Output = Result<GridPage<X>, String>> + Send + 'static,
+  {
+    DataGrid {
+      table: Table::over_source(columns, total, fetch).as_grid(),
+    }
+  }
 }
 
 impl<R: Send + Sync + 'static> DataGrid<R, usize> {
@@ -228,6 +261,76 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// told.
   pub fn column_menu(self, menu: bool) -> Self {
     self.with(|table| table.set_column_menu(menu))
+  }
+
+  /// The rows as a tree: `parent` gives the key of the row each is under ([`row_key`](Self::row_key)), or `None`
+  /// for a row at the top. Each row comes after the row it is under, the rows under one in the order given (the
+  /// sort's), indented 18 a level in the first column, where a chevron opens and closes the rows under it: a press
+  /// of it, or Right and Left on the first cell, Left on a row that is closed going to the row it is under. A row
+  /// a filter keeps keeps the rows it is under; a row whose parent is not among the rows is at the top. The rows of
+  /// a closed row are not built. A grid grouped by columns is no tree.
+  pub fn tree(self, parent: impl Fn(&R) -> Option<K> + Send + Sync + 'static) -> Self {
+    self.with(|table| table.set_tree(parent))
+  }
+
+  /// The rows of the tree that are open, by their keys: those the signal has. Without it, the grid keeps its own,
+  /// every row closed at first.
+  pub fn expanded(self, open: Signal<Vec<K>>) -> Self
+  where
+    Vec<K>: SignalValue,
+  {
+    let now = open.get();
+    self.with(|table| table.set_expanded(now, Arc::new(move |next| open.set(next))))
+  }
+
+  /// The rows of the tree that are open, as the app holds them: `on_change` is told the rows open after each press
+  /// or key that opens or closes one.
+  pub fn expanded_controlled(
+    self,
+    open: impl IntoIterator<Item = K>,
+    on_change: impl Fn(Vec<K>) + Send + Sync + 'static,
+  ) -> Self {
+    let now = open.into_iter().collect();
+    self.with(|table| table.set_expanded(now, Arc::new(on_change)))
+  }
+
+  /// Called with each row of the tree a press or a key opens (`true`) or closes.
+  pub fn on_expanded_change(self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_expanded_change(handler))
+  }
+
+  /// What a row shows under it while it is open: a panel as wide as the grid's view, which stays in it while the
+  /// columns scroll sideways, as high as what it holds. Where the rows are no tree, the first cell's chevron opens
+  /// and closes it, and Right and Left on that cell do. Its line is measured as it is laid out, as a row that wraps
+  /// is; what is in it is reached with Tab, and the arrows go from row to row past it.
+  pub fn detail(self, detail: impl Fn(&R) -> Element + Send + Sync + 'static) -> Self {
+    self.with(|table| table.set_detail(detail))
+  }
+
+  /// The rows whose detail is open, by their keys: those the signal has. Without it, the grid keeps its own, every
+  /// detail closed at first.
+  pub fn details(self, open: Signal<Vec<K>>) -> Self
+  where
+    Vec<K>: SignalValue,
+  {
+    let now = open.get();
+    self.with(|table| table.set_details_open(now, Arc::new(move |next| open.set(next))))
+  }
+
+  /// The rows whose detail is open, as the app holds them: `on_change` is told them after each press or key that
+  /// opens or closes one.
+  pub fn details_controlled(
+    self,
+    open: impl IntoIterator<Item = K>,
+    on_change: impl Fn(Vec<K>) + Send + Sync + 'static,
+  ) -> Self {
+    let now = open.into_iter().collect();
+    self.with(|table| table.set_details_open(now, Arc::new(on_change)))
+  }
+
+  /// Called with each row whose detail a press or a key opens (`true`) or closes.
+  pub fn on_detail_change(self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_detail_change(handler))
   }
 
   /// Groups the rows by the values of these columns, by their ids: a group's row for each value of the first,
@@ -491,6 +594,38 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
     self.with(|table| table.on_matches_change(handler))
   }
 
+  /// Whether each column's menu has Export, which writes the rows shown or selected out as comma-separated or
+  /// tab-separated text, the titles of the columns shown first: on unless told.
+  pub fn export(self, export: bool) -> Self {
+    self.with(|table| table.export(export))
+  }
+
+  /// Told the text of each export from the grid's menu ([`GridExport`](super::GridExport)): its form, which rows,
+  /// the text and how many rows it holds. The app saves it, or sends it; with no handler the text goes on the
+  /// clipboard.
+  pub fn on_export(self, handler: impl Fn(&super::GridExport) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_export(handler))
+  }
+
+  /// The words of the export in the grid's menu.
+  pub fn export_labels(self, labels: super::ExportLabels) -> Self {
+    self.with(|table| table.export_labels(labels))
+  }
+
+  /// The bar of the grid's tools over it, as the board's Table Toolbar draws it, built from a
+  /// [`Toolbar`](super::Toolbar): a search field that is the grid's search (the app's, or the grid's own), a tag
+  /// for each filter set whose × takes it off, Filter (a menu of the columns that filter, each opening its filter),
+  /// and at the end the density, which the grid takes once a person chooses one, the columns to show, and Export.
+  /// What does not fit goes into the bar's menu, the search field last. Off unless told.
+  pub fn toolbar(self, toolbar: bool) -> Self {
+    self.with(|table| table.set_toolbar(toolbar))
+  }
+
+  /// The words of the grid's bar.
+  pub fn toolbar_labels(self, labels: super::GridBarLabels) -> Self {
+    self.with(|table| table.set_toolbar_labels(labels))
+  }
+
   /// Whether Ctrl+F opens a find bar over the grid: see [`Table::find_bar`].
   pub fn find_bar(self, find_bar: bool) -> Self {
     self.with(|table| table.find_bar(find_bar))
@@ -499,6 +634,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// What the grid's find bar is made of besides its query and matches: see [`Table::find_bar_with`].
   pub fn find_bar_with(self, with: impl Fn(super::FindBar) -> super::FindBar + Send + Sync + 'static) -> Self {
     self.with(|table| table.find_bar_with(with))
+  }
+
+  /// Called with what the rows are asked by each time a person changes it: see [`Table::on_query_change`].
+  pub fn on_query_change(self, handler: impl Fn(&GridQuery) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_query_change(handler))
+  }
+
+  /// The words of rows the app gives on demand: see [`Table::source_labels`].
+  pub fn source_labels(self, labels: SourceLabels) -> Self {
+    self.with(|table| table.source_labels(labels))
   }
 
   /// Whether the grid has a row of filters under its header: see [`Table::filter_row`].

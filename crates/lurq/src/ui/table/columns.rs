@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::{ColumnPin, HostState, SortDirection, TableColumn, TrackWidth};
+use super::{ColumnPin, ExportFormat, ExportScope, HostState, SortDirection, TableColumn, TrackWidth};
 
 /// Where one column of a data grid is, as a person arranged it.
 #[derive(Clone, Debug, PartialEq)]
@@ -178,6 +178,8 @@ pub(super) enum MenuChoice {
   Filter,
   ClearFilter,
   ClearAllFilters,
+  /// Writes the rows out.
+  Export(ExportScope, ExportFormat),
 }
 
 /// Where a column dragged by its header goes, drawn on a header: before it, or after the last.
@@ -219,6 +221,8 @@ pub(super) struct ColumnMenuLink {
   /// Where the column filters the rows: whether it does now, and whether any column does; and the words of it.
   pub filtering: Option<(bool, bool)>,
   pub filter_labels: Arc<super::FilterLabels>,
+  /// Where the grid writes its rows out from its menus: whether anything is selected, and the words of it.
+  pub export: Option<super::export::ExportLink>,
 }
 
 impl HostState {

@@ -17,7 +17,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, line, props_table, segmented_fill, text},
+  kit::{FILL, fit, line, props_table, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -62,6 +62,9 @@ fn navigation() -> Vec<Element> {
   vec![account.into(), Separator::horizontal().into(), places.into()]
 }
 
+/// How wide the layout of the demos is: a small window's width.
+const LAYOUT: f32 = 640.0;
+
 /// A layout of the size of a small window, with `drawer` at its `side` and the page beside it: a bar with a
 /// button that opens and closes the drawer, and what the page shows.
 fn layout(drawer: Drawer, side: SheetSide, open: &Signal<bool>) -> Element {
@@ -88,7 +91,7 @@ fn layout(drawer: Drawer, side: SheetSide, open: &Signal<bool>) -> Element {
     .child(text("3 unread conversations", 13.0, FontWeight::Normal).color(PaletteColor::MutedForeground));
   let frame = |content: Element| -> Element {
     Column::new()
-      .size(640.0, 340.0)
+      .size(LAYOUT, 340.0)
       .border(line())
       .rounded(8.0)
       .clip()
@@ -262,6 +265,10 @@ impl Component for DrawerPage {
       SheetSide::Start,
       &self.over,
     );
+    // The layout is a window of its own size: a stage narrower than it scrolls to the rest of it.
+    let stage = self.frame.stage_room();
+    let beside = fit("beside", stage, LAYOUT, beside);
+    let over = fit("over", stage, LAYOUT, over);
     let rows = [
       (
         "open",

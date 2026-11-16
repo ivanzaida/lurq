@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::theme::{Density, PaletteColor, ThemePalette},
-  components::Column,
+  components::{Column, ScrollVertical},
   core::Signal,
   layout::{
     Constraints, Size,
@@ -2207,4 +2207,432 @@ fn a_search_marks_its_matches_and_f3_goes_through_them_across_rows_not_built() {
     stage.paints(&format!("1 of {}", matches.count)) || stage.paints(&format!("1/{}", matches.count)),
     "the find bar says which match of how many"
   );
+}
+
+#[test]
+fn rows_the_app_gives_on_demand_come_as_they_are_asked_for_and_a_failed_range_is_retried() {
+  use lurq::ui::{GridPage, GridQuery, GridRequest, SourceRow, TableSort};
+  #[derive(Clone)]
+  struct Item(usize);
+  let asked: Arc<Mutex<Vec<GridRequest>>> = Arc::default();
+  let failing = Arc::new(Mutex::new(true));
+  let sort = Signal::new(Vec::<TableSort>::new());
+  let queries: Arc<Mutex<Vec<GridQuery>>> = Arc::default();
+  let (log, fail, held, heard) = (asked.clone(), failing.clone(), sort.clone(), queries.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let (log, fail, heard) = (log.clone(), fail.clone(), heard.clone());
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        lurq::ui::DataGrid::<SourceRow<Item>, usize>::on_demand(
+          vec![
+            TableColumn::new("name", "Name")
+              .text(|row: &Item| format!("item {}", row.0))
+              .sortable(true),
+          ],
+          10_000,
+          move |request: GridRequest| {
+            log.lock().unwrap().push(request.clone());
+            let failed = request.range.start == 9_900 && *fail.lock().unwrap();
+            async move {
+              if failed {
+                return Err("down".to_owned());
+              }
+              Ok(GridPage {
+                rows: request.range.clone().map(Item).collect(),
+                total: 10_000,
+              })
+            }
+          },
+        )
+        .id("g")
+        .label("Items")
+        .height(360.0)
+        .count(true)
+        .sort(held.clone())
+        .on_query_change(move |query| heard.lock().unwrap().push(query.clone()))
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  settle(&mut stage);
+  assert_eq!(asked.lock().unwrap()[0].range, 0..100, "the first range is asked for");
+  assert!(stage.paints("item 0"), "and its rows come");
+  assert!(stage.paints("10000 rows"));
+
+  // The last rows: their range fails, and says so with a retry.
+  stage.click("g-cell-0-0");
+  modified(&mut stage, "End", false, true);
+  settle(&mut stage);
+  assert!(stage.paints("These rows could not be loaded"));
+  *failing.lock().unwrap() = false;
+  // Each row of the range says it: the last one, in view, is pressed.
+  let retry = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Retry"))
+    .max_by(|a, b| a.y.total_cmp(&b.y))
+    .unwrap();
+  let (x, y) = (retry.x + retry.width / 2.0, retry.y + retry.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  settle(&mut stage);
+  assert!(stage.paints("item 9999"), "retried, the range comes");
+
+  // A sort is the app's: every range is asked for again with it, and the app is told.
+  let before = asked.lock().unwrap().len();
+  sort.set(vec![TableSort::descending("name")]);
+  settle(&mut stage);
+  let requests = asked.lock().unwrap();
+  assert!(requests.len() > before);
+  assert_eq!(requests.last().unwrap().query.sort, [TableSort::descending("name")]);
+  assert_eq!(
+    queries.lock().unwrap().last().map(|query| query.sort.clone()),
+    Some(vec![TableSort::descending("name")])
+  );
+}
+
+/// Runs the futures on their way and renders what they gave, a few times over.
+fn settle(stage: &mut Stage) {
+  for _ in 0..4 {
+    stage.tree.tick_futures();
+    stage.pass();
+  }
+}
+
+#[test]
+fn a_button_in_a_cell_is_pressed_by_one_press() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  let pressed = Arc::new(AtomicUsize::new(0));
+  let counted = pressed.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let counted = counted.clone();
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(
+          vec![
+            TableColumn::new("name", "Name").text(|row: &File| row.name.clone()),
+            TableColumn::new("open", "Open")
+              .width(120.0)
+              .controls(true)
+              .cell(move |_: &File| {
+                let counted = counted.clone();
+                lurq::ui::Button::new("Open")
+                  .on_click(move |_| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                  })
+                  .into()
+              }),
+          ],
+          files(),
+        )
+        .id("g")
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  click_text(&mut stage, "Open");
+  assert_eq!(pressed.load(Ordering::SeqCst), 1, "one press presses it");
+}
+
+#[test]
+fn rows_whose_range_has_not_come_are_skeletons() {
+  use lurq::ui::{GridPage, GridRequest, SourceRow};
+  #[derive(Clone)]
+  struct Item(usize);
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        lurq::ui::DataGrid::<SourceRow<Item>, usize>::on_demand(
+          vec![TableColumn::new("name", "Name").text(|row: &Item| format!("item {}", row.0))],
+          10_000,
+          move |request: GridRequest| async move {
+            // The first range comes; the others are on their way for good.
+            if request.range.start > 0 {
+              std::future::pending::<()>().await;
+            }
+            Ok(GridPage {
+              rows: request.range.clone().map(Item).collect(),
+              total: 10_000,
+            })
+          },
+        )
+        .id("g")
+        .label("Items")
+        .height(360.0)
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  settle(&mut stage);
+  assert!(stage.paints("item 0"));
+  stage.click("g-cell-0-0");
+  modified(&mut stage, "End", false, true);
+  settle(&mut stage);
+  assert!(rows_built(&stage).contains(&9_999), "the last rows are built");
+  assert!(!stage.paints("item 9999"), "with nothing in them yet");
+  assert!(
+    !stage.paints("These rows could not be loaded"),
+    "and nothing said of them: they are on their way"
+  );
+}
+
+#[test]
+fn what_sticks_stays_still_in_every_frame_of_a_scroll_over_rows_measured_as_they_come() {
+  #[derive(Clone)]
+  struct Note(usize);
+  // Every fourth note wraps onto three lines: a row higher than it is taken to be until it is measured.
+  let text = |row: &Note| {
+    if row.0 % 4 == 0 {
+      format!(
+        "Note {}: a long note that wraps onto three lines in a column as narrow as this one is",
+        row.0
+      )
+    } else {
+      format!("Note {}", row.0)
+    }
+  };
+  let rows: Arc<Vec<Note>> = Arc::new((0..5_000).map(Note).collect());
+  // A grid in a page that scrolls, as the gallery's is.
+  let mut stage = Stage::new(move |ctx| {
+    ScrollVertical::new(
+      Column::new()
+        .width(640.0)
+        .child(lurq::components::Rect::new(600.0, 300.0))
+        .child(
+          DataGrid::new_shared(
+            vec![
+              TableColumn::new("n", "Number")
+                .width(90.0)
+                .pin(lurq::ui::ColumnPin::Start)
+                .text(|row: &Note| row.0.to_string()),
+              TableColumn::new("note", "Note").width(180.0).wrap(true).text(text),
+              TableColumn::new("more", "More")
+                .width(400.0)
+                .text(|row: &Note| format!("more {}", row.0)),
+            ],
+            rows.clone(),
+          )
+          .id("g")
+          .label("Notes")
+          .row_numbers(true)
+          .height(400.0)
+          .mount(ctx),
+        )
+        .child(lurq::components::Rect::new(600.0, 900.0)),
+    )
+    .size(640.0, 420.0)
+    .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // The page scrolled until the grid is near its top, and the grid sideways a little, so that the pinned column
+  // stays while what is beside it moves.
+  stage
+    .tree
+    .scroll(300.0, 100.0, 0.0, -260.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  stage
+    .tree
+    .scroll(300.0, 200.0, -60.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.frame();
+  // At a scale of 150%, as a window on a screen of that scale is.
+  stage.tree.set_scale_factor(1.5);
+  stage.frame();
+  // Where a text is painted.
+  let painted = |stage: &Stage, content: &str| {
+    stage
+      .text_quad(content)
+      .map(|quad| (quad.x, quad.y))
+      .unwrap_or_else(|| panic!("{content:?} painted"))
+  };
+  let (header, pinned) = (painted(&stage, "Note"), painted(&stage, "Number"));
+  let grid_top = stage.bounds("g").1;
+  // A wheel's notches, each scrolling over the frames that follow, as a wheel does, down and back up.
+  stage.app.theme().set_smooth_scroll(true);
+  let mut frame = 0;
+  for delta in std::iter::repeat_n(-120.0, 30).chain(std::iter::repeat_n(120.0, 30)) {
+    stage
+      .tree
+      .wheel(300.0, 200.0, 0.0, delta, lurq::app::events::ScrollPhase::Scroll);
+    for _ in 0..4 {
+      stage.frame();
+      frame += 1;
+      assert_eq!(painted(&stage, "Note"), header, "the header moved in frame {frame}");
+      assert_eq!(
+        painted(&stage, "Number"),
+        pinned,
+        "the pinned column's header moved in frame {frame}"
+      );
+      assert_eq!(stage.bounds("g").1, grid_top, "the grid moved in frame {frame}");
+      // The rows' words are cut at the grid's edge: none is drawn over what is above it.
+      for quad in stage.quads() {
+        if let QuadContent::Text { text, .. } = &quad.content {
+          let top = if quad.clip.active {
+            quad.y.max(quad.clip.y)
+          } else {
+            quad.y
+          };
+          assert!(top >= grid_top, "{text:?} drawn above the grid in frame {frame}");
+        }
+      }
+      // The pinned column's cells stay at its place.
+      for quad in stage.quads() {
+        if let QuadContent::Text { text, .. } = &quad.content
+          && text.parse::<usize>().is_ok()
+          && quad.x > pinned.0 - 1.0
+          && quad.x < pinned.0 + 60.0
+        {
+          assert_eq!(
+            quad.x, pinned.0,
+            "the pinned column's cell {text:?} moved sideways in frame {frame}"
+          );
+        }
+      }
+    }
+  }
+}
+
+#[test]
+fn the_menu_writes_the_rows_shown_or_selected_out_as_csv_or_tab_separated_text() {
+  let told: Arc<Mutex<Vec<lurq::ui::GridExport>>> = Arc::default();
+  let selected: Signal<Vec<String>> = Signal::new(Vec::new());
+  let layout: Signal<ColumnLayout> = Signal::new(ColumnLayout::default());
+  // The app's rows, sorted as the app sorts them: by name, from the last.
+  let mut rows = files();
+  rows.reverse();
+  let (heard, chosen, arranged) = (told.clone(), selected.clone(), layout.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), rows.clone())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .selected(chosen.clone())
+          .column_layout(arranged.clone())
+          .on_export(move |export| heard.lock().unwrap().push(export.clone()))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let export = |stage: &mut Stage, item: &str| {
+    stage.hover("g-header-name");
+    stage.click("g-header-name-menu");
+    stage.pass();
+    choose(stage, "Export");
+    choose(stage, item);
+    let last = told.lock().unwrap().last().cloned();
+    last.unwrap_or_else(|| panic!("{item:?} told the app"))
+  };
+
+  // Every row shown, in the order shown, and the columns shown: a cell says its text as it is
+  // shown, a box its value.
+  let shown = export(&mut stage, "Shown rows as CSV");
+  assert_eq!(
+    (shown.format, shown.scope, shown.rows),
+    (lurq::ui::ExportFormat::Csv, lurq::ui::ExportScope::Shown, 3)
+  );
+  assert_eq!(
+    shown.text,
+    "Name,Status,Size,Shared\r\ntheme.rs,Passing,9 KB,false\r\ncanvas.rs,Passing,48 KB,false\r\nblur.rs,Building,12 KB,true\r\n"
+  );
+
+  // A hidden column is not written; nothing selected, there is nothing to write of the selection.
+  layout.set(ColumnLayout::parse(r#"column("status" hidden)"#).expect("an arrangement"));
+  stage.pass();
+  let shown = export(&mut stage, "Shown rows as tab-separated");
+  assert_eq!(
+    shown.text,
+    "Name\tSize\tShared\ntheme.rs\t9 KB\tfalse\ncanvas.rs\t48 KB\tfalse\nblur.rs\t12 KB\ttrue\n"
+  );
+
+  // The rows selected, in the order shown.
+  selected.set(vec!["canvas.rs".to_owned(), "theme.rs".to_owned()]);
+  stage.pass();
+  let picked = export(&mut stage, "Selected as CSV");
+  assert_eq!(picked.rows, 2);
+  assert_eq!(
+    picked.text,
+    "Name,Size,Shared\r\ntheme.rs,9 KB,false\r\ncanvas.rs,48 KB,false\r\n"
+  );
+}
+
+#[test]
+fn an_export_with_no_one_told_goes_on_the_clipboard() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  let clipboard = Arc::new(Clipboard::default());
+  stage.tree.set_clipboard_writer(Some(clipboard.clone()));
+  stage.pass();
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Export");
+  choose(&mut stage, "Shown rows as tab-separated");
+  stage.pass();
+  let written = clipboard.written.lock().unwrap().last().cloned();
+  assert_eq!(
+    written.as_deref(),
+    Some(
+      "Name\tStatus\tSize\tShared\nblur.rs\tBuilding\t12 KB\ttrue\ncanvas.rs\tPassing\t48 KB\tfalse\ntheme.rs\tPassing\t9 KB\tfalse\n"
+    )
+  );
+}
+
+#[test]
+fn a_grid_told_not_to_export_has_no_export_in_its_menu() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .export(false)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(stage.paints("Size to fit"), "the menu is open");
+  assert!(!stage.paints("Export"));
 }

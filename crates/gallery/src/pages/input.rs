@@ -16,7 +16,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet, segmented_fill},
+  kit::{FILL, fit, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -38,8 +38,9 @@ const SIZES: [(InputSize, &str, &str, f32); 3] = [
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -347,6 +348,9 @@ impl Component for InputPage {
       .spacing(16.0)
       .child(Field::new("Time zone", showing("Europe/Kyiv").full_width(true)).orientation(Orientation::Horizontal))
       .child(Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal));
+    // A field with its label beside is 360: the label's column, and a control that keeps its own width. In a
+    // narrower card the two scroll sideways.
+    let beside = fit("beside", self.frame.stage_room(), 360.0, beside);
 
     let input_rows = [
       (

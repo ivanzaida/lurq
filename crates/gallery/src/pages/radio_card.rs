@@ -28,9 +28,21 @@ const DENSITIES: [(&str, &str); 3] = [
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+/// A group of cards side by side with what it is under it. It is as wide as the stage: a row is as wide as
+/// what is in it, and the cards that do not fit beside the others would not go on to the next line.
+fn row_of_cards(shown: impl Into<Element>, caption: &str) -> Column {
+  Column::new()
+    .width(FILL)
+    .spacing(9.0)
+    .overflow_visible()
+    .child(shown)
     .child(quiet(caption, 12.0))
 }
 
@@ -216,7 +228,7 @@ impl Component for RadioCardPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let bound = items().child(item(
+    let bound = row_of_cards(
       RadioCardGroup::new(
         self.density.clone(),
         [
@@ -229,8 +241,8 @@ impl Component for RadioCardPage {
       )
       .orientation(Orientation::Horizontal),
       &format!("the signal has: {}", self.density.get()),
-    ));
-    let plans = items().child(item(
+    );
+    let plans = row_of_cards(
       RadioCardGroup::new(
         self.plan.clone(),
         [
@@ -260,7 +272,7 @@ impl Component for RadioCardPage {
       )
       .orientation(Orientation::Horizontal),
       &format!("the signal has: {:?}", self.plan.get()),
-    ));
+    );
     let card = |title: &str| RadioCard::new(title).description("Roomy rows, 36px controls.");
     let states = items()
       .child(item(card("Not selected"), "not selected"))

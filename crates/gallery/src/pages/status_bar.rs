@@ -13,7 +13,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -450,7 +450,8 @@ impl Component for StatusBarPage {
            the leading, each from its end; the branch and the notifications stay longest.",
           self.frame.demo(
             2,
-            narrow,
+            // The bars are as wide as they say: a card narrower than the widest scrolls them sideways.
+            fit("narrow", self.frame.stage_room(), 600.0, narrow),
             "StatusItem::priority(2)",
             &[
               "StatusItem::new(\"feat/design-system\").priority(2)",

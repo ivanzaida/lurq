@@ -21,8 +21,9 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -308,7 +309,7 @@ impl Component for ShortcutRecorderPage {
       ));
     let given = self.field.get();
     let field = items().child(item(
-      Column::new().width(280.0).child({
+      Column::new().width(280.0).max_width(FILL).child({
         let recorder = ShortcutRecorder::optional(self.field.clone()).platform(KeyPlatform::Standard);
         let field = Field::new("Quick open", recorder);
         let field = if given.is_none() {

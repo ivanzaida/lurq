@@ -44,6 +44,10 @@ fn capturing_path(node: &Node, path: &mut Vec<usize>) -> bool {
 impl Tree {
   /// The path of the element that takes every key, where one does.
   fn key_capture(&self) -> Option<Vec<usize>> {
+    // Looked for through the whole tree, after every build and with every key: not where no node ever took keys.
+    if !crate::node::node::key_capture_in_use() {
+      return None;
+    }
     let root = self.root.as_ref()?;
     let mut path = Vec::new();
     capturing_path(root, &mut path).then_some(path)

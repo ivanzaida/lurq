@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::text_style::FontWeight,
   node::Element,
-  ui::{ScrollArea, ScrollAreaOrientation, ScrollAreaPart, ScrollAreaScrollbars},
+  ui::{Length, ScrollArea, ScrollAreaOrientation, ScrollAreaPart, ScrollAreaScrollbars},
 };
 
 use crate::{
@@ -241,6 +241,7 @@ impl Component for ScrollAreaPage {
     // The board's dialog with a scrolling body: the terms, the bar in the body's padding.
     let body = Column::new()
       .width(440.0)
+      .max_width(FILL)
       .padding_top(16.0)
       .padding_left(20.0)
       .padding_right(6.0)
@@ -252,7 +253,12 @@ impl Component for ScrollAreaPage {
           .child(terms()),
       );
     // The board's list: its rows, and the bar in a lane of its own beside them.
-    let mut rows = ScrollArea::new().width(340.0).height(160.0).gutter(true);
+    // Each area of the page is as wide as the board draws it, and no wider than the stage.
+    let mut rows = ScrollArea::new()
+      .width(340.0)
+      .height(160.0)
+      .gutter(true)
+      .style(ScrollAreaPart::Root, |s| s.max_width(Length::Fill));
     for (title, detail) in [
       ("Quarterly report.pdf", "Edited 2 hours ago"),
       ("Roadmap.md", "Edited yesterday"),
@@ -267,9 +273,13 @@ impl Component for ScrollAreaPage {
       .width(480.0)
       .height(200.0)
       .orientation(ScrollAreaOrientation::Both)
+      .style(ScrollAreaPart::Root, |s| s.max_width(Length::Fill))
       .child(grid());
+    // The second goes under the first where it has no room beside it.
     let hover = Row::new()
+      .width(FILL)
       .spacing(16.0)
+      .wrap()
       .child(
         ScrollArea::new()
           .width(200.0)

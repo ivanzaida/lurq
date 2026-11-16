@@ -717,8 +717,10 @@ impl MessageBoxView {
 
   /// The footer: the checkbox and the plain answers at its start, the others at its end.
   pub fn footer(&self) -> Row {
+    // In a box too narrow for the option and the answers on one line, the answers go under the option.
     let mut footer = Row::new()
       .width(Dimension::Pct(100.0))
+      .wrap()
       .align_items(Alignment::Center)
       .overflow_visible()
       .part(&self.part(MessageBoxPart::Footer));
@@ -940,7 +942,9 @@ impl Themed for MessageBox {
     };
     // Of the 20 the panel is padded, 4 are the dialog's body's, which is room for the ring of a focused button.
     let recipe = Recipe::new()
-      .base(Panel, |s| s.width(400.0).padding_x(16.0).padding_y(16.0))
+      .base(Panel, |s| {
+        s.width(400.0).max_width(Length::Fill).padding_x(16.0).padding_y(16.0)
+      })
       .base(Content, |s| s.gap(16.0))
       .base(Header, |s| s.gap(14.0))
       .base(Mark, |s| s.square(36.0).radius(RadiusSize::Full).background(InfoMuted))

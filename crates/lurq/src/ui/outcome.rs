@@ -455,7 +455,7 @@ impl Themed for Outcome {
     use OutcomeVariant::{Destructive as Failed, Info, NotFound, Success, Warning};
     use PaletteColor::*;
     let mut recipe = Recipe::new()
-      .base(Root, |s| s.width(300.0).gap(16.0))
+      .base(Root, |s| s.width(300.0).max_width(Length::Fill).gap(16.0))
       .base(Mark, |s| s.square(48.0).radius(RadiusSize::Full).background(Muted))
       .base(Icon, |s| s.square(24.0).foreground(Foreground))
       .base(Text, |s| s.gap(4.0))

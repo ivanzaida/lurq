@@ -33,12 +33,16 @@ pub struct LayoutCache {
   pub(crate) guards_generation: Cell<u64>,
   // A clear belongs to each node consuming the shared element handle.
   override_clear_generation: Cell<u64>,
-  pub(crate) subtree: Cell<LayoutSubtree>,
+  /// What is in the subtree that a frame's walks look for, packed: see [`Self::subtree`].
+  subtree: Cell<u16>,
   local_dirty: Cell<bool>,
   descendant_dirty: Cell<bool>,
   /// The tree this node's served cache entry was last prepared into, and what it was prepared from: boxed, as few
   /// nodes are served whole.
   prepared: Cell<Option<Box<PreparedServe>>>,
+  /// The subtree as a transition engine last ticked it with nothing running in it: see
+  /// [`crate::animation::TransitionEngine`]. Boxed, and held by each node of such a subtree.
+  ticked: Cell<Option<Box<TickedClean>>>,
   /// Whether every descendant cache's front entry belongs to this cache's
   /// front entry, i.e. no older entry was served since the last store.
   /// Serving an older entry skips the descendants, so their front entries
@@ -58,6 +62,70 @@ pub(crate) struct LayoutSubtree {
   pub(crate) resource_images: bool,
   pub(crate) resource_svgs: bool,
   pub(crate) loading_images: bool,
+  /// It, or something under it, holds an element ref: what a frame tells the refs of where their elements are.
+  pub(crate) refs: bool,
+  /// It, or something under it, declares a layer over the tree (an overlay, a modal) or anchors a dropdown: what
+  /// the overlay index records.
+  pub(crate) layers: bool,
+  /// It, or something under it, is a child its row or column may drop (`ShrinkLimit::Drop`, a drop marker).
+  pub(crate) droppable: bool,
+  /// It, or something under it, plays an animation: what the animation engine ticks.
+  pub(crate) animations: bool,
+  /// It, or something under it, is the root of a component's output: where a component built again on its own is
+  /// looked for.
+  pub(crate) slots: bool,
+}
+
+impl LayoutSubtree {
+  fn flags(&self) -> [bool; 13] {
+    [
+      self.text_input,
+      self.select,
+      self.timeline,
+      self.scroll,
+      self.canvas,
+      self.resource_images,
+      self.resource_svgs,
+      self.loading_images,
+      self.refs,
+      self.layers,
+      self.droppable,
+      self.animations,
+      self.slots,
+    ]
+  }
+
+  fn pack(&self) -> u16 {
+    self
+      .flags()
+      .iter()
+      .enumerate()
+      .fold(0, |bits, (at, on)| bits | (u16::from(*on) << at))
+  }
+
+  fn unpack(bits: u16) -> Self {
+    let on = |at: u16| bits & (1 << at) != 0;
+    Self {
+      text_input: on(0),
+      select: on(1),
+      timeline: on(2),
+      scroll: on(3),
+      canvas: on(4),
+      resource_images: on(5),
+      resource_svgs: on(6),
+      loading_images: on(7),
+      refs: on(8),
+      layers: on(9),
+      droppable: on(10),
+      animations: on(11),
+      slots: on(12),
+    }
+  }
+
+  /// Whether a frame's index of the tree (its element refs, layers, inputs and open selects) has anything here.
+  pub(crate) fn indexed(&self) -> bool {
+    self.refs || self.layers || self.text_input || self.select
+  }
 }
 
 struct ValidatedLayout {
@@ -172,12 +240,41 @@ impl LayoutCache {
       inspected_generation: Cell::new(0),
       guards_generation: Cell::new(0),
       override_clear_generation: Cell::new(0),
-      subtree: Cell::new(LayoutSubtree::default()),
+      subtree: Cell::new(0),
       local_dirty: Cell::new(false),
       descendant_dirty: Cell::new(false),
       descendants_match_front: Cell::new(true),
       prepared: Cell::new(None),
+      ticked: Cell::new(None),
     }
+  }
+
+  /// What is in the subtree that a frame's walks look for, as its tracking last found it.
+  pub(crate) fn subtree(&self) -> LayoutSubtree {
+    LayoutSubtree::unpack(self.subtree.get())
+  }
+
+  pub(crate) fn set_subtree(&self, subtree: LayoutSubtree) {
+    self.subtree.set(subtree.pack());
+  }
+
+  /// What a transition engine left of its last tick of this subtree, taken out.
+  pub(crate) fn take_ticked(&self) -> Option<Box<TickedClean>> {
+    self.ticked.take()
+  }
+
+  pub(crate) fn set_ticked(&self, ticked: Option<Box<TickedClean>>) {
+    self.ticked.set(ticked);
+  }
+
+  /// Whether a transition engine ticked this subtree at its generation as it is, with nothing running in it.
+  pub(crate) fn ticked_clean(&self) -> bool {
+    let ticked = self.ticked.take();
+    let clean = ticked
+      .as_ref()
+      .is_some_and(|ticked| ticked.generation == self.watch().generation() && ticked.world == world_changes());
+    self.ticked.set(ticked);
+    clean
   }
 
   /// What this node's served entry was last prepared into, taken out.
@@ -187,6 +284,33 @@ impl LayoutCache {
 
   pub(crate) fn set_prepared(&self, prepared: Option<Box<PreparedServe>>) {
     self.prepared.set(prepared);
+  }
+
+  /// Whether `entry` is the one this node was last prepared from, or into, and no text's layout was written since
+  /// (`text_writes` is [`crate::node::node_kind::text_state_writes`] now): what is in it holds what it was
+  /// prepared with.
+  pub(crate) fn prepared_from(&self, entry: &Arc<LayoutResult>, text_writes: u64) -> bool {
+    let prepared = self.prepared.take();
+    let held = prepared.as_ref().is_some_and(|prepared| {
+      prepared.text_writes == text_writes
+        && (prepared.served == Arc::as_ptr(entry) as usize || Arc::ptr_eq(&prepared.result, entry))
+    });
+    self.prepared.set(prepared);
+    held
+  }
+
+  /// Notes `result` as prepared as it is, with `text_writes` written: served again with nothing written since, it is
+  /// not walked again. Only a tree with texts or scroll containers to walk is noted.
+  pub(crate) fn prepared_now(&self, result: &Arc<LayoutResult>, text_writes: u64) {
+    if !(result.holds.scroll || result.holds.text) {
+      self.prepared.set(None);
+      return;
+    }
+    self.prepared.set(Some(Box::new(PreparedServe {
+      served: Arc::as_ptr(result) as usize,
+      text_writes,
+      result: result.clone(),
+    })));
   }
 
   /// The node's watch, made here the first time anything reads or binds it.
@@ -465,6 +589,43 @@ impl LayoutCache {
   }
 }
 
+/// The changes of every element's state of interaction and of every theme, so far.
+pub(crate) fn world_changes() -> u64 {
+  crate::node::interaction_state::interaction_changes() + crate::app::theme::theme_mutations()
+}
+
+/// A subtree a transition engine ticked with no transition running in it and no animation playing: its generation
+/// then, the engine's epoch, and the nodes in it that have transitions, which the engine still counts as seen while
+/// it does not tick them again.
+pub(crate) struct TickedClean {
+  pub(crate) generation: u64,
+  pub(crate) epoch: u64,
+  /// The changes of interaction and of themes so far when it was ticked: a state style or a theme changes what a
+  /// node heads to without a layout.
+  pub(crate) world: u64,
+  /// The nodes under it that have transitions; `None` for none.
+  pub(crate) ids: Option<Arc<TickedIds>>,
+}
+
+/// The nodes of a clean subtree that have transitions: its own, and its children's as they each left them, shared
+/// and not copied, so that every node of the subtree keeps its own and a parent's costs only its children's count.
+pub(crate) struct TickedIds {
+  pub(crate) own: Option<crate::core::NodeId>,
+  pub(crate) children: Vec<Arc<TickedIds>>,
+}
+
+impl TickedIds {
+  /// Calls `each` with every node in it.
+  pub(crate) fn each(&self, each: &mut impl FnMut(crate::core::NodeId)) {
+    if let Some(own) = self.own {
+      each(own);
+    }
+    for child in &self.children {
+      child.each(each);
+    }
+  }
+}
+
 /// A cached entry served and prepared: its scroll containers synced and its texts' layouts written back. Served
 /// again with nothing moved since, it is the same tree.
 pub(crate) struct PreparedServe {
@@ -551,6 +712,7 @@ mod tests {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -831,5 +993,25 @@ mod tests {
       new.cached_entry().map(|(front, size)| (front.max_width, size.width)),
       Some((90.0, 90.0))
     );
+  }
+}
+
+#[cfg(test)]
+mod subtree_tests {
+  use super::*;
+
+  #[test]
+  fn every_flag_of_a_subtree_is_kept_as_it_was_set() {
+    let cache = LayoutCache::default();
+    for at in 0..13 {
+      let mut flags = [false; 13];
+      flags[at] = true;
+      let subtree = LayoutSubtree::unpack(1 << at);
+      assert_eq!(subtree.flags(), flags, "flag {at}");
+      cache.set_subtree(subtree);
+      assert_eq!(cache.subtree().flags(), flags, "flag {at} kept");
+    }
+    cache.set_subtree(LayoutSubtree::unpack(0x1fff));
+    assert_eq!(cache.subtree().flags(), [true; 13]);
   }
 }

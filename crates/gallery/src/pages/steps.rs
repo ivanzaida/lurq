@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -25,6 +25,10 @@ const WIZARD: [(&str, &str); 4] = [
   ("Workspace", "Name and members"),
   ("Finish", "Review and confirm"),
 ];
+
+/// The least width the wizard's four steps are read in, in a row: narrower, their titles are cut to nothing,
+/// and then their marks.
+const WIZARD_WIDTH: f32 = 520.0;
 
 /// The current steps the playground offers: each of the four, and past the last.
 const CURRENTS: [(&str, usize); 5] = [
@@ -99,6 +103,12 @@ impl StepsPage {
       .on_change(move |index| record(format!("on_change({index})")));
     // A handler makes the steps that are done pressable: the playground gives one only where they are.
     let shown: Element = if pressable { steps.into() } else { plain().into() };
+    // Four steps in a row do not fit the stage of a window as narrow as a phone: they scroll sideways on it.
+    let shown = if vertical {
+      shown
+    } else {
+      fit("played", self.frame.stage_room(), WIZARD_WIDTH, shown)
+    };
 
     let mut code = vec!["// at: Signal<usize>".to_owned(), "Steps::new(at.clone(), [".to_owned()];
     for (index, (title, description)) in WIZARD.iter().enumerate() {
@@ -220,11 +230,15 @@ impl StepsPage {
     Column::new()
       .width(FILL)
       .spacing(24.0)
-      .child(
+      // In a narrow card the steps keep the width they are read in, and scroll sideways.
+      .child(fit(
+        "wizard",
+        self.frame.stage_room(),
+        WIZARD_WIDTH,
         Steps::new(self.at.clone(), wizard(false, false))
           .label("Sign up")
           .pressable(true),
-      )
+      ))
       .child(
         Row::new()
           .width(FILL)

@@ -481,7 +481,7 @@ impl Themed for SearchField {
     use PaletteColor::{Foreground, Muted, MutedForeground};
     use SearchFieldPart::{Clear, Control, Root, Shortcut, Trailing};
     Recipe::new()
-      .base(Root, |s| s.width(280.0))
+      .base(Root, |s| s.width(280.0).max_width(Length::Fill))
       .state(SearchFieldState::FullWidth, Root, |s| s.width(Length::Fill))
       .base(Control, |s| s.padding_start(10.0).padding_end(8.0))
       .base(Trailing, |s| s.gap(8.0))

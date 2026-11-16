@@ -12,7 +12,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, segmented_fill},
+  kit::{FILL, props_table, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -170,13 +170,18 @@ impl Component for GaugePage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    // A gauge that has no room beside the others goes on to the next line.
     let parts = Row::new()
+      .width(FILL)
       .spacing(32.0)
+      .wrap()
       .child(Gauge::new(42).low(60).high(85).label("Load"))
       .child(Gauge::new(74).low(60).high(85).label("Load"))
       .child(Gauge::new(93).low(60).high(85).label("Load"));
     let ranges = Row::new()
+      .width(FILL)
       .spacing(32.0)
+      .wrap()
       .child(
         Gauge::new(86)
           .min(20)

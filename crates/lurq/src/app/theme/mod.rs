@@ -937,11 +937,17 @@ impl Theme {
     Arc::ptr_eq(&self.inner, &other.inner)
   }
 
+  /// What tells this theme and its clones from every other theme: equal for two of them where `same_theme` is.
+  pub(crate) fn identity(&self) -> usize {
+    Arc::as_ptr(&self.inner) as *const () as usize
+  }
+
   pub(crate) fn track_access(&self) {
     let _ = self.version_signal.get();
   }
 
   fn mutate_inner(&self, f: impl FnOnce(&mut ThemeInner)) {
+    THEME_MUTATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let version = {
       let mut inner = self.inner.write().unwrap();
       f(&mut inner);
@@ -950,6 +956,14 @@ impl Theme {
     };
     self.version_signal.set(version);
   }
+}
+
+/// How many times any theme changed, so far: what a transition engine's clean subtree was ticked against.
+static THEME_MUTATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many times any theme changed, so far.
+pub(crate) fn theme_mutations() -> u64 {
+  THEME_MUTATIONS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 pub struct ThemeLens<T> {

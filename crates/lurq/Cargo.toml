@@ -298,6 +298,10 @@ name = "presence"
 required-features = ["winit", "wgpu", "screenshot"]
 
 [[example]]
+name = "own_title_bar"
+required-features = ["winit", "wgpu"]
+
+[[example]]
 name = "engine_gallery"
 required-features = ["winit", "wgpu", "screenshot"]
 

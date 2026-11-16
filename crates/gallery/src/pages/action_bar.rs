@@ -18,7 +18,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, text},
+  kit::{FILL, fit, props_table, text},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -220,6 +220,9 @@ impl ActionBarPage {
   }
 }
 
+/// The least an action bar with a count, three actions and its close button is wide, with room around it.
+const BAR: f32 = 440.0;
+
 impl Component for ActionBarPage {
   type Props = ();
 
@@ -251,6 +254,9 @@ impl Component for ActionBarPage {
           .return_focus(self.rows[1].clone())
           .mount(ctx),
       );
+    // The bar's count and its actions need this much: in a narrower card what it acts on keeps it, and scrolls
+    // sideways, so no action is down to an ellipsis.
+    let top = fit("top", self.frame.stage_room(), BAR, top);
     // The board's Mobile/Selection Bar: the same parts, restyled into a bar across the top of a phone.
     let phone_bar = {
       let count = self.phone.get().len();
@@ -279,12 +285,19 @@ impl Component for ActionBarPage {
         .return_focus(self.rows[2].clone())
         .mount(ctx)
     };
-    let phone = Stack::new()
-      .width(360.0)
-      .height(240.0)
-      .overflow_visible()
-      .child(list(&self.phone, 240.0, &self.rows[2]))
-      .child(phone_bar);
+    // A phone's width, which the bar's actions are counted for: in a card narrower than a phone it keeps it,
+    // and scrolls sideways.
+    let phone = fit(
+      "phone",
+      self.frame.stage_room(),
+      360.0,
+      Stack::new()
+        .width(360.0)
+        .height(240.0)
+        .overflow_visible()
+        .child(list(&self.phone, 240.0, &self.rows[2]))
+        .child(phone_bar),
+    );
 
     let rows = [
       (

@@ -504,7 +504,7 @@ fn a_bar_across_keeps_clear_of_a_first_column_that_stays() {
 }
 
 #[test]
-fn the_bars_end_before_a_column_that_stays_at_the_end_and_its_thumb_is_dragged_there() {
+fn the_bar_down_stands_at_the_end_edge_and_only_the_bar_across_keeps_clear_of_a_column_that_stays_at_the_end() {
   let state = lurq::layout::layout_kind::ScrollState::new();
   let mut rows = Column::new();
   for index in 0..10 {
@@ -531,11 +531,23 @@ fn the_bars_end_before_a_column_that_stays_at_the_end_and_its_thumb_is_dragged_t
       .expect("the rows overflow both ways")
   };
   use lurq::layout::layout_kind::ScrollAxis::{Horizontal, Vertical};
-  // The column that stays is the last 60 of the viewport: neither bar reaches into it.
-  for (axis, name) in [(Vertical, "down"), (Horizontal, "across")] {
-    let (x, _, width, _) = thumb(&state, axis);
-    assert!(x + width <= 140.0 + 0.01, "the bar {name} ends at {}", x + width);
-  }
+  let style = state.style();
+  // The bar down is at the container's end edge, over the edge of the column that stays there and never over
+  // what scrolls: it runs along the rows, not across the column.
+  let (x, _, width, _) = thumb(&state, Vertical);
+  let edge = 200.0 - style.resolved_edge_inset();
+  assert!(
+    (x + width - edge).abs() <= style.width,
+    "the bar down ends at the end edge: {}",
+    x + width
+  );
+  assert!(
+    x >= 140.0,
+    "the bar down is over the column that stays, not what scrolls: {x}"
+  );
+  // The bar across runs between the columns that stay: its track ends before the one at the end.
+  let (x, _, width, _) = thumb(&state, Horizontal);
+  assert!(x + width <= 140.0 + 0.01, "the bar across ends at {}", x + width);
   tree.scroll(100.0, 50.0, -10_000.0, 0.0, ScrollPhase::Scroll);
   crate::support::render_pass(&mut tree);
   let (x, _, width, _) = thumb(&state, Horizontal);
@@ -554,6 +566,44 @@ fn the_bars_end_before_a_column_that_stays_at_the_end_and_its_thumb_is_dragged_t
   tree.mouse_up(cx, cy + 20.0, MouseButton::Left);
   crate::support::render_pass(&mut tree);
   assert!(state.scroll_y() > 0.0, "the drag scrolled the rows");
+}
+
+#[test]
+fn the_bar_across_stands_at_the_bottom_edge_and_only_the_bar_down_keeps_clear_of_a_row_that_stays_at_the_bottom() {
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  let mut rows = Column::new();
+  for _ in 0..10 {
+    rows = rows.child(Rect::new(400.0, 20.0).background(ROW));
+  }
+  rows = rows.child(Rect::new(400.0, 30.0).background(HEADER).sticky(Sticky::bottom(0.0)));
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::ScrollBoth::new(rows)
+      .with_scroll_state(state.clone())
+      .scrollbars_clear_of_sticky(true)
+      .size(200.0, 100.0),
+  );
+  crate::support::render_pass(&mut tree);
+  use lurq::layout::layout_kind::ScrollAxis::{Horizontal, Vertical};
+  let style = state.style();
+  let (_, y, _, height) = state
+    .thumb_rect_for_axis(Horizontal, &style)
+    .expect("the rows overflow sideways");
+  let edge = 100.0 - style.resolved_edge_inset();
+  assert!(
+    (y + height - edge).abs() <= style.width,
+    "the bar across ends at the bottom edge: {}",
+    y + height
+  );
+  assert!(y >= 70.0, "over the row that stays, not what scrolls: {y}");
+  let (_, y, _, height) = state
+    .thumb_rect_for_axis(Vertical, &style)
+    .expect("the rows overflow down");
+  assert!(
+    y + height <= 70.0 + 0.01,
+    "the bar down ends before the row that stays: {}",
+    y + height
+  );
 }
 
 /// A row 200 by 60 scrolling sideways over content `width` wide, its bar given a lane of its own while it is

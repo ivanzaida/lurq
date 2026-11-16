@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, line, props_table, segmented_fill, text},
+  kit::{FILL, fit, line, props_table, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -23,6 +23,20 @@ const LINKS: [&str; 3] = ["Docs", "Components", "Blog"];
 
 /// How high a window of a navbar is.
 const WINDOW: f32 = 340.0;
+
+/// The least width of a window whose bar has its links in it: the brand, the three links and the avatar, and
+/// the same with the search of 200.
+const BAR: f32 = 420.0;
+const BAR_WITH_SEARCH: f32 = 640.0;
+
+/// A window on a stage with `room`: one whose bar has its links in it keeps the width they take, and scrolls
+/// sideways on a narrower stage. The narrow form, with its links behind the menu button, fits any stage.
+fn staged(key: &str, room: f32, props: &Props, window: Element) -> Element {
+  if props.narrow {
+    return window;
+  }
+  fit(key, room, if props.search { BAR_WITH_SEARCH } else { BAR }, window)
+}
 
 /// What a navbar of this page is made of.
 #[derive(Clone)]
@@ -223,7 +237,11 @@ impl NavbarPage {
     let props = self.props();
     let record = self.playground.recorder();
     // Built on the stage, in the stage's theme: the search field in the bar types in that theme's color.
-    let shown = Shown::built(|ctx| window(navbar(&props, record).mount(ctx), &props, WINDOW));
+    let room = self.frame.stage_room();
+    let shown = Shown::built(|ctx| {
+      let shown = window(navbar(&props, record).mount(ctx), &props, WINDOW);
+      staged("played", room, &props, shown)
+    });
 
     let mut code = vec!["Navbar::new()".to_owned(), "    .label(\"Site\")".to_owned()];
     if props.brand {
@@ -388,14 +406,17 @@ impl Component for NavbarPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let site = window(navbar(&self.site, |_| {}).mount(ctx), &self.site, WINDOW);
+    let site = staged("site", self.frame.stage_room(), &self.site, site);
     let phone = Row::new()
       .width(FILL)
       .justify(lurq::layout::layout_kind::Justify::Center)
-      .child(Column::new().width(380.0).align_items(Alignment::Stretch).child(window(
-        navbar(&self.phone, |_| {}).mount(ctx),
-        &self.phone,
-        WINDOW,
-      )));
+      .child(
+        Column::new()
+          .width(380.0)
+          .max_width(FILL)
+          .align_items(Alignment::Stretch)
+          .child(window(navbar(&self.phone, |_| {}).mount(ctx), &self.phone, WINDOW)),
+      );
 
     let rows = [
       (

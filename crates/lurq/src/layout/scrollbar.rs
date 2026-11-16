@@ -8,7 +8,8 @@ use crate::{
 const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0;
 const DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 24.0;
 const DEFAULT_SCROLLBAR_TRACK_COLOR: Color = Color::new(0, 0, 0, 0);
-const DEFAULT_SCROLLBAR_THUMB_COLOR: Color = Color::new(0, 0, 0, 80);
+/// The thumb of lurq 0.62: black at a third of its opacity.
+const LEGACY_SCROLLBAR_THUMB_COLOR: Color = Color::new(0, 0, 0, 80);
 const DEFAULT_SCROLLBAR_THUMB_RADIUS: f32 = 4.0;
 const DEFAULT_SCROLLBAR_TRACK_RADIUS: f32 = 4.0;
 const DEFAULT_SCROLLBAR_PADDING: f32 = 2.0;
@@ -123,8 +124,13 @@ impl Default for ScrollBarStyle {
 
 impl ScrollBarStyle {
   /// The thumb color of a style that set none: a mark for "the theme's `Ring`", and the color drawn where a
-  /// palette has no ring.
-  pub const THEME_THUMB: Color = DEFAULT_SCROLLBAR_THUMB_COLOR;
+  /// palette has no ring. A mark of its own, a hair from 0.62's black: a style that names that black
+  /// ([`Self::LEGACY_THUMB`]) keeps it.
+  pub const THEME_THUMB: Color = Color::new(0, 0, 0, 81);
+
+  /// The thumb of lurq 0.62, black at a third of its opacity: the one [`crate::app::theme::ThemeDefinition::legacy`]
+  /// draws.
+  pub const LEGACY_THUMB: Color = LEGACY_SCROLLBAR_THUMB_COLOR;
 
   /// The color the thumb is drawn in under `palette`: its own, or the palette's `Ring` where it set none.
   pub fn thumb_in(&self, palette: &ThemePalette) -> Color {
@@ -176,7 +182,7 @@ impl ScrollBarStyle {
       width: DEFAULT_SCROLLBAR_WIDTH,
       min_thumb_length: DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH,
       track_color: DEFAULT_SCROLLBAR_TRACK_COLOR,
-      thumb_color: DEFAULT_SCROLLBAR_THUMB_COLOR,
+      thumb_color: Self::THEME_THUMB,
       thumb_hovered_color: None,
       thumb_pressed_color: None,
       thumb_inset: 0.0,

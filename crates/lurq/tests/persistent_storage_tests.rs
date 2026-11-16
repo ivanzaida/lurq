@@ -341,7 +341,17 @@ fn a_data_grids_arrangement_sort_and_groups_open_roundtrip_through_storage() {
     .with("status", lurq::ui::ColumnFilter::one_of(["Passing", "Fa\"iled"]))
     .with("shared", lurq::ui::ColumnFilter::is(false));
   storage.set_value("filters", filters.clone()).unwrap();
-  assert_eq!(storage.value::<lurq::ui::TableFilters>("filters"), Some(filters));
+  assert_eq!(
+    storage.value::<lurq::ui::TableFilters>("filters"),
+    Some(filters.clone())
+  );
+  let query = lurq::ui::GridQuery {
+    sort: vec![TableSort::ascending("status"), TableSort::descending("size")],
+    filters,
+    search: "a \"quoted\" word".to_owned(),
+  };
+  storage.set_value("query", query.clone()).unwrap();
+  assert_eq!(storage.value::<lurq::ui::GridQuery>("query"), Some(query));
   assert_eq!(TableSort::parse_list(&TableSort::list_to_text(&several)), Some(several));
   assert_eq!(storage.value::<Vec<GroupKey>>("open"), Some(open));
   assert_eq!(layout.to_string().parse::<ColumnLayout>(), Ok(layout.clone()));

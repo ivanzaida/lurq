@@ -12,8 +12,8 @@ use lurq::{
   node::Element,
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnFilter,
-    ColumnLayout, ColumnPin, DataGrid, GroupKey, Pagination, SearchField, SearchMatches, SummaryKind, TableColumn,
-    TableFilters, TableSort, icons,
+    ColumnLayout, ColumnPin, DataGrid, GridPage, GridRequest, GroupKey, Pagination, SearchField, SearchMatches,
+    SummaryKind, TableColumn, TableFilters, TableSort, icons,
   },
 };
 
@@ -197,6 +197,101 @@ pub struct DataGridPage {
   /// The search of the section's grid, and what it was told of its matches.
   query: Signal<String>,
   found: Signal<SearchMatches>,
+  /// The grid over rows on demand: its sort and filters, what the app was last told, and whether the next range
+  /// fails.
+  asked_sort: Signal<Vec<TableSort>>,
+  asked_filters: Signal<TableFilters>,
+  asked: Signal<String>,
+  fail_next: Arc<std::sync::atomic::AtomicBool>,
+  /// Whether the playground's menus export, and the section's grid: its rows selected and the text it last wrote.
+  exporting: Signal<bool>,
+  export_selected: Signal<Vec<String>>,
+  exported: Signal<String>,
+  /// Whether the playground's rows have a detail; the tree's rows open, and the details open of the section's grid.
+  played_detail: Signal<bool>,
+  /// Whether the playground's grid has its bar, and the filters of the section's grid with its bar.
+  played_bar: Signal<bool>,
+  bar_filters: Signal<TableFilters>,
+  tree_open: Signal<Vec<String>>,
+  details_open: Signal<Vec<String>>,
+}
+
+/// A ticket of the server the grid over rows on demand asks.
+#[derive(Clone)]
+struct Ticket {
+  id: u32,
+  title: String,
+  size: u32,
+  open: bool,
+}
+
+/// The server's hundred thousand tickets.
+fn tickets() -> Arc<Vec<Ticket>> {
+  static TICKETS: std::sync::OnceLock<Arc<Vec<Ticket>>> = std::sync::OnceLock::new();
+  const WORDS: [&str; 8] = ["Layout", "Canvas", "Focus", "Scroll", "Theme", "Text", "Grid", "Menu"];
+  TICKETS
+    .get_or_init(|| {
+      Arc::new(
+        (0..100_000u32)
+          .map(|id| Ticket {
+            id,
+            title: format!("{} issue {}", WORDS[(id as usize * 7) % 8], id),
+            size: (id * 37) % 500,
+            open: id % 3 != 0,
+          })
+          .collect(),
+      )
+    })
+    .clone()
+}
+
+/// What the server answers a request: its tickets sorted, filtered and searched as the query asks, the range of
+/// them asked for, and how many there are; or a failure where it is told to fail the next.
+fn answer(request: &GridRequest, fail: &std::sync::atomic::AtomicBool) -> Result<GridPage<Ticket>, String> {
+  if fail.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    return Err("the server is down".into());
+  }
+  let all = tickets();
+  let search = request.query.search.to_lowercase();
+  let mut rows: Vec<&Ticket> = all
+    .iter()
+    .filter(|ticket| {
+      request.query.filters.iter().all(|(id, filter)| match (id, filter) {
+        ("title", ColumnFilter::Text { text, .. }) => ticket.title.to_lowercase().contains(&text.to_lowercase()),
+        ("size", ColumnFilter::Number { at_least, at_most }) => {
+          at_least.is_none_or(|low| ticket.size as f64 >= low) && at_most.is_none_or(|high| ticket.size as f64 <= high)
+        }
+        ("open", ColumnFilter::Bool(open)) => ticket.open == *open,
+        _ => true,
+      }) && (search.is_empty() || ticket.title.to_lowercase().contains(&search))
+    })
+    .collect();
+  // Sorted by the last column first, each sort keeping the order of the rows it finds equal.
+  for sort in request.query.sort.iter().rev() {
+    rows.sort_by(|a, b| {
+      let order = match &*sort.column {
+        "id" => a.id.cmp(&b.id),
+        "title" => a.title.cmp(&b.title),
+        "size" => a.size.cmp(&b.size),
+        _ => std::cmp::Ordering::Equal,
+      };
+      if sort.direction == lurq::ui::SortDirection::Descending {
+        order.reverse()
+      } else {
+        order
+      }
+    });
+  }
+  let total = rows.len();
+  Ok(GridPage {
+    rows: rows
+      .into_iter()
+      .skip(request.range.start)
+      .take(request.range.len())
+      .cloned()
+      .collect(),
+    total,
+  })
 }
 
 /// The columns of the files, each filtered as it is: the name by its text, the status by its values, the size by
@@ -215,6 +310,62 @@ fn filtered_columns(columns: Vec<TableColumn<File>>) -> Vec<TableColumn<File>> {
     .collect()
 }
 
+/// A file or a folder of the tree, under the folder `parent` names.
+#[derive(Clone)]
+struct Entry {
+  name: &'static str,
+  parent: Option<&'static str>,
+  kind: &'static str,
+  size: Option<u32>,
+}
+
+/// The board's tree: two folders at the top, a folder in the first with its files.
+fn entries() -> Vec<Entry> {
+  [
+    ("src", None, "Folder", None),
+    ("render", Some("src"), "Folder", None),
+    ("blur.rs", Some("render"), "Rust", Some(12)),
+    ("layers.rs", Some("render"), "Rust", Some(31)),
+    ("lib.rs", Some("src"), "Rust", Some(4)),
+    ("tests", None, "Folder", None),
+    ("grid.rs", Some("tests"), "Rust", Some(18)),
+  ]
+  .into_iter()
+  .map(|(name, parent, kind, size)| Entry {
+    name,
+    parent,
+    kind,
+    size,
+  })
+  .collect()
+}
+
+/// What a file's detail shows under its row: its build, as a log would say it.
+fn file_detail(row: &File) -> Element {
+  // No wider than the grid: its lines wrap in a narrow one.
+  Column::new()
+    .max_width(crate::kit::FILL)
+    .spacing(4.0)
+    .child(mono(
+      &format!("{} · {} · {} KB", row.name, STATUSES[row.status], row.size),
+      12.0,
+    ))
+    .child(quiet(
+      &format!(
+        "Built {} by the {} pipeline; {}.",
+        row.updated,
+        if row.shared { "shared" } else { "local" },
+        if row.status == 3 {
+          "the tests failed"
+        } else {
+          "every test passed"
+        }
+      ),
+      12.0,
+    ))
+    .into()
+}
+
 /// A row of the grid of a million: its place, which every cell is made from.
 #[derive(Clone)]
 struct Job(u32);
@@ -224,6 +375,14 @@ fn million() -> Arc<Vec<Job>> {
   static ROWS: std::sync::OnceLock<Arc<Vec<Job>>> = std::sync::OnceLock::new();
   ROWS.get_or_init(|| Arc::new((0..1_000_000).map(Job).collect())).clone()
 }
+
+/// The least a grid with a column pinned at each end is wide: the two, and room for a column between them.
+const PINNED: f32 = 480.0;
+
+/// The least a grid with its bar over it is wide: the search, a filter that is set, and the bar's buttons.
+const BAR: f32 = 700.0;
+/// The least a grid with a count and a pagination in its footer is wide.
+const FOOTER: f32 = 300.0;
 
 /// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
 fn million_columns() -> Vec<TableColumn<Job>> {
@@ -285,7 +444,8 @@ impl DataGridPage {
     let rows = self.played.clone();
     let sort = self.played_sort.get();
 
-    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to) = (
+    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to, exported_to) = (
+      record.clone(),
       record.clone(),
       record.clone(),
       record.clone(),
@@ -293,6 +453,9 @@ impl DataGridPage {
       record.clone(),
       record,
     );
+    let exporting = self.exporting.get();
+    let played_detail = self.played_detail.get();
+    let played_bar = self.played_bar.get();
     let mut grid = DataGrid::new(played_columns, sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -300,6 +463,16 @@ impl DataGridPage {
       .read_only(read_only)
       .resizable(resizable)
       .column_menu(column_menu)
+      .export(exporting)
+      .on_export(move |export| {
+        exported_to(format!(
+          "on_export({:?}, {:?}, {} rows, {} bytes)",
+          export.scope,
+          export.format,
+          export.rows,
+          export.text.len()
+        ))
+      })
       .row_numbers(row_numbers)
       .filters(self.played_filters.clone())
       .filter_row(filtering && filter_row)
@@ -327,6 +500,12 @@ impl DataGridPage {
         .selected(self.played_selected.clone())
         .checkboxes(selection == 1)
         .on_selection_change(move |keys| selected_to(format!("on_selection_change({keys:?})")));
+    }
+    if played_detail {
+      grid = grid.detail(file_detail);
+    }
+    if played_bar {
+      grid = grid.toolbar(true);
     }
     if fixed_height {
       grid = grid.height(240.0);
@@ -457,6 +636,9 @@ impl DataGridPage {
         self.filtering.clone(),
         self.filter_row.clone(),
         self.played_filters.clone(),
+        self.exporting.clone(),
+        self.played_detail.clone(),
+        self.played_bar.clone(),
       ),
     );
     let still = {
@@ -544,6 +726,12 @@ impl DataGridPage {
           flag("a million rows by 200 columns", &self.big),
           flag("filters: each column by its kind", &self.filtering),
           flag("filter_row: a filter under each header", &self.filter_row),
+          flag("export: Export in each column's menu", &self.exporting),
+          flag(
+            "detail(|row| ..): a panel under a row, opened at its chevron",
+            &self.played_detail,
+          ),
+          flag("toolbar: the bar of its tools over it", &self.played_bar),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -581,6 +769,9 @@ impl DataGridPage {
           big,
           filtering,
           filter_row,
+          !exporting,
+          played_detail,
+          played_bar,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -610,6 +801,9 @@ impl DataGridPage {
           reset.19.0.set(false);
           reset.19.1.set(false);
           reset.19.2.set(TableFilters::new());
+          reset.19.3.set(true);
+          reset.19.4.set(false);
+          reset.19.5.set(false);
         }),
       },
     )
@@ -702,6 +896,18 @@ impl Component for DataGridPage {
       filters: ctx.signal(TableFilters::new().with("status", ColumnFilter::one_of(["Passing", "Building"]))),
       query: ctx.signal("rs".to_owned()),
       found: ctx.signal(SearchMatches::default()),
+      asked_sort: ctx.signal(Vec::new()),
+      asked_filters: ctx.signal(TableFilters::new()),
+      asked: ctx.signal(String::new()),
+      fail_next: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      exporting: ctx.signal(true),
+      export_selected: ctx.signal(vec!["canvas.rs".to_owned(), "layout.rs".to_owned()]),
+      exported: ctx.signal(String::new()),
+      played_detail: ctx.signal(false),
+      played_bar: ctx.signal(false),
+      bar_filters: ctx.signal(TableFilters::new().with("status", ColumnFilter::one_of(["Passing"]))),
+      tree_open: ctx.signal(vec!["src".to_owned(), "render".to_owned()]),
+      details_open: ctx.signal(vec!["layout.rs".to_owned()]),
     }
   }
 
@@ -712,6 +918,8 @@ impl Component for DataGridPage {
         TableColumn::new("name", "Name")
           .text(|row: &File| row.name.clone())
           .mono(true)
+          // No narrower than a name: in a narrower grid the columns scroll sideways.
+          .min_width(160.0)
           .sortable(true)
           .editor(CellEditor::text(|row: &File| row.name.clone())),
         TableColumn::new("status", "Status")
@@ -738,9 +946,13 @@ impl Component for DataGridPage {
       .selected(self.board_selected.clone())
       .total(24)
       .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
-      .style(lurq::ui::TablePart::Root, |s| s.width(640.0))
+      .style(lurq::ui::TablePart::Root, |s| {
+        s.width(640.0).max_width(lurq::ui::Length::Fill)
+      })
       .key("board")
       .mount(ctx);
+    // The footer's count and its pagination need this much: in a narrower card the grid scrolls sideways.
+    let board = crate::kit::fit("board", self.frame.stage_room(), FOOTER, board);
 
     // Editing in place, each commit written under the grid.
     let (rows, log) = (self.edited.clone(), self.log.clone());
@@ -874,8 +1086,11 @@ impl Component for DataGridPage {
           .child(mono(&text, 12.0).color(lurq::app::theme::PaletteColor::MutedForeground)),
       )
       .child(
+        // What does not fit beside the others goes on to the next line: no button gives up its label.
         Row::new()
+          .width(crate::kit::FILL)
           .spacing(8.0)
+          .wrap()
           .align_items(Alignment::Center)
           .child(
             Button::new("Store")
@@ -969,6 +1184,7 @@ impl Component for DataGridPage {
         TableColumn::new("name", "Name")
           .text(|row: &File| row.name.clone())
           .mono(true)
+          .min_width(120.0)
           .sortable(true),
         TableColumn::new("size", "Size")
           .width(100.0)
@@ -1023,10 +1239,13 @@ impl Component for DataGridPage {
           .mount(ctx),
       )
       .child(
+        // What does not fit beside the other goes on to the next line, and the filters wrap in the card's width.
         Row::new()
+          .width(crate::kit::FILL)
           .spacing(8.0)
+          .wrap()
           .align_items(Alignment::Center)
-          .child(quiet(
+          .child(Column::new().max_width(crate::kit::FILL).child(quiet(
             &format!(
               "filters: {}",
               if shown_filters.is_empty() {
@@ -1036,7 +1255,7 @@ impl Component for DataGridPage {
               }
             ),
             12.0,
-          ))
+          )))
           .child(
             Button::new("Clear all")
               .variant(ButtonVariant::Ghost)
@@ -1077,6 +1296,163 @@ impl Component for DataGridPage {
         12.0,
       ));
 
+    // Rows on demand: the server sorts, filters and searches; the grid asks for the ranges in view.
+    let fail = self.fail_next.clone();
+    let told = self.asked.clone();
+    let failing = self.fail_next.clone();
+    let source_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::on_demand(
+          vec![
+            TableColumn::new("id", "Id")
+              .width(90.0)
+              .mono(true)
+              .sortable(true)
+              .text(|ticket: &Ticket| ticket.id.to_string()),
+            TableColumn::new("title", "Title")
+              .sortable(true)
+              .filter_text(true)
+              .text(|ticket: &Ticket| ticket.title.clone()),
+            TableColumn::new("size", "Size")
+              .width(100.0)
+              .numeric()
+              .sortable(true)
+              .filter_number(|ticket: &Ticket| ticket.size as f64)
+              .text(|ticket: &Ticket| format!("{} KB", ticket.size)),
+            TableColumn::new("open", "Open")
+              .width(90.0)
+              .filter_bool(|ticket: &Ticket| ticket.open)
+              .text(|ticket: &Ticket| if ticket.open { "open" } else { "closed" }.to_owned()),
+          ],
+          100_000,
+          move |request: GridRequest| {
+            let answered = answer(&request, &fail);
+            async move { answered }
+          },
+        )
+        .label("Tickets")
+        .height(360.0)
+        .count(true)
+        .filter_row(true)
+        .sort(self.asked_sort.clone())
+        .filters(self.asked_filters.clone())
+        .on_query_change(move |query| told.set(query.to_text()))
+        .key("on-demand")
+        .mount(ctx),
+      )
+      .child(
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .child(
+            Button::new("Fail the next range")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm)
+              .on_click(move |_| failing.store(true, std::sync::atomic::Ordering::SeqCst)),
+          )
+          // What was asked wraps in the room beside the button.
+          .child(Column::new().flex(1.0).min_width(0.0).child(quiet(
+            &format!(
+              "on_query_change: {}",
+              match self.asked.get() {
+                asked if asked.is_empty() => "(every row, in its order)".to_owned(),
+                asked => asked,
+              }
+            ),
+            12.0,
+          ))),
+      );
+
+    // Written out from a column's menu: the app is told the text, shown here as it would save it.
+    let exported = self.exported.clone();
+    let export_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(columns(false), files(6))
+          .row_key(|row: &File| row.name.clone())
+          .label("Files")
+          .selected(self.export_selected.clone())
+          .on_export(move |export| {
+            exported.set(format!(
+              "// files.{} · {:?}, {} rows\n{}",
+              export.format.extension(),
+              export.scope,
+              export.rows,
+              export.text.trim_end()
+            ))
+          })
+          .key("export")
+          .mount(ctx),
+      )
+      .child(match self.exported.get() {
+        text if text.is_empty() => Element::from(quiet(
+          "Open a column's menu, then Export: the text the app is told is shown here.",
+          12.0,
+        )),
+        text => lurq::ui::CodeBlock::new(&text).into(),
+      });
+
+    // The board's bar over a grid: the search, a tag for each filter set, Filter, the density, the columns, Export.
+    let bar_room = self.frame.stage_room();
+    let bar_scrolls = bar_room > 0.0 && bar_room < BAR;
+    let bar_grid = DataGrid::new(filtered_columns(columns(false)), files(8))
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .toolbar(true)
+      .filters(self.bar_filters.clone())
+      .height(320.0)
+      // A grid keeps the widths its columns were first laid out with: the one that scrolls in its card is
+      // another grid than the one that had the card's width.
+      .key(if bar_scrolls { "bar-scrolled" } else { "bar" })
+      .mount(ctx);
+    // The bar keeps its search, its filters and its buttons in it: in a card narrower than those the grid and
+    // its bar scroll sideways.
+    let bar_grid = crate::kit::fit("bar", bar_room, BAR, bar_grid);
+
+    // A tree of folders and files, and files whose rows open on their details.
+    let tree_grid = Column::new()
+      .spacing(16.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(
+          vec![
+            TableColumn::new("name", "Name")
+              // No narrower than a name three folders deep: in a narrower grid the columns scroll sideways.
+              .min_width(200.0)
+              .text(|row: &Entry| row.name.to_owned()),
+            TableColumn::new("kind", "Kind")
+              .width(110.0)
+              .muted(true)
+              .text(|row: &Entry| row.kind.to_owned()),
+            TableColumn::new("size", "Size")
+              .width(80.0)
+              .numeric()
+              .text(|row: &Entry| row.size.map_or_else(|| "—".to_owned(), |size| format!("{size} KB"))),
+          ],
+          entries(),
+        )
+        .row_key(|row: &Entry| row.name.to_owned())
+        .label("Files")
+        .read_only(true)
+        .tree(|row: &Entry| row.parent.map(str::to_owned))
+        .expanded(self.tree_open.clone())
+        .key("tree")
+        .mount(ctx),
+      )
+      .child(
+        DataGrid::new(columns(false), files(6))
+          .row_key(|row: &File| row.name.clone())
+          .label("Builds")
+          .read_only(true)
+          .detail(file_detail)
+          .details(self.details_open.clone())
+          .key("details")
+          .mount(ctx),
+      );
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1106,13 +1482,20 @@ impl Component for DataGridPage {
       })
       .pin(ColumnPin::End),
     );
+    let pinned_room = self.frame.stage_room();
+    let pinned_scrolls = pinned_room > 0.0 && pinned_room < PINNED;
     let pinned = DataGrid::new(pinned_columns, pinned_rows.get())
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .height(280.0)
       .on_edit(move |edit| take(&pinned_rows, edit.row, edit.column, &edit.value))
-      .key("pinned")
+      // A grid keeps the widths its columns were first laid out with: the one that scrolls in its card is
+      // another grid than the one that had the card's width.
+      .key(if pinned_scrolls { "pinned-scrolled" } else { "pinned" })
       .mount(ctx);
+    // A column pinned at each end leaves the others no room in a card as narrow as a phone: the grid keeps a
+    // width with room for them, and scrolls sideways in the card.
+    let pinned = crate::kit::fit("pinned", pinned_room, PINNED, pinned);
 
     // A million rows of two hundred columns: the cells in view are built, the notes that wrap measured.
     let thousands = DataGrid::new_shared(million_columns(), million())
@@ -1344,6 +1727,90 @@ impl Component for DataGridPage {
               "    .mount(ctx)",
               "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
               "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Rows on demand",
+          "A server's table: the grid is told how many rows there are and asks for the ranges that come into \
+           view, a hundred at a time, through the engine's futures; rows whose range has not come are skeletons, \
+           and a range that failed says so with a retry (press Fail the next range, then scroll). The sort, the \
+           filters and the search are the app's to apply: each request carries them as one GridQuery, whose text \
+           form is written under the grid as the app is told it.",
+          self.frame.demo(
+            13,
+            source_grid,
+            "DataGrid::on_demand(columns, total, fetch)",
+            &[
+              "DataGrid::on_demand(columns, 100_000, |request: GridRequest| async move {",
+              "    // request.query: the sort, the filters, the search; request.range: the rows asked for",
+              "    server.tickets(request).await // Ok(GridPage { rows, total }) or Err(message)",
+              "})",
+              ".sort(sort).filters(filters).filter_row(true)",
+              ".on_query_change(|query| store(query.to_text()))",
+              ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Export",
+          "Each column's menu ends in Export: the rows shown, or those selected, as CSV or tab-separated text, the \
+           titles of the columns shown first and a cell as it is shown. The app is told the text to save it; with \
+           no handler it goes on the clipboard. to_csv(&columns, &rows) writes any rows in the grid's columns.",
+          self.frame.demo(
+            14,
+            export_grid,
+            ".on_export(|export| ..)",
+            &[
+              "DataGrid::new(columns, files.get())",
+              "    .selected(selected)",
+              "    .on_export(|export: &GridExport| {",
+              "        // export.format (Csv or Tsv), export.scope (Shown or Selected), export.rows",
+              "        save(&format!(\"files.{}\", export.format.extension()), &export.text)",
+              "    })",
+              "    .mount(ctx)",
+              "// Without the grid: lurq::ui::to_csv(&columns, &rows)",
+            ],
+          ),
+        ),
+        Section::new(
+          "The bar over the grid",
+          "toolbar(true) puts the board's Table Toolbar over the grid, built from a Toolbar: a search field that is the grid's search, a tag for each filter set whose × takes it off, Filter for a column's filter, and at the end the density, which the grid takes, the columns to show, and Export. What does not fit goes into the bar's menu.",
+          self.frame.demo(
+            16,
+            bar_grid,
+            ".toolbar(true)",
+            &[
+              "DataGrid::new(columns, files.get())",
+              "    .filters(filters) // a tag for each filter set",
+              "    .toolbar(true)",
+              "    .toolbar_labels(GridBarLabels { search: \"Search files\".into(), ..GridBarLabels::default() })",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Tree rows and details",
+          "The rows as a tree: each under the row its parent key names, indented 18 a level in the first column, \
+           whose chevron opens and closes the rows under it; Right and Left on that cell do too, and Left on a \
+           closed row goes to the row it is under. A row's detail is a panel under it as wide as the view, opened \
+           the same way where the rows are no tree, as high as what it holds. Both are built as rows are: only \
+           what is in view.",
+          self.frame.demo(
+            15,
+            tree_grid,
+            ".tree(|row| parent) / .detail(|row| ..)",
+            &[
+              "DataGrid::new(columns, entries)",
+              "    .row_key(|row| row.name.clone())",
+              "    .tree(|row| row.parent.clone()) // the key of the row it is under",
+              "    .expanded(open) // Signal<Vec<K>>: the rows open",
+              "    .mount(ctx)",
+              "DataGrid::new(columns, files)",
+              "    .row_key(|row| row.name.clone())",
+              "    .detail(|row| file_detail(row)) // an element under the row",
+              "    .details(open) // Signal<Vec<K>>: the details open",
+              "    .mount(ctx)",
             ],
           ),
         ),

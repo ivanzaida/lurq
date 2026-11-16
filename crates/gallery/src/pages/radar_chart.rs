@@ -373,7 +373,7 @@ impl Component for RadarChartPage {
             0,
             Row::new()
               .width(crate::kit::FILL)
-              .child(Column::new().width(270.0).child(board)),
+              .child(Column::new().width(270.0).max_width(crate::kit::FILL).child(board)),
             "RadarChart::new(areas, [wgpu, dx12])",
             &[
               "RadarChart::new(",
@@ -396,7 +396,7 @@ impl Component for RadarChartPage {
             1,
             Row::new()
               .width(crate::kit::FILL)
-              .child(Column::new().width(340.0).child(rings)),
+              .child(Column::new().width(340.0).max_width(crate::kit::FILL).child(rings)),
             ".size(ChartSize::Md).value_axis(true)",
             &["RadarChart::new(areas, [wgpu, dx12, software]).size(ChartSize::Md).value_axis(true).mount(ctx)"],
           ),

@@ -275,10 +275,12 @@ fn a_controlled_picker_tells_a_change_and_shows_the_answer() {
       .into()
   });
   stage.pass();
-  let corner = at(&mut stage, "picker-area", 0.0, 1.0);
-  press_at(&mut stage, corner);
+  // The last row of pixels of the area: the row under it is no part of it.
+  let (x, bottom) = at(&mut stage, "picker-area", 0.0, 1.0);
+  press_at(&mut stage, (x, bottom - 1.0));
   assert_eq!(asked.lock().unwrap().len(), 1, "told what was asked");
-  assert_eq!(asked.lock().unwrap()[0].to_hsv().v, 0.0);
+  let asked_for = asked.lock().unwrap()[0].to_hsv().v;
+  assert!(asked_for < 0.01, "all but black, a pixel from the bottom: {asked_for}");
   assert!(stage.paints("#2563EB"), "the app's answer is shown");
 }
 

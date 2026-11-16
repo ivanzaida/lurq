@@ -38,6 +38,32 @@ impl<'a> DocumentText<'a> {
     element
   }
 
+  /// Appends the words of a leaf built elsewhere (a code block mounted on
+  /// its own, whose text is its words) to the document's text, and gives
+  /// the highlights over them, in bytes of the words.
+  pub(super) fn append_words(&self, content: &str) -> Vec<TextHighlight> {
+    let start = {
+      let mut text = self.text.borrow_mut();
+      if self.leaves.get() > 0 {
+        text.push('\n');
+      }
+      self.leaves.set(self.leaves.get() + 1);
+      let start = text.len();
+      text.push_str(content);
+      start
+    };
+    let end = start + content.len();
+    self
+      .highlights
+      .iter()
+      .filter(|highlight| highlight.range.start < end && highlight.range.end > start)
+      .map(|highlight| TextHighlight {
+        range: highlight.range.start.max(start) - start..highlight.range.end.min(end) - start,
+        ..highlight.clone()
+      })
+      .collect()
+  }
+
   /// Appends a text leaf's words to the document's text and gives the leaf
   /// the highlights over them.
   pub(super) fn append(&self, node: &mut Node) {

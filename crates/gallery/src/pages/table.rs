@@ -20,7 +20,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, quiet},
+  kit::{FILL, fit, phone, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -156,7 +156,9 @@ fn board_columns() -> Vec<TableColumn<Krate>> {
   vec![
     TableColumn::new("name", "Name")
       .text(|row: &Krate| row.name.to_owned())
-      .mono(true),
+      .mono(true)
+      // No narrower than a name: in a narrower table the columns scroll sideways.
+      .min_width(170.0),
     TableColumn::new("status", "Status")
       .width(120.0)
       .cell(|row: &Krate| row.status.badge()),
@@ -182,7 +184,10 @@ fn narrow_columns() -> Vec<TableColumn<Krate>> {
   vec![
     TableColumn::new("name", "Name")
       .text(|row: &Krate| row.name.to_owned())
-      .mono(true),
+      .mono(true)
+      // No narrower than a name, and in a window as narrow as a phone than the longest of the lines drawn while
+      // the rows load: in a narrower table the columns scroll sideways.
+      .min_width(if phone() { 180.0 } else { 150.0 }),
     TableColumn::new("status", "Status")
       .width(90.0)
       .cell(|row: &Krate| row.status.badge()),
@@ -210,8 +215,9 @@ const FORMS: [&str; 3] = ["rows", "empty", "loading"];
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -622,9 +628,21 @@ impl TablePage {
               .on_click(move |_| search.set(String::new())),
           ),
       );
-    Column::new().spacing(12.0).child(bar).child(table).into()
+    // The bar keeps its search and the filters that are set in it, whatever its width: in a card narrower than
+    // those the bar and its table scroll sideways.
+    fit(
+      "with-bar",
+      self.frame.stage_room(),
+      BAR,
+      Column::new().spacing(12.0).child(bar).child(table),
+    )
   }
 }
+
+/// The least the board's bar is wide: its search, the two filters, Filter and the More button.
+const BAR: f32 = 640.0;
+/// The least a table with a count and a pagination in its footer is wide.
+const FOOTER: f32 = 300.0;
 
 fn capitalized(name: &str) -> String {
   let mut chars = name.chars();
@@ -671,12 +689,13 @@ impl Component for TablePage {
       .label("Crates")
       .selected(self.board_selected.clone())
       .checkboxes(false)
-      .style(TablePart::Root, |s| s.width(640.0));
+      .style(TablePart::Root, |s| s.width(640.0).max_width(Length::Fill));
 
     let grid_columns = vec![
       TableColumn::new("name", "Name")
         .text(|row: &Krate| row.name.to_owned())
         .mono(true)
+        .min_width(170.0)
         .sortable(true),
       TableColumn::new("status", "Status")
         .width(110.0)
@@ -697,7 +716,7 @@ impl Component for TablePage {
       .selected(self.grid_selected.clone())
       .total(24)
       .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
-      .style(TablePart::Root, |s| s.width(640.0));
+      .style(TablePart::Root, |s| s.width(640.0).max_width(Length::Fill));
 
     let sort = self.sort.get();
     let sort_columns = columns(false, None);
@@ -711,7 +730,7 @@ impl Component for TablePage {
       .label("Crates")
       .selected(self.tall_selected.clone())
       .height(280.0)
-      .style(TablePart::Root, |s| s.width(560.0))
+      .style(TablePart::Root, |s| s.width(560.0).max_width(Length::Fill))
       .mount(ctx);
 
     let thousands = Table::new_shared(columns(false, None), self.many.clone())
@@ -735,11 +754,13 @@ impl Component for TablePage {
               .size(ButtonSize::Sm),
           ),
       )
-      .style(TablePart::Root, |s| s.width(420.0));
+      .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill));
     let loading = Table::new(narrow_columns(), crates(3))
       .row_key(|row: &Krate| row.name)
       .loading(true)
-      .style(TablePart::Root, |s| s.width(420.0));
+      .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill));
+    // The footer's count and its pagination need this much: in a narrower card the table scrolls sideways.
+    let grid = fit("grid", self.frame.stage_room(), FOOTER, grid);
     let forms = Row::new()
       .spacing(28.0)
       .wrap()
@@ -753,7 +774,7 @@ impl Component for TablePage {
         .selected_controlled(["crates/lurq_macros"], |_| {})
         .checkboxes(false)
         .force(forced)
-        .style(TablePart::Root, |s| s.width(420.0))
+        .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill))
     };
     let states = Row::new()
       .spacing(28.0)

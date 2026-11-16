@@ -9,12 +9,14 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Avatar, Badge, Button, ButtonSize, ButtonVariant, Interaction, List, ListItem, ListPart, Switch, icons},
+  ui::{
+    Avatar, Badge, Button, ButtonSize, ButtonVariant, Interaction, Length, List, ListItem, ListPart, Switch, icons,
+  },
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, quiet, segmented_fill},
+  kit::{FILL, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -49,8 +51,9 @@ const DENSITIES: [(&str, Density); 4] = [
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -77,7 +80,7 @@ fn people() -> List {
         .leading(Avatar::new("CI"))
         .meta("3h"),
     )
-    .style(ListPart::Root, |s| s.width(340.0))
+    .style(ListPart::Root, |s| s.width(340.0).max_width(Length::Fill))
 }
 
 pub struct ListPage {
@@ -428,7 +431,7 @@ impl Component for ListPage {
           .on_click(|_| {}),
       )
       .item(ListItem::new("New window").shortcut("Mod+Shift+N").on_click(|_| {}))
-      .style(ListPart::Root, |s| s.width(420.0));
+      .style(ListPart::Root, |s| s.width(420.0).max_width(Length::Fill));
 
     let (wifi, set_wifi) = (self.wifi.get(), self.wifi.clone());
     let finger = List::new()
@@ -459,7 +462,9 @@ impl Component for ListPage {
         ),
       )
       .style(ListPart::Root, |s| {
-        s.width(328.0).radius(lurq::app::theme::RadiusSize::Xl)
+        s.width(328.0)
+          .max_width(Length::Fill)
+          .radius(lurq::app::theme::RadiusSize::Xl)
       });
 
     let state = |forced: Option<Interaction>, selected: bool, disabled: bool| {
@@ -474,7 +479,7 @@ impl Component for ListPage {
             .on_click(|_| {})
             .force(forced),
         )
-        .style(ListPart::Root, |s| s.width(300.0))
+        .style(ListPart::Root, |s| s.width(300.0).max_width(Length::Fill))
     };
     let states = Row::new()
       .spacing(28.0)

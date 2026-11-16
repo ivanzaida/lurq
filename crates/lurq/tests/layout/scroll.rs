@@ -702,6 +702,19 @@ fn the_design_themes_bar_is_a_lane_of_8_with_a_round_thumb_of_6_and_the_legacy_o
   let (vertical, _) = thumbs(&mut tree, &mut legacy);
   let vertical = vertical.expect("the engine's thumb");
   assert_eq!((vertical.x, vertical.width), (90.0, 8.0), "as wide as its lane");
+  // 0.62's thumb: black at a third of its opacity, not the legacy palette's ring (#2563eb).
+  assert_eq!(vertical.color, Color::new(0, 0, 0, 80), "the thumb of 0.62");
+}
+
+#[test]
+fn a_style_that_sets_the_thumb_of_0_62_keeps_it() {
+  // The color a style that sets none has is a mark of its own: a style that names 0.62's black keeps it.
+  let mut app = App::new();
+  let black = Color::new(0, 0, 0, 80);
+  app
+    .theme()
+    .set_scrollbar(ScrollBarStyle::default().with_thumb_color(black));
+  assert_eq!(thumb_colors(&mut app), vec![black]);
 }
 
 #[test]

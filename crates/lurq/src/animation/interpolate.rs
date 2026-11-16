@@ -424,7 +424,8 @@ pub(crate) fn write_property(node: &mut crate::node::Node, prop: AnimatablePrope
 }
 
 pub(crate) fn clear_overrides(node: &mut crate::node::Node) {
-  if !node.prepare_layout_tracking().timeline {
+  // A subtree ticked clean and unchanged since holds no override: nothing ran in it.
+  if !node.prepare_layout_tracking().timeline || node.layout_cache.ticked_clean() {
     return;
   }
   #[cfg(test)]

@@ -13,7 +13,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -24,6 +24,11 @@ const WIDTHS: [(&str, Dimension); 4] = [
   ("420", Dimension::Px(420.0)),
   ("300", Dimension::Px(300.0)),
 ];
+
+/// How wide the board's bar is with all of its tabs: one that is not mounted does not put any in its menu.
+const BOARD_WIDTH: f32 = 562.0;
+/// How wide the bar is that shows what does not fit.
+const NARROW_WIDTH: f32 = 420.0;
 
 /// An open file, as the page holds it.
 #[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
@@ -328,7 +333,7 @@ impl Component for DocumentTabsPage {
     let narrow = Column::new()
       .spacing(8.0)
       .child(
-        Column::new().width(420.0).child(
+        Column::new().width(NARROW_WIDTH).child(
           DocumentTabs::new(self.narrow.clone(), board_files().iter().map(File::tab))
             .on_add(|| {})
             .shortcuts(false)
@@ -473,7 +478,8 @@ impl Component for DocumentTabsPage {
            its cross whole.",
           self.frame.demo(
             0,
-            board,
+            // In a card narrower than its tabs the bar scrolls sideways with all of them.
+            fit("board", self.frame.stage_room(), BOARD_WIDTH, board),
             "DocumentTabs::controlled(shown, tabs, on_change)",
             &[
               "DocumentTabs::controlled(shown, [",
@@ -493,7 +499,8 @@ impl Component for DocumentTabsPage {
            the end says how many there are and opens a menu of them. A tab chosen there is shown, and in the bar.",
           self.frame.demo(
             1,
-            narrow,
+            // The bar is 420 wide, as it says: a narrower card scrolls it sideways.
+            fit("narrow", self.frame.stage_room(), NARROW_WIDTH, narrow),
             "DocumentTabs::new(shown, tabs).mount(ctx)",
             &[
               "DocumentTabs::new(shown, tabs)",

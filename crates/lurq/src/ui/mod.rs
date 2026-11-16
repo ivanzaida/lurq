@@ -434,10 +434,11 @@ pub use swatch_picker::{
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
   BodyWindow, CellEdit, CellEditor, CellKey, CellRange, CellValue, ColumnAlign, ColumnFilter, ColumnLayout,
-  ColumnMenuLabels, ColumnPin, ColumnPlace, FilterLabels, Geometry, GridCell, GroupKey, SearchMatches, SortDirection,
-  SummaryKind, SummaryLabels, Table, TableCell, TableColumn, TableCount, TableFilters, TableGroup, TableHeader,
-  TablePart, TableRenderer, TableRow, TableSort, TableState, TableSummary, TableTextError, TableView, TextMatch,
-  in_tracks,
+  ColumnMenuLabels, ColumnPin, ColumnPlace, ExportFormat, ExportLabels, ExportScope, FilterLabels, Geometry,
+  GridBarLabels, GridCell, GridExport, GridPage, GridQuery, GridRequest, GroupKey, SearchMatches, SortDirection,
+  SourceLabels, SourceRow, SummaryKind, SummaryLabels, Table, TableCell, TableColumn, TableCount, TableFilters,
+  TableGroup, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState, TableSummary, TableTextError,
+  TableView, TextMatch, in_tracks, to_csv, to_delimited, to_tsv,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
