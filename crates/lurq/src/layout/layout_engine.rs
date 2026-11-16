@@ -4677,6 +4677,16 @@ impl LayoutEngine {
       );
       let size = scroll_container_size(constraints, &child_result, &style, false, false);
       let viewport = reserved_viewport(size, &style, false, false);
+      let loose = scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height);
+      let child_result = self.fit_in_viewport(
+        glyph_engine,
+        node,
+        direction,
+        child_overrides,
+        loose,
+        viewport.width,
+        child_result,
+      );
       // Content that fills the viewport's width is laid out again at it, where it is narrower.
       let child_result = if fills_viewport_width(node, direction) && child_result.size.width < viewport.width {
         let mut filled =
@@ -4748,6 +4758,15 @@ impl LayoutEngine {
       within.min_width = viewport.width.min(within.max_width);
     }
     let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, within);
+    let child_result = self.fit_in_viewport(
+      glyph_engine,
+      node,
+      direction,
+      child_overrides,
+      within,
+      viewport.width,
+      child_result,
+    );
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
     state.set_reserved_across(across);
@@ -4779,6 +4798,60 @@ impl LayoutEngine {
       sticky_shifts: None,
       reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
+  }
+
+  /// The content of a scroll container that fits its content in the viewport's width
+  /// (`ScrollHorizontal::fit_width`), where `natural`, the content at its natural width, is wider than the
+  /// viewport: laid out again in the viewport's width, so that its line gives way there by its own rules, and
+  /// where something of it still ends past the viewport, as wide as that. What is returned is what the
+  /// container scrolls over.
+  #[allow(clippy::too_many_arguments)]
+  fn fit_in_viewport(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    direction: ScrollDirection,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+    loose: Constraints,
+    viewport_width: f32,
+    natural: Arc<LayoutResult>,
+  ) -> Arc<LayoutResult> {
+    if direction == ScrollDirection::Vertical || !node.fits_viewport_width() || !viewport_width.is_finite() {
+      return natural;
+    }
+    let child = &node.children()[0];
+    let at = |width: f32| Constraints {
+      min_width: width,
+      max_width: width,
+      ..loose
+    };
+    if natural.size.width <= viewport_width + 0.5 {
+      // Content that fits and fills the viewport is laid out in exactly its width: a line that is given a width
+      // knows that it dropped nothing, and gives what stands for the dropped no room.
+      return if node.fills_viewport_width() {
+        self.layout_child_node(glyph_engine, child_overrides, 0, child, at(viewport_width))
+      } else {
+        natural
+      };
+    }
+    let fitted = self.layout_child_node(glyph_engine, child_overrides, 0, child, at(viewport_width));
+    // Where the last thing the line kept ends, with the line's own padding after it.
+    let reach = fitted
+      .children
+      .iter()
+      .filter(|held| !held.result.dropped)
+      .map(|held| held.offset.x + held.result.size.width)
+      .fold(0.0, f32::max)
+      + self.resolved_padding_for_size(child, fitted.size).right;
+    if reach <= viewport_width + 0.5 {
+      return fitted;
+    }
+    // The line stays as it gave way in the viewport, and is as wide as what it kept: laid out again in that
+    // width, it would take back what it gave up into the room of what stands for it.
+    // That may be wider than the content was at its natural width, by what stands for the dropped.
+    let mut kept = (*fitted).clone();
+    kept.size.width = reach;
+    Arc::new(kept)
   }
 
   fn layout_passthrough(

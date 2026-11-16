@@ -1,6 +1,6 @@
 //! The page of the avatar: its playground, the board's sizes and shapes, a
-//! picture and one that fails, the dot of presence, groups, and a person's
-//! name beside an avatar.
+//! picture and one that fails, the dot of presence on an avatar and on its
+//! own, groups, and a person's name beside an avatar.
 
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use lurq::{
   images::ImageData,
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
-  ui::{Avatar, AvatarGroup, AvatarGroupPart, AvatarPresence, AvatarShape, AvatarSize, icons},
+  ui::{Avatar, AvatarGroup, AvatarGroupPart, AvatarPresence, AvatarShape, AvatarSize, Persona, Presence, icons},
 };
 
 use crate::{
@@ -323,19 +323,14 @@ impl AvatarPage {
     )
   }
 
-  /// The board's persona: an avatar with its presence, and a name over a line under it.
-  fn persona(name: &str, line_under: &str, presence: AvatarPresence) -> Row {
+  /// A presence on its own before the word that says it: a row of a list of who is there.
+  fn status(presence: AvatarPresence, words: &str) -> Row {
     Row::new()
-      .spacing(10.0)
+      .spacing(8.0)
       .align_items(Alignment::Center)
       .overflow_visible()
-      .child(Avatar::new(name).presence(presence))
-      .child(
-        Column::new()
-          .spacing(1.0)
-          .child(text(name, 14.0, FontWeight::Medium))
-          .child(text(line_under, 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
-      )
+      .child(Presence::new(presence))
+      .child(text(words, 13.0, FontWeight::Normal))
   }
 }
 
@@ -436,12 +431,33 @@ impl Component for AvatarPage {
       );
     let people = items()
       .child(item(
-        Self::persona("Ivan Zaida", "Available · Kyiv", AvatarPresence::Online),
+        Persona::new("Ivan Zaida")
+          .description("Available · Kyiv")
+          .presence(AvatarPresence::Online),
         "persona",
       ))
       .child(item(
-        Self::persona("Ivy Chen", "Away · back at 15:00", AvatarPresence::Away),
+        Persona::new("Ivy Chen")
+          .description("Away · back at 15:00")
+          .presence(AvatarPresence::Away),
         "persona · away",
+      ));
+    let alone = items()
+      .child(item(Self::status(AvatarPresence::Online, "Online"), "online"))
+      .child(item(Self::status(AvatarPresence::Away, "Away"), "away"))
+      .child(item(Self::status(AvatarPresence::Busy, "Do not disturb"), "busy"))
+      .child(item(Self::status(AvatarPresence::Offline, "Offline"), "offline"))
+      .child(item(
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .overflow_visible()
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xs))
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Sm))
+          .child(Presence::new(AvatarPresence::Online))
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Lg))
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xl)),
+        "6, 8, 10, 12, 14",
       ));
     let rows = [
       (
@@ -476,6 +492,12 @@ impl Component for AvatarPage {
         "Option<AvatarPresence>",
         "None",
         "The dot at the bottom end: online, away, busy or offline.",
+      ),
+      (
+        "presence_label",
+        "&str",
+        "",
+        "What the dot says to tooling after the name, in place of the presence's own word.",
       ),
       (
         "AvatarGroup::max_shown",
@@ -569,6 +591,22 @@ impl Component for AvatarPage {
           ),
         ),
         Section::new(
+          "Presence on its own",
+          "The same dot with no avatar under it, before a word in a list of who is there. It is the dot of the \
+           avatar's recipe, as large as on an avatar of its size, with no ring; tooling hears the presence's word, \
+           or its label.",
+          self.frame.demo(
+            6,
+            alone,
+            "Presence::new(AvatarPresence::Online)",
+            &[
+              "Presence::new(AvatarPresence::Online)",
+              "Presence::new(AvatarPresence::Away).label(\"Away until 15:00\")",
+              "Presence::new(AvatarPresence::Online).size(AvatarSize::Lg)",
+            ],
+          ),
+        ),
+        Section::new(
           "Groups",
           "Each avatar lies over the end of the one before it, ringed in the background's color. With a most, the \
            group shows that many and how many it leaves out as the last. The group gives its avatars its size.",
@@ -610,23 +648,19 @@ impl Component for AvatarPage {
         ),
         Section::new(
           "Beside a name",
-          "A person in a list or a menu: the avatar with its presence, the name and a line under it. It is an \
-           avatar beside two texts, built where it is used.",
+          "A person in a list or a menu: the avatar with its presence, the name and a line under it. That is a \
+           Persona, which has a page of its own.",
           self.frame.demo(
             5,
             people,
-            "Row::new().child(Avatar::new(name))",
+            "Persona::new(name).description(..).presence(..)",
             &[
-              "Row::new()",
-              "    .spacing(10.0)",
-              "    .align_items(Alignment::Center)",
-              "    .child(Avatar::new(\"Ivan Zaida\").presence(AvatarPresence::Online))",
-              "    .child(",
-              "        Column::new()",
-              "            .spacing(1.0)",
-              "            .child(Text::new(\"Ivan Zaida\"))",
-              "            .child(Text::new(\"Available · Kyiv\").color(PaletteColor::MutedForeground)),",
-              "    )",
+              "Persona::new(\"Ivan Zaida\")",
+              "    .description(\"Available · Kyiv\")",
+              "    .presence(AvatarPresence::Online)",
+              "Persona::new(\"Ivy Chen\")",
+              "    .description(\"Away · back at 15:00\")",
+              "    .presence(AvatarPresence::Away)",
             ],
           ),
         ),

@@ -1,4 +1,5 @@
-//! An avatar: who a person is, at a glance; and a group of them laid over one another.
+//! An avatar: who a person is, at a glance; a group of them laid over one another; and the dot that says whether a
+//! person is there, on an avatar or on its own.
 
 use std::sync::Arc;
 
@@ -152,6 +153,7 @@ pub struct Avatar {
   size: Name,
   shape: AvatarShape,
   presence: Option<AvatarPresence>,
+  presence_label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -169,6 +171,7 @@ impl Avatar {
       size: AvatarSize::default().into(),
       shape: AvatarShape::default(),
       presence: None,
+      presence_label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -222,6 +225,13 @@ impl Avatar {
   /// The dot at its corner that says whether the person is there; `None` for no dot.
   pub fn presence(mut self, presence: impl Into<Option<AvatarPresence>>) -> Self {
     self.presence = presence.into();
+    self
+  }
+
+  /// What the dot says to tooling that reads the tree, after the name, in place of the presence's own word
+  /// ("online", "away", "busy", "offline"): the app's word for it, or the word in another language.
+  pub fn presence_label(mut self, label: &str) -> Self {
+    self.presence_label = Some(Arc::from(label));
     self
   }
 
@@ -281,6 +291,7 @@ impl Avatar {
       size: self.size,
       shape: self.shape,
       presence: self.presence,
+      presence_label: self.presence_label,
       recipe: theme.resolve::<Avatar>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -311,6 +322,8 @@ pub struct AvatarView {
   pub size: Name,
   pub shape: AvatarShape,
   pub presence: Option<AvatarPresence>,
+  /// What the dot says to tooling in place of the presence's own word.
+  pub presence_label: Option<Arc<str>>,
   /// The style of each part of this avatar.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -330,7 +343,11 @@ impl AvatarView {
   /// What tooling that reads the tree calls the avatar: its name, and whether the person is there.
   pub fn label(&self) -> String {
     match self.presence {
-      Some(presence) => format!("{}, {}", self.name, presence.as_str()),
+      Some(presence) => format!(
+        "{}, {}",
+        self.name,
+        self.presence_label.as_deref().unwrap_or(presence.as_str())
+      ),
       None => self.name.to_string(),
     }
   }
@@ -479,6 +496,130 @@ impl Themed for Avatar {
         .size(size, Icon, |s| s.width(side / 2.0))
         .size(size, Presence, |s| s.square(dot))
     })
+  }
+}
+
+/// Whether a person is there, on its own: the dot of an avatar with no avatar under it, beside a name in a list
+/// or in a line of text.
+///
+/// ```
+/// use lurq::ui::{AvatarPresence, AvatarSize, Presence};
+///
+/// let online = Presence::new(AvatarPresence::Online);
+/// // The dot of a large avatar, called as the app calls it.
+/// let away = Presence::new(AvatarPresence::Away).size(AvatarSize::Lg).label("Away until 15:00");
+/// ```
+///
+/// It is the [`AvatarPart::Presence`] of the theme's recipe for an avatar, in the color of its
+/// [`AvatarPresence`] and at the side of the dot of an avatar of its size (10 unless told): a theme that restyles
+/// an avatar's dot restyles this one. It has no ring, since there is no face to part it from. To tooling that
+/// reads the tree it is an image called by the presence's word, "online", or by its label. The dot on an avatar
+/// is [`Avatar::presence`].
+pub struct Presence {
+  presence: AvatarPresence,
+  size: Name,
+  label: Option<Arc<str>>,
+  states: Vec<Name>,
+  rules: Recipe,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl Presence {
+  /// The dot of `presence`, as large as on an avatar of 32.
+  pub fn new(presence: AvatarPresence) -> Self {
+    Self {
+      presence,
+      size: AvatarSize::default().into(),
+      label: None,
+      states: Vec::new(),
+      rules: Recipe::new(),
+      id: None,
+      key: None,
+    }
+  }
+
+  /// The size of the avatar whose dot this is: an [`AvatarSize`], or a size the theme's recipe for an avatar
+  /// names. The dots are 6, 8, 10, 12 and 14.
+  pub fn size(mut self, size: impl Into<Name>) -> Self {
+    self.size = size.into();
+    self
+  }
+
+  /// What the dot is called to tooling that reads the tree, in place of the presence's own word.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Puts the dot in a state the theme's recipe for an avatar names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Styles a part of the avatar's recipe for this dot over what the theme gives it: [`AvatarPart::Presence`]
+  /// is the dot.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
+    self.rules = self.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for an avatar, for this dot.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
+
+  /// Builds the dot in `theme`. Converting it into an element does this in the theme of what is being rendered.
+  pub fn build(self, theme: &Theme) -> Element {
+    let mut case = Case::new()
+      .size(self.size)
+      .breakpoint(super::current_breakpoint())
+      .state(self.presence, true);
+    for state in &self.states {
+      case = case.state(state.clone(), true);
+    }
+    // No ring: it parts the dot from a face, and here there is none. What the app says of the dot comes after.
+    let rules = Recipe::new()
+      .base(AvatarPart::Presence, |s| {
+        s.border(Border::outside(0.0, PaletteColor::Background))
+      })
+      .extend(&self.rules);
+    let part = theme.resolve::<Avatar>(&case, Some(&rules)).part(AvatarPart::Presence);
+    let label = self.label.unwrap_or_else(|| Arc::from(self.presence.as_str()));
+    let mut dot = Row::new()
+      .part(&part)
+      .flex_shrink(0.0)
+      .describe("a11y_role", "img")
+      .describe("a11y_name", label);
+    if let Some(id) = self.id {
+      dot = dot.id(id);
+    }
+    if let Some(key) = self.key {
+      dot = dot.key(key);
+    }
+    dot.into()
+  }
+}
+
+impl From<Presence> for Element {
+  fn from(presence: Presence) -> Self {
+    presence.build(&current_theme())
   }
 }
 

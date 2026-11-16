@@ -451,3 +451,109 @@ fn an_avatar_told_no_icon_shows_none_and_a_group_takes_the_rules_of_its_place() 
     Some(lurq::app::theme::ThemePalette::light().get(PaletteColor::Destructive))
   );
 }
+
+#[test]
+fn a_presence_on_its_own_is_the_avatars_dot_with_no_ring() {
+  use lurq::ui::Presence;
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(24.0)
+      .spacing(12.0)
+      .child(Presence::new(AvatarPresence::Online).id("online"))
+      .child(Presence::new(AvatarPresence::Away).id("away"))
+      .child(Presence::new(AvatarPresence::Busy).id("busy"))
+      .child(Presence::new(AvatarPresence::Offline).id("offline"))
+      .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xl).id("large"))
+      .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xs).id("small"))
+      .into()
+  });
+  for (id, role) in [
+    ("online", PaletteColor::Success),
+    ("away", PaletteColor::Warning),
+    ("busy", PaletteColor::Destructive),
+    ("offline", PaletteColor::MutedForeground),
+  ] {
+    let (_, _, width, height) = stage.bounds(id);
+    assert_eq!((width, height), (10.0, 10.0), "{id}: the dot of an avatar of 32");
+    assert_eq!(stage.fill_color(id), Some(light(role)), "{id}");
+    let fill = stage.fill(id).unwrap();
+    assert!(corner(&fill) >= 5.0, "{id}: round");
+    assert!(
+      stage
+        .border(id)
+        .and_then(|quad| quad.border)
+        .and_then(|border| border.top)
+        .is_none_or(|side| side.width == 0.0),
+      "{id}: no ring, with no face to part it from"
+    );
+  }
+  assert_eq!(stage.bounds("large").2, 14.0, "the dot of an avatar of 56");
+  assert_eq!(stage.bounds("small").2, 6.0, "the dot of an avatar of 20");
+}
+
+#[test]
+fn a_theme_that_restyles_the_avatars_dot_restyles_the_one_on_its_own() {
+  use lurq::ui::Presence;
+  let app = App::new();
+  app.theme().patch_recipe::<Avatar>(|rules| {
+    rules.state(AvatarPresence::Online, AvatarPart::Presence, |s| {
+      s.background(PaletteColor::Info).square(16.0)
+    })
+  });
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(24.0)
+      .spacing(12.0)
+      .child(Presence::new(AvatarPresence::Online).id("online"))
+      .child(
+        Presence::new(AvatarPresence::Away)
+          .style(AvatarPart::Presence, |s| s.background(PaletteColor::Primary))
+          .id("styled"),
+      )
+      .into()
+  });
+  assert_eq!(stage.bounds("online").2, 16.0);
+  assert_eq!(stage.fill_color("online"), Some(light(PaletteColor::Info)));
+  assert_eq!(stage.fill_color("styled"), Some(light(PaletteColor::Primary)));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn tooling_reads_the_presence_by_its_word_or_by_the_apps() {
+  use lurq::ui::Presence;
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(24.0)
+      .spacing(12.0)
+      .child(Presence::new(AvatarPresence::Busy).id("busy"))
+      .child(Presence::new(AvatarPresence::Away).label("Away until 15:00").id("away"))
+      .child(Avatar::new("Ivan Zaida").presence(AvatarPresence::Online).id("ivan"))
+      .child(
+        Avatar::new("Ivy Chen")
+          .presence(AvatarPresence::Away)
+          .presence_label("у відпустці")
+          .id("ivy"),
+      )
+      .into()
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said(&mut stage, "busy", "a11y_role").as_deref(), Some("img"));
+  assert_eq!(said(&mut stage, "busy", "a11y_name").as_deref(), Some("busy"));
+  assert_eq!(
+    said(&mut stage, "away", "a11y_name").as_deref(),
+    Some("Away until 15:00")
+  );
+  assert_eq!(
+    said(&mut stage, "ivan", "a11y_name").as_deref(),
+    Some("Ivan Zaida, online")
+  );
+  assert_eq!(
+    said(&mut stage, "ivy", "a11y_name").as_deref(),
+    Some("Ivy Chen, у відпустці")
+  );
+}

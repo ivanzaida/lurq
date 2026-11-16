@@ -182,5 +182,6 @@
   "rewind-10": "E0B4",
   "shuffle": "E0B5",
   "volume-low": "E0B6",
-  "volume-off": "E0B7"
+  "volume-off": "E0B7",
+  "marquee": "E0B8"
 }

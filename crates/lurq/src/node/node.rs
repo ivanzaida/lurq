@@ -554,6 +554,7 @@ pub(crate) trait NodeUpdate {
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn fills_viewport_width(&mut self, fills: bool);
+  fn fits_viewport_width(&mut self, fits: bool);
   fn scrollbars_clear_of_sticky(&mut self, clear: bool);
   fn reserve_bar_across(&mut self, reserve: bool);
   fn wheel_across(&mut self, across: bool);
@@ -651,6 +652,7 @@ pub(crate) trait NodeUpdate {
   fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask);
+  fn drag_autoscroll(&mut self, enabled: bool);
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn on_drag_move(&mut self, f: impl IntoDragEventHandler);
@@ -933,6 +935,9 @@ pub struct EventHandlers {
   pub on_mouse_up: Vec<Callback<MouseEvent>>,
   pub on_mouse_move: Vec<Callback<MouseEvent>>,
   pub start_drag_buttons: MouseButtonMask,
+  /// A drag of the node scrolls the scroll container around it while the pointer is at the container's edge; see
+  /// `Node::drag_autoscroll`.
+  pub drag_autoscroll: bool,
   pub on_drag_start: Vec<Callback<DragEvent>>,
   pub on_drag_move: Vec<Callback<DragEvent>>,
   pub on_drag_end: Vec<Callback<DragEvent>>,
@@ -1014,6 +1019,9 @@ pub(crate) struct RareStyle {
   pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
   /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
   pub(crate) fills_viewport_width: bool,
+  /// A scroll container that scrolls sideways lays content wider than its viewport out in the viewport's width
+  /// first, and is scrolled only to what still has no room there.
+  pub(crate) fits_viewport_width: bool,
   /// A scroll container whose bars run beside what scrolls, clear of what sticks at its start.
   pub(crate) scrollbars_clear_of_sticky: bool,
   /// A scroll container whose bar across has a lane of its own under the content while it is wider than the view.
@@ -1491,6 +1499,13 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn fits_viewport_width(&mut self, fits: bool) {
+    if self.rare_style.fits_viewport_width != fits {
+      self.rare_style.fits_viewport_width = fits;
+      self.layout_cache.invalidate();
+    }
+  }
+
   fn scrollbars_clear_of_sticky(&mut self, clear: bool) {
     if self.rare_style.scrollbars_clear_of_sticky != clear {
       self.rare_style.scrollbars_clear_of_sticky = clear;
@@ -1873,6 +1888,10 @@ impl NodeUpdate for Node {
 
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask) {
     self.events.start_drag_buttons = buttons;
+  }
+
+  fn drag_autoscroll(&mut self, enabled: bool) {
+    self.events.drag_autoscroll = enabled;
   }
 
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler) {
@@ -3408,6 +3427,12 @@ impl Node {
     self.rare_style.fills_viewport_width
   }
 
+  /// Whether the node, a scroll container, lays content wider than its viewport out in the viewport's width
+  /// first.
+  pub(crate) fn fits_viewport_width(&self) -> bool {
+    self.rare_style.fits_viewport_width
+  }
+
   /// Whether the node, a scroll container, keeps its bars clear of what sticks at its start.
   pub(crate) fn scrollbars_clear_of_sticky(&self) -> bool {
     self.rare_style.scrollbars_clear_of_sticky
@@ -3825,6 +3850,18 @@ impl Node {
 
   pub fn start_drag_buttons(mut self, buttons: MouseButtonMask) -> Self {
     self.events.start_drag_buttons = buttons;
+    self
+  }
+
+  /// Whether a drag that starts on this node scrolls the scroll container around it while the pointer is at the
+  /// container's edge or past it, off by default: the nearest container the node is in that has content beyond
+  /// its viewport scrolls toward the pointer, on the axes it scrolls, faster the farther the pointer is past the
+  /// edge, a step each frame while the pointer is held there, until the drag ends. After each step the drag's
+  /// `on_drag_move` handlers are called with the pointer where it is, so that what follows the drag (a rectangle
+  /// dragged over a list, a row carried along it) reckons with what scrolled under it. For a node with drag
+  /// handlers; it does nothing on any other.
+  pub fn drag_autoscroll(mut self, enabled: bool) -> Self {
+    self.events.drag_autoscroll = enabled;
     self
   }
 
@@ -6140,6 +6177,7 @@ impl Node {
       && self.rare_style.column_tracks == old.rare_style.column_tracks
       && self.rare_style.measured_tracks == old.rare_style.measured_tracks
       && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      && self.rare_style.fits_viewport_width == old.rare_style.fits_viewport_width
       && self.rare_style.scrollbars_clear_of_sticky == old.rare_style.scrollbars_clear_of_sticky
       && self.rare_style.track_span == old.rare_style.track_span
       && self.rare_style.reserves_bar_across == old.rare_style.reserves_bar_across

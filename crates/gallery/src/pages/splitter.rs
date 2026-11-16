@@ -277,12 +277,9 @@ impl SplitterPage {
   /// A window's panes: a side bar that closes, an editor over a terminal, and an outline; the page keeps the layout.
   fn window(&self, ctx: &mut Ctx) -> Element {
     // The panes' least widths are a window's: in a card narrower than those the window keeps a width with room
-    // for them and scrolls sideways. A splitter keeps the sizes it was first laid out with, so the one that
-    // scrolls is another than the one that had the card's width.
+    // for them and scrolls sideways.
     let room = self.frame.stage_room();
-    let scrolls = room > 0.0 && room < WINDOW;
     let splitter = Splitter::new()
-      .key(if scrolls { "window-scrolled" } else { "window" })
       .sizes(self.layout.clone())
       .pane(
         SplitterPane::new(label("Explorer"))

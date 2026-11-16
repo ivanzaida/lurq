@@ -63,6 +63,17 @@ impl ScrollHorizontal {
     self
   }
 
+  /// Lays content that is wider than the viewport out in the viewport's width first, so that a line gives way
+  /// there by its own rules (its children shrink, or drop out of it,
+  /// [`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)), and is as wide as what still has no
+  /// room after that: the container scrolls sideways only to what its content could not give up. A toolbar, whose
+  /// controls go into a menu as it narrows and which scrolls to the ones that stay. Off by default: content is
+  /// laid out at its natural width, and scrolled to all of it.
+  pub fn fit_width(mut self, fits: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::fits_viewport_width(node, fits));
+    self
+  }
+
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self

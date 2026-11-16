@@ -1,6 +1,12 @@
 //! Tabs: a list of tabs of which one is selected, and the panel of the selected one.
 
-use std::{fmt::Display, sync::Arc};
+use std::{
+  fmt::Display,
+  hash::{DefaultHasher, Hash, Hasher},
+  sync::Arc,
+};
+
+use parking_lot::Mutex;
 
 use super::{
   icons,
@@ -8,7 +14,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Orientation, fading, glyph, pressable},
+  shared::{Orientation, fading, glyph, one_line, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -242,6 +248,143 @@ impl Kept {
   }
 }
 
+/// What mounted tabs measure, before a frame is painted, to scroll where their list has no room: the tabs of a
+/// list along the top that the app did not ask to overflow are their overflowing form while the list is wider
+/// than its room, and the list alone while it fits.
+#[derive(Clone)]
+struct Fits {
+  /// Read by the host and written where the form changes, or the list is scrolled to its selected tab: what
+  /// renders the tabs again, and has the frame laid out again before it is painted.
+  turn: Signal<u32>,
+  /// The root: its width is the room of the list.
+  root: ElementRef,
+  held: Arc<Mutex<Held>>,
+}
+
+struct Held {
+  room: Option<f32>,
+  /// How wide the list is with every tab whole, measured where it was last laid out alone. The overflowing form
+  /// draws its tabs smaller and closer, so its own width does not say whether the list alone would fit.
+  needs: Option<f32>,
+  /// The padding of the list after its last tab.
+  end: f32,
+  /// Whether the list has no room: the tabs are their overflowing form.
+  scrolls: bool,
+  /// Whether the tabs were last built as their list alone, of the tabs `needs` was measured of.
+  plain: bool,
+  /// What the tabs show that makes their list as wide as it is: `needs` is of these.
+  shown: u64,
+  /// The ref of the last tab of the list alone: where it ends is how wide the list is.
+  last: ElementRef,
+  /// Whether the list is to be scrolled to the selected tab: it has just become one that scrolls.
+  reveal: bool,
+}
+
+impl Held {
+  /// Takes the form the room has room for, and says whether that is another.
+  fn settle(&mut self) -> bool {
+    let (Some(room), Some(needs)) = (self.room, self.needs) else {
+      return false;
+    };
+    let scrolls = needs > room + 0.5;
+    if scrolls == self.scrolls {
+      return false;
+    }
+    (self.scrolls, self.reveal) = (scrolls, scrolls);
+    true
+  }
+}
+
+impl Fits {
+  fn new(turn: Signal<u32>) -> Self {
+    let fits = Self {
+      turn,
+      root: ElementRef::new(),
+      held: Arc::new(Mutex::new(Held {
+        room: None,
+        needs: None,
+        end: 0.0,
+        scrolls: false,
+        plain: false,
+        shown: 0,
+        last: ElementRef::new(),
+        reveal: false,
+      })),
+    };
+    // Written only where the room crosses what the list needs: a panel dragged within one side renders nothing.
+    let (held, turn) = (fits.held.clone(), fits.turn.clone());
+    fits.root.observe_rect_before_paint(move |rect| {
+      let changed = {
+        let mut held = held.lock();
+        held.room = Some(rect.width);
+        held.settle()
+      };
+      if changed {
+        turn.update(|turn| *turn = turn.wrapping_add(1));
+      }
+    });
+    fits
+  }
+
+  /// Whether tabs that show `shown`, whose list ends with a padding of `end`, are to be built as their
+  /// overflowing form. Tabs that show something else are built as their list alone, which is measured before
+  /// anything is painted.
+  fn scrolls(&self, shown: u64, end: f32) -> bool {
+    let mut held = self.held.lock();
+    held.end = end;
+    if held.shown != shown {
+      (held.shown, held.needs, held.scrolls, held.plain) = (shown, None, false, false);
+    }
+    if !held.scrolls && !held.plain {
+      // A ref that was laid out before tells of a box only where it is another: a new one tells of its first.
+      let last = ElementRef::new();
+      let (state, turn) = (self.held.clone(), self.turn.clone());
+      last.observe_rect_before_paint(move |rect| {
+        let changed = {
+          let mut held = state.lock();
+          if !held.plain {
+            return;
+          }
+          held.needs = Some(rect.relative_x + rect.width + held.end);
+          held.settle()
+        };
+        if changed {
+          turn.update(|turn| *turn = turn.wrapping_add(1));
+        }
+      });
+      held.last = last;
+    }
+    held.plain = !held.scrolls;
+    held.scrolls
+  }
+
+  /// Has the list scrolled the least that shows the tab of `tab` whole, once, where it has just become one that
+  /// scrolls: before the frame that first shows it so is painted.
+  fn reveal(&self, tab: &ElementRef, scroll: &ScrollState) {
+    if !self.held.lock().reveal {
+      return;
+    }
+    let (held, turn, scroll) = (self.held.clone(), self.turn.clone(), scroll.clone());
+    tab.observe_rect_before_paint(move |rect| {
+      if !std::mem::take(&mut held.lock().reveal) {
+        return;
+      }
+      // The tab is in the list, which is what scrolls: where it is in the list is where it is in what scrolls.
+      let (start, end) = (rect.relative_x, rect.relative_x + rect.width);
+      let (at, room) = (scroll.scroll_x(), scroll.viewport_width());
+      let to = if start < at {
+        start
+      } else if end > at + room {
+        end - room
+      } else {
+        return;
+      };
+      scroll.set_scroll(to, scroll.scroll_y());
+      turn.update(|turn| *turn = turn.wrapping_add(1));
+    });
+  }
+}
+
 /// One tab as it is built: what it shows, whether it is the selected one, and what a press of it does.
 #[derive(Clone)]
 pub struct TabEntry {
@@ -304,6 +447,11 @@ struct Words {
 /// the first and the last, and a disabled one is passed by. Tab from the
 /// list goes to the panel. The panel of a tab is built only while the tab
 /// is selected.
+///
+/// A list along the top that is wider than its room: tabs put in the tree with [`mount`](Self::mount) measure
+/// their room and are their overflowing form while the list does not fit, with no frame of the other form, and
+/// the list alone again when it does; tabs converted into an element on their own cannot measure, and end their
+/// labels in an ellipsis, every tab still in the room.
 pub struct Tabs<T = ()> {
   tabs: Vec<Tab<T>>,
   selected: Option<T>,
@@ -416,13 +564,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
     self
   }
 
-  /// Draws a list that runs along the top as the overflowing form: the list
-  /// scrolls between two scroll buttons, and a More button at its end opens
-  /// a menu of every tab. Tabs put in the tree with [`mount`](Self::mount)
-  /// keep where the list is scrolled and whether the menu is open; converted
-  /// into an element on their own they are its still form, whose menu does
-  /// not open. A list that runs down scrolls with what holds it, and takes no
-  /// notice of this.
+  /// Draws a list that runs along the top as the overflowing form whether
+  /// or not it fits: the list scrolls between two scroll buttons, and a More
+  /// button at its end opens a menu of every tab. Tabs put in the tree with
+  /// [`mount`](Self::mount) keep where the list is scrolled and whether the
+  /// menu is open, and take this form themselves while their list has no
+  /// room, scrolled to the selected tab; converted into an element on their
+  /// own they are its still form, whose menu does not open. A list that runs
+  /// down scrolls with what holds it, and takes no notice of this.
   pub fn overflow(mut self, overflow: bool) -> Self {
     self.overflow = overflow;
     self
@@ -544,23 +693,26 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
 
   /// Puts the tabs in the tree of `ctx`'s component, in the theme of what is
   /// being rendered, where their overflowing form keeps where its list is
-  /// scrolled and whether its menu is open from one render to the next.
+  /// scrolled and whether its menu is open from one render to the next, and
+  /// where a list along the top that has no room for its tabs becomes that
+  /// form without being asked.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let mut tabs = self.prepare();
     let key = tabs.key.take();
-    let mut element = ctx.mount::<TabsHost>(TabsProps { tabs });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, they keep what is theirs wherever they are among what else is mounted beside them.
+    match key {
+      Some(key) => ctx.mount_keyed::<TabsHost>(&key, TabsProps { tabs }).key(key),
+      None => ctx.mount::<TabsHost>(TabsProps { tabs }),
     }
-    element
   }
 
   /// Builds the tabs in `theme`, with nothing kept: the overflowing form is
-  /// its still form, scrolled to its start, whose menu does not open.
+  /// its still form, scrolled to its start, whose menu does not open, and a
+  /// list too wide for its room ends its labels in an ellipsis.
   /// Converting tabs into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    self.prepare().build(theme, Kept::new(Signal::new(false)))
+    self.prepare().build(theme, Kept::new(Signal::new(false)), None)
   }
 }
 
@@ -589,11 +741,29 @@ struct Prepared {
 }
 
 impl Prepared {
-  /// The tabs in `theme`, their overflowing form with what `kept` keeps.
-  fn build(self, theme: &Theme, kept: Kept) -> Element {
+  /// What the tabs show that makes their list as wide as it is, as one number.
+  fn shown(&self) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    (self.variant.as_str(), self.tabs.len()).hash(&mut hasher);
+    for state in &self.states {
+      state.as_str().hash(&mut hasher);
+    }
+    for tab in &self.tabs {
+      (
+        &tab.label,
+        &tab.count,
+        tab.icon.map(|icon| icon.as_str()),
+        tab.separated,
+      )
+        .hash(&mut hasher);
+    }
+    hasher.finish()
+  }
+
+  /// The case of the tabs, as their overflowing form or not.
+  fn case(&self, overflow: bool) -> Case {
     let vertical = self.orientation.is_vertical();
-    let overflow = (self.overflow && !vertical).then_some(kept);
-    let case = Case {
+    Case {
       variant: Some(self.variant),
       size: None,
       density: None,
@@ -602,7 +772,26 @@ impl Prepared {
     }
     .state(TabsState::Horizontal, !vertical)
     .state(TabsState::Vertical, vertical)
-    .state(TabsState::Overflow, overflow.is_some());
+    .state(TabsState::Overflow, overflow)
+  }
+
+  /// The tabs in `theme`, their overflowing form with what `kept` keeps. Mounted tabs give what they measure,
+  /// `fits`, and are that form while their list has no room.
+  fn build(self, theme: &Theme, kept: Kept, fits: Option<&Fits>) -> Element {
+    let vertical = self.orientation.is_vertical();
+    // A list that runs down, or one the app asked to overflow, has one form whatever its room is.
+    let fits = fits.filter(|_| !vertical && !self.overflow);
+    let scrolls = fits.is_some_and(|fits| {
+      let [_, end, _, _] = theme
+        .resolve::<Tabs>(&self.case(false), Some(&self.rules))
+        .part(TabsPart::List)
+        .rest()
+        .paddings();
+      let end = end.map(|end| end.resolve(&theme.spacing(), 0.0)).unwrap_or(0.0);
+      fits.scrolls(self.shown(), end)
+    });
+    let overflow = ((self.overflow || scrolls) && !vertical).then_some(kept);
+    let case = self.case(overflow.is_some());
     // A tab is in the state of the tabs, and in its own: selected, disabled.
     let resolve = |selected: bool, disabled: bool| -> ResolvedRecipe {
       theme.resolve::<Tabs>(
@@ -613,10 +802,18 @@ impl Prepared {
         Some(&self.rules),
       )
     };
-    let tab_refs = match overflow {
+    let tab_refs: Vec<ElementRef> = match overflow {
       Some(_) => self.tabs.iter().map(|_| ElementRef::new()).collect(),
       None => Vec::new(),
     };
+    if let (Some(fits), Some(kept)) = (fits, &overflow)
+      && let Some(selected) = self.tabs.iter().position(|tab| tab.selected)
+    {
+      fits.reveal(&tab_refs[selected], &kept.scroll);
+    }
+    // The list alone, along the top: mounted it is measured with every tab whole, and built with nothing kept its
+    // tabs give way in a room too narrow for them.
+    let alone = overflow.is_none() && !vertical;
     let view = TabsView {
       tabs: self.tabs,
       variant: self.variant,
@@ -632,6 +829,9 @@ impl Prepared {
       ],
       list_ref: ElementRef::new(),
       tab_refs,
+      room: fits.map(|fits| fits.root.clone()),
+      last: fits.filter(|_| alone).map(|fits| fits.held.lock().last.clone()),
+      gives: alone && fits.is_none(),
       overflow,
       words: self.words,
       forced: self.forced,
@@ -661,9 +861,11 @@ impl PartialEq for TabsProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TabsProps {}
 
-/// What mounted tabs keep from one render to the next: what their overflowing form keeps.
+/// What mounted tabs keep from one render to the next: what their overflowing form keeps, and what they
+/// measure to become it.
 struct TabsHost {
   kept: Kept,
+  fits: Fits,
 }
 
 impl Component for TabsHost {
@@ -672,12 +874,15 @@ impl Component for TabsHost {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       kept: Kept::new(ctx.signal(false)),
+      fits: Fits::new(ctx.signal(0)),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let TabsProps { tabs } = ctx.props::<TabsProps>().clone();
-    tabs.build(&current_theme(), self.kept.clone())
+    // Reading it renders the tabs again where what they measured asks for another form.
+    let _ = self.fits.turn.get();
+    tabs.build(&current_theme(), self.kept.clone(), Some(&self.fits))
   }
 }
 
@@ -699,6 +904,13 @@ pub struct TabsView {
   /// the menu into view.
   list_ref: ElementRef,
   tab_refs: Vec<ElementRef>,
+  /// Of mounted tabs that take the overflowing form themselves: the ref of the box whose width is their room.
+  room: Option<ElementRef>,
+  /// Of those tabs, as their list alone: the ref of the last tab, which says how wide the list is.
+  last: Option<ElementRef>,
+  /// Whether the tabs give way in a list too wide for its room, their labels ending in an ellipsis: tabs built
+  /// with nothing kept, which cannot measure their room.
+  gives: bool,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -747,6 +959,13 @@ impl TabsView {
     self.overflow.is_some()
   }
 
+  /// Of mounted tabs, the ref a renderer gives the box whose width is the room of the list: the root, which is
+  /// as wide as what holds the tabs. They measure it to take their overflowing form while the list has no room;
+  /// with the ref on no box they keep the form the app asked for. None for tabs that do not measure.
+  pub fn room_ref(&self) -> Option<ElementRef> {
+    self.room.clone()
+  }
+
   /// The tab at `index`: what is pressed, with its icon, label and count. It
   /// is a tab to what reads the tree, called by its label, and says whether
   /// it is the selected one; the list's arrow keys move to it unless it is disabled.
@@ -767,7 +986,14 @@ impl TabsView {
       tab = tab.child(glyph(&part(TabsPart::Icon), name, false));
     }
     let label = part(TabsPart::Label);
-    tab = tab.child(label.text(&entry.label).nowrap().part(&label));
+    tab = if self.gives {
+      tab
+        .flex_shrink(1.0)
+        .min_width(0.0)
+        .child(one_line(&label, &entry.label))
+    } else {
+      tab.child(label.text(&entry.label).nowrap().part(&label))
+    };
     if let Some(count) = &entry.count {
       let style = part(TabsPart::Count);
       tab = tab.child(Row::new().part(&style).child(style.text(count).nowrap()));
@@ -780,6 +1006,8 @@ impl TabsView {
     }
     if let Some(at) = self.tab_refs.get(index) {
       tab = tab.ref_element(at.clone());
+    } else if let Some(last) = self.last.as_ref().filter(|_| index + 1 == self.tabs.len()) {
+      tab = tab.ref_element(last.clone());
     }
     tab
   }
@@ -1021,6 +1249,9 @@ impl TabsView {
         .child(list);
       if let Some(panel) = panel {
         column = column.child(panel);
+      }
+      if let Some(room) = &self.room {
+        column = column.ref_element(room.clone());
       }
       if let Some(id) = &self.id {
         column = column.id(id.clone());

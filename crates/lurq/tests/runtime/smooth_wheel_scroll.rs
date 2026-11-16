@@ -714,3 +714,89 @@ fn a_synthetic_wheel_is_a_mouses_wheel() {
   assert_eq!(state.scroll_y(), NOTCH);
   assert!(!stage.tree.has_active_timeline());
 }
+
+/// A page of 300 by 200 over 2000 of content, with the state it scrolls by.
+fn page_with_state() -> (Stage, ScrollState) {
+  let state = ScrollState::new();
+  let stage = Stage::new(
+    ScrollVertical::new(Rect::new(300.0, 2000.0))
+      .with_scroll_state(state.clone())
+      .size(300.0, 200.0),
+  );
+  (stage, state)
+}
+
+#[test]
+fn a_container_sent_to_its_top_goes_there_over_the_frames_that_follow() {
+  let (mut stage, state) = page_with_state();
+  assert!(
+    !stage.tree.scroll_state_to_top(&state),
+    "at its top already: nothing to do"
+  );
+  state.set_scroll(0.0, 600.0);
+  stage.settle(0);
+
+  stage.clock(100);
+  assert!(stage.tree.scroll_state_to_top(&state));
+  assert_eq!(state.scroll_y(), 600.0, "nothing moves before a frame");
+  assert_eq!(state.scroll_target().1, 0.0, "it is going to its top");
+  assert!(stage.frame(140), "the tree asks for the frames of its way");
+  let on_its_way = state.scroll_y();
+  assert!(
+    0.0 < on_its_way && on_its_way < 600.0,
+    "on its way after 40 ms: {on_its_way}"
+  );
+  stage.settle(148);
+  assert_eq!(state.scroll_y(), 0.0);
+  assert!(stage.idle(), "and then asks for nothing more");
+}
+
+#[test]
+fn a_notch_of_the_wheel_turns_a_container_on_its_way_to_its_top_round() {
+  let (mut stage, state) = page_with_state();
+  state.set_scroll(0.0, 600.0);
+  stage.settle(0);
+  stage.clock(100);
+  stage.tree.scroll_state_to_top(&state);
+  stage.frame(140);
+  let on_its_way = state.scroll_y();
+
+  stage.notch(2.0);
+  assert_eq!(
+    state.scroll_target().1,
+    2.0 * NOTCH,
+    "the wheel adds to where it was going, the top"
+  );
+  stage.settle(148);
+  assert_eq!(state.scroll_y(), 2.0 * NOTCH);
+  assert!(on_its_way > 0.0);
+}
+
+#[test]
+fn with_motion_reduced_a_container_is_at_its_top_in_the_next_frame() {
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let state = ScrollState::new();
+  let mut stage = Stage::with(
+    app,
+    1.0,
+    ScrollVertical::new(Rect::new(300.0, 2000.0))
+      .with_scroll_state(state.clone())
+      .size(300.0, 200.0),
+  );
+  state.set_scroll(0.0, 600.0);
+  stage.settle(0);
+  stage.clock(100);
+  assert!(stage.tree.scroll_state_to_top(&state));
+  assert_eq!(state.scroll_y(), 0.0, "at once");
+  stage.settle(100);
+  assert_eq!(state.scroll_y(), 0.0);
+}
+
+#[test]
+fn a_state_that_scrolls_nothing_in_the_tree_is_sent_nowhere() {
+  let (mut stage, _state) = page_with_state();
+  let stranger = ScrollState::new();
+  assert!(!stage.tree.scroll_state_to_top(&stranger));
+  assert!(stage.idle());
+}
