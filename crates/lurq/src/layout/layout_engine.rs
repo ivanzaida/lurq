@@ -52,6 +52,8 @@ pub(crate) mod inline_links;
 mod input_gutter;
 mod input_layout;
 mod input_marks;
+#[cfg(feature = "markdown")]
+mod input_objects;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
 #[cfg(feature = "perf_profile")]
@@ -1965,91 +1967,21 @@ impl LayoutEngine {
     }
 
     match node.node_kind() {
-      NodeKind::TextInput { state, style, .. } if state.is_focused() && self.should_render_text_input_caret(node) => {
-        let padding = self.resolved_padding_for_size(node, result.size);
-        let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
-        let viewport = self.text_input_viewport(node, state, result, (abs_x, abs_y), padding);
-        let caret_line_height = state.caret_height();
-        let theme_caret = *self.caret.borrow();
-        let caret_width = theme_caret.width();
-        // Line height controls row pitch, but the insertion caret tracks the type: a share of the font size where
-        // the caret stands, or the band of the text in its line, as the theme says. Otherwise readable multiline
-        // leading produces a visually oversized caret. It is centred in its line. Among the rows of a multiline
-        // input it is never higher than its row; in a single line it may be, up to the box the text is in.
-        let caret_room = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
-          caret_line_height.min(content_height)
-        } else {
-          content_height
-        };
-        let (caret_height, caret_leading) = match theme_caret.height() {
-          CaretHeight::FontSize(share) => {
-            let share = if share.is_finite() && share > 0.0 { share } else { 1.0 };
-            let height = (state.caret_font_size(style.font_size) * share)
-              .min(caret_room)
-              .max(1.0);
-            (height, (caret_line_height - height) * 0.5)
-          }
-          CaretHeight::TextBand => {
-            let (band_top, band_height) = state.selection_band_for_row(state.caret_y(), state.text_band());
-            let height = band_height.min(caret_room).max(1.0);
-            // A row with no text in it has no band of its own: the caret is centred in it.
-            let top = if band_top + height > caret_line_height + 0.01 || band_height >= caret_line_height {
-              ((caret_line_height - height) * 0.5).max(0.0)
-            } else {
-              band_top.max(0.0)
-            };
-            (height, top)
-          }
-        };
-        let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
-        // The caret starts at its insertion point, after the glyph before it.
-        // At the start of a line nothing precedes it, so it ends there
-        // instead: drawn from the line's left edge it covered the first
-        // glyph (of the value or the placeholder), whose side bearing is
-        // about zero. Where an ancestor clips right at that edge it stays at
-        // the edge rather than disappear.
-        let insertion_x = abs_x + padding.left + state.caret_x();
-        let before_x = insertion_x - caret_width;
-        let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
-        let caret_x = if state.caret_at_line_start() && room_before {
-          before_x
-        } else {
-          insertion_x
-        };
-        let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
-        let palette = self.palette.borrow();
-        let caret_color = node
-          .caret_color_value()
-          .and_then(|color| color.resolve(&palette))
-          .or_else(|| style.caret_color.as_ref().and_then(|color| color.resolve(&palette)))
-          .unwrap_or_else(|| palette.text_color(style));
-        let (caret_x, caret_y, caret_transform, caret_transform_origin) =
-          transformed_quad_frame(caret_x, caret_y, transform);
-        quads.push(Quad {
-          x: caret_x,
-          y: caret_y,
-          width: caret_width,
-          height: caret_height,
+      // The caret of an input with children is drawn over them: see `push_node_overlay_quads`.
+      NodeKind::TextInput { state, style, .. }
+        if node.children().is_empty() && state.is_focused() && self.should_render_text_input_caret(node) =>
+      {
+        self.push_text_input_caret(
+          node,
+          state,
+          style,
+          result,
+          (abs_x, abs_y),
+          transform,
+          clip,
           opacity,
-          transform: caret_transform,
-          transform_origin: caret_transform_origin,
-          content: QuadContent::Rect {
-            color: caret_color,
-            gradient: None,
-          },
-          border_radius: None,
-          border: None,
-          clip: intersect_clip(
-            clip,
-            ClipRect {
-              // Room for a caret at the start of a line.
-              x: viewport.x - caret_width,
-              width: viewport.width + caret_width,
-              ..viewport
-            }
-            .transformed(transform),
-          ),
-        });
+          quads,
+        );
       }
       NodeKind::Checkbox { state } => {
         let checked = state.is_checked();
@@ -2281,6 +2213,106 @@ impl LayoutEngine {
     }
   }
 
+  /// The caret of a focused text input, at `origin`.
+  #[allow(clippy::too_many_arguments)]
+  fn push_text_input_caret(
+    &self,
+    node: &Node,
+    state: &TextInputState,
+    style: &TextStyle,
+    result: &LayoutResult,
+    (abs_x, abs_y): (f32, f32),
+    transform: Transform2D,
+    clip: ClipRect,
+    opacity: f32,
+    quads: &mut Vec<Quad>,
+  ) {
+    let padding = self.resolved_padding_for_size(node, result.size);
+    let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
+    let viewport = self.text_input_viewport(node, state, result, (abs_x, abs_y), padding);
+    let caret_line_height = state.caret_height();
+    let theme_caret = *self.caret.borrow();
+    let caret_width = theme_caret.width();
+    // Line height controls row pitch, but the insertion caret tracks the type: a share of the font size where
+    // the caret stands, or the band of the text in its line, as the theme says. Otherwise readable multiline
+    // leading produces a visually oversized caret. It is centred in its line. Among the rows of a multiline
+    // input it is never higher than its row; in a single line it may be, up to the box the text is in.
+    let caret_room = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
+      caret_line_height.min(content_height)
+    } else {
+      content_height
+    };
+    let (caret_height, caret_leading) = match theme_caret.height() {
+      CaretHeight::FontSize(share) => {
+        let share = if share.is_finite() && share > 0.0 { share } else { 1.0 };
+        let height = (state.caret_font_size(style.font_size) * share)
+          .min(caret_room)
+          .max(1.0);
+        (height, (caret_line_height - height) * 0.5)
+      }
+      CaretHeight::TextBand => {
+        let (band_top, band_height) = state.selection_band_for_row(state.caret_y(), state.text_band());
+        let height = band_height.min(caret_room).max(1.0);
+        // A row with no text in it has no band of its own: the caret is centred in it.
+        let top = if band_top + height > caret_line_height + 0.01 || band_height >= caret_line_height {
+          ((caret_line_height - height) * 0.5).max(0.0)
+        } else {
+          band_top.max(0.0)
+        };
+        (height, top)
+      }
+    };
+    let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+    // The caret starts at its insertion point, after the glyph before it.
+    // At the start of a line nothing precedes it, so it ends there
+    // instead: drawn from the line's left edge it covered the first
+    // glyph (of the value or the placeholder), whose side bearing is
+    // about zero. Where an ancestor clips right at that edge it stays at
+    // the edge rather than disappear.
+    let insertion_x = abs_x + padding.left + state.caret_x();
+    let before_x = insertion_x - caret_width;
+    let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
+    let caret_x = if state.caret_at_line_start() && room_before {
+      before_x
+    } else {
+      insertion_x
+    };
+    let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
+    let palette = self.palette.borrow();
+    let caret_color = node
+      .caret_color_value()
+      .and_then(|color| color.resolve(&palette))
+      .or_else(|| style.caret_color.as_ref().and_then(|color| color.resolve(&palette)))
+      .unwrap_or_else(|| palette.text_color(style));
+    let (caret_x, caret_y, caret_transform, caret_transform_origin) =
+      transformed_quad_frame(caret_x, caret_y, transform);
+    quads.push(Quad {
+      x: caret_x,
+      y: caret_y,
+      width: caret_width,
+      height: caret_height,
+      opacity,
+      transform: caret_transform,
+      transform_origin: caret_transform_origin,
+      content: QuadContent::Rect {
+        color: caret_color,
+        gradient: None,
+      },
+      border_radius: None,
+      border: None,
+      clip: intersect_clip(
+        clip,
+        ClipRect {
+          // Room for a caret at the start of a line.
+          x: viewport.x - caret_width,
+          width: viewport.width + caret_width,
+          ..viewport
+        }
+        .transformed(transform),
+      ),
+    });
+  }
+
   /// The quads a node paints over its children: a border deferred past them
   /// and scrollbars. See [`Self::push_node_quads`].
   #[inline(never)]
@@ -2300,6 +2332,26 @@ impl LayoutEngine {
       deferred_border,
       ..
     } = *frame;
+    #[cfg(feature = "markdown")]
+    self.push_input_object_veils(node, result, (abs_x, abs_y), transform, clip, quads);
+    // An input's children, the objects of its text, stand where a caret can: it is drawn over them.
+    if let NodeKind::TextInput { state, style, .. } = node.node_kind()
+      && !node.children().is_empty()
+      && state.is_focused()
+      && self.should_render_text_input_caret(node)
+    {
+      self.push_text_input_caret(
+        node,
+        state,
+        style,
+        result,
+        (abs_x, abs_y),
+        transform,
+        clip,
+        opacity,
+        quads,
+      );
+    }
     if deferred_border.is_some() {
       let (border_x, border_y, border_transform, border_transform_origin) =
         transformed_quad_frame(abs_x, abs_y, transform);
@@ -2444,6 +2496,11 @@ impl LayoutEngine {
     // box, so a changed link lays its paragraph out again.
     #[cfg(feature = "markdown")]
     if matches!(node.node_kind(), NodeKind::RichText { .. }) {
+      return None;
+    }
+    // An input lays its text out around its objects: one that changed its size lays the input out again.
+    #[cfg(feature = "markdown")]
+    if matches!(node.node_kind(), NodeKind::TextInput { .. }) && !node.children().is_empty() {
       return None;
     }
 
@@ -3019,6 +3076,8 @@ impl LayoutEngine {
     self.lay_out_text_decorations(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
     self.lay_out_inline_text(glyph_engine, node, &mut result);
+    #[cfg(feature = "markdown")]
+    self.lay_out_input_objects(glyph_engine, node, &mut result);
     result
   }
 
@@ -3146,6 +3205,14 @@ impl LayoutEngine {
         placeholder_style,
       } => {
         let content = state.rendered_text_for_layout();
+        // The room each object of a styled input takes in its text is the size of its child node.
+        #[cfg(feature = "markdown")]
+        let objects = {
+          let room = Self::decorated_input_width(state, constraints);
+          self.measure_input_objects(glyph_engine, node, state, room)
+        };
+        #[cfg(not(feature = "markdown"))]
+        let objects: Vec<Option<Size>> = Vec::new();
         return self.layout_text_input(
           glyph_engine,
           state,
@@ -3154,6 +3221,7 @@ impl LayoutEngine {
           placeholder_style.as_deref(),
           constraints,
           padding,
+          &objects,
         );
       }
       NodeKind::Checkbox { .. } => {

@@ -1,6 +1,6 @@
 ---
 title: Styled text inputs
-description: Bold, italic, underline, inline code, strikethrough and links edited in place in a TextInput, with headings, lists, quotes and code blocks as kinds of its paragraphs.
+description: Bold, italic, underline, inline code, strikethrough and links edited in place in a TextInput, with headings, lists, quotes and code blocks as kinds of its paragraphs, and pictures as characters of its text.
 ---
 
 A `TextInput` bound to a spans signal edits styled text: the value stays the plain `Signal<String>`, and a
@@ -161,6 +161,70 @@ The controller's commands:
 What an editor does at the keys is the app's (or the design system's editor's): Enter in an empty item ending the
 list, a paragraph after a heading. The input's own rule is the split and the join above.
 
+## Objects
+
+A styled input holds things that are not text, a picture among its words: each is one character of the value,
+U+FFFC (`OBJECT_CHARACTER`), and a record beside it. A third signal holds the records, a
+`Signal<Vec<InlineObject>>`, and a function builds what is drawn for one.
+
+```rust
+use lurq::{
+  components::{InlineObject, StyledSpan, TextInput},
+  core::Signal,
+  ui::Picture,
+};
+
+let value = Signal::new("The lake: \u{FFFC}".to_owned());
+let spans = Signal::new(Vec::<StyledSpan>::new());
+// The character at byte 10 is a picture: where its pixels are, what it shows, how wide the document has it.
+let objects = Signal::new(vec![InlineObject::new(10, "photos/lake.jpg").label("The lake at dusk").width(320)]);
+let editor = TextInput::new(value)
+  .spans(spans)
+  .objects(objects, |object| {
+    Picture::from_file(object.source.as_ref())
+      .label(&object.label)
+      .width(object.width.unwrap_or(320) as f32)
+      .into()
+  })
+  .multiline();
+```
+
+An `InlineObject` has `at`, the byte of its character, `source` and `label`, two texts the app reads as it likes (a
+picture's path and its alternative text), and `width`, in whole pixels, where the document says one. The element
+`objects` is given back for it is a child of the input:
+
+- It is laid out in the room the text has, and the size it takes is its box in the row. The box stands on the
+  baseline, the row is as high as its tallest box needs, and the text keeps its line at the foot of the row. A box
+  that does not fit the rest of a row goes to the next, as a word does. One wider than its row (less its
+  paragraph's indent) is as wide as the row: an element that fits itself to its room (a picture keeps its shape)
+  is as high as it then says, and any other is cut to a box of the shape it had.
+- To the caret it is one character. The arrows go past it, a press on it selects it, Backspace after it (and Delete
+  before it) selects it and the next press deletes it, and a selection takes it whole. The caret beside it is as
+  high as the text's line, not as the box. While the input has the focus, a selected object is under a veil of the
+  selection's color.
+- It scrolls with the text and is cut by the input's box. The pointer and the focus do not reach what it holds: a
+  press on it is a press on the text.
+- An element declared as a component (`ui::Picture`, `Element::component::<C>(props)`) is mounted by the component
+  that builds the input and kept across its renders, by what it shows: a picture loads once, whatever is typed
+  before it.
+
+The input keeps the records in step with the text. An edit before an object moves its `at`; one that deletes its
+character deletes its record; undo brings both back, with the source, the label and the width it had. The records
+are part of what `on_styled_change` reports (`StyledChange::objects()`, and `to_rich_text()` has them). The app
+loads a document by setting the signals; a record whose byte holds no `OBJECT_CHARACTER` is dropped, and a
+character with no record is a character like any other. `element` is called while the input is built, for each
+record the signal holds then, and the signal is read there: a component that builds the input builds it again
+when the objects change. Until it does, a child whose object is gone is not drawn, and the others keep their
+places.
+
+The controller's commands:
+
+- `insert_object(&object)` puts an object in place of the selection, or at the caret, as one undo step, and
+  leaves the caret after it. `false` for an input without objects.
+- `objects()` is the records the text holds now, and `rich_text()` has them.
+
+Objects need `spans` and are meant for a multiline input. In a masked input there are none.
+
 Kinds are drawn where the input wraps its lines and its text is not justified: in a single-line input, one that
 does not wrap or one whose text is justified, every paragraph is drawn as body text, and the kinds are still kept,
 edited and reported. A justified row is stretched to the input's width, which is known only once every paragraph is
@@ -170,9 +234,11 @@ first paragraph: its type, after its indent and its mark.
 
 ## One value: `RichText`
 
-`RichText` holds what the three signals hold as one value: `text`, `spans` and `paragraphs`. `RichText::new` puts
-them in the form an input keeps, `plain(text)` is body text with no marks, `blocks()` walks the paragraphs with
-their kinds, and `word_count()` counts the words.
+`RichText` holds what the signals hold as one value: `text`, `spans`, `paragraphs` and `objects`.
+`RichText::new` puts the first three in the form an input keeps and `with_objects(objects)` adds the fourth,
+`plain(text)` is body text with no marks, `blocks()` walks the paragraphs with their kinds, `plain_text()` is the
+text with the label of each object in place of its character, and `word_count()` counts the words: an object is
+no word, and stands between two.
 
 ```rust
 use lurq::components::{ParagraphKind, RichText};
@@ -183,10 +249,26 @@ assert_eq!(notes.to_markdown(), "## Release notes\n\nBackdrop blur **follows cli
 ```
 
 `from_markdown` reads what a styled input can hold: paragraphs, headings, flat lists, quotes and code blocks, with
-bold, italic, strikethrough, inline code, links and `<u>` underlines. A line break inside a paragraph starts a new
-one, a nested list is flattened, an image is its alternative text linked to its source, and a table, a rule and
-raw HTML are left out. `to_markdown` writes a document that `from_markdown` reads back as the same one: marks
-nested, numbered items numbered, what would read as markup escaped, an underline as `<u>…</u>`.
+bold, italic, strikethrough, inline code, links, `<u>` underlines and images. A line break inside a paragraph
+starts a new one, a nested list is flattened, and a table, a rule and other raw HTML are left out. `to_markdown`
+writes a document that `from_markdown` reads back as the same one: marks nested, numbered items numbered, what
+would read as markup escaped, an underline as `<u>…</u>`.
+
+An image is an [object](#objects) where it stands, alone in its paragraph or among words: `![label](source)`, or
+`<img src="source" alt="label" width="320">` for one with a width, which Markdown has no other way to say. Both are
+read, and each is written as it was. An image inside a link keeps the link, and one inside bold words stays inside
+them. In a line of a code block or a run of inline code, where Markdown reads no image, an object is written as
+its label.
+
+```rust
+use lurq::components::{InlineObject, RichText};
+
+let notes = RichText::from_markdown("The lake ![at dusk](photos/lake.jpg) from the north shore.");
+assert_eq!(notes.text, "The lake \u{FFFC} from the north shore.");
+assert_eq!(notes.objects, [InlineObject::new(9, "photos/lake.jpg").label("at dusk")]);
+assert_eq!(notes.plain_text(), "The lake at dusk from the north shore.");
+assert_eq!(notes.to_markdown(), "The lake ![at dusk](photos/lake.jpg) from the north shore.");
+```
 
 ## Copy, paste and links
 
@@ -195,10 +277,13 @@ nested, numbered items numbered, what would read as markup escaped, an underline
 - A paste inserts the clipboard's text in the typing style. To paste styled text, handle `on_paste`, parse the
   text, call `controller.replace_selection_styled(&styled)` and `prevent_default()`.
 - `rich_clipboard(true)` (feature `markdown`) keeps the formatting of an input with kinds of paragraphs through the
-  clipboard, as the design system's rich text editor does. A copy or a cut writes the selection's Markdown, its marks
-  and the kinds of the paragraphs it touches, beside its text. The system's clipboard holds one text: it is given the
-  Markdown where the selection has a mark or a paragraph that is not body text, and the plain text otherwise, so
-  another app or another lurq process reads the Markdown as it is written. This process keeps the plain text beside
+  clipboard, as the design system's rich text editor does. A copy or a cut writes the selection's Markdown, its marks,
+  its objects and the kinds of the paragraphs it touches, beside its text. The system's clipboard holds one text: it
+  is given the Markdown where the selection has a mark, an object or a paragraph that is not body text, and the plain
+  text otherwise, so another app or another lurq process reads the Markdown as it is written. An object is there as
+  the image Markdown writes, `![label](source)`, and in the plain text as its label: the clipboard stays text, and
+  the pixels of a picture are not put on it. A paste of that Markdown into an input with objects is the object
+  again, with its record; a picture the system's clipboard holds as pixels is not read. This process keeps the plain text beside
   it, and while the clipboard still holds what it wrote, an input of the app without the option pastes the plain
   text. A paste with Markdown beside its text, or whose text reads as Markdown (`RichText::reads_as_markdown`: a line
   with a block mark, `#`, `-`, `1.`, `>` or a fence, or a mark Markdown reads, `**bold**`, `` `code` ``, a link), is
@@ -220,7 +305,10 @@ through, and the `Accent` role underlined.
 
 ## Limits
 
-- A masked input is plain, and a styled input ignores `tokens`.
+- A masked input is plain, and a styled input ignores `tokens`: what is one thing to its caret is an
+  [object](#objects).
+- A single-line input lays an object out in its one row, which is as high as the input's line: a box higher than
+  that rises over it. Objects are for a multiline input.
 - Code fills have no horizontal padding.
 - A multiline input lays out a paragraph at a time and keeps each one, so an edit lays out only the paragraph it
   changed. A long left-to-right paragraph is also shaped in chunks of a few hundred bytes, cut after spaces where

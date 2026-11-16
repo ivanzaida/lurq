@@ -241,6 +241,67 @@ impl TextInput {
     self
   }
 
+  /// Gives a styled input things in its text that are not text: `objects` holds what each
+  /// [`OBJECT_CHARACTER`](super::OBJECT_CHARACTER) of the value is ([`super::InlineObject`]: a picture's source,
+  /// its label and its width), and `element` builds what is drawn for one. The element is a child of the input,
+  /// laid out in the room the text has and placed where the character stands: its size is the room it takes in
+  /// its row, which is as high as it needs, and one wider than the row is made as wide as the row. It moves and
+  /// is cut with the text as the input scrolls. To the caret an object is one character: the arrows go past it,
+  /// a press on it selects it, Backspace after it selects it and the next deletes it. The pointer and the focus
+  /// do not reach what the element holds.
+  ///
+  /// The input keeps the objects in step with every edit (one before an object moves it, one over it takes it
+  /// away), in its undo history, and writes them back to the signal; the app sets the signal with the value to
+  /// load a document. `element` is called as the input is built, for each object the signal holds then: a
+  /// component that reads the signal builds its input again when it changes. It needs [`Self::spans`].
+  ///
+  /// ```
+  /// use lurq::{
+  ///   components::{Column, InlineObject, StyledSpan, TextInput},
+  ///   core::Signal,
+  /// };
+  ///
+  /// let value = Signal::new("A square: \u{FFFC}".to_owned());
+  /// let objects = Signal::new(vec![InlineObject::new(10, "square").width(24)]);
+  /// let input = TextInput::new(value)
+  ///   .spans(Signal::new(Vec::<StyledSpan>::new()))
+  ///   .objects(objects, |object| {
+  ///     let side = object.width.unwrap_or(16) as f32;
+  ///     Column::new().width(side).height(side).into()
+  ///   })
+  ///   .multiline();
+  /// ```
+  #[cfg(feature = "markdown")]
+  pub fn objects(
+    mut self,
+    objects: Signal<Vec<super::InlineObject>>,
+    mut element: impl FnMut(&super::InlineObject) -> crate::node::Element,
+  ) -> Self {
+    let held = objects.get();
+    self.update_node(|node| {
+      let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() else {
+        return;
+      };
+      let (state, built) = (
+        state.clone(),
+        super::styled_text::normalize_objects(&state.value(), held),
+      );
+      node.clear_child_elements();
+      for (index, object) in built.iter().enumerate() {
+        // Two objects that show the same thing are told apart by which of them comes first.
+        let nth = built[..index].iter().filter(|before| before.same_thing(object)).count();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&(&object.source, &object.label, object.width, nth), &mut hasher);
+        let key = format!("object-{:016x}", std::hash::Hasher::finish(&hasher));
+        // What the element holds takes neither the pointer nor the focus: a press on it is a press on the text.
+        let child = super::Stack::new().child(element(object)).inert(true).key(key);
+        node.push_child_element(child.into());
+      }
+      state.set_objects(objects, built);
+    });
+    self
+  }
+
   /// Runs after every change a styled input makes to its text or spans
   /// (typing, deleting, pasting, styling, undo) with a [`super::StyledChange`]:
   /// the text and spans it now holds, shared rather than copied, and what the

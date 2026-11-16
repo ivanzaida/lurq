@@ -60,21 +60,48 @@ impl DecoratedInputLayout {
     let line = row
       .line_height_opt
       .unwrap_or(self.config.base.font_size * self.config.base.line_height);
-    let height = if self.config.exact_rows {
+    // The line of the row's text: what the row is as high as where it holds no box.
+    let line = if self.config.exact_rows {
       line.max(1.0)
     } else {
       line.max(row.max_ascent + row.max_descent).max(1.0)
     };
+    let text_top = (line - row.max_ascent - row.max_descent) * 0.5;
+    // A box stands on the baseline, and the text keeps its line at the foot of the row: the row grows upward
+    // by what its tallest box rises over that line.
+    let tallest = row
+      .glyphs
+      .iter()
+      .filter_map(|glyph| self.config.object_size(styles[glyph.metadata].checked_sub(1)?))
+      .map(|(_, height)| height)
+      .fold(0.0_f32, f32::max);
+    let lift = (tallest - (text_top + row.max_ascent)).max(0.0);
+    let height = line + lift;
     let top = self.size.height;
-    let band_top = (height - row.max_ascent - row.max_descent) * 0.5;
+    let band_top = lift + text_top;
     let baseline = top + band_top + row.max_ascent;
     let (left, right) = row_extent(&row.glyphs);
     let width = (right - left).max(0.0);
     let shift = 0.0;
-    self.append_clusters(&row, styles, metrics, padding, offset, top, height, baseline, shift);
-    self.ensure_row_boundaries(offset, coverage.clone(), top, height, shift);
+    // The caret beside a box is as high as the text's line, not as the box.
+    let caret_box = (top + lift, line);
+    self.append_clusters(
+      &row,
+      styles,
+      metrics,
+      padding,
+      offset,
+      (top, caret_box),
+      baseline,
+      shift,
+    );
+    self.ensure_row_boundaries(offset, coverage.clone(), caret_box.0, caret_box.1, shift);
     for mut glyph in row.glyphs {
       let style = styles[glyph.metadata];
+      // A box draws nothing of the character it stands for.
+      if style > 0 && self.config.styles[style - 1].chip.object.is_some() {
+        continue;
+      }
       let text = if style == 0 {
         &self.config.base
       } else {
@@ -124,8 +151,7 @@ impl DecoratedInputLayout {
     metrics: &[(f32, f32)],
     padding: &Padding,
     offset: usize,
-    top: f32,
-    height: f32,
+    (top, (caret_top, caret_height)): (f32, (f32, f32)),
     baseline: f32,
     shift: f32,
   ) {
@@ -160,9 +186,19 @@ impl DecoratedInputLayout {
         self.carets.push(InputCaret {
           byte,
           x,
-          y: top,
-          height,
+          y: caret_top,
+          height: caret_height,
           font_size: glyph.font_size,
+          row: self.rows.len(),
+        });
+      }
+      if let Some((_, height)) = token.and_then(|token| self.config.object_size(token)) {
+        self.objects.push(InputObjectBox {
+          byte: range.0 + offset,
+          x: left + shift,
+          y: baseline - height,
+          width: (right - left).max(0.0),
+          height,
           row: self.rows.len(),
         });
       }
@@ -210,11 +246,12 @@ impl DecoratedInputLayout {
     for byte in ending.start + 1..ending.end {
       self.carets.push(InputCaret { byte, ..edge });
     }
+    // The row's own top, which is not the caret's where a box made the row higher than its line.
     self.intervals.push(ClusterInterval {
       range: ending.clone(),
       x: edge.x,
       right: edge.x,
-      y: edge.y,
+      y: self.rows[row].y,
     });
     self.rows[row].ending = Some(ending);
   }
@@ -390,10 +427,12 @@ impl DecoratedInputLayout {
     self.hit(position.x, self.rows[row].y)
   }
   pub(crate) fn selection(&self, range: Range<usize>, scroll: (f32, f32)) -> Vec<TextSelectionRange> {
+    // A box has no band of text to highlight: what is selected of it is shown over it, by what draws it.
     let mut selected: Vec<_> = self
       .intervals
       .iter()
       .filter(|part| part.range.start < range.end && part.range.end > range.start)
+      .filter(|part| !self.objects.iter().any(|object| object.byte == part.range.start))
       .collect();
     selected.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
     let mut result: Vec<TextSelectionRange> = Vec::new();
@@ -415,9 +454,19 @@ impl DecoratedInputLayout {
     }
     result
   }
+  /// Where the band of the text is in the row `y` is in, from `y` down, and how high it is. `y` is the top of
+  /// a row, or of the line a caret stands in: in a row that a box made higher than its line the two differ, and
+  /// the band is given from the one that was asked.
   pub(crate) fn selection_band(&self, y: f32) -> (f32, f32) {
     let index = self.rows.partition_point(|row| row.y <= y + 0.01).saturating_sub(1);
-    (self.rows[index].band_top, self.rows[index].band_height)
+    let row = &self.rows[index];
+    let inside = y - row.y;
+    let top = if inside > 0.01 && inside < row.height {
+      row.band_top - inside
+    } else {
+      row.band_top
+    };
+    (top, row.band_height)
   }
   pub(crate) fn allocated_bytes(&self) -> usize {
     size_of::<Self>()
@@ -434,6 +483,7 @@ impl DecoratedInputLayout {
       + self.glyphs.capacity() * size_of::<InputGlyph>()
       + self.fragments.capacity() * size_of::<InputFragment>()
       + self.carets.capacity() * size_of::<InputCaret>()
+      + self.objects.capacity() * size_of::<InputObjectBox>()
       + self.intervals.capacity() * size_of::<ClusterInterval>()
       + self.rows.capacity() * size_of::<InputRow>()
       + self.config.styles.capacity() * size_of::<TokenStyle>()

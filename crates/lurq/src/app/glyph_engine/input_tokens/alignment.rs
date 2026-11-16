@@ -43,6 +43,9 @@ impl DecoratedInputLayout {
     for caret in &mut self.carets {
       caret.x += shifts[caret.row];
     }
+    for object in &mut self.objects {
+      object.x += shifts[object.row];
+    }
     for interval in &mut self.intervals {
       let row = self.rows.partition_point(|row| row.y <= interval.y).saturating_sub(1);
       interval.x += shifts[row];

@@ -106,6 +106,8 @@ struct TextInputSnapshot {
   spans: Option<styled::SnapshotSpans>,
   /// The kinds of a styled input's paragraphs, where it has them.
   paragraphs: Option<styled::SnapshotParagraphs>,
+  /// The objects of a styled input's text, where it has them: undo brings a deleted one back as it was.
+  objects: Option<styled::SnapshotObjects>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -529,6 +531,7 @@ impl TextInputState {
     let value = self.value();
     let spans = self.current_spans();
     let paragraphs = self.current_paragraphs();
+    let objects = self.current_objects();
     let inner = self.inner.lock();
     TextInputSnapshot {
       value,
@@ -536,6 +539,7 @@ impl TextInputState {
       selection_anchor: inner.selection_anchor,
       spans,
       paragraphs,
+      objects,
     }
   }
 
@@ -572,6 +576,9 @@ impl TextInputState {
     drop(inner);
     if let Some(paragraphs) = snapshot.paragraphs {
       self.restore_paragraphs(paragraphs);
+    }
+    if let Some(objects) = snapshot.objects {
+      self.restore_objects(objects);
     }
     if let Some(spans) = snapshot.spans {
       self.restore_spans(spans);

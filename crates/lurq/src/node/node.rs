@@ -5010,6 +5010,15 @@ impl Node {
     NodeUpdate::child(self, child.into_node());
   }
 
+  /// Takes away the children built so far: what builds them again puts its own in their place.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn clear_child_elements(&mut self) {
+    if !self.children.is_empty() {
+      self.children.clear();
+      self.layout_cache.invalidate();
+    }
+  }
+
   /// The children of a `with_children`, grown as `Vec::extend` grows them, so
   /// a build allocates as before.
   pub(crate) fn extend_child_elements(&mut self, mut children: impl Iterator<Item = crate::node::Element>) {
@@ -5141,7 +5150,8 @@ impl Node {
       return std::borrow::Cow::Borrowed(&self.debug.debug_attrs);
     }
     let mut attrs: Vec<(Arc<str>, Arc<str>)> = self
-      .debug.debug_attrs
+      .debug
+      .debug_attrs
       .iter()
       .filter(|(name, _)| !described.iter().any(|(said, _)| said == name))
       .cloned()
@@ -6644,7 +6654,8 @@ impl Node {
   #[cfg(feature = "devtools")]
   fn estimated_debug_memory_bytes(&self) -> usize {
     self
-      .debug.component_props_debug
+      .debug
+      .component_props_debug
       .as_ref()
       .map(|props| {
         props.type_name.len()
@@ -6657,23 +6668,27 @@ impl Node {
       })
       .unwrap_or(0)
       + self
-        .debug.component_signals_debug
+        .debug
+        .component_signals_debug
         .iter()
         .map(|signal| signal.type_name.len() + signal.estimated_memory_bytes())
         .sum::<usize>()
       + self
-        .debug.component_memos_debug
+        .debug
+        .component_memos_debug
         .iter()
         .map(|memo| memo.type_name.len() + memo.estimated_memory_bytes())
         .sum::<usize>()
       + self.debug.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
       + self
-        .debug.component_contexts_debug
+        .debug
+        .component_contexts_debug
         .iter()
         .map(|context| context.type_name.len())
         .sum::<usize>()
       + self
-        .debug.debug_attrs
+        .debug
+        .debug_attrs
         .iter()
         .map(|(name, value)| name.len() + value.len())
         .sum::<usize>()
