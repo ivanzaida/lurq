@@ -166,6 +166,7 @@ impl TextInputState {
   /// Notes the token the pointer is on, at `point` in the coordinates the caret is placed by, or none. Only
   /// a token with a look for it is noted, and a change has the input drawn again.
   pub(crate) fn hover_token_at_point(&self, point: Option<(f32, f32)>) {
+    self.hover_object_handle(point);
     let under = point.and_then(|(x, y)| self.token_at_point(x, y));
     let on_icon = under.as_ref().is_some_and(|token| token.on_removing_icon);
     let hovered = under

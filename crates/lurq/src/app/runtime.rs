@@ -5266,6 +5266,7 @@ impl Tree {
             drag.update(lx, ly);
           }
           let has_selection = drag.has_selection(self.root.as_ref());
+          drag.finish(self.root.as_ref());
           self.dragging_text_selection = None;
           self.clear_active_path();
           if has_selection {
@@ -9671,6 +9672,16 @@ enum TextSelectionDragKind {
 }
 
 impl TextSelectionDrag {
+  /// Ends the drag: what it did besides selecting, the resize of an object of a text input, is done.
+  fn finish(&self, root: Option<&Node>) {
+    if let TextSelectionDragKind::Input { state, .. } = &self.kind {
+      root
+        .and_then(|root| self.current_input_state(root))
+        .unwrap_or(state)
+        .end_object_resize();
+    }
+  }
+
   fn update(&self, x: f32, y: f32) {
     let (local_x, local_y) = self.local_point(x, y);
     match &self.kind {
@@ -12285,6 +12296,12 @@ fn hovered_cursor<'a>(mut nodes: impl Iterator<Item = &'a Node>) -> CursorIcon {
       {
         // The cross that takes a token away is pressed, as a button is.
         Some(CursorIcon::Pointer)
+      } else if let NodeKind::TextInput { state, .. } = node.node_kind()
+        && state.object_handle_hovered()
+        && !node.is_disabled()
+      {
+        // The handle on the corner of a selected object is dragged along the diagonal.
+        Some(CursorIcon::NwseResize)
       } else {
         node.cursor_icon()
       }

@@ -1564,6 +1564,8 @@ impl RichTextEditorView {
         Some(picture) => picture(object),
         None => picture_of(object),
       })
+      // A selected picture is made wider or narrower by the handle on its corner.
+      .resizable_objects(self.editable())
       // What is copied keeps its marks and kinds beside its text, and comes back with them.
       .rich_clipboard(true)
       .controller(kept.controller.input.clone())
@@ -1912,6 +1914,16 @@ fn caret_paragraph(input: &TextInputController) -> Option<(ParagraphKind, std::o
 /// three backticks it starts a block of code. Anywhere else it is the text input's own.
 fn enter_key(kept: &Kept, shortcuts: bool) -> bool {
   let input = &kept.controller.input;
+  // A picture selected alone is not what Enter takes the place of: the paragraph starts after it.
+  if let Ok(selection) = input.selection() {
+    let range = selection.range();
+    let pictured = kept
+      .objects
+      .with_untracked(|objects| objects.iter().any(|object| object.range() == range));
+    if pictured {
+      let _ = input.select(range.end, range.end);
+    }
+  }
   let Some((kind, range, caret)) = caret_paragraph(input) else {
     return false;
   };

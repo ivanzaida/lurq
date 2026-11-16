@@ -650,6 +650,7 @@ impl Component for RichTextEditorPage {
           "Pictures",
           "A picture is a character of the document: the caret goes past it, a press selects it, Backspace after \
            it selects it and the next deletes it, and it is copied and pasted with the words around it. A \
+           selected picture has a handle on its corner: drag it to make the picture wider or narrower. A \
            screenshot pasted here goes in as a picture too: the page keeps its pixels while it runs, where an app \
            would write a file. One alone \
            in its paragraph and one among words are both in rows of the text, each row as high as it needs. The \

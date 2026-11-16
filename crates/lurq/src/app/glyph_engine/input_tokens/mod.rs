@@ -96,6 +96,9 @@ pub(crate) struct TextLines {
   pub(crate) strikethrough: bool,
 }
 
+/// The room a row keeps after a box that is as wide as it can be, for the caret that stands there.
+pub(crate) const OBJECT_CARET_ROOM: f32 = 2.0;
+
 /// Where the box of a range that is an object stands ([`TokenChip::object`]): the byte its range starts at, and
 /// its place in the coordinates the glyphs and the carets have.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -128,11 +131,12 @@ pub(crate) struct InputConfig {
 
 impl InputConfig {
   /// The size of the box the style `token` is, where it is one: its own, or with a width that is more than the
-  /// row's, as wide as the row and as high as keeps its shape.
+  /// row's, as wide as the row and as high as keeps its shape. The row keeps the room of a caret after its
+  /// widest box, so that the caret after a box as wide as the row is inside the input and seen.
   pub(crate) fn object_size(&self, token: usize) -> Option<(f32, f32)> {
     let (width, height) = self.styles.get(token)?.chip.object?;
     let (width, height) = (width.max(0.0), height.max(0.0));
-    let room = self.width.max(0.0);
+    let room = (self.width - OBJECT_CARET_ROOM).max(0.0);
     if width > room && room.is_finite() && width > 0.0 {
       return Some((room, height * (room / width)));
     }

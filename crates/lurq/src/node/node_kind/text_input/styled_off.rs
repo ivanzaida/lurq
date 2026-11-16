@@ -88,6 +88,27 @@ impl TextInputState {
     None
   }
 
+  #[inline]
+  pub(super) fn begin_object_resize(&self, _x: f32, _y: f32) -> bool {
+    false
+  }
+
+  #[inline]
+  pub(super) fn drag_object_resize(&self, _x: f32) -> bool {
+    false
+  }
+
+  #[inline]
+  pub(crate) fn end_object_resize(&self) {}
+
+  #[inline]
+  pub(super) fn hover_object_handle(&self, _point: Option<(f32, f32)>) {}
+
+  #[inline]
+  pub(crate) fn object_handle_hovered(&self) -> bool {
+    false
+  }
+
   /// What copying the selection puts on the clipboard: the selected text. Nothing while the input is masked, as a
   /// password field copies nothing.
   pub(crate) fn clipboard_selection(&self) -> Option<String> {
