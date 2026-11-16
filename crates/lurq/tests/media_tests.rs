@@ -4,7 +4,11 @@
 //! And a sound: a file, bytes and an address, which is loaded once and kept. Every media here is silenced
 //! before it plays, so that a run of the tests is not heard; the one test that listens is ignored unless asked
 //! for (`-- --ignored`), and plays a quiet tone for a moment.
-#![cfg(windows)]
+//!
+//! The tests of a sound run on macOS as well, where a media plays one with the system's own player; the tests
+//! of a video, and the one that reads the system's meters, are Windows'.
+#![cfg(any(windows, target_os = "macos"))]
+#![cfg_attr(not(windows), allow(unused_imports, dead_code))]
 
 use std::{
   path::PathBuf,
@@ -22,6 +26,11 @@ use lurq::{
 
 fn clip() -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4")
+}
+
+/// The gallery's own track: 24 seconds of AAC in an MP4 file.
+fn track() -> PathBuf {
+  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/track.m4a")
 }
 
 /// The clip, opened and silenced.
@@ -84,6 +93,7 @@ fn until(media: &Media, what: &str, is: impl Fn(&MediaState) -> bool) -> MediaSt
   }
 }
 
+#[cfg(windows)]
 #[test]
 fn a_file_opens_with_its_size_its_length_and_its_first_frame() {
   let woken = Arc::new(AtomicUsize::new(0));
@@ -114,6 +124,7 @@ fn a_file_opens_with_its_size_its_length_and_its_first_frame() {
   }
 }
 
+#[cfg(windows)]
 #[test]
 fn it_plays_by_its_clock_shows_frames_and_stops_where_it_is_paused() {
   let media = quiet(&Source::file(clip()));
@@ -150,6 +161,7 @@ fn it_plays_by_its_clock_shows_frames_and_stops_where_it_is_paused() {
   assert!((0.8..1.3).contains(&gone), "about a second in half of one: {gone}");
 }
 
+#[cfg(windows)]
 #[test]
 fn it_goes_where_it_is_sent_and_ends_at_its_end() {
   let media = quiet(&Source::file(clip()));
@@ -176,6 +188,7 @@ fn it_goes_where_it_is_sent_and_ends_at_its_end() {
   assert!(again.position < 1.0, "{}", again.position);
 }
 
+#[cfg(windows)]
 #[test]
 fn bytes_play_as_a_file_does_and_what_is_no_video_says_why() {
   let bytes = std::fs::read(clip()).expect("the clip");
@@ -197,6 +210,7 @@ fn bytes_play_as_a_file_does_and_what_is_no_video_says_why() {
   );
 }
 
+#[cfg(windows)]
 #[test]
 fn a_clip_has_its_sound_and_what_is_only_heard_of_it_has_no_picture() {
   let seen = quiet(&Source::file(clip()));
@@ -268,6 +282,48 @@ fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   let broken = Media::sound(&Loader::new(), &Source::bytes(b"this is not a sound".to_vec()));
   let state = until(&broken, "failed", |state| state.error.is_some());
   assert!(!state.playing && !state.waiting);
+}
+
+#[test]
+fn a_song_in_an_mp4_file_plays_as_a_sound_at_any_speed_and_where_it_is_sent() {
+  let media = Media::sound(&Loader::new(), &Source::file(track()));
+  media.set_muted(true);
+  let state = until(&media, "opened", |state| !state.waiting);
+  assert_eq!((state.error, state.size, state.sound), (None, None, true));
+  assert!(
+    state.duration.is_some_and(|duration| (duration - 24.0).abs() < 0.2),
+    "{:?}",
+    state.duration
+  );
+  media.play();
+  until(&media, "playing", |state| state.playing);
+  std::thread::sleep(Duration::from_millis(600));
+  let position = media.state().position;
+  assert!((0.4..0.9).contains(&position), "about 0.6 s after 0.6 s: {position}");
+  media.set_rate(2.0);
+  until(&media, "twice as fast", |state| state.rate == 2.0);
+  let from = media.state().position;
+  std::thread::sleep(Duration::from_millis(500));
+  let gone = media.state().position - from;
+  assert!((0.8..1.3).contains(&gone), "about a second in half of one: {gone}");
+  media.seek(10.0);
+  std::thread::sleep(Duration::from_millis(300));
+  let position = media.state().position;
+  assert!(
+    (10.3..11.2).contains(&position),
+    "0.6 s on from 10 at twice the speed: {position}"
+  );
+  media.pause();
+  let paused = until(&media, "paused", |state| !state.playing).position;
+  std::thread::sleep(Duration::from_millis(200));
+  assert_eq!(media.state().position, paused, "the clock stands");
+  // Near its end it ends, and says so.
+  media.set_rate(1.0);
+  media.seek(23.6);
+  media.play();
+  let ended = until(&media, "ended", |state| state.ended);
+  assert!(!ended.playing);
+  assert!(ended.duration.is_some_and(|duration| ended.position == duration));
 }
 
 /// A server on this machine that answers each request with `body`, or with `status` where it has none, and
@@ -362,6 +418,7 @@ fn a_sound_that_is_not_at_its_address_says_so_and_one_the_app_refuses_is_not_ask
 
 /// How loud it is right now, from 0 to 1, by the system's own meters: what this process gives the default
 /// output, before the loudness it is played at, and what comes out of the output, of everything that plays.
+#[cfg(windows)]
 fn loudness() -> (f32, f32) {
   use windows::{
     Win32::{
@@ -401,6 +458,7 @@ fn loudness() -> (f32, f32) {
 }
 
 /// The loudest it is over the next `milliseconds`: of this process, and out of the device.
+#[cfg(windows)]
 fn loudest_over(milliseconds: u64) -> (f32, f32) {
   let started = Instant::now();
   let mut loudest = (0.0_f32, 0.0_f32);
@@ -417,6 +475,7 @@ fn loudest_over(milliseconds: u64) -> (f32, f32) {
 /// reach the output, as loud as told) is measured. Nothing else may play while it runs: the device's meter is
 /// of everything. Run alone:
 /// `cargo test -p lurq --features media --test media_tests -- --ignored --test-threads 1 --nocapture`.
+#[cfg(windows)]
 #[test]
 #[ignore = "it is heard: a quiet tone for two seconds"]
 fn its_sound_reaches_the_output_as_loud_as_it_is_told() {

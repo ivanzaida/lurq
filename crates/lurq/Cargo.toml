@@ -23,9 +23,11 @@ image = ["raster", "dep:image"]
 # Shared raw RGBA transport and GPU composition; no image codecs.
 raster = ["dep:core-video-sys"]
 # Playing a video or a sound: `lurq::media`, `ui::VideoPlayer::source` and `ui::AudioPlayer::source`. On Windows it
-# decodes with Media Foundation and plays its sound through WASAPI. A sound at an address is loaded with `http`.
+# decodes with Media Foundation and plays its sound through WASAPI; on macOS and iOS it plays a sound with the
+# system's `AVAudioPlayer`. A sound at an address is loaded with `http`.
 media = [
     "raster",
+    "dep:objc2-avf-audio",
     "windows/Win32_Media_Audio",
     "windows/Win32_Media_MediaFoundation",
     "windows/Win32_System_Com",
@@ -214,6 +216,13 @@ objc2 = "0.6"
 block2 = "0.6"
 # The scripts cosmic-text asks a fallback font for; see `glyph_engine::ios_fallback`.
 unicode-script = "0.5"
+# What `lurq::media` gives the system's player of a sound and is given back by it.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "NSData", "NSError", "NSURL"] }
+
+# The sound of `lurq::media` on macOS and iOS: the system's `AVAudioPlayer`. The data, the addresses and the
+# errors it takes and gives are `objc2-foundation`'s, in each system's own table.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioPlayer"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation-sys = "0.8"
@@ -224,7 +233,7 @@ objc2 = "0.6"
 # `NSColorSampler` and `block2` for `lurq::eyedropper`: the system's sampler of a color from the screen.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder", "objc2-core-foundation", "NSColor", "NSColorSampler", "NSColorSpace", "block2"] }
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation", "NSData", "NSError", "NSURL"] }
 wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
 
 [dev-dependencies]

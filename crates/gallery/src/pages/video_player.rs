@@ -1002,7 +1002,7 @@ impl Component for VideoPlayerPage {
         "&Source",
         "",
         "What it plays (feature media): a mounted player decodes it and draws its frames, and its time, its \
-         length and whether it plays are the media's. No sound yet.",
+         length and whether it plays are the media's. Its sound is heard, as loud as the volume says.",
       ),
       (
         "touch",
@@ -1167,7 +1167,7 @@ impl Component for VideoPlayerPage {
           "Playing a file",
           "Given a source (a file, bytes, a resource, an address), a mounted player decodes it with the system's \
            decoder and draws its frames: play, pause, the seek bar, the speed and the keys move the video itself. \
-           No sound yet: the volume is drawn and changes nothing.",
+           Its sound is heard through the system's output, and the volume and the mute are its own.",
           self.frame.demo(
             5,
             real,

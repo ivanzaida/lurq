@@ -644,8 +644,10 @@ impl AudioPlayer {
   /// What it plays: a file, bytes, a resource of the app or an address. A player in a tree (given to it as it
   /// is, or mounted) opens it as a sound ([`Media::sound`](crate::media::Media::sound)) with the app's loader and
   /// plays it through the system's output: where it is, how long it is, and whether it plays, loads or failed
-  /// are the media's, in place of what the app says of them. A sound at an address is loaded once and kept
-  /// ([`sound_cache`](crate::media::sound_cache)): while it loads, the player is drawn loading.
+  /// are the media's, in place of what the app says of them. A sound at an address is loaded when it is first
+  /// played, once, and kept ([`sound_cache`](crate::media::sound_cache)): while it loads, the player is drawn
+  /// loading, and until then it is drawn from the length the app gave. A file, bytes and a sound that is kept
+  /// already are opened as soon as the player is in a tree.
   ///
   /// What a person does on a control is told to the app's handlers and done to the media: play and pause, the
   /// seek bar, the volume, the mute and the speed. An app that holds `playing`, `volume`, `muted` or `rate`
@@ -1834,6 +1836,9 @@ struct Played {
   /// What the app last said of playing, of the speed, of how loud it is and of whether it is silenced: a
   /// change of them moves the media.
   said: Arc<Mutex<Said>>,
+  /// The key of the source a person asked to play before it was opened: a sound at an address is opened, and
+  /// so loaded, when it is first played.
+  asked: Arc<Mutex<Option<u64>>>,
   _clock: crate::app::ctx::Interval,
 }
 
@@ -1859,6 +1864,7 @@ impl Played {
       beat,
       plays,
       said: Arc::default(),
+      asked: Arc::default(),
       _clock: clock,
     }
   }
@@ -1884,9 +1890,29 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     .app_handle()
     .map_or_else(crate::resources::Loader::new, |app| app.loader().clone());
   if held.as_ref().is_none_or(|(of, _)| *of != key) {
+    // A sound at an address is not loaded for being drawn: a list of a hundred players loads nothing until
+    // one of them is played. What is kept already, a file and bytes are there, and are opened at once.
+    let asked = *played.asked.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) == Some(key);
+    let there = !source.is_remote() || crate::media::sound_cache().holds(&source);
+    if !(there || asked || player.playing.value) {
+      *held = None;
+      played.plays.store(false, Ordering::Relaxed);
+      let (asked, beat) = (played.asked.clone(), played.beat.clone());
+      player.playing.tell.push(Arc::new(move |to| {
+        if to {
+          *asked.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(key);
+          beat.update(|count| *count += 1);
+        }
+      }));
+      return player;
+    }
     let media = Media::sound(&loader, &source);
     let beat = played.beat.clone();
     media.on_change(move || beat.update(|count| *count += 1));
+    // The press that opened it is a press of play: it plays once it is loaded.
+    if asked {
+      media.play();
+    }
     *held = Some((key, media));
     *played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Said::default();
   }

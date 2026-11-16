@@ -461,6 +461,8 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
     shared.wake();
     // Something was done in the last turn of the loop: there may be more to do at once.
     let mut worked = true;
+    // How many of the times it was sent somewhere it has done.
+    let mut gone = 0_u64;
     loop {
       let (playing, ended, now, rate) = {
         let inner = shared.inner();
@@ -485,8 +487,11 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
       // Sent to many times while a seek bar is dragged, it goes to the last of them.
       let last_seek = commands.iter().rposition(|command| matches!(command, Command::Seek(_)));
       for (index, command) in commands.into_iter().enumerate() {
-        if matches!(command, Command::Seek(_)) && Some(index) != last_seek {
-          continue;
+        if matches!(command, Command::Seek(_)) {
+          gone += 1;
+          if Some(index) != last_seek {
+            continue;
+          }
         }
         match command {
           Command::Close => return Ok(()),
@@ -646,7 +651,7 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
               && let Some(heard) = output.heard()
             {
               let mut inner = shared.inner();
-              if inner.playing && (heard - inner.position()).abs() > APART {
+              if inner.playing && inner.sent == gone && (heard - inner.position()).abs() > APART {
                 inner.at = heard;
                 inner.since = Instant::now();
               }

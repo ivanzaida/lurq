@@ -65,6 +65,176 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .child(quiet(caption, 12.0))
 }
 
+/// The gallery's own track: twenty-four seconds of plucked notes, in the gallery's binary.
+#[cfg(not(target_arch = "wasm32"))]
+const TRACK: &[u8] = include_bytes!("../../assets/media/track.m4a");
+
+/// A sound anyone may fetch, for the player that plays an address until another is typed.
+#[cfg(not(target_arch = "wasm32"))]
+const ADDRESS: &str = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+
+/// Where a player that really plays takes its sound from.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Origin {
+  Bytes,
+  File,
+  Address,
+}
+
+#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
+impl lurq::app::component::DevtoolsInspectable for Origin {
+  fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+/// The track as bytes: one source for every render, so that it is one sound.
+#[cfg(not(target_arch = "wasm32"))]
+fn track_bytes() -> lurq::resources::Source {
+  static TRACK_BYTES: std::sync::OnceLock<lurq::resources::Source> = std::sync::OnceLock::new();
+  TRACK_BYTES
+    .get_or_init(|| lurq::resources::Source::bytes(TRACK.to_vec()))
+    .clone()
+}
+
+/// The track as a file on this machine's disk, written there once: a player reads it from the disk.
+#[cfg(not(target_arch = "wasm32"))]
+fn track_file() -> lurq::resources::Source {
+  static TRACK_FILE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+  let path = TRACK_FILE.get_or_init(|| {
+    let folder = std::env::temp_dir().join("lurq-gallery");
+    let path = folder.join("track.m4a");
+    let _ = std::fs::create_dir_all(&folder);
+    let _ = std::fs::write(&path, TRACK);
+    path
+  });
+  lurq::resources::Source::file(path)
+}
+
+/// A player that really plays: it is given a source and nothing of where it is or how long, which are the
+/// sound's. Its volume starts at a half.
+#[cfg(not(target_arch = "wasm32"))]
+struct Sourced {
+  playing: Signal<bool>,
+  position: Signal<f32>,
+  volume: Signal<f32>,
+  muted: Signal<bool>,
+  rate: Signal<f32>,
+  repeat: Signal<AudioRepeat>,
+  /// What is typed for an address, and the address that plays.
+  typed: Signal<String>,
+  address: Signal<String>,
+  /// How many bytes of sounds the process keeps: read again a few times a second, for the line under the player.
+  kept: Signal<u64>,
+  _clock: Interval,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Component for Sourced {
+  type Props = Origin;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let kept = ctx.signal(lurq::media::sound_cache().bytes());
+    let clock = ctx.create_interval(Duration::from_millis(500), {
+      let kept = kept.clone();
+      move || {
+        let now = lurq::media::sound_cache().bytes();
+        if kept.get_untracked() != now {
+          kept.set(now);
+        }
+      }
+    });
+    if *ctx.props::<Origin>() == Origin::Address {
+      clock.start();
+    }
+    Self {
+      playing: ctx.signal(false),
+      position: ctx.signal(0.0),
+      volume: ctx.signal(0.5),
+      muted: ctx.signal(false),
+      rate: ctx.signal(1.0),
+      repeat: ctx.signal(AudioRepeat::Off),
+      typed: ctx.signal(ADDRESS.to_owned()),
+      address: ctx.signal(ADDRESS.to_owned()),
+      kept,
+      _clock: clock,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let origin = *ctx.props::<Origin>();
+    let address = self.address.get();
+    let source = match origin {
+      Origin::Bytes => track_bytes(),
+      Origin::File => track_file(),
+      Origin::Address => lurq::resources::Source::url(address.trim()),
+    };
+    let (title, by) = match origin {
+      Origin::Bytes => ("Paper Boats", "Bytes in the app"),
+      Origin::File => ("Paper Boats", "A file on the disk"),
+      Origin::Address => ("From an address", "Loaded once, then kept"),
+    };
+    let mut player = AudioPlayer::new(self.position.clone(), 0.0)
+      .title(title)
+      .description(by)
+      .media(artwork(64.0))
+      .playing(self.playing.clone())
+      .volume(self.volume.clone())
+      .muted(self.muted.clone())
+      .rate(self.rate.clone())
+      .repeat(self.repeat.clone());
+    if origin != Origin::Address || !address.trim().is_empty() {
+      player = player.source(&source);
+    }
+    let shown = Column::new().width(360.0).spacing(10.0).overflow_visible().child(player);
+    if origin != Origin::Address {
+      return shown;
+    }
+    // Another address is played once it is entered; what was kept of this one is let go on asking.
+    let (typed, entered, playing) = (self.typed.clone(), self.address.clone(), self.playing.clone());
+    let play = move || {
+      playing.set(false);
+      entered.set(typed.get_untracked());
+    };
+    let kept = lurq::media::sound_cache().holds(&source);
+    let forgotten = source.clone();
+    shown
+      .child(lurq::ui::Input::new(self.typed.clone()).placeholder("https://…/sound.mp3").on_submit({
+        let play = play.clone();
+        move |_| play()
+      }))
+      .child(
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .child(
+            lurq::ui::Button::new("Play this address")
+              .variant(lurq::ui::ButtonVariant::Secondary)
+              .size(lurq::ui::ButtonSize::Sm)
+              .on_click(move |_| play()),
+          )
+          .child(
+            lurq::ui::Button::new("Forget it")
+              .variant(lurq::ui::ButtonVariant::Ghost)
+              .size(lurq::ui::ButtonSize::Sm)
+              .disabled(!kept)
+              .on_click(move |_| {
+                lurq::media::sound_cache().forget(&forgotten);
+              }),
+          ),
+      )
+      .child(quiet(
+        &format!(
+          "{} · {:.1} MB of sounds kept",
+          if kept { "this one is kept" } else { "this one is not kept yet" },
+          self.kept.get() as f64 / (1024.0 * 1024.0)
+        ),
+        12.0,
+      ))
+  }
+}
+
 /// What is on a stage, side by side; what does not fit goes on to the next line.
 fn items() -> Row {
   Row::new()
@@ -879,6 +1049,14 @@ impl Component for AudioPlayerPage {
          of the bar.",
       ),
       (
+        "source",
+        "&Source",
+        "",
+        "What it plays (feature media): a file, bytes, a resource or an address. Its time, its length and \
+         whether it plays, loads or failed are the sound's. An address is loaded when it is first played, and \
+         kept.",
+      ),
+      (
         "loading",
         "bool",
         "false",
@@ -925,24 +1103,21 @@ impl Component for AudioPlayerPage {
       ),
     ];
     let playground = self.play(ctx);
-    self.frame.page(
-      ctx,
-      Header {
-        breadcrumb: &["Components", "Media", "Audio Player"],
-        title: "Audio Player",
-        description: "Sound without a picture: a full card, a row for lists and messages, a voice message, and a \
-                      mini player docked to the bottom of a window. Every value is the app's; a control tells what \
-                      it is to be.",
-        import: Some("use lurq::ui::{AudioPlayer, AudioPlayerVariant, AudioRepeat};"),
-        status: Some("Preview"),
-        since: Some("0.63"),
-        source: file!(),
-      },
-      vec![
+    #[cfg(not(target_arch = "wasm32"))]
+    let real = items()
+      .child(item(ctx.mount::<Sourced>(Origin::Bytes), "bytes: in the app's own binary"))
+      .child(item(ctx.mount::<Sourced>(Origin::File), "a file: read from the disk"))
+      .child(item(
+        ctx.mount::<Sourced>(Origin::Address),
+        "an address: loaded through the app's loader, then kept",
+      ));
+    #[allow(unused_mut)]
+    let mut sections = vec![
         Section::new(
           "Playground",
           "Every prop is a control on the right; the player on the stage is bound to the page's signals, and a \
-           clock of the page moves the position on while it plays and stops it at the end. Nothing really plays.",
+           clock of the page moves the position on while it plays and stops it at the end. Nothing really plays \
+           here: the players of the next section do.",
           playground,
         ),
         Section::new(
@@ -1023,7 +1198,48 @@ impl Component for AudioPlayerPage {
           ),
         ),
         Section::new("Props", "", props_table(&rows_table, &["new"], self.frame.room())),
-      ],
+    ];
+    #[cfg(not(target_arch = "wasm32"))]
+    sections.insert(
+      1,
+      Section::new(
+        "Plays a source",
+        "Given a source, a player really plays: the sound is decoded by the system and heard, and where it is, \
+         how long it is and whether it loads are the sound's own. The same track from the bytes of the app's \
+         binary and from a file on the disk, and a sound at an address, which is loaded once through the app's \
+         loader and kept: forget it, and playing it loads it again.",
+        self.frame.demo(
+          4,
+          real,
+          "AudioPlayer::new(position, 0.0).source(&Source::url(..))",
+          &[
+            "// Bytes, a file, a resource of the app, an address:",
+            "AudioPlayer::new(position, 0.0)",
+            "    .source(&Source::url(\"https://example.com/night-drive.mp3\"))",
+            "    .title(\"Night Drive\")",
+            "    .volume(volume)",
+            "",
+            "// What was loaded from an address is kept, up to a number of bytes:",
+            "sound_cache().budget(256 * 1024 * 1024);",
+            "sound_cache().forget(&source);",
+          ],
+        ),
+      ),
+    );
+    self.frame.page(
+      ctx,
+      Header {
+        breadcrumb: &["Components", "Media", "Audio Player"],
+        title: "Audio Player",
+        description: "Sound without a picture: a full card, a row for lists and messages, a voice message, and a \
+                      mini player docked to the bottom of a window. Every value is the app's; a control tells what \
+                      it is to be. Given a source, it plays it.",
+        import: Some("use lurq::ui::{AudioPlayer, AudioPlayerVariant, AudioRepeat};"),
+        status: Some("Preview"),
+        since: Some("0.63"),
+        source: file!(),
+      },
+      sections,
     )
   }
 }

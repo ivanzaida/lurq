@@ -531,7 +531,7 @@ fn given_to_a_tree_as_it_is_a_mini_player_has_the_form_of_its_width_from_the_fir
 }
 
 /// A tone of 440 Hz, `seconds` long, as the bytes of a WAV file: two channels of 16 bits at 44100 a second.
-#[cfg(all(windows, feature = "media"))]
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
 fn tone(seconds: f64) -> Vec<u8> {
   const RATE: u32 = 44_100;
   let frames = (seconds * f64::from(RATE)) as u32;
@@ -559,7 +559,7 @@ fn tone(seconds: f64) -> Vec<u8> {
 }
 
 /// Renders `stage` again until `is` holds, for at most ten seconds: a media works on a thread of its own.
-#[cfg(all(windows, feature = "media"))]
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
 #[track_caller]
 fn until(stage: &mut Stage, what: &str, mut is: impl FnMut(&mut Stage) -> bool) {
   let started = std::time::Instant::now();
@@ -578,7 +578,7 @@ fn until(stage: &mut Stage, what: &str, mut is: impl FnMut(&mut Stage) -> bool) 
   }
 }
 
-#[cfg(all(windows, feature = "media"))]
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
 #[test]
 fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   use lurq::resources::Source;
@@ -638,4 +638,88 @@ fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   until(&mut broken, "the error", |stage| {
     stage.tree.get_element_by_id_mut("p-retry").is_some()
   });
+}
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media", feature = "http"))]
+#[test]
+fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_drawn() {
+  use std::{
+    io::{Read, Write},
+    sync::atomic::{AtomicUsize, Ordering},
+  };
+
+  use lurq::resources::Source;
+  // A server on this machine that answers each request with the tone, and counts them.
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let address = format!("http://{}/tone.wav", listener.local_addr().unwrap());
+  let asked = Arc::new(AtomicUsize::new(0));
+  let counted = asked.clone();
+  std::thread::spawn(move || {
+    let body = tone(8.0);
+    for stream in listener.incoming() {
+      let Ok(mut stream) = stream else {
+        return;
+      };
+      let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
+      while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk) {
+          Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+          _ => break,
+        }
+      }
+      counted.fetch_add(1, Ordering::Relaxed);
+      let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+      );
+      let _ = stream.write_all(head.as_bytes());
+      let _ = stream.write_all(&body);
+    }
+  });
+  let source = Source::url(&address);
+  let shown = source.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 95.0, |_| {})
+          .source(&shown)
+          .muted_controlled(true, |_| {})
+          .title("Tone")
+          .id("p"),
+      )
+      .into()
+  });
+  // Drawn, and drawn again: nothing is asked of the server, and its length is what the app said.
+  for _ in 0..5 {
+    stage.tree.tick_timers_at(std::time::Instant::now());
+    stage.pass();
+    std::thread::sleep(std::time::Duration::from_millis(40));
+  }
+  assert_eq!(asked.load(Ordering::Relaxed), 0, "a player that is only drawn loads nothing");
+  assert!(stage.paints("1:35"), "the length the app gave");
+  assert!(!lurq::media::sound_cache().holds(&source));
+
+  // Play: it is loaded, its length is its own, it plays, and it is kept.
+  stage.click("p-play");
+  until(&mut stage, "its own length", |stage| stage.paints("0:08"));
+  until(&mut stage, "playing", |stage| stage.paints("0:01"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1);
+  assert!(lurq::media::sound_cache().holds(&source));
+
+  // Another player of the same address, later: kept, it is opened at once and asks the server for nothing.
+  let shown = source.clone();
+  let mut second = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 95.0, |_| {})
+          .source(&shown)
+          .muted_controlled(true, |_| {})
+          .id("p"),
+      )
+      .into()
+  });
+  until(&mut second, "its own length", |stage| stage.paints("0:08"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two players");
 }

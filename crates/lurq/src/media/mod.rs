@@ -29,6 +29,8 @@ use crate::{
   resources::{Load, LoadError, LoadState, Loader, Source, SourceKind},
 };
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod apple;
 mod cache;
 #[cfg(windows)]
 mod mf;
@@ -102,6 +104,9 @@ pub(crate) struct Inner {
   pub rate: f64,
   pub at: f64,
   pub since: Instant,
+  /// How many times it was sent somewhere ([`Media::seek`]). The thread counts the ones it has done, and does
+  /// not set the clock by what is heard while one is on its way: that would be where it was.
+  pub sent: u64,
   pub frame: Option<ImageData>,
 }
 
@@ -325,6 +330,7 @@ impl Media {
         rate: 1.0,
         at: 0.0,
         since: Instant::now(),
+        sent: 0,
         frame: None,
       }),
       commands: Mutex::new(VecDeque::new()),
@@ -369,7 +375,22 @@ impl Media {
     }
   }
 
-  #[cfg(not(windows))]
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  fn start(shared: &Arc<Shared>, asked: Asked, heard: bool) {
+    let thread = shared.clone();
+    let spawned = std::thread::Builder::new()
+      .name("lurq-media".to_owned())
+      .spawn(move || {
+        if let Some(opened) = settle(&thread, asked) {
+          apple::run(&thread, opened, heard);
+        }
+      });
+    if spawned.is_err() {
+      shared.fail("a thread to play on could not be started");
+    }
+  }
+
+  #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
   fn start(shared: &Arc<Shared>, _: Asked, _: bool) {
     let _ = settle;
     shared.fail("this build has no decoder for this system yet");
@@ -433,6 +454,7 @@ impl Media {
       inner.at = to;
       inner.since = Instant::now();
       inner.ended = false;
+      inner.sent += 1;
       to
     };
     self.shared().tell(Command::Seek(to));
