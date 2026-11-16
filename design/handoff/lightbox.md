@@ -40,6 +40,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
 | `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
 | `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
+| `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
 | `wrap(bool)` | Whether the first picture comes after the last |
 | `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
 | `on_download(Fn(usize))` | Shows the Download button, and is called with the picture shown |
@@ -89,11 +90,19 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 - Where the top row has no room, the level gives way first: the buttons about it, a double click and `0` do what it
   does.
 
+- The small pictures of the strip are decoded small (four times the longer side of their box, both ways),
+  not as the picture itself: a strip of a dozen photos held a dozen photos' pixels, and asked for the
+  pictures about the one shown before it came.
+- Seen by hand through the gallery's MCP server, over the window: the right arrow twice turns to 3 / 8 and
+  the left arrow back to 2 / 8; `+` brings the picture to 150%, where the right arrow moves it and does not
+  turn; `0` fits it again at 100%; Escape closes it. Opened by a click, the focus is on Zoom out and its ring
+  shows; closer than it fits, `ZoomScroll`'s bars show along the bottom and the right.
+
 ## Not done
 
 - The phone's lightbox (a sheet, swipes between pictures) is not drawn on the board and not built.
-- The pictures before and after the one shown are not loaded ahead.
-- Not seen by hand: the keys in the lightbox over the window, a pinch on a touch screen.
+- Not seen by hand: a pinch on a touch screen. The gallery's MCP server sends no touch, and this machine has
+  no touch screen; the pinch is `ZoomScroll`'s, which the engine's touch tests cover.
 
 ## Differs from the board
 

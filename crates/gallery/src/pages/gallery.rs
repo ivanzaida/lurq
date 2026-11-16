@@ -226,7 +226,7 @@ impl Component for GalleryPage {
       .align_items(Alignment::End)
       .id("gallery-board")
       .child(item(
-        Gallery::new(pictures_of(&self.shots, 8)).width(392.0),
+        Gallery::new(pictures_of(&self.shots, 8)).width(392.0).id("gallery-eight"),
         "eight pictures · four in a row, 92 × 68, 8 apart",
       ))
       .child(item(

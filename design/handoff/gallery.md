@@ -37,7 +37,7 @@ Gallery::keyed(photos.iter().map(|photo| (photo.id, Picture::from_file(&photo.pa
 | --- | --- |
 | `new(pictures)`, `picture(Picture)`, `pictures(..)` | The pictures, told apart by their place |
 | `keyed(items)`, `item(key, Picture)` | The pictures, each with a key of the app's (`GalleryKey`: `Clone + PartialEq + Send + Sync`): what is chosen is a list of those keys, which stays right when the pictures are put in another order |
-| `columns(usize)`, `gap(f32)`, `aspect_ratio(f32)` | How many stand in a row (4), the room between them across and down (8), and the width of a picture's room to its height (92 to 68). A row the pictures do not fill keeps its empty rooms: its pictures are as wide as the others |
+| `columns(usize)`, `min_picture_width(f32)`, `gap(f32)`, `aspect_ratio(f32)` | The most pictures in a row (4); the least width of a picture (92, the board's thumbnail), which takes columns away as the room narrows, down to one, and which 0 turns off; the room between them across and down (8); and the width of a picture's room to its height (92 to 68). The room is measured before paint: the first frame has the rows of the settled one. A row the pictures do not fill keeps its empty rooms: its pictures are as wide as the others |
 | `width(Length)` | How wide the gallery is: all the room there is unless told, and never wider than its room. The pictures share it |
 | `size(PictureSize)` | The form of its pictures: `Sm` unless told |
 | `max_shown(usize)`, `more_text(Fn(usize) -> String)` | The most pictures it shows: with more, the last one shown lies under a veil that says how many more there are, itself among them ("+5"). A press of it opens that picture in the lightbox, which holds every picture |
@@ -77,13 +77,17 @@ Gallery::keyed(photos.iter().map(|photo| (photo.id, Picture::from_file(&photo.pa
 - In a gallery that chooses, Enter opens: a press and Space are taken by choosing, and without a key there would be
   no way to look at a picture before choosing it.
 
+- In a narrow room a gallery has fewer pictures in a row, not smaller ones: `columns` is the most, and
+  `min_picture_width` the least a picture is, as the playbook's "A narrow window" has a component give way
+  by its own room. An app that wants exactly its columns says `min_picture_width(0.0)`.
+- Pictures of their own shapes in rows of one height (a justified grid, a masonry) are not on the board and
+  not built: every room has one ratio.
+- Seen by hand through the gallery's MCP server: a press of the third picture opens the lightbox at 3 / 8,
+  the right arrow turns to 4 / 8, the left arrow twice to 2 / 8, Escape closes it.
+
 ## Not done
 
-- Pictures of their own shapes in rows of one height (a justified grid, a masonry) are not on the board and not
-  built: every room has one ratio.
-- A gallery does not make its rows shorter in a narrow room: four in a row stay four, smaller. `columns` is the
-  app's to change.
-- Not seen by hand: the lightbox opened from a gallery and the arrows among its pictures; the tests cover both.
+- Nothing.
 
 ## Differs from the board
 

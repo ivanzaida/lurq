@@ -998,6 +998,14 @@ impl Picture {
     self.size = None;
     // What holds it is what tooling reads.
     self.decorative = true;
+    // A small picture decodes small: a strip of a dozen photos does not hold a dozen photos' pixels. Four times
+    // its longer side, both ways, covers its box at any scale of a screen and any shape of picture but a strip.
+    if let Source::Encoded { cap, .. } = &mut self.source
+      && cap.is_none()
+    {
+      let side = (width.max(height) * 4.0).ceil() as u32;
+      *cap = Some((side, side));
+    }
     self
   }
 
@@ -1051,12 +1059,15 @@ impl Picture {
 
   /// The forms to build, each with the widths it lives at: the one that is said, or that a width in pixels
   /// gives, alone and at every width; else all of them, for layout to show the one that fits.
-  fn forms(&self, theme: &Theme) -> Vec<(PictureSize, Option<SizeBounds>)> {
+  ///
+  /// `narrowed` is the form of the width a box of pixels was laid out at where its room made it narrower than
+  /// it was told: the form of that width, built alone in its place.
+  fn forms(&self, theme: &Theme, narrowed: Option<PictureSize>) -> Vec<(PictureSize, Option<SizeBounds>)> {
     if let Some(size) = self.size {
       return vec![(PictureSize::of(size), None)];
     }
     match self.width.and_then(|width| width.resolve(theme)) {
-      Some(Dimension::Px(width)) => vec![(PictureSize::for_width(width), None)],
+      Some(Dimension::Px(width)) => vec![(narrowed.unwrap_or(PictureSize::for_width(width)), None)],
       // A box that takes the size of what is in it has no width to choose a form by before it is laid out.
       None if self.aspect_ratio.is_none() => vec![(PictureSize::Lg, None)],
       _ => PictureSize::ALL
@@ -1262,6 +1273,12 @@ struct Live {
   told: Arc<parking_lot::Mutex<Option<(u64, bool)>>>,
   /// What to tell the app once this render is laid out.
   news: Arc<parking_lot::Mutex<Vec<Action>>>,
+  /// The box as it is laid out: a box of pixels that its room made narrower takes the form of the width it got.
+  frame: ElementRef,
+  /// The width in pixels the box was told, where it was told one and no form.
+  said: Arc<parking_lot::Mutex<Option<f32>>>,
+  /// The form of the width the box got, where that is narrower than it was told and has another form.
+  narrowed: Signal<Option<PictureSize>>,
 }
 
 /// The component of a picture.
@@ -1278,6 +1295,28 @@ impl Component for PictureHost {
       let tick = tick.clone();
       Arc::new(move || tick.set(tick.get_untracked().wrapping_add(1)))
     };
+    // Measured before paint, and written only where the form changes: the first frame of a box its room made
+    // narrower has the form that fits it, and a box at its width builds the one form it always did.
+    let (frame, said, narrowed) = (
+      ElementRef::new(),
+      Arc::new(parking_lot::Mutex::new(None::<f32>)),
+      ctx.signal(None::<PictureSize>),
+    );
+    {
+      let (said, narrowed) = (said.clone(), narrowed.clone());
+      frame.observe_rect_before_paint(move |rect| {
+        let want = match *said.lock() {
+          Some(width) if rect.width + 0.5 < width => {
+            let form = PictureSize::for_width(rect.width);
+            (form != PictureSize::for_width(width)).then_some(form)
+          }
+          _ => None,
+        };
+        if narrowed.get_untracked() != want {
+          narrowed.set(want);
+        }
+      });
+    }
     Self {
       live: Live {
         menu: ctx.signal(false),
@@ -1289,6 +1328,9 @@ impl Component for PictureHost {
         held_small: Arc::default(),
         told: Arc::default(),
         news: Arc::default(),
+        frame,
+        said,
+        narrowed,
       },
     }
   }
@@ -1296,6 +1338,10 @@ impl Component for PictureHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let picture = ctx.props::<PictureProps>().0.clone();
     let theme = current_theme();
+    *self.live.said.lock() = match (picture.size, picture.width.and_then(|width| width.resolve(&theme))) {
+      (None, Some(Dimension::Px(width))) => Some(width),
+      _ => None,
+    };
     // Read, so that a load that comes further renders the picture again.
     self.live.tick.get();
     let phase = self.phase(&picture, ctx);
@@ -1592,7 +1638,7 @@ fn view(
     .state(PictureState::On, on)
   };
   let forms: Vec<PictureForm> = picture
-    .forms(theme)
+    .forms(theme, live.narrowed.get())
     .into_iter()
     .map(|(size, bounds)| PictureForm {
       size,
@@ -1712,6 +1758,7 @@ fn view(
     forms,
     bars,
     picture,
+    frame: live.frame.clone(),
   }
 }
 
@@ -1783,6 +1830,8 @@ pub struct PictureView {
   small: Option<crate::images::ImageData>,
   /// Asks for the picture again.
   retry: Action,
+  /// The box as it is laid out.
+  frame: ElementRef,
 }
 
 impl PictureView {
@@ -2316,6 +2365,7 @@ impl PictureView {
         .child(inner)
         .into()
     };
+    NodeUpdate::ref_element(&mut *root.node, self.frame.clone());
     let node = &mut *root.node;
     let width = picture.width.and_then(|width| width.resolve(theme));
     let height = picture.height.and_then(|height| height.resolve(theme));

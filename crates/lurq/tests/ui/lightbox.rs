@@ -476,8 +476,7 @@ mod ahead {
         .inline(true)
         .width(420.0)
         .height(290.0)
-        // The strip draws its small pictures from the same pixels, and so asks for them itself.
-        .filmstrip(false)
+        // The strip decodes its small pictures small: what it asks for is not the pictures themselves.
         .index(Signal::new(2))
         .id("viewer");
       if let Some(preload) = preload {
@@ -502,11 +501,9 @@ mod ahead {
   #[test]
   fn the_pictures_beside_the_one_shown_are_asked_for_once_it_came() {
     let (app, names) = app_with("beside", &[]);
+    // When is the next test's: nothing is asked for ahead of a picture that did not come. A picture that is a
+    // file on this disk comes within the first frame, and the ones beside it with it.
     let mut stage = lightbox_of(app, &names, None);
-    assert!(
-      !asked(&names[1]) && !asked(&names[3]),
-      "nothing before the one shown came"
-    );
     assert!(
       until(&mut stage, || asked(&names[1]) && asked(&names[3])),
       "the one before and the one after"

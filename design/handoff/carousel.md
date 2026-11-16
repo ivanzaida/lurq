@@ -93,14 +93,20 @@ Carousel::new(cards)
 - In a narrow room the buttons stay beside the slides and the slides get narrower: in a window of 320 a slide is
   about 150 wide.
 
+- A vertical carousel, and buttons over the slides' sides in place of beside them, are not on the board and
+  not built.
+- Every slide is in the list and laid out, so a slide that is a picture loads at once: what is not shown
+  comes in with the list a swipe moves, and a carousel is not a list of hundreds.
+- A scroll that tells of no end (a mouse's wheel turned sideways) comes to rest on the nearest slide 180 ms
+  after it last moved; one that does (a trackpad) as it ends.
+- Seen by hand through the gallery's MCP server, on the three-in-view carousel: a drag of the mouse from the
+  second slide to the first turns it by one; Next turns it again; the right arrow on the focused Next turns it
+  once more, the left arrow twice back by two; a sideways wheel of 150 rests on the next slide.
+
 ## Not done
 
-- A vertical carousel, and buttons over the slides' sides in place of beside them: not on the board.
-- Nothing is loaded ahead: a slide that is a picture loads when it is first laid out, which is at once, since
-  every slide is in the list.
-- Not seen by hand: a finger's swipe on a touch screen, a trackpad's sideways scroll coming to rest. The tests
-  cover the buttons, the dots, the keys, a drag and autoplay; a press of a button was seen to turn in the gallery
-  window.
+- Not seen by hand: a finger's swipe on a touch screen. The gallery's MCP server sends no touch, and this
+  machine has no touch screen; the swipe is the engine's paging scroll, which its touch tests cover.
 
 ## Differs from the board
 

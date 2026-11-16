@@ -20,7 +20,7 @@ use super::{
 use crate::{
   app::{
     component::Component,
-    ctx::{Ctx, Interval},
+    ctx::{Ctx, Interval, Timeout},
     events::{DragEvent, KeyboardEvent, MouseEvent, ScrollEvent},
     theme::{OpacityLevel, PaletteColor, RadiusSize, Theme},
   },
@@ -388,7 +388,14 @@ struct CarouselHost {
   /// The buttons before and after: a button that turned to the end takes nothing more, and gives its focus to
   /// the other.
   arrows: [ElementRef; 2],
+  /// A moment after the list last scrolled, it comes to rest on a slide: a mouse's wheel tells of no end.
+  rest: Timeout,
+  /// What coming to rest does, as this render has it.
+  resting: Arc<Mutex<Option<Action>>>,
 }
+
+/// How long after the list last scrolled it comes to rest on a slide.
+const REST_AFTER: Duration = Duration::from_millis(180);
 
 impl Component for CarouselHost {
   type Props = CarouselProps;
@@ -397,6 +404,16 @@ impl Component for CarouselHost {
     let scroll = ScrollState::new();
     // A finger goes a page at a time, and a page is as wide as the list: as many slides as it shows.
     scroll.set_paging(true);
+    let resting: Arc<Mutex<Option<Action>>> = Arc::default();
+    let rest = {
+      let resting = resting.clone();
+      ctx.create_timeout(REST_AFTER, move || {
+        let rest = resting.lock().clone();
+        if let Some(rest) = rest {
+          rest();
+        }
+      })
+    };
     Self {
       index: ctx.signal(0),
       scroll,
@@ -412,6 +429,8 @@ impl Component for CarouselHost {
       dragged_from: Arc::default(),
       current: Arc::default(),
       arrows: [ElementRef::new(), ElementRef::new()],
+      rest,
+      resting,
     }
   }
 
@@ -516,6 +535,27 @@ impl Component for CarouselHost {
         signal.set(signal.get_untracked().wrapping_add(1));
       })
     };
+    // Where the list stopped, the slide nearest is the one it is at, and it goes there. A scroll's handlers
+    // hear of it before the list moves: the slide it came to is known once it stopped.
+    let rest: Action = {
+      let (scrolled, settle) = (scrolled.clone(), settle.clone());
+      Arc::new(move || {
+        scrolled();
+        settle();
+      })
+    };
+    *self.resting.lock() = Some(rest.clone());
+    // A scroll that is not the slides' own way to a slide comes to rest a moment after it stops.
+    let scrolled: Action = {
+      let (scrolled, rest, scroll) = (scrolled.clone(), self.rest.clone(), self.scroll.clone());
+      Arc::new(move || {
+        scrolled();
+        let (going, _) = scroll.scroll_target();
+        if (going - scroll.scroll_x()).abs() < 0.5 {
+          rest.restart();
+        }
+      })
+    };
     // A drag of the mouse carries the slides; let go, they go on to the next one where it went far enough.
     let dragged: Dragged = {
       let (from, placed, scroll, stopped, current) = (
@@ -587,7 +627,7 @@ impl Component for CarouselHost {
       step,
       turn,
       scrolled,
-      settle,
+      settle: rest,
       dragged,
       scroll: self.scroll.clone(),
       viewport: self.viewport.clone(),
@@ -813,13 +853,13 @@ impl CarouselView {
       }
       list = list.child(room);
     }
-    let scrolled = self.scrolled.clone();
-    let settle = self.settle.clone();
+    // `settle` is where a scroll that ended comes to rest.
+    let (scrolled, rest) = (self.scrolled.clone(), self.settle.clone());
     let mut slides = ScrollHorizontal::new(list)
       .with_scroll_state(self.scroll.clone())
       .scrollbar(ScrollBarStyle::hidden())
       .on_scroll(move |_: ScrollEvent| scrolled())
-      .on_scroll_end(move |_: ScrollEvent| settle());
+      .on_scroll_end(move |_: ScrollEvent| rest());
     if !carousel.disabled && self.places > 1 {
       let Dragged { start, moved, end } = self.dragged.clone();
       slides = slides
