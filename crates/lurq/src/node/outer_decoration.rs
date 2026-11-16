@@ -142,7 +142,11 @@ impl Node {
         .key
         .clone()
         .or_else(|| marker.outer_decoration.as_deref().and_then(|outer| outer.key.clone()));
-      let mut output = (declared.mount)(ctx, key.as_deref()).into_node();
+      // Nothing can change what the mount gives from here on: an unchanged component is held back, and its
+      // live nodes are moved over (`component_output.rs`).
+      let mut output = ctx
+        .mount_holding(|ctx| (declared.mount)(ctx, key.as_deref()))
+        .into_node();
       output.adopt_outer_decoration(&marker);
       *self = output;
       return;
@@ -189,6 +193,22 @@ impl Node {
     if let Some(outer) = self.outer_decoration_mut() {
       outer.decorations.push(decorate.clone());
     }
+  }
+
+  /// Whether what was put on this root and on `other` from outside is the same and is all told by values: an
+  /// id, a key, classes, and no decoration of a wrapper, which nothing compares.
+  pub(crate) fn same_plain_outer_decoration(&self, other: &Node) -> bool {
+    type Plain<'a> = (Option<&'a Arc<str>>, Option<&'a Arc<str>>, &'a [Arc<str>]);
+    fn plain(node: &Node) -> Option<Plain<'_>> {
+      match node.outer_decoration.as_deref() {
+        None => Some((None, None, &[])),
+        Some(outer) if outer.decorations.is_empty() && outer.declared.is_none() => {
+          Some((outer.id.as_ref(), outer.key.as_ref(), outer.classes.as_slice()))
+        }
+        Some(_) => None,
+      }
+    }
+    matches!((plain(self), plain(other)), (Some(this), Some(that)) if this == that)
   }
 
   /// Puts the decoration of `replaced`, the decorated root this node replaces

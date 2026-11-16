@@ -20,11 +20,17 @@ use crate::support::TestSurface;
 struct Book {
   log: Mutex<Vec<String>>,
   counts: Mutex<HashMap<String, Signal<u32>>>,
+  /// How often each counter rendered, by its name.
+  renders: Mutex<HashMap<String, usize>>,
 }
 
 impl Book {
   fn log(&self) -> Vec<String> {
     self.log.lock().unwrap().clone()
+  }
+
+  fn renders(&self, name: &str) -> usize {
+    self.renders.lock().unwrap().get(name).copied().unwrap_or(0)
   }
 
   /// Counts one more in the counter called `name`.
@@ -74,6 +80,7 @@ impl Component for Counter {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let name = ctx.props::<CounterProps>().name;
+    *self.book.renders.lock().unwrap().entry(name.to_owned()).or_default() += 1;
     Text::new(&format!("{name} {}", self.count.get()))
   }
 
@@ -321,4 +328,154 @@ fn in_a_tree_no_component_renders_it_shows_nothing() {
       .is_none()
   );
   assert!(book.log().is_empty(), "nothing is mounted where nothing renders");
+}
+
+/// A component with a turn of its own that declares three counters, in the order its turn says.
+struct Rack {
+  turn: Signal<u32>,
+}
+
+impl Component for Rack {
+  type Props = CounterProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<CounterProps>().clone();
+    let turn = ctx.signal(0);
+    props
+      .book
+      .counts
+      .lock()
+      .unwrap()
+      .insert("rack".to_owned(), turn.clone());
+    Self { turn }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let book = ctx.props::<CounterProps>().book.clone();
+    let turn = self.turn.get();
+    let keyed = |name: &'static str| counter(name, &book).key(name);
+    let row = Row::new().child(Text::new(&format!("turn {turn}")));
+    // The counters stand in a box of their own, so that they are no direct children of the rack's root.
+    let inner = match turn % 2 {
+      0 => Row::new().child(keyed("a")).child(keyed("b")).child(keyed("c")),
+      _ => Row::new().child(keyed("c")).child(keyed("a")).child(keyed("b")),
+    };
+    row.child(inner)
+  }
+}
+
+/// The id of the node that draws `text`.
+fn node_of(window: &mut Window, text: &str) -> lurq::core::NodeId {
+  let found = std::cell::Cell::new(None);
+  window.tree.find_element(|element| {
+    let drawn = element.text_content() == Some(text);
+    if drawn {
+      found.set(Some(element.node_id()));
+    }
+    drawn
+  });
+  found.get().unwrap_or_else(|| panic!("{text:?} is drawn"))
+}
+
+#[test]
+fn unchanged_ones_are_the_nodes_they_were_when_what_declares_them_renders_again() {
+  let book = Arc::new(Book::default());
+  let its = book.clone();
+  let mut window = Window::new(move |step| {
+    Column::new()
+      .child(Text::new(&format!("step {step}")))
+      .child(Element::component::<Rack>(CounterProps {
+        name: "rack",
+        book: its.clone(),
+      }))
+      .into()
+  });
+  book.count("b");
+  window.pass();
+  let before = ["a 0", "b 1", "c 0"].map(|text| node_of(&mut window, text));
+  let rendered = ["a", "b", "c"].map(|name| book.renders(name));
+
+  // The rack renders again by itself, with its counters in another order: none of them is rendered, each
+  // is the node it was, and each keeps what it counted.
+  book.count("rack");
+  window.pass();
+  assert!(window.shows("turn 1"));
+  assert_eq!(["a 0", "b 1", "c 0"].map(|text| node_of(&mut window, text)), before);
+  assert_eq!(["a", "b", "c"].map(|name| book.renders(name)), rendered);
+
+  // And when the page above the rack renders again, which hands the rack back unchanged.
+  window.step(1);
+  assert!(window.shows("step 1") && window.shows("turn 1"));
+  assert_eq!(["a 0", "b 1", "c 0"].map(|text| node_of(&mut window, text)), before);
+  assert_eq!(["a", "b", "c"].map(|name| book.renders(name)), rendered);
+
+  // One of them still renders by itself, where it stands now.
+  book.count("c");
+  window.pass();
+  assert!(window.shows("c 1") && window.shows("a 0") && window.shows("b 1"));
+  assert_eq!(book.log(), ["created a", "created b", "created c"]);
+}
+
+#[test]
+fn one_keeps_what_it_is_where_it_moves_to_another_box() {
+  let book = Arc::new(Book::default());
+  let its = book.clone();
+  // The counter is declared by the page and shown inside one box or another: its slot is the page's all
+  // along, and the box it was in is gone from one render to the next.
+  let mut window = Window::new(move |step| {
+    let counter = counter("a", &its).key("a");
+    match step % 2 {
+      0 => Column::new().child(Row::new().id("left").child(counter)).into(),
+      _ => Column::new()
+        .child(Text::new("moved"))
+        .child(Row::new().id("right").child(Row::new().child(counter)))
+        .into(),
+    }
+  });
+  book.count("a");
+  window.pass();
+  assert!(window.shows("a 1"));
+
+  window.step(1);
+  assert!(
+    window.shows("moved") && window.shows("a 1"),
+    "it is drawn where it stands now"
+  );
+  window.step(2);
+  assert!(!window.shows("moved") && window.shows("a 1"));
+  assert_eq!(book.log(), ["created a"]);
+  assert_eq!(book.renders("a"), 2, "once at first and once for its own count");
+}
+
+#[test]
+fn one_whose_root_is_dressed_otherwise_is_made_again_from_what_it_rendered_last() {
+  let book = Arc::new(Book::default());
+  let its = book.clone();
+  let mut window = Window::new(move |step| {
+    let class = if step == 0 { "first" } else { "second" };
+    Column::new()
+      .child(counter("a", &its).id("counter").class(class))
+      .into()
+  });
+  book.count("a");
+  window.pass();
+  let classes = |window: &mut Window| {
+    let element = window
+      .tree
+      .get_element_by_id("counter")
+      .expect("the counter is found by its id");
+    (
+      element.text_content().map(str::to_owned),
+      element.has_class("first"),
+      element.has_class("second"),
+    )
+  };
+  assert_eq!(classes(&mut window), (Some("a 1".to_owned()), true, false));
+
+  // The page puts another class on its root: the nodes it had carry the old one, so it is put together
+  // again from what it rendered last, and it is not rendered for that.
+  window.step(1);
+  assert_eq!(classes(&mut window), (Some("a 1".to_owned()), false, true));
+  assert_eq!(book.renders("a"), 2, "once at first and once for its own count");
+  assert_eq!(book.log(), ["created a"]);
 }

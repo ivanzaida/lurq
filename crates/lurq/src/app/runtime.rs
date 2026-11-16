@@ -2432,9 +2432,19 @@ impl Tree {
       node.set_tag_name(component.tag_name());
       #[cfg(feature = "devtools")]
       set_component_debug_metadata(&mut node, ctx);
-      if let Some(parts) = old_parts.as_mut() {
-        node.preserve_runtime_state_from(&parts.base);
-        node.preserve_ids_from(&mut parts.base);
+      // The unchanged components the render held back: their live nodes are moved over from the old tree
+      // once the rest is matched with it, and the ones it has not are made from their slots.
+      let cached = |slot: u64| ctx.cached_output_of(slot);
+      match old_parts.as_mut() {
+        Some(parts) => {
+          let moved = node.settle_held_components(&parts.base, &cached);
+          node.preserve_runtime_state_from(&parts.base);
+          node.preserve_ids_from(&mut parts.base);
+          node.take_held_components_from(&mut parts.base, moved);
+        }
+        None => {
+          node.settle_held_components(&Node::new(), &cached);
+        }
       }
       self.root = Some(match old_parts {
         Some(parts) => root_with_preserved_overlay_parts(*node, parts, &self.id_gen),
@@ -7254,8 +7264,10 @@ impl Tree {
     }
 
     if let Some(root) = &mut self.root {
+      let ctx = self.root_ctx.as_ref();
+      let cached = |slot: u64| ctx.and_then(|ctx| ctx.cached_output_of(slot));
       for (slot_id, replacement) in replacements {
-        replace_live_component_slot_everywhere(root, slot_id, replacement, &self.id_gen);
+        replace_live_component_slot_everywhere(root, slot_id, replacement, &self.id_gen, &cached);
       }
     }
 
@@ -12046,13 +12058,19 @@ fn reset_element_ref_flags_recursive(node: &Node) {
 fn replace_live_component_slot_everywhere(
   root: &mut Node,
   slot_id: u64,
-  replacement: Box<Node>,
+  mut replacement: Box<Node>,
   id_gen: &IdGenerator,
+  cached: &dyn Fn(u64) -> Option<Box<Node>>,
 ) -> bool {
   let mut places = Vec::new();
   find_live_component_slot(root, slot_id, &mut Vec::new(), &mut places);
-  let mut replacement = Some(replacement);
   let count = places.len();
+  // An output that goes to several places is copied for each: the components it held back are made from their
+  // slots, since their live nodes can go to one place only.
+  if count != 1 {
+    replacement.settle_held_components(&Node::new(), cached);
+  }
+  let mut replacement = Some(replacement);
   for (index, path) in places.iter().enumerate() {
     let fresh = if index + 1 == count {
       replacement.take().expect("the output moves into its last place only")
@@ -12062,7 +12080,7 @@ fn replace_live_component_slot_everywhere(
         .expect("the output is kept for its last place")
         .clone_boxed()
     };
-    replace_live_component_root(live_node_at(root, path), fresh, id_gen);
+    replace_live_component_root(live_node_at(root, path), fresh, id_gen, cached);
   }
   count > 0
 }
@@ -12115,14 +12133,23 @@ fn live_node_at<'a>(mut node: &'a mut Node, path: &[LiveStep]) -> &'a mut Node {
 
 /// Replaces a component's root with its fresh output. The flags of the
 /// interaction paths are cleared on both, for `Tree::reapply_interaction_state`.
-fn replace_live_component_root(node: &mut Node, mut replacement: Box<Node>, id_gen: &IdGenerator) {
+fn replace_live_component_root(
+  node: &mut Node,
+  mut replacement: Box<Node>,
+  id_gen: &IdGenerator,
+  cached: &dyn Fn(u64) -> Option<Box<Node>>,
+) {
   replacement.adopt_outer_decoration(node);
   reset_element_ref_flags_recursive(node);
+  // The unchanged components the render held back: the ones `node` has are moved over once the rest is
+  // matched, the others are made from their slots first.
+  let moved = replacement.settle_held_components(node, cached);
   replacement.preserve_runtime_state_from(node);
   #[cfg(feature = "canvas")]
   let old_canvases = canvas_bindings(node);
   // The children that are leaving go over to the replacement here, their canvases with them.
   replacement.preserve_ids_from(node);
+  replacement.take_held_components_from(node, moved);
   #[cfg(feature = "canvas")]
   detach_canvases_not_carried(old_canvases, Some(&replacement));
   node.free_ids(id_gen);

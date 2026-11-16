@@ -917,6 +917,9 @@ pub(crate) enum SyntheticNodeRole {
   /// A closed layer the overlay host keeps while its exit animations play
   /// (`node/presence.rs`): painted, and nothing else.
   LeavingLayer,
+  /// Stands, in the output of a render, for a component that is unchanged and whose nodes are in the live
+  /// tree: the tree puts those nodes in its place (`node/component_output.rs`). Never in the live tree.
+  HeldComponent,
 }
 
 #[derive(Default, Clone)]
@@ -5872,6 +5875,11 @@ impl Node {
     if old.is_component_slot_placeholder() {
       return true;
     }
+    // The live nodes of an unchanged component take this node's place: where `old` is that component, nothing
+    // of it changed, its layout included.
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     self.layout_cache.adopt_watch_from(&old.layout_cache);
     self.layout_cache.mark_watch();
     #[cfg(feature = "canvas")]
@@ -5981,7 +5989,7 @@ impl Node {
   }
 
   fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
-    if old.is_component_slot_placeholder() {
+    if old.is_component_slot_placeholder() || self.is_held_component() {
       return self.component_slot_id == old.component_slot_id;
     }
     // A canvas can keep its backing surface when its lookup id or ref binding
@@ -6233,6 +6241,11 @@ impl Node {
   }
 
   pub(crate) fn preserve_ids_from(&mut self, old: &mut Node) {
+    // What stands for an unchanged component takes nothing from `old`: `old` itself, ids and all, is put in
+    // its place once the rest is matched (`Node::take_held_components_from`).
+    if self.is_held_component() {
+      return;
+    }
     // The element `old` was goes on as this node, or this node only stands where it stood.
     let continues = self.can_reuse_id_from(old);
     if continues && old.node_id.is_assigned() {
@@ -6292,6 +6305,9 @@ impl Node {
   /// Whether this node and `old` are the same thing to someone looking at the tree: the same kinds of node in
   /// the same shape, with the same names and the same text. Not how they are styled, which a state changes.
   fn looks_like(&self, old: &Node) -> bool {
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     if self.component_slot_id != old.component_slot_id
       || self.component_key != old.component_key
       || self.element_id != old.element_id
@@ -6312,6 +6328,10 @@ impl Node {
   }
 
   fn can_reuse_id_from(&self, old: &Node) -> bool {
+    // What stands for an unchanged component is that component: it is matched with it, and takes its place.
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     self.component_slot_id == old.component_slot_id
       && self.component_key == old.component_key
       && self.element_id == old.element_id
