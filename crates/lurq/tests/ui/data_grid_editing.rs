@@ -2,7 +2,10 @@
 //! editor in its cell's room at any width, one edit told for one change, the cell showing it after, the focus back on
 //! the cell, a box in a cell turned by one press, and a page of several grids that does not move as one is edited.
 
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::events::MouseButton,
@@ -130,6 +133,11 @@ fn press_at(stage: &mut Stage, (x, y): (f32, f32)) {
   stage.pass();
 }
 
+/// A time of presses, `n` milliseconds after the stage's start.
+fn ms(n: u64) -> Duration {
+  Duration::from_millis(n)
+}
+
 /// Whether `inner` lies within `outer`, to a half pixel.
 fn within(inner: (f32, f32, f32, f32), outer: (f32, f32, f32, f32)) -> bool {
   inner.0 >= outer.0 - 0.5
@@ -196,9 +204,12 @@ fn a_choice_is_told_once_with_the_value_chosen_by_the_keys_and_by_the_pointer() 
   let (rows, edits) = (Signal::new(files()), Edits::default());
   let mut stage = stage_of(&rows, &edits, 140.0);
   let at = stage.center("g-cell-1-1");
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(ms(0));
   press_at(&mut stage, at);
   press_at(&mut stage, at);
   assert_eq!(focused(&stage).as_deref(), Some("g-editor"), "a double press edits");
+  stage.presses_at(ms(600));
   let trigger = stage.center("g-editor");
   press_at(&mut stage, trigger);
   // The option is under the editor, in the list: not the cell of the row above, which says it too.
@@ -260,13 +271,7 @@ fn a_box_in_a_cell_turns_by_one_press_focused_or_not_and_once_by_a_double_press(
   let edits_of = |edits: &Edits| edits.lock().unwrap().len();
   // The presses are given at times the test says, so that neither a slow machine parts the two of a double
   // press nor a fast one joins two that are not.
-  let start = std::time::Instant::now();
-  let mut at_ms = |stage: &mut Stage, ms: u64| {
-    stage
-      .tree
-      .set_press_clock(Some(start + std::time::Duration::from_millis(ms)))
-  };
-  at_ms(&mut stage, 0);
+  stage.presses_at(ms(0));
 
   // A cell that has not the focus: one press.
   let at = stage.center("g-cell-1-3");
@@ -276,16 +281,16 @@ fn a_box_in_a_cell_turns_by_one_press_focused_or_not_and_once_by_a_double_press(
   assert!(rows.get()[1].shared);
 
   // The same cell, focused now, pressed again after a double press's while: one press again.
-  at_ms(&mut stage, 600);
+  stage.presses_at(ms(600));
   press_at(&mut stage, at);
   assert_eq!(edits_of(&edits), 2);
   assert!(!rows.get()[1].shared);
 
   // A double press turns it once: its second press is not another turn, nor an edit of the box.
-  at_ms(&mut stage, 1200);
+  stage.presses_at(ms(1200));
   let other = stage.center("g-cell-2-3");
   press_at(&mut stage, other);
-  at_ms(&mut stage, 1300);
+  stage.presses_at(ms(1300));
   press_at(&mut stage, other);
   assert_eq!(edits_of(&edits), 3);
   assert!(rows.get()[2].shared);
@@ -330,6 +335,7 @@ fn a_double_press_in_a_grid_of_a_page_of_grids_moves_no_scroll_and_edits_that_gr
     .find(|quad| quad.y > 40.0 && quad.y < 560.0)
     .expect("the middle grid's row is in view");
   let at = (name.x + 4.0, name.y + name.height / 2.0);
+  stage.presses_at(ms(0));
   press_at(&mut stage, at);
   press_at(&mut stage, at);
   assert_eq!(page.scroll_y(), before, "the page does not move");
@@ -388,6 +394,7 @@ fn a_double_press_in_a_grid_under_the_pages_board_grid_moves_no_scroll() {
     .collect();
   let cell = building.first().expect("the edited grid's status in view");
   let at = (cell.x + 4.0, cell.y + cell.height / 2.0);
+  stage.presses_at(ms(0));
   press_at(&mut stage, at);
   assert_eq!(page.scroll_y(), before, "a press moves no scroll");
   press_at(&mut stage, at);
@@ -444,6 +451,7 @@ fn a_press_in_a_grid_beside_a_list_that_sticks_to_the_top_of_the_page_moves_no_s
     .find(|quad| quad.y > 40.0 && quad.y < 300.0)
     .expect("the second grid's status near the top");
   let at = (cell.x + 4.0, cell.y + cell.height / 2.0);
+  stage.presses_at(ms(0));
   press_at(&mut stage, at);
   assert_eq!(page.scroll_y(), before, "a press of a cell in view moves no scroll");
   press_at(&mut stage, at);

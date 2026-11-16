@@ -4217,6 +4217,8 @@ impl Tree {
 
   fn synthesize_click(&mut self, x: f32, y: f32, button: MouseButton, modifiers: MouseModifiers) {
     let now = Instant::now();
+    // A click held back for a double click, and its second, are timed as the presses are: on the press clock.
+    let press_now = self.press_now();
     let position = (x, y);
 
     // Drag handlers record suppression after dispatch converts pointer coordinates to logical units.
@@ -4237,7 +4239,7 @@ impl Tree {
     if button == MouseButton::Left
       && let ClickDispatchTarget::Node(click_target_id) = click_target
       && self.click_tracker.pending_matches(
-        now,
+        press_now,
         position,
         button,
         click_target_id,
@@ -4266,7 +4268,7 @@ impl Tree {
       {
         self
           .click_tracker
-          .set_pending(now, position, button, modifiers, click_target_id);
+          .set_pending(press_now, position, button, modifiers, click_target_id);
         self.needs_redraw = true;
       }
       ClickDispatchTarget::Node(click_target_id) => {

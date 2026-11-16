@@ -50,6 +50,8 @@ pub struct Stage {
   pub tree: Tree,
   /// The clock the tree's transitions run on, which every pass moves on.
   now: Instant,
+  /// Where [`presses_at`](Self::presses_at) counts the time of presses from.
+  press_start: Instant,
 }
 
 impl Stage {
@@ -78,6 +80,7 @@ impl Stage {
       app,
       tree,
       now: Instant::now(),
+      press_start: Instant::now(),
     };
     stage.pass();
     stage
@@ -104,6 +107,7 @@ impl Stage {
       app,
       tree,
       now: Instant::now(),
+      press_start: Instant::now(),
     };
     stage.frame();
     stage
@@ -119,14 +123,18 @@ impl Stage {
         let what = match &quad.content {
           QuadContent::Text { text, .. } => format!("text {text:?}"),
           QuadContent::RichText { spans, .. } => {
-            format!("rich {:?}", spans.iter().map(|span| span.text.as_str()).collect::<String>())
+            format!(
+              "rich {:?}",
+              spans.iter().map(|span| span.text.as_str()).collect::<String>()
+            )
           }
           QuadContent::Rect { color, .. } => format!("rect {color:?}"),
           _ => "other".to_owned(),
         };
         // The width of each side of its border: a line between two groups is one side of one.
         let sides = quad.border.as_ref().map(|border| {
-          [&border.top, &border.right, &border.bottom, &border.left].map(|side| side.as_ref().map_or(0.0, |side| side.width))
+          [&border.top, &border.right, &border.bottom, &border.left]
+            .map(|side| side.as_ref().map_or(0.0, |side| side.width))
         });
         format!(
           "{:.1},{:.1} {:.1}x{:.1} {what} border {sides:?}",
@@ -246,6 +254,13 @@ impl Stage {
     self.tree.mouse_down(x, y, MouseButton::Left);
     self.tree.mouse_up(x, y, MouseButton::Left);
     self.pass();
+  }
+
+  /// Gives the presses from here on at `at` after the stage's start, on the tree's clock of presses and not the
+  /// wall clock's, until called again: two presses at one time are a double press however slow the machine, and two
+  /// a double press's while apart are two presses however fast. Presses before the first call are on the wall clock.
+  pub fn presses_at(&mut self, at: Duration) {
+    self.tree.set_press_clock(Some(self.press_start + at));
   }
 
   pub fn key(&mut self, key: &str) {

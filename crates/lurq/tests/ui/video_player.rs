@@ -917,6 +917,8 @@ fn a_second_press_of_the_picture_asks_for_fullscreen() {
   let told = Told::default();
   let made = told.clone();
   let mut stage = mounted(move || player(&made));
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   press_at(&mut stage, 100.0, 60.0);
   assert_eq!(told.take(), ["playing true"], "a press plays at once");
   press_at(&mut stage, 100.0, 60.0);

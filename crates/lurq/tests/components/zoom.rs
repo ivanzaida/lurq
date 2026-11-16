@@ -126,6 +126,10 @@ fn a_pinch_stops_at_the_largest_and_the_smallest_scale() {
 #[test]
 fn a_double_tap_goes_in_at_the_point_tapped_and_back_out() {
   let (mut tree, zoom, scroll) = stage((1.0, 4.0));
+  // A tap is a press of the pointer: its two taps are given at one time on the tree's clock of presses, a double
+  // tap however slow the machine.
+  let start = std::time::Instant::now();
+  tree.set_press_clock(Some(start));
 
   tree.touch_tap(50.0, 50.0, Duration::ZERO);
   tree.touch_tap(50.0, 50.0, Duration::ZERO);
@@ -134,7 +138,8 @@ fn a_double_tap_goes_in_at_the_point_tapped_and_back_out() {
   // What was tapped, 50 in from the corner, is drawn 100 in, and is still under the finger.
   assert_eq!((scroll.scroll_x(), scroll.scroll_y()), (50.0, 50.0));
 
-  std::thread::sleep(Duration::from_millis(5));
+  // Another double tap, a while after the first.
+  tree.set_press_clock(Some(start + Duration::from_millis(600)));
   tree.touch_tap(50.0, 50.0, Duration::ZERO);
   tree.touch_tap(50.0, 50.0, Duration::ZERO);
   run_pass(&mut tree);

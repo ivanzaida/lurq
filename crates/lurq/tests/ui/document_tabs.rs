@@ -458,6 +458,8 @@ fn a_double_press_of_a_preview_keeps_it() {
   let mut stage = stage(860.0, &open, &told);
   let (x, y) = stage.center("readme");
   stage.tree.mouse_move(x, y);
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   for _ in 0..2 {
     stage.tree.mouse_down(x, y, MouseButton::Left);
     stage.tree.mouse_up(x, y, MouseButton::Left);

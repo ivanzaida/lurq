@@ -327,13 +327,16 @@ fn hover_moved_by_a_layout_keeps_the_source_of_the_input_that_put_the_pointer_th
 fn held_click_delivered_after_the_pointer_left_does_not_put_the_pointer_back() {
   let mut fixture = Fixture::mount(20.0, true);
   let pointer = fixture.hover_row();
+  // The press at a time of the test's, on the tree's clock of presses: the click is held until that clock goes on.
+  let pressed = std::time::Instant::now();
+  fixture.tree.set_press_clock(Some(pressed));
   fixture.tree.mouse_down(pointer.0, pointer.1, MouseButton::Left);
   fixture.tree.mouse_up(pointer.0, pointer.1, MouseButton::Left);
   fixture.tree.mouse_leave_window();
   fixture.pass();
   assert!(!fixture.hovered.get_untracked());
 
-  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  fixture.tree.set_press_clock(Some(pressed + DOUBLE_CLICK_SETTLE));
   fixture.pass();
   assert!(!fixture.hovered.get_untracked(), "the held click left nothing hovered");
 
