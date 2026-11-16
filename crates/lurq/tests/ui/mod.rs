@@ -160,6 +160,7 @@ mod toggletip;
 mod token_input;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tray_popover;
 mod tree_select;
 mod tree_view;

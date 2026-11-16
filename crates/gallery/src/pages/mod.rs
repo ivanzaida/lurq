@@ -145,6 +145,7 @@ mod token_input;
 mod tokens;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tree_select;
 mod tree_view;
 mod video_player;
@@ -609,6 +610,14 @@ pub const PAGES: &[Page] = &[
     about: "tree select treeselect cascader hierarchy nested options folder file category dropdown combobox panel branches leaves path new optional multiple controlled controlled_optional controlled_multiple on_change open branches branches_controlled on_branch_change leaves_only path separator_text max_shown placeholder size clearable clear_label empty_text invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<tree_select::TreeSelectPage>(()),
+  },
+  Page {
+    path: "/transfer",
+    name: "Transfer",
+    icon: Some("replace"),
+    about: "transfer dual list shuttle two lists move left right source target available selected chosen checkbox check all select all range shift features columns members new controlled on_change checked checked_controlled on_checked_change source_title target_title count_text select_all_label add_label remove_label empty_text label disabled density style rules mount virtual long narrow stacked",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<transfer::TransferPage>(()),
   },
   Page {
     path: "/tooltip",

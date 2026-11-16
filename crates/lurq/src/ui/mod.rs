@@ -179,6 +179,7 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tray_popover;
 mod tree_select;
 mod tree_view;
@@ -599,6 +600,7 @@ pub use toolbar::{
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
 };
+pub use transfer::{Transfer, TransferList, TransferPart, TransferRenderer, TransferState, TransferView};
 pub use tray_popover::{
   TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
   TrayStatusVariant, TrayToggle,

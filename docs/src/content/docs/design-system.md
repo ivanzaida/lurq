@@ -2908,6 +2908,54 @@ TreeSelect::controlled(app.file(), items, |file| app.open(file));
 - In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
 - A theme's renderer is given `TreeSelectView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.panel()` and `view.render()`. It is set for `TreeSelect<T>` of any `T`.
 
+## Transfer
+
+Two lists side by side, and the buttons between them that move the items checked in one to the other: the features a build has, the columns a table shows, the members of a group.
+
+```rust
+use lurq::ui::Transfer;
+
+// enabled: Signal<Vec<&str>>: the values of the items on the right.
+Transfer::new(enabled, [
+  ("canvas", "canvas"),
+  ("svg", "svg"),
+  ("router", "router"),
+  ("wgpu", "wgpu"),
+  ("winit", "winit"),
+])
+.source_title("Available")
+.target_title("Enabled")
+.label("Features")
+.mount(ctx);
+
+// Held by the app, which is told each new value.
+Transfer::controlled(app.features(), items, |features| app.set_features(features));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)` | Bound to a `Signal<Vec<T>>`: the items of its values are on the right, in the order they came there, and a move sets it. The items are a [listbox](#listbox)'s options: `(value, label)` or a `SelectOption` with `disabled`, `detail`, `hint`, `leading`, `trailing`. The left list has the rest, in the order of the items |
+| `controlled(value, items, on_change)` | The same held by the app, which is told the whole value a move asks for and shows what it gives back |
+| `on_change(handler)` | Told the whole new value, `&[T]`, after a move, after the signal is set; not when the app sets the signal. A second handler is called after the first |
+| `checked(Signal<Vec<T>>)`, `checked_controlled(checked, on_checked_change)`, `on_checked_change(handler)` | What is checked in either list, where the app keeps it (without it a mounted transfer keeps it), and what hears each change a press, a key or a move makes |
+| `source_title(&str)`, `target_title(&str)` | What the lists are called, in their headers and to what reads the tree: "Available" and "Selected" |
+| `count_text(Fn(checked, total) -> String)` | What a header says of how many of its items are checked, of how many: `1/3` |
+| `select_all_label(&str)`, `add_label(&str)`, `remove_label(&str)` | What the header's checkbox and the two buttons are called to what reads the tree: "Select all", "Add", "Remove" |
+| `empty_text(&str)` | What a list with no items says: "No items" |
+| `label(&str)`, `disabled(bool)`, `density(Density)` | What the transfer is called, to what reads the tree; nothing in it takes input; how high an item is, whatever the theme's density |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; the lists' items have it with `-source` and `-target` (each item that and `-` and its place), their headers' checkboxes with `-source-all` and `-target-all`, the buttons with `-add` and `-remove` |
+| `mount(ctx)` | In place of converting it: the transfer keeps what is checked, measures its room before it is painted and finds its narrow form there, and a list of more than two hundred items builds only those near its view |
+
+- Each list is a [listbox](#listbox) of any number with `checkboxes(true)`: a press of an item checks it or unchecks it and leaves the rest, a press with Shift checks the range from the last one checked and keeps what else is, and the keys are a listbox's: one stop of Tab, Up and Down, Home and End, the page keys, a letter, Space to check, Shift with the keys to check a range, Ctrl+A to check every item that can be. A disabled item is faded, is not checked and does not move.
+- The checkbox in a list's header checks every item of the list that can be checked, or none, and is half checked while some are; it is disabled while none can be. The count beside it says how many are checked, of how many items the list has.
+- The primary button, with a chevron to the right, moves what is checked on the left to the end of the right, in the order of the items; the outline one, with a chevron to the left, moves what is checked on the right back. Each is disabled while its list has nothing checked. A move sets the value and tells `on_change`, then takes what moved out of what is checked. The focus stays on the button that was pressed.
+- Its narrow form is chosen by its own room: mounted, it measures the room before the frame is painted, and where the two lists and the buttons do not fit side by side the lists are as wide as the room, one over the other, and the buttons are side by side between them with their chevrons turned down and up. The first frame is the settled one. Converted into an element on its own it is the still form of itself: side by side, with nothing checked unless the app holds what is.
+- A list scrolls past 264, eight items; one of more than two hundred items, in a mounted transfer, is a listbox mounted in a virtual list, which builds only the items near its view and which the keys reach every item of.
+- To what reads the tree it is a `group` called by its label, each list a `listbox` that is `a11y_multiselectable`, called by its title, of `option`s that say `a11y_checked` and `a11y_selected`; the header's checkbox is a `checkbox` that says `mixed` while some are checked, and the buttons are `button`s called "Add" and "Remove".
+- Parts: `TransferPart::Root` (the room between the lists and the buttons), `List`, `Header`, `Title`, `Count`, `Items` (laid over the listbox's box: its greatest height, past which the items scroll), `Item` and `ItemLabel` (laid over the listbox's option and label), `Empty` and `Actions`. States: `TransferState::Disabled` and `Stacked`.
+- In the design a list is 190 wide on `Background` in an edge of 1 in `Border`, `radius-lg`, 12 from the buttons, the two lists in the middle of each other's height. Its header is 36 high on `Muted` with a line of 1 in `Border` under it, 12 in from its sides: a checkbox, the title in the body's type at 13 and 500 in `Foreground`, and the count in the mono type at 11 in `MutedForeground`, 8 apart. Its items are 4 in from its top and bottom, each 32 high (24, 40 and 44 at the compact, comfortable and touch densities), 12 in, a checkbox and the label at 13, 8 apart; under the pointer an item is on `Muted`, and the focus from the keyboard is a ring of 2 in `Ring` inside it. The buttons are 32 square, 8 apart. A list with no items says so at 13 in `MutedForeground`, 12 in.
+- A theme's renderer is given `TransferView`: `view.source` and `view.target` (each a `TransferList` with its title, its count, how many are checked and `list.header()`, `list.select_all()`, `list.render(items)`), `view.button(to_target)`, `view.actions()`, `view.stacked` and `view.render()`. It is set for `Transfer<T>` of any `T`.
+
 ## Token Input
 
 A box that holds a list as tokens, with what is being typed after them: tags, recipients. Or a text in which the app
@@ -6740,6 +6788,7 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 | `multiple(values, options)` | Bound to a `Signal<Vec<T>>`: the options of its values are chosen, and choosing one adds it or takes it out |
 | `controlled(value, options, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same three, held by the app: a `T`, an `Option<T>` or the values, chosen as it says; `on_change` is told what a press or a key would choose, and the listbox shows what the app answers with |
 | `follow_focus(bool)` | Of one, whether the arrows choose as they move. They do unless told otherwise; without it Space, Enter and a press choose |
+| `checkboxes(bool)` | Of many, a checkbox before each option's label, ticked while it is chosen, in place of the check at its end and the highlight: a press checks one or unchecks it and keeps the rest, a press with Shift and Shift with the keys check a range and keep what else is checked. A [transfer](#transfer)'s lists are these |
 | `on_change(handler)` | Told the new choice after each press or key that changes it, after the signal is set, and not for what is already chosen nor when the app sets the signal: `&T` of a listbox made with `new` or `controlled`, `&Option<T>` of an optional one, `&[T]`, the whole set, of a multiple one. A handler of another type does not compile. A second handler is called after the first |
 | `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
 | `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
@@ -6752,9 +6801,9 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 - The keys are the engine's: the options are a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`, `pages` and without `wrap`; one of one `activate`s, one of many `shift_extends`. The range and the toggle are `ui::selection`'s, which the [tree view](#tree-view) shares.
 - Mounted with `mount(ctx)`, the options are in the engine's virtual list and the group steps over every option, built or not (`FocusRows`): the keys, the page keys and typeahead go to any option, the list builds it and the focus goes to it, and the choice follows as it does where every option is built; Shift with the keys and Ctrl+A choose over every option. The list opens at the chosen option. Each option is drawn with `ListboxOption::render`, its group's label over it; a theme's renderer of the whole listbox is not used there, its rules are.
 - To what reads the tree it is a `listbox` (`a11y_multiselectable` of many) called by its label, with `option`s that say `a11y_selected`, `a11y_posinset` and `a11y_setsize`; a group's label is a `group`.
-- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
+- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Checkboxes`, `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
 - In the design the box is 220 on `Background` with an edge of 1 in `Border` and the large radius, its options 1 apart, 4 in. An option is 32 high (24, 40 and 44 at the compact, comfortable and touch densities), and 16 higher with a detail under its label (48; 40, 56 and 60), 8 in, with the small radius, its label in the body's type at 13. The chosen one is on `Highlight`, its label at 500, with a check of 14 at its end; the one under the pointer is on `Muted`; one held down has the `StatePressed` veil; the focus from the keyboard is a ring of 2 in `Ring` inside it; a disabled one says its label in `MutedForeground`, faded, is drawn as nothing points at it or presses it whatever the listbox is forced to, and says `a11y_disabled` to tooling. A group's label is 11 at 600 in `MutedForeground`, 6 over it, 4 under it, 8 in.
-- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
+- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.checkbox()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
 
 ## Data List
 
