@@ -122,6 +122,7 @@ impl LayoutEngine {
       icon: icon.map(|(icon, _)| icon),
       atomic: false,
       over_selection: false,
+      object: None,
     };
     TokenStyle {
       range,
@@ -194,7 +195,7 @@ impl LayoutEngine {
 
   /// The width a decorated input lays its text out in: the room it is given
   /// when it wraps, its own width when it scrolls.
-  fn decorated_input_width(state: &TextInputState, constraints: Constraints) -> f32 {
+  pub(super) fn decorated_input_width(state: &TextInputState, constraints: Constraints) -> f32 {
     let max_width = if state.overflow() == TextInputOverflow::Multiline {
       constraints.max_width
     } else {

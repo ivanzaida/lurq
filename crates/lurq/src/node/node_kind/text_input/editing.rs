@@ -24,13 +24,24 @@ impl TextInputState {
     let insert = styled::InsertedText {
       styled: inserted,
       kinds: None,
+      objects: &[],
     };
     self.replace_selection_with(&inserted.text, Some(&insert), keyboard)
   }
 
-  /// Replaces the selection with text that brings its own spans and the kinds of its paragraphs, as one undo
-  /// step: see [`crate::components::TextInputController::replace_selection_rich`]. An input without kinds of
-  /// paragraphs takes the text and its spans, a plain one the text.
+  /// Replaces the selection with text that brings what `insert` says with it.
+  #[cfg(feature = "markdown")]
+  pub(super) fn replace_selection_inserting(
+    &self,
+    insert: &styled::InsertedText<'_>,
+    keyboard: &KeyboardEvent,
+  ) -> bool {
+    self.replace_selection_with(&insert.styled.text, Some(insert), keyboard)
+  }
+
+  /// Replaces the selection with text that brings its own spans, the kinds of its paragraphs and its objects, as
+  /// one undo step: see [`crate::components::TextInputController::replace_selection_rich`]. An input without
+  /// kinds of paragraphs takes the text and its spans, a plain one the text.
   #[cfg(feature = "markdown")]
   pub(crate) fn replace_selection_rich(
     &self,
@@ -41,6 +52,7 @@ impl TextInputState {
     let insert = styled::InsertedText {
       styled: &text,
       kinds: Some(&inserted.paragraphs),
+      objects: &inserted.objects,
     };
     self.replace_selection_with(&text.text, Some(&insert), keyboard)
   }

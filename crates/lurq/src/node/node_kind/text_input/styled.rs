@@ -5,8 +5,8 @@ use std::ops::Range;
 
 use super::*;
 use crate::components::{
-  LinkClick, ParagraphKind, ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan,
-  StyledText, TextMark, styled_text as spans_ops,
+  InlineObject, LinkClick, ParagraphKind, ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange,
+  StyledEdit, StyledSpan, StyledText, TextMark, styled_text as spans_ops,
 };
 
 type ChangeHandler = Arc<dyn Fn(&StyledChange) + Send + Sync>;
@@ -36,6 +36,13 @@ pub(super) struct StyledState {
   paragraph_styles: Option<Arc<ParagraphStyles>>,
   /// The paragraphs signal's version the input last wrote or read.
   paragraphs_synced: u64,
+  /// The things in the text that are not text, where the input has them: see [`InlineObject`].
+  objects: Option<Signal<Vec<InlineObject>>>,
+  /// The objects signal's version the input last wrote or read.
+  objects_synced: u64,
+  /// The objects the input's child nodes were built for, a child for each, in order. An edit moves the objects
+  /// before the app builds the children again: until then a child is told from the others by what it shows.
+  object_nodes: Arc<[InlineObject]>,
   /// The style the next typed text takes, set by the app, while the caret
   /// stays at the offset it was set at with nothing selected.
   pending: Option<(usize, SpanStyle)>,
@@ -64,6 +71,11 @@ impl StyledState {
     {
       self.paragraphs_synced = old.paragraphs_synced;
     }
+    if let (Some(new), Some(previous)) = (&self.objects, &old.objects)
+      && new.id() == previous.id()
+    {
+      self.objects_synced = old.objects_synced;
+    }
     self.pending = old.pending.clone();
   }
 }
@@ -74,6 +86,8 @@ pub(super) struct SpansBeforeEdit {
   style: SpanStyle,
   /// The kinds of the paragraphs and where each paragraph was, where the input has kinds.
   paragraphs: Option<(SnapshotParagraphs, Vec<Range<usize>>)>,
+  /// The objects of the text, where the input has them.
+  objects: Option<SnapshotObjects>,
 }
 
 /// The spans a snapshot of the undo history keeps, shared.
@@ -82,10 +96,15 @@ pub(super) type SnapshotSpans = Arc<Vec<StyledSpan>>;
 /// The kinds of the paragraphs a snapshot of the undo history keeps, shared.
 pub(super) type SnapshotParagraphs = Arc<Vec<ParagraphKind>>;
 
-/// Text inserted with its own spans, and with the kinds of its paragraphs where it brings them.
+/// The objects a snapshot of the undo history keeps, shared.
+pub(super) type SnapshotObjects = Arc<Vec<InlineObject>>;
+
+/// Text inserted with its own spans, with the kinds of its paragraphs where it brings them, and with the objects
+/// that are in it, their bytes counted from its start.
 pub(super) struct InsertedText<'a> {
   pub(super) styled: &'a StyledText,
   pub(super) kinds: Option<&'a [ParagraphKind]>,
+  pub(super) objects: &'a [InlineObject],
 }
 
 impl TextInputState {
@@ -131,6 +150,148 @@ impl TextInputState {
     }
     drop(inner);
     self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// Binds the objects of the input's text. `built` are those its child nodes were built for, a child for each,
+  /// in order.
+  pub(crate) fn set_objects(&self, objects: Signal<Vec<InlineObject>>, built: Vec<InlineObject>) {
+    let mut inner = self.inner.lock();
+    let same_signal = inner
+      .styled
+      .objects
+      .as_ref()
+      .is_some_and(|bound| bound.id() == objects.id());
+    let same_nodes = inner.styled.object_nodes.as_ref() == built.as_slice();
+    if !same_signal {
+      inner.styled.objects_synced = objects.version();
+      inner.styled.objects = Some(objects);
+    }
+    if !same_nodes {
+      inner.styled.object_nodes = built.into();
+    }
+    drop(inner);
+    if !(same_signal && same_nodes) {
+      self.mark_layout_dirty_keeping_scroll();
+    }
+  }
+
+  /// The objects of the current text, in its order, shared; `None` for an input without objects.
+  pub(crate) fn current_objects(&self) -> Option<SnapshotObjects> {
+    let signal = {
+      let inner = self.inner.lock();
+      if inner.mask.is_some() || inner.styled.spans.is_none() {
+        return None;
+      }
+      inner.styled.objects.clone()?
+    };
+    let value = self.shared_value();
+    Some(Arc::new(signal.with_untracked(|objects| {
+      spans_ops::normalize_objects(&value, objects.clone())
+    })))
+  }
+
+  /// The objects of the text the input shows: the current ones, moved over a composition in progress.
+  pub(crate) fn shown_objects(&self) -> Option<SnapshotObjects> {
+    let objects = self.current_objects()?;
+    let Some(composed) = self.composed_text() else {
+      return Some(objects);
+    };
+    let value = self.shared_value();
+    let (start, end) = self.selection_or_caret(&value);
+    let inserted = composed.len() + (end - start) - value.len();
+    Some(Arc::new(spans_ops::splice_objects(&objects, start..end, inserted)))
+  }
+
+  /// For each object the input shows, in order, which of the input's child nodes was built for it: the next
+  /// one, in the order they were built, that shows the same thing. `None` for an object no child was built for
+  /// yet; a child no object is left for is in none.
+  pub(crate) fn object_children(&self) -> Vec<Option<usize>> {
+    let Some(objects) = self.shown_objects() else {
+      return Vec::new();
+    };
+    let built = self.inner.lock().styled.object_nodes.clone();
+    let mut next = 0;
+    objects
+      .iter()
+      .map(|object| {
+        let found = next + built[next..].iter().position(|node| node.same_thing(object))?;
+        next = found + 1;
+        Some(found)
+      })
+      .collect()
+  }
+
+  /// The bytes of each object of the current text: what is one thing to the caret in a styled input.
+  pub(super) fn object_ranges(&self) -> Vec<Range<usize>> {
+    self
+      .current_objects()
+      .map(|objects| objects.iter().map(InlineObject::range).collect())
+      .unwrap_or_default()
+  }
+
+  /// The object whose box is at `(x, y)`, in the coordinates the caret is placed by: its bytes.
+  pub(super) fn object_at_point(&self, x: f32, y: f32) -> Option<Range<usize>> {
+    let objects = self.current_objects().filter(|objects| !objects.is_empty())?;
+    let layout = self.token_layout()?;
+    let (x, y) = {
+      let inner = self.inner.lock();
+      (x + inner.scroll_x, y + inner.scroll_y())
+    };
+    let room = layout
+      .objects
+      .iter()
+      .find(|room| x >= room.x && x < room.x + room.width && y >= room.y && y < room.y + room.height)?;
+    objects
+      .iter()
+      .find(|object| object.at == room.byte)
+      .map(InlineObject::range)
+  }
+
+  /// Writes the objects, without a report.
+  fn write_objects(&self, objects: Vec<InlineObject>) {
+    let Some(signal) = self.inner.lock().styled.objects.clone() else {
+      return;
+    };
+    if signal.with_untracked(|current| *current != objects) {
+      signal.set(objects);
+    }
+    self.inner.lock().styled.objects_synced = signal.version();
+  }
+
+  /// Puts back the objects of an undo snapshot. The spans are put back after them, which reports the change.
+  pub(super) fn restore_objects(&self, objects: SnapshotObjects) {
+    self.write_objects(objects.to_vec());
+  }
+
+  /// Moves the objects over an edit that replaced `range` with `inserted` bytes, among them `added`, whose
+  /// bytes are counted from the start of what was inserted: before the spans are committed and the change is
+  /// reported.
+  fn splice_objects(&self, edit: &SpansBeforeEdit, range: &Range<usize>, inserted: usize, added: &[InlineObject]) {
+    let Some(objects) = &edit.objects else {
+      return;
+    };
+    let moved = spans_ops::splice_objects(objects, range.clone(), inserted);
+    let moved = spans_ops::place_objects(moved, range.start, added);
+    self.write_objects(spans_ops::normalize_objects(&self.shared_value(), moved));
+  }
+
+  /// Puts an object in place of the selection, as one undo step. `false` for an input without objects, and
+  /// where an `on_input` handler refused the edit.
+  pub(crate) fn insert_object(&self, object: &InlineObject, keyboard: &KeyboardEvent) -> bool {
+    if self.current_objects().is_none() {
+      return false;
+    }
+    let text = StyledText::plain(crate::components::OBJECT_CHARACTER.to_string());
+    let object = InlineObject {
+      at: 0,
+      ..object.clone()
+    };
+    let insert = InsertedText {
+      styled: &text,
+      kinds: None,
+      objects: std::slice::from_ref(&object),
+    };
+    self.replace_selection_inserting(&insert, keyboard)
   }
 
   /// The kinds of the paragraphs of the current text, one for each, shared;
@@ -327,10 +488,25 @@ impl TextInputState {
     Some((composed.into(), Arc::new(spans)))
   }
 
+  /// Notices an app's write of the objects signal: the input lays out again.
+  fn sync_external_objects(&self) {
+    let mut inner = self.inner.lock();
+    let Some(version) = inner.styled.objects.as_ref().map(Signal::version) else {
+      return;
+    };
+    if version == inner.styled.objects_synced {
+      return;
+    }
+    inner.styled.objects_synced = version;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
   /// Notices an app's write of the spans signal: the input lays out again
   /// and drops a pending typing style.
   pub(super) fn sync_external_spans(&self) {
     self.sync_external_paragraphs();
+    self.sync_external_objects();
     let mut inner = self.inner.lock();
     let Some(version) = inner.styled.spans.as_ref().map(Signal::version) else {
       return;
@@ -370,6 +546,7 @@ impl TextInputState {
       spans,
       style,
       paragraphs,
+      objects: self.current_objects(),
     })
   }
 
@@ -380,6 +557,7 @@ impl TextInputState {
       return;
     };
     self.splice_paragraphs(&edit, &range, inserted);
+    self.splice_objects(&edit, &range, inserted, &[]);
     let spans = spans_ops::splice(&edit.spans, range.clone(), inserted, &edit.style);
     self.commit_spans(
       spans,
@@ -401,8 +579,9 @@ impl TextInputState {
     let Some(edit) = edit else {
       return;
     };
-    let (inserted, pasted) = (inserted.styled, inserted.kinds);
+    let (inserted, pasted, objects) = (inserted.styled, inserted.kinds, inserted.objects);
     self.splice_paragraphs(&edit, &range, inserted.text.len());
+    self.splice_objects(&edit, &range, inserted.text.len(), objects);
     if let (Some(pasted), Some(kinds)) = (pasted, self.current_paragraphs()) {
       let after = spans_ops::paragraph_ranges(&self.shared_value());
       self.write_paragraphs(spans_ops::place_kinds(
@@ -467,6 +646,7 @@ impl TextInputState {
       value: self.value.clone(),
       spans: shared,
       paragraphs: self.current_paragraphs(),
+      objects: self.current_objects(),
       edit,
     };
     for handler in handlers {
@@ -539,9 +719,19 @@ impl TextInputState {
     })
   }
 
+  /// The objects in the selection, their bytes counted from its start.
+  fn selected_objects(&self) -> Vec<InlineObject> {
+    let Some(objects) = self.current_objects() else {
+      return Vec::new();
+    };
+    let (start, end) = self.selection_or_caret(&self.shared_value());
+    spans_ops::slice_objects(&objects, start..end)
+  }
+
   /// What copying the selection puts on the clipboard: the app's format of
-  /// the styled selection when it gave one, else the selected text. Nothing
-  /// while the input is masked, as a password field copies nothing.
+  /// the styled selection when it gave one, else the selected text, with
+  /// the label of an object in its place. Nothing while the input is
+  /// masked, as a password field copies nothing.
   pub(crate) fn clipboard_selection(&self) -> Option<String> {
     if self.is_masked() {
       return None;
@@ -550,7 +740,7 @@ impl TextInputState {
     let format = self.inner.lock().styled.copy_format.clone();
     match (format, self.selected_styled_text()) {
       (Some(format), Some(styled)) => Some(format(&styled)),
-      _ => Some(selected),
+      _ => Some(spans_ops::text_with_labels(&selected, &self.selected_objects())),
     }
   }
 
@@ -571,7 +761,9 @@ impl TextInputState {
       return None;
     }
     let (range, _) = self.selected_paragraph_range();
-    Some(RichText::new(selected.text, selected.spans, kinds[range].to_vec()).to_markdown())
+    let rich =
+      RichText::new(selected.text, selected.spans, kinds[range].to_vec()).with_objects(self.selected_objects());
+    Some(rich.to_markdown())
   }
 
   /// Pastes formatted text into an input that keeps its formatting through the clipboard: the `markdown` beside

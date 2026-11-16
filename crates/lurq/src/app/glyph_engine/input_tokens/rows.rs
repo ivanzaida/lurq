@@ -32,18 +32,21 @@ pub(super) struct PreparedRow {
   public_justified: bool,
 }
 
+/// `object_band` is the ascent and the descent a box is given in place of its character's: see
+/// [`Paragraph::new`].
 pub(super) fn paragraph(
   rows: &mut Vec<PreparedRow>,
   original: &ShapeLine,
   offset: usize,
   bytes: usize,
   config: &InputConfig,
+  object_band: Option<(f32, f32)>,
 ) {
   let padded = config
     .styles
     .iter()
     .any(|style| style.padding != 0.0 || style.padding_end() != 0.0);
-  let paragraph = Paragraph::new(original, config, padded);
+  let paragraph = Paragraph::new(original, config, padded, object_band);
   let context = Arc::new(RowContext {
     styles: paragraph.styles.clone(),
     metrics: paragraph.metrics.clone(),

@@ -3,7 +3,7 @@
 use super::{InputEditError, TextInputController};
 use crate::{
   app::events::KeyboardEvent,
-  components::{ParagraphKind, RichText, SelectionStyle, SpanStyle, StyledText, TextMark},
+  components::{InlineObject, ParagraphKind, RichText, SelectionStyle, SpanStyle, StyledText, TextMark},
   core::NodeId,
 };
 
@@ -51,13 +51,32 @@ impl TextInputController {
     Ok(self.state()?.set_pending_style(style))
   }
 
-  /// The text, its spans and the kinds of its paragraphs, as one value.
+  /// The text, its spans, the kinds of its paragraphs and its objects, as one value.
   pub fn rich_text(&self) -> Result<Option<RichText>, InputEditError> {
     let state = self.state()?;
     Ok(state.styled_text().map(|styled| {
       let kinds = state.current_paragraphs().map(|kinds| kinds.to_vec());
-      RichText::new(styled.text, styled.spans, kinds.unwrap_or_default())
+      let objects = state.current_objects().map(|objects| objects.to_vec());
+      RichText::new(styled.text, styled.spans, kinds.unwrap_or_default()).with_objects(objects.unwrap_or_default())
     }))
+  }
+
+  /// The objects of the text, in its order. `None` for an input without objects
+  /// ([`TextInput::objects`](crate::components::TextInput::objects)).
+  pub fn objects(&self) -> Result<Option<Vec<InlineObject>>, InputEditError> {
+    Ok(self.state()?.current_objects().map(|objects| objects.to_vec()))
+  }
+
+  /// Puts `object` in place of the selection, or at the caret, as one undo step: its character goes into the
+  /// text and its record among the input's objects, at the byte the character is put (`object.at` is not read).
+  /// The caret is left after it. `false` for an input without objects, and where an `on_input` handler refused
+  /// the edit.
+  pub fn insert_object(&self, object: &InlineObject) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    state.sync_external_value();
+    let text = crate::components::OBJECT_CHARACTER.to_string();
+    let keyboard = KeyboardEvent::new(&text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
+    Ok(state.insert_object(object, &keyboard))
   }
 
   /// What each paragraph the selection touches is, in order: the one the
@@ -91,10 +110,10 @@ impl TextInputController {
     Ok(state.replace_selection_styled(text, &keyboard))
   }
 
-  /// Replaces the selection, or inserts at the caret, text that brings its own spans and the kinds of its
-  /// paragraphs, as one undo step: what a paste of formatted text does. A single paragraph goes into the line
-  /// the caret is in and leaves it what it is, unless the line holds nothing else. Of several, the first goes on
-  /// from the text before the caret and takes its own kind only where there is none, those between come with
+  /// Replaces the selection, or inserts at the caret, text that brings its own spans, the kinds of its
+  /// paragraphs and its objects, as one undo step: what a paste of formatted text does. A single paragraph goes into
+  /// the line the caret is in and leaves it what it is, unless the line holds nothing else. Of several, the first
+  /// goes on from the text before the caret and takes its own kind only where there is none, those between come with
   /// their kinds, and the last gives its kind to the text after the caret unless it is empty. An input without
   /// kinds of paragraphs takes the text and its spans, a plain one the text.
   pub fn replace_selection_rich(&self, text: &RichText) -> Result<bool, InputEditError> {
