@@ -336,6 +336,7 @@ Button::new("Saving…").loading(saving.get());
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
 | `id(id)`, `key(key)`, `submit(bool)` | Its id and key; with the `form` feature, the button that submits the form it is in |
+| `ref_element(element)`, `focuses(&ElementRef)` | The ref of its element, which an app focuses or measures; and what a press of it gives the focus to, in place of taking it itself: the text a button of an editor's bar works on |
 
 | Size | Height | Padding | Label | Icon |
 | --- | --- | --- | --- | --- |
@@ -384,6 +385,7 @@ Toggle::new("Bold")
 | `on_change(handler)` | Called on a press with what the toggle is to be: on if it was off |
 | `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
 | `size(size)` | A `ToggleSize` (a `ButtonSize`): a toggle is as high as a button of that size |
+| `focuses(&ElementRef)` | What a press of it gives the focus to, in place of taking it itself: the text a toggle of an editor's bar works on. It is still a stop of Tab |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
 Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
@@ -2721,6 +2723,68 @@ Mentions::new(comment.clone(), &mentions)
   padded 4. An offer is 36 high, padded 8, `radius-sm`, an avatar of 24 (or an icon of 16 in `MutedForeground`) 8
   before its label in the body's type; the active one, and the one under the pointer, are on `Highlight`. A mention is
   in the text's type on `InfoMuted`, its text in `Info`, 20 high and padded 4.
+
+## Rich Text Editor
+
+Formatted text typed into a box, under a bar of the tools that format it: a comment, release notes, the body of an
+article. It comes with the `markdown` feature.
+
+```rust
+use lurq::{components::RichText, ui::{RichTextEditor, RichTextTool}};
+
+// notes: Signal<RichText>, kept by the app. The document reads from Markdown and writes it.
+let notes = ctx.signal(RichText::from_markdown("## Release notes\n\nBackdrop blur **follows clips**.\n\n- Faster shaping"));
+RichTextEditor::new(notes.clone())
+  .placeholder("Write the release notes")
+  .on_change(|document| println!("{}", document.to_markdown()))
+  .mount(ctx);
+
+// A comment box: a few tools, no footer.
+RichTextEditor::new(comment.clone())
+  .tools([RichTextTool::Bold, RichTextTool::Italic, RichTextTool::Bullet, RichTextTool::Link])
+  .footer(false)
+  .rows(3, 8)
+  .mount(ctx);
+
+// Held by the app: it is told each change, and the editor shows what the app answers with.
+RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.clone())).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<RichText>)` | The document. Each change is written into the signal, and what the app writes there shows |
+| `controlled(value, on_change)` | A document the app holds: each change is told to `on_change`, and a change the app does not take is taken back |
+| `on_change(handler)` | Called with the `&RichText` after each change a person makes: typing, a tool, a key, undo. The signal is set first. Not when the app sets it |
+| `placeholder(&str)` | What the box shows while it holds nothing |
+| `rows(min, max)` | The rows of body text the box shows at least, and at most before its text scrolls inside it: 6 and 16 unless told (`RICH_TEXT_MIN_ROWS`, `RICH_TEXT_MAX_ROWS`) |
+| `tools(tools)` | The `RichTextTool`s of the bar, in order: `Style`, `Bold`, `Italic`, `Underline`, `Strikethrough`, `Bullet`, `Ordered`, `Quote`, `Code`, `Link`, `Image`, `Undo`, `Redo`. A line stands between two groups and the history is at the bar's end. All but `Image` unless told (`RichTextTool::DEFAULT`) |
+| `toolbar(bool)`, `footer(bool)` | Whether it has its bar, and the row under the box that says Markdown shortcuts are on and counts the words: both unless told |
+| `markdown_shortcuts(bool)` | Whether Markdown typed becomes what it says: on unless told |
+| `on_link_click(handler)` | Called with a link's target when it is clicked with Ctrl held (Cmd on a Mac): the app opens it |
+| `on_image(handler)` | What the image tool does; with it the bar has the tool. The editor draws no picture in its text |
+| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: its edge in the destructive, warning or success color |
+| `read_only(bool)` | It is focused, selected and copied, and not changed: its tools take no input |
+| `full_width(bool)` | As wide as what holds it, in place of 560 |
+| `label(&str)` | What it is called, to what reads the tree |
+| `name(..)` | The name of its document in a form (feature `form`): its value there is the document as Markdown |
+| `toolbar_label`, `style_label`, `bold_label`, `italic_label`, `underline_label`, `strikethrough_label`, `bullet_label`, `ordered_label`, `quote_label`, `code_label`, `link_label`, `image_label`, `undo_label`, `redo_label`, `more_label`, `apply_label`, `remove_link_label` | What each control is called |
+| `paragraph_text`, `heading_text(Fn(level))`, `code_block_text`, `link_placeholder`, `shortcuts_text`, `count_text(Fn(words))` | The words it draws: the styles of its style control, the field of a link, and the footer's two texts |
+| `mount(ctx)` | Puts it in the tree: it keeps the text being edited, what its bar shows and the panel of a link |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. Its parts have the id with `-content`, `-toolbar`, `-style`, `-bold` and each tool's name, `-count` and `-link-field` after it |
+
+- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s) and what each paragraph is (`ParagraphKind`). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- It is the engine's [styled text input](../text-input-styled/) with kinds of paragraphs: the caret, the selection, the clipboard and the undo history are a text input's own, and a selection runs over paragraphs of any kind. Copying puts the plain text on the clipboard, and a paste is plain text in the style at the caret.
+- A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is selected; a list, a quote or a style over every paragraph the selection touches, and a second press of a list or a quote makes them paragraphs again. The bar shows what the selection is: a mark's tool is on while all of the selection has it, the style control says what its paragraphs are. A press of a tool leaves the focus in the text.
+- The style control makes a paragraph body text, a heading of a level from 1 to 3, or a line of a block of code. The link tool opens a panel at the selection with a field for the target: Enter or Apply links the selection, an empty target or Remove link takes the link away, Escape changes nothing, and the focus goes back to the text.
+- The keys, with Ctrl (Cmd on a Mac): B, I and U for bold, italic and underline, Shift+X to strike, E for code, K for a link, Alt+0 to Alt+3 for a paragraph and the headings, Shift+7, Shift+8 and Shift+9 for a numbered list, a bulleted one and a quote, Z and Y to undo and redo. Enter in an empty item or quote ends the list, Enter at the end of a heading starts a paragraph, and Backspace at the start of anything but a paragraph makes it one.
+- Markdown shortcuts: `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three backticks at the start of a paragraph make it what they say and are taken away; `**bold**`, `*italic*`, `_italic_`, `` `code` `` and `~~struck~~` become the mark as their last character is typed.
+- Parts: `RichTextEditorPart::Root`, `Toolbar` (laid over a [toolbar](#toolbar)'s root), `Tool`, `ToolOn` and `ToolIcon` (over its buttons and toggles, and a toggle that is on), `Style`, `StyleChevron` and `StyleList` (over a [select](#select)'s trigger, chevron and panel), `Content` (the box: its padding, the type of body text, and its gap, the room between two paragraphs), `Placeholder`, `Heading1`, `Heading2`, `Heading3` (levels 4 to 6 are drawn as the third), `Bullet` and `BulletMark`, `Ordered` and `OrderedMark`, `Quote` and `QuoteMark`, `CodeBlock`, `Footer`, `FooterText`, `LinkPanel` (over a [popover](#popover)'s panel). A paragraph's part gives its type over the content's, its start padding is the room before its text, and a mark's part its width, its gap to the text and its color. States: `RichTextEditorState::Focused`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the box is 560 wide in `Background` with an edge of 1 in `Border` and the large radius. The bar is 40 high on `Muted` over a line of 1, padded 6, its tools 28 square with the small radius and icons of 15, 2 apart, one that is on filled with `Background` (the board's `accent` is the bar's own fill, and would not show); the style control is 28 high, 108 wide, its text 12, and its list at least 172 wide. The box is padded 18 across and 16 down, its text the body's 14 on lines of 1.3, its paragraphs 10 apart. A heading of the second level is 22 semibold (the first 28 bold, the third 18 semibold) on lines of 1.2. An item's text starts 21 in after a dot of 5 in `MutedForeground`; a numbered item's 24 in, 6 after its number; a quote's 14 in, in `MutedForeground`, after a bar of 3 in `Border`; a block of code is the mono family at 13 on `Muted`, 12 in. The footer is 28 high over a line of 1, padded 12, its texts the mono family at 11 in `MutedForeground`. A font whose own line is higher than 1.3 of its size makes a row as high as the font's line.
+- In a room narrower than its bar the tools that do not fit go into the menu of a More button at the bar's end, as a toolbar's do; the style control stays.
+- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`.
+- Built without `mount` (converted into an element) it is the still form of itself: the document as it is drawn, with nothing kept between two renders. A [field](#field) the app mounts (`Field::new("Notes", editor).mount(ctx)`) mounts it, calls it by its label, judges it and disables it.
+- A renderer that draws another editor has `view.bar()` (the toolbar, to add to), `view.toolbar` (it built), `view.content()`, `view.footer()`, `view.link_panel()`, `view.root()`, `view.paragraph_styles()` and `view.format`, what the selection is.
 
 ## Alert
 

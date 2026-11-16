@@ -94,6 +94,8 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod reopened_layers;
+#[cfg(feature = "markdown")]
+mod rich_text_editor;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;

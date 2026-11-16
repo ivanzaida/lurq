@@ -622,6 +622,11 @@ pub(crate) fn engine_style(
   if let Some(height) = px(menu.height, theme) {
     style = style.max_menu_height(height);
   }
+  // The list is as wide as its trigger, or as its least width where that is more: a narrow trigger's list holds
+  // its options whole.
+  if let Some(width) = px(menu.min_width, theme) {
+    style = style.min_menu_width(width);
+  }
 
   let item = recipe.part(Item);
   let chosen = in_state(SelectState::Selected.into()).part(Item);

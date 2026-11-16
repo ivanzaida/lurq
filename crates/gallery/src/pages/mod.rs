@@ -87,6 +87,7 @@ mod radar_chart;
 mod radio;
 mod radio_card;
 mod rating;
+mod rich_text_editor;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
@@ -431,6 +432,14 @@ pub const PAGES: &[Page] = &[
     about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag value controller ention on_mention tokens rows placeholder size invalid warning valid read_only disabled full_width label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
+  },
+  Page {
+    path: "/rich-text-editor",
+    name: "Rich Text Editor",
+    icon: Some("pencil"),
+    about: "rich text editor wysiwyg formatted text markdown bold italic underline strikethrough code link heading list bullet numbered ordered quote toolbar undo redo document notes comment richtext value controlled on_change on_link_click on_image controller tools toolbar footer markdown_shortcuts placeholder rows invalid warning valid read_only disabled full_width label count_text",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<rich_text_editor::RichTextEditorPage>(()),
   },
   Page {
     path: "/calendar",

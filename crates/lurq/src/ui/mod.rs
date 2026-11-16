@@ -112,6 +112,8 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod recipe;
+#[cfg(feature = "markdown")]
+mod rich_text_editor;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
@@ -401,6 +403,11 @@ pub use rating::{
 };
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
+};
+#[cfg(feature = "markdown")]
+pub use rich_text_editor::{
+  RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor, RichTextEditorPart,
+  RichTextEditorRenderer, RichTextEditorState, RichTextEditorView, RichTextFormat, RichTextTool,
 };
 #[cfg(feature = "canvas")]
 pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};
