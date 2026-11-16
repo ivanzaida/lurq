@@ -115,7 +115,8 @@ impl CardFrame {
 
 /// The frames of a video that stay on the graphics card: a few textures, of which one holds the frame to show.
 ///
-/// Made into an image with [`NativeImageData::from_card_frames`](super::NativeImageData::from_card_frames).
+/// Made into an image with [`NativeImageData::from_card_frames`](super::NativeImageData::from_card_frames),
+/// which is another picture with each frame shown: it is drawn again by itself.
 #[derive(Clone)]
 pub struct CardFrames {
   state: Arc<State>,
@@ -214,6 +215,11 @@ impl CardFrames {
   /// The frame to show, where one was shown.
   pub fn shown(&self) -> Option<CardFrame> {
     self.state.shown.lock().as_ref().map(|(_, frame)| frame.clone())
+  }
+
+  /// How many frames were shown: the version of an image of these frames.
+  pub(crate) fn count(&self) -> u64 {
+    self.state.count.load(Ordering::Acquire)
   }
 
   /// The frame to show and which one it is, counted from the first: what draws tells by the count that the

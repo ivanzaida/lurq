@@ -523,12 +523,8 @@ impl Picture {
             self.native = Some(native);
             true
           }
-          None => {
-            if let Some(native) = &self.native {
-              native.bump_version();
-            }
-            false
-          }
+          // The image is another picture with the frame shown.
+          None => false,
         });
       }
       // Through memory, into an image of memory: one whose frames were on the card is let go.

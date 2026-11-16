@@ -688,6 +688,13 @@ impl NativeImageData {
       return slot.version();
     }
 
+    // An image of the card's frames is another picture with each frame shown: who shows a frame says nothing
+    // more.
+    #[cfg(windows)]
+    if let Some(frames) = self.payload::<super::CardFrames>() {
+      return frames.count();
+    }
+
     self.version.load(Ordering::Acquire)
   }
 
@@ -700,6 +707,11 @@ impl NativeImageData {
     #[cfg(all(feature = "dx12", target_os = "windows"))]
     if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
       slot.bump_version();
+      return;
+    }
+
+    #[cfg(windows)]
+    if self.payload::<super::CardFrames>().is_some() {
       return;
     }
 
