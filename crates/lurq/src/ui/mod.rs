@@ -39,6 +39,7 @@ mod calendar;
 mod callout;
 mod card;
 mod carousel;
+mod cascader;
 #[cfg(feature = "canvas")]
 mod chart;
 mod checkbox;
@@ -140,6 +141,7 @@ mod search_field;
 mod seek_bar;
 mod segmented;
 mod select;
+mod select_trigger;
 mod selection;
 mod selection_marquee;
 mod separator;
@@ -182,6 +184,7 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tray_popover;
 mod tree_select;
 mod tree_view;
@@ -240,6 +243,7 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
+pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use chart::ChartLabel;
@@ -612,6 +616,7 @@ pub use toolbar::{
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
 };
+pub use transfer::{Transfer, TransferList, TransferPart, TransferRenderer, TransferState, TransferView};
 pub use tray_popover::{
   TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
   TrayStatusVariant, TrayToggle,

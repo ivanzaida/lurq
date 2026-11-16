@@ -704,3 +704,52 @@ fn a_disabled_option_says_it_is_disabled() {
   assert_eq!(said("box-3").as_deref(), Some("true"));
   assert_eq!(said("box-1"), None);
 }
+
+/// With checkboxes, each option has a checkbox before its label, ticked while it is chosen, in place of the check at
+/// its end and the highlight; a press checks one or unchecks it and keeps the rest, a press with Shift checks a range
+/// and keeps what else is checked.
+#[test]
+fn with_checkboxes_a_press_checks_one_and_shift_adds_a_range() {
+  let told: Arc<Mutex<Vec<Vec<Id>>>> = Arc::default();
+  let chosen = Signal::new(vec!["vulkan"]);
+  let (held, heard) = (chosen.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        Listbox::multiple(held.clone(), renderers())
+          .checkboxes(true)
+          .on_change(move |next: &[Id]| heard.lock().unwrap().push(next.to_vec()))
+          .id("box"),
+      )
+      .into()
+  });
+  // The checkbox of the chosen option is ticked; no check at the end, no heavier label.
+  assert_eq!(
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHECK))
+      .count(),
+    1
+  );
+  assert_eq!(weight_of(&stage, "Vulkan"), FontWeight::Normal);
+  let (x, ..) = stage.bounds("box-4");
+  let check = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHECK))
+    .unwrap();
+  assert!(check.x < x + 40.0, "the tick is before the label");
+  // A plain press adds one and keeps the rest.
+  stage.click("box-0");
+  assert_eq!(chosen.get(), ["vulkan", "wgpu"]);
+  // With Shift, the range from the last checked, and what else was checked stays.
+  press_with(&mut stage, "box-2", true, false);
+  assert_eq!(chosen.get(), ["vulkan", "dx12", "metal", "wgpu"]);
+  // A press of a checked one unchecks it.
+  stage.click("box-4");
+  assert_eq!(chosen.get(), ["dx12", "metal", "wgpu"]);
+  assert_eq!(told.lock().unwrap().len(), 3);
+}

@@ -2939,6 +2939,62 @@ MultiSelect::new(languages.clone(), [
 - It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
+## Cascader
+
+A select whose options are a tree shown as columns that open one after the other, as a menu of submenus does: a place by its continent, its country and its city, a category of a catalogue, a setting by its section.
+
+```rust
+use lurq::ui::{Cascader, TreeItem};
+
+// city: Signal<Option<&str>>: one or none, of the cities alone.
+Cascader::optional(city, [
+  TreeItem::new("asia", "Asia").items([TreeItem::new("japan", "Japan").item(TreeItem::new("tokyo", "Tokyo"))]),
+  TreeItem::new("europe", "Europe").items([
+    TreeItem::new("ukraine", "Ukraine").items([TreeItem::new("kyiv", "Kyiv"), TreeItem::new("lviv", "Lviv")]),
+    TreeItem::new("poland", "Poland").item(TreeItem::new("warsaw", "Warsaw")),
+  ]),
+])
+.label("Place")
+.placeholder("Select a city")
+.clearable(true)
+.mount(ctx);
+
+// A continent or a country may be chosen too, and the columns open under the pointer.
+Cascader::optional(region, items).leaves_only(false).open_on_hover(true).mount(ctx);
+
+// Held by the app, which is told each choice.
+Cascader::controlled(app.city(), items, |city| app.set_city(*city));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)`, `optional(value, items)` | The tree's items (`TreeItem<T>`, a [tree view](#tree-view)'s) and what is chosen of them, bound to a `Signal<T>` or a `Signal<Option<T>>`. A value is one item's: the trigger says the path down to it |
+| `controlled(value, items, on_change)`, `controlled_optional(..)` | The same held by the app, which is told `on_change(&T)` or `on_change(&Option<T>)` and shows what it gives back |
+| `on_change(handler)` | Told what is chosen after a choice a person makes, after the signal is set; not for the option chosen already, nor when the app sets the signal. The cascader is `Cascader<T, T>` or `Cascader<T, Option<T>>`, so a handler of another type does not compile |
+| `leaves_only(bool)` | Whether only an option that holds nothing is chosen, as the board's cascader has it (it is unless told otherwise). Without it a press or Enter chooses any option, and a choice of one that holds others leaves the panel open on its column |
+| `open_on_hover(bool)` | The pointer on an option that holds others opens its column, as a submenu opens, in place of a press. A press opens it either way |
+| `on_load(handler)` | Told an item marked `lazy` that holds nothing yet as its column opens: where the app brings its children. The column has a spinner until they come |
+| `open(Signal<bool>)` | Whether the panel is open, where the app keeps it. `on_open_change(bool)` hears each change a person makes, a choice too; `on_dismiss()` Escape and a press outside, before it |
+| `path(bool)`, `separator_text(&str)` | The trigger says the whole path to what is chosen, `Europe / Ukraine / Kyiv` (it does unless told otherwise), or its label alone; and what stands between the steps, `" / "` |
+| `placeholder(&str)`, `size(CascaderSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open |
+| `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a cascader that may hold none; and what it is called, "Clear" |
+| `empty_text(&str)`, `loading_label(&str)` | What the panel says where there are no items, "No options"; what the spinner of a column on its way is called, "Loading" |
+| `label(&str)`, `panel_label(&str)` | What the cascader is called to what reads the tree, and its panel and its columns in place of that |
+| `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the columns with `-columns` (each column that, `-column-` and its place), the cross with `-clear` |
+| `mount(ctx)` | In place of converting it: the cascader keeps whether it is open, the trigger the focus goes back to and the columns open in it |
+
+- It is built of what is there already: its trigger is a [select](#select)'s box (the same recipe, sizes, ring, judgments and fluid form in a [field](#field)), the one a [tree select](#tree-select) has, its panel a [popover](#popover) and what the panel holds a [column view](#column-view), with a column view's columns, options, chevrons and keys. What a `TreeItem` has, it has here: `icon`, `disabled`, `lazy`, `trailing`. A tree select is its sibling for a tree shown in one column, of which any number may be chosen.
+- A press, Enter, Space, Down or Up on the trigger opens the panel with the columns of the path to what is chosen open, and the focus on it, or on the first option. A press of an option that holds others opens its column; a press of one that holds nothing chooses it and closes the panel, and the panel closes first and the handler is told after, so a handler that opens a dialog keeps its focus. Up and Down go through a column and open the column of the option they reach, Home and End go to its ends, Right goes into what an option holds and Left back to the option the column is of, a letter to the next option that starts with it; Enter on an option that holds nothing chooses it, on one that holds others goes into it. Moving chooses nothing.
+- The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Opened again, the panel is on what is chosen, not on where it was left.
+- The panel is as wide as the columns open in it, each 124, and as high as the longest of them, up to 280, past which a column scrolls; where the window is narrower than the columns they scroll sideways.
+- A cascader that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and the path open in its columns.
+- The board draws a cascader of one: there is no cascader of any number, and no search over the paths, which the board does not draw.
+- To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `listbox`, `a11y_expanded`, `a11y_value` (the path it says), `a11y_invalid` and `a11y_readonly` where they hold; the panel a `dialog`, each column a `listbox` called by the option it is of, and each option an `option` that says `a11y_selected` while it is on the path open, `a11y_expanded` where it holds others, `a11y_level`, `a11y_posinset` and `a11y_setsize`.
+- Parts: `CascaderPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon` (a select's and a tree select's), `Panel` (laid over the popover's panel), `Columns` (laid over the column view's box: its greatest height), `Column`, `Option`, `OptionIcon`, `OptionLabel` and `OptionChevron` (laid over the column view's column, item, icon, label and chevron), and `Empty`. States: a select's, `CascaderState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Fluid`, and `Selected`, resolved on the parts of an option on the path open.
+- In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its path 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow, and holds the columns with no room around them: each 124 wide, padded 4, with a line of 1 in `Border` at its end but the last's. An option is 30 high (22, 38 and 42 at the compact, comfortable and touch densities), 8 in, `radius-sm`, its label at 13 in `Foreground`, and where it holds others a chevron of 14 in `MutedForeground` 4 after it. The options on the path are on `Highlight` with their labels at 500, the last as the others; under the pointer and held down an option has the veils of those states, and the focus from the keyboard is a ring of 2 in `Ring` inside it.
+- A theme's renderer is given `CascaderView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.content()`, `view.panel()` and `view.render()`. It is set for `Cascader<T>` of any `T`.
+
 ## Tree Select
 
 A select whose options are a tree: a file of a project, a category of a catalogue, the folders a search looks in.
@@ -2992,10 +3048,59 @@ TreeSelect::controlled(app.file(), items, |file| app.open(file));
 - The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Tab in the panel leaves the tree, which is one stop.
 - A select that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and which branches are open. As the panel opens, the branches the chosen rows are in open, so it opens on what is chosen; while it is open nothing opens or closes but by a person, so a row taken out of what is chosen stays under the focus.
 - A select of any number has no checkboxes: the board draws none, and its rows are a tree's, in the highlight while they are chosen.
+- A [cascader](#cascader) is its sibling for a tree shown as columns that open one after the other, of which one is chosen. Its trigger is the same.
 - To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `tree`, `a11y_expanded`, `a11y_value` (what it says), `a11y_invalid`, `a11y_readonly` and `a11y_multiselectable` where they hold; the panel a `dialog` and what it holds a `tree` of `treeitem`s, called by the select's label.
 - Parts: `TreeSelectPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon`, `Panel` (laid over the popover's panel), `Tree` (its greatest height, past which the tree scrolls), `Row`, `RowIcon` and `RowLabel` (laid over the tree view's row, icon and label) and `Empty`. States: a select's, `TreeSelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
 - In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
 - A theme's renderer is given `TreeSelectView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.panel()` and `view.render()`. It is set for `TreeSelect<T>` of any `T`.
+
+## Transfer
+
+Two lists side by side, and the buttons between them that move the items checked in one to the other: the features a build has, the columns a table shows, the members of a group.
+
+```rust
+use lurq::ui::Transfer;
+
+// enabled: Signal<Vec<&str>>: the values of the items on the right.
+Transfer::new(enabled, [
+  ("canvas", "canvas"),
+  ("svg", "svg"),
+  ("router", "router"),
+  ("wgpu", "wgpu"),
+  ("winit", "winit"),
+])
+.source_title("Available")
+.target_title("Enabled")
+.label("Features")
+.mount(ctx);
+
+// Held by the app, which is told each new value.
+Transfer::controlled(app.features(), items, |features| app.set_features(features));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)` | Bound to a `Signal<Vec<T>>`: the items of its values are on the right, in the order they came there, and a move sets it. The items are a [listbox](#listbox)'s options: `(value, label)` or a `SelectOption` with `disabled`, `detail`, `hint`, `leading`, `trailing`. The left list has the rest, in the order of the items |
+| `controlled(value, items, on_change)` | The same held by the app, which is told the whole value a move asks for and shows what it gives back |
+| `on_change(handler)` | Told the whole new value, `&[T]`, after a move, after the signal is set; not when the app sets the signal. A second handler is called after the first |
+| `checked(Signal<Vec<T>>)`, `checked_controlled(checked, on_checked_change)`, `on_checked_change(handler)` | What is checked in either list, where the app keeps it (without it a mounted transfer keeps it), and what hears each change a press, a key or a move makes |
+| `source_title(&str)`, `target_title(&str)` | What the lists are called, in their headers and to what reads the tree: "Available" and "Selected" |
+| `count_text(Fn(checked, total) -> String)` | What a header says of how many of its items are checked, of how many: `1/3` |
+| `select_all_label(&str)`, `add_label(&str)`, `remove_label(&str)` | What the header's checkbox and the two buttons are called to what reads the tree: "Select all", "Add", "Remove" |
+| `empty_text(&str)` | What a list with no items says: "No items" |
+| `label(&str)`, `disabled(bool)`, `density(Density)` | What the transfer is called, to what reads the tree; nothing in it takes input; how high an item is, whatever the theme's density |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; the lists' items have it with `-source` and `-target` (each item that and `-` and its place), their headers' checkboxes with `-source-all` and `-target-all`, the buttons with `-add` and `-remove` |
+| `mount(ctx)` | The transfer keeps what is checked, measures its room before it is painted and finds its narrow form there, and a list of more than two hundred items builds only those near its view. Converting it into an element declares the same component; `build(theme)` is the still form, wide only |
+
+- Each list is a [listbox](#listbox) of any number with `checkboxes(true)`: a press of an item checks it or unchecks it and leaves the rest, a press with Shift checks the range from the last one checked and keeps what else is, and the keys are a listbox's: one stop of Tab, Up and Down, Home and End, the page keys, a letter, Space to check, Shift with the keys to check a range, Ctrl+A to check every item that can be. A disabled item is faded, is not checked and does not move.
+- The checkbox in a list's header checks every item of the list that can be checked, or none, and is half checked while some are; it is disabled while none can be. The count beside it says how many are checked, of how many items the list has.
+- The primary button, with a chevron to the right, moves what is checked on the left to the end of the right, in the order of the items; the outline one, with a chevron to the left, moves what is checked on the right back. Each is disabled while its list has nothing checked. A move sets the value and tells `on_change`, then takes what moved out of what is checked. The focus stays on the button that was pressed.
+- Its narrow form is chosen by its own room: mounted, it measures the room before the frame is painted, and where the two lists and the buttons do not fit side by side the lists are as wide as the room, one over the other, and the buttons are side by side between them with their chevrons turned down and up. The first frame is the settled one. Converted into an element (`.child(transfer)`) it is that same live component, as `mount(ctx)` makes it; `build(theme)` is its still form, side by side whatever its room, with nothing checked unless the app holds what is.
+- A list scrolls past 264, eight items; one of more than two hundred items, in a mounted transfer, is a listbox mounted in a virtual list, which builds only the items near its view and which the keys reach every item of.
+- To what reads the tree it is a `group` called by its label, each list a `listbox` that is `a11y_multiselectable`, called by its title, of `option`s that say `a11y_checked` and `a11y_selected`; the header's checkbox is a `checkbox` that says `mixed` while some are checked, and the buttons are `button`s called "Add" and "Remove".
+- Parts: `TransferPart::Root` (the room between the lists and the buttons), `List`, `Header`, `Title`, `Count`, `Items` (laid over the listbox's box: its greatest height, past which the items scroll), `Item` and `ItemLabel` (laid over the listbox's option and label), `Empty` and `Actions`. States: `TransferState::Disabled` and `Stacked`.
+- In the design a list is 190 wide on `Background` in an edge of 1 in `Border`, `radius-lg`, 12 from the buttons, the two lists in the middle of each other's height. Its header is 36 high on `Muted` with a line of 1 in `Border` under it, 12 in from its sides: a checkbox, the title in the body's type at 13 and 500 in `Foreground`, and the count in the mono type at 11 in `MutedForeground`, 8 apart. Its items are 4 in from its top and bottom, each 32 high (24, 40 and 44 at the compact, comfortable and touch densities), 12 in, a checkbox and the label at 13, 8 apart; under the pointer an item is on `Muted`, and the focus from the keyboard is a ring of 2 in `Ring` inside it. The buttons are 32 square, 8 apart. A list with no items says so at 13 in `MutedForeground`, 12 in.
+- A theme's renderer is given `TransferView`: `view.source` and `view.target` (each a `TransferList` with its title, its count, how many are checked and `list.header()`, `list.select_all()`, `list.render(items)`), `view.button(to_target)`, `view.actions()`, `view.stacked` and `view.render()`. It is set for `Transfer<T>` of any `T`.
 
 ## Token Input
 
@@ -5397,6 +5502,7 @@ ColumnView::controlled(app.path(), items, |path| app.go(path));
 | `controlled(path, items, on_change)` | The path held by the app, which is told `on_change(&[T])` and shows what it gives back |
 | `on_change(handler)` | Told the whole new path after a press or a key changes it, after the signal is set; not for the path chosen already, nor when the app sets it |
 | `on_activate(handler)` | Told of the item a double press or Enter activates: open the file |
+| `press_activates(bool)`, `activate_branches(bool)`, `open_on_hover(bool)` | For a menu of columns, a [cascader](#cascader)'s: a single press activates the item it chooses; an item that holds others is not activated, and Enter goes into it as Right does (`activate_branches(false)`); the pointer on an item that holds others chooses it, opening its column |
 | `label(&str)`, `loading_label(&str)` | What the view is called to what reads the tree, and the spinner of a column whose items are on their way, "Loading" |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and each column has it with `-column-` and its place; `force` draws the item Tab stops on so |
 | `mount(ctx)` | In place of converting it: the view keeps where its columns are scrolled to, starts at the end of its path and brings the last column into sight as the path grows |
@@ -6831,6 +6937,7 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 | `multiple(values, options)` | Bound to a `Signal<Vec<T>>`: the options of its values are chosen, and choosing one adds it or takes it out |
 | `controlled(value, options, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same three, held by the app: a `T`, an `Option<T>` or the values, chosen as it says; `on_change` is told what a press or a key would choose, and the listbox shows what the app answers with |
 | `follow_focus(bool)` | Of one, whether the arrows choose as they move. They do unless told otherwise; without it Space, Enter and a press choose |
+| `checkboxes(bool)` | Of many, a checkbox before each option's label, ticked while it is chosen, in place of the check at its end and the highlight: a press checks one or unchecks it and keeps the rest, a press with Shift and Shift with the keys check a range and keep what else is checked. A [transfer](#transfer)'s lists are these |
 | `on_change(handler)` | Told the new choice after each press or key that changes it, after the signal is set, and not for what is already chosen nor when the app sets the signal: `&T` of a listbox made with `new` or `controlled`, `&Option<T>` of an optional one, `&[T]`, the whole set, of a multiple one. A handler of another type does not compile. A second handler is called after the first |
 | `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
 | `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
@@ -6843,9 +6950,9 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 - The keys are the engine's: the options are a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`, `pages` and without `wrap`; one of one `activate`s, one of many `shift_extends`. The range and the toggle are `ui::selection`'s, which the [tree view](#tree-view) shares.
 - Mounted with `mount(ctx)`, the options are in the engine's virtual list and the group steps over every option, built or not (`FocusRows`): the keys, the page keys and typeahead go to any option, the list builds it and the focus goes to it, and the choice follows as it does where every option is built; Shift with the keys and Ctrl+A choose over every option. The list opens at the chosen option. Each option is drawn with `ListboxOption::render`, its group's label over it; a theme's renderer of the whole listbox is not used there, its rules are.
 - To what reads the tree it is a `listbox` (`a11y_multiselectable` of many) called by its label, with `option`s that say `a11y_selected`, `a11y_posinset` and `a11y_setsize`; a group's label is a `group`.
-- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
+- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Checkboxes`, `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
 - In the design the box is 220 on `Background` with an edge of 1 in `Border` and the large radius, its options 1 apart, 4 in. An option is 32 high (24, 40 and 44 at the compact, comfortable and touch densities), and 16 higher with a detail under its label (48; 40, 56 and 60), 8 in, with the small radius, its label in the body's type at 13. The chosen one is on `Highlight`, its label at 500, with a check of 14 at its end; the one under the pointer is on `Muted`; one held down has the `StatePressed` veil; the focus from the keyboard is a ring of 2 in `Ring` inside it; a disabled one says its label in `MutedForeground`, faded, is drawn as nothing points at it or presses it whatever the listbox is forced to, and says `a11y_disabled` to tooling. A group's label is 11 at 600 in `MutedForeground`, 6 over it, 4 under it, 8 in.
-- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
+- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.checkbox()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
 
 ## Data List
 

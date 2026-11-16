@@ -23,6 +23,7 @@ mod card;
 mod carousel;
 #[cfg(feature = "canvas")]
 mod chart_motion;
+mod cascader;
 mod checkbox;
 mod choice_card;
 mod code_block;
@@ -163,6 +164,7 @@ mod toggletip;
 mod token_input;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tray_popover;
 mod tree_select;
 mod tree_view;

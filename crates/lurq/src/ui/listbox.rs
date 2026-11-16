@@ -32,7 +32,7 @@ use crate::{
   },
   node::{
     CursorIcon, Element, FocusGroup, FocusRows, SelectAdornmentState, SpacingValue, border::Border, color::Color,
-    dimension::Dimension, outline::Outline,
+    dimension::Dimension, node_kind::TextOverflow, outline::Outline,
   },
 };
 
@@ -83,6 +83,9 @@ pub enum ListboxState {
   OptionDisabled,
   /// Of an option: it has a detail under its label, and is as high as its two lines need.
   Detail,
+  /// Its options have a checkbox before their labels in place of the check at their ends
+  /// ([`Listbox::checkboxes`]): a chosen one is not in the highlight.
+  Checkboxes,
   /// The listbox takes no input.
   Disabled,
   /// What is chosen is wrong, or nothing is and something has to be: its edge is in the destructive color.
@@ -97,6 +100,7 @@ names!(ListboxState {
   Chosen => "chosen",
   OptionDisabled => "option_disabled",
   Detail => "detail",
+  Checkboxes => "checkboxes",
   Disabled => "disabled",
   Invalid => "invalid",
   Multiple => "multiple",
@@ -184,6 +188,7 @@ pub struct Listbox<T, V: ?Sized = T> {
   many: bool,
   tell: Tell<T, V>,
   follow_focus: bool,
+  checkboxes: bool,
   on_change: Vec<ChangeHandler<V>>,
   label: Option<Arc<str>>,
   description: Option<Arc<str>>,
@@ -295,6 +300,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
       many,
       tell,
       follow_focus: true,
+      checkboxes: false,
       on_change: Vec::new(),
       label: None,
       description: None,
@@ -315,6 +321,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
   /// choose.
   pub fn follow_focus(mut self, follow: bool) -> Self {
     self.follow_focus = follow;
+    self
+  }
+
+  /// Of a listbox of any number, whether each option has a checkbox before its label, ticked while it is chosen,
+  /// in place of the check at its end and the highlight: a list of things to check, as a transfer's lists are. A
+  /// press of an option then checks it or unchecks it and leaves the rest as they are, and a press with Shift, or
+  /// Shift with the keys, checks the range from where the checking started and keeps what else is checked.
+  pub fn checkboxes(mut self, checkboxes: bool) -> Self {
+    self.checkboxes = checkboxes;
     self
   }
 
@@ -425,6 +440,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
       states: self.states.clone(),
     }
     .state(ListboxState::Multiple, self.many)
+    .state(ListboxState::Checkboxes, self.checks())
     .state(ListboxState::Disabled, self.disabled)
     .state(ListboxState::Invalid, self.invalid)
     .state(ListboxState::FullWidth, self.full_width);
@@ -462,13 +478,23 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
         tell(&next, &on_change);
       }) as Write<T>
     };
-    let selection = Arc::new(ListSelection::new(
-      ids,
-      enabled.clone(),
-      chosen.clone(),
-      many,
-      Some(write),
-    ));
+    let checks = self.checks();
+    let selection =
+      Arc::new(ListSelection::new(ids, enabled.clone(), chosen.clone(), many, Some(write)).adding(checks));
+    // The checkbox of an option is in one of four cases, each resolved once.
+    let boxes = checks.then(|| {
+      [false, true].map(|checked| {
+        [false, true].map(|disabled| {
+          theme.resolve::<super::Checkbox>(
+            &Case::new()
+              .state(super::CheckboxState::Checked, checked)
+              .state(super::CheckboxState::Disabled, disabled)
+              .breakpoint(super::current_breakpoint()),
+            None,
+          )
+        })
+      })
+    });
 
     let mut position = 0;
     let options = self
@@ -508,6 +534,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
           entry: entry == Some(index),
           position: (position, 0),
           multiple: many,
+          checkbox: boxes
+            .as_ref()
+            .map(|boxes| boxes[usize::from(is_chosen)][usize::from(disabled)].clone()),
           recipe,
           forced: self.forced,
           pick,
@@ -537,6 +566,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
       id: self.id.clone(),
       key: self.key.clone(),
     }
+  }
+
+  /// Whether its options are drawn with checkboxes: of a listbox of any number that was asked to.
+  fn checks(&self) -> bool {
+    self.checkboxes && self.many
   }
 }
 
@@ -693,6 +727,9 @@ pub struct ListboxOption {
   pub position: (usize, usize),
   /// Whether any number may be chosen.
   pub multiple: bool,
+  /// The style of each part of the checkbox before its label, in its case: where the listbox has
+  /// [`checkboxes`](Listbox::checkboxes).
+  pub checkbox: Option<ResolvedRecipe>,
   /// The style of each part of this option, in its case.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -756,9 +793,18 @@ impl ListboxOption {
     if let Some(detail) = &self.detail {
       option = option.describe("a11y_description", detail.clone());
     }
+    if self.checkbox.is_some() {
+      option = option.describe("a11y_checked", if self.chosen { "true" } else { "false" });
+    }
     if let Some(pick) = self.pick.clone() {
-      let multiple = self.multiple;
-      option = option.on_click(move |event: MouseEvent| pick(Pick::of(&event, multiple)));
+      let (multiple, checks) = (self.multiple, self.checkbox.is_some());
+      option = option.on_click(move |event: MouseEvent| {
+        pick(if checks {
+          Pick::of_check(&event)
+        } else {
+          Pick::of(&event, multiple)
+        })
+      });
     }
     if let Some(select_all) = self.select_all.clone() {
       option = option.on_key_down(move |event: KeyboardEvent| select_all_key(&event, &*select_all));
@@ -778,7 +824,7 @@ impl ListboxOption {
         .width(fill)
         .min_width(Dimension::Px(0.0))
         .part(&label)
-        .child(label.text(&self.label).nowrap()),
+        .child(label.text(&self.label).nowrap().text_overflow(TextOverflow::Elipsis)),
     );
     if let Some(detail) = &self.detail {
       let part = self.part(ListboxPart::Detail);
@@ -787,23 +833,46 @@ impl ListboxOption {
           .width(fill)
           .min_width(Dimension::Px(0.0))
           .part(&part)
-          .child(part.text(detail).nowrap()),
+          .child(part.text(detail).nowrap().text_overflow(TextOverflow::Elipsis)),
       );
     }
     text
   }
 
-  /// The mark at the end of a chosen option: `None` for one that is not chosen.
+  /// The mark at the end of a chosen option: `None` for one that is not chosen, and for an option of a listbox
+  /// with checkboxes, whose checkbox says it.
   pub fn check(&self) -> Option<Element> {
-    self
-      .chosen
+    (self.chosen && self.checkbox.is_none())
       .then(|| glyph(&self.part(ListboxPart::Check), Name::new(icons::CHECK), false))
   }
 
-  /// How the default renderer builds an option: what the app put before its label, its label and detail, its hint,
-  /// what the app put after it, and the mark of a chosen one, side by side.
+  /// The checkbox before the label of an option of a listbox with [`checkboxes`](Listbox::checkboxes): the box of
+  /// a [`Checkbox`](super::Checkbox), ticked while the option is chosen. It is drawn, not pressed: the option is.
+  pub fn checkbox(&self) -> Option<Element> {
+    let checkbox = self.checkbox.as_ref()?;
+    let mut square = Row::new()
+      .justify(Justify::Center)
+      .align_items(Alignment::Center)
+      .flex_shrink(0.0)
+      .pointer_events_none()
+      .part(&checkbox.part(super::CheckboxPart::Box));
+    if self.chosen {
+      square = square.child(glyph(
+        &checkbox.part(super::CheckboxPart::Indicator),
+        Name::new(icons::CHECK),
+        false,
+      ));
+    }
+    Some(square.into())
+  }
+
+  /// How the default renderer builds an option: its checkbox where the listbox has them, what the app put before its
+  /// label, its label and detail, its hint, what the app put after it, and the mark of a chosen one, side by side.
   pub fn render(mut self) -> Element {
     let mut option = self.button();
+    if let Some(checkbox) = self.checkbox() {
+      option = option.child(checkbox);
+    }
     if let Some(leading) = self.leading.take() {
       option = option.child(
         Row::new()
@@ -898,6 +967,18 @@ impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Listbox<T, V> {
       })
       .state(Chosen, Label, |s| s.weight(FontWeight::Medium))
       .state(OptionDisabled, Label, |s| s.foreground(MutedForeground).opacity(0.6))
+      // With checkboxes, the checkbox says what is chosen: no highlight and no heavier label.
+      .when(Selector::new().state(Chosen).state(ListboxState::Checkboxes), Option, |s| {
+        s.background(Color::new(0, 0, 0, 0))
+      })
+      .when(
+        Selector::new().state(Chosen).state(ListboxState::Checkboxes).hovered(),
+        Option,
+        |s| s.background(Muted),
+      )
+      .when(Selector::new().state(Chosen).state(ListboxState::Checkboxes), Label, |s| {
+        s.weight(FontWeight::Normal)
+      })
       .base(Detail, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
       .base(Hint, |s| {
         s.font_family(FontFamily::Mono)
