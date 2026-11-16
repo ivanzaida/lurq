@@ -117,6 +117,11 @@ Added:
 - `ui::Lightbox` is a component of the design system: pictures one at a time over the window or in a page, brought
 - `ui::Gallery` is a component of the design system: pictures in rows of rooms of one shape, with one lightbox for
 - `ui::Carousel` is a component of the design system: slides between two round buttons with dots under them,
+- `lurq::media` (feature `media`): `Media::open(loader, source)` plays a video with the system's decoder on a thread of its own, keeps its clock, and gives an image a `Video` draws; `play`, `pause`, `seek`, `set_rate`, `state`, `on_change`. On Windows it decodes with Media Foundation.
+- `lurq::media`: a media plays its sound through the system's output (WASAPI on Windows), and its clock follows what is heard; `Media::set_volume`, `Media::set_muted`, and `sound`, `volume`, `muted` in `MediaState`.
+- `lurq::media`: `Media::sound(loader, source)` is what is only heard. At an address it is loaded whole through the app's loader and kept in `media::sound_cache()` (`SoundCache`: `budget`, `bytes`, `len`, `holds`, `forget`, `clear`; `DEFAULT_SOUND_CACHE_BYTES`).
+- `ui::VideoPlayer::source(&Source)` (feature `media`): a mounted player plays the source, and its controls move the video, its volume and its mute.
+- `ui::AudioPlayer::source(&Source)` (feature `media`): a player plays the source as a sound, and its controls move it.
 - The gallery's pages open in tabs, as a browser's do: a strip in its title bar (`ui::WindowTabs` in a `ui::WindowChrome`) over the engine's set of tabs (`Tabs`, `TabOutlet` with no bar of its own), each tab a router with its own history, its page kept as it was left while another is shown. The add button and Ctrl+T open one, a press of the middle button or a press with Ctrl on a page of the side bar opens that page in one, a tab is closed by its button, the middle button or Ctrl+W and dragged along the strip; the last one stays. In a browser the gallery has the one tab, and the browser's own.
 - `RouterHandle::new(routes)`: a router made outside a render, for a place that is added while the app runs, such as a tab a person opens. `Ctx::router` makes the same.
 - `Tabs::move_to(key, index)`: moves a tab among the others, as a strip of tabs a person drags along asks for; the tab keeps its history, its screens and whether it is the one shown.
