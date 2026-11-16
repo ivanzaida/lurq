@@ -1,6 +1,8 @@
 //! A lightbox: its top row, its stage and its strip as the design draws them, turning to another picture,
 //! bringing one closer, its caption, its keys and the wheel, and over the window while its signal says so.
 
+#![cfg(feature = "raster")]
+
 use std::sync::{
   Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
