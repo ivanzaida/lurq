@@ -1374,6 +1374,11 @@ impl ManagedSecondaryWindow {
         WindowAttributes::default()
           .with_title(secondary.title())
           .with_decorations(secondary.decorations())
+          .with_window_level(if secondary.always_on_top() {
+            winit::window::WindowLevel::AlwaysOnTop
+          } else {
+            winit::window::WindowLevel::Normal
+          })
           .with_inner_size(winit::dpi::LogicalSize::new(secondary.width(), secondary.height())),
       ),
       close_requested: false,

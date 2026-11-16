@@ -1304,3 +1304,37 @@ fn in_fullscreen_it_fills_its_window_and_keeps_its_room_where_it_stood() {
   });
   assert_eq!(window.bounds("v"), (0.0, 0.0, 800.0, 520.0));
 }
+
+#[test]
+fn in_picture_in_picture_it_says_so_where_it_stood_and_a_button_brings_it_back() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut away = mounted(move || {
+    // The handler of `player` goes on telling what is asked of it.
+    player(&made).width(432.0).picture_in_picture_controlled(true, |_| {})
+  });
+  assert_eq!(away.bounds("v"), (0.0, 0.0, 432.0, 243.0), "it keeps its room");
+  assert!(away.paints("Playing in picture in picture"));
+  assert!(
+    !has(&mut away, "v-play") && !has(&mut away, "v-controls"),
+    "its controls went with it"
+  );
+  assert!(!has(&mut away, "picture"), "and its picture");
+  told.take();
+  away.click("v-back");
+  assert_eq!(told.take(), ["picture in picture false"]);
+  // An app that makes the window itself: the player is drawn where it stands, its button on.
+  let made = told.clone();
+  let mut own = mounted(move || {
+    player(&made)
+      .width(640.0)
+      .picture_in_picture_controlled(true, |_| {})
+      .picture_in_picture_window(false)
+  });
+  assert!(has(&mut own, "v-play") && has(&mut own, "picture"));
+  assert!(!own.paints("Playing in picture in picture"));
+  says(&mut own, "v-pip", "a11y_pressed", "true");
+  // Not mounted, it has no window to open.
+  let mut still_one = still(move || player(&told).picture_in_picture_controlled(true, |_| {}));
+  assert!(has(&mut still_one, "v-play"));
+}

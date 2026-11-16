@@ -26,7 +26,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement, Timeout},
-    events::KeyboardEvent,
+    events::{KeyboardEvent, MouseEvent},
     theme::{MotionDuration, MotionEasing, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, Stack},
@@ -54,6 +54,9 @@ pub const VIDEO_PLAYER_VOLUME_FOLDS_BELOW: f32 = 480.0;
 
 /// The shape of a picture unless the app names another: its width over its height, 16 by 9.
 pub const VIDEO_PLAYER_ASPECT: f32 = 16.0 / 9.0;
+
+/// How wide the window of a player in picture in picture is; it is as high as the picture's aspect makes it.
+pub const VIDEO_PLAYER_PICTURE_WIDTH: u32 = 400;
 
 /// How soon a second press of the picture asks for fullscreen.
 pub const VIDEO_PLAYER_DOUBLE_PRESS: Duration = Duration::from_millis(500);
@@ -315,6 +318,8 @@ struct Words {
   settings: Arc<str>,
   quality: Arc<str>,
   picture_in_picture: Arc<str>,
+  in_picture: Arc<str>,
+  back: Arc<str>,
   fullscreen: Arc<str>,
   exit_fullscreen: Arc<str>,
   more: Arc<str>,
@@ -343,6 +348,8 @@ impl Default for Words {
       settings: word("Settings"),
       quality: word("Quality"),
       picture_in_picture: word("Picture in picture"),
+      in_picture: word("Playing in picture in picture"),
+      back: word("Back to the window"),
       fullscreen: word("Fullscreen"),
       exit_fullscreen: word("Exit fullscreen"),
       more: word("More"),
@@ -435,6 +442,7 @@ pub struct VideoPlayer {
   fullscreen: Held<bool>,
   fullscreen_fills: VideoFullscreen,
   picture_in_picture: Held<bool>,
+  picture_in_picture_window: bool,
   size: Option<Name>,
   width: Option<Length>,
   height: Option<Length>,
@@ -528,6 +536,7 @@ impl VideoPlayer {
       fullscreen: Held::new(false),
       fullscreen_fills: VideoFullscreen::Screen,
       picture_in_picture: Held::new(false),
+      picture_in_picture_window: true,
       size: None,
       width: None,
       height: None,
@@ -827,6 +836,14 @@ impl VideoPlayer {
     "whether it plays in a small window of its own over the others."
   );
 
+  /// Whether a mounted player in picture in picture opens that window itself (the default): a small one with no
+  /// frame, kept over the other windows of the desktop, in which it plays while what it says stands where it
+  /// was. Without it the value is told and drawn, and the window is the app's to make.
+  pub fn picture_in_picture_window(mut self, opens: bool) -> Self {
+    self.picture_in_picture_window = opens;
+    self
+  }
+
   /// Which form it is drawn in, a [`VideoPlayerSize`], in place of the one its width gives it.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = Some(size.into());
@@ -892,6 +909,8 @@ impl VideoPlayer {
     settings_label => settings, "The name of the settings' button.";
     quality_label => quality, "The name of the quality's row in the menus.";
     picture_in_picture_label => picture_in_picture, "The name of the button of picture in picture.";
+    in_picture_text => in_picture, "What stands where the player was while it plays in its small window.";
+    back_label => back, "The button that brings it back from its small window: \"Back to the window\".";
     fullscreen_label => fullscreen, "The name of the fullscreen button while a press would fill the screen.";
     exit_fullscreen_label => exit_fullscreen, "The name of the fullscreen button while it fills the screen.";
     more_label => more, "The name of the compact player's menu button.";
@@ -1014,7 +1033,36 @@ struct Live {
   rested: Arc<Mutex<(f32, f32)>>,
   /// Its window, which fullscreen takes to the whole screen.
   window: Option<crate::app::window::WindowHandle>,
+  /// What its small window is given, while it plays in picture in picture.
+  picture: Option<Picture>,
+  /// What tells the small window, after a render, that the player changed.
+  told: Option<Timeout>,
+  /// What opens the small window.
+  opener: Option<crate::app::WindowOpener>,
   mounted: bool,
+}
+
+/// What a player and its small window share: the player as it was last rendered (none once it left picture in
+/// picture, which closes the window), a count the window renders again for, and whether the window was asked for.
+#[derive(Clone)]
+struct Picture {
+  player: Arc<Mutex<Option<VideoPlayer>>>,
+  changed: Signal<u64>,
+  open: Arc<AtomicBool>,
+}
+
+impl Picture {
+  fn put(&self, player: Option<VideoPlayer>) {
+    *self.player.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = player;
+  }
+
+  fn held(&self) -> Option<VideoPlayer> {
+    self
+      .player
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone()
+  }
 }
 
 /// The height of a picture of `aspect` (its width over its height) that is `width` wide.
@@ -1053,6 +1101,9 @@ impl Live {
       screen: Arc::default(),
       rested: Arc::default(),
       window: None,
+      picture: None,
+      told: None,
+      opener: None,
       mounted: false,
     }
   }
@@ -1107,6 +1158,17 @@ impl Component for VideoPlayerHost {
       let shown = shown.clone();
       move || shown.set(true)
     });
+    let picture = Picture {
+      player: Arc::default(),
+      // Not the player's own signal: a change of it renders the small window again, and not the player.
+      changed: Signal::new(0),
+      open: Arc::default(),
+    };
+    // After the render that changed the player: a signal is not set while something renders.
+    let told = ctx.create_timeout(Duration::ZERO, {
+      let changed = picture.changed.clone();
+      move || changed.update(|count| *count += 1)
+    });
     let live = Live {
       root: ElementRef::new(),
       row: ElementRef::new(),
@@ -1126,6 +1188,9 @@ impl Component for VideoPlayerHost {
       screen: Arc::default(),
       rested: Arc::default(),
       window: Some(ctx.window()),
+      picture: Some(picture),
+      told: Some(told),
+      opener: Some(ctx.window_opener()),
       mounted: true,
     };
     // Before the frame is painted: the form that fits the width it was laid out at, so that no frame shows another.
@@ -1159,6 +1224,13 @@ impl Component for VideoPlayerHost {
       && let Some(window) = &self.live.window
     {
       window.set_full_screen(false);
+    }
+    // And its small window closes with it.
+    if let Some(picture) = &self.live.picture
+      && picture.open.swap(false, Ordering::Relaxed)
+    {
+      picture.put(None);
+      picture.changed.update(|count| *count += 1);
     }
   }
 
@@ -1201,6 +1273,34 @@ impl Component for VideoPlayerHost {
       }
     }
     let theme = current_theme();
+    // In picture in picture it plays in a small window of its own, kept over the others, and says so where it
+    // stood. A player that fills its window is not in one.
+    let away = !fills && player.picture_in_picture.value && player.picture_in_picture_window;
+    if let (Some(picture), Some(told)) = (&live.picture, &live.told) {
+      if away {
+        picture.put(Some(player.clone()));
+        if !picture.open.swap(true, Ordering::Relaxed)
+          && let Some(opener) = &live.opener
+        {
+          let (wide, props) = (VIDEO_PLAYER_PICTURE_WIDTH, PictureProps(picture.clone()));
+          let high = shaped(wide as f32, player.aspect).max(1.0) as u32;
+          opener.open_with(
+            crate::app::WindowOptions::new(player.words.picture_in_picture.to_string(), wide, high)
+              .undecorated()
+              .always_on_top()
+              .window_name("picture-in-picture"),
+            move |app, tree| tree.mount_root::<PictureWindow>(app, props),
+          );
+        }
+        told.restart();
+      } else if picture.open.swap(false, Ordering::Relaxed) {
+        picture.put(None);
+        told.restart();
+      }
+    }
+    if away {
+      return view(in_its_window(player, &theme), &theme, live, Some(ctx)).render_themed();
+    }
     if !fills {
       return view(player, &theme, live, Some(ctx)).render_themed();
     }
@@ -1237,6 +1337,153 @@ impl Component for VideoPlayerHost {
     .target(Root)
     .takes_focus(true);
     place.child(layer).into()
+  }
+}
+
+/// The style of the parts of `player` at rest, in the form `size`.
+fn parts(player: &VideoPlayer, theme: &Theme, size: VideoPlayerSize) -> ResolvedRecipe {
+  let case = Case {
+    variant: None,
+    size: Some(size.into()),
+    density: None,
+    breakpoint: super::current_breakpoint(),
+    states: player.states.clone(),
+  };
+  theme.resolve::<VideoPlayer>(&case, Some(&player.rules))
+}
+
+/// `player` as it stands where it was while it plays in its small window: no picture and no controls, what it
+/// says in the middle (the error's glyph, title and button, with other words), and a button that brings it back.
+fn in_its_window(mut player: VideoPlayer, theme: &Theme) -> VideoPlayer {
+  let recipe = parts(&player, theme, VideoPlayerSize::Lg);
+  let (title, button) = (recipe.part(VideoPlayerPart::Title), recipe.part(VideoPlayerPart::Retry));
+  let back = player.picture_in_picture.teller();
+  let mut leave = pressable(&button, false)
+    .describe("a11y_role", "button")
+    .describe("a11y_name", player.words.back.clone())
+    .child(button.text(&player.words.back).nowrap())
+    .on_click(move |_| back(false));
+  if let Some(id) = &player.id {
+    leave = leave.id(format!("{id}-back"));
+  }
+  let said = Column::new()
+    .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+    .align_items(Alignment::Center)
+    .justify(Justify::Center)
+    .spacing(12.0)
+    .child(glyph(
+      &recipe.part(VideoPlayerPart::ErrorIcon),
+      Name::new(icons::PICTURE_IN_PICTURE),
+      false,
+    ))
+    .child(
+      title
+        .text(&player.words.in_picture)
+        .text_align(TextAlign::Center)
+        .part(&title),
+    )
+    .child(leave);
+  player.media = None;
+  player.poster = None;
+  player.controls = false;
+  player.children = vec![said.into()];
+  player
+}
+
+/// What the small window of a player in picture in picture is given.
+#[derive(Clone)]
+struct PictureProps(Picture);
+
+/// The same window as long as it is the same player's.
+impl PartialEq for PictureProps {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0.player, &other.0.player)
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for PictureProps {}
+
+/// The small window of a player in picture in picture: the player as large as the window, in its minimal form,
+/// with a strip at its top that moves the window (it has no frame) and a button that brings the player back.
+struct PictureWindow;
+
+impl Component for PictureWindow {
+  type Props = PictureProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    // Closed by the system, it asks the app to leave picture in picture as its button does.
+    let picture = ctx.props::<PictureProps>().0.clone();
+    ctx.window().on_close_requested(move |request| {
+      if let Some(player) = picture.held() {
+        (player.picture_in_picture.teller())(false);
+      }
+      request.proceed();
+    });
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let picture = ctx.props::<PictureProps>().0.clone();
+    // Rendered again each time the player is.
+    picture.changed.get();
+    let window = ctx.window();
+    let black = Color::new(0, 0, 0, 255);
+    let Some(mut player) = picture.held() else {
+      // It left picture in picture, or was taken away.
+      window.close();
+      let empty: Element = Stack::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .background(black)
+        .into();
+      return empty;
+    };
+    let theme = current_theme();
+    let recipe = parts(&player, &theme, VideoPlayerSize::Md);
+    let leave = player.picture_in_picture.teller();
+    let back = pressable(&recipe.part(VideoPlayerPart::Control), false)
+      .describe("a11y_role", "button")
+      .describe("a11y_name", player.words.back.clone())
+      .child(glyph(
+        &recipe.part(VideoPlayerPart::ControlIcon),
+        Name::new(icons::PICTURE_IN_PICTURE),
+        false,
+      ))
+      .on_click(move |_| leave(false));
+    let grip = Row::new()
+      .flex(1.0)
+      .height(Dimension::Pct(100.0))
+      .on_mouse_down(move |_: MouseEvent| window.start_drag());
+    let top = Row::new()
+      .width(Dimension::Pct(100.0))
+      .height(36.0)
+      .padding(4.0)
+      .align_items(Alignment::Center)
+      .child(grip)
+      .child(back);
+    player.children.push(
+      Column::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .hit_test(HitTestBehavior::ContentOnly)
+        .child(top)
+        .into(),
+    );
+    player.width = Some(Length::Fill);
+    player.height = Some(Length::Fill);
+    player.max_width = None;
+    player.size = Some(VideoPlayerSize::Sm.into());
+    // The window is the picture: its corners are the window's.
+    player = player.style(VideoPlayerPart::Root, |s| s.radius(0.0));
+    // It is the picture in picture: it opens no window of its own, and its fullscreen is the app's.
+    player.picture_in_picture_window = false;
+    player.fullscreen_fills = VideoFullscreen::App;
+    player.id = None;
+    player.key = None;
+    Stack::new()
+      .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+      .background(black)
+      .child(player.mount(ctx))
+      .into()
   }
 }
 

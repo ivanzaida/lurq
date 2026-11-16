@@ -19,6 +19,9 @@ pub struct SecondaryWindowRequest {
   /// `false` creates the OS window without native decorations, for trees that
   /// render their own `WindowChrome`.
   pub(crate) decorations: bool,
+  /// `true` keeps the OS window over the other windows of the desktop, the
+  /// ones of other apps among them: a picture in picture.
+  pub(crate) always_on_top: bool,
   /// Optional stable machine name (titles aren't unique) surfaced to external
   /// tooling such as the MCP `lurq_windows` tool.
   pub(crate) name: Option<String>,
@@ -34,6 +37,7 @@ pub struct WindowOptions {
   width: u32,
   height: u32,
   decorations: bool,
+  always_on_top: bool,
   name: Option<String>,
 }
 
@@ -44,8 +48,18 @@ impl WindowOptions {
       width,
       height,
       decorations: true,
+      always_on_top: false,
       name: None,
     }
+  }
+
+  /// Keep the OS window over the other windows of the desktop, the ones of
+  /// other apps among them, whether or not it has the focus: a picture in
+  /// picture, a palette. Where the platform has no such level (a phone, a
+  /// browser) the window is an ordinary one.
+  pub fn always_on_top(mut self) -> Self {
+    self.always_on_top = true;
+    self
   }
 
   /// Create the OS window without native decorations (for trees that render
@@ -106,6 +120,7 @@ impl WindowOpener {
       width: options.width,
       height: options.height,
       decorations: options.decorations,
+      always_on_top: options.always_on_top,
       name: options.name,
       build: Box::new(build),
     });
@@ -120,6 +135,7 @@ impl WindowOpener {
       width,
       height,
       decorations,
+      always_on_top: false,
       name: None,
       build: Box::new(build),
     });

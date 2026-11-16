@@ -925,6 +925,13 @@ impl Component for VideoPlayerPage {
         "The line to show now, and the track's name the settings say.",
       ),
       (
+        "picture_in_picture_window",
+        "bool",
+        "true",
+        "Whether picture in picture opens its small window itself: no frame, kept over the other windows, the \
+         player in it and a button that brings it back. Without it the value is told and the window is the app's.",
+      ),
+      (
         "fullscreen_fills",
         "VideoFullscreen",
         "Screen",
