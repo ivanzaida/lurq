@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::Tree;
 use crate::{
   app::window::WindowWaker,
+  core::IdGenerator,
   images::{ImageKey, ImageLoadState, ImageSizeCap, decoded_images},
   layout::{Size, layout_kind::LayoutKind},
   node::{node::Node, node_kind::NodeKind},
@@ -49,7 +50,7 @@ impl Tree {
       .get_or_insert_with(|| self.window.loop_waker())
       .clone();
     let mut pending = Vec::new();
-    let changed = resolve_recursive(root, &wake, &mut pending);
+    let changed = resolve_recursive(root, &wake, &mut pending, &self.id_gen);
     self.pending_images = pending;
     if changed {
       self.needs_redraw = true;
@@ -74,7 +75,12 @@ impl Tree {
   }
 }
 
-fn resolve_recursive(node: &mut Node, wake: &WindowWaker, pending: &mut Vec<(ImageKey, Option<ImageSizeCap>)>) -> bool {
+fn resolve_recursive(
+  node: &mut Node,
+  wake: &WindowWaker,
+  pending: &mut Vec<(ImageKey, Option<ImageSizeCap>)>,
+  id_gen: &IdGenerator,
+) -> bool {
   #[cfg(test)]
   crate::core::layout_dirty::visit();
   if !node.prepare_layout_tracking().loading_images {
@@ -84,7 +90,23 @@ fn resolve_recursive(node: &mut Node, wake: &WindowWaker, pending: &mut Vec<(Ima
   if let NodeKind::LoadingImage { request } = &mut node.node_kind {
     let state = decoded_images().load(request.key, request.cap, || request.source.clone(), Some(wake.clone()));
     match state {
-      ImageLoadState::Loading => pending.push((request.key, request.cap)),
+      ImageLoadState::Loading => {
+        // Asked for anew after it failed: the placeholder again, where the node can build it.
+        if request.failed {
+          request.failed = false;
+          node.children = request
+            .placeholder_view
+            .as_ref()
+            .map(|view| view().into_node())
+            .into_iter()
+            .collect();
+          for child in &mut node.children {
+            child.assign_ids(id_gen);
+          }
+          layout_dirty = true;
+        }
+        pending.push((request.key, request.cap));
+      }
       ImageLoadState::Ready(data) => {
         let fit = request.fit;
         node.intrinsic_size = Some(Size::new(data.width() as f32, data.height() as f32));
@@ -102,13 +124,18 @@ fn resolve_recursive(node: &mut Node, wake: &WindowWaker, pending: &mut Vec<(Ima
             .map(|view| view(&error).into_node())
             .into_iter()
             .collect();
+          // What a view builds here was in no render: its nodes are named now, so that an element in it (the
+          // button that asks again) is found by its id and not taken for the root.
+          for child in &mut node.children {
+            child.assign_ids(id_gen);
+          }
           layout_dirty = true;
         }
       }
     }
   }
   for child in &mut node.children {
-    if resolve_recursive(child, wake, pending) {
+    if resolve_recursive(child, wake, pending, id_gen) {
       layout_dirty = true;
     }
   }

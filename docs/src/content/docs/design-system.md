@@ -626,6 +626,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 | `disabled(bool)` | Its control takes no input, and a press of its label focuses nothing |
 | `required(bool)` | A `*` after the label |
 | `optional(bool)`, `optional_text(&str)` | "Optional" after the label, or the app's own words. A required field shows none |
+| `info(&str)` | What the label needs explained: the mark of an [info label](#info-label) after the label, 6 after what is before it, with the words in a tooltip above it. The tooltip shows on a field that is mounted (`mount(ctx)`), and the mark is then the field's first stop of Tab; on one converted into an element the mark says the words to tooling alone |
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `fluid(bool)` | The label inside the box of the control, over what it holds: a [fluid field](#fluid-field) |
@@ -651,6 +652,10 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Fluid`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
 
+**In a narrow room.** A field whose label stands beside its control puts the label over the control where the
+field's own room, not the window's, is narrower than the two need side by side: the label is then as high as its
+text, and the control fills the row under it. With room again they stand side by side.
+
 ### Fluid Field
 
 A field whose label is inside the box of its control, over the value: the design's Fluid Field (`imRnW`), for a form whose fields stand edge to edge. It is a form of the field, `Field::fluid(true)`, for the controls that have a fluid form: an [input](#input), a [textarea](#textarea) and a [select](#select).
@@ -674,6 +679,41 @@ Field::new("Theme", Select::new(theme.clone(), [("system", "System"), ("dark", "
 - The description, or the error, is 6 under the box, as any field's. A press of the label goes to the control under it: an input takes the caret, a select opens. An input's icon stands on the line of the value, under the label.
 - A control says that it has the form with `FieldControl::has_fluid_form`, and takes it when the field tells it `InField::fluid`: a control of an app's own that wraps an input passes both on. A fluid field of a control that has none (a switch, a slider) is drawn as any field, its label above the control. The label is always over the value: a fluid field's `orientation` is not read.
 - States: `FieldState::Fluid` on the field (its `Label` and its `Root`), and `InputState::Fluid`, `TextareaState::Fluid`, `SelectState::Fluid` on the control (its `Control`, a select's `Trigger`). A renderer of a field has `view.fluid` and `view.fluid_label()`.
+## Info Label
+
+What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.
+
+```rust
+use lurq::{app::ctx::Placement, ui::InfoLabel};
+
+InfoLabel::new("API key").info("Stored in the OS keychain").mount(ctx);
+
+// The tooltip on another side, with an arrow.
+InfoLabel::new("Region")
+  .info("Where the data of the workspace is kept")
+  .placement(Placement::Bottom)
+  .arrow(true)
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | The text of the label |
+| `info(&str)` | What the mark explains, in a few words: the text of its tooltip. Without one, or with an empty one, there is no mark |
+| `info_label(&str)` | What the mark is called to tooling, in place of "More information" |
+| `icon(name)` | The icon of the mark, in place of the "i" |
+| `placement(Placement)`, `offset(..)`, `collision(..)`, `arrow(bool)` | Where the tooltip stands, as a [tooltip](#tooltip) has them. Above the label, from its start (`Placement::TopStart`), unless told |
+| `force_open(Option<bool>)` | The tooltip shown whatever the pointer and the focus do, or never |
+| `mount(ctx)` | The label where it goes, with its tooltip on it. Converting it (`.into()`) builds its still form: the label and the mark, on which nothing shows |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and the mark is `<id>-mark`; `force` draws the mark under the pointer or focused |
+
+- The explanation is the theme's [tooltip](#tooltip), mounted on the label: it shows after the pointer has rested on the label or on its mark for the tooltip's delay, and at once when the keyboard's focus comes to the mark, which is a stop of Tab; it goes when they leave, on a press, and on Escape. It is a mounted component for that reason alone: `mount(ctx)` puts the tooltip on it.
+- A label longer than the room it has ends in an ellipsis on its one line, and the mark keeps its place after it.
+- To what reads the tree the mark is an `img` called "More information", or by `info_label`, and described by what it explains (`a11y_description`), in the still form too.
+- A [field](#field) draws the same mark after its own label: `Field::new(..).info("…")`. An explanation with a link in it, or one that opens on a press, is a [toggletip](#toggletip)'s.
+- Parts: `InfoLabelPart::Root` (the label and the mark, 6 apart), `Label`, `Mark` (the "i": its side, its color, and its ring while it is focused from the keyboard). State: `InfoLabelState::Info` (it has something to explain).
+- In the design the label is a field label's text (13, medium) in `Foreground`, and the mark an "i" of 14 in `MutedForeground` 6 after it; under the pointer and focused the mark is in `Foreground`, and focused from the keyboard it has the theme's ring around its circle. The board draws no state of the mark: these are a link's.
+- A renderer that draws another label has `view.root()`, `view.mark()` (`None` with nothing to explain) and `view.label`; when the tooltip shows stays the label's.
 
 ## Textarea
 
@@ -1351,6 +1391,13 @@ Tabs::new(canvas, [(0, "Canvas"), (1, "Layout"), (2, "Text")])
 - A renderer that draws other tabs has `view.tabs` (each with its label, icon, count, and whether it is selected, disabled, set apart), `view.part(part)`, `view.tab_part(index, part)`, `view.tab(index)` (a tab with its behavior and its name to tooling), `view.list()` (the tabs as one focus group), `view.separator()`, `view.panel()` and `view.bar()` (the overflowing form).
 - `lurq::components::Tabs` is another thing: a set of places of an app, each a router with a history of its own kept while it is not shown, with a bar to move between them across the bottom or the top. Tabs of the design system are a choice within a page.
 
+**In a narrow room.** Tabs put in the tree with `mount` measure their room before a frame is painted: while the
+list along the top is wider than it, they are their overflowing form (the list between two scroll buttons, More at
+its end), scrolled to the selected tab, with no frame of the other form, and the list alone again when it fits.
+`overflow(true)` keeps that form whether or not the list fits. Tabs converted into an element on their own cannot
+measure: in a room too narrow they end their labels in an ellipsis, every tab still in the room. A theme's renderer
+gives the box that is the tabs' room `TabsView::room_ref`.
+
 ## Accordion
 
 Headers one under the other, each of which opens what is under it: questions and their answers, the sections of a long
@@ -1532,6 +1579,12 @@ Pagination::controlled(current, 12, move |to| go(to));
 - In the design the pages are ghost buttons of 36, 4 apart, the current one an outline button; previous and next are ghost buttons of 36 with a chevron of 16. The ellipsis is a box of 36 with `more-horizontal` of 16 in `MutedForeground`. A page button is at least 36 wide and 6 from its sides, so that a number of four digits or more still fits. The compact form has outline buttons of 30 for previous and next, 12 after where the list is, in the body's type at 13 in `Foreground`; its page-size select is 72 by 30 with its text at 13, 12 after its label in `MutedForeground`. A disabled button is dimmed as a button is.
 - A renderer is given a `PaginationView`: where the list is (`current`, `pages`, `shown`, `summary`), and `view.previous()`, `view.next()`, `view.page(n)`, `view.ellipsis(i)`, `view.summary()`, `view.nav()` (the row of buttons) and `view.page_size()` (its label and the select) built in the recipe's style with their behavior.
 
+**In a narrow room.** A pagination put in the tree with `mount` reads its room before a frame is painted. Narrower
+than its buttons, it draws fewer pages on each side of the current one, down to the first, the current and the last
+between two ellipses; narrower than those, it says where the list is between previous and next ("Page 6 of 12").
+With room again it draws what the app says. Its root wraps: beside a select of how many to a page the pages go on
+to a line under it, and a table's footer puts its pagination under its count.
+
 ## Steps
 
 The stages of a process in order, with one current: those before it are done, those after it are to come.
@@ -1576,6 +1629,11 @@ Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 - A pressed step has a veil of `StateHover` under the pointer and of `StatePressed` held down; the ring of the focus is around the step, which is padded 4 for it. Disabled steps are dimmed and take nothing.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
 - A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
+
+**In a narrow room.** Steps across put in the tree with `mount` measure their room: their marks are always whole;
+the titles end in an ellipsis first, then stand under their marks (the `stacked` state), and under the room the
+marks and their lines need the steps run down the page. Steps that are only built keep their marks whole and cut
+their titles.
 
 ## Table of Contents
 
@@ -1775,6 +1833,7 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 | `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
 | `shape(AvatarShape)` | `Circle` (the default), or `Square` with the corners of a control |
 | `presence(AvatarPresence)` | The dot at the bottom end of the face: `Online`, `Away`, `Busy`, `Offline`; `None` for none |
+| `presence_label(&str)` | What the dot says to tooling after the name, in place of the presence's own word: the app's word, or the word in another language |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
 
 - While a picture decodes and when it fails (a broken file, a format the decoder does not read), the avatar shows its initials or its icon: they are the image's placeholder and its error view. A picture with clear pixels shows the face's fill through them.
@@ -1782,7 +1841,8 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 - Parts: `AvatarPart::Root` (the face and the dot, as large as the face), `Face` (the shape: side, corners, fill, the ring of a group; it clips what it holds), `Initials`, `Icon` (its width is the icon's side), `Image`, `Presence` (the dot). States: `AvatarState::Square`, and the avatar's `AvatarPresence` under its own name (`.state(AvatarPresence::Away, AvatarPart::Presence, ..)`). Sizes: `AvatarSize`.
 - In the design an avatar is a circle of 32 in `Muted`, its initials 12 and medium in `Foreground`; at 20, 24, 40 and 56 they are 9, 10, 14 and 18. A square one has the corners of `RadiusSize::Md`. The icon is half the side, in `MutedForeground`. The dot is 10 on a face of 32 (6, 8, 12 and 14 on the others), at the face's bottom end corner, round, ringed 2 outside it in `Background`: `Success` online, `Warning` away, `Destructive` busy, `MutedForeground` offline.
 - The ring of the dot stands outside the avatar's box, as the rings of a group do: what holds an avatar at its edge clips them, as a container clips what is in it, unless it leaves 2 of room or is `overflow_visible()`.
-- A person with a name and a line under it (the board's Persona) is an avatar beside two texts, built where it is used: `Row::new().spacing(10.0).child(Avatar::new(name).presence(..)).child(Column::new().spacing(1.0).child(name).child(line))`, the name 14 and medium, the line 12 in `MutedForeground`.
+- The dot on its own, with no avatar under it, is `Presence::new(AvatarPresence::Online)`: before a word in a list of who is there, beside a name in a line of text. It is the `AvatarPart::Presence` of the avatar's recipe, in the color of its presence and at the side of the dot of an avatar of its `size(AvatarSize)` (10 unless told), so a theme that restyles an avatar's dot restyles it; it has no ring, with no face to part it from. `style` and `rules` name the avatar's parts, and `label(&str)` says what tooling calls it in place of the presence's word: it is an `img` called "online".
+- A person with a name and a line under it (the board's Persona) is a [persona](#persona).
 - A renderer that draws another avatar has `view.face()` (the shape in its style, clipped), `view.fallback()` (the initials or the icon), `view.presence_dot()` and `view.label()`; `view.image` is the picture the app gave, to put in the face.
 
 ## Avatar group
@@ -1819,6 +1879,39 @@ AvatarGroup::new(people.map(Avatar::new))
 - Parts: `AvatarGroupPart::Root` (the row: how far each avatar lies over the one before, as a gap below nothing), `Item` (laid over each avatar's `Face`: its ring), `More` (laid over the count's `Face`, after `Item`). Sizes: `AvatarSize`.
 - In the design avatars of 32 lie 8 over one another, each ringed 2 outside its face in `Background`, the color of the surface behind them; the count is in `Secondary`, its text as the initials. Smaller and larger avatars lie a quarter of their side over each other.
 - A renderer that draws another group has `view.avatars` (ready, with the group's size and rules), `view.hidden` and `view.more()`, the count as an avatar.
+
+## Persona
+
+A person in a list, a menu or a header: their avatar with the dot that says whether they are there, their name, and a line under it.
+
+```rust
+use lurq::ui::{Avatar, AvatarPresence, AvatarShape, Persona, PersonaSize, icons};
+
+Persona::new("Ivan Zaida").description("Available · Kyiv").presence(AvatarPresence::Online);
+Persona::new("Ivy Chen").description("Away · back at 15:00").presence(AvatarPresence::Away).size(PersonaSize::Lg);
+
+// An avatar of the app's own: a picture, an icon, a shape.
+Persona::new("Build bot")
+  .description("Runs on every push")
+  .avatar(Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square));
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | Who it is: the name beside the avatar, and the avatar's initials |
+| `description(&str)` | The line under the name, in the muted color |
+| `presence(AvatarPresence)` | The dot at the corner of the avatar; `None` leaves the avatar as it was given |
+| `presence_label(&str)` | What the dot says to tooling in place of the presence's own word, as an [avatar](#avatar)'s |
+| `avatar(Avatar)` | An avatar in place of the one the name gives, with a picture, an icon or a shape of its own. The persona gives it its size, and its presence where it has one |
+| `size(PersonaSize)` | The avatar's: `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, with the text to match. `PersonaSize` is `AvatarSize` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
+
+- A name or a description longer than the room there is ends in an ellipsis, each on its one line; the avatar keeps its size, and the persona is no wider than what holds it.
+- A persona is read, not operated: it takes no press and is no stop of Tab. To what reads the tree it is a `group` called by the name and described by the description, with its avatar, an `img`, in it.
+- Parts: `PersonaPart::Root` (the avatar and the text, side by side), `Avatar` (what the persona says of its avatar's face, laid over the theme's recipe for it), `Text` (the name over the description), `Name`, `Description`. State: `PersonaState::Description` (it has the line). Sizes: `PersonaSize`.
+- In the design a persona is an avatar of 32, 10 before a name in 14 and medium in `Foreground` with a line 1 under it in 12 of `MutedForeground`. The board draws that one size; the others follow the avatar's: at 20 and 24 the name is 12 and 13 over a line of 11, 6 and 8 from the avatar; at 40 and 56 it is 15 and 18 over a line of 13 and 14, 12 and 14 from it.
+- The ring of the avatar's dot stands outside the persona's box: what holds a persona at its edge leaves 2 of room or is `overflow_visible()`, as with an [avatar](#avatar).
+- A renderer that draws another persona has `view.root()`, `view.text()` and `view.avatar`, the avatar with the persona's size and presence, to build where it likes.
 
 ## Card
 
@@ -1955,6 +2048,11 @@ ScrollArea::new()
 - Parts: `ScrollAreaPart::Root`. States: `ScrollAreaState::Vertical` and `Horizontal` (both on for an area that scrolls both ways), `Gutter`.
 - A renderer that draws another area has `view.content()`, what scrolls laid out its way, `view.bar`, the theme's bar as the area shows it, and `view.render()`.
 
+**Content that gives way first.** `ScrollHorizontal::fit_width(true)` lays content wider than the viewport out
+in the viewport's width first, so that a line gives way there by its own rules (its children shrink, or drop out
+of it), and scrolls only to what still has no room: a toolbar's controls go into its menu as it narrows, and the
+bar scrolls to the ones that stay.
+
 ## Separator
 
 A line between things: sections of a page, groups of a toolbar, the two ways to sign in.
@@ -2005,6 +2103,9 @@ Spinner::new().label("Loading results…");
 
 // A veil with a spinner over a part of the page while it loads.
 LoadingOverlay::new(loading.get(), panel);
+
+// In the place of a whole page while it starts.
+PageLoader::new("Starting lurq").description("Loading your workspace…");
 ```
 
 | Builder | |
@@ -2023,6 +2124,7 @@ LoadingOverlay::new(loading.get(), panel);
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
 - `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, and `Scrim`, whose background and opacity are the veil's fill. State: `LoadingOverlayState::Loading`.
+- `PageLoader::new(title)` stands in the place of a whole page, a window or a pane while it starts: a ring of 28 over the title and, with `.description(&str)`, a line that says what is being done, in the middle of the room it is given. It is as large as that room (it fills its width, and its height where what holds it has one) and keeps 24 from its sides; a title or a description longer than the room wraps, centred. It paints no surface: it stands on the page's, and the board's box of 280 by 180 is the page it is drawn on. `.spinner(Spinner)` gives a spinner of the app's in place of the ring, as it is given. To what reads the tree it is one `status`, called by its title and described by its description; the spinner in it is no status of its own. Parts: `PageLoaderPart::Root`, `Spinner` (laid over the spinner's `Indicator`: the ring's side), `Text`, `Title` (14, medium, `Foreground`), `Description` (13, `MutedForeground`, 4 under the title); the ring is 14 over the text. State: `PageLoaderState::Description`. A renderer has `view.root()`, `view.spinner()` and `view.text()`.
 - A renderer that draws another spinner starts from `view.indicator()` and `view.label()`; `view.name()` is what it is called.
 
 ## Skeleton
@@ -2691,6 +2793,64 @@ MultiSelect::new(languages.clone(), [
 - Its options follow the [density](../theme/#density) as a select's do.
 - It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
+
+## Tree Select
+
+A select whose options are a tree: a file of a project, a category of a catalogue, the folders a search looks in.
+
+```rust
+use lurq::ui::{TreeItem, TreeSelect};
+
+// file: Signal<Option<&str>>: one or none, of the files alone.
+TreeSelect::optional(file, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
+      TreeItem::file("lib.rs", "lib.rs"),
+      TreeItem::file("theme.rs", "theme.rs"),
+    ]),
+  ]),
+  TreeItem::file("Cargo.toml", "Cargo.toml"),
+])
+.label("File")
+.placeholder("Select a file")
+.leaves_only(true)
+.clearable(true)
+.mount(ctx);
+
+// Any number: a press adds a row or takes it out, and the panel stays open.
+TreeSelect::multiple(folders, items).max_shown(2).mount(ctx);
+
+// Held by the app, which is told each choice.
+TreeSelect::controlled(app.file(), items, |file| app.open(file));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)`, `optional(value, items)`, `multiple(values, items)` | The tree's items (`TreeItem<T>`, a [tree view](#tree-view)'s) and what is chosen of them, bound to a `Signal<T>`, a `Signal<Option<T>>` or a `Signal<Vec<T>>` |
+| `controlled(value, items, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same held by the app, which is told `on_change(&T)`, `on_change(&Option<T>)` or `on_change(&[T])` and shows what it gives back |
+| `on_change(handler)` | Told what is chosen after a choice a person makes, after the signal is set; not for the row chosen already, nor when the app sets the signal. The select is `TreeSelect<T, T>`, `TreeSelect<T, Option<T>>` or `TreeSelect<T, [T]>`, so a handler of another type does not compile |
+| `open(Signal<bool>)` | Whether the panel is open, where the app keeps it. `on_open_change(bool)` hears each change a person makes, a choice too; `on_dismiss()` Escape and a press outside, before it |
+| `branches(Signal<Vec<T>>)`, `branches_controlled(open, on_branch_change)` | The branches of the tree that are open, where the app keeps them. `on_branch_change(&value, open)` hears each one a press or a key opens or closes: where a lazy item's children are brought |
+| `leaves_only(bool)` | A press of a row that holds others opens or closes it in place of choosing it: only what holds nothing is chosen |
+| `path(bool)`, `separator_text(&str)` | The trigger of a select of one says the whole path to what is chosen, `crates / lurq / lib.rs` (it does unless told otherwise), or its label alone; and what stands between the steps, `" / "` |
+| `max_shown(n)` | How many labels the trigger of a select of any number says before it counts the rest, `lib.rs, theme.rs +2` |
+| `placeholder(&str)`, `size(TreeSelectSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open; a full width one's panel is as wide as it is |
+| `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a select that may hold none; and what it is called, "Clear" |
+| `empty_text(&str)` | What the panel says where the tree has no items: "No options" |
+| `label(&str)`, `panel_label(&str)` | What the select is called to what reads the tree, and its panel and its tree in place of that |
+| `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the tree with `-tree`, the cross with `-clear` |
+| `mount(ctx)` | In place of converting it: the select keeps whether it is open, the trigger the focus goes back to and which branches are open |
+
+- It is built of what is there already: its trigger is a [select](#select)'s box (the same recipe, sizes, ring and judgments), its panel a [popover](#popover) and what the panel holds a [tree view](#tree-view), with a tree's rows, icons, chevrons and keys. What a `TreeItem` has, it has here: `disabled`, `lazy`, `trailing`.
+- A press, Enter, Space, Down or Up on the trigger opens the panel, and the focus goes to the chosen row, or the first. Up and Down move through the rows, Right and Left open, close and go in and out, a letter goes to the next row that starts with it. Of one, a press of a row or Space chooses it, Enter does on a row that holds nothing (on one that holds others it opens or closes it), and the panel closes first and the handler is told after, so a handler that opens a dialog keeps its focus. Of any number, a press of a row or Space adds it or takes it out, a press with Shift chooses the rows from the last chosen to it, and the panel stays open.
+- The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Tab in the panel leaves the tree, which is one stop.
+- A select that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and which branches are open. As the panel opens, the branches the chosen rows are in open, so it opens on what is chosen; while it is open nothing opens or closes but by a person, so a row taken out of what is chosen stays under the focus.
+- A select of any number has no checkboxes: the board draws none, and its rows are a tree's, in the highlight while they are chosen.
+- To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `tree`, `a11y_expanded`, `a11y_value` (what it says), `a11y_invalid`, `a11y_readonly` and `a11y_multiselectable` where they hold; the panel a `dialog` and what it holds a `tree` of `treeitem`s, called by the select's label.
+- Parts: `TreeSelectPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon`, `Panel` (laid over the popover's panel), `Tree` (its greatest height, past which the tree scrolls), `Row`, `RowIcon` and `RowLabel` (laid over the tree view's row, icon and label) and `Empty`. States: a select's, `TreeSelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
+- A theme's renderer is given `TreeSelectView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.panel()` and `view.render()`. It is set for `TreeSelect<T>` of any `T`.
 
 ## Token Input
 
@@ -3584,6 +3744,72 @@ let tour = Tour::new(step.clone())
 - Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
 
+## AI Label
+
+The mark on what a model made or filled in, and on what asks one: a summary that was generated, a field that was suggested.
+
+```rust
+use lurq::ui::{AiLabel, AiLabelSize};
+
+AiLabel::new();
+// Said otherwise, and called by more than it draws.
+AiLabel::new().text("Draft").label("Drafted by the assistant");
+AiLabel::new().size(AiLabelSize::Sm).icon(None);
+```
+
+| Builder | |
+| --- | --- |
+| `new()` | Sparkles and "AI" |
+| `text(&str)` | The word it draws in place of "AI": the app's word for it, or the word in another language |
+| `label(&str)` | What it is called to tooling, where that is more than the word it draws: "Generated by AI" |
+| `icon(IconChoice)` | An icon of the theme's set in place of the sparkles; `None` for no icon |
+| `size(AiLabelSize)` | `Sm` 18, `Md` 22 (the default, the board's), `Lg` 26 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- It is read and not operated: it takes no press, no focus and no stop of Tab. To what reads the tree it is a `note` called by its label, or by its word.
+- What explains it stands on it as on any element: `Tooltip::new("…").mount(ctx, AiLabel::new())`, or a [toggletip](#toggletip) beside it.
+- A word longer than the room it has ends in an ellipsis, and the icon keeps its place before it.
+- Parts: `AiLabelPart::Root`, `Icon`, `Label`. State: `AiLabelState::Icon` (it has one). Sizes: `AiLabelSize`.
+- In the design it is 22 high with the corners of `RadiusSize::Sm`, on `InfoMuted` in an edge of 1 in `Info`, padded 8, with sparkles of 12 4 before "AI" in 11 and semibold, both in `Info`. The board draws that one size: small is 18, padded 6, at 10 with an icon of 10, and large 26, padded 10, at 12 with an icon of 14, the steps of a [badge](#badge).
+
+## Back To Top
+
+A round button that shows once a page is scrolled down, and takes it back to its top.
+
+```rust
+use lurq::{
+  components::{Column, Stack},
+  layout::{StackAlignment, layout_kind::ScrollState},
+  ui::{BackToTop, ScrollArea},
+};
+
+// scroll: ScrollState, kept by the page and given to what scrolls it too.
+Stack::new()
+  .stack_align(StackAlignment::BottomEnd)
+  .child(ScrollArea::new().scroll_state(scroll.clone()).children(article))
+  .child(Column::new().padding(16.0).overflow_visible().child(BackToTop::new(&scroll).mount(ctx)));
+```
+
+| Builder | |
+| --- | --- |
+| `new(&ScrollState)` | The state of what it scrolls |
+| `threshold(f32)` | How far down the content is scrolled before the button shows: 300 (`ui::BACK_TO_TOP_THRESHOLD`) unless told; at 0, as soon as it leaves its top |
+| `label(&str)` | What the button is called to tooling, in place of "Back to top" |
+| `icon(name)` | Its icon, in place of the arrow that points up |
+| `on_click(..)` | Hears the press, and Enter and Space, before the content is scrolled; a handler that prevents the event's default keeps the content where it is. A second handler is called after the first |
+| `force_shown(Option<bool>)` | Shown wherever the content is scrolled to, or never |
+| `disabled(bool)` | It takes no input |
+| `mount(ctx)` | The button where it goes: it shows and goes with the scroll. Converting it (`.into()`) builds its still form, always shown, whose press takes the content to its top at once |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- It is a mounted component: after each layout it reads how far the content is scrolled, and shows once that is past the threshold, fading in, and goes, fading out, as the content comes back above it. A page opened scrolled shows it at once.
+- A press takes the content to its top with `ctx.scroll_to_top_of(&scroll)` (see [layout](../layout/#scroll)): over the frames that follow, as a wheel's scroll goes, and at once while motion is reduced or the theme's smooth scroll is off. A notch of the wheel that comes meanwhile adds to where the content is going, as with any wheel's scroll.
+- Where it floats is the app's to say, as a [fab](#fab)'s is: it is an element, put in a corner of a `Stack` over the scroll, in something that gives its shadow room or does not clip (`.overflow_visible()`). While it is gone it takes no room.
+- It is a [button](#button) to tooling, called "Back to top" or by its label, and a stop of Tab while it shows. Once the content is at its top the button is gone and the keyboard's focus with it: the next Tab goes on from where it stood.
+- Parts: `BackToTopPart::Root` (what holds the button, whoever draws it: its `enter` and `exit` are how it comes and goes), `Button` and `Icon`, the last two laid over the theme's recipe for the root and the icon of an outlined, round button that is an icon alone. State: `BackToTopState::Disabled`.
+- In the design it is a circle of 40 on `Background` in an edge of 1 in `Border`, with the medium shadow and an arrow of 16 in `Foreground`. Under the pointer, pressed and focused it is the outlined button it is made of.
+- A renderer that draws another has `view.button()`, the button with its press attached, to build or to put in what it likes. When it shows, and how it comes and goes, stay the component's: what a renderer returns is put in the root, which fades, so a renderer of any root fades out as the default one does.
+
 ## Command Palette
 
 A search over the window that finds a command or a place by typing: every command of an editor, the pages of an app, the files of a project.
@@ -3904,6 +4130,13 @@ A `ToolbarCommand` is an item of the menu: `ToolbarCommand::new(label)` with `ic
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
 - A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.
 
+**In a narrow room.** With `overflow(true)` every control has a form in the menu at the end of the bar: a button,
+a toggle (checked), a group of toggles, a labelled group (under its label), a stack, and a select or a field that
+was given `in_menu`. What is kept in the bar is a control that `stays`, and a select, a field or any element with
+no `in_menu`. What is kept never runs past the bar: a bar narrower than what stays in it (and a bar without
+`overflow` narrower than its controls) scrolls sideways to it, by the wheel, a drag, and the keys, which bring the
+focused control into view. A bar that is only built has no menu, and scrolls to all of its controls.
+
 ## Action Bar
 
 The toolbar of a selection: over the list whose rows are selected, it says how many are, offers what can be done to them, and clears them.
@@ -3944,6 +4177,12 @@ Stack::new()
 - What it says is on one line. Where the room is narrower than the bar, it gives way first and is cut with an ellipsis: the actions and the clear button stay whole, at any text size.
 - Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarSide::Bottom`, `Top`.
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
+
+**In a narrow room.** A mounted bar wider than its room draws each action that has an icon as its icon alone,
+called by its label in a tooltip (`ActionBarView::compact`); an action with no icon keeps its label, and the
+count and the clear button stay. Narrower than its icons too, the actions go, the last first, into the menu of a
+More button before the clear button (`more_label`, "More actions"), and the text ends in an ellipsis only once
+every action is in the menu. A bar that is only built keeps its labels and cuts its text.
 
 ## Floating Panel
 
@@ -4158,6 +4397,10 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 - To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`. `a11y_valuenow` follows the divider as it is dragged and moved by the keys.
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.
 - A renderer that draws another splitter is given the view: `view.part(..)`, `view.thickness()` (the room between two panes), `view.sizes()`, and `view.render()` the default.
+
+**A room that changes.** A splitter follows its room: panes that a narrow room took room from have it back
+when the room grows, as a splitter first laid out at that width has them, until a person drags a handle. A dock
+layout follows through its splitters.
 
 ## Property Grid
 
@@ -4484,6 +4727,10 @@ CommandBar::new(tab.clone(), [
 - To what reads the tree it is a `group` called by its label, which holds a `tablist` and a `toolbar` called by the selected tab; a toggled command says `a11y_pressed`.
 - A renderer that draws another bar gets a `CommandBarView`: its `tabs` and its `bar`, built.
 
+**In a narrow room.** The bar's groups go behind its chevron, the last first, as a toolbar's controls do; its
+tabs, mounted with it, scroll between their buttons when they have no room; and a bar narrower than what stays
+in it scrolls sideways.
+
 ## Find Bar
 
 The search of what a view shows, hung from the top of the view over its content: the field, the count, the next and the previous match, the options of the search, and a row that replaces.
@@ -4548,6 +4795,155 @@ view.on_key_down(move |event: KeyboardEvent| {
 - To what reads the tree it is a `search` called by its label; each option says `a11y_pressed`, the chevron `a11y_expanded`, and the count is `a11y_live` polite.
 - The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
+
+**In a narrow room.** A mounted bar measures its field: where the field has no room for the options in it,
+they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
+and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it.
+
+## Column View
+
+A hierarchy as columns side by side: choosing an item of one shows what it holds in the next, as a file browser's columns do.
+
+```rust
+use lurq::ui::{ColumnView, TreeItem};
+
+// path: Signal<Vec<&str>>, the values from the top down to the item chosen last.
+ColumnView::new(path, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
+      TreeItem::folder("src", "src"),
+      TreeItem::file("Cargo.toml", "Cargo.toml"),
+    ]),
+  ]),
+  TreeItem::folder("docs", "docs"),
+])
+.label("Files")
+.on_activate(|file| open_file(file))
+.mount(ctx);
+
+// The path held by the app, which is told each new one.
+ColumnView::controlled(app.path(), items, |path| app.go(path));
+```
+
+| Builder | |
+| --- | --- |
+| `new(path, items)` | What is at the top, each a `TreeItem<T>` with what it holds (a [tree view](#tree-view)'s items), and the path chosen, bound to a `Signal<Vec<T>>`: the values from an item at the top down to the item chosen last |
+| `controlled(path, items, on_change)` | The path held by the app, which is told `on_change(&[T])` and shows what it gives back |
+| `on_change(handler)` | Told the whole new path after a press or a key changes it, after the signal is set; not for the path chosen already, nor when the app sets it |
+| `on_activate(handler)` | Told of the item a double press or Enter activates: open the file |
+| `label(&str)`, `loading_label(&str)` | What the view is called to what reads the tree, and the spinner of a column whose items are on their way, "Loading" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and each column has it with `-column-` and its place; `force` draws the item Tab stops on so |
+| `mount(ctx)` | In place of converting it: the view keeps where its columns are scrolled to, starts at the end of its path and brings the last column into sight as the path grows |
+
+- The first column is what is at the top; each one after it is what the item chosen in the one before holds. A press of an item ends the path at it. An item on the path is in the highlight and the one the path ends at on the info fill; a value of the path that is no item ends the path before it.
+- A `TreeItem` marked `lazy` with no items yet has a chevron and, chosen, a column with a spinner: the app hears the path in `on_change` and gives the item its children. `icon` and `open_icon` (while the item is on the path), `trailing`, `trailing_on_hover` and `disabled` are a tree's.
+- The view is one stop of Tab, at the item the path ends at, or the first. The choice follows the focus. Up and Down go through the items of a column, Home and End to its first and its last, without going round and without leaving the column; Right goes into what the item holds, to its first item, and Left back to the item the column is of, where the path then ends. A letter goes to the next item that starts with it, in the column and then in those after it. Enter activates. A disabled item is passed by.
+- The columns share the view's width, none narrower than the `Column` part's least width (160), and scroll sideways where they do not fit. A column scrolls down where its items are more than the view is high. The keys keep the item they go to in sight.
+- The keys are the engine's: the view is a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, `activate`s, with `typeahead` and without `wrap`, and each item takes the arrows to the item they go to by its key (`KeyboardEvent::focus_key`), which may be in a column the choice has only just shown.
+- To what reads the tree it is a `group` called by its label, each column a `listbox` called by the item it is of, each item an `option` with `a11y_selected`, `a11y_level` (its column), `a11y_posinset`, `a11y_setsize` and, where it holds others, `a11y_expanded`.
+- Parts: `ColumnViewPart::Root`, `Column`, `Item`, `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of an item marked to show it on hover), `Chevron`, `Status` and `Spinner` (of a column whose items are on their way). States: `ColumnViewState::Selected` (on the path), `Current` (the end of the path), `Last` (of a column: the last has no line at its end), `Disabled`.
+- In the design the view is 520 by 176 on `Background` in an edge of 1 in `Border`, `radius-lg`. A column is padded 4 with a line of 1 in `Border` at its end, its items 1 apart. An item is 26 high with `radius-sm`, 6 at each side, and holds an icon of 14 and a chevron of 12 in `MutedForeground` and its label in the body's type at 13, 6 apart. On the path it is on `Highlight`; at its end on `Info`, its icon, label and chevron in white. Under the pointer and held down it has the `StateHover` and `StatePressed` veils, the focus is a ring of 2 in `Ring` inside it, and a disabled item is half opaque. An item follows the [density](../theme/#density): 18, 26, 34 and 38 high.
+- A theme's renderer is given `ColumnViewView`: `view.columns` (each a `ColumnViewColumn` with its `items`, each a `ColumnViewItem` with its label, icon, whether it opens, is selected, is current, is disabled), `view.root()`, `column.render()`, and on an item `item.button()`, `item.icon()`, `item.label()`, `item.chevron()` and `item.render()`.
+
+## Sortable List
+
+A list whose rows a person puts in another order, by a drag of a row or of its handle and by the keys: the columns of a table, the layers of a scene, the steps of a pipeline.
+
+```rust
+use lurq::ui::{SortableItem, SortableList, move_rows};
+
+// sections: Signal<Vec<&str>>, the rows in the app's order.
+let order = sections.clone();
+SortableList::new(sections.get().into_iter().map(|name| (name, name)))
+  .label("Sections")
+  .on_reorder(move |from, to| {
+    order.update(|rows| {
+      let row = rows.remove(from);
+      rows.insert(to, row);
+    })
+  })
+  .mount(ctx);
+
+// A selection, whose rows are dragged together.
+SortableList::new(rows)
+  .selected(selected)
+  .on_reorder(|from, to| ..)
+  .on_reorder_many(move |rows, to| sections.update(|order| move_rows(order, rows, to)))
+  .mount(ctx);
+
+// Rows that hold what is pressed itself are dragged by their grip alone.
+SortableList::new(settings.map(|name| SortableItem::new(name, name).trailing(switch(name)))).handle_only(true);
+```
+
+| Builder | |
+| --- | --- |
+| `new(items)` | The rows in the app's order: `(value, title)`, or `SortableItem::new(value, title)` with `description`, `icon`, `trailing`, `disabled`, `id` and `key` |
+| `on_reorder(handler)` | Told `(from, to)` when a person moves one row: where it was and where it goes, as it is taken out and put back, `rows.insert(to, rows.remove(from))`, as a [strip of tabs](#window-tabs) tells it. The app reorders its rows |
+| `on_reorder_many(handler)` | Told `(&rows, to)` when several selected rows are moved together: where they were, in order, and where the first of them goes in the list without them. `ui::move_rows(&mut list, rows, to)` does it to a `Vec` |
+| `selected(Signal<Vec<T>>)`, `selected_controlled(values, on_selected_change)` | The rows that are selected, bound or held by the app. A list without it has no selection. `on_selected_change(&[T])` hears each change a person makes |
+| `handle(bool)`, `handle_only(bool)` | Whether each row has its grip (it has unless told otherwise), and whether a row is dragged by its grip alone and not by the rest of it |
+| `label(&str)` | What the list is called to what reads the tree |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the row Tab stops on so |
+| `mount(ctx)` | In place of converting it: the list keeps a drag from one render to the next, and draws it |
+
+- The list does not keep the order: the app's rows do, and it shows them in the order it is given. A row is a [list item](#list) in the list's dress, so it has a list item's two lines, its veils, its ring and its heights at each [density](../theme/#density).
+- A press that moves past a few pixels is a drag. The row follows the pointer over the list, turned a little (`ui::SORTABLE_LIST_TILT`) under the theme's large shadow and narrower than the list by what the `Lifted` part says (40, taken off about the pointer, so what was under it stays under it); what stood in its place is a ghost; and a line with a dot at its start stands in the flow of the list between the rows it would go between, which move apart to make room for it: the room between two rows is a `Slot`, which opens round the line over the theme's base duration in its standard easing, at once where motion is reduced, and closes again when the line goes. The list is as much higher while the line shows. Where letting go would move nothing there is no line. Let go, the app is told where; let go where it was, nothing. Escape puts it back, and the release that follows tells nothing. A drag that moved presses and selects nothing.
+- The list is one stop of Tab. Up and Down move the focus through the rows. Alt with Up or Down moves the focused row one place, Alt with Home or End to the first or the last, and the focus goes with it. A disabled row is passed by, is not moved, and other rows are put before and after it.
+- With a selection a press selects a row, with Ctrl (Cmd) one in or out and with Shift the rows from the last selected, Space adds the focused row or takes it out, Shift with the arrows selects on the way, and Ctrl+A selects them all. A drag of a selected row, or Alt with a key on it, moves every selected row together: each leaves a ghost, the row under the pointer counts them in a badge on its corner, they land together in their order, and the app is told by `on_reorder_many`. One row moved, selected or not, is told by `on_reorder`.
+- Converted into an element on its own the list keeps nothing: a drag still tells where the row was let go, with nothing drawn on the way.
+- To what reads the tree it is a `list` of `listitem`s, or with a selection a `listbox` (`a11y_multiselectable`) of `option`s with `a11y_selected`; each row says `a11y_posinset` and `a11y_setsize`.
+- Parts: `SortableListPart::Root` (the room between the rows), `Item` (laid over the list item's root), `Handle`, `Icon`, `Title`, `Description`, `Ghost`, `Slot` (the room between two rows, before the first and after the last, where the line shows), `Line`, `Cap` (the dot at the line's start), `Count` and `Lifted` (what holds the row under the pointer). States of a row: `SortableListState::Selected`, `Dragged` (the row drawn under the pointer), `Disabled`.
+- In the design the rows are 4 apart, each 36 high on `Card` in an edge of 1 in `Border`, `radius-md`, with a grip of 14 in `MutedForeground` 6 from its start, its text 8 after it at 13 and 10 from its end. The ghost is on `Muted` in an edge of 1 in `Input` at 0.6; the line is 2 in `Info` with a dot of 6, 4 from the row over it and 4 from the row under it, so those two are 10 apart; the row under the pointer is 260 over a list of 300; the count is a disc of 20 in `Info` with its number in white at 11 and 600, 4 past that row's end and 8 over it. A selected row is on `Highlight`.
+- A theme's renderer is given `SortableListView`: `view.rows` (each a `SortableRow` with its title, whether it is selected, disabled, a ghost, dragged), `view.list()`, `view.slot(index, count)`, `view.line_at()`, `view.line()`, `view.lifted(row)`, `view.dragged()` and `view.dragged_count()`; on a row `row.handle()` and `row.render()`.
+
+## Selection Marquee
+
+The rectangle a person drags over a surface to select what it touches: the tiles of a grid, the files of a folder, the nodes of a canvas.
+
+```rust
+use lurq::ui::SelectionMarquee;
+
+// selected, before: Signal<Vec<usize>>
+SelectionMarquee::new(tiles)
+  // What was selected when the drag began: what Shift adds to, and what Escape puts back.
+  .on_start(move |_| before.set(selected.get_untracked()))
+  .on_change(move |marquee| {
+    let touched = (0..count).filter(|tile| {
+      let (x, y, width, height) = place(*tile);
+      marquee.touches(x, y, width, height)
+    });
+    selected.set(marquee.select(&before.get_untracked(), touched));
+  })
+  .on_cancel(move || selected.set(before.get_untracked()))
+  .mount(ctx);
+
+// In a scroll container the marquee wraps what scrolls, and is given the container's state.
+ScrollVertical::new(SelectionMarquee::new(tiles).scroll(&state).mount(ctx)).with_scroll_state(state.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(child)` | The app's surface: what the rectangle is dragged over |
+| `on_start(handler)` | Told the rectangle once, as a drag becomes a marquee: where the app keeps what was selected before it |
+| `on_change(handler)` | Told the rectangle (`&Marquee`) each time it changes, the first too: as the pointer moves, and as the surface scrolls under it |
+| `on_change_end(handler)` | Told the last rectangle when the button comes up; not for a marquee Escape ended |
+| `on_cancel(handler)` | Told when Escape ends a marquee: where the app puts back what was selected before it |
+| `scroll(&ScrollState)` | The state of the scroll container the surface is in: the rectangle keeps its start on the content while the container scrolls under the drag |
+| `rect(x, y, width, height)` | Draws the rectangle at a place with nothing dragging it: for a gallery, a test |
+| `label(&str)` | What the surface is called to what reads the tree |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the surface's, and the rectangle has it with `-marquee` |
+| `mount(ctx)` | In place of converting it: the marquee keeps a drag from one render to the next, and draws the rectangle |
+
+- The marquee draws nothing and takes nothing until a press on its surface moves past a few pixels: a press that does not is the press of what is under it. From then the rectangle runs from where the button went down to the pointer, kept on the surface, and the release presses nothing.
+- A `Marquee` is `x`, `y`, `width` and `height` in the surface's own coordinates (from the top left corner of what the marquee wraps, whatever it is scrolled to) and `mode`, what the keys held at the press ask for: `MarqueeMode::Replace` with none, `Add` with Shift, `Toggle` with Ctrl (Cmd). `touches(x, y, width, height)` says whether it shares some room with a box of the surface, `contains(..)` whether the box is wholly in it, `touches_element(&element_ref)` the same of an element of the surface by where it is laid out, and `select(&before, touched)` what is selected with it: the touched alone, `before` and the touched, or `before` with each of the touched put in or taken out.
+- What is selected is the app's: the marquee tells the rectangle and keeps no selection. A press of the surface's own room that is no drag is the app's too, which selects none there.
+- Escape ends a marquee under way and tells `on_cancel`; the release that follows tells nothing.
+- Something on the surface that is dragged itself (it has `on_drag_*` handlers) keeps its drag: a press on it starts no marquee.
+- In a scroll container the marquee is what scrolls. A drag held at the container's edge scrolls it, faster the further the pointer is past the edge (the engine's [`drag_autoscroll`](../styling-events/#a-drag-that-scrolls-its-container)), and with the container's state the rectangle keeps its start on the content and grows over what comes into sight.
+- Converted into an element on its own the marquee keeps nothing: a drag still tells the app its rectangle, and none is drawn.
+- Parts: `SelectionMarqueePart::Root` (the surface, which the recipe gives nothing) and `Marquee`. States: `SelectionMarqueeState::Active` (a rectangle is drawn) and `Disabled`.
+- In the design the rectangle is on `InfoMuted` in an edge of 1 in `Info`, the whole of it at 0.55.
+- A theme's renderer is given `SelectionMarqueeView`: `view.rect` (the rectangle to draw, if any), `view.root()` (the surface with the drag), `view.marquee()` and `view.render()`.
 
 ## Highlight
 
@@ -4757,6 +5153,12 @@ NavigationMenu::new()
 - To what reads the tree the row is a `navigation` called by its label (in a navbar, a `list` in the navbar's), an item a `link` (with `a11y_current` `page` for the page shown) or a `button` with `a11y_expanded` and `a11y_controls` naming its panel, the panel a `group` called by its item, and its links `link`s with their description.
 - A renderer for `NavigationMenu` gets a `NavigationMenuView`: `view.bar()` is the row with its style, its role and its focus group; `view.item(index)` an item's behavior with its style, `view.item_icon(index)`, `view.label(index)` and `view.chevron(index)` what it holds, and `view.panel(index)` its panel hung from it, to put after it (`view.panel_content(index)` is the panel alone); `view.item_part(index, part)` is the style of a part of one item. `view.render()` builds the menu.
 
+**In a narrow room.** A menu is as wide as its items and no wider than its room: the items it has no room for
+go, the last first, behind a More item at its end (`more_label`), which opens a menu of them, a link as an item
+(the page shown checked) and an item with a panel as its name over its panel's links. More is an item of the row
+to the keys, is drawn as the item of the page shown while that page is behind it, and is gone when every item is
+back. A theme's renderer builds the row of `NavigationMenuView::slot` and `more`.
+
 ## Table
 
 Rows of the same things in columns: crates and their status, files and their sizes, people and their roles. The columns of the header and of every row are the same widths whatever is in a cell.
@@ -4829,6 +5231,11 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 - Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Resizer` and `ResizeLine` (a column's edge), `MenuTrigger` (what opens a grid's column menu), `DropLine` (where a column dragged by its header goes), `GroupRow`, `Chevron`, `GroupLabel` and `GroupCount` (a group's row and what it shows), `Summary`, `SummaryLabel` and `SummaryValue` (a summary row and what its cells say), `RowNumber` (a row's number and the numbers' header), `Row`, `Cell`, `Select` (the checkbox column's cell), `Editor` (what holds a grid's editor), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Pinned`, `Footer`, `Disabled`, and a data grid's range of cells on its cells: `InRange` (the range's fill, on every cell of it but the focused one, the rows of the groups open reckoned as they are shown), `RangeTop`, `RangeBottom`, `RangeStart`, `RangeEnd` (its edge on that side); and on a grid's headers `Open` (its column's menu is open), `DropBefore` and `DropAfter` (a column dragged by its header goes before it, or after the last).
 - In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
 - A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in, with `view.columns_built` (which columns a mounted table built) and `in_tracks(built, cells)` to lay a row's cells out with the room of those not built. A header and a cell say their `column`. It is set for `Table<R, K>` of any `R` and `K`, a data grid's too.
+
+**In a narrow room.** A cell's text wider than its column ends in an ellipsis unless the column wraps; the
+whole text is what tooling reads of the cell. The lines of a loading table are shares of their cells, so they
+end inside a narrow column. A footer too narrow for its count and its pagination puts the pagination under the
+count.
 
 ## Charts
 

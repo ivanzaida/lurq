@@ -356,3 +356,24 @@ fn nothing_runs_past_its_box_in_a_narrow_window() {
     lines.join("\n")
   );
 }
+
+/// The tabs under a playground's stage are whole in their bar at every width: the line under the selected one is
+/// at their foot, and a bar lower than the tabs cut it off.
+#[test]
+fn the_tabs_under_a_stage_are_whole_in_their_bar() {
+  for width in [WIDE, 390] {
+    let cut: Vec<String> = past("/button", width)
+      .into_iter()
+      .filter(|found| found.kind == "under" && found.line.contains("\"Code\""))
+      .map(|found| found.line)
+      .collect();
+    assert!(
+      cut.is_empty(),
+      "at {width}: {}",
+      cut.join(
+        "
+"
+      )
+    );
+  }
+}

@@ -11,7 +11,9 @@ use std::{sync::Arc, time::Duration};
 use parking_lot::Mutex;
 
 use super::{
-  icons, names,
+  icons,
+  menu::{Menu, MenuItem},
+  names,
   part_style::{PartAnimation, PartStyle, TransitionDuration},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{FADE_IN, FADE_OUT, fading, glyph, pressable},
@@ -29,8 +31,14 @@ use crate::{
   },
   components::{self, Column, Popup, Row},
   core::{ElementRef, Signal, WatchHandle},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, HitTestBehavior, border::Border, color::Color, dimension::Dimension},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ShrinkLimit},
+    text_style::FontWeight,
+  },
+  node::{
+    CursorIcon, Element, FocusGroup, HitTestBehavior, NodeUpdate, border::Border, color::Color, dimension::Dimension,
+  },
 };
 
 /// What a choice runs.
@@ -417,9 +425,16 @@ impl NavItem {
 /// open panel, and from the panel's last link on to what follows the item, closing the panel. To tooling the menu
 /// is a navigation region called by its label, its items links (the page shown is the current page) or buttons that
 /// say whether their panel is expanded and which it is, and a panel's links links.
+///
+/// A menu is as wide as its items, and no wider than its room: the items it has no room for go, the last first,
+/// behind a More item at its end, which opens a menu of them (an item with a panel as its name over its panel's
+/// links; what the panel features is in the panel alone). More is an item of the row to the keys, drawn as the
+/// item of the page shown while that page is behind it, and gone when every item is back in the row. A menu
+/// converted into an element on its own keeps what fits and More as well, whose menu does not open.
 #[derive(Clone)]
 pub struct NavigationMenu {
   pub(crate) label: Arc<str>,
+  pub(crate) more_label: Arc<str>,
   pub(crate) items: Vec<NavItem>,
   pub(crate) open: Option<Signal<Option<usize>>>,
   pub(crate) on_open_change: Vec<OpenHandler>,
@@ -447,6 +462,7 @@ impl NavigationMenu {
   pub fn new() -> Self {
     Self {
       label: Arc::from("Main"),
+      more_label: Arc::from("More"),
       items: Vec::new(),
       open: None,
       on_open_change: Vec::new(),
@@ -567,6 +583,13 @@ impl NavigationMenu {
     self
   }
 
+  /// What the item that stands for the items the row has no room for says, and is called to tooling: "More"
+  /// unless told.
+  pub fn more_label(mut self, label: &str) -> Self {
+    self.more_label = Arc::from(label);
+    self
+  }
+
   /// Puts the menu where it goes, with the timers of its delays.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     ctx.mount::<NavigationMenuHost>(NavigationMenuProps { menu: self })
@@ -638,6 +661,8 @@ struct Kept {
   panel: ElementRef,
   /// Its first link that can be chosen, for the focus to go to.
   first: ElementRef,
+  /// The item in the row, with its panel: laid out at no size while the row has no room for it.
+  slot: ElementRef,
 }
 
 /// The watches that keep each panel's open signal and the menu's one.
@@ -654,7 +679,7 @@ struct Watches {
 /// What a menu keeps, as its renders, its handlers and its timers share it.
 struct Shared {
   /// The menu's open panel: the app's signal, or the menu's own.
-  app: Mutex<Option<Signal<Option<usize>>>>,
+  app: Arc<Mutex<Option<Signal<Option<usize>>>>>,
   /// What hears it change, as the last render gave it.
   heard: Arc<Mutex<Vec<OpenHandler>>>,
   panels: Arc<Mutex<Vec<Kept>>>,
@@ -671,12 +696,17 @@ struct Shared {
   held: Mutex<Option<usize>>,
   /// The panel open at the last render.
   shown: Mutex<Option<usize>>,
+  /// Which items the last layout had no room for in the row, by index: they are behind More.
+  dropped: Signal<Vec<bool>>,
+  /// Whether the menu of More is open, and More, which it hangs from.
+  more_open: Signal<bool>,
+  more: ElementRef,
 }
 
 impl Shared {
   fn new() -> Self {
     Self {
-      app: Mutex::new(None),
+      app: Arc::new(Mutex::new(None)),
       heard: Arc::new(Mutex::new(Vec::new())),
       panels: Arc::new(Mutex::new(Vec::new())),
       watches: Mutex::new(Watches::default()),
@@ -687,7 +717,43 @@ impl Shared {
       nudge: Signal::new(0),
       held: Mutex::new(None),
       shown: Mutex::new(None),
+      dropped: Signal::new(Vec::new()),
+      more_open: Signal::new(false),
+      more: ElementRef::new(),
     }
+  }
+
+  /// The ref of the item `index` in the row. A dropped one is laid out at no size: that is how the menu learns
+  /// which are behind More, before the frame is painted, so the first frame at a width has its More and the menu
+  /// of it as they settle.
+  fn slot(&self, index: usize) -> ElementRef {
+    let slot = ElementRef::new();
+    let (dropped, app, more_open) = (self.dropped.clone(), self.app.clone(), self.more_open.clone());
+    slot.observe_rect_before_paint(move |rect| {
+      let now = rect.width <= 0.0 && rect.height <= 0.0;
+      if dropped.get_untracked().get(index).copied().unwrap_or(false) == now {
+        return;
+      }
+      dropped.update(|dropped| {
+        if dropped.len() <= index {
+          dropped.resize(index + 1, false);
+        }
+        dropped[index] = now;
+      });
+      if now {
+        // Its panel goes with it: there is no item for it to hang from.
+        let app = app.lock().clone();
+        if let Some(app) = app
+          && app.get_untracked() == Some(index)
+        {
+          app.set(None);
+        }
+      } else if more_open.get_untracked() && !dropped.get_untracked().contains(&true) {
+        // With every item back in the row More is gone, and its menu with it.
+        more_open.set(false);
+      }
+    });
+    slot
   }
 
   /// The menu's open signal.
@@ -759,6 +825,7 @@ impl Shared {
         anchor: ElementRef::new(),
         panel: ElementRef::new(),
         first: ElementRef::new(),
+        slot: self.slot(index),
       });
     }
   }
@@ -927,6 +994,9 @@ fn build(
   // Reading it subscribes: a render follows the menu's open panel, and a request for the focus.
   let open = app.get().filter(|_| !menu.disabled);
   let _ = shared.nudge.get();
+  // Reading it subscribes too: a render follows what the row has room for.
+  let mut dropped = shared.dropped.get();
+  dropped.resize(menu.items.len(), false);
   // A panel that went from under the pointer is told of no leave: the pointer is on it no longer.
   if std::mem::replace(&mut *shared.shown.lock(), open) != open {
     shared.pointer.lock().on_panel = false;
@@ -963,7 +1033,9 @@ fn build(
   .state(NavigationMenuState::Disabled, menu.disabled);
   let view = NavigationMenuView {
     label: menu.label.clone(),
+    more_label: menu.more_label.clone(),
     items: menu.items.clone(),
+    dropped,
     open,
     disabled: menu.disabled,
     recipe: menu.resolve(&theme, &case),
@@ -988,8 +1060,12 @@ fn build(
 pub struct NavigationMenuView {
   /// What it is called to tooling.
   pub label: Arc<str>,
+  /// What the item that stands for what the row has no room for says.
+  pub more_label: Arc<str>,
   /// Its items, in order. [`panel`](Self::panel) takes what an item's panel features.
   pub items: Vec<NavItem>,
+  /// Which items the last layout had no room for in the row: they are in the menu of [`more`](Self::more).
+  pub dropped: Vec<bool>,
   /// The item whose panel is open now.
   pub open: Option<usize>,
   /// Whether no item can be pressed.
@@ -1063,11 +1139,16 @@ impl NavigationMenuView {
   }
 
   /// The row with nothing in it yet: a navigation region called by the label to tooling, or a list in a navbar's;
-  /// a row of panels to the runtime, whose items are each a stop of Tab and between which Left and Right move.
+  /// a row of panels to the runtime, whose items are each a stop of Tab and between which Left and Right move. It
+  /// is as wide as what is in it and no wider than its room: what it holds that may drop out of it
+  /// ([`slot`](Self::slot)) does, the last first, where it has no room.
   pub fn bar(&self) -> Row {
     let mut bar = Row::new()
       .align_items(Alignment::Center)
       .overflow_visible()
+      .max_width(Dimension::Pct(100.0))
+      .min_width(Dimension::Px(0.0))
+      .flex_shrink(1.0)
       .part(&self.part(NavigationMenuPart::Bar))
       .focus_group(FocusGroup::horizontal().panel_row(true))
       .describe("a11y_role", if self.landmark { "navigation" } else { "list" });
@@ -1085,13 +1166,19 @@ impl NavigationMenuView {
 
   /// What choosing a link does: its handlers, its path, and closing the open panel.
   fn choose(&self, on_select: &[Handler], href: Option<&Arc<str>>) -> impl Fn(MouseEvent) + Send + Sync + 'static {
+    let chosen = self.chosen(on_select, href);
+    move |_: MouseEvent| chosen()
+  }
+
+  /// [`choose`](Self::choose), for what is chosen by no press of its own: an item of the menu of More.
+  fn chosen(&self, on_select: &[Handler], href: Option<&Arc<str>>) -> impl Fn() + Send + Sync + 'static {
     let handlers = on_select.to_vec();
     #[cfg(feature = "router")]
     let go = href.cloned().zip(self.navigator.clone());
     #[cfg(not(feature = "router"))]
     let _ = href;
     let shared = self.shared.clone();
-    move |_: MouseEvent| {
+    move || {
       // The panel closes first, so that a handler that opens a dialog does not have its focus taken back by it.
       shared.close();
       for handler in &handlers {
@@ -1403,8 +1490,147 @@ impl NavigationMenuView {
     Some(popup.into())
   }
 
+  /// What the row holds for the item `index`, `element` (the item, or the item with its panel), as what drops out
+  /// of the row whole where the row has no room for it, and says so through its ref.
+  pub fn slot(&self, index: usize, element: impl Into<Element>) -> Element {
+    let mut element = element.into();
+    NodeUpdate::flex_shrink(&mut *element.node, 1.0);
+    NodeUpdate::shrink_limit(&mut *element.node, ShrinkLimit::Drop);
+    if let Some(kept) = self.shared.kept(index) {
+      NodeUpdate::ref_element(&mut *element.node, kept.slot);
+    }
+    element
+  }
+
+  /// The item of the menu of More for a link: `label`, with `icon`, that does `chosen`.
+  fn more_item(
+    label: &str,
+    icon: Option<Name>,
+    disabled: bool,
+    id: Option<Arc<str>>,
+    chosen: impl Fn() + Send + Sync + 'static,
+  ) -> MenuItem {
+    let mut item = MenuItem::new(label).disabled(disabled).on_select(chosen);
+    if let Some(icon) = icon {
+      item = item.icon(icon);
+    }
+    if let Some(id) = id {
+      item = item.id(format!("{id}-item"));
+    }
+    item
+  }
+
+  /// The end of the row while it has no room for some of its items: More, an item as the others are, and the menu
+  /// it opens of the items that went, in the order of the row. An item that is a link is an item of the menu, the
+  /// page shown checked; one with a panel is its name over its panel's links. The row drops More whole while every
+  /// item is in it. `None` for a menu with no items.
+  pub fn more(&self) -> Option<Element> {
+    if self.items.is_empty() {
+      return None;
+    }
+    let shared = &self.shared;
+    let open = shared.more_open.get();
+    let went = |index: &usize| self.dropped.get(*index).copied().unwrap_or(false);
+    let current = (0..self.items.len())
+      .filter(went)
+      .any(|index| self.items[index].holds_current());
+    let recipe = self.recipe_in(&[
+      (NavigationMenuState::Open, open),
+      (NavigationMenuState::Current, current),
+      (NavigationMenuState::Disabled, self.disabled),
+    ]);
+    let label = recipe.part(NavigationMenuPart::Label);
+    let (press, keys) = (shared.more_open.clone(), shared.more_open.clone());
+    let mut button = pressable(&recipe.part(NavigationMenuPart::Item), self.disabled)
+      .align_items(Alignment::Center)
+      .ref_element(shared.more.clone())
+      .describe("a11y_role", "button")
+      .describe("a11y_name", self.more_label.clone())
+      .describe("a11y_haspopup", "menu")
+      .describe("a11y_expanded", if open { "true" } else { "false" })
+      .focus_label(self.more_label.clone())
+      .on_click(move |_| press.update(|open| *open = !*open))
+      .on_key_down(move |event: KeyboardEvent| {
+        if !event.focus_within || !plain(&event) || event.key != "ArrowDown" {
+          return;
+        }
+        event.prevent_default();
+        if !keys.get_untracked() {
+          keys.set(true);
+        }
+      })
+      .child(Row::new().part(&label).child(label.text(&self.more_label).nowrap()))
+      .child(glyph(
+        &recipe.part(NavigationMenuPart::Chevron),
+        Name::new(if open { icons::CHEVRON_UP } else { icons::CHEVRON_DOWN }),
+        false,
+      ));
+    if let Some(id) = &self.id {
+      button = button.id(format!("{id}-more"));
+    }
+    let mut menu = Menu::new(shared.more_open.clone(), shared.more.clone())
+      .label(&self.more_label)
+      .placement(Placement::BottomEnd);
+    if let Some(id) = &self.id {
+      menu = menu.id(format!("{id}-more-menu"));
+    }
+    let mut any = false;
+    for (index, item) in self.items.iter().enumerate().filter(|(index, _)| went(index)) {
+      let disabled = self.is_disabled(index);
+      match &item.panel {
+        None => {
+          menu = menu.item(
+            Self::more_item(
+              &item.label,
+              item.icon,
+              disabled,
+              self.item_id(index),
+              self.chosen(&item.on_select, item.href.as_ref()),
+            )
+            .checked(item.current),
+          );
+        }
+        Some(panel) => {
+          if any {
+            menu = menu.separator();
+          }
+          menu = menu.heading(&item.label);
+          for (at, link) in panel.links.iter().enumerate() {
+            let id = link
+              .id
+              .clone()
+              .or_else(|| self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}-{at}"))));
+            menu = menu.item(
+              Self::more_item(
+                &link.title,
+                link.icon,
+                disabled || link.disabled,
+                id,
+                self.chosen(&link.on_select, link.href.as_ref()),
+              )
+              .checked(link.current),
+            );
+          }
+          // What follows a panel's links is set apart from them.
+          if (index + 1..self.items.len()).any(|next| went(&next) && self.items[next].panel.is_none()) {
+            menu = menu.separator();
+          }
+        }
+      }
+      any = true;
+    }
+    Some(
+      Row::new()
+        .overflow_visible()
+        .drop_marker(true)
+        .child(button)
+        .child(menu.build(self.theme()))
+        .into(),
+    )
+  }
+
   /// How the default renderer builds a menu: its items in a row, each its icon, its text and its chevron, with its
-  /// panel, which takes no room, after it.
+  /// panel, which takes no room, after it; and More at the end, while the row has no room for some of them.
   pub fn render(mut self) -> Element {
     let mut bar = self.bar();
     for index in 0..self.items.len() {
@@ -1413,12 +1639,13 @@ impl NavigationMenuView {
         .with_children(self.item_icon(index))
         .child(self.label(index))
         .with_children(self.chevron(index));
-      match self.panel(index) {
-        Some(panel) => bar = bar.child(Row::new().overflow_visible().child(item).child(panel)),
-        None => bar = bar.child(item),
-      }
+      let element: Element = match self.panel(index) {
+        Some(panel) => Row::new().overflow_visible().child(item).child(panel).into(),
+        None => item.into(),
+      };
+      bar = bar.child(self.slot(index, element));
     }
-    bar.into()
+    bar.with_children(self.more()).into()
   }
 }
 

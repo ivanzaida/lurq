@@ -25,7 +25,6 @@ let mut app = lurq::app::App::new();
 app.load_font_file(std::path::Path::new("assets/Inter.ttf"));
 app.register_font("ui", "Inter");
 
-#[cfg(feature = "resources")]
 app.set_resource_root(std::path::PathBuf::from("assets"));
 ```
 

@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -45,10 +45,6 @@ const COUNTS: [(&str, usize); 3] = [("Found in the text", 0), ("3 of 12", 1), ("
 /// How high the room above the text is, which the bar hangs over: the bar with its replace row, and the room
 /// around it.
 const ROOM_ABOVE: f32 = 92.0;
-
-/// The least a view with a find bar is wide: the bar's field with its options over its end, the count and the
-/// buttons after it. In a narrower card the view scrolls sideways.
-const LEAST: f32 = 320.0;
 
 /// What the page's bars are bound to: the text, and what is searched for in it.
 #[derive(Clone)]
@@ -570,7 +566,7 @@ impl Component for FindBarPage {
            which the chevron before the field hides.",
           self.frame.demo(
             0,
-            fit("editor", self.frame.stage_room(), LEAST, editor),
+            editor,
             ".replace(with).replace_open(replacing)",
             &[
               "FindBar::new(query)",
@@ -605,7 +601,7 @@ impl Component for FindBarPage {
            finds nothing: the count in the destructive color.",
           self.frame.demo(
             2,
-            fit("states", self.frame.stage_room(), LEAST, self.states()),
+            self.states(),
             ".force(Some(Interaction::Hovered))",
             &["FindBar::new(query).matches(0, 0)"],
           ),

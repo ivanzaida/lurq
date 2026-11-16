@@ -17,7 +17,7 @@ impl Svg {
     Self::new(SvgData::from_str(svg))
   }
 
-  #[cfg(feature = "resources")]
+  #[cfg(feature = "http")]
   pub fn from_resource(path: &str) -> Self {
     Self::from_node(crate::node::Node::resource_svg(path))
   }

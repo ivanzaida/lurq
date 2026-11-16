@@ -77,11 +77,16 @@ impl Component for DragContainer {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let mut child = explicit_child(ctx, &props);
+    let child = explicit_child(ctx, &props);
 
     if props.bounds == DragBounds::SelfBounds {
-      let container_ref = child.node.element_ref_handle();
-      apply_container_bounds(&mut child.node, container_ref);
+      // A decoration, so that a child that is a component is bounded on the root it renders, whenever it
+      // renders: its nodes are not here yet where it is declared, and are others once it renders again.
+      return child.decorate_root(|mut node| {
+        let container_ref = node.element_ref_handle();
+        apply_container_bounds(&mut node, container_ref);
+        node
+      });
     }
 
     child

@@ -1520,3 +1520,202 @@ fn a_theme_gives_the_table_another_anatomy_and_its_rows_still_select() {
   stage.click("t-row-2");
   assert_eq!(selected.get(), ["crates/mobile_demo"]);
 }
+
+/// A table 420 wide whose name is `name` wide, with a status of 120 after it and a size at its end, numeric and 48
+/// wide: columns narrower than what is in them.
+fn squeezed(
+  name: f32,
+  dress: impl Fn(Table<Crate, &'static str>) -> Table<Crate, &'static str> + Send + Sync + 'static,
+) -> Stage {
+  window(Stage::new(move |_| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(name)
+        .mono(true)
+        .text(|row: &Crate| row.name.to_owned()),
+      TableColumn::new("status", "Status")
+        .width(120.0)
+        .text(|row: &Crate| row.status.to_owned()),
+      TableColumn::new("size", "Size")
+        .width(48.0)
+        .numeric()
+        .text(|row: &Crate| format!("{} kilobytes", row.size)),
+    ];
+    Column::new()
+      .size(420.0, 300.0)
+      .child(dress(
+        Table::new(columns, crates()).row_key(|row: &Crate| row.name).id("t"),
+      ))
+      .into()
+  }))
+}
+
+#[test]
+fn a_text_wider_than_its_column_ends_in_an_ellipsis_inside_its_cell() {
+  let stage = squeezed(96.0, |table| table);
+  let status = texts(&stage, "Building").pop().expect("the status of the second row").x;
+  // The name is cut where its column ends, before the room between it and the status, and says so.
+  let name = stage
+    .cut_text_quad("crates/lurq_macros")
+    .expect("the name is drawn, whole or cut");
+  let QuadContent::Text { text, .. } = &name.content else {
+    unreachable!()
+  };
+  assert!(
+    text.ends_with('…'),
+    "a name wider than its column ends in an ellipsis: {text:?}"
+  );
+  assert!(
+    name.x + name.width <= status - 16.0 + 0.5,
+    "the name ends in its cell, 16 before the status at {status}: {} to {}",
+    name.x,
+    name.x + name.width
+  );
+  // A number is cut the same way, and still ends where its column does, under the end of its title.
+  let title = texts(&stage, "Size").pop().expect("the size's title");
+  let size = stage
+    .cut_text_quad("12 kilobytes")
+    .expect("the size is drawn, whole or cut");
+  let QuadContent::Text { text, .. } = &size.content else {
+    unreachable!()
+  };
+  assert!(
+    text.ends_with('…'),
+    "a number wider than its column ends in an ellipsis: {text:?}"
+  );
+  assert!(
+    (size.x + size.width - (title.x + title.width)).abs() < 1.5,
+    "it ends where its title does, at {}: {}",
+    title.x + title.width,
+    size.x + size.width
+  );
+  assert!(size.x >= status, "and starts in its own column: {}", size.x);
+}
+
+#[test]
+fn a_text_that_fits_its_column_is_whole_and_a_column_that_wraps_still_wraps() {
+  let stage = squeezed(240.0, |table| table);
+  assert!(
+    stage.paints("crates/lurq_macros"),
+    "in a column wide enough the name is whole"
+  );
+
+  let stage = window(Stage::new(|_| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(96.0)
+        .wrap(true)
+        .text(|row: &Crate| format!("{} and what it holds", row.name)),
+      TableColumn::new("status", "Status")
+        .width(120.0)
+        .text(|row: &Crate| row.status.to_owned()),
+    ];
+    Column::new()
+      .size(420.0, 400.0)
+      .child(Table::new(columns, crates()).row_key(|row: &Crate| row.name).id("t"))
+      .into()
+  }));
+  let wrapped = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("crates/lurq_macros")))
+    .expect("the name that wraps");
+  let QuadContent::Text { text, .. } = &wrapped.content else {
+    unreachable!()
+  };
+  assert!(!text.contains('…'), "a column that wraps cuts nothing: {text:?}");
+  assert!(
+    wrapped.height > 30.0,
+    "it is on more lines than one: {} high",
+    wrapped.height
+  );
+}
+
+#[test]
+fn a_loading_line_is_a_share_of_its_cell_and_ends_inside_it() {
+  let muted = light(PaletteColor::Muted);
+  let bones = |stage: &Stage| -> Vec<Quad> {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == muted) && quad.height < 13.0)
+      .collect()
+  };
+  // In a name column of 96 no line reaches the room before the status.
+  let stage = squeezed(96.0, |table| table.loading(true));
+  let status = texts(&stage, "Status").pop().expect("the status' title").x;
+  let name = texts(&stage, "Name").pop().expect("the name's title").x;
+  let first: Vec<Quad> = bones(&stage).into_iter().filter(|bone| bone.x < status - 1.0).collect();
+  assert_eq!(first.len(), 4, "a line in the name's cell of each of four rows");
+  for bone in &first {
+    assert!(
+      bone.x >= name - 0.5 && bone.x + bone.width <= status - 16.0 + 0.5,
+      "a line of the name's column is in its cell, {name} to {}: {} to {}",
+      status - 16.0,
+      bone.x,
+      bone.x + bone.width
+    );
+  }
+  // At the board's widths (a table of 420, the name in the 176 the others leave) the lines are the board's: 150,
+  // all of the cell, 120 and 170 by turns, and 70 in a column of 90.
+  let stage = narrow(|| {
+    Table::new(narrow_columns(), crates())
+      .row_key(|row: &Crate| row.name)
+      .loading(true)
+  });
+  let status = texts(&stage, "Status").pop().expect("the status' title").x;
+  let mut lengths: Vec<i32> = bones(&stage)
+    .into_iter()
+    .filter(|bone| bone.x < status - 1.0)
+    .map(|bone| bone.width.round() as i32)
+    .collect();
+  lengths.sort_unstable();
+  assert_eq!(lengths, [120, 150, 170, 176], "the name's lines, by their length");
+  assert!(
+    bones(&stage)
+      .into_iter()
+      .filter(|bone| bone.x >= status - 1.0)
+      .all(|bone| (bone.width - 70.0).abs() < 1.0),
+    "the lines of the other columns are 70 in a column of 90"
+  );
+}
+
+#[test]
+fn a_footer_too_narrow_for_its_count_and_its_pagination_puts_the_pagination_under_the_count() {
+  let mut stage = window(Stage::new(|_| {
+    Column::new()
+      .size(256.0, 400.0)
+      .child(
+        Table::new(narrow_columns(), crates())
+          .row_key(|row: &Crate| row.name)
+          .selected_controlled(["crates/lurq"], |_| {})
+          .total(24)
+          .pagination(
+            lurq::ui::Pagination::for_items(Signal::new(1), 24, 3)
+              .compact(true)
+              .id("pages"),
+          )
+          .id("t"),
+      )
+      .into()
+  }));
+  let (x, _, width, _) = stage.bounds("t");
+  let count = stage.text_quad("1 of 24 rows selected").expect("the footer's count");
+  for id in ["pages-previous", "pages-next"] {
+    let (button, y, side, _) = stage.bounds(id);
+    assert!(
+      button >= x - 0.5 && button + side <= x + width + 0.5,
+      "{id} is in the table, {x} to {}: {button}",
+      x + width
+    );
+    assert!(
+      y >= count.y + count.height - 0.5,
+      "{id} is on a line under the count: {y}"
+    );
+  }
+  let summary = stage.text_quad("1–3 of 24").expect("where the list is");
+  assert!(
+    summary.x + summary.width <= x + width + 0.5,
+    "the summary is in the table"
+  );
+}

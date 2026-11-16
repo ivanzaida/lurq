@@ -498,6 +498,11 @@ impl InputView {
       .unwrap_or(0.0)
   }
 
+  /// The control's padding at its start, in pixels.
+  pub(crate) fn start_padding(&self) -> f32 {
+    self.padding(Side::Start)
+  }
+
   /// The room the control keeps at its end for what is `width` wide over it there: its own padding, the width, and
   /// the room an icon has before the text.
   pub(crate) fn end_room(&self, width: f32) -> f32 {

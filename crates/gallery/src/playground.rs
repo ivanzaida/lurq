@@ -16,7 +16,7 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Appearance,
   },
   components::{Column, Rect, Row, ScrollBoth, ScrollHorizontal, TextInput, TextOverflow},
@@ -53,7 +53,9 @@ const OUTPUT: f32 = 150.0;
 const TOOLBAR: f32 = 52.0;
 /// Under this width a card is as narrow as a phone's page.
 const NARROW: f32 = 480.0;
-const TABS: f32 = 40.0;
+/// How high the bar of the tabs under the stage is at the default density: as high as its tabs, whose line
+/// under the selected one is at their foot.
+const TABS: f32 = 44.0;
 /// How high the stage is, with the row of facts under the canvas.
 const STAGE: f32 = 418.0;
 /// How high the row of facts under the canvas is.
@@ -62,6 +64,12 @@ const FACTS: f32 = 36.0;
 const PANEL: f32 = 320.0;
 /// How wide the card of the last playground laid out was, as the bits of an `f32`: 0 until one was.
 static LAST_ROOM: AtomicU32 = AtomicU32::new(0);
+
+/// How high the bar of the tabs is: as high as the tabs, which follow the density as a row does.
+fn tabs_height() -> f32 {
+  let theme = lurq::ui::current_theme();
+  TABS + theme.density_value(theme.density()) - theme.density_value(Density::Default)
+}
 
 /// The room a control of the panel has in a card `room` wide: the panel's beside the stage, and the card's less
 /// its edges and the panel's padding under it.
@@ -611,7 +619,7 @@ impl Playground {
       .child(
         Row::new()
           .width(FILL)
-          .height(TABS)
+          .height(tabs_height())
           .padding_left(16.0)
           .padding_right(8.0)
           .align_items(Alignment::Center)
@@ -731,7 +739,7 @@ impl Playground {
     // Beside a panel longer than the stage with its tabs, what a tab shows takes the room that is left under the
     // stage, so the code is not five lines over an empty half of the card.
     let output = if wide {
-      (self.panel_height.get() - TOOLBAR - STAGE - TABS).max(OUTPUT)
+      (self.panel_height.get() - TOOLBAR - STAGE - tabs_height()).max(OUTPUT)
     } else {
       OUTPUT
     };

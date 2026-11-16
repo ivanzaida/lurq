@@ -1886,6 +1886,7 @@ fn bar_item(
 
 /// The way back's arrow: the platform's symbol on iOS with the `raster` feature, and otherwise two strokes
 /// that meet at a point on the left, drawn after it.
+#[allow(deprecated)]
 fn chevron(color: Color) -> Element {
   // The platform's own, where there is a platform to ask and images to show it with.
   #[cfg(all(target_os = "ios", feature = "raster"))]
@@ -2138,6 +2139,7 @@ impl Component for SearchField {
 }
 
 /// A magnifying glass: the platform's symbol where there is one to ask, and otherwise a ring with a handle.
+#[allow(deprecated)]
 fn magnifier(color: Color) -> Element {
   #[cfg(all(target_os = "ios", feature = "raster"))]
   if let Some(symbol) = crate::app::ios_symbol::symbol("magnifyingglass", 15.0, color) {

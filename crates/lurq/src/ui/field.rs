@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+
 use super::{
   Button, ButtonGroup, Fab, Link, Toggle, names,
   part_style::{Length, PartStyle},
@@ -16,7 +18,7 @@ use crate::{
     theme::{ControlSize, PaletteColor, Theme, TypographyStyle},
   },
   components::{Column, Row, Stack, TextOverflow},
-  core::ElementRef,
+  core::{ElementRef, ElementRefMut},
   layout::{Alignment, StackAlignment, text_style::FontWeight},
   node::{Element, dimension::Dimension},
 };
@@ -253,6 +255,7 @@ pub struct Field {
   disabled: bool,
   required: bool,
   optional: Option<Arc<str>>,
+  info: Option<Arc<str>>,
   orientation: Orientation,
   full_width: bool,
   fluid: bool,
@@ -284,6 +287,7 @@ impl Field {
       disabled: false,
       required: false,
       optional: None,
+      info: None,
       orientation: Orientation::Vertical,
       full_width: false,
       states: Vec::new(),
@@ -344,6 +348,15 @@ impl Field {
   /// Says that the field may be left empty in words of the app's own: in another language.
   pub fn optional_text(mut self, text: &str) -> Self {
     self.optional = Some(Arc::from(text));
+    self
+  }
+
+  /// What the label needs explained, in a few words: the mark of an [`InfoLabel`](super::InfoLabel) after the
+  /// label, an "i" in a circle, with the words in a tooltip above it. The tooltip shows on a field that is
+  /// mounted ([`Field::mount`]); on one converted into an element the mark is there and says the words to
+  /// tooling alone. An empty text is no mark.
+  pub fn info(mut self, info: &str) -> Self {
+    self.info = (!info.is_empty()).then(|| Arc::from(info));
     self
   }
 
@@ -431,7 +444,7 @@ impl Field {
     self.finish(&theme, Some(ctx))
   }
 
-  fn finish(self, theme: &Theme, ctx: Option<&mut Ctx>) -> Element {
+  fn finish(self, theme: &Theme, mut ctx: Option<&mut Ctx>) -> Element {
     // One judgment is shown, as an input shows it: an error makes the field invalid.
     let invalid = self.invalid || self.error.is_some();
     let warning = self.warning && !invalid;
@@ -462,8 +475,12 @@ impl Field {
         description: description.clone(),
         fluid,
       },
-      ctx,
+      ctx.as_deref_mut(),
     );
+    let info = self
+      .info
+      .as_deref()
+      .map(|info| super::InfoLabel::mark_alone(info, theme, ctx.as_deref_mut()));
     let control = match &description {
       Some(description) => described(control, description.clone()),
       None => control,
@@ -476,6 +493,7 @@ impl Field {
       description,
       required: self.required,
       optional: self.optional.filter(|_| !self.required),
+      info,
       orientation: self.orientation,
       fluid,
       recipe: theme.resolve::<Field>(&case, Some(&self.rules)),
@@ -510,6 +528,8 @@ pub struct FieldView {
   pub required: bool,
   /// The words of the mark of a field that may be left empty, where it has the mark.
   pub optional: Option<Arc<str>>,
+  /// The mark that explains the label, with its tooltip on it where the field is mounted: see [`Field::info`].
+  pub info: Option<Element>,
   /// Where the label is: above the control, or beside it.
   pub orientation: Orientation,
   /// Whether the field is fluid, and its control has taken the fluid form: the label is drawn inside the control's
@@ -552,6 +572,12 @@ impl FieldView {
       label = label.child(self.text(FieldPart::Required, "*"));
     } else if let Some(optional) = &self.optional {
       label = label.child(self.text(FieldPart::Optional, optional));
+    }
+    if let Some(info) = &self.info {
+      // 6 after what is before it, as an info label has its mark: 2 more than the label's own gap.
+      label = label
+        .overflow_visible()
+        .child(Row::new().padding_left(2.0).overflow_visible().child(info.clone()));
     }
     label
   }
@@ -674,6 +700,23 @@ impl FieldView {
       ),
       None => (label, description),
     };
+    // What the form with the label beside needs of the recipe: the label's column and its height there, and the
+    // least a control that fills has beside the label: what the recipe leaves it, or the label's own column in a
+    // field as wide as what holds it.
+    let label_part = self.part(FieldPart::Label);
+    let label_height = label_part.rest().height.and_then(|height| height.resolve(self.theme()));
+    let beside_least = {
+      let gap = root_part
+        .rest()
+        .gap
+        .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+        .unwrap_or(0.0);
+      let label = px(label_part.rest().width);
+      px(root_part.rest().width)
+        .zip(label)
+        .map(|(width, label)| (width - label - gap).max(0.0))
+        .or(label)
+    };
     // The control keeps its own width: a row the width of the field holds it. The row carries a ref made anew in
     // each build, and a key, so that the new ref does not make it another node to the engine and its control
     // keeps the focus and what is typed in it.
@@ -703,8 +746,14 @@ impl FieldView {
       }};
     }
     if self.orientation == Orientation::Horizontal {
-      let mut body = Column::new().align_items(Alignment::Stretch).part(&body_part);
-      let mut root = Row::new().align_items(Alignment::Start).part(&root_part);
+      // The label and what is beside it are a row that wraps: on one line where the field has room for the
+      // label's column, the gap and the body, and the label over the body where it has not, in a narrow panel
+      // or a window as narrow as a phone. The body is never wider than the field.
+      let mut body = Column::new()
+        .align_items(Alignment::Stretch)
+        .part(&body_part)
+        .max_width(Dimension::Pct(100.0));
+      let mut root = Row::new().wrap().align_items(Alignment::Start).part(&root_part);
       match (least, room) {
         (Some(width), Some(room)) => {
           // As wide as the wider of the room the recipe leaves it and the control, and the field with it; not
@@ -715,13 +764,53 @@ impl FieldView {
             .min_width(Dimension::Px(width))
             .align(Alignment::Start);
         }
-        _ => body = body.flex(1.0),
+        _ => {
+          // A control that fills takes the room the label leaves, and no less than the least it has beside the
+          // label: under that it has the line under the label, all of it.
+          body = match beside_least {
+            Some(least) => body.flex_full(1.0, 1.0, Some(least)).min_width(Dimension::Px(least)),
+            None => body.flex(1.0),
+          };
+        }
       }
       let mut body = body.child(control);
       if let Some(description) = description {
         body = body.child(description);
       }
-      named!(root.child(label).child(body))
+      // Over the body the label is as high as its words: the height it has beside a control, to stand level
+      // with it, is for that line. Which it is is read from where the two were laid out, before the frame is
+      // painted, so no frame shows the label with the wrong height.
+      let (label_at, body_at) = (ElementRefMut::new(), ElementRef::new());
+      if let Some(height) = label_height {
+        // Where each was laid out last, as it says itself: the label's top, and the body's.
+        let tops = Arc::new(Mutex::new((None::<f32>, None::<f32>)));
+        let settle = {
+          let label_at = label_at.clone();
+          move |tops: &(Option<f32>, Option<f32>)| {
+            if let (Some(label), Some(body)) = *tops {
+              label_at.set_size(None, Some(if body > label + 0.5 { Dimension::Auto } else { height }));
+            }
+          }
+        };
+        {
+          let (tops, settle) = (tops.clone(), settle.clone());
+          label_at.observe_rect_before_paint(move |rect| {
+            let mut tops = tops.lock();
+            tops.0 = Some(rect.y);
+            settle(&tops);
+          });
+        }
+        body_at.observe_rect_before_paint(move |rect| {
+          let mut tops = tops.lock();
+          tops.1 = Some(rect.y);
+          settle(&tops);
+        });
+      }
+      named!(
+        root
+          .child(label.ref_element(label_at.as_ref()))
+          .child(body.ref_element(body_at))
+      )
     } else {
       let mut root = Column::new().align_items(Alignment::Stretch).part(&root_part);
       if let Some(width) = room {
