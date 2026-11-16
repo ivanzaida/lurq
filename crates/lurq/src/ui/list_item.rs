@@ -377,6 +377,7 @@ impl ListItem {
       _ => None,
     };
     let press = self.press();
+    let setting = case.states.contains(&Name::from(ListItemState::Setting));
     let view = ListItemView {
       title: self.title,
       description: self.description,
@@ -401,6 +402,8 @@ impl ListItem {
       press,
       id: self.id,
       key: self.key,
+      setting,
+      wraps: false,
     };
     match theme.renderer::<ListItem>() {
       Some(renderer) => renderer(view),
@@ -465,7 +468,17 @@ pub struct ListItemView {
   press: Option<Press>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// Whether the row is a setting: its text gives way only down to [`SETTING_TEXT_LEAST`], and then what is at
+  /// its end goes under it.
+  setting: bool,
+  /// Whether the root wraps what it holds onto a second line: a setting with something at its end.
+  wraps: bool,
 }
+
+/// The least a setting's title and description are given beside what is at the row's end. In a narrower room
+/// (a card in a window as narrow as a phone) the row is two lines: the icon and the text, and under them the
+/// control, so that no description is broken in the middle of its words. A wide room never reaches it.
+const SETTING_TEXT_LEAST: f32 = 80.0;
 
 impl ListItemView {
   /// The style of a part, as this row is to be drawn.
@@ -506,6 +519,9 @@ impl ListItemView {
       if let Some(key) = &self.key {
         row = row.key(key.clone());
       }
+      if self.wraps {
+        row = row.wrap();
+      }
       return row.with_children(children).into();
     };
     let role = match self.toggle {
@@ -541,6 +557,9 @@ impl ListItemView {
     }
     if let Some(key) = &self.key {
       row = row.key(key.clone());
+    }
+    if self.wraps {
+      row.update_node(crate::node::NodeUpdate::wrap);
     }
     row.with_children(children).into()
   }
@@ -664,8 +683,16 @@ impl ListItemView {
   /// How the default renderer builds a row: what is before the text, the text, and what is after it, side by side.
   pub fn render(mut self) -> Element {
     let leading = self.leading();
-    let content = self.content();
+    let mut content = self.content();
     let trailing = self.trailing();
+    if self.setting && trailing.is_some() {
+      // The text is as wide as the room the end leaves it, down to its least; under that the end wraps. In a
+      // wrapping row a growing child is its basis long when the lines are broken, so the least is the basis.
+      content = content
+        .flex_full(1.0, 0.0, Some(SETTING_TEXT_LEAST))
+        .min_width(Dimension::Px(SETTING_TEXT_LEAST));
+      self.wraps = true;
+    }
     let mut children: Vec<Element> = Vec::new();
     children.extend(leading.map(Into::into));
     children.push(content.into());

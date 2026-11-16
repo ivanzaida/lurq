@@ -12,7 +12,7 @@ use lurq::{
   components::{Column, Row},
   core::Signal,
   layout::{quad::QuadContent, text_style::FontWeight},
-  node::{Element, color::Color},
+  node::{Element, color::Color, dimension::Dimension},
   ui::{
     Button, Case, Interaction, ListItem, Opacity, SettingsCard, SettingsCardPart, SettingsCardRenderer,
     SettingsCardState, SettingsCardView, Switch, icons,
@@ -570,6 +570,66 @@ fn a_title_longer_than_its_room_is_cut_a_description_wraps_and_the_control_keeps
     if matches!(&quad.content, QuadContent::Text { .. }) {
       assert!(quad.x + quad.width <= control.0 + 0.5, "no text runs under the control");
     }
+  }
+}
+
+#[test]
+fn in_a_room_too_narrow_for_its_text_beside_the_control_the_control_goes_under_the_text() {
+  // 256 leaves the text 46 beside the icon, the control of 110 and the chevron: under the least of 80, so the row
+  // is two lines.
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 400.0)
+      .child(
+        Column::new().width(272.0).padding(8.0).child(
+          // As a page holds it: a width of its own, no wider than its room.
+          Column::new()
+            .width(360.0)
+            .max_width(Dimension::Pct(100.0))
+            .child(SettingsCard::new(theme_row()).items(more()).id("card")),
+        ),
+      )
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("card");
+  assert_eq!(width, 256.0);
+  let title = stage.text_quad("App theme").expect("the title is whole");
+  let description = stage
+    .text_quad("Choose how lurq looks.")
+    .expect("the description is painted");
+  assert!(
+    (title.x - x - 46.0).abs() < 0.01,
+    "the text keeps its place after the icon"
+  );
+  assert!(
+    description.width >= 60.0,
+    "the description has its least room and is not broken in its words: {}",
+    description.width
+  );
+  let control = stage.bounds("control");
+  assert_eq!(control.2, 110.0, "the control keeps its width");
+  assert!(
+    control.1 >= description.y + description.height,
+    "the control is under the text: {control:?} {}",
+    description.y + description.height
+  );
+  assert!((control.0 - x - 14.0).abs() < 0.01, "at the row's start: {control:?}");
+  let chevron = stage.text_quad(&glyph(icons::CHEVRON_DOWN)).unwrap();
+  assert!(
+    chevron.x + chevron.width <= x + width - 14.0 + 0.01,
+    "the chevron stays in the card"
+  );
+  assert!(
+    control.1 + control.3 <= y + height - 12.0 + 0.01,
+    "the card holds both lines: {height}"
+  );
+  for quad in stage.quads() {
+    assert!(
+      quad.x + quad.width <= x + width + 0.5,
+      "nothing runs past the card: {} {}",
+      quad.x,
+      quad.width
+    );
   }
 }
 
