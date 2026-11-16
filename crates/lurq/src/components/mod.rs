@@ -823,6 +823,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether a drag that starts on the element scrolls the scroll container around it while the pointer is
+      /// at the container's edge or past it, and tells the drag's `on_drag_move` after each step: see
+      /// `Node::drag_autoscroll`. Off by default.
+      pub fn drag_autoscroll(mut self, enabled: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drag_autoscroll(node, enabled));
+        self
+      }
+
       pub fn on_drag_start(mut self, f: impl $crate::node::IntoDragEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_drag_start(node, f));
         self

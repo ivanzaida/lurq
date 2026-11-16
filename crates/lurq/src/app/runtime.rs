@@ -5803,15 +5803,23 @@ impl Tree {
       && pending_slider_drag.is_none()
       && pending_text_selection_drag.is_none()
     {
+      let now = self.now();
       hits
         .iter()
-        .find(|(node, _)| {
+        .position(|(node, _)| {
           node.events.start_drag_buttons.contains_button(button)
             && (!node.events.on_drag_start.is_empty()
               || !node.events.on_drag_move.is_empty()
               || !node.events.on_drag_end.is_empty())
         })
-        .map(|(node, _)| {
+        .map(|at| {
+          let (node, _) = &hits[at];
+          // What the node is in comes after it: the nearest scroll container that can scroll is the drag's.
+          let scrolls = node
+            .events
+            .drag_autoscroll
+            .then(|| autoscroll::drag_scroll_target(&hits[at + 1..], now))
+            .flatten();
           let event = DragEvent {
             x: lx,
             y: ly,
@@ -5840,6 +5848,7 @@ impl Tree {
               on_end: node.events.on_drag_end.clone(),
               payload: node.drag_payload.clone(),
               cursor: CursorIcon::Default,
+              autoscroll: scrolls,
             },
           )
         })
@@ -7444,6 +7453,7 @@ impl Tree {
     {
       crate::app::profile_support::frame_section!("ul:autoscroll");
       self.step_autoscroll();
+      self.step_drag_autoscroll();
     }
     {
       crate::app::profile_support::frame_section!("ul:rebuild");
@@ -9655,6 +9665,8 @@ struct ActiveDrag {
   payload: Option<crate::app::events::DragPayload>,
   /// The cursor under the pointer where the drag began, which the window shows until the release.
   cursor: CursorIcon,
+  /// The scroll container the drag scrolls while its pointer is at the container's edge (`drag_autoscroll`).
+  autoscroll: Option<autoscroll::DragScroll>,
 }
 
 impl ActiveDrag {

@@ -3,6 +3,7 @@ mod click;
 mod cursor;
 mod double_click;
 mod drag;
+mod drag_autoscroll;
 mod dropdown_switch;
 mod dropdown_trigger;
 mod element_lookup {

@@ -45,6 +45,7 @@ Deprecated:
 
 Added:
 
+- `.drag_autoscroll(true)` on an element with drag handlers: its drag scrolls the scroll container it is in while the pointer is at the container's edge or past it, a step each frame, and the drag's `on_drag_move` handlers are told after each step. See [A Drag That Scrolls Its Container](docs/src/content/docs/styling-events.md#a-drag-that-scrolls-its-container).
 - `ui::VideoPlayer`: a video player of the design system that draws the app's picture with the board's controls over it in three forms that follow its width (large, compact, minimal), or the picture alone with the app's own layer over it; every value it shows is the app's, bound or held, and told back on a press, a drag or a key. `ui::Menu` has pages (`MenuItem::page`, `Menu::page`), and `CursorIcon::None` hides the pointer.
 - `ui::AudioPlayer`: an audio player in four forms (`AudioPlayerVariant::Full`, `Compact`, `Voice`, `Mini`), built of the media parts, with bound and controlled forms of the position, playing, the volume, muted, the speed, shuffle and repeat (`AudioRepeat`), loading, an error with "Try again", a voice message's speed badge and unheard dot, and a mini player that keeps the track, play and next under 480 wide.
 - `ui::AudioQueue` and `ui::AudioQueueItem`: the rows of the tracks a player plays, the current one on the accent fill with the equalizer while it plays, a more button under the pointer, unavailable tracks, and the arrow keys between the rows.
