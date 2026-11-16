@@ -405,3 +405,43 @@ fn tooling_reads_a_slider_of_degrees() {
     "an angle round past 360 is shown as 10"
   );
 }
+
+/// What tooling calls it is the app's locale's word, read again when the app changes it; a locale of its own is
+/// above the app's, and a label told by itself above both.
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn what_it_is_called_is_the_app_s_locale_s_and_a_label_told_by_itself_stays() {
+  use lurq::core::Locale;
+  let named = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .child(AngleSlider::controlled(45.0, |_| {}).id("plain"))
+      .child(AngleSlider::controlled(45.0, |_| {}).label("Rotation").id("told"))
+      .child(
+        AngleSlider::controlled(45.0, |_| {})
+          .locale(&Locale::for_tag("fr"))
+          .id("own"),
+      )
+      .into()
+  });
+  assert_eq!(named(&mut stage, "plain").as_deref(), Some("Кут"));
+  assert_eq!(named(&mut stage, "told").as_deref(), Some("Rotation"));
+  assert_eq!(named(&mut stage, "own").as_deref(), Some("Angle"));
+  handle.set_locale(Locale::for_tag("es"));
+  stage.pass();
+  assert_eq!(named(&mut stage, "plain").as_deref(), Some("Ángulo"));
+  assert_eq!(named(&mut stage, "told").as_deref(), Some("Rotation"));
+  // The degrees are a sign and no word: the same in every locale.
+  assert!(stage.paints("45°"));
+  // With no locale it is English.
+  let mut plain = scene(|| AngleSlider::controlled(45.0, |_| {}));
+  assert_eq!(named(&mut plain, "dial").as_deref(), Some("Angle"));
+}

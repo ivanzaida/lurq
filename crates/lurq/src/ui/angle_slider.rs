@@ -95,6 +95,8 @@ pub struct AngleSlider {
   wrap: bool,
   label: Option<Arc<str>>,
   value_text: Option<AngleText>,
+  /// The words it was told to speak in, in place of the app's.
+  locale: Option<crate::core::InputWords>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -117,6 +119,7 @@ impl AngleSlider {
       wrap: true,
       label: None,
       value_text: None,
+      locale: None,
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -188,7 +191,7 @@ impl AngleSlider {
     self
   }
 
-  /// What it is called to tooling: "Angle" unless told. A field gives it its label.
+  /// What it is called to tooling: the locale's "Angle" unless told. A field gives it its label.
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
     self
@@ -198,6 +201,13 @@ impl AngleSlider {
   /// step ("22.5°").
   pub fn value_text(mut self, text: impl Fn(f64) -> String + Send + Sync + 'static) -> Self {
     self.value_text = Some(Arc::new(text));
+    self
+  }
+
+  /// The words this dial speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)): what
+  /// it is called. A label told by itself stays what it was told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.locale = Some(locale.input.clone());
     self
   }
 
@@ -266,7 +276,11 @@ impl AngleSlider {
       max: range.max,
       step: range.step,
       wraps: range.wraps,
-      label: self.label.unwrap_or_else(|| Arc::from("Angle")),
+      // Its own locale's word, else the app's, read where it is built.
+      label: self.label.unwrap_or_else(|| match self.locale {
+        Some(words) => words.angle,
+        None => super::current_locale().input.angle.clone(),
+      }),
       disabled: self.disabled,
       recipe: theme.resolve::<AngleSlider>(&case, Some(&self.rules)),
       value_text: self.value_text.unwrap_or_else(|| {
