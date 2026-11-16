@@ -36,18 +36,25 @@ const FIELD_NOTES: &str = "## Field notes\n\nThe lake at dusk, from the north sh
 /// place here. An app would write them to its files; the gallery has none, and keeps them while it runs.
 type Pasted = Arc<Mutex<Vec<ImageData>>>;
 
-/// What the page's editors draw for a picture. The gallery has no files, so its documents name the page's lake
-/// or a picture that was pasted, and the pixels are painted: an app whose pictures are files or addresses draws
-/// nothing itself.
+/// What the page's editors draw for a picture. The gallery has no files of its own, so its documents name the
+/// page's lake or a picture that was pasted as pixels, and the pixels are painted; a picture the document names
+/// by a path or an address (a file pasted from a file manager) is that file's, as the editor draws it unless
+/// told. An app whose pictures are all files or addresses draws nothing itself.
 fn painted(lake: &ImageData, pasted: &Pasted) -> impl Fn(&InlineObject) -> Element + Send + Sync + 'static {
   let (lake, pasted) = (lake.clone(), pasted.clone());
   move |picture| {
-    let kept = picture
-      .source
+    let source = picture.source.as_ref();
+    let kept = source
       .strip_prefix("pasted-")
       .and_then(|index| index.parse::<usize>().ok())
       .and_then(|index| pasted.lock().unwrap().get(index).cloned());
-    let mut drawn = Picture::new(kept.unwrap_or_else(|| lake.clone())).label(&picture.label);
+    let mut drawn = match kept {
+      Some(pixels) => Picture::new(pixels),
+      None if source == "lake" => Picture::new(lake.clone()),
+      None if source.starts_with("http://") || source.starts_with("https://") => Picture::from_url(source),
+      None => Picture::from_file(source),
+    }
+    .label(&picture.label);
     if let Some(width) = picture.width {
       drawn = drawn.width(width as f32);
     }
@@ -311,6 +318,9 @@ impl Component for RichTextEditorPage {
       .child(
         RichTextEditor::new(self.notes.clone())
           .label("Release notes")
+          // Every editor of the page takes a pasted picture, and draws it.
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
           .mount(ctx),
       )
       .child(
@@ -337,6 +347,8 @@ impl Component for RichTextEditorPage {
           ])
           .footer(false)
           .rows(3, 8)
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
           .key("comment")
           .mount(ctx),
       )
@@ -422,6 +434,8 @@ impl Component for RichTextEditorPage {
           .controller(&self.controller)
           .toolbar(false)
           .rows(3, 8)
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
           .key("driven")
           .mount(ctx),
       )
