@@ -19,7 +19,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -41,9 +41,6 @@ const WIDTHS: [(&str, Option<f32>); 5] = [
   ("200", Some(200.0)),
   ("140", Some(140.0)),
 ];
-
-/// The least width of the table's bar: the search field and the filters, which stay in it, and its More button.
-const TABLE_BAR: f32 = 560.0;
 
 /// The marks of a text that are on, as the bars of the page hold them.
 #[derive(Clone)]
@@ -601,16 +598,11 @@ impl Component for ToolbarPage {
         Section::new(
           "A table's bar",
           "A search field that stays, the filters that are set, then a spacer and the density, the columns and \
-           Export at the end. Narrow the window: the filters and Export go into the menu, the search stays.",
+           Export at the end. Narrow the window: the filters and Export go into the menu, the search stays, and            a bar narrower than what stays in it scrolls sideways to it.",
           self.frame.demo(
             3,
-            // What stays in the bar has a width of its own: in a narrower card the bar scrolls sideways.
-            fit(
-              "table",
-              room,
-              TABLE_BAR,
-              Column::new().width(FILL).overflow_visible().child(table),
-            ),
+            // What stays in the bar has a width of its own: a bar narrower than that scrolls sideways to it.
+            Column::new().width(FILL).overflow_visible().child(table),
             "ToolbarItem::element(search).stays(true)",
             &[
               "Toolbar::new()",

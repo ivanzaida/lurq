@@ -379,9 +379,6 @@ fn million() -> Arc<Vec<Job>> {
 /// The least a grid with a column pinned at each end is wide: the two, and room for a column between them.
 const PINNED: f32 = 480.0;
 
-/// The least a grid with its bar over it is wide: the search, a filter that is set, and the bar's buttons.
-const BAR: f32 = 700.0;
-
 /// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
 fn million_columns() -> Vec<TableColumn<Job>> {
   let mut columns = vec![
@@ -1392,7 +1389,6 @@ impl Component for DataGridPage {
       });
 
     // The board's bar over a grid: the search, a tag for each filter set, Filter, the density, the columns, Export.
-    let bar_room = self.frame.stage_room();
     let bar_grid = DataGrid::new(filtered_columns(columns(false)), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1401,9 +1397,6 @@ impl Component for DataGridPage {
       .height(320.0)
       .key("bar")
       .mount(ctx);
-    // The bar keeps its search, its filters and its buttons in it: in a card narrower than those the grid and
-    // its bar scroll sideways.
-    let bar_grid = crate::kit::fit("bar", bar_room, BAR, bar_grid);
 
     // A tree of folders and files, and files whose rows open on their details.
     let tree_grid = Column::new()

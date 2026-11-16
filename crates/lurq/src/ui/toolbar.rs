@@ -29,9 +29,9 @@ use crate::{
     events::{EventControl, MouseButton, MouseEvent, MouseEventKind, PointerKind},
     theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  components::{Column, Row},
+  components::{Column, Row, ScrollHorizontal},
   core::{ElementRef, NodeId, Signal},
-  layout::{Alignment, layout_kind::ShrinkLimit},
+  layout::{Alignment, layout_kind::ShrinkLimit, scrollbar::ScrollBarStyle},
   node::{Element, FocusGroup, NodeUpdate, border::Border, node::Node, outline::Outline},
 };
 
@@ -137,7 +137,7 @@ impl ToolbarCommand {
   }
 
   /// The item of the menu, with `shortcut` beside it.
-  fn item(&self, shortcut: Option<&str>) -> MenuItem {
+  pub(crate) fn item(&self, shortcut: Option<&str>) -> MenuItem {
     let run = self.run.clone();
     let mut item = MenuItem::new(&self.label)
       .disabled(self.disabled)
@@ -1347,19 +1347,43 @@ impl ToolbarView {
   /// to what reads the tree.
   pub fn render(mut self) -> Element {
     let across = if self.top { Alignment::Start } else { Alignment::Center };
+    let root = self.part(ToolbarPart::Root);
+    let gap = root
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+      .unwrap_or(0.0);
     let mut root = Row::new()
-      .part(&self.part(ToolbarPart::Root))
+      .part(&root)
       .align_items(across)
       .focus_group(FocusGroup::horizontal().one_stop(true))
       .describe("a11y_role", "toolbar")
       .describe("a11y_name", self.label.clone().unwrap_or_default())
       .describe("a11y_orientation", "horizontal");
+    // The controls are a line of their own, which is as wide as the bar while what stays in it has room there,
+    // and as wide as what stays where it has not: the bar then scrolls sideways to it, and nothing is past it.
+    let mut line = Row::new().spacing(gap).align_items(across).overflow_visible();
     for index in 0..self.slots.len() {
-      root = root.child(self.slot(index));
+      line = line.child(self.slot(index));
     }
     if let Some(more) = self.more() {
-      root = root.child(more);
+      line = line.child(more);
     }
+    // With a spacer the line takes all the room the bar is given; without one the bar is as wide as its controls.
+    let grows = if self.slots.iter().any(|slot| slot.spacer) {
+      1.0
+    } else {
+      0.0
+    };
+    root = root.child(
+      ScrollHorizontal::new(line)
+        .fill_width(true)
+        .fit_width(true)
+        .wheel_across(true)
+        .scrollbar(ScrollBarStyle::hidden())
+        .flex_full(grows, 1.0, None)
+        .min_width(0.0),
+    );
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }

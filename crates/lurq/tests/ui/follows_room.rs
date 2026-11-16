@@ -6,7 +6,10 @@ use lurq::{
   components::{Column, Text},
   core::Signal,
   node::dimension::Dimension,
-  ui::{ColumnPin, DataGrid, DockLayout, DockNode, DockPanel, DockState, Splitter, SplitterPane, Table, TableColumn},
+  ui::{
+    Button, ColumnPin, DataGrid, DockLayout, DockNode, DockPanel, DockState, Splitter, SplitterPane, Table,
+    TableColumn, Toolbar, ToolbarItem, icons,
+  },
 };
 
 use super::stage::Stage;
@@ -203,5 +206,22 @@ fn a_table_of_shares_follows_its_room_wider_and_narrower() {
     )
     .row_key(|row: &(&str, &str, u32)| row.0)
     .mount(ctx)
+  });
+}
+
+#[test]
+fn a_toolbar_follows_its_room_through_scrolling_to_what_stays_and_back() {
+  // At 300 the field that stays, the pin and More are wider than the bar, which scrolls; at 900 all of it fits.
+  follows(&["bar", "field", "a", "b", "pin", "bar-more"], |ctx| {
+    Toolbar::new()
+      .id("bar")
+      .overflow(true)
+      .item(ToolbarItem::element(
+        lurq::components::Row::new().id("field").size(260.0, 32.0),
+      ))
+      .item(Button::new("A").icon(icons::BOLD).icon_only(true).id("a"))
+      .item(Button::new("B").icon(icons::ITALIC).icon_only(true).id("b"))
+      .item(ToolbarItem::from(Button::new("Pin").icon(icons::LINK).icon_only(true).id("pin")).stays(true))
+      .mount(ctx)
   });
 }

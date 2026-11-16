@@ -551,6 +551,7 @@ pub(crate) trait NodeUpdate {
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn fills_viewport_width(&mut self, fills: bool);
+  fn fits_viewport_width(&mut self, fits: bool);
   fn scrollbars_clear_of_sticky(&mut self, clear: bool);
   fn reserve_bar_across(&mut self, reserve: bool);
   fn wheel_across(&mut self, across: bool);
@@ -997,6 +998,9 @@ pub(crate) struct RareStyle {
   pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
   /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
   pub(crate) fills_viewport_width: bool,
+  /// A scroll container that scrolls sideways lays content wider than its viewport out in the viewport's width
+  /// first, and is scrolled only to what still has no room there.
+  pub(crate) fits_viewport_width: bool,
   /// A scroll container whose bars run beside what scrolls, clear of what sticks at its start.
   pub(crate) scrollbars_clear_of_sticky: bool,
   /// A scroll container whose bar across has a lane of its own under the content while it is wider than the view.
@@ -1439,6 +1443,13 @@ impl NodeUpdate for Node {
   fn fills_viewport_width(&mut self, fills: bool) {
     if self.rare_style.fills_viewport_width != fills {
       self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn fits_viewport_width(&mut self, fits: bool) {
+    if self.rare_style.fits_viewport_width != fits {
+      self.rare_style.fits_viewport_width = fits;
       self.layout_cache.invalidate();
     }
   }
@@ -3340,6 +3351,12 @@ impl Node {
   /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
   pub(crate) fn fills_viewport_width(&self) -> bool {
     self.rare_style.fills_viewport_width
+  }
+
+  /// Whether the node, a scroll container, lays content wider than its viewport out in the viewport's width
+  /// first.
+  pub(crate) fn fits_viewport_width(&self) -> bool {
+    self.rare_style.fits_viewport_width
   }
 
   /// Whether the node, a scroll container, keeps its bars clear of what sticks at its start.
@@ -6024,6 +6041,7 @@ impl Node {
       && self.rare_style.column_tracks == old.rare_style.column_tracks
       && self.rare_style.measured_tracks == old.rare_style.measured_tracks
       && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      && self.rare_style.fits_viewport_width == old.rare_style.fits_viewport_width
       && self.rare_style.scrollbars_clear_of_sticky == old.rare_style.scrollbars_clear_of_sticky
       && self.rare_style.track_span == old.rare_style.track_span
       && self.rare_style.reserves_bar_across == old.rare_style.reserves_bar_across
