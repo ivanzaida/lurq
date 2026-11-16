@@ -28,6 +28,7 @@ mod button;
 mod calendar;
 mod callout;
 mod card;
+mod carousel;
 mod checkbox;
 mod checkbox_card;
 mod code_block;
@@ -1133,6 +1134,14 @@ pub const PAGES: &[Page] = &[
     about: "gallery grid pictures photos thumbnails rows columns gap aspect ratio select selected choose keys lightbox open more count max_shown veil Gallery keyed columns gap aspect_ratio size max_shown more_text selectable selected on_selection_change lightbox open on_open_change on_select",
     group: Group::Media,
     mount: |ctx| ctx.mount::<gallery::GalleryPage>(()),
+  },
+  Page {
+    path: "/carousel",
+    name: "Carousel",
+    icon: Some("columns"),
+    about: "carousel slides slider slideshow swipe pages dots arrows previous next turn wrap loop autoplay per view several Carousel new slide slides index index_controlled on_index_change per_view gap wrap arrows dots autoplay width label previous_label next_label slide_label disabled",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<carousel::CarouselPage>(()),
   },
   Page {
     path: "/video-player",
