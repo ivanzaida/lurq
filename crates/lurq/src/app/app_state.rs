@@ -234,19 +234,26 @@ impl App {
     self.shared.glyph_engine.lock().clear_cache();
   }
 
+  /// Gives the app its tokio runtime: the components' async tasks run on it, and so do the reads of the app's
+  /// loader ([`Loader::tokio_handle`](crate::resources::Loader::tokio_handle)), which then starts no threads
+  /// of its own.
   #[cfg(feature = "tokio")]
   pub fn with_tokio_handle(self, handle: tokio::runtime::Handle) -> Self {
+    self.shared.loader.tokio_handle(handle.clone());
     *self.shared.tokio_handle.lock() = Some(handle);
     self
   }
 
   #[cfg(feature = "tokio")]
   pub fn set_tokio_handle(&mut self, handle: tokio::runtime::Handle) {
+    self.shared.loader.tokio_handle(handle.clone());
     *self.shared.tokio_handle.lock() = Some(handle);
   }
 
+  /// Takes the runtime away, before it is stopped: the app's loader reads on threads of its own again.
   #[cfg(feature = "tokio")]
   pub fn clear_tokio_handle(&mut self) {
+    self.shared.loader.reset_tokio_handle();
     *self.shared.tokio_handle.lock() = None;
   }
 
@@ -558,5 +565,37 @@ mod tests {
     app.warm_text_styles(&[]);
     let engine = app.shared.glyph_engine.lock();
     assert_eq!((engine.measure_hits, engine.measure_misses), (0, 0));
+  }
+
+  #[cfg(feature = "tokio")]
+  #[test]
+  fn the_runtime_the_app_is_given_is_its_loaders_too_until_it_is_taken_away() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(1)
+      .build()
+      .expect("a runtime");
+    assert!(!App::new().loader().reads_on_a_runtime());
+    let mut app = App::new().with_tokio_handle(runtime.handle().clone());
+    assert!(app.loader().reads_on_a_runtime());
+    app.clear_tokio_handle();
+    assert!(!app.loader().reads_on_a_runtime());
+    app.set_tokio_handle(runtime.handle().clone());
+    assert!(app.loader().reads_on_a_runtime());
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
+  #[test]
+  fn the_cache_on_the_disk_is_off_until_the_app_gives_its_folder() {
+    let folder = std::env::temp_dir().join(format!("lurq-app-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let app = App::new();
+    assert!(!app.loader().media_disk_cache().is_on());
+    assert!(!folder.exists(), "lurq picks no folder, and makes none");
+    let app = app.enable_media_disk_cache(&folder);
+    let kept = app.loader().media_disk_cache();
+    assert!(kept.is_on() && kept.is_empty());
+    assert_eq!(kept.folder().as_deref(), Some(folder.as_path()));
+    assert!(folder.is_dir(), "the folder is made");
+    let _ = std::fs::remove_dir_all(&folder);
   }
 }
