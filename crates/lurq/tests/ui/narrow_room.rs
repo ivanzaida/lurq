@@ -375,3 +375,146 @@ fn a_toast_in_a_narrow_room_has_all_of_its_timer_in_it() {
     );
   }
 }
+
+/// A field with its label beside a switch, in a room `width` wide which the signal changes.
+fn beside(width: &Signal<f32>) -> Stage {
+  let width = width.clone();
+  let mut stage = Stage::first_frame(600.0, 300.0, move |_| {
+    Column::new()
+      .size(600.0, 300.0)
+      .child(
+        Row::new().id("room").width(width.get()).child(
+          Field::new(
+            "Notifications",
+            lurq::ui::Switch::new("Pause notifications").id("switch"),
+          )
+          .description("Nothing is sent while they are paused.")
+          .orientation(lurq::ui::Orientation::Horizontal)
+          .id("it"),
+        ),
+      )
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+/// Where the label and the switch of [`beside`] are: the label's top and bottom, the switch's start and top.
+fn label_and_switch(stage: &mut Stage) -> ((f32, f32), (f32, f32)) {
+  let label = stage.text_quad("Notifications").expect("the label is drawn");
+  let (x, y, ..) = stage.bounds("switch");
+  ((label.y, label.y + label.height), (x, y))
+}
+
+#[test]
+fn a_field_with_its_label_beside_has_the_label_over_the_control_in_a_narrow_room() {
+  let width = Signal::new(256.0);
+  let mut stage = beside(&width);
+  let (room, _, room_width, _) = stage.bounds("room");
+  let (x, _, field, _) = stage.bounds("it");
+  assert!(
+    x >= room - 0.5 && x + field <= room + room_width + 0.5,
+    "the field is {field} wide at {x}, in a room of {room_width}"
+  );
+  for quad in stage.quads() {
+    if let QuadContent::Text { text, .. } = &quad.content {
+      assert!(
+        quad.x + quad.width <= room + room_width + 0.5,
+        "{text:?} ends at {}, past the room's end",
+        quad.x + quad.width
+      );
+    }
+  }
+  let ((_, label_bottom), (switch_x, switch_y)) = label_and_switch(&mut stage);
+  assert!(
+    switch_y >= label_bottom - 0.5,
+    "the switch at {switch_y} is under the label, which ends at {label_bottom}"
+  );
+  assert!(
+    (switch_x - x).abs() < 0.5,
+    "and starts where the field does: {switch_x}"
+  );
+  // The label is as high as its words there, not as a control: it is not beside one.
+  let label = stage.text_quad("Notifications").unwrap();
+  assert!(
+    switch_y - (label.y + label.height) < 24.0,
+    "the switch is close under the label: {} apart",
+    switch_y - (label.y + label.height)
+  );
+}
+
+#[test]
+fn a_field_with_its_label_beside_keeps_it_beside_where_there_is_room_and_goes_back_to_it() {
+  let width = Signal::new(400.0);
+  let mut stage = beside(&width);
+  let wide = label_and_switch(&mut stage);
+  let ((label_top, label_bottom), (switch_x, switch_y)) = wide;
+  let (x, _, field, _) = stage.bounds("it");
+  assert_eq!(field, 360.0, "the field is the recipe's 360");
+  assert!(
+    (switch_x - (x + 122.0)).abs() < 0.5,
+    "the switch after the label's 110 and 12: {}",
+    switch_x - x
+  );
+  assert!(
+    switch_y < label_bottom && switch_y + 10.0 > label_top,
+    "the switch is level with the label: {switch_y} beside {label_top} to {label_bottom}"
+  );
+  // Narrow, the label goes over the switch; wide again, it is beside it as it was.
+  width.set(256.0);
+  stage.pass();
+  stage.pass();
+  let ((_, label_bottom), (_, switch_y)) = label_and_switch(&mut stage);
+  assert!(switch_y >= label_bottom - 0.5, "narrow, the switch is under the label");
+  width.set(400.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(label_and_switch(&mut stage), wide, "wide again, as it was");
+}
+
+#[test]
+fn the_first_frame_of_a_field_in_a_narrow_room_is_the_settled_one() {
+  let scene = |_: &mut lurq::app::ctx::Ctx| -> Element {
+    Column::new()
+      .size(600.0, 300.0)
+      .child(
+        Row::new().id("room").width(256.0).child(
+          Field::new(
+            "Notifications",
+            lurq::ui::Switch::new("Pause notifications").id("switch"),
+          )
+          .orientation(lurq::ui::Orientation::Horizontal)
+          .id("it"),
+        ),
+      )
+      .into()
+  };
+  let mut stage = Stage::first_frame(600.0, 300.0, scene);
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(first, stage.picture(), "nothing moves in the second frame");
+}
+
+#[test]
+fn a_field_with_its_label_beside_an_input_that_fills_folds_in_a_narrow_room_too() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Row::new().id("room").width(256.0).child(
+          Field::new("Time zone", Input::new(text()).full_width(true).id("input"))
+            .orientation(lurq::ui::Orientation::Horizontal)
+            .id("it"),
+        ),
+      )
+      .into()
+  });
+  let label = stage.text_quad("Time zone").expect("the label is drawn");
+  let (x, y, width, _) = stage.bounds("input");
+  let (field_x, _, field, _) = stage.bounds("it");
+  assert!(y >= label.y + label.height - 0.5, "the input at {y} is under the label");
+  assert!(
+    (x - field_x).abs() < 0.5 && (width - field).abs() < 0.5 && (field - 256.0).abs() < 0.5,
+    "and as wide as the field, which is as wide as the room: {width} at {x} in {field}"
+  );
+}
