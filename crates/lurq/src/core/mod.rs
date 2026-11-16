@@ -2,6 +2,8 @@ pub mod cell_ref;
 pub mod context;
 pub mod date;
 mod date_locale;
+mod locale;
+mod media_words;
 pub mod time;
 pub mod effect;
 pub mod element_ref;
@@ -25,6 +27,9 @@ pub use date_locale::{
   DateFormatter, DateLabels, DateLocale, DateOrder, DateParser, DateSegment, DateStyle, DateText, SegmentWords,
 };
 pub use effect::Effect;
+pub use locale::Locale;
+pub(crate) use locale::{AppLocale, english_locale};
+pub use media_words::{MediaError, MediaWords};
 pub use element_ref::{ElementRect, ElementRef, ElementRefMut, RectObserver};
 pub use guard::Guard;
 pub use id_gen::{IdGenerator, NodeId};

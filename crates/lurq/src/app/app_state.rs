@@ -160,6 +160,8 @@ pub(crate) struct AppShared {
   pub(crate) theme: Theme,
   /// How dates are written and read, the app's choice: [`App::set_date_locale`].
   pub(crate) dates: crate::core::AppDateText,
+  /// Every word lurq writes by itself, the app's choice: [`App::set_locale`].
+  pub(crate) locale: crate::core::AppLocale,
   pub(crate) window_opener: WindowOpener,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
@@ -192,6 +194,7 @@ impl App {
         glyph_engine: Mutex::new(GlyphEngine::new()),
         theme: Theme::new(),
         dates: crate::core::AppDateText::new(),
+        locale: crate::core::AppLocale::new(),
         window_opener: WindowOpener::default(),
         #[cfg(feature = "i18n")]
         i18n: I18n::new(),
@@ -257,6 +260,30 @@ impl App {
 
   pub fn theme(&self) -> &Theme {
     &self.shared.theme
+  }
+
+  /// The app's locale: every word lurq writes by itself (the names of a player's buttons, what a media that cannot
+  /// play says, a calendar's months), in the app's language. A [`Locale`](crate::core::Locale) of a tag lurq knows
+  /// (`Locale::for_tag("uk")`), with whatever the app changed in it. English until it is set: the system's language
+  /// and the i18n locale do not change it. What reads it in a render is rendered again when it changes.
+  ///
+  /// It sets how dates are written too ([`Locale::dates`](crate::core::Locale::dates)): an app that writes them
+  /// its own way calls [`set_date_locale`](Self::set_date_locale) after it.
+  ///
+  /// ```
+  /// use lurq::{app::App, core::Locale};
+  ///
+  /// let app = App::new();
+  /// app.set_locale(Locale::for_tag("uk"));
+  /// ```
+  pub fn set_locale(&self, locale: crate::core::Locale) {
+    self.shared.dates.set(crate::core::shared_date_text(locale.dates.clone()));
+    self.shared.locale.set(locale);
+  }
+
+  /// What [`Self::set_locale`] set, English before: read in a render, it renders that again when it changes.
+  pub fn locale(&self) -> std::sync::Arc<crate::core::Locale> {
+    self.shared.locale.get()
   }
 
   /// How every calendar and date picker of the app writes and reads dates, and names its months, its days and its

@@ -22,7 +22,8 @@ use crate::{
 /// The speeds a player offers, slowest first; 1 is the speed a recording was made at.
 pub const MEDIA_RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
-/// A speed as a menu names it: "Normal" for 1, and "0.75×", "1.5×", "2×" for the others.
+/// A speed as a menu names it: "Normal" for 1 (the app's locale's word for it, in a render), and "0.75×",
+/// "1.5×", "2×" for the others.
 ///
 /// ```
 /// use lurq::ui::media_rate_text;
@@ -33,7 +34,7 @@ pub const MEDIA_RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 /// ```
 pub fn media_rate_text(rate: f32) -> String {
   if (rate - 1.0).abs() < f32::EPSILON {
-    "Normal".to_string()
+    super::current_locale().media.normal_speed.to_string()
   } else {
     format!("{rate}×")
   }
@@ -175,7 +176,7 @@ impl MediaTime {
       remaining: false,
       on_media: false,
       live: false,
-      live_text: Arc::from("LIVE"),
+      live_text: super::current_locale().media.live.clone(),
       size: MediaTimeSize::default().into(),
       label: None,
       on_click: Vec::new(),

@@ -188,7 +188,7 @@ impl SeekBar {
       empty: false,
       live: false,
       size: SeekBarSize::default().into(),
-      label: Arc::from("Seek"),
+      label: super::current_locale().media.seek.clone(),
       disabled: false,
       on_change: Vec::new(),
       on_change_end: Vec::new(),

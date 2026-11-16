@@ -271,6 +271,8 @@ struct Surroundings {
   breakpoint: Option<Memo<Option<Breakpoint>>>,
   /// How the app writes dates: what a component's render was given of its app.
   dates: Option<crate::core::AppDateText>,
+  /// The app's locale: every word lurq writes by itself.
+  locale: Option<crate::core::AppLocale>,
   /// The window what is being built is in.
   window: Option<crate::app::window::Window>,
 }
@@ -311,6 +313,7 @@ pub(crate) fn enter_theme(
   theme: Theme,
   breakpoint: Option<Memo<Option<Breakpoint>>>,
   dates: Option<crate::core::AppDateText>,
+  locale: Option<crate::core::AppLocale>,
   window: Option<crate::app::window::Window>,
 ) {
   RENDERING_IN.with(|rendering| {
@@ -318,6 +321,7 @@ pub(crate) fn enter_theme(
       theme,
       breakpoint,
       dates,
+      locale,
       window,
     })
   });
@@ -349,6 +353,21 @@ pub fn current_date_locale() -> std::sync::Arc<dyn crate::core::DateText> {
     .map_or_else(crate::core::english_date_text, |dates| dates.get())
 }
 
+/// The locale of the app of what is being built: every word lurq writes by itself, as
+/// [`App::set_locale`](crate::app::App::set_locale) set it, read so that what reads it is rendered again when it
+/// changes. Outside a render, and in an app that set none, English. This is where a component takes the words it
+/// was not told itself, mounted or built in a render.
+pub fn current_locale() -> std::sync::Arc<crate::core::Locale> {
+  RENDERING_IN
+    .with(|rendering| {
+      rendering
+        .borrow()
+        .last()
+        .and_then(|surroundings| surroundings.locale.clone())
+    })
+    .map_or_else(crate::core::english_locale, |locale| locale.get())
+}
+
 pub(crate) fn leave_theme() {
   RENDERING_IN.with(|rendering| {
     rendering.borrow_mut().pop();
@@ -364,16 +383,20 @@ pub fn in_theme<R>(theme: &Theme, build: impl FnOnce() -> R) -> R {
     }
   }
   // The window and the app are the ones around: only the theme changes.
-  let (breakpoint, dates, window) = RENDERING_IN.with(|rendering| {
-    rendering.borrow().last().map_or((None, None, None), |surroundings| {
-      (
-        surroundings.breakpoint.clone(),
-        surroundings.dates.clone(),
-        surroundings.window.clone(),
-      )
-    })
+  let (breakpoint, dates, locale, window) = RENDERING_IN.with(|rendering| {
+    rendering
+      .borrow()
+      .last()
+      .map_or((None, None, None, None), |surroundings| {
+        (
+          surroundings.breakpoint.clone(),
+          surroundings.dates.clone(),
+          surroundings.locale.clone(),
+          surroundings.window.clone(),
+        )
+      })
   });
-  enter_theme(theme.clone(), breakpoint, dates, window);
+  enter_theme(theme.clone(), breakpoint, dates, locale, window);
   let _leave = Leave;
   build()
 }

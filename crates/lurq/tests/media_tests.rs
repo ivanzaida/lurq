@@ -20,7 +20,7 @@ use std::{
 };
 
 use lurq::{
-  media::{Media, MediaState},
+  media::{Media, MediaError, MediaState},
   resources::{Loader, Source},
 };
 
@@ -198,16 +198,15 @@ fn bytes_play_as_a_file_does_and_what_is_no_video_says_why() {
   let broken = Media::open(&Loader::new(), &Source::bytes(b"this is not a video".to_vec()));
   let state = until(&broken, "failed", |state| state.error.is_some());
   assert!(!state.playing && !state.waiting);
+  assert_eq!(state.error, Some(MediaError::Unsupported), "what is no video is a kind it does not play");
   let missing = Media::open(&Loader::new(), &Source::file("no/such/clip.mp4"));
-  until(&missing, "failed", |state| state.error.is_some());
+  let state = until(&missing, "failed", |state| state.error.is_some());
+  assert_eq!(state.error, Some(MediaError::NotFound));
   // An address the app does not allow is not asked for.
   let loader = Loader::new();
   loader.allow(|_| false);
   let refused = Media::open(&loader, &Source::url("https://example.com/clip.mp4"));
-  assert_eq!(
-    refused.state().error.as_deref(),
-    Some("the app does not allow this address")
-  );
+  assert_eq!(refused.state().error, Some(MediaError::Denied));
 }
 
 #[cfg(windows)]
@@ -281,6 +280,10 @@ fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   }
   let broken = Media::sound(&Loader::new(), &Source::bytes(b"this is not a sound".to_vec()));
   let state = until(&broken, "failed", |state| state.error.is_some());
+  assert_eq!(state.error, Some(MediaError::Unsupported));
+  // The app's locale says it: a short line a player shows.
+  let said = |tag: &str| lurq::core::Locale::for_tag(tag).media.error(&MediaError::Unsupported);
+  assert_eq!((&*said("en"), &*said("uk")), ("Unsupported format", "Непідтримуваний формат"));
   assert!(!state.playing && !state.waiting);
 }
 
@@ -400,7 +403,7 @@ fn a_sound_that_is_not_at_its_address_says_so_and_one_the_app_refuses_is_not_ask
   let (address, asked) = serve(None, "404 Not Found");
   let missing = Media::sound(&Loader::new(), &Source::url(&address));
   let state = until(&missing, "failed", |state| state.error.is_some());
-  assert_eq!(state.error.as_deref(), Some("it was not found"));
+  assert_eq!(state.error, Some(MediaError::NotFound));
   assert!(!state.waiting && !state.playing);
   assert!(!lurq::media::sound_cache().holds(&Source::url(&address)));
 
@@ -408,10 +411,7 @@ fn a_sound_that_is_not_at_its_address_says_so_and_one_the_app_refuses_is_not_ask
   loader.allow(|_| false);
   let before = asked.load(Ordering::Relaxed);
   let refused = Media::sound(&loader, &Source::url(&address));
-  assert_eq!(
-    refused.state().error.as_deref(),
-    Some("the app does not allow this address")
-  );
+  assert_eq!(refused.state().error, Some(MediaError::Denied));
   std::thread::sleep(Duration::from_millis(100));
   assert_eq!(asked.load(Ordering::Relaxed), before);
 }

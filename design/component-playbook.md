@@ -235,6 +235,9 @@ an alias.
   word a part draws (`empty_text`, `loading_text`, `separator_text`). One method for one string, also where the
   word shown and the name read are two, or the name follows a state. A sentence with numbers in it takes a
   function: `count_text(Fn(rows, selected) -> String)`. A component's default name ("Main") is set with `label`.
+  What such a word is unless it is said otherwise comes from the app's one locale, `core::Locale`
+  (`ui::current_locale()`), not from a literal in the component: `AGENTS.md` has the rule, and the media
+  components are the ones that follow it so far.
 - **A handler of a list told which item**: `on_select(Fn(&Id))` on the list (a breadcrumb told the step followed),
   beside each item's own `on_select(Fn())`.
 - **What it holds**: a list in the constructor where the component is its items (`Tabs::new(value, tabs)`,

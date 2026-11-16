@@ -638,6 +638,8 @@ fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   until(&mut broken, "the error", |stage| {
     stage.tree.get_element_by_id_mut("p-retry").is_some()
   });
+  assert!(broken.paints("Unsupported format"), "a short line, in the locale's words");
+  assert!(broken.paints("Try again"));
 }
 
 #[cfg(all(any(windows, target_os = "macos"), feature = "media", feature = "http"))]
@@ -722,4 +724,78 @@ fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_dra
   });
   until(&mut second, "its own length", |stage| stage.paints("0:08"));
   assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two players");
+}
+
+#[test]
+fn it_speaks_in_the_apps_locale_and_in_its_own_where_it_is_given_one() {
+  use lurq::{app::App, core::Locale};
+  // What a control is called to tooling, which keeps it with `mcp` or `devtools`.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  let named = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let player = || {
+    AudioPlayer::controlled(84.0, 250.0, |_| {})
+      .title("Night Drive")
+      .error(Some("x"))
+      .on_retry(|| {})
+      .id("p")
+  };
+  // The app's locale, set once for everything in it.
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = Stage::in_app(app, move |_| Column::new().width(360.0).child(player()).into());
+  assert!(stage.paints("Спробувати ще раз"), "Try again, in the app's language");
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  assert_eq!(named(&mut stage, "p-play").as_deref(), Some("Відтворити"));
+  // Another locale for the app: what is drawn is drawn again in it.
+  handle.set_locale(Locale::for_tag("de"));
+  stage.pass();
+  assert!(stage.paints("Erneut versuchen") && !stage.paints("Спробувати ще раз"));
+
+  // A player given a locale of its own speaks in that one, and a word told by itself stays what it was told.
+  let mut own = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(player().locale(&Locale::for_tag("pl")).previous_label("Wstecz"))
+      .into()
+  });
+  assert!(own.paints("Spróbuj ponownie"));
+  // With no locale of the app's and none of its own, it speaks English; a word told by itself is that word.
+  let mut plain = Stage::new(move |_| Column::new().width(360.0).child(player()).into());
+  assert!(plain.paints("Try again"));
+  let mut told = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(player().retry_text("Again"))
+      .into()
+  });
+  assert!(told.paints("Again") && !told.paints("Try again"));
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  assert_eq!(named(&mut own, "p-previous").as_deref(), Some("Wstecz"));
+}
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
+#[test]
+fn what_its_source_cannot_play_is_said_in_the_apps_locale() {
+  use lurq::{app::App, core::Locale, resources::Source};
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 0.0, |_| {})
+          .source(&Source::bytes(b"not a sound".to_vec()))
+          .title("Nothing")
+          .id("p"),
+      )
+      .into()
+  });
+  until(&mut stage, "the error", |stage| stage.paints("Непідтримуваний формат"));
+  assert!(stage.paints("Спробувати ще раз"));
 }
