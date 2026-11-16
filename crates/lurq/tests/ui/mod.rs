@@ -43,6 +43,7 @@ mod dock_state;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
 mod family;
 mod field_mount;

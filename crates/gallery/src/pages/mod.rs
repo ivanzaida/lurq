@@ -40,6 +40,7 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
 mod family;
 mod family_play;
@@ -440,6 +441,14 @@ pub const PAGES: &[Page] = &[
     about: "rich text editor wysiwyg formatted text markdown bold italic underline strikethrough code link heading list bullet numbered ordered quote toolbar undo redo document notes comment richtext value controlled on_change on_link_click on_image controller tools toolbar footer markdown_shortcuts placeholder rows invalid warning valid read_only disabled full_width label count_text",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<rich_text_editor::RichTextEditorPage>(()),
+  },
+  Page {
+    path: "/editable",
+    name: "Editable",
+    icon: Some("pencil"),
+    about: "editable inline edit in place rename title name text field enter f2 escape commit cancel blur pencil save value controlled on_change on_cancel editing default_editing on_editing_change placeholder actions submit_on_blur invalid read_only disabled full_width label confirm_label cancel_label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<editable::EditablePage>(()),
   },
   Page {
     path: "/calendar",

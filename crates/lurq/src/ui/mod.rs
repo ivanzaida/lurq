@@ -57,6 +57,7 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
 mod fab;
 mod field;
@@ -275,6 +276,7 @@ pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use drop_zone::{
   DropZone, DropZonePart, DropZoneRenderer, DropZoneState, DropZoneView, RejectReason, RejectedFile,
 };
+pub use editable::{Editable, EditablePart, EditableRenderer, EditableState, EditableView};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };

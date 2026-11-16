@@ -2786,6 +2786,55 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 - Built without `mount` (converted into an element) it is the still form of itself: the document as it is drawn, with nothing kept between two renders. A [field](#field) the app mounts (`Field::new("Notes", editor).mount(ctx)`) mounts it, calls it by its label, judges it and disables it.
 - A renderer that draws another editor has `view.bar()` (the toolbar, to add to), `view.toolbar` (it built), `view.content()`, `view.footer()`, `view.link_panel()`, `view.root()`, `view.paragraph_styles()` and `view.format`, what the selection is.
 
+## Editable
+
+A text that is read where it stands and edited in place: a title, a name, a cell.
+
+```rust
+use lurq::ui::Editable;
+
+// title: Signal<String>, set when an edit is kept.
+Editable::new(title.clone())
+  .label("Project name")
+  .placeholder("Untitled")
+  .on_change(|name| println!("renamed to {name}"))
+  .mount(ctx);
+
+// A list of names: no buttons, as wide as the row.
+Editable::new(file.clone()).actions(false).full_width(true).mount(ctx);
+
+// Held by the app, which starts the edit itself.
+Editable::controlled(&name, move |typed| rename(typed)).editing(renaming.clone()).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>)` | The text. An edit that is kept is written into the signal |
+| `controlled(value, on_change)` | A text the app holds: an edit that is kept is told to `on_change`, and the text shown is what the app answers with |
+| `on_change(handler)` | Called with the new `&str` when an edit that changed it is kept: by Enter, the button, or leaving the field. The signal is set first. Not for an edit that changed nothing |
+| `on_cancel(handler)` | Called when an edit is dropped: by Escape or the button |
+| `editing(Signal<bool>)` | Whether it is being edited, in the app's signal: the app starts an edit by setting it. Without it a mounted editable keeps this itself |
+| `default_editing(bool)` | Whether one that keeps this itself is being edited as it is first shown: a name just made |
+| `on_editing_change(handler)` | Called with `true` when a person starts an edit and with `false` when one ends, after `on_change` or `on_cancel`. Not when the app sets the signal |
+| `placeholder(&str)` | What the reading form shows while the text is empty, and the field while nothing is typed |
+| `actions(bool)` | Whether the editing form has the buttons that keep the edit and drop it: it has unless told |
+| `submit_on_blur(bool)` | Whether leaving the field keeps what was typed: it does unless told, and then leaving drops it |
+| `invalid(bool)` | What is typed is wrong: the field's edge says so |
+| `read_only(bool)` | The text is read and cannot be edited: no pencil, and a press does nothing |
+| `full_width(bool)` | As wide as what holds it: the text is cut where it is longer, and the field fills the room its buttons leave |
+| `label(&str)` | What the text is, to what reads the tree |
+| `confirm_label(&str)`, `cancel_label(&str)` | What its two buttons are called: "Save" and "Cancel" |
+| `mount(ctx)` | Puts it in the tree: it keeps whether it is being edited and what is typed, and moves the focus as an edit starts and ends |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. The field has the id with `-field` after it, the buttons `-confirm` and `-cancel` |
+
+- The reading form is one stop of Tab. A press of it, Enter, Space or F2 puts a field where the text was, with the text selected and the focus in it. Enter keeps what was typed and Escape drops it, as the two buttons do; leaving the field keeps it.
+- When an edit ends by a key or a button the focus goes back to the reading form. When it ends because the focus went elsewhere, the focus stays where it went: Tab in the field keeps the edit and goes on to the control after the editable. The two buttons are pressed by the pointer and are no stops of Tab.
+- Parts: `EditablePart::Root` (the reading form), `Label`, `Placeholder`, `Icon` (the pencil), `Editing` (the row of the field and its buttons), `Field` (laid over an [input](#input)'s root and control), `Confirm` and `Cancel` (over a [button](#button)'s root). States: `EditableState::Editing`, `Empty`, `Invalid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the reading form is a row 32 high: the text 16 semibold in `Foreground`, and 8 after it a pencil of 14 in `MutedForeground`. Edited, a field 160 wide and 32 high with text of 14, and 6 after it two buttons 32 square with icons of 16: the outline one keeps the edit, the ghost one drops it. A text longer than its room is cut with an ellipsis, and the pencil keeps its place.
+- To what reads the tree the reading form is a button called by its label, with the text as its description; the field is a `textbox` of the same name.
+- Built without `mount` it is the still form of itself: the reading form, or the editing one where the app's signal says so.
+- A renderer that draws another editable has `view.reading()` and `view.editor()`.
+
 ## Alert
 
 A message in the flow of a page about what is on it: a file that could not be saved, a disk that is nearly full, a shortcut to know.
