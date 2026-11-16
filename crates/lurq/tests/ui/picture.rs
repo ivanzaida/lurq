@@ -193,6 +193,33 @@ fn a_picture_that_is_chosen_by_a_press_opens_nothing_by_it() {
   assert!(level(&mut stage).is_none());
 }
 
+#[test]
+fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
+  let mut stage = Stage::first_frame(600.0, 400.0, |_| {
+    let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
+      .title("Lake at dusk")
+      .size_px(320.0, 180.0)
+      .lightbox(true)
+      .selectable(true)
+      .on_download(|| {})
+      .force_bar_shown(Some(true))
+      .id("lake");
+    Column::new()
+      .size(600.0, 400.0)
+      .child(Row::new().padding(8.0).child(lake))
+      .into()
+  });
+  stage.pass();
+  let (download, ..) = stage.bounds("lake-download");
+  let (open, _, width, _) = stage.bounds("lake-open");
+  assert!(open > download, "after the others");
+  assert_eq!(open + width, 8.0 + 320.0 - 12.0, "12 from the picture's end");
+
+  stage.click("lake-open");
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+}
+
 fn corner(quad: &Quad) -> f32 {
   quad.border_radius.map_or(0.0, |radius| radius.top_left)
 }

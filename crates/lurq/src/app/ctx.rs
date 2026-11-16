@@ -853,6 +853,8 @@ struct ElementRequests {
   scroll_to_top: bool,
   /// The scroll containers to take to their tops, by their states.
   scroll_states_to_top: Vec<crate::layout::layout_kind::ScrollState>,
+  /// The scroll containers to take to an offset, by their states: the last asked of each.
+  scroll_states_to: Vec<(crate::layout::layout_kind::ScrollState, f32, f32)>,
 }
 
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
@@ -2658,6 +2660,23 @@ impl Ctx {
 
   pub(crate) fn take_scroll_states_to_top(&self) -> Vec<crate::layout::layout_kind::ScrollState> {
     std::mem::take(&mut self.element_requests.lock().scroll_states_to_top)
+  }
+
+  /// Scrolls the container `state` is the state of to the offset `(x, y)`, after the current render: over
+  /// the frames that follow, on the curve a mouse's wheel scrolls by, and at once while motion is reduced or
+  /// the theme's smooth scroll is off. The offset is held to the content. A wheel or a finger that scrolls the
+  /// container meanwhile stops it where it is, and a second request before the render is applied replaces
+  /// the first. What a carousel turns to a slide with ([`Carousel`](crate::ui::Carousel)).
+  pub fn scroll_state_to(&self, state: &crate::layout::layout_kind::ScrollState, x: f32, y: f32) {
+    let mut requests = self.element_requests.lock();
+    requests.scroll_states_to.retain(|(asked, ..)| !asked.same(state));
+    requests.scroll_states_to.push((state.clone(), x, y));
+    drop(requests);
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_states_to(&self) -> Vec<(crate::layout::layout_kind::ScrollState, f32, f32)> {
+    std::mem::take(&mut self.element_requests.lock().scroll_states_to)
   }
 
   /// How far in from each edge of the window this component's content stays clear of what is over it there:

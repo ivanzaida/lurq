@@ -926,8 +926,9 @@ impl Component for PicturePage {
         "lightbox / open / on_open_change",
         "bool / Signal<bool> / Fn(bool)",
         "false",
-        "A press opens the picture in a Lightbox over the window; whether it is open, to read and to set, and \
-         what tells of it. A picture that is chosen by a press opens nothing.",
+        "A press, and the last button of a large picture's bar, open the picture in a Lightbox over the window; \
+         whether it is open, to read and to set, and what tells of it. A picture that is chosen by a press is \
+         opened by the button.",
       ),
       ("disabled", "bool", "false", "Half the opacity; it takes nothing."),
     ];

@@ -37,6 +37,7 @@ mod callout;
 mod card;
 #[cfg(feature = "canvas")]
 mod chart;
+mod carousel;
 mod checkbox;
 mod chip;
 mod choice_card;
@@ -336,6 +337,7 @@ pub use kbd::{
 };
 pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
+pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};

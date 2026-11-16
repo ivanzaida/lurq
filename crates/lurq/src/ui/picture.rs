@@ -386,6 +386,7 @@ struct Words {
   retry: Arc<str>,
   download: Arc<str>,
   more: Arc<str>,
+  open: Arc<str>,
 }
 
 impl Default for Words {
@@ -395,6 +396,7 @@ impl Default for Words {
       retry: Arc::from("Try again"),
       download: Arc::from("Download"),
       more: Arc::from("More"),
+      open: Arc::from("Open"),
     }
   }
 }
@@ -705,6 +707,12 @@ impl Picture {
     self
   }
 
+  /// What the button that opens the picture in its lightbox is called: "Open" unless told.
+  pub fn open_label(mut self, label: &str) -> Self {
+    self.words.open = Arc::from(label);
+    self
+  }
+
   /// What the menu's button is called: "More" unless told.
   pub fn more_label(mut self, label: &str) -> Self {
     self.words.more = Arc::from(label);
@@ -854,7 +862,8 @@ impl Picture {
 
   /// A press of the picture, or Enter or Space while it has the focus, opens it in a [`Lightbox`] over the
   /// window: the picture alone, whole, to bring closer. The lightbox shows its [`title`](Self::title) and its
-  /// [`description`](Self::description). A picture that can be chosen is chosen by a press, and opens nothing.
+  /// [`description`](Self::description). The bar of a large picture has a button that opens it too, the
+  /// last one: a picture that can be chosen is chosen by a press, and opened by that button.
   pub fn lightbox(mut self, lightbox: bool) -> Self {
     self.lightbox = lightbox;
     self
@@ -1523,7 +1532,8 @@ fn view(
     || picture.description.is_some()
     || !picture.actions.is_empty()
     || !picture.on_download.is_empty()
-    || !picture.menu_items.is_empty();
+    || !picture.menu_items.is_empty()
+    || picture.lightbox;
   let menu_open = live.menu.get();
   let case = |size: PictureSize, on: bool| {
     Case {
@@ -1607,6 +1617,19 @@ fn view(
           .items(picture.menu_items.iter().cloned())
           .build(theme),
       );
+    }
+    // Open larger is the last, where a video has fullscreen.
+    if large && picture.lightbox {
+      let open = picture.open.clone().unwrap_or_else(|| live.viewer.clone());
+      let told = picture.on_open_change.clone();
+      let press: Action = Arc::new(move || {
+        if !open.get_untracked() {
+          open.set(true);
+          told.iter().for_each(|tell| tell(true));
+        }
+      });
+      let button = control(form, false, icons::FULLSCREEN, &picture.words.open, id("open"), press);
+      buttons.push(tip(ctx.as_deref_mut(), button, &picture.words.open));
     }
     bars.push(Some(PictureBar {
       title: picture.title.clone(),
@@ -1699,7 +1722,7 @@ pub struct PictureBar {
   pub title: Option<Arc<str>>,
   /// The line under the title; a compact picture has none.
   pub description: Option<Arc<str>>,
-  /// The buttons at the bar's end, in order: the app's, download, More.
+  /// The buttons at the bar's end, in order: the app's, download, More, open.
   pub buttons: Vec<Element>,
   /// The menu behind More, which takes no room, where the picture is mounted.
   pub menu: Option<Element>,

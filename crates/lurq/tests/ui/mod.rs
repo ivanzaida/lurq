@@ -17,6 +17,7 @@ mod breadcrumb;
 mod button;
 mod calendar;
 mod card;
+mod carousel;
 #[cfg(feature = "canvas")]
 mod chart_motion;
 mod checkbox;
