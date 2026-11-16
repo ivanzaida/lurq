@@ -8,6 +8,8 @@ mod accordion;
 mod action_bar;
 mod alert;
 mod area_chart;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 mod bar_list;
@@ -60,7 +62,10 @@ mod line_chart;
 mod list;
 mod listbox;
 mod markdown;
+mod media_time;
 mod mentions;
+mod media_speed_menu;
+mod media_volume;
 mod menu;
 mod menubar;
 mod message_box;
@@ -74,6 +79,7 @@ mod overview;
 mod pagination;
 mod password_input;
 mod pie_chart;
+mod play_button;
 mod popconfirm;
 mod popover;
 mod progress;
@@ -86,6 +92,7 @@ mod rating;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
+mod seek_bar;
 mod select;
 mod separator;
 mod sheet;
@@ -114,6 +121,8 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -128,12 +137,13 @@ pub enum Group {
   Surfaces,
   Data,
   Charts,
+  Media,
   Desktop,
 }
 
 impl Group {
   /// The groups in the order of the side bar.
-  pub const ALL: [Group; 8] = [
+  pub const ALL: [Group; 9] = [
     Self::GettingStarted,
     Self::Actions,
     Self::Inputs,
@@ -141,6 +151,7 @@ impl Group {
     Self::Surfaces,
     Self::Data,
     Self::Charts,
+    Self::Media,
     Self::Desktop,
   ];
 
@@ -153,6 +164,7 @@ impl Group {
       Self::Surfaces => "Surfaces & overlays",
       Self::Data => "Data",
       Self::Charts => "Charts",
+      Self::Media => "Media",
       Self::Desktop => "Desktop",
     }
   }
@@ -1024,6 +1036,38 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<stat_card::StatCardPage>(()),
   },
   Page {
+    path: "/seek-bar",
+    name: "Seek Bar",
+    icon: Some("play"),
+    about: "seek bar seekbar scrubber timeline progress position duration buffered loaded chapters thumb drag step on_media picture video preview hover tooltip time on_change on_change_end on_hover size disabled mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<seek_bar::SeekBarPage>(()),
+  },
+  Page {
+    path: "/media-time",
+    name: "Media Time",
+    icon: Some("timer"),
+    about: "media time elapsed total duration remaining position hours not loaded live badge mono on_media size on_click player clock",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<media_time::MediaTimePage>(()),
+  },
+  Page {
+    path: "/waveform",
+    name: "Waveform",
+    icon: Some("equalizer"),
+    about: "waveform audio voice message peaks bars loudness played unheard seek progress controlled at on_change on_change_end step disabled",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<waveform::WaveformPage>(()),
+  },
+  Page {
+    path: "/video-player",
+    name: "Video Player",
+    icon: Some("play-circle"),
+    about: "video player media movie clip picture poster seek bar play pause volume mute captions subtitles speed rate quality settings picture in picture fullscreen live buffering waiting ended error retry overlay feed controls keys VideoPlayer VideoPlayerSize playing position duration buffered on_playing_change on_position_change on_position_change_end on_volume_change on_muted_change on_rate_change on_captions_change on_quality_change on_fullscreen_change on_picture_in_picture_change on_retry mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<video_player::VideoPlayerPage>(()),
+  },
+  Page {
     path: "/splitter",
     name: "Splitter",
     icon: Some("resize-horizontal"),
@@ -1102,6 +1146,46 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/play-button",
+    name: "Play Button",
+    icon: Some("play"),
+    about: "play button pause replay media player video audio start stop round disc overlay picture loading spinner playing on_change size variant primary overlay play_label pause_label replay_label disabled",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<play_button::PlayButtonPage>(()),
+  },
+  Page {
+    path: "/volume",
+    name: "Volume",
+    icon: Some("volume"),
+    about: "volume mute unmute sound loud quiet slider media player video audio muted collapsed on_media picture on_change on_change_end on_muted_change controlled muted_controlled size length label mute_label unmute_label mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<media_volume::MediaVolumePage>(()),
+  },
+  Page {
+    path: "/speed-menu",
+    name: "Speed Menu",
+    icon: Some("gauge"),
+    about: "speed menu playback rate speed media player video audio normal faster slower 0.5x 1.5x 2x check on_change on_dismiss on_open_change rates heading_text label placement offset inline MEDIA_RATES media_rate_text",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<media_speed_menu::MediaSpeedMenuPage>(()),
+  },
+  Page {
+    path: "/audio-player",
+    name: "Audio Player",
+    icon: Some("music"),
+    about: "audio player sound music track song podcast voice message mini player docked card compact row waveform seek bar play pause previous next shuffle repeat one all volume mute speed rate playback menu artwork title loading error try again unheard dot AudioPlayer AudioPlayerVariant AudioRepeat on_playing_change on_change on_change_end",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<audio_player::AudioPlayerPage>(()),
+  },
+  Page {
+    path: "/audio-queue",
+    name: "Audio Queue",
+    icon: Some("list"),
+    about: "audio queue playlist up next tracks rows list current now playing equalizer number artwork length more unavailable arrows keyboard AudioQueue AudioQueueItem on_change on_more",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<audio_queue::AudioQueuePage>(()),
   },
 ];
 

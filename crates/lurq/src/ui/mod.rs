@@ -18,6 +18,8 @@
 mod accordion;
 mod action_bar;
 mod alert;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 mod banner;
@@ -79,6 +81,9 @@ mod line_chart;
 mod link;
 mod list_item;
 mod listbox;
+mod media_speed_menu;
+mod media_time;
+mod media_volume;
 mod mentions;
 mod menu;
 mod menubar;
@@ -96,6 +101,7 @@ mod part_style;
 mod password_input;
 #[cfg(feature = "canvas")]
 mod pie_chart;
+mod play_button;
 mod popconfirm;
 mod popover;
 mod progress;
@@ -110,6 +116,7 @@ mod recipe;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
+mod seek_bar;
 mod segmented;
 mod select;
 mod selection;
@@ -149,6 +156,8 @@ mod token_list;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -158,6 +167,14 @@ pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
+pub use audio_player::{
+  AUDIO_MINI_NARROW, AUDIO_MINI_TIME_FROM, AUDIO_MINI_VOLUME_FROM, AudioControls, AudioPlayer, AudioPlayerPart,
+  AudioPlayerRenderer, AudioPlayerState, AudioPlayerVariant, AudioPlayerView, AudioRepeat, VOICE_RATES,
+  audio_rate_text,
+};
+pub use audio_queue::{
+  AudioQueue, AudioQueueItem, AudioQueuePart, AudioQueueRenderer, AudioQueueState, AudioQueueView,
+};
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
   AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
@@ -303,6 +320,16 @@ pub use list_item::{
   ListView,
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
+pub use media_speed_menu::{
+  MediaSpeedMenu, MediaSpeedMenuPart, MediaSpeedMenuRenderer, MediaSpeedMenuState, MediaSpeedMenuView,
+};
+pub use media_time::{
+  MEDIA_RATES, MediaTime, MediaTimePart, MediaTimeRenderer, MediaTimeSize, MediaTimeState, MediaTimeView,
+  media_rate_text, media_time_text,
+};
+pub use media_volume::{
+  MediaVolume, MediaVolumePart, MediaVolumeRenderer, MediaVolumeSize, MediaVolumeState, MediaVolumeView,
+};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
   MentionsState, MentionsView,
@@ -344,6 +371,9 @@ pub use password_input::{
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
+pub use play_button::{
+  PlayButton, PlayButtonPart, PlayButtonRenderer, PlayButtonSize, PlayButtonState, PlayButtonVariant, PlayButtonView,
+};
 pub use popconfirm::{Popconfirm, PopconfirmPart, PopconfirmRenderer, PopconfirmState, PopconfirmView};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub(crate) use progress::keyframes as progress_keyframes;
@@ -381,6 +411,7 @@ pub use scroll_area::{
 pub use search_field::{
   SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldSize, SearchFieldState, SearchFieldView,
 };
+pub use seek_bar::{SeekBar, SeekBarPart, SeekBarRenderer, SeekBarSize, SeekBarState, SeekBarView, SeekPreview};
 pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
@@ -484,6 +515,12 @@ pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
 };
+pub use video_player::{
+  VIDEO_PLAYER_COMPACT_BELOW, VIDEO_PLAYER_HIDE_AFTER, VIDEO_PLAYER_MINIMAL_BELOW, VIDEO_PLAYER_SEEK_STEP,
+  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoPlayer, VideoPlayerBar, VideoPlayerMenu,
+  VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerView,
+};
+pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,

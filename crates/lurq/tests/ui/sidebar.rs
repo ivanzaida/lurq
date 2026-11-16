@@ -16,6 +16,7 @@ use lurq::{
   app::{
     App,
     ctx::Ctx,
+    events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
   components::{Column, Row, Text},
@@ -224,6 +225,63 @@ fn the_item_under_the_pointer_is_veiled_and_a_press_chooses_it() {
   assert_eq!(stage.fill_color("overview"), Some(light(PaletteColor::StateHover)));
   stage.click("overview");
   assert_eq!(chosen.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn an_item_asked_for_aside_is_not_chosen_and_a_plain_press_still_chooses_it() {
+  let (chosen, choose) = counter();
+  let (aside, open_aside) = counter();
+  let mut stage = stage(move |ctx| {
+    let (choose, open_aside) = (choose.clone(), open_aside.clone());
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(
+          SidebarItem::new("Overview")
+            .id("overview")
+            .on_select(move || choose())
+            .on_open_aside(move || open_aside()),
+        )
+        // One that says nothing of it: the middle button and the key do nothing more than they did.
+        .item(SidebarItem::new("Inbox").id("inbox")),
+    )
+  });
+  let (x, y) = stage.center("overview");
+  let counts =
+    |chosen: &AtomicUsize, aside: &AtomicUsize| (chosen.load(Ordering::SeqCst), aside.load(Ordering::SeqCst));
+
+  // The middle button.
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Middle);
+  stage.tree.mouse_up(x, y, MouseButton::Middle);
+  stage.pass();
+  assert_eq!(counts(&chosen, &aside), (0, 1), "the middle button asks for it aside");
+
+  // A press with the platform's key held: Ctrl, or Cmd on macOS.
+  let mac = cfg!(any(target_os = "macos", target_os = "ios"));
+  stage
+    .tree
+    .mouse_down_with_meta(x, y, MouseButton::Left, false, !mac, false, mac);
+  stage
+    .tree
+    .mouse_up_with_meta(x, y, MouseButton::Left, false, !mac, false, mac);
+  stage.pass();
+  assert_eq!(
+    counts(&chosen, &aside),
+    (0, 2),
+    "a press with the key held asks for it aside"
+  );
+
+  stage.click("overview");
+  assert_eq!(counts(&chosen, &aside), (1, 2), "a plain press chooses it");
+
+  let (x, y) = stage.center("inbox");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Middle);
+  stage.tree.mouse_up(x, y, MouseButton::Middle);
+  stage.pass();
+  assert_eq!(counts(&chosen, &aside), (1, 2));
 }
 
 /// Three pages, the one `open` names selected, and a press of another opens it: a window's own side bar.

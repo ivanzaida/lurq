@@ -421,6 +421,8 @@ Text::new("Save")
   .focus_visible(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
 
+`CursorIcon::None` draws no pointer while it is over the element, as a video player hides it while its controls have faded; any other cursor shows it again.
+
 The focused style (`.focused(...)`) shows whenever the node has focus, whether a click, Tab, or a focus request put it there. The focus-visible style (`.focus_visible(...)`) shows only for keyboard focus, like CSS `:focus-visible`: Tab or a key press shows it, a click does not, and a text input shows it for any focus. Use it for focus rings. Checkboxes, sliders and selects also have part-level focus styles, which follow focus-visible; see [Focus-Visible](../focus-navigation/#focus-visible) and [Focused Styles](../focus-navigation/#focused-styles).
 
 A fifth state style, `.drag_over(...)` (`drag_over_style`), applies while files from the OS are dragged over the node; see [File Drag And Drop](#file-drag-and-drop).
