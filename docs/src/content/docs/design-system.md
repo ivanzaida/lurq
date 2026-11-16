@@ -1084,6 +1084,7 @@ Menu::new(open, anchor)
 | `on_open_change(Fn(bool))` | Told `false` when a person closes it, by a choice too. Each handler is called, in order |
 | `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape and a press outside close it: both by default |
 | `inline(bool)` | The panel drawn where the menu is in the tree, open or not, and not over the window: for a gallery, a test, a list of commands in a page |
+| `page(Signal<Option<usize>>)`, `back_label(&str)` | Which item's [page](#menu) the menu shows in its place, by the item's place among what the menu holds (items, separators and headings counted), `None` for its own items; and what the row back is called before the page's title ("Back"). A menu whose items have pages is given the signal; a person closing the menu sets it back to `None` |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
 | `MenuItem` | |
@@ -1093,6 +1094,7 @@ Menu::new(open, anchor)
 | `checked(bool)` | Whether what it turns on is on: a check at its end |
 | `radio(bool)` | One of several of which one is selected: a dot at the end of the selected one |
 | `submenu(Menu)` | A menu the item opens beside it, with a chevron at its end. The submenu's anchor is given to the item |
+| `page(items)` | Items the item shows in its menu's place, under a row that goes back with the item's label for a title: a player's "Quality" and its qualities. The item has a chevron at its end and is not chosen itself; choosing an item of the page closes the menu and calls that item's handlers. An item has a page or a submenu, not both |
 | `destructive(bool)` | It removes or cannot be undone: drawn in the destructive color, icon and all |
 | `on_select(handler)` | Called when it is chosen, after its menu (and the menus it is in) closed, so that a handler that opens a dialog keeps the focus the dialog takes. Each handler is called, in order |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the item |
@@ -1108,6 +1110,7 @@ Menu::new(open, anchor)
 - To what reads the tree the panel is a `menu`; an item a `menuitem`, a `menuitemcheckbox` or a `menuitemradio` (these two with `a11y_checked`) called by its label; an item with a submenu has `a11y_haspopup` `menu` and `a11y_expanded`; a separator is a `separator`.
 - What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Heading(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
 - A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.heading(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
+- A page is the menu's other list in the same panel, where a submenu is a panel beside it: Right on an item with a page opens it, Left in the page and the row at its top go back, and the focus stays on the row the keyboard was on (the row back and the item that opened the page are one element to the engine). Parts `MenuPart::PageTitle` (13/600) and `PageIcon` (the chevron, in `Foreground`) style the row back, as the board's `Media/Settings Menu/Page` has it.
 
 ## Dialog
 
@@ -5844,6 +5847,441 @@ StatCard::new("Frames per second", "144")
 - Parts: `StatCardPart::Root`, `Label`, `Body` (the value and the media), `Value`, `Media`, `Footer` (the change and the description), `Description`. States: `StatCardState::Pressable`, `Media`. Sizes: `StatCardSize::Sm`, `Md`.
 - In the design the card is `Card` with an edge of 1 in `Border`, the extra large radius and the small shadow, 200 on the board and as wide as what holds it here, 20 in, its label, its value and its change 8 apart. The label is 13 in `MutedForeground`, the value 28 at 600 in `CardForeground`, 0.5 closer, the change a badge in its tone 8 from what it is measured against, the mono type at 11 in `MutedForeground`. The small size is the card around the board's sparkline: 16 in, the label 12, the value 24, 0.4 closer, the media at the end of the value's row, at its foot. A card that is pressed has the `Ring` edge and the medium shadow under the pointer, and a ring of 2 in `Ring` around it from the keyboard.
 - A theme's renderer is given `StatCardView`: its label, value, change, description and tone, `view.label()`, `view.body()`, `view.footer()`, `view.root(content)` and `view.render()`.
+
+## Media
+
+A video player, an audio player and the parts they are built of. They draw and tell: the picture, the
+position, whether it plays, the volume and the speed are the app's, bound to its signals or held by it, and
+what a person does is told back. They decode nothing. A player, a queue, a seek bar and a volume control are
+mounted (`.mount(ctx)`): they keep a drag, a measure of their room or a menu between renders.
+
+## Video Player
+
+A picture the app gives, the controls over it, and a layer of the app's own over the picture: an ordinary player, or only the picture with the app's own controls, as in a vertical feed. Nothing is decoded here: the app draws its frame as an element and holds every value of the player; the player tells it what a person asks for.
+
+```rust
+use lurq::ui::{VideoPlayer, VideoPlayerSize};
+
+// Bound to the app's signals: a press sets the signal, and then the handlers are told.
+VideoPlayer::new()
+  .media(frame)
+  .duration(250.0)
+  .buffered(140.0)
+  .playing(playing.clone())
+  .position(position.clone())
+  .volume(volume.clone())
+  .muted(muted.clone())
+  .preview(move |at| thumbnails.frame_at(at))
+  .on_position_change_end(move |to| decoder.seek(to))
+  .mount(ctx);
+
+// Held by the app: a press changes nothing until the app answers by setting the prop.
+VideoPlayer::new()
+  .media(frame)
+  .duration(250.0)
+  .playing_controlled(is_playing, move |play| decoder.set_playing(play))
+  .position_controlled(at, move |to| decoder.seek(to));
+
+// The picture alone, with the app's own controls over it.
+VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new()` | A player of nothing yet: a black picture, paused at the start, of no known length |
+| `media(element)` | What is drawn as the picture, filling the player |
+| `poster(element)` | Drawn over the picture before the first play (not playing, at the start, not waiting, ended or failed), with the length in a chip at its bottom end and no bar |
+| `child(element)`, `children(..)` | The app's own layer over the whole picture, under the middle and the bar, with the controls and without them |
+| `controls(bool)` | The bar and the middle of the picture; on by default. Without them the player is its picture and the app's layer |
+| `playing(Signal<bool>)`, `playing_controlled(bool, handler)`, `on_playing_change(handler)` | Whether it plays. Play, the disc in the middle, a press of the picture, Space and K tell what it is to be |
+| `position(Signal<f32>)`, `position_controlled(f64, handler)`, `on_position_change(handler)`, `on_position_change_end(handler)` | Where it is, in seconds. `on_position_change` is told as the seek bar's handle moves, `on_position_change_end` where it is let go; a key that seeks tells both |
+| `duration(f64)`, `buffered(f64)`, `chapters(&[f64])` | How long it is (until said, the time reads `-:-- / -:--`), how far it is loaded, and where its chapters start |
+| `preview(Fn(f64) -> Element)` | The frame for a time, which the mounted seek bar shows in a frame of 128 by 72 over the time under the pointer |
+| `volume(Signal<f32>)`, `volume_controlled(f64, handler)`, `on_volume_change(handler)`, `on_volume_change_end(handler)` | How loud, from 0 to 1 |
+| `muted(Signal<bool>)`, `muted_controlled(bool, handler)`, `on_muted_change(handler)` | Whether the sound is off; the volume is kept |
+| `rate(Signal<f32>)`, `rate_controlled(f64, handler)`, `on_rate_change(handler)`, `rates(&[f32])` | How fast it plays, and the speeds offered (`MEDIA_RATES` unless told) |
+| `captions(Signal<bool>)`, `captions_controlled(bool, handler)`, `on_captions_change(handler)` | Whether the captions show |
+| `caption_text(&str)`, `captions_track(&str)` | The line to show now, and the name of the track the settings say ("English") |
+| `qualities(&[&str])`, `quality(Signal<Option<usize>>)`, `quality_controlled(..)`, `on_quality_change(handler)` | The qualities offered after "Auto", and the one it plays in: `None` for the one the player picks |
+| `fullscreen(Signal<bool>)`, `fullscreen_controlled(..)`, `on_fullscreen_change(handler)` | Whether it fills the screen; its button then exits. The app makes it so |
+| `picture_in_picture(Signal<bool>)`, `picture_in_picture_controlled(..)`, `on_picture_in_picture_change(handler)` | Whether it plays in a small window of its own |
+| `waiting(bool)` | It waits for what it plays: a spinner in the middle, and the bar stays |
+| `ended(bool)` | It played to the end: the veil, replay in the middle and in the bar, the seek bar full. Replay tells `playing` true: the app plays again from the start |
+| `live(bool)` | No end: the LIVE badge for the time, the seek bar full (or the window that can be gone back in, given as the duration), no speed |
+| `error(&str)`, `error_description(&str)`, `on_retry(handler)` | That it cannot play: the veil, the title and the line in the middle, and no bar. The button ("Try again") is drawn once `on_retry` is given |
+| `size(VideoPlayerSize)` | `Lg`, `Md` (compact) or `Sm` (minimal) in place of the form its width gives it |
+| `width(Length)`, `height(Length)` | Its size, in place of its form's (640 by 360 for the large one). A width with no height gives a height of 16 by 9 |
+| `force_menu(Option<VideoPlayerMenu>)`, `force_controls_shown(Option<bool>)` | A menu drawn open, or the bar shown or faded, with nothing pointing at it: for a gallery or a test |
+| `label`, `play_label`, `pause_label`, `replay_label`, `mute_label`, `unmute_label`, `volume_label`, `seek_label`, `captions_label`, `speed_label`, `settings_label`, `quality_label`, `picture_in_picture_label`, `fullscreen_label`, `exit_fullscreen_label`, `more_label`, `retry_label`, `speed_heading_text`, `auto_text`, `on_text`, `off_text`, `live_text` | Every word it says and every name it gives a control |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the buttons of the bar as under the pointer or focused. The controls have ids after the player's: `{id}-play`, `{id}-seek`, `{id}-mute`, `{id}-time`, `{id}-captions`, `{id}-speed`, `{id}-settings`, `{id}-pip`, `{id}-fullscreen`, `{id}-more`, `{id}-center`, `{id}-retry`, `{id}-controls`, `{id}-caption`, `{id}-overlay`, and the menus' panels `{id}-settings-menu`, `{id}-speed-menu`, `{id}-more-menu` |
+| `mount(ctx)` | Keeps its width, the timer that fades the bar, its menus and their pages, the seek bar's preview and its tooltips. The only way a player is put where it goes |
+| `build(theme)` | A still picture for a test or a screenshot: the bar shown, the large form unless told or given a width in pixels, its menus not opened, no tooltips and no preview |
+
+- A press on a control tells the app what the value is to be and changes nothing by itself: bound, the signal is set first; held, the app answers with the next render. No handler is called when the app sets a value, nor for a choice of what is already chosen.
+- **Forms.** The large form has the seek bar over a row of play, the volume (its slider folds into its button under 480), the time, then captions, the speed ("1×"), settings, picture in picture and fullscreen. The compact form, under 400 wide, has play, the time, mute, a "more" menu of captions, speed, quality and picture in picture, and fullscreen. The minimal form, under 280, is one row: play, the seek bar and the elapsed time. Mounted, the form follows the width it is laid out at from the first frame (`ElementRef::observe_rect_before_paint`); `size` says another. `VideoPlayerSize::for_width` gives the form of a width, and `VIDEO_PLAYER_COMPACT_BELOW`, `VIDEO_PLAYER_MINIMAL_BELOW` and `VIDEO_PLAYER_VOLUME_FOLDS_BELOW` are the widths.
+- **Layers**, bottom to top: the picture (and the poster), the veil, the app's layer, the middle (the 64 overlay play button while paused, 48 in the compact form; a spinner while it waits; replay when it ended; the error), the captions' line, the poster's length, and the bar on its gradient. A press of the picture plays and pauses at once; a second press within `VIDEO_PLAYER_DOUBLE_PRESS` (500 ms) asks for fullscreen too. The app's layer and the middle let a press through where they hold nothing.
+- **Hiding.** While it plays the bar fades out `VIDEO_PLAYER_HIDE_AFTER` (3 s) after the pointer rests, over the slow duration, and the pointer is hidden over the player (`CursorIcon::None`); both come back on a move of the pointer, on pause, while the keyboard's focus is in the player and while a menu is open, over the base duration. Paused, waiting, ended and failed keep them. The captions' line moves down to 12 over the bottom while the bar is hidden.
+- **Keys**, while the focus is in the player: Space and K play and pause, Left and Right seek 5 s (`VIDEO_PLAYER_SEEK_STEP`), J and L 10 s, Home and End go to the start and the end, Up and Down move the volume by 0.05, M mutes, C turns the captions, F asks for fullscreen. Space and the arrows are the controls' own while the keyboard's focus is on one of them. A press of the picture gives the player the focus.
+- **Menus.** Settings holds Quality (when `qualities` are given), Speed (not live) and Captions, each with its value at its end; choosing a row shows its choices in the menu's place under a row that goes back (the menu's pages), and choosing one closes the menu. The speed button opens `ui::MediaSpeedMenu`; the compact form's "more" holds captions, speed and quality (each with its page) and picture in picture. They hang over the seek bar, their end on the bar's end, and stay the theme's.
+- **Seeking with a preview.** Mounted, the seek bar shows the time under the pointer and, where `preview` is given, the frame for it over the time (`Media/Seek Preview`).
+- Everything over the picture is white on black at the board's alphas, the same in a light and a dark theme: the picture is not themed, so themed controls would lose their contrast on it. The literals are in the recipe. The menus, the tooltips and the live badge are the theme's.
+- Every control has a tooltip with its key (mounted) and a name to what reads the tree; the toggles say `a11y_pressed`, the menu buttons `a11y_haspopup` and `a11y_expanded`. The player is a `group` called by its label.
+- Parts: `VideoPlayerPart::Root`, `Media` (the picture's layer; its cursor is the pointer's while it is pressed to play), `Veil`, `Overlay`, `Center`, `Spinner`, `Error`, `ErrorIcon`, `Text`, `Title`, `Description`, `Retry`, `Captions`, `Caption`, `Chip`, `ChipValue`, `Controls` (its background is the color its gradient ends in), `Row`, `Control`, `ControlIcon`, `Speed`, `Time`, `Elapsed`, `Menus` (its gap is how far a menu stands over the row), `SettingsMenu`, `MoreMenu`, `MenuValue`. States: `VideoPlayerState::Playing`, `Waiting`, `Ended`, `Error`, `Live`, `Muted`, `Captions`, `Fullscreen`, `Poster`, `Bare`, `Hidden`, `Narrow`, and `On`, resolved for a button of the bar that is on, under the pointer too. Sizes: `VideoPlayerSize::Sm`, `Md`, `Lg`.
+- In the design (`Video Player` `yKk3P`, `Compact` `cak7v`, `Minimal` `OUkUD`) the large player is 640 by 360 with the large radius. Its bar is 88 high, padded 24 at the top, 12 at the sides and 8 at the bottom, 4 between the seek bar and the row, on a gradient from nothing to `#000000B3`; the row is 36 high, 4 between buttons of 36 with white glyphs of 20, the middle radius, `#FFFFFF1F` under the pointer, `#FFFFFF33` while on, and a white ring of 2 from the keyboard. The time is mono 12 in the large bar and 11 in the compact one. The compact bar is 72 high, padded 20 8 6, a row of 28 with 2 between buttons of 28 and glyphs of 16; the minimal one is a row 48 high padded 16 8 4 4, 6 apart. The settings are 240 wide, the compact menu 200. The captions' line is 12 over the bar and 24 from the sides, 16/500 white with a line of 1.4 in a box of `#000000B3` padded 2 8. The poster's length is mono 11 in a box of `#000000B3` padded 2 6, 12 from the bottom and the end. The veil is `#00000099`. The error is a white glyph of 24, a title 14/500, a line 13 in `#FFFFFF99`, and a white button 32 high.
+- A renderer that draws another player starts from the view: `view.root()` (the box with its behavior), `media()`, `veil()`, `overlay()`, `center()`, `captions()`, `chip()`, `bar()`, or `view.bar` for the controls made (`VideoPlayerBar`: the seek bar, play, the volume, the time, the buttons at the end and the menus).
+
+## Audio Player
+
+Sound without a picture, in four forms: a full card, one row of 48 for a list or a message, a voice message, and a
+mini player docked to the bottom of a window. Every value is the app's; a press of a control tells the app what it
+is to be and changes nothing by itself.
+
+```rust
+use lurq::ui::{AudioPlayer, AudioPlayerVariant, AudioRepeat};
+
+// The card, bound to the app's signals: a press of play sets `playing`, a drag on the bar sets `position`.
+AudioPlayer::new(position.clone(), 250.0)
+  .title("Night Drive")
+  .description("Aurora Lane · Low Tide")
+  .media(artwork)
+  .playing(playing.clone())
+  .volume(volume.clone())
+  .muted(muted.clone())
+  .rate(rate.clone())
+  .shuffle(shuffle.clone())
+  .repeat(repeat.clone())
+  .on_previous(|| previous())
+  .on_next(|| next())
+  .mount(ctx);
+
+// A voice message: the app holds where it is and seeks where the waveform is let go.
+AudioPlayer::controlled(17.0, 42.0, |_| {})
+  .variant(AudioPlayerVariant::Voice)
+  .peaks(&peaks)
+  .unheard(!heard)
+  .playing_controlled(false, move |play| player.set_playing(play))
+  .on_change_end(move |to| player.seek(to))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<f32>, duration)` | Bound to the position, in seconds, of something `duration` seconds long. A drag on the bar sets the signal |
+| `controlled(position, duration, on_change)` | The position held by the app, which is told where a person moves it |
+| `variant(AudioPlayerVariant)` | `Full` (the card, the default), `Compact`, `Voice`, `Mini` |
+| `on_change(Fn(f64))`, `on_change_end(Fn(f64))` | Where a person moves the position, as a drag moves it and where it is let go, a key's step is made or the mini player's line is pressed |
+| `buffered(f64)` | How far it is loaded, in seconds |
+| `playing(Signal<bool>)`, `playing_controlled(bool, handler)`, `on_playing_change(Fn(bool))` | Whether it plays. A press of play, or Space with the focus on the bar or the volume, tells what it is to be |
+| `volume(Signal<f32>)`, `volume_controlled(f64, handler)`, `on_volume_change(Fn(f64))` | The volume, from 0 to 1: the card and the mini player |
+| `muted(Signal<bool>)`, `muted_controlled(bool, handler)`, `on_muted_change(Fn(bool))` | Whether it is muted; muting keeps the volume |
+| `rate(Signal<f32>)`, `rate_controlled(f64, handler)`, `on_rate_change(Fn(f64))` | The speed: the card's speed button opens `MediaSpeedMenu`; a voice message's badge steps 1×, 1.5×, 2× (`VOICE_RATES`) while it plays |
+| `shuffle(Signal<bool>)`, `shuffle_controlled(bool, handler)`, `on_shuffle_change(Fn(bool))` | Shuffle, in the card |
+| `repeat(Signal<AudioRepeat>)`, `repeat_controlled(AudioRepeat, handler)`, `on_repeat_change(Fn(AudioRepeat))` | `Off`, `All`, `One`; a press steps it (`AudioRepeat::next`), and `One` has the `repeat-one` glyph |
+| `loading(bool)` | Lines of skeleton for the texts, "-:--" for the times, an empty bar, a spinner in play, previous and next dimmed |
+| `error(Option<&str>)`, `on_retry(Fn())`, `retry_text(&str)` | What went wrong: a line in the destructive color in place of the times (in place of the bar in a row, where play turns to a retry button; in place of the description in the mini player). "Try again" at its end in the card |
+| `unheard(bool)` | A voice message not heard yet: a dot of 8 in the info color, and the whole waveform in the color of what is not played |
+| `title(&str)`, `description(&str)`, `media(element)` | What plays, who it is by, and the artwork (64 in the card, 36 in the mini player); the `music` glyph on `Muted` where there is none |
+| `peaks(&[f32])` | The loudness of each bar of a waveform, from 0 to 1: a voice message draws it, the compact row in place of the bar |
+| `on_previous`, `on_next`, `on_more`, `on_queue`, `on_expand` | Commands; each call adds a handler. `more_anchor(ElementRef)` is the ref of the card's more button, for a menu of the app |
+| `label(&str)` and `play_label`, `pause_label`, `previous_label`, `next_label`, `shuffle_label`, `repeat_label`, `more_label`, `speed_label`, `queue_label`, `expand_label`, `seek_label` | What the player and its controls are called |
+| `mount(ctx)` | The tooltips of the buttons, the speed menu, the mini player's form from its own width, and the time over the mini player's line under the pointer. The only way a player is put where it goes |
+| `build(theme)` | A still picture for a test or a screenshot: no tooltips, no speed menu, a mini player as wide as it is given |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the play button; `id` is the root's, and each control has it with `-play`, `-seek`, `-previous`, `-next`, `-shuffle`, `-repeat`, `-more`, `-speed`, `-volume`, `-queue`, `-expand`, `-retry`, `-rate`, `-line` after it |
+
+- Built of the media parts: `PlayButton`, `SeekBar`, `Waveform`, `MediaTime`, `MediaVolume`, `MediaSpeedMenu`. Shuffle and repeat are `Toggle`s; previous, next, more, queue and expand ghost `Button`s; "Try again" a `Link`.
+- Keys: Tab reaches each control; Space on play presses it, and with the focus on the bar or the volume plays and pauses; the arrows move the bar and the volume.
+- The mini player measures itself before its first frame is painted: under 480 wide (`AUDIO_MINI_NARROW`) it keeps the track, play and next.
+- Parts: `AudioPlayerPart::Root`, `Bar`, `Edge`, `Header`, `Media`, `MediaIcon`, `Text`, `Title`, `Description`, `Skeleton`, `More`, `Progress`, `Times`, `Elapsed`, `Total`, `Time`, `Transport`, `Shuffle`, `Repeat`, `Footer`, `Speed`, `Error`, `ErrorIcon`, `ErrorText`, `Retry`, `Rate`, `Dot`, `Track`, `Fill`, `Tools`. States: `AudioPlayerState::Playing`, `Loading`, `Error`, `Disabled`, `Media`, `Unheard`, `Shuffle`, `Narrow`, `Scrubbing`.
+- In the design the card is 360 wide on `Card` edged in `Border`, `radius-xl`, padded 20 with 16 between rows; the artwork 64 with `radius-md`; the title 14/600 and who it is by 13 in `MutedForeground`; the times mono 11 6 under the bar; the transport 8 apart (shuffle 32, previous 36, play 48, next 36, repeat 32, icons 16); shuffle and repeat in `MutedForeground` off and on `Highlight` on. The compact row is 320 by 48, `radius-lg`, padded 8 and 12, 10 apart. The voice message is padded 8 12 8 8, `radius-xl`. The mini player is on `Background` with a line of `Border` on top, under a progress line of 2 (4 under the pointer) in `Primary` over `Secondary`, and a row of 54 padded 12.
+- To what reads the tree the player is a `group` called by its label; the error line is an `alert`; the mini player's line a `progressbar`; repeat says its state in `a11y_value`.
+- A renderer that draws another player starts from `AudioPlayerView`: the controls are built (`view.controls`), and `media()`, `text()`, `time()`, `error_line()` and `line()` are the default pieces.
+
+## Audio Queue
+
+The tracks a player plays one after another, the one it is on marked. The arrow keys move between the rows.
+
+```rust
+use lurq::ui::{AudioQueue, AudioQueueItem};
+
+// Bound to the app's current track, which a press of a row sets.
+AudioQueue::new(
+  current.clone(),
+  [
+    AudioQueueItem::new("Night Drive").description("Aurora Lane").duration(250.0).media(artwork),
+    AudioQueueItem::new("Paper Boats").description("Mira Sol").duration(232.0),
+    AudioQueueItem::new("Glass Garden").description("The Fernweh").duration(301.0).disabled(true),
+  ],
+)
+.playing(true)
+.mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<usize>>, items)` | The tracks, on the one whose index the signal holds, which a press of a row sets |
+| `controlled(Option<usize>, items, on_change)` | The current track held by the app, which is told the index of a row pressed |
+| `on_change(Fn(usize))` | The index of a row pressed, where it is another than the current one and can be played. A second handler is called after the first |
+| `playing(bool)` | Whether the current track plays: the `equalizer` glyph stands for its number |
+| `item(AudioQueueItem)`, `items(..)` | Adds tracks at the end |
+| `label(&str)`, `more_label(&str)`, `playing_label(&str)` | What the queue ("Queue"), a row's more button ("More") and the equalizer ("Now playing") are called |
+| `mount(ctx)` | The only way a queue is put where it goes; it keeps the tooltips of the rows' more buttons |
+| `build(theme)` | A still picture for a test or a screenshot: the buttons have no tooltips |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the row Tab would stop on |
+
+| `AudioQueueItem` | |
+| --- | --- |
+| `new(&str)` | A track by its title |
+| `description(&str)`, `media(element)`, `duration(f64)` | Who it is by, the artwork (cut to 32; the `music` glyph on `Muted` where there is none), and its length in seconds |
+| `disabled(bool)` | It cannot be played: half the opacity, a press does nothing, the arrows pass it by |
+| `on_select(Fn())` | Called on a press of the row, after the queue's `on_change` |
+| `on_more(Fn())`, `more_anchor(ElementRef)` | The row's more button, there once a handler is given, and the ref a menu of the app hangs from |
+| `id`, `key` | The id of the row; its more button has it with `-more` after it |
+
+- Tab enters the queue at the current row (or the first that can be played) and stops in it once; the arrows move between the rows; Enter and Space play one. The more buttons are stops of Tab of their own, after their row, and the arrows do not go to them.
+- Parts: `AudioQueuePart::Root`, `Item`, `Lead`, `Number`, `LeadIcon`, `Media`, `MediaIcon`, `Text`, `Title`, `Description`, `Duration`, `More`. States: `AudioQueueState::Current`, `Playing`, `Unavailable`, `Media` (on a row's parts) and `Disabled`.
+- In the design a row is 48 high (following the density), padded 8 with 12 between its parts, `radius-md`: the number 20 wide in mono 12 in `MutedForeground`, the artwork 32 with `radius-sm`, the title 13/500 over who it is by 12, the length in mono 11, a more button of 28 with an icon of 14. The current row is on `Highlight` with its title 600; while it plays the `equalizer` 16 stands for its number. Under the pointer the row takes the hover veil, `play` 14 stands for the number and the more button shows; the focus is a ring of 2 in `Ring` inside the row. An unavailable row is at half the opacity.
+- To what reads the tree the queue is a `listbox` called by its label, each row an `option` called by its title and who it is by, `a11y_selected` on the current one.
+
+## Seek Bar
+
+Where a player is in what it plays, how much of it is loaded, and the handle that moves it; over the pointer, the time it is on.
+
+```rust
+use lurq::ui::{SeekBar, SeekBarSize};
+
+// Bound to the app's position, in seconds, of a recording 250 seconds long.
+SeekBar::new(position.clone(), 250.0)
+  .buffered(loaded)
+  .on_change_end(move |to| player.seek(to))
+  .mount(ctx);
+
+// Over a video, cut into chapters, with a frame of the moment under the pointer.
+SeekBar::new(position.clone(), duration)
+  .on_media(true)
+  .chapters(&[0.0, 312.0, 840.0])
+  .preview(move |time| thumbnail_at(time))
+  .mount(ctx);
+
+// The app holds the position, and is told where a person moves it.
+SeekBar::controlled(at, 250.0, move |to| seek_to(to));
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<f32>, duration)` | Bound to the position, in seconds, of something `duration` seconds long (0 where it is not known). A drag, a press on the track and the keys set the signal |
+| `controlled(position, duration, on_change)` | The app holds the position; the bar shows it and tells `on_change` where a person moves it, and shows what the app answers |
+| `buffered(seconds)` | How far it is loaded: drawn between what is played and the rest |
+| `chapters(&[f64])` | Where the chapters start, in seconds: the track is cut there, 2 apart. The first starts at 0, given or not |
+| `step(seconds)` | What an arrow key moves it: 5 seconds unless told. A drag is not snapped to it |
+| `on_media(bool)` | It stands over a picture: white, the same in a light and a dark theme |
+| `size(SeekBarSize)` | `Md` (16 high) or `Lg`, a phone's: 28 high with a thumb of 28, 16 over a picture |
+| `preview(Fn(f64) -> Element)` | A picture of the moment under the pointer, given its time: shown in a frame of 128 by 72 over the time. Shown by a mounted bar |
+| `on_change(Fn(f64))` | The position, in seconds, each time a person moves it. Bound, it is called after the signal is set. Each call adds |
+| `on_change_end(Fn(f64))` | Where a drag is let go, a press is over or a key's step is made, where it moved. Each call adds |
+| `on_hover(Fn(Option<f64>))` | The time under the pointer as it moves over a mounted bar, and `None` when it leaves. Each call adds |
+| `empty(bool)` | Nothing is loaded: the track alone, with nothing played or loaded and no thumb, and it takes no input (no stop of Tab). A player draws it while it loads and after an error. It is not dimmed |
+| `live(bool)` | A live stream with nothing to go back in: the bar full, the thumb at its end, and a press, a drag and the keys tell nothing (no stop of Tab). The whole may be of no length |
+| `label(&str)` | What it is called, to what reads the tree: "Seek" unless told |
+| `mount(ctx)` | Puts it where it goes keeping the time under the pointer and the width it is laid out at: it shows the chip with the time, and the preview over it. The only way a bar is put where it goes |
+| `build(theme)` | A still picture for a test or a screenshot: with no chip, and it reads nothing of a pointer that does not press it |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what is dragged and focused. A mounted bar forced `Hovered` shows its position in the chip |
+
+- It is the engine's slider over a track the bar draws itself: the engine's slider takes the drag, the press on the track and the focus, and paints the thumb; the track, what is played, what is loaded and the chapters' gaps are the bar's. The track's ends are half the thumb wide, so what is played ends under the thumb's middle.
+- The keys: Right and Up a step later, Left and Down a step earlier, Page Up and Page Down a tenth of the whole in whole steps, Home and End to the ends. A disabled bar is not a stop of Tab and takes nothing.
+- Parts: `SeekBarPart::Root` (the bar), `Track`, `Chapter` (the room between two is its padding at the side they share), `Played`, `Buffered`, `Rest`, `Control` (the engine's slider), `Thumb`, `Hover` (what stands over the pointer), `Preview` (the frame), `Tip` (the chip with the time). States: `SeekBarState::Disabled`, `OnMedia`, `Chapters`, `Buffered`, `Preview`, `Empty`, `Live`. Sizes: `SeekBarSize::Md`, `Lg`.
+- In the design (Media/Seek Bar) it is 16 high with a track of 4 whose ends are round by 2: played in `Primary`, loaded in `MutedForeground` at half its opacity, the rest in `Secondary`, and the Slider's thumb, 16, in `Background` with an edge of 1.5 in `Primary`. The ring of the focus is the thumb's. Disabled it is at half its opacity and draws nothing loaded. Over a picture (Media/Seek Bar/On Media) played and a solid thumb of 12 are `#FFFFFF`, loaded `#FFFFFF59`, the rest `#FFFFFF33`, and the ring of the focus is white: the picture is not themed. The time under the pointer (Media/Seek Preview) is in a tooltip's chip, the mono type at 12 on `Primary`, 4 above the bar and centred on the pointer; the preview's frame is 6 above the chip, with a radius md and an edge of 2 in white, and the two stand 6 above the bar.
+- To what reads the tree it is a `slider` called by its label, with `a11y_value` reading "1:24 of 4:10".
+- A renderer that draws another bar starts from `view.dressed(view.control())`, the behavior with the thumb's style; `view.track()` is the default track and `view.hover_layer()` what stands over the pointer.
+
+## Media Time
+
+The time a player reads out: how far it is, and how long the whole is.
+
+```rust
+use lurq::ui::{MediaTime, MediaTimeSize};
+
+MediaTime::new(position, Some(duration));
+
+// Over a video, turning between elapsed and remaining on a press.
+MediaTime::new(position, Some(duration))
+  .on_media(true)
+  .remaining(left.get())
+  .on_click(move |_| left.set(!left.get()));
+
+// A compact player's; and a stream that is live.
+MediaTime::new(position, Some(duration)).size(MediaTimeSize::Sm);
+MediaTime::new(0.0, None).live(true);
+```
+
+| Builder | |
+| --- | --- |
+| `new(position, Option<f64>)` | The time at `position` seconds of a whole of that many seconds; `None` while the length is not known: it reads `-:-- / -:--` |
+| `remaining(bool)` | It reads what is left, with a minus before it, alone |
+| `on_media(bool)` | It stands over a picture: white, the "/" and the whole `#FFFFFF99`, the same in a light and a dark theme |
+| `live(bool)`, `live_text(&str)` | A live stream: a badge, solid in `Destructive`, reads "LIVE" (or the text given) in place of the time |
+| `size(MediaTimeSize)` | `Sm` (11, a compact player's and an audio player's), `Md` (12), `Lg` (13, a phone's player held across) |
+| `on_click(handler)` | A press: a player turns the reading between elapsed and remaining. Given it, the time is a button, a stop of Tab with the ring of the focus, which Enter and Space press. Each call adds |
+| `label(&str)` | What it is called, to what reads the tree: what it reads unless told ("1:24 of 4:10", "2:46 left") |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` shows only on a time that is pressed |
+
+- From an hour up both readings have hours (`1:02:45 / 2:10:00`). `media_time_text(seconds, hours)` is a reading alone as a string, `media_rate_text(rate)` a speed as a menu names it, and `MEDIA_RATES` the speeds a player offers.
+- Parts: `MediaTimePart::Root` (the row, or the button), `Elapsed`, `Divider`, `Total`, `Live` (what the recipe lays over the badge's root). States: `MediaTimeState::OnMedia`, `Remaining`, `Unknown`, `Live`, `Pressable`. Sizes: `MediaTimeSize::Sm`, `Md`, `Lg`.
+- In the design (Media/Time) it is the mono type at 12, 4 between the readings, the elapsed time in `Foreground` and the "/" and the whole in `MutedForeground`; not loaded the elapsed `-:--` is muted too. The mono type keeps it from jumping as it counts.
+
+## Waveform
+
+The loudness of a recording as a row of bars, the played part of it marked: a voice message's seek bar.
+
+```rust
+use lurq::ui::Waveform;
+
+// Shown and not operated, a third of it played.
+Waveform::at(0.33, &peaks);
+
+// Bound to how far it is played, from 0 to 1, which a press, a drag and the keys set.
+Waveform::new(progress.clone(), &peaks).on_change_end(move |to| player.seek(to * length));
+
+// The app holds it, and is told where a person presses or drags to.
+Waveform::controlled(at, &peaks, move |to| seek_to(to));
+
+// Not heard yet: every bar in the color of what is not played.
+Waveform::at(0.0, &peaks).unheard(true);
+```
+
+| Builder | |
+| --- | --- |
+| `at(progress, &[f32])` | Shown and not operated: `progress` of it played, from 0 to 1; no stop of Tab, and a press does nothing |
+| `new(Signal<f32>, &[f32])` | Bound to how far it is played, from 0 to 1, which a press, a drag and the keys set |
+| `controlled(progress, &[f32], on_change)` | The app holds how far it is; the waveform shows it and tells `on_change` where a person presses or drags to |
+| `unheard(bool)` | Nothing of it was heard yet: every bar in the color of what is not played |
+| `step(f64)` | What an arrow key moves it, from 0 to 1: a twentieth unless told |
+| `on_change(Fn(f64))` | Where a person moves it, from 0 to 1, as a press or a drag moves it. Bound, it is called after the signal is set. Each call adds |
+| `on_change_end(Fn(f64))` | Where it ends: the drag let go, the press or a key's step made, where it moved. Each call adds |
+| `label(&str)` | What it is called, to what reads the tree: "Seek" unless told |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what is pressed where it is operated; `force` shows only on one that is operated |
+
+- `peaks` are the heights of its bars, each from 0 to 1, one for each bar: about 36 for a voice message. How many are played is `progress` of them, rounded.
+- Operated it is the engine's slider over the bars, as large as they are and drawing nothing but the ring of the focus: the arrow keys move it a step, Page Up and Page Down a tenth, Home and End to the ends. A disabled one is not a stop of Tab and takes nothing.
+- Parts: `WaveformPart::Root`, `Bars` (the row), `Bar` (one not played), `Played`, `Control` (the engine's slider). States: `WaveformState::Disabled`, `Unheard`, `Operated`.
+- In the design (Media/Waveform) the bars are 3 wide and 2 apart, fully round, at most 24 high and no lower than they are wide; the played ones in `Primary`, the rest in `Input`. Operated, the ring of the focus is around the bars at a radius sm; disabled, it is at half its opacity.
+- To what reads the tree an operated waveform is a `slider` called by its label, with `a11y_value` the percent played.
+
+## Play Button
+
+The round control that starts and pauses what a player plays, and plays it again once it has ended.
+
+```rust
+use lurq::ui::{PlayButton, PlayButtonSize, PlayButtonVariant};
+
+// playing: Signal<bool>. A press tells what it is to be.
+PlayButton::new()
+  .playing(playing.get())
+  .on_change(move |next| playing.set(next));
+
+// In the middle of a paused video, over the picture.
+PlayButton::new()
+  .variant(PlayButtonVariant::Overlay)
+  .size(PlayButtonSize::Xl)
+  .replay(ended.get())
+  .on_change(move |next| play(next));
+```
+
+| Builder | |
+| --- | --- |
+| `playing(bool)` | Whether what it plays is playing: the glyph is `pause`. The button does not keep it: the app says so |
+| `on_change(handler)` | Called on a press with what it is to be: playing if it was paused or had ended. Not while it is loading or disabled. A second handler is called after the first |
+| `replay(bool)` | What it played has ended: the glyph is `rotate-left`, and a press tells `true` |
+| `loading(bool)` | What it would play is still being fetched: the `spinner` glyph turns in the glyph's place, the disc is at 75%, and a press does nothing |
+| `size(PlayButtonSize)` | `Sm` 32 with a glyph of 14, `Md` 40 with 16 (the default), `Lg` 48 with 20, `Xl` 64 with 28 |
+| `variant(PlayButtonVariant)` | `Primary` on a surface of the theme; `Overlay` over a picture |
+| `play_label(&str)`, `pause_label(&str)`, `replay_label(&str)` | What it is called while a press would play, pause or play again: "Play", "Pause", "Replay" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the disc |
+
+- A click, Enter and Space press it; Tab reaches it, and the ring of the focus is drawn from the keyboard.
+- Parts: `PlayButtonPart::Root` (the disc, what is pressed), `Icon`. States: `PlayButtonState::Playing`, `Replay`, `Loading`, `Disabled`. Variants `PlayButtonVariant::Primary`, `Overlay`; sizes `PlayButtonSize::Sm`, `Md`, `Lg`, `Xl`.
+- In the design the disc is round, in `Primary` with the glyph in `PrimaryForeground`, `PrimaryHover` under the pointer; held down it is `Primary` under the pressed veil, as the primary button is. Loading it is at 75%, disabled at half.
+- Over a picture the disc is `#00000099` (black at 60%) with a white glyph and a white ring of the focus, the same in a light and a dark theme: the picture is not themed, and a themed control would lose its contrast on it. The board draws no overlay under the pointer: it is `#000000B3`, the end of the board's bar gradient. The board uses the overlay at `Xl` in a player and `Lg` in a compact one.
+- To what reads the tree it is a `button` called by the label of what a press would do; loading it says `a11y_busy`.
+- A renderer that draws another play button starts from `view.root()`, the behavior with the disc's style, and `view.icon()`, the glyph of the state it is in (`view.icon_name()`).
+
+## Volume
+
+A button that mutes and a slider of how loud, in a player's bar. Muting keeps the volume, so that the sound comes back as loud as it was.
+
+```rust
+use lurq::ui::{MediaVolume, MediaVolumeSize};
+
+// volume: Signal<f32> from 0 to 1, muted: Signal<bool>.
+MediaVolume::new(volume.clone()).muted(muted.clone());
+
+// The app holds both, and is told what a person makes them.
+MediaVolume::controlled(player.volume(), move |volume| player.set_volume(volume))
+  .muted_controlled(player.muted(), move |muted| player.set_muted(muted));
+
+// In a video's bar, over the picture; in a narrow one, the button alone until the pointer or the focus is in it.
+MediaVolume::new(volume.clone()).muted(muted.clone()).on_media(true).size(MediaVolumeSize::Lg).length(64.0);
+MediaVolume::new(volume.clone()).muted(muted.clone()).on_media(true).collapsed(true).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<f32>)` | Bound to the app's volume, from 0 to 1, which a drag, a press on the slider and the keys set |
+| `controlled(volume, on_change)` | The app holds the volume and is told what a person makes it |
+| `muted(Signal<bool>)`, `muted_controlled(bool, handler)` | Muted while true, which a press of the button turns. Muted, the slider stands at nothing and the volume is kept |
+| `on_change(handler)` | Called with the volume each time a person moves it. Bound, after the signal is set |
+| `on_change_end(handler)` | Called with the volume when a drag is let go or a key's step is made |
+| `on_muted_change(handler)` | Called with whether it is to be muted: on a press of the button, and with `false` when the slider is moved up from nothing while muted |
+| `collapsed(bool)` | The button alone, the slider beside it while the pointer is over the control, the focus is in it or it is being dragged. What it keeps for that is `mount(ctx)`'s; a still picture (`build(theme)`) is the button alone |
+| `on_media(bool)` | Over a picture: white, the same in a light and a dark theme |
+| `size(MediaVolumeSize)` | `Md`: a button of 32 with a glyph of 16 (the default); `Lg`: 36 with 20, as a video's bar has it |
+| `length(f32)` | How long the slider is, in place of the recipe's 72 |
+| `label(&str)` | What the slider is called: "Volume" |
+| `mute_label(&str)`, `unmute_label(&str)` | What the button is called while a press would mute or bring the sound back: "Mute", "Unmute" |
+| `mount(ctx)` | Puts it in the tree of `ctx`'s component, keeping whether the pointer is over it, the focus is in it and its slider is being dragged |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` and `force` are the button's |
+
+- The glyph is `volume` from a half up, `volume-low` under it, and `volume-off` while muted or at nothing. Muted, the slider stands at nothing and the app's volume is not touched; moving the slider up from there sets the volume and tells `on_muted_change(false)` once in the gesture.
+- Tab reaches the button, then the slider: Space and Enter press the button, the arrows move the slider a twentieth, Page Up and Page Down a tenth, Home and End to nothing and to the whole. A disabled control is passed by.
+- Parts: `MediaVolumePart::Root` (the button and the slider, side by side), `Button` and `Icon` (laid over a [button](#button)'s `Root` and `Icon`), `Slider`, `Track`, `Fill`, `Thumb` (laid over a [slider](#slider)'s parts). States: `MediaVolumeState::Muted`, `Collapsed`, `OnMedia`, `Disabled`. Sizes `MediaVolumeSize::Md`, `Lg`.
+- In the design the button is a ghost one of 32 with a glyph of 16 and the slider is 72 long, 4 apart. Over a picture the glyph is white, the button `#FFFFFF1F` under the pointer and `#FFFFFF33` held down with a white ring of the focus; the slider's range and thumb are white, the thumb 12 with no edge, and its rail is `#FFFFFF33`.
+- To what reads the tree the button is a `button` called by what a press would do, and the slider a `slider` called by `label`.
+- A renderer that draws another volume control starts from `view.button()` and `view.slider()`, the button and the slider dressed by the recipe with their behavior; `view.revealed` says whether the slider is shown.
+
+## Speed Menu
+
+The menu a player's speed is chosen from: the speeds under the heading "Playback speed", the one in use checked at the end of its row.
+
+```rust
+use lurq::{
+  components::Placement,
+  ui::{MediaSpeedMenu, media_rate_text},
+};
+
+// open: Signal<bool>, set by a press of the speed button; speed_button: ElementRef; speed: Signal<f32>.
+MediaSpeedMenu::new(open.clone(), speed_button.clone(), speed.get())
+  .on_change(move |rate| speed.set(rate as f32));
+
+// From a bar at the bottom of a picture, opening up from the button's end, with the app's own speeds.
+MediaSpeedMenu::new(open.clone(), speed_button.clone(), speed.get())
+  .rates(&[0.25, 0.5, 1.0, 1.5, 2.0, 3.0])
+  .placement(Placement::TopEnd);
+```
+
+| Builder | |
+| --- | --- |
+| `new(open, anchor, rate)` | Open while the signal is true, hung from the anchor, with `rate` checked |
+| `on_change(handler)` | Called with the speed chosen, after the menu has closed, where it is another than the one in use. A second handler is called after the first |
+| `on_dismiss(handler)`, `on_open_change(handler)` | As a [menu](#menu) has them: a person closed it other than by choosing; a person closed it, a choice too, after `on_dismiss` |
+| `rates(&[f32])` | The speeds offered, in place of `MEDIA_RATES` (0.5×, 0.75×, Normal, 1.25×, 1.5×, 2×). Each is named by `media_rate_text` |
+| `heading_text(&str)` | The words over the speeds: "Playback speed" |
+| `label(&str)` | The menu's name to tooling: its heading unless told |
+| `placement(Placement)`, `offset(..)`, `collision(..)`, `inline(bool)` | As a [menu](#menu) has them |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `force` draws the speed in use |
+
+- It is a [menu](#menu): choosing a speed, Escape, a press outside and Tab close it, Up and Down move between the speeds, Enter chooses. Choosing the speed in use closes it and tells `on_change` nothing.
+- Parts: `MediaSpeedMenuPart::Panel` and `Label` (laid over a menu's `Panel` and `Label`), `Item`, `ItemLabel`, `Check` (laid over a menu item's `Root`, `Label` and `Check`). State: `MediaSpeedMenuState::Inline`.
+- In the design it is the menu's panel 168 wide (where a menu is at least 230), with the group label and a menu item for each speed; the check is at the end of the row of the speed in use. Over a picture it stays themed: it is the system's own surface, and opaque.
+- A renderer that draws another speed menu starts from `view.menu()`, the menu with its speeds, or `view.item(rate)` for one speed.
 
 ## Tab And The Design System's Controls
 

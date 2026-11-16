@@ -740,6 +740,17 @@ Ivan chose it on 2026-11-15 after the dock layout. The board had more than the p
 - **What Ivan found using the pages while the batch ran, each sent to its owner**: the dock's explorer jumping as its page opened (a splitter measured its room after the layout, and the engine took a percentage twice for a stretched child of a row: the first painted frame is the settled one now); the command bar's groups drawn over each other after its menu was opened and closed (a dropped child that changed was laid out in place and lost its mark); keys in a Markdown sentence stuck to the words round them; the eyedropper's loupe flickering (painted onto its window piece by piece); a property grid's categories opening with no motion; the playground's flags leaving their panel under a long label.
 - **Started from it**: the data grid for real data (windowing proven at a million rows by two hundred columns, rows on demand, search, filters, sorting by several columns, export, a row's detail and rows in a tree, the bar over the grid), in eight parts.
 
+### 14.25 The media batch
+
+Ivan asked for it on 2026-11-15 and drew it with a session of his own on the board (the section `Media`, the Video Player and the Audio Player with their parts and thirteen glyphs), then had it built on `claude/ds-media` and merged on 2026-11-16.
+
+- **The components with their props and their events only.** `VideoPlayer` (three forms by its width, the controls on and off, the app's own layer over the picture, every state of the board, the keys, the bar that fades and hides the pointer), `AudioPlayer` in four forms (full, compact, voice, mini), `AudioQueue`, and the parts they are built of: `SeekBar`, `MediaTime`, `Waveform`, `PlayButton`, `MediaVolume`, `MediaSpeedMenu`. Every value is the app's, bound or held, and what a person does is told back; nothing is decoded. Real playback is a later piece of work, with what was decided for it so far: a frame never goes through the CPU, the platforms' decoders, a source that is a file, bytes or a URL.
+- **A media component is mounted, and is not an element by itself** (Ivan, 2026-11-16): the two players, the queue, the seek bar and the volume have `.mount(ctx)` and no `From<X> for Element`, as each keeps a drag, a measure or a menu between renders; `build(theme)` is a still picture for a test.
+- **What the engine and the other components got for it**: `ui::Menu` has pages (`MenuItem::page`, `Menu::page`, `Menu::back_label`), for the player's settings; `CursorIcon::None`, which the shells draw by hiding the pointer.
+- **Each component's handoff is kept** in `design/handoff/`: what was decided where the board is silent, and where it differs from the board.
+- **Left open, by the handoffs**: the touch forms of the board's Mobile frames, which wait for phase 7; the phone's slider thumb takes no shadow (`SliderPartStyle` has none); two defects of the engine the seek bar works around (an ancestor given a new `ElementRef` each render loses the focus and the drag of a slider in it; a layer declared in a `Stack` is hit at the point where it is declared).
+- **The gallery** has a group `Media` of nine pages, each with a playground driven by a clock of the page's own.
+
 ## 15. The gallery
 
 Asked for on 2026-11-13: `pencil/lurq-design-system-demo.pen` is the demo app, in place of the one there is. It is built from the moment work on components starts, a page at a time, so that each component can be looked at as it lands.
