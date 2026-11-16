@@ -7,7 +7,7 @@
 use std::{
   sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicU8, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
   },
   time::Duration,
 };
@@ -51,6 +51,9 @@ pub const VIDEO_PLAYER_MINIMAL_BELOW: f32 = 280.0;
 
 /// Under this width the volume's slider of the large player folds into its button.
 pub const VIDEO_PLAYER_VOLUME_FOLDS_BELOW: f32 = 480.0;
+
+/// The shape of a picture unless the app names another: its width over its height, 16 by 9.
+pub const VIDEO_PLAYER_ASPECT: f32 = 16.0 / 9.0;
 
 /// How soon a second press of the picture asks for fullscreen.
 pub const VIDEO_PLAYER_DOUBLE_PRESS: Duration = Duration::from_millis(500);
@@ -421,6 +424,8 @@ pub struct VideoPlayer {
   size: Option<Name>,
   width: Option<Length>,
   height: Option<Length>,
+  max_width: Option<Length>,
+  aspect: f32,
   force_menu: Option<VideoPlayerMenu>,
   force_controls_shown: Option<bool>,
   words: Words,
@@ -510,6 +515,8 @@ impl VideoPlayer {
       size: None,
       width: None,
       height: None,
+      max_width: None,
+      aspect: VIDEO_PLAYER_ASPECT,
       force_menu: None,
       force_controls_shown: None,
       words: Words::default(),
@@ -794,9 +801,27 @@ impl VideoPlayer {
   }
 
   /// How wide it is, in place of the width of its form (640 for the large one). Mounted, with no
-  /// [`height`](Self::height), it is as high as a picture of 16 by 9 that wide, from the first frame.
+  /// [`height`](Self::height), it is as high as a picture of its [`aspect`](Self::aspect) that wide, from the
+  /// first frame.
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     self.width = Some(width.into());
+    self
+  }
+
+  /// The most it is wide: what holds it may be narrower than its width, a window as narrow as a phone. Mounted,
+  /// with no [`height`](Self::height), it keeps its [`aspect`](Self::aspect) at the width that leaves it.
+  pub fn max_width(mut self, width: impl Into<Length>) -> Self {
+    self.max_width = Some(width.into());
+    self
+  }
+
+  /// The shape of the picture, its width over its height: 16 by 9 unless told, 9.0 / 16.0 for an upright one. A
+  /// player with no [`height`](Self::height) of its own is as high as this makes it at its width. Nothing that is
+  /// not a number over nothing is taken.
+  pub fn aspect(mut self, aspect: f32) -> Self {
+    if aspect.is_finite() && aspect > 0.0 {
+      self.aspect = aspect;
+    }
     self
   }
 
@@ -939,16 +964,21 @@ struct Live {
   show: Option<Timeout>,
   /// Whether the time reads what is left.
   remaining: Signal<bool>,
+  /// What the volume keeps between renders: the pointer over it, the focus in it, its slider dragged. Folded, its
+  /// slider comes out for them, and the bar gives it the time's room. None of it in the still form.
+  volume: Option<super::media_volume::Kept>,
   /// The width it was last laid out at, by what it decides: see [`bucket`].
   bucket: Signal<u8>,
-  /// Whether its height follows its width at 16 by 9: the app gave a width and no height.
+  /// Whether its height follows its width at its aspect: the app gave a width, or a greatest one, and no height.
   follows: Arc<AtomicBool>,
+  /// The aspect it follows, as the bits of an `f32`.
+  aspect: Arc<AtomicU32>,
   mounted: bool,
 }
 
-/// The height of a picture of 16 by 9 that is `width` wide.
-fn sixteen_by_nine(width: f32) -> f32 {
-  (width * 9.0 / 16.0).round()
+/// The height of a picture of `aspect` (its width over its height) that is `width` wide.
+fn shaped(width: f32, aspect: f32) -> f32 {
+  (width / aspect).round()
 }
 
 /// What a width decides of the player: its form, and whether the volume's slider folds. 0 is not measured yet.
@@ -974,8 +1004,10 @@ impl Live {
       hide: None,
       show: None,
       remaining: Signal::new(false),
+      volume: None,
       bucket: Signal::new(0),
       follows: Arc::new(AtomicBool::new(false)),
+      aspect: Arc::new(AtomicU32::new(VIDEO_PLAYER_ASPECT.to_bits())),
       mounted: false,
     }
   }
@@ -1041,21 +1073,24 @@ impl Component for VideoPlayerHost {
       hide: Some(hide),
       show: Some(show),
       remaining: ctx.signal(false),
+      volume: Some(super::media_volume::Kept::new(ctx)),
       bucket: ctx.signal(0),
       follows: Arc::new(AtomicBool::new(false)),
+      aspect: Arc::new(AtomicU32::new(VIDEO_PLAYER_ASPECT.to_bits())),
       mounted: true,
     };
     // Before the frame is painted: the form that fits the width it was laid out at, so that no frame shows another.
-    // Its height follows a width the app gave it at 16 by 9, in the same frame.
+    // Its height follows a width the app gave it at its aspect, in the same frame.
     let (bucket_of, last) = (live.bucket.clone(), Arc::new(AtomicU8::new(0)));
-    let (root, follows) = (live.root.mutable(), live.follows.clone());
+    let (root, follows, aspect) = (live.root.mutable(), live.follows.clone(), live.aspect.clone());
     live.root.observe_rect_before_paint(move |rect| {
       let now = bucket(rect.width);
       if last.swap(now, Ordering::Relaxed) != now {
         bucket_of.set(now);
       }
       if follows.load(Ordering::Relaxed) {
-        root.set_size(None, Some(Dimension::Px(sixteen_by_nine(rect.width))));
+        let aspect = f32::from_bits(aspect.load(Ordering::Relaxed));
+        root.set_size(None, Some(Dimension::Px(shaped(rect.width, aspect))));
       }
     });
     Self { live }
@@ -1064,13 +1099,14 @@ impl Component for VideoPlayerHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let player = ctx.props::<VideoPlayerProps>().0.clone();
     let live = &self.live;
-    let follows = player.width.is_some() && player.height.is_none();
+    let follows = player.height.is_none() && (player.width.is_some() || player.max_width.is_some());
     live.follows.store(follows, Ordering::Relaxed);
+    live.aspect.store(player.aspect.to_bits(), Ordering::Relaxed);
     let root = live.root.mutable();
     if !follows {
       root.set_size(None, None);
     } else if live.root.is_attached() {
-      root.set_size(None, Some(Dimension::Px(sixteen_by_nine(live.root.width()))));
+      root.set_size(None, Some(Dimension::Px(shaped(live.root.width(), player.aspect))));
     }
     // Playing, the controls fade out once the pointer has rested; not playing, they come back.
     let plays = player.playing.value && !player.waiting && !player.ended && player.error.is_none();
@@ -1173,6 +1209,8 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     label: player.words.label.clone(),
     width: player.width,
     height: player.height,
+    max_width: player.max_width,
+    aspect: player.aspect,
     media: player.media.clone(),
     poster: player.poster.clone().filter(|_| poster),
     children: player.children.clone(),
@@ -1212,6 +1250,8 @@ pub struct VideoPlayerBar {
   pub volume: Option<Element>,
   /// The time, or the live badge.
   pub time: Element,
+  /// Whether the folded volume's slider is out: it stands in the time's room, and the time is not drawn.
+  pub volume_out: bool,
   /// The buttons after the spacer, in order: captions, speed, settings, picture in picture, fullscreen (large), or
   /// mute, more, fullscreen (compact).
   pub end: Vec<Element>,
@@ -1463,6 +1503,10 @@ impl Make<'_, '_> {
     .force(player.forced);
     if let Some(id) = self.id("mute") {
       volume = volume.id(id);
+    }
+    // The player keeps what the control needs between renders: folded, its slider comes out under the pointer.
+    if let Some(kept) = &self.live.volume {
+      volume = volume.kept(kept.clone());
     }
     let element = volume.build(self.recipe.theme());
     let text = if player.muted.value {
@@ -1803,11 +1847,16 @@ impl Make<'_, '_> {
       Some(Dimension::Px(px)) => px,
       _ => 0.0,
     };
+    // The folded volume's slider is out while the pointer is over the control, the focus is in it or it is
+    // dragged: read here, the bar is laid out again when that changes.
+    let volume_out =
+      narrow && self.form == VideoPlayerSize::Lg && self.live.volume.as_ref().is_some_and(|kept| kept.asks());
     VideoPlayerBar {
       seek,
       play,
       volume,
       time,
+      volume_out,
       end,
       menus,
       row: self.live.row.clone(),
@@ -2020,6 +2069,10 @@ pub struct VideoPlayerView {
   pub label: Arc<str>,
   pub width: Option<Length>,
   pub height: Option<Length>,
+  /// The most it is wide, where the app says.
+  pub max_width: Option<Length>,
+  /// The shape of the picture: its width over its height.
+  pub aspect: f32,
   /// The picture.
   pub media: Option<Element>,
   /// The poster, while it shows.
@@ -2090,11 +2143,15 @@ impl VideoPlayerView {
     if let Some(width) = width {
       root = root.width(width);
     }
+    if let Some(most) = self.max_width.and_then(|width| width.resolve(theme)) {
+      root = root.max_width(most);
+    }
     match (self.height.and_then(|height| height.resolve(theme)), width) {
       (Some(height), _) => root = root.height(height),
-      // A width of its own and no height: a picture of 16 by 9. A width that is not a number of pixels is
-      // measured by the mounted player, which gives it its height before the frame is painted.
-      (None, Some(Dimension::Px(width))) => root = root.height(sixteen_by_nine(width)),
+      // A width of its own and no height: a picture of its aspect. A width that is not a number of pixels, or
+      // one that what holds it makes less, is measured by the mounted player, which gives it its height before
+      // the frame is painted.
+      (None, Some(Dimension::Px(width))) => root = root.height(shaped(width, self.aspect)),
       _ => {}
     }
     if self.controls {
@@ -2279,7 +2336,10 @@ impl VideoPlayerView {
     }
     let mut start = vec![bar.play.clone()];
     start.extend(bar.volume.clone());
-    start.push(bar.time.clone());
+    // A bar too narrow for the volume's slider and the time side by side shows one of them.
+    if !bar.volume_out {
+      start.push(bar.time.clone());
+    }
     let mut all = buttons(start);
     all = all.child(Row::new().flex(1.0));
     all = all.with_children(bar.end.iter().cloned());

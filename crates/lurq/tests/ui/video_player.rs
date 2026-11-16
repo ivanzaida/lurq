@@ -324,6 +324,65 @@ fn given_a_width_alone_it_is_sixteen_by_nine_from_the_first_frame() {
 }
 
 #[test]
+fn it_keeps_the_shape_it_is_told_at_the_width_it_has() {
+  let told = Told::default();
+  let made = told.clone();
+  // An upright picture, as a feed's: 9 by 16.
+  let mut upright = still(move || player(&made).width(270.0).aspect(9.0 / 16.0));
+  assert_eq!(upright.bounds("v"), (0.0, 0.0, 270.0, 480.0));
+  let made = told.clone();
+  let mut stage = Stage::first_frame(800.0, 900.0, move |ctx| {
+    Column::new()
+      .size(800.0, 900.0)
+      .child(
+        Column::new()
+          .width(360.0)
+          .child(player(&made).width(Length::Fill).aspect(4.0 / 3.0).mount(ctx)),
+      )
+      .into()
+  });
+  assert_eq!(
+    stage.bounds("v"),
+    (0.0, 0.0, 360.0, 270.0),
+    "4 by 3 of the width it has"
+  );
+  // What is not a shape is not taken: it stays 16 by 9.
+  let made = told.clone();
+  let mut none = still(move || player(&made).width(320.0).aspect(0.0).aspect(f32::NAN));
+  assert_eq!(none.bounds("v"), (0.0, 0.0, 320.0, 180.0));
+}
+
+#[test]
+fn its_width_is_the_most_it_takes_where_the_app_says_and_its_shape_holds() {
+  let told = Told::default();
+  for (room, wide, high) in [(800.0, 432.0, 243.0), (326.0, 326.0, 183.0), (256.0, 256.0, 144.0)] {
+    let made = told.clone();
+    let mut stage = Stage::first_frame(800.0, 520.0, move |ctx| {
+      Column::new()
+        .size(800.0, 520.0)
+        .child(
+          Column::new()
+            .width(room)
+            .child(player(&made).width(432.0).max_width(Length::Fill).mount(ctx)),
+        )
+        .into()
+    });
+    assert_eq!(
+      stage.bounds("v"),
+      (0.0, 0.0, wide, high),
+      "in a room of {room}, from the first frame"
+    );
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(
+      stage.picture(),
+      first,
+      "the first frame in a room of {room} is the settled one"
+    );
+  }
+}
+
+#[test]
 fn the_volume_slider_folds_in_a_narrow_large_player() {
   let time_at = |width: f32| {
     let told = Told::default();
@@ -542,6 +601,49 @@ fn a_bound_player_is_dragged_through_the_renders_its_own_change_causes() {
     assert!(
       (after - before - 10.0).abs() < 0.01,
       "two arrow keys move it two steps of 5 (mounted: {mount}): from {before} to {after}"
+    );
+  }
+}
+
+#[test]
+fn the_volume_is_dragged_through_the_renders_its_own_change_causes() {
+  use lurq::core::Signal;
+  // Wide, the slider stands beside its button; under 480 it comes out under the pointer.
+  for width in [640.0, 432.0] {
+    let volume = Signal::new(0.5_f32);
+    let shown = volume.clone();
+    let mut stage = stage(move |ctx| {
+      VideoPlayer::new()
+        .id("v")
+        .width(width)
+        .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
+        .duration(250.0)
+        .volume(shown.clone())
+        .mount(ctx)
+    });
+    let button = stage.bounds("v-mute");
+    stage.hover("v-mute");
+    stage.pass();
+    // The slider of 64 after the button and its gap of 4.
+    let (from, middle) = (button.0 + button.2 + 4.0, button.1 + button.3 / 2.0);
+    stage.tree.mouse_move(from + 32.0, middle);
+    stage.tree.mouse_down(from + 32.0, middle, MouseButton::Left);
+    stage.pass();
+    stage.tree.mouse_move(from + 16.0, middle);
+    stage.pass();
+    let first = volume.get_untracked();
+    stage.tree.mouse_move(from + 58.0, middle - 40.0);
+    stage.pass();
+    let second = volume.get_untracked();
+    stage.tree.mouse_up(from + 58.0, middle - 40.0, MouseButton::Left);
+    stage.pass();
+    assert!(
+      (0.1..0.4).contains(&first),
+      "the thumb follows the pointer down (at {width}): {first}"
+    );
+    assert!(
+      second > 0.8,
+      "and goes on following it after the player was built again (at {width}): {first}, then {second}"
     );
   }
 }
@@ -1000,6 +1102,53 @@ fn the_controls_of_the_large_bar_stand_40_apart() {
     12.0,
     "the last control ends at the bar's padding of 12"
   );
+}
+
+#[test]
+fn a_folded_volume_shows_its_slider_under_the_pointer_in_the_times_place() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made).width(432.0));
+  // The id is the button's: the slider comes out after it.
+  let button = stage.bounds("v-mute");
+  let time = stage.bounds("v-time");
+  assert!(
+    time.0 - (button.0 + button.2) < 20.0,
+    "folded, the time stands right after the button: at {}",
+    time.0
+  );
+  // The pointer over the button: the slider comes out beside it, and the time gives it its room.
+  stage.hover("v-mute");
+  stage.pass();
+  assert!(
+    !has(&mut stage, "v-time"),
+    "the time is not drawn while the slider is out"
+  );
+  let (x, _, width, _) = stage.bounds("v");
+  for id in ["v-captions", "v-speed", "v-settings", "v-pip", "v-fullscreen"] {
+    let (at, _, wide, _) = stage.bounds(id);
+    assert!(
+      at >= button.0 + button.2 + 64.0 && at + wide <= x + width,
+      "{id} at {at} is after the slider of 64 and in the player"
+    );
+  }
+  // A drag of the slider tells the volume, and the slider stays out while it is dragged past the control.
+  let (along, middle) = (button.0 + button.2 + 4.0 + 44.0, button.1 + button.3 / 2.0);
+  stage.tree.mouse_move(along, middle);
+  stage.tree.mouse_down(along, middle, MouseButton::Left);
+  stage.pass();
+  stage.tree.mouse_move(along - 30.0, middle - 60.0);
+  stage.pass();
+  assert!(
+    told.take().iter().any(|what| what.starts_with("volume ")),
+    "the drag tells the volume"
+  );
+  assert!(!has(&mut stage, "v-time"), "dragged, the slider stays out");
+  stage.tree.mouse_up(along - 30.0, middle - 60.0, MouseButton::Left);
+  stage.tree.mouse_move(along + 200.0, middle - 120.0);
+  stage.pass();
+  assert!(has(&mut stage, "v-time"), "let go and left, the time is back");
+  assert_eq!(stage.bounds("v-time"), time);
 }
 
 #[test]

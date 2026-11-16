@@ -13,8 +13,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, Gradient, HitTestBehavior, color::Color, dimension::Dimension, gradient::GradientStop},
   ui::{
-    Button, ButtonPart, ButtonShape, ButtonVariant, PlayButton, PlayButtonVariant, VideoPlayer, VideoPlayerSize, icons,
-    media_time_text,
+    Button, ButtonPart, ButtonShape, ButtonVariant, Length, PlayButton, PlayButtonVariant, VideoPlayer,
+    VideoPlayerSize, icons, media_time_text,
   },
 };
 
@@ -89,23 +89,13 @@ fn items() -> Row {
     .overflow_visible()
 }
 
-/// The width and the height of a player the board draws `width` wide, where the stage has `most` of room (0: not
-/// measured yet, or enough): no wider than the stage, and as high as its shape makes it then.
-fn held(width: f32, height: f32, most: f32) -> (f32, f32) {
-  if most > 0.0 && most < width {
-    (most, (most * height / width).round())
-  } else {
-    (width, height)
-  }
-}
-
-/// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state.
-fn state(most: f32) -> VideoPlayer {
-  let (width, height) = held(432.0, 243.0, most);
+/// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state: 432 wide and no wider than
+/// what holds it, as high as 16 by 9 makes it.
+fn state() -> VideoPlayer {
   VideoPlayer::new()
     .media(picture())
-    .width(width)
-    .height(height)
+    .width(432.0)
+    .max_width(Length::Fill)
     .duration(LENGTH)
     .buffered(140.0)
     .position_controlled(84.0, |_| {})
@@ -129,15 +119,8 @@ enum Scene {
   Minimal,
 }
 
-/// What a player of a section is given: the state it starts in, and the most width it takes (0: the board's).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Staged {
-  scene: Scene,
-  most: u16,
-}
-
 #[cfg(feature = "devtools")]
-impl lurq::app::component::DevtoolsInspectable for Staged {
+impl lurq::app::component::DevtoolsInspectable for Scene {
   fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
     formatter.value_debug(self);
   }
@@ -162,10 +145,10 @@ struct Demo {
 }
 
 impl Component for Demo {
-  type Props = Staged;
+  type Props = Scene;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let scene = ctx.props::<Staged>().scene;
+    let scene = *ctx.props::<Scene>();
     let playing = ctx.signal(matches!(
       scene,
       Scene::Playing | Scene::Waiting | Scene::Live | Scene::Captions
@@ -206,19 +189,20 @@ impl Component for Demo {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let Staged { scene, most } = *ctx.props::<Staged>();
-    let (width, height, size) = match scene {
-      Scene::Large => (640.0, 360.0, None),
-      Scene::Compact => (320.0, 180.0, Some(VideoPlayerSize::Md)),
-      Scene::Minimal => (200.0, 113.0, Some(VideoPlayerSize::Sm)),
-      _ => (432.0, 243.0, None),
+    let scene = *ctx.props::<Scene>();
+    let (width, size) = match scene {
+      Scene::Large => (640.0, None),
+      Scene::Compact => (320.0, Some(VideoPlayerSize::Md)),
+      Scene::Minimal => (200.0, Some(VideoPlayerSize::Sm)),
+      _ => (432.0, None),
     };
-    let (width, height) = held(width, height, f32::from(most));
     let position = f64::from(self.position.get());
+    // As wide as the board draws it and no wider than what holds it, a window as narrow as a phone; its height is
+    // what 16 by 9 makes of the width it has.
     let mut player = VideoPlayer::new()
       .media(picture())
       .width(width)
-      .height(height)
+      .max_width(Length::Fill)
       .live(scene == Scene::Live)
       .waiting(scene == Scene::Waiting)
       .ended(self.ended.get())
@@ -345,7 +329,6 @@ impl VideoPlayerPage {
         let mut player = VideoPlayer::new()
           .media(picture())
           .width(width)
-          .height(width * 9.0 / 16.0)
           .live(live)
           .buffered(buffered)
           .waiting(waiting)
@@ -410,7 +393,7 @@ impl VideoPlayerPage {
       let forced = self.playground.forced();
       // No wider than the stage, as an app's player is no wider than its window: in a window as narrow as a
       // phone the width chosen is more than there is, and half a player scrolled to shows nothing of its bar.
-      let (fitted, high) = held(width, width * 9.0 / 16.0, self.playground.stage_room());
+      let room = self.playground.stage_room();
       move |ctx: &mut Ctx| {
         let say = |name: &'static str| {
           let record = record.clone();
@@ -429,9 +412,12 @@ impl VideoPlayerPage {
           say("on_picture_in_picture_change"),
           say("on_retry"),
         );
-        make()
-          .width(fitted)
-          .height(high)
+        let mut player = make();
+        // The stage scrolls to what is wider than it, so it has no width to be a share of: the room is told.
+        if room > 0.0 {
+          player = player.max_width(room);
+        }
+        player
           .force(forced)
           .on_playing_change(move |to| p(to.to_string()))
           .on_position_change(move |to| s(format!("{to:.1}")))
@@ -453,7 +439,6 @@ impl VideoPlayerPage {
       "VideoPlayer::new()".to_owned(),
       "    .media(frame)".to_owned(),
       format!("    .width({width}.0)"),
-      format!("    .height({}.0)", width * 9.0 / 16.0),
     ];
     if let Some(size) = size {
       code.push(format!("    .size(VideoPlayerSize::{size:?})"));
@@ -724,7 +709,9 @@ impl VideoPlayerPage {
     VideoPlayer::new()
       .media(poster())
       .width(243.0)
-      .height(432.0)
+      .max_width(Length::Fill)
+      // Upright, as a feed's picture is.
+      .aspect(9.0 / 16.0)
       .controls(false)
       .playing_controlled(playing, |_| {})
       .muted_controlled(muted, |_| {})
@@ -795,7 +782,6 @@ impl Component for VideoPlayerPage {
     let playground = self.play(ctx);
     // What a stage has of width: a state's player is no wider, as an app's is no wider than its window.
     let room = self.frame.stage_room();
-    let most = room.floor().clamp(0.0, f32::from(u16::MAX)) as u16;
     // Each is a player of its own, live from the state the board draws: a press of anything on it is answered.
     let mut states = items();
     for (scene, caption) in [
@@ -810,7 +796,7 @@ impl Component for VideoPlayerPage {
       (Scene::Muted, "muted"),
       (Scene::Fullscreen, "fullscreen · the glyph exits"),
     ] {
-      states = states.child(item(ctx.mount::<Demo>(Staged { scene, most }), caption));
+      states = states.child(item(ctx.mount::<Demo>(scene), caption));
     }
     // A size is drawn at its own width, which is what it shows: in a stage narrower than it, it scrolls sideways
     // under its name, and the sizes stand one under another.
@@ -820,7 +806,7 @@ impl Component for VideoPlayerPage {
       (Scene::Minimal, "minimal · 200 × 113", 200.0),
     ]
     .into_iter()
-    .map(|(scene, caption, width)| (ctx.mount::<Demo>(Staged { scene, most: 0 }), caption, width))
+    .map(|(scene, caption, width)| (ctx.mount::<Demo>(scene), caption, width))
     .collect();
     let sizes: Element = if room > 0.0 && room < 640.0 {
       let mut sizes = Column::new().width(FILL).spacing(28.0).overflow_visible();
@@ -842,7 +828,7 @@ impl Component for VideoPlayerPage {
       sizes.into()
     };
     let bare = items().child(item(
-      state(room).controls(false).mount(ctx),
+      state().controls(false).mount(ctx),
       "the picture alone, as in a feed",
     ));
     let feed = self.feed().key("feed").mount(ctx);
@@ -985,7 +971,19 @@ impl Component for VideoPlayerPage {
         "width / height",
         "Length",
         "640 × 360",
-        "Its size, in place of its form's.",
+        "Its size, in place of its form's. With a width and no height it is as high as its aspect makes it.",
+      ),
+      (
+        "max_width",
+        "Length",
+        "",
+        "The most it is wide: narrower where what holds it is, a window as narrow as a phone, and its aspect holds.",
+      ),
+      (
+        "aspect",
+        "f32",
+        "16.0 / 9.0",
+        "The shape of the picture, its width over its height: 9.0 / 16.0 for an upright one.",
       ),
       (
         "force_menu / force_controls_shown",
@@ -1077,7 +1075,7 @@ impl Component for VideoPlayerPage {
               "VideoPlayer::new()",
               "    .media(frame)",
               "    .width(243.0)",
-              "    .height(432.0)",
+              "    .aspect(9.0 / 16.0)",
               "    .controls(false)",
               "    .child(",
               "        Stack::new()",
