@@ -83,9 +83,6 @@ impl Section {
 #[derive(Clone)]
 pub struct Frame {
   anchors: Arc<Mutex<Vec<ElementRef>>>,
-  /// What is on the head of the first section, to measure how wide a section is: the list of the sections watches
-  /// the sections themselves.
-  measured: ElementRef,
   /// The demo cards of the page whose code is shown: a bit for each, by its number.
   shown_code: Signal<u32>,
   /// How wide a section of the page is, measured: the room a card has.
@@ -97,7 +94,6 @@ impl Frame {
   pub fn new(ctx: &mut Ctx) -> Self {
     Self {
       anchors: Arc::default(),
-      measured: ElementRef::new(),
       shown_code: ctx.signal(0),
       room: ctx.signal(0.0),
     }
@@ -195,10 +191,11 @@ impl Frame {
     while anchors.len() < sections.len() {
       anchors.push(ctx.element_ref());
     }
-    // Every section is as wide as the first: the head of the first says how wide.
-    {
+    // Every section is as wide as the first, which says how wide. The list of the sections watches their refs
+    // beside this observer.
+    if let Some(first) = anchors.first() {
       let room = self.room.clone();
-      self.measured.observe_rect(move |rect| {
+      first.observe_rect(move |rect| {
         if (room.get() - rect.width).abs() >= 0.5 {
           room.set(rect.width);
         }
@@ -223,18 +220,13 @@ impl Frame {
           .max_width(CONTENT)
           .spacing(16.0)
           .ref_element(anchors[index].clone())
-          .child({
-            let head = Column::new()
+          .child(
+            Column::new()
               .width(FILL)
               .spacing(6.0)
               .child(styled(section.title, TypographyStyle::Title, |_| {}))
-              .child(prose(section.guidance, 14.0).width(FILL));
-            if index == 0 {
-              head.ref_element(self.measured.clone())
-            } else {
-              head
-            }
-          })
+              .child(prose(section.guidance, 14.0).width(FILL)),
+          )
           .child(section.body),
       );
     }

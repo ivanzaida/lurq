@@ -671,6 +671,26 @@ Column::new()
 
 `ui::Toolbar` with `overflow(true)` is built this way.
 
+**Several observers of one ref.** `observe_rect` and `observe_rect_before_paint` set the ref's own observer: a second
+registration replaces the first, so the owner of the element registers it in every render and has one. Code that
+watches a ref it was given (a list of a page's sections that follows their scroll, a tooltip on the app's button)
+adds an observer beside it with `ElementRef::add_rect_observer` or `add_rect_observer_before_paint`, and takes no
+observer away. Each is called while the `RectObserver` it gives is kept and is removed when that is dropped: a
+component that adds one in each render keeps the handles of its last render and drops those of the one before, and
+its observers go with it when it is unmounted. An added observer is called when the rect changes, not for the rect
+the element has when it is added.
+
+```rust
+use lurq::core::{ElementRef, RectObserver};
+
+// Kept on the component, `Mutex<Vec<RectObserver>>`: the observers of its last render.
+let added: Vec<RectObserver> = sections
+  .iter()
+  .map(|section: &ElementRef| section.add_rect_observer_before_paint(move |rect| watch(rect.y)))
+  .collect();
+*self.watching.lock().unwrap() = added; // those of the render before are removed here
+```
+
 ## Scroll
 
 ```rust

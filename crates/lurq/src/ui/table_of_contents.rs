@@ -19,7 +19,7 @@ use crate::{
     theme::{BorderSize, OpacityLevel, PaletteColor, Theme, TypographyStyle},
   },
   components::{self, Column, Row, TextOverflow},
-  core::{ElementRef, Signal},
+  core::{ElementRef, RectObserver, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, FocusGroup, Outline, border::Border, dimension::Dimension},
   time::Instant,
@@ -185,8 +185,10 @@ impl From<(&str, &ElementRef)> for TableOfContentsEntry {
 /// come up to the reading line, a little under the top of the container the app names
 /// ([`TableOfContents::container`]), or of the window where it names none. A press of an entry scrolls its section
 /// to the start of what scrolls it ([`Ctx::scroll_into_view_start`]) and marks the entry, which stays the marked one
-/// while the page gets there. The list watches the refs of its sections ([`ElementRef::observe_rect`]): an observer
-/// the app registered on one of them is replaced.
+/// while the page gets there. Where the container is scrolled to its end, so that the last section is all in view,
+/// the last entry is marked, though its top cannot come up to the reading line; scrolled back, the one whose section
+/// is at the line again. The list adds observers of its own to the refs of its sections
+/// ([`ElementRef::add_rect_observer_before_paint`]): one the app registered on them is kept.
 ///
 /// Converted into an element on its own it is the still form of itself: it marks the entry its signal says
 /// ([`TableOfContents::current`]), the first where it has none, follows no scroll, and a press tells its handlers
@@ -578,10 +580,10 @@ impl Themed for TableOfContents {
           .padding_bottom(6.0)
           .font_family(FontFamily::Mono)
           .font_size(11.0)
-          .letter_spacing(1.0)
-          .foreground(MutedForeground)
           // The board's line of 15, where the face's own is 14.3: a title of 21 with the 6 under it.
           .line_height(15.0 / 11.0)
+          .letter_spacing(1.0)
+          .foreground(MutedForeground)
       })
       .base(Entry, |s| {
         fading(
@@ -627,12 +629,32 @@ impl PartialEq for Props {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for Props {}
 
+/// The entry a scroll marks, of sections whose tops and bottoms in the window are `spans`: the last whose top has come
+/// up to the reading line, `offset` under the top of the container (of the window where there is none), or the last
+/// of all where the container is scrolled to its end: the last section is all in it, and the first has gone up out
+/// of it.
+fn marked_by_scroll(spans: &[(f32, f32)], container: Option<&ElementRef>, offset: f32) -> usize {
+  let (top, bottom) = container.map_or((0.0, None), |container| {
+    let (_, y, _, height) = container.rect();
+    (y, Some(y + height))
+  });
+  let line = top + offset;
+  let read = spans.iter().rposition(|(start, _)| *start <= line).unwrap_or(0);
+  match (bottom, spans.first(), spans.last()) {
+    (Some(bottom), Some((first, _)), Some((_, end))) if *first < top - 0.5 && *end <= bottom + 0.5 => spans.len() - 1,
+    _ => read,
+  }
+}
+
 /// What a mounted table of contents keeps between renders.
 struct Host {
   /// The entry marked, where the app gave no signal for it.
   own: Signal<usize>,
-  /// Where the top of each section is in the window, as it was last laid out.
-  tops: Arc<Mutex<Vec<f32>>>,
+  /// Where the top and the bottom of each section are in the window, as they were last laid out.
+  tops: Arc<Mutex<Vec<(f32, f32)>>>,
+  /// The observers it added to the sections' refs in its last render: replaced by each render, and removed with
+  /// the list.
+  watching: Mutex<Vec<RectObserver>>,
   /// Until when the entry that was pressed stays the marked one, wherever the page scrolls to.
   held: Arc<Mutex<Option<Instant>>>,
   /// The entry whose section the next render scrolls to.
@@ -648,6 +670,7 @@ impl Component for Host {
     Self {
       own: ctx.signal(0),
       tops: Arc::default(),
+      watching: Mutex::default(),
       held: Arc::default(),
       wanted: Arc::default(),
       asked: ctx.signal(0),
@@ -662,19 +685,20 @@ impl Component for Host {
       .tops
       .lock()
       .unwrap_or_else(|poisoned| poisoned.into_inner())
-      .resize(count, f32::MAX);
-    // The entry marked is the last whose section's top has come up to the reading line. A section says where it
-    // is whenever that changes, which scrolling does.
+      .resize(count, (f32::MAX, f32::MAX));
+    // The entry marked is the last whose section's top has come up to the reading line, or the last of all where
+    // the container is scrolled to its end. A section says where it is whenever that changes, which scrolling does.
+    let mut watching = Vec::with_capacity(count);
     for (index, entry) in contents.entries.iter().enumerate() {
       let (tops, held, current) = (self.tops.clone(), self.held.clone(), current.clone());
       let (container, offset) = (contents.container.clone(), contents.reading_line);
       let on_change = contents.on_change.clone();
-      entry.anchor.observe_rect_before_paint(move |rect| {
+      watching.push(entry.anchor.add_rect_observer_before_paint(move |rect| {
         let mut tops = tops.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if index >= tops.len() {
           return;
         }
-        tops[index] = rect.y;
+        tops[index] = (rect.y, rect.y + rect.height);
         if held
           .lock()
           .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -682,8 +706,7 @@ impl Component for Host {
         {
           return;
         }
-        let line = container.as_ref().map_or(0.0, ElementRef::y) + offset;
-        let read = tops.iter().rposition(|top| *top <= line).unwrap_or(0);
+        let read = marked_by_scroll(&tops, container.as_ref(), offset);
         drop(tops);
         if current.get_untracked() != read {
           current.set(read);
@@ -691,8 +714,10 @@ impl Component for Host {
             handler(read);
           }
         }
-      });
+      }));
     }
+    // The observers of the render before are removed as these take their place.
+    *self.watching.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = watching;
     // Reading the signal is what renders the list when an entry is pressed.
     let _ = self.asked.get();
     if let Some(wanted) = self

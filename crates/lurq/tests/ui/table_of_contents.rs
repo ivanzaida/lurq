@@ -84,7 +84,16 @@ fn page(
   current: Option<Signal<usize>>,
   change: impl Fn(TableOfContents) -> TableOfContents + Send + Sync + 'static,
 ) -> Stage {
-  let (anchors, scroll) = (anchors(), ElementRef::new());
+  page_on(anchors(), current, change)
+}
+
+/// The page of [`page`], its sections on the refs given.
+fn page_on(
+  anchors: Arc<Vec<ElementRef>>,
+  current: Option<Signal<usize>>,
+  change: impl Fn(TableOfContents) -> TableOfContents + Send + Sync + 'static,
+) -> Stage {
+  let scroll = ElementRef::new();
   Stage::in_app(light_app(), move |ctx| {
     let mut sections = Column::new().width(260.0);
     for (index, (label, _)) in ENTRIES.iter().enumerate() {
@@ -223,6 +232,101 @@ fn it_marks_the_section_being_read_as_the_page_scrolls() {
   scroll_by(&mut stage, -530.0);
   assert_eq!(marked(&mut stage), 0);
   assert_eq!(*told.lock().unwrap(), [1, 2, 0], "told of each change, once");
+}
+
+#[test]
+fn the_last_entry_is_marked_at_the_end_of_the_page_and_the_one_before_it_scrolled_back() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let mut stage = page(None, move |contents| {
+    let tell = tell.clone();
+    contents.on_change(move |index| tell.lock().unwrap().push(index))
+  });
+  // Five sections of 200 in a view of 300: the end is at 700, where the last section's top is 100 down, under the
+  // reading line, and cannot come up to it.
+  scroll_by(&mut stage, 690.0);
+  assert_eq!(marked(&mut stage), 3, "10 short of the end, the fourth is read");
+  scroll_by(&mut stage, 10.0);
+  assert_eq!(marked(&mut stage), 4, "at the end, the last");
+  // Scrolling on past the end changes nothing.
+  scroll_by(&mut stage, 50.0);
+  assert_eq!(marked(&mut stage), 4);
+  scroll_by(&mut stage, -100.0);
+  assert_eq!(marked(&mut stage), 3, "scrolled back, the one before it");
+  let told = told.lock().unwrap();
+  assert!(told.ends_with(&[3, 4, 3]), "{told:?}");
+  assert!(
+    told.windows(2).all(|pair| pair[0] != pair[1]),
+    "told of each change, once: {told:?}"
+  );
+}
+
+#[test]
+fn a_short_page_whose_end_shows_at_its_top_marks_the_first() {
+  // Two sections of 100 in the view of 300: all of the page is in view, nothing scrolls, and its end is no sign.
+  let anchors = anchors();
+  let shown = anchors.clone();
+  let mut stage = Stage::in_app(light_app(), move |ctx| {
+    let scroll = ElementRef::new();
+    let mut sections = Column::new().width(260.0);
+    for anchor in shown.iter().take(2) {
+      sections = sections.child(Column::new().size(260.0, 100.0).ref_element(anchor.clone()));
+    }
+    Row::new()
+      .size(480.0, VIEW)
+      .child(
+        ScrollVertical::new(sections)
+          .size(260.0, VIEW)
+          .ref_element(scroll.clone()),
+      )
+      .child(
+        TableOfContents::new(entries(&shown).into_iter().take(2))
+          .container(&scroll)
+          .id("contents")
+          .mount(ctx),
+      )
+      .into()
+  });
+  let lines: Vec<f32> = (0..2)
+    .map(|index| start_line(&mut stage, &format!("entry-{index}")).0)
+    .collect();
+  assert_eq!(lines, [2.0, 1.0], "the first is marked");
+}
+
+#[test]
+fn an_observer_the_app_has_on_a_section_is_kept_beside_the_lists() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  let anchors = anchors();
+  let seen = Arc::new(AtomicUsize::new(0));
+  let count = seen.clone();
+  // The app's own observer of its first section, as a page measures its width by it.
+  anchors[0].observe_rect(move |_| {
+    count.fetch_add(1, Ordering::SeqCst);
+  });
+  let mut stage = page_on(anchors.clone(), None, |contents| contents);
+  let before = seen.load(Ordering::SeqCst);
+  assert!(before >= 1, "told the first rect");
+  scroll_by(&mut stage, 200.0);
+  assert!(seen.load(Ordering::SeqCst) > before, "and the scroll");
+  assert_eq!(marked(&mut stage), 1, "while the list follows the scroll too");
+  // The list's renders replace its observers and do not pile them up: a scroll marks once.
+  for _ in 0..5 {
+    stage.tree.request_redraw();
+    stage.pass();
+  }
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let tell = told.clone();
+  drop(stage);
+  let mut stage = page_on(anchors, None, move |contents| {
+    let tell = tell.clone();
+    contents.on_change(move |index| tell.lock().unwrap().push(index))
+  });
+  for _ in 0..5 {
+    stage.tree.request_redraw();
+    stage.pass();
+  }
+  scroll_by(&mut stage, 200.0);
+  assert_eq!(*told.lock().unwrap(), [1], "told once, by the list of this stage alone");
 }
 
 #[test]
