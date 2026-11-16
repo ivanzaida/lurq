@@ -38,9 +38,11 @@ const TITLES: [(&str, &str); 4] = [
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  // No wider than the stage: what is shown gets narrower with it, and what is said under it wraps.
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().padding(2.0).overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).padding(2.0).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
