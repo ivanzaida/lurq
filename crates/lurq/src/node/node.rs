@@ -685,6 +685,8 @@ pub(crate) trait NodeUpdate {
   fn off_blur(&mut self, f: impl IntoVoidEventHandler);
   fn on_scroll(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll(&mut self, f: impl IntoScrollEventHandler);
+  fn on_wheel(&mut self, f: impl IntoScrollEventHandler);
+  fn off_wheel(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_end(&mut self, f: impl IntoScrollEventHandler);
@@ -950,6 +952,9 @@ pub struct EventHandlers {
   #[cfg(feature = "form")]
   pub on_submit: Option<FormSubmitCallback>,
   pub on_scroll: Vec<Callback<ScrollEvent>>,
+  /// A wheel or a trackpad turned over the element, before anything is scrolled by it and whether or not
+  /// anything can be: see `Node::on_wheel`.
+  pub on_wheel: Vec<Callback<ScrollEvent>>,
   pub on_scroll_start: Vec<Callback<ScrollEvent>>,
   pub on_scroll_end: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
@@ -2023,6 +2028,15 @@ impl NodeUpdate for Node {
 
   fn on_scroll(&mut self, f: impl IntoScrollEventHandler) {
     self.events.on_scroll.push(f.into_event_handler());
+  }
+
+  fn on_wheel(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_wheel.push(f.into_event_handler());
+  }
+
+  fn off_wheel(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_wheel.retain(|existing| !existing.same_handler(&handler));
   }
 
   fn off_scroll(&mut self, f: impl IntoScrollEventHandler) {
@@ -4094,6 +4108,16 @@ impl Node {
 
   pub fn on_scroll(mut self, f: impl IntoScrollEventHandler) -> Self {
     self.events.on_scroll.push(f.into_event_handler());
+    self
+  }
+
+  /// A wheel or a trackpad turned over the element: called before anything is scrolled by it, and whether or
+  /// not anything under the pointer can scroll. `on_scroll` is for what a scroll does to a list, and is not
+  /// called over a list that is at its end; this is for an element the wheel is for something else to, which
+  /// takes it with `prevent_default` (a picture it brings closer, a value it turns). Then nothing is
+  /// scrolled. A finger's scroll is not a wheel, and does not come here.
+  pub fn on_wheel(mut self, f: impl IntoScrollEventHandler) -> Self {
+    NodeUpdate::on_wheel(&mut self, f);
     self
   }
 

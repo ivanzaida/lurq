@@ -1192,6 +1192,19 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// A wheel or a trackpad turned over the element, before anything is scrolled by it and whether or
+      /// not anything can be (see `Node::on_wheel`): for an element the wheel is for something other than
+      /// scrolling, which takes it with `prevent_default`.
+      pub fn on_wheel(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_wheel(node, f));
+        self
+      }
+
+      pub fn off_wheel(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_wheel(node, f));
+        self
+      }
+
       pub fn off_scroll(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_scroll(node, f));
         self

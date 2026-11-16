@@ -79,4 +79,5 @@ mod timers {
   mod timeout_fires_once;
   mod timeout_restart_replaces_pending_fire;
 }
+mod wheel_handler;
 mod window_controls;

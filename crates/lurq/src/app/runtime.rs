@@ -6399,6 +6399,30 @@ impl Tree {
     } else {
       hits = scroll_hits(root, result, lx, ly, &self.layout_engine.radii());
     }
+    // A wheel or a trackpad is first the element's that listens for it (`on_wheel`), whatever is there to
+    // scroll and whether it can: one that takes it is what the wheel was for, and nothing is scrolled.
+    if !self.touch_scroll_latched && matches!(evt.phase, ScrollPhase::Scroll) {
+      for (node, _) in &hits {
+        if node.events.on_wheel.is_empty() {
+          continue;
+        }
+        evt.target_id = node.node_id();
+        for handler in &node.events.on_wheel {
+          handler.call(&evt);
+          if evt.immediate_propagation_stopped() {
+            break;
+          }
+        }
+        if evt.immediate_propagation_stopped() || evt.propagation_stopped() {
+          break;
+        }
+      }
+      if evt.default_prevented() {
+        return true;
+      }
+      // What it stopped was the wheel's way, not the scroll's.
+      evt.control = EventControl::new();
+    }
     let scroll_delta_can_be_consumed =
       scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy, animated);
     // When the delta targets a scroll container that cannot move (edge-clamped

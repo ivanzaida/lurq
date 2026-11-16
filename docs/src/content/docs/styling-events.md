@@ -744,6 +744,21 @@ ScrollVertical::new(
 .on_scroll(|event: ScrollEvent| println!("delta: {}, {}", event.delta_x, event.delta_y))
 ```
 
+`on_scroll` is for what a scroll does to a list: it is not called over a list that is at its end or has nothing to
+scroll. An element the wheel is for something else to (a picture it brings closer, a value it turns) listens with
+`on_wheel`, which is called first, whatever is under the pointer and whether it can scroll, and takes the wheel with
+`prevent_default`: then nothing is scrolled.
+
+```rust
+Stack::new().on_wheel(move |event: ScrollEvent| {
+  event.prevent_default();
+  zoom.set(if event.delta_y < 0.0 { zoom.get() * 1.5 } else { zoom.get() / 1.5 });
+})
+```
+
+A handler that only listens leaves the list to scroll and its `on_scroll` to be called as before. A finger's scroll
+is not a wheel, and `on_wheel` does not hear it.
+
 Set the default scrollbar style on the theme:
 
 ```rust
