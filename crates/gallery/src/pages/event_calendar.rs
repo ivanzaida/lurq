@@ -165,7 +165,7 @@ impl EventCalendarPage {
           .on_more(move |date| more(format!("on_more({date})")))
           .mount(ctx);
         // The calendar takes the form its room gives it: its own sideways scroll, one day, or dots.
-        Column::new().width(FILL).child(playground.measure(calendar))
+        Column::new().width(FILL).child(playground.measure(calendar)).into()
       })
       .measured()
     };
@@ -279,7 +279,10 @@ impl Component for EventCalendarPage {
       .child(quiet(
         &match self.told.get() {
           Some(date) => format!("{} · on_more({date})", chosen(&self.month)),
-          None => format!("{} · press \"+3 more\" on the 17th", chosen(&self.month)),
+          None => format!(
+            "{} · press \"+3 more\" on the 17th, or a day of dots",
+            chosen(&self.month)
+          ),
         },
         12.0,
       ));

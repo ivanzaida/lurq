@@ -690,7 +690,7 @@ impl Component for InputPage {
         "fluid",
         "bool",
         "false",
-        "The label inside the box of the control, over what it holds, and the box as wide as the field (240): for          an input, a textarea and a select. A field of another control is drawn as it is without it.",
+        "The label inside the box of the control, over what it holds, and the box as wide as the field (240): for every text control a field holds. A field of another control (a switch, a month picker) is drawn as it is without it.",
       ),
     ];
     let playground = self.play(ctx);

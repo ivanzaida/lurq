@@ -110,8 +110,8 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
-mod picture;
 mod persona;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -207,13 +207,13 @@ pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
 pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView};
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
-pub use bulleted_list::{
-  BulletedList, BulletedListItem, BulletedListMarker, BulletedListPart, BulletedListRenderer, BulletedListState,
-  BulletedListView,
-};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
+};
+pub use bulleted_list::{
+  BulletedList, BulletedListItem, BulletedListMarker, BulletedListPart, BulletedListRenderer, BulletedListState,
+  BulletedListView,
 };
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
@@ -306,8 +306,8 @@ pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };
 pub use event_calendar::{
-  CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarPart, EventCalendarPeriod, EventCalendarRenderer,
-  EventCalendarForm, EventCalendarState, EventCalendarView, ShownEvent,
+  CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarForm, EventCalendarPart, EventCalendarPeriod,
+  EventCalendarRenderer, EventCalendarState, EventCalendarView, ShownEvent,
 };
 pub use expandable_tile::{
   ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,
@@ -326,6 +326,7 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
+pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 #[cfg(feature = "canvas")]
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 #[cfg(feature = "canvas")]
@@ -349,7 +350,6 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
-pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
@@ -415,12 +415,12 @@ pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
 };
+pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 pub use picture::{
   PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
-  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
-  PictureState, PictureView,
+  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall, PictureState,
+  PictureView,
 };
-pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use play_button::{
@@ -659,6 +659,7 @@ inspectable!(
   breadcrumb::BreadcrumbSeparator,
   button::ButtonShape,
   calendar::CalendarChoice,
+  event_calendar::EventCalendarForm,
   choice_card::ChoiceCardKind,
   color_picker::ColorFormat,
   color_swatch::ColorSwatchShape,
