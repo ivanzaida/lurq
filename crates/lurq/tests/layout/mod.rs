@@ -58,6 +58,7 @@ mod scroll;
 mod scroll_padding;
 mod scrollbar_placement;
 mod shrink_give_way;
+mod snap_to_pixels;
 mod stack;
 mod state_style_paint;
 mod sticky;

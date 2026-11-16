@@ -113,6 +113,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 #[cfg(feature = "canvas")]
 mod radar_chart;
 mod radio;

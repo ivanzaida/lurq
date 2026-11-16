@@ -774,6 +774,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Draws the boxes of the element and of everything in it on whole device pixels: each edge of a fill or a
+      /// border is moved to the device pixel nearest it when the frame is painted, so that at a scale that is no
+      /// whole number (150%) an edge is crisp, and two boxes that meet still meet. A grid of cells that must read
+      /// sharp, as the modules of a QR code. What is laid out and what a pointer hits are as before; a text, an
+      /// image and a box that is turned are drawn where they are.
+      pub fn snap_to_pixels(mut self, snap: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::snap_to_pixels(node, snap));
+        self
+      }
+
       /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
       /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system where it
       /// is: on Windows the window answers the system's hit test there with the minimize, the maximize or the

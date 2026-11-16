@@ -1333,11 +1333,38 @@ impl LayoutEngine {
     self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
     self.leave_foreground_scope(foreground_scope);
     self.leave_theme_scope(theme_scope);
+    if node.snaps_to_pixels() {
+      self.snap_quads_to_pixels(&mut quads[group_start..]);
+    }
     let opacity = node.effective_opacity();
     if opacity < DEFAULT_QUAD_OPACITY || blur > 0.0 {
       // A layer holds the outlines of what is in it, and its own.
       self.paint_pending_outlines(outlines, quads);
       self.close_opacity_group(opacity, blur, group_clip, group_start, quads);
+    }
+  }
+
+  /// Moves each edge of the fills and borders among `quads` that are not turned to the device pixel nearest it
+  /// (`Node::snaps_to_pixels`). An edge half way between two pixels goes to the lower one, whichever box it is
+  /// the edge of, so two boxes that meet on it still meet, where the float sums that placed them differ by a hair.
+  fn snap_quads_to_pixels(&self, quads: &mut [Quad]) {
+    let scale = self.paint_scale.get();
+    if !(scale.is_finite() && scale > 0.0) {
+      return;
+    }
+    // Under a hair of a pixel past the half, an edge is taken as on the half.
+    const HALF: f32 = 0.5 - 1.0 / 64.0;
+    let snap = |value: f32| (value * scale + HALF).floor() / scale;
+    for quad in quads {
+      if !matches!(quad.content, QuadContent::Rect { .. }) || !quad.transform.is_identity() {
+        continue;
+      }
+      let (left, top) = (snap(quad.x), snap(quad.y));
+      let (right, bottom) = (snap(quad.x + quad.width), snap(quad.y + quad.height));
+      quad.x = left;
+      quad.y = top;
+      quad.width = (right - left).max(0.0);
+      quad.height = (bottom - top).max(0.0);
     }
   }
 
@@ -5412,6 +5439,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
       .iter()
       .all(|(prop, _)| *prop == crate::animation::AnimatableProperty::Opacity)
     && node.effective_transform().is_identity()
+    && !node.snaps_to_pixels()
     && node.intrinsic_size.is_none()
     && {
       #[cfg(feature = "raster")]

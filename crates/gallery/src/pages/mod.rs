@@ -100,6 +100,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 mod radar_chart;
 mod radio;
 mod radio_card;
@@ -1420,6 +1421,14 @@ pub const PAGES: &[Page] = &[
     about: "audio queue playlist up next tracks rows list current now playing equalizer number artwork length more unavailable arrows keyboard AudioQueue AudioQueueItem on_change on_more",
     group: Group::Media,
     mount: |ctx| ctx.mount::<audio_queue::AudioQueuePage>(()),
+  },
+  Page {
+    path: "/qr-code",
+    name: "QR Code",
+    icon: Some("grid"),
+    about: "qr code qrcode barcode scan camera phone pair link address ticket wifi level error correction low medium quartile high quiet zone length module logo media label text QrCode QrLevel QrMatrix",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<qr_code::QrCodePage>(()),
   },
 ];
 

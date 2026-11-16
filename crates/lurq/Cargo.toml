@@ -240,6 +240,8 @@ wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
 criterion = { version = "0.5", features = ["html_reports"] }
 raw-window-handle = "0.6"
 taffy = "0.15.1"
+# Reads back the QR codes `ui::QrCode` draws, in its tests.
+rqrr = { version = "0.11", default-features = false }
 
 # Extra Win32 surface for the dx12_capture_check example's bare test window.
 [target.'cfg(windows)'.dev-dependencies]

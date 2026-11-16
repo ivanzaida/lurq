@@ -125,6 +125,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 #[cfg(feature = "canvas")]
 mod radar_chart;
 mod radio;
@@ -457,6 +458,9 @@ pub use progress_dialog::{
 pub use property_grid::{
   CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
   PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
+};
+pub use qr_code::{
+  QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect,
 };
 #[cfg(feature = "canvas")]
 pub use radar_chart::{RadarChart, RadarChartPart};

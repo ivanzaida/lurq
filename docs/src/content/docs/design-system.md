@@ -7712,6 +7712,37 @@ Carousel::new(cards)
 - A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
   what turns them) and `view.dots()`.
 
+## QR Code
+
+A text an app gives, drawn as a code a phone's camera reads: an address to open, a code to pair a device, a ticket.
+
+```rust
+use lurq::ui::{QrCode, QrLevel};
+
+QrCode::new("https://lurq.dev/pair?code=7F3K-92QD").label("Pair your phone");
+QrCode::new("TICKET-2026-11-16-0042").level(QrLevel::Quartile).length(220.0).quiet_zone(4);
+QrCode::new(address).media(logo);
+```
+
+| Builder | |
+| --- | --- |
+| `QrCode::new(text)` | The code of the text's UTF-8 bytes, in the smallest version (1 to 40) that holds them |
+| `level(QrLevel)` | How much can be lost and the code still read: `Low` (7%), `Medium` (15%, the default), `Quartile` (25%), `High` (30%) |
+| `length(length)` | The side of the card, its padding included: 160 unless the app or a recipe says another |
+| `quiet_zone(modules)` | Modules of light around the code inside the card's padding: none unless the app says |
+| `media(element)` | A logo over the middle, in a well of the light fill; the code is made at `High` |
+| `label(&str)` | What tooling calls it: "QR code" unless the app says what it is for |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- It is dark on light in the light look and in the dark one alike, as the design draws it: a phone reads a code dark on light, and not every phone reads it the other way. Its fills are the roles of its recipe read in the theme's light palette (`Theme::palette_color_for(Appearance::Light, role)`): the card `Background`, the modules `Foreground`. Its edge is the window's `Border`.
+- The modules are as large as fit in whole logical pixels, and the code stands in the middle of the room inside the card's padding. The card is drawn with `.snap_to_pixels(true)`, so every module's edge is on a whole device pixel: at 100% and 200% every module is as wide as the next, at 150% a module of 5 is 7 or 8 device pixels, and two modules side by side meet with no seam. A run of dark modules, and the same run in the rows under it, is one box.
+- The encoder is lurq's own, byte mode at every version and level, with the mask that scores best: no dependency, in every build and in the browser. A higher level is taken where it fits in the same version. A text too long for the level asked for is drawn at the highest level that holds it; one no level holds (over 2953 bytes) draws the card empty. `QrMatrix::encode(text, level)` gives the modules themselves, to print or to draw another way.
+- The card's padding of 10 is light, and is the quiet zone a phone needs where the modules are small; a code of large modules, or one that is printed, takes `quiet_zone(2)` to `quiet_zone(4)`.
+- A logo's well is a fifth of the code's side, an odd number of modules across so that it sits on the middle module, or the logo's size with the well's padding where the logo is larger: a logo larger than a fifth of the side may leave a code no phone reads.
+- To tooling it is an image (`img`) called by its label, whose description is the text, also where no code holds the text.
+- Parts: `QrCodePart::Root` (the card), `Module` (a dark module), `Media` (the logo's well). State: `QrCodeState::Media`.
+- In the design the card has an edge of 1 inside it in `Border`, `radius-lg` corners and 10 of padding, white, with modules of near black. The board draws eleven modules of 7, a picture of a code: a code of a real text has 21 or more, so the card is 160 by default. The board draws no logo, no loading and no expired code.
+
 ## Action Sheet
 
 On a phone, the actions on something, risen from the bottom of the screen over a scrim, and Cancel under them.
