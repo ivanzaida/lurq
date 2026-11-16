@@ -220,9 +220,6 @@ impl ActionBarPage {
   }
 }
 
-/// The least an action bar with a count, three actions and its close button is wide, with room around it.
-const BAR: f32 = 440.0;
-
 impl Component for ActionBarPage {
   type Props = ();
 
@@ -254,9 +251,7 @@ impl Component for ActionBarPage {
           .return_focus(self.rows[1].clone())
           .mount(ctx),
       );
-    // The bar's count and its actions need this much: in a narrower card what it acts on keeps it, and scrolls
-    // sideways, so no action is down to an ellipsis.
-    let top = fit("top", self.frame.stage_room(), BAR, top);
+    // Mounted, the bar measures its room: in a card narrower than its labels its actions are their icons.
     // The board's Mobile/Selection Bar: the same parts, restyled into a bar across the top of a phone.
     let phone_bar = {
       let count = self.phone.get().len();

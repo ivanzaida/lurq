@@ -438,3 +438,143 @@ fn the_first_frame_at_a_width_is_the_settled_one() {
     assert_eq!(first, stage.picture(), "at {width}: the first frame is the next one");
   }
 }
+
+/// The board's bar, mounted over a list in a room `width` wide whose id is `room`, in an app whose bar fades in
+/// where it stands, with one frame painted.
+fn roomed(width: &lurq::core::Signal<f32>, moved: &Arc<AtomicUsize>, plain: bool) -> Stage {
+  let app = App::new();
+  app.theme().patch_recipe::<ActionBar>(|recipe| {
+    recipe.variant(ActionBarSide::Bottom, ActionBarPart::Bar, |s| {
+      s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+    })
+  });
+  let (width, moved) = (width.clone(), moved.clone());
+  Stage::first_frame_in(app, 700.0, 300.0, move |ctx| {
+    let cleared = Arc::new(AtomicUsize::new(0));
+    let mut actions = bar(3, &cleared, &moved);
+    if plain {
+      // An action with no icon: its label is all it has.
+      actions = actions.action(Button::new("Tag").id("tag"));
+    }
+    Column::new()
+      .size(700.0, 300.0)
+      .child(
+        Stack::new()
+          .id("room")
+          .size(width.get(), 300.0)
+          .child(
+            Column::new()
+              .id("list")
+              .size(width.get(), 300.0)
+              .child(Text::new("Rows")),
+          )
+          .child(actions.mount(ctx)),
+      )
+      .into()
+  })
+}
+
+/// Where the bar and each of its buttons are, and how wide.
+fn laid(stage: &mut Stage) -> Vec<(f32, f32)> {
+  ["bar", "move", "duplicate", "delete", "bar-clear"]
+    .into_iter()
+    .map(|id| {
+      let (x, _, width, _) = stage.bounds(id);
+      (x.round(), width.round())
+    })
+    .collect()
+}
+
+#[test]
+fn a_mounted_bar_wider_than_its_room_draws_its_actions_as_icons_before_its_text_gives_way() {
+  let moved = Arc::new(AtomicUsize::new(0));
+  let width = lurq::core::Signal::new(330.0f32);
+  let mut stage = roomed(&width, &moved, false);
+  // 330 has no room for the three labels: each action is its icon alone, and what the bar says is whole.
+  for (id, label) in [("move", "Move"), ("duplicate", "Duplicate"), ("delete", "Delete")] {
+    let (.., action, height) = stage.bounds(id);
+    assert!(
+      action <= 36.0 && height == 32.0,
+      "{id} is its icon alone: {action} wide"
+    );
+    assert!(!stage.paints(label), "{label} is not written");
+  }
+  assert!(stage.paints("3 selected"), "the text is whole");
+  clear_is_whole(&mut stage, 330.0);
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), first, "settled in its first frame");
+  // An icon alone still acts.
+  stage.click("move");
+  assert_eq!(moved.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_mounted_bar_follows_its_room_its_labels_back_when_there_is_room() {
+  let moved = Arc::new(AtomicUsize::new(0));
+  let width = lurq::core::Signal::new(600.0f32);
+  let mut stage = roomed(&width, &moved, false);
+  // With room for all of it the bar is as it was: every action with its label.
+  assert!(stage.paints("Move") && stage.paints("Duplicate") && stage.paints("Delete"));
+  assert!(stage.bounds("move").2 > 40.0);
+  let wide = laid(&mut stage);
+
+  width.set(330.0);
+  stage.frame();
+  assert!(!stage.paints("Duplicate"), "in the frame the room narrowed in");
+  let narrow = laid(&mut stage);
+  let fresh = laid(&mut roomed(&lurq::core::Signal::new(330.0), &moved, false));
+  assert_eq!(narrow, fresh, "as a bar laid out at 330 first");
+
+  width.set(600.0);
+  stage.frame();
+  assert!(stage.paints("Duplicate"), "in the frame the room grew in");
+  assert_eq!(laid(&mut stage), wide, "as a bar laid out at 600 first");
+}
+
+#[test]
+fn an_action_with_no_icon_keeps_its_label_and_a_room_too_narrow_for_the_icons_cuts_the_text() {
+  let moved = Arc::new(AtomicUsize::new(0));
+  let width = lurq::core::Signal::new(380.0f32);
+  let mut stage = roomed(&width, &moved, true);
+  assert!(stage.bounds("move").2 <= 36.0, "an action with an icon is its icon");
+  assert!(stage.paints("Tag"), "one with none keeps its label");
+  // Narrower than the icons too, what the bar says gives way, and then the actions go into the menu of More, the
+  // last first: the clear button stays, and nothing of the bar is past it.
+  width.set(250.0);
+  stage.frame();
+  let (x, _, bar_width, _) = stage.bounds("bar");
+  assert!(
+    x >= 16.0 - 0.5 && x + bar_width <= 250.0 - 16.0 + 0.5,
+    "the bar is in its room"
+  );
+  assert!(!stage.paints("3 selected"), "the text is cut");
+  let (clear, _, clear_width, _) = stage.bounds("bar-clear");
+  assert_eq!(clear_width, 32.0);
+  assert!(
+    close(x + bar_width - (clear + clear_width), 6.0),
+    "the clear button 6 from the bar's end"
+  );
+  assert_eq!(stage.bounds("tag").2, 0.0, "the last action went");
+  assert_eq!(stage.bounds("move").2, 36.0, "the first is in the bar");
+  let (more, _, more_width, _) = stage.bounds("bar-more");
+  assert!(
+    more_width > 0.0 && more + more_width <= clear,
+    "More before the clear button"
+  );
+  let settled = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), settled, "settled in the frame the room narrowed in");
+  stage.click("bar-more");
+  stage.pass();
+  assert!(stage.paints("Tag"), "its menu holds what went");
+  stage.key("Escape");
+  stage.pass();
+  stage.click("move");
+  assert_eq!(moved.load(Ordering::SeqCst), 1, "what stayed still acts");
+  // With room again every action is back in the bar, and More is gone.
+  width.set(380.0);
+  stage.frame();
+  stage.frame();
+  assert!(stage.bounds("tag").2 > 0.0 && stage.bounds("bar-more").2 == 0.0);
+}
