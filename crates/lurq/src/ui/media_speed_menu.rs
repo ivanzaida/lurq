@@ -98,7 +98,7 @@ impl MediaSpeedMenu {
       anchor: anchor.into(),
       rate,
       rates: MEDIA_RATES.to_vec(),
-      heading: Arc::from("Playback speed"),
+      heading: super::current_locale().media.playback_speed.clone(),
       label: None,
       on_change: Vec::new(),
       on_dismiss: Vec::new(),

@@ -187,5 +187,8 @@
   "panel-bottom": "E0B9",
   "panel-top-open": "E0BA",
   "route": "E0BB",
-  "table-of-contents": "E0BC"
+  "table-of-contents": "E0BC",
+  "arrow-left-right": "E0BD",
+  "qr-code": "E0BE",
+  "stamp": "E0BF"
 }

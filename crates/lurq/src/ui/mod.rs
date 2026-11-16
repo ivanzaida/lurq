@@ -20,6 +20,7 @@ mod action_bar;
 mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod audio_player;
 mod audio_queue;
 mod avatar;
@@ -38,6 +39,7 @@ mod calendar;
 mod callout;
 mod card;
 mod carousel;
+mod cascader;
 #[cfg(feature = "canvas")]
 mod chart;
 mod checkbox;
@@ -125,6 +127,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 #[cfg(feature = "canvas")]
 mod radar_chart;
 mod radio;
@@ -139,6 +142,7 @@ mod search_field;
 mod seek_bar;
 mod segmented;
 mod select;
+mod select_trigger;
 mod selection;
 mod selection_marquee;
 mod separator;
@@ -146,6 +150,8 @@ mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
+#[cfg(feature = "canvas")]
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -179,11 +185,13 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -195,6 +203,9 @@ pub use action_bar::{
 pub use action_sheet::{ActionSheet, ActionSheetPart, ActionSheetRenderer, ActionSheetState, ActionSheetView};
 pub use ai_label::{AiLabel, AiLabelPart, AiLabelRenderer, AiLabelSize, AiLabelState, AiLabelView};
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
+pub use angle_slider::{
+  AngleSlider, AngleSliderPart, AngleSliderRenderer, AngleSliderState, AngleSliderView, AngleText,
+};
 pub use audio_player::{
   AUDIO_MINI_NARROW, AUDIO_MINI_TIME_FROM, AUDIO_MINI_VOLUME_FROM, AudioControls, AudioPlayer, AudioPlayerPart,
   AudioPlayerRenderer, AudioPlayerState, AudioPlayerVariant, AudioPlayerView, AudioRepeat, VOICE_RATES,
@@ -234,6 +245,7 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
+pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use chart::ChartLabel;
@@ -458,6 +470,9 @@ pub use property_grid::{
   CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
   PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
 };
+pub use qr_code::{
+  QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect,
+};
 #[cfg(feature = "canvas")]
 pub use radar_chart::{RadarChart, RadarChartPart};
 pub use radio::{
@@ -506,6 +521,11 @@ pub use sheet::{
 pub use shortcut_recorder::{
   ShortcutCheck, ShortcutRecorder, ShortcutRecorderPart, ShortcutRecorderRenderer, ShortcutRecorderSize,
   ShortcutRecorderState, ShortcutRecorderView, ShortcutValue,
+};
+#[cfg(feature = "canvas")]
+pub use signature_pad::{
+  Signature, SignaturePad, SignaturePadPart, SignaturePadRenderer, SignaturePadState, SignaturePadView, SignaturePoint,
+  SignatureStroke,
 };
 pub use sidebar::{
   Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
@@ -570,7 +590,9 @@ pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
   TextareaView,
 };
-pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
+pub use theme::{
+  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_theme, in_theme,
+};
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
 pub use time_picker::{
   ColumnKind, TimePicker, TimePickerPart, TimePickerRenderer, TimePickerSize, TimePickerState, TimePickerView,
@@ -599,6 +621,7 @@ pub use toolbar::{
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
 };
+pub use transfer::{Transfer, TransferList, TransferPart, TransferRenderer, TransferState, TransferView};
 pub use tray_popover::{
   TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
   TrayStatusVariant, TrayToggle,
@@ -617,6 +640,10 @@ pub use video_player::{
   VideoPlayerView,
 };
 pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
+pub use watermark::{
+  WATERMARK_ANGLE, WATERMARK_GAP, WATERMARK_OFFSET, WATERMARK_STAGGER, Watermark, WatermarkPart, WatermarkRenderer,
+  WatermarkState, WatermarkView,
+};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,

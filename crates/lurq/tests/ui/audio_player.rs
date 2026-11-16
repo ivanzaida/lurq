@@ -609,7 +609,9 @@ fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   until(&mut stage, "playing", |stage| stage.paints("0:01"));
   // Sent on by the keys of its bar, it is there.
   stage.click("p-seek");
-  until(&mut stage, "sent to the middle", |stage| stage.paints("0:06") || stage.paints("0:07"));
+  until(&mut stage, "sent to the middle", |stage| {
+    stage.paints("0:06") || stage.paints("0:07")
+  });
   // Pause: it stands where it is.
   stage.click("p-play");
   assert_eq!(said(&log), ["playing true", "playing false"]);
@@ -638,6 +640,11 @@ fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   until(&mut broken, "the error", |stage| {
     stage.tree.get_element_by_id_mut("p-retry").is_some()
   });
+  assert!(
+    broken.paints("Unsupported format"),
+    "a short line, in the locale's words"
+  );
+  assert!(broken.paints("Try again"));
 }
 
 #[cfg(all(any(windows, target_os = "macos"), feature = "media", feature = "http"))]
@@ -696,7 +703,11 @@ fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_dra
     stage.pass();
     std::thread::sleep(std::time::Duration::from_millis(40));
   }
-  assert_eq!(asked.load(Ordering::Relaxed), 0, "a player that is only drawn loads nothing");
+  assert_eq!(
+    asked.load(Ordering::Relaxed),
+    0,
+    "a player that is only drawn loads nothing"
+  );
   assert!(stage.paints("1:35"), "the length the app gave");
   assert!(!lurq::media::sound_cache().holds(&source));
 
@@ -722,4 +733,157 @@ fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_dra
   });
   until(&mut second, "its own length", |stage| stage.paints("0:08"));
   assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two players");
+}
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media", feature = "http"))]
+#[test]
+fn a_sound_the_apps_folder_keeps_from_an_earlier_run_is_opened_as_it_is_drawn_and_asks_the_server_for_nothing() {
+  use std::{
+    io::{Read, Write},
+    sync::atomic::{AtomicUsize, Ordering},
+  };
+
+  use lurq::{app::App, resources::Source};
+  // A server on this machine that answers each request with the tone, and counts them.
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let address = format!("http://{}/tone.wav", listener.local_addr().unwrap());
+  let asked = Arc::new(AtomicUsize::new(0));
+  let counted = asked.clone();
+  std::thread::spawn(move || {
+    let body = tone(8.0);
+    for stream in listener.incoming() {
+      let Ok(mut stream) = stream else {
+        return;
+      };
+      let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
+      while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk) {
+          Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+          _ => break,
+        }
+      }
+      counted.fetch_add(1, Ordering::Relaxed);
+      let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+      );
+      let _ = stream.write_all(head.as_bytes());
+      let _ = stream.write_all(&body);
+    }
+  });
+  let folder = std::env::temp_dir().join(format!("lurq-audio-player-cache-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&folder);
+  let source = Source::url(&address);
+  // An app that gave a folder for its cache on the disk, with a player of the address.
+  let run = |folder: &std::path::Path| {
+    let shown = source.clone();
+    Stage::in_app(App::new().enable_media_disk_cache(folder), move |_| {
+      Column::new()
+        .width(360.0)
+        .child(
+          AudioPlayer::controlled(0.0, 95.0, |_| {})
+            .source(&shown)
+            .muted_controlled(true, |_| {})
+            .title("Tone")
+            .id("p"),
+        )
+        .into()
+    })
+  };
+
+  // The first run: drawn, it loads nothing; played, it loads once, and the sound is a file in the folder.
+  let mut first = run(&folder);
+  for _ in 0..3 {
+    first.tree.tick_timers_at(std::time::Instant::now());
+    first.pass();
+  }
+  assert_eq!(asked.load(Ordering::Relaxed), 0);
+  assert!(first.paints("1:35"), "the length the app gave");
+  first.click("p-play");
+  until(&mut first, "its own length", |stage| stage.paints("0:08"));
+  until(&mut first, "playing", |stage| stage.paints("0:01"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1);
+  assert!(first.app.loader().media_disk_cache().holds(&source));
+  assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+  drop(first);
+
+  // The next run of the app: the sound is kept, so the player opens it as it is drawn, with its own length,
+  // and plays it, and the server is asked for nothing.
+  let mut next = run(&folder);
+  assert!(lurq::media::sound_cache().holds(&source));
+  until(&mut next, "its own length", |stage| stage.paints("0:08"));
+  next.click("p-play");
+  until(&mut next, "playing", |stage| stage.paints("0:01"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two runs of the app");
+  drop(next);
+  let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn it_speaks_in_the_apps_locale_and_in_its_own_where_it_is_given_one() {
+  use lurq::{app::App, core::Locale};
+  // What a control is called to tooling, which keeps it with `mcp` or `devtools`.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  let named = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let player = || {
+    AudioPlayer::controlled(84.0, 250.0, |_| {})
+      .title("Night Drive")
+      .error(Some("x"))
+      .on_retry(|| {})
+      .id("p")
+  };
+  // The app's locale, set once for everything in it.
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = Stage::in_app(app, move |_| Column::new().width(360.0).child(player()).into());
+  assert!(stage.paints("Спробувати ще раз"), "Try again, in the app's language");
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  assert_eq!(named(&mut stage, "p-play").as_deref(), Some("Відтворити"));
+  // Another locale for the app: what is drawn is drawn again in it.
+  handle.set_locale(Locale::for_tag("de"));
+  stage.pass();
+  assert!(stage.paints("Erneut versuchen") && !stage.paints("Спробувати ще раз"));
+
+  // A player given a locale of its own speaks in that one, and a word told by itself stays what it was told.
+  let mut own = Stage::new(move |_| {
+    Column::new()
+      .width(360.0)
+      .child(player().locale(&Locale::for_tag("pl")).previous_label("Wstecz"))
+      .into()
+  });
+  assert!(own.paints("Spróbuj ponownie"));
+  // With no locale of the app's and none of its own, it speaks English; a word told by itself is that word.
+  let mut plain = Stage::new(move |_| Column::new().width(360.0).child(player()).into());
+  assert!(plain.paints("Try again"));
+  let mut told = Stage::new(move |_| Column::new().width(360.0).child(player().retry_text("Again")).into());
+  assert!(told.paints("Again") && !told.paints("Try again"));
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  assert_eq!(named(&mut own, "p-previous").as_deref(), Some("Wstecz"));
+}
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media"))]
+#[test]
+fn what_its_source_cannot_play_is_said_in_the_apps_locale() {
+  use lurq::{app::App, core::Locale, resources::Source};
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .width(360.0)
+      .child(
+        AudioPlayer::controlled(0.0, 0.0, |_| {})
+          .source(&Source::bytes(b"not a sound".to_vec()))
+          .title("Nothing")
+          .id("p"),
+      )
+      .into()
+  });
+  until(&mut stage, "the error", |stage| stage.paints("Непідтримуваний формат"));
+  assert!(stage.paints("Спробувати ще раз"));
 }

@@ -235,6 +235,10 @@ an alias.
   word a part draws (`empty_text`, `loading_text`, `separator_text`). One method for one string, also where the
   word shown and the name read are two, or the name follows a state. A sentence with numbers in it takes a
   function: `count_text(Fn(rows, selected) -> String)`. A component's default name ("Main") is set with `label`.
+  What such a word is unless it is said otherwise comes from the app's one locale, `core::Locale`
+  (`ui::current_locale()`), not from a literal in the component: `AGENTS.md` has the rule, and the media
+  components, the signature pad, the angle slider, the QR code, the transfer and the cascader are the ones that
+  follow it so far.
 - **A handler of a list told which item**: `on_select(Fn(&Id))` on the list (a breadcrumb told the step followed),
   beside each item's own `on_select(Fn())`.
 - **What it holds**: a list in the constructor where the component is its items (`Tabs::new(value, tabs)`,
@@ -388,6 +392,24 @@ an alias.
   `Stage::software` for a test that reads a canvas's pixels, `lurq::code`, `ui::CodeBlock`, `ui::Blockquote`,
   `ui::Highlight`, the type roles `Heading1` to `Heading6`, `Prose` and `Article`, `TextStyle::case`,
   `ElementRef::observe_rect_before_paint`, `Stage::first_frame`.
+
+## What the thirteenth batch taught
+
+- **What a batch may use now**: the components of 14.27; `CanvasHandle::offscreen`; `.snap_to_pixels`;
+  `.repeat(Repeat)`; `Theme::palette_color_for`; `Listbox::checkboxes`; `ui/select_trigger.rs` for a trigger that
+  opens a panel.
+
+- **A component that measures its room is a component when it is a child too.** A `Transfer` given as
+  `.child(transfer)` kept its wide form at any width, as only `mount` measured; its `From<_> for Element` now declares
+  the same host component `mount` mounts, and `build(theme)` is the still, wide picture for a test. A component with a
+  narrow form chosen by its room has a test of it as a child in a narrow room.
+- **A component's tests decode what it paints, where there is a decoder.** The QR code's tests read the painted quads
+  back into text at 100, 150 and 200%, and the signature's PNG is read back by a PNG decoder; a test of the numbers
+  alone would have passed a code no phone reads.
+- **A prop added to another component for yours gets that component's tests**, not only yours: `ColumnView`'s three
+  props were covered only through the cascader until they had their own.
+- **A session that merges into the branch while the coordinator's suites run makes those runs worth nothing.** The
+  suites are run again on the whole once every merge is in.
 
 ## What the twelfth batch taught
 

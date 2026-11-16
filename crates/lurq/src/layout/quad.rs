@@ -363,6 +363,67 @@ pub struct Quad {
   pub clip: ClipRect,
 }
 
+impl Quad {
+  /// The quad moved by `dx` and `dy`, where what it paints can be painted again elsewhere: a fill, a text, an
+  /// image, a picture, a shadow. `None` for an input's text and a backdrop's blur, which belong to their node.
+  pub(crate) fn moved_copy(&self, dx: f32, dy: f32) -> Option<Quad> {
+    let content = match &self.content {
+      QuadContent::Rect { color, gradient } => QuadContent::Rect {
+        color: *color,
+        gradient: gradient.clone(),
+      },
+      QuadContent::Text {
+        text,
+        style,
+        wrap,
+        vertical_align,
+        transform_mode,
+      } => QuadContent::Text {
+        text: text.clone(),
+        style: style.clone(),
+        wrap: *wrap,
+        vertical_align: *vertical_align,
+        transform_mode: *transform_mode,
+      },
+      QuadContent::RichText {
+        spans,
+        wrap,
+        vertical_align,
+        transform_mode,
+      } => QuadContent::RichText {
+        spans: spans.clone(),
+        wrap: *wrap,
+        vertical_align: *vertical_align,
+        transform_mode: *transform_mode,
+      },
+      #[cfg(feature = "raster")]
+      QuadContent::Image { data, uv_min, uv_max } => QuadContent::Image {
+        data: data.clone(),
+        uv_min: *uv_min,
+        uv_max: *uv_max,
+      },
+      #[cfg(feature = "svg")]
+      QuadContent::Svg { data } => QuadContent::Svg { data: data.clone() },
+      QuadContent::BoxShadow(shadow) => QuadContent::BoxShadow(*shadow),
+      QuadContent::None => QuadContent::None,
+      _ => return None,
+    };
+    Some(Quad {
+      x: self.x + dx,
+      y: self.y + dy,
+      width: self.width,
+      height: self.height,
+      opacity: self.opacity,
+      transform: self.transform,
+      transform_origin: self.transform_origin,
+      content,
+      border_radius: self.border_radius,
+      border: self.border,
+      clip: self.clip,
+    })
+  }
+}
+
 #[doc(hidden)]
 pub use crate::app::glyph_engine::input_tokens::DecoratedInputLayout;
 

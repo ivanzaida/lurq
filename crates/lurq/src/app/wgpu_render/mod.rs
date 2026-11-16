@@ -7,6 +7,10 @@ mod gradients;
 mod layers;
 #[cfg(test)]
 mod quad_tests;
+#[cfg(all(windows, feature = "raster"))]
+mod shared_nv12;
+#[cfg(all(test, windows, feature = "raster", feature = "media"))]
+mod shared_nv12_tests;
 mod surface_proxy;
 mod vertex;
 
@@ -255,6 +259,15 @@ enum CachedImageTexture {
     frame_index: usize,
     version: u64,
   },
+  /// The frames of a video that stay on the card: each of its textures opened once, and the one that is shown
+  /// drawn.
+  #[cfg(windows)]
+  SharedNv12 {
+    slots: Vec<shared_nv12::Slot>,
+    frames: crate::images::SharedNv12Frames,
+    width: u32,
+    height: u32,
+  },
 }
 
 #[cfg(all(feature = "raster", target_os = "macos"))]
@@ -325,12 +338,35 @@ impl CachedImageTexture {
           && *height == image.image_height
           && animation_frames.as_ref().map(Vec::len) == image.animation_frames.as_ref().map(|frames| frames.len())
       }
+      // Frames of memory are not frames of the card, though both are NV12.
       Self::Nv12 { width, height, .. } => {
         image.image_format == crate::images::ImagePixelFormat::Nv12
           && *width == image.image_width
           && *height == image.image_height
+          && !shared_nv12_of(image)
+      }
+      #[cfg(windows)]
+      Self::SharedNv12 { width, height, .. } => {
+        shared_nv12_of(image) && *width == image.image_width && *height == image.image_height
       }
     }
+  }
+}
+
+/// Whether `image` is frames that stay on the card.
+#[cfg(feature = "raster")]
+fn shared_nv12_of(image: &crate::images::ImageCmd) -> bool {
+  #[cfg(windows)]
+  {
+    image
+      .native
+      .as_ref()
+      .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::SharedNv12)
+  }
+  #[cfg(not(windows))]
+  {
+    let _ = image;
+    false
   }
 }
 
@@ -477,6 +513,9 @@ fn device_descriptor(
   optional_features: wgpu::Features,
   optional_limits: &wgpu::Limits,
 ) -> wgpu::DeviceDescriptor<'static> {
+  // A frame of a video that stays on the card is an NV12 texture, where the card has them.
+  #[cfg(all(windows, feature = "raster"))]
+  let optional_features = optional_features | wgpu::Features::TEXTURE_FORMAT_NV12;
   #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
   let mut required_features = adapter.features() & optional_features;
   // Measures GPU time while a profiling session is active.
@@ -1038,6 +1077,9 @@ impl WgpuRenderEngine {
       Some(prepared) => (prepared.adapter, prepared.device, prepared.queue),
       None => self.request_device(&surface),
     };
+    // What decodes a video decodes on the card this draws on, and its frames stay there.
+    #[cfg(all(windows, feature = "raster"))]
+    shared_nv12::announce(&device);
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
@@ -2618,6 +2660,9 @@ impl RenderEngine for WgpuRenderEngine {
                     *version = img.version;
                   }
                 }
+                // Nothing is sent to the card for a frame that is there already.
+                #[cfg(windows)]
+                CachedImageTexture::SharedNv12 { .. } => {}
               }
 
               if !set_scissor(&mut pass, space.clip(img.clip), &space) {
@@ -2711,12 +2756,26 @@ impl RenderEngine for WgpuRenderEngine {
                     pass.set_bind_group(0, bind_group, &[]);
                   }
                 }
-                CachedImageTexture::Nv12 {
-                  bind_group,
-                  y_view,
-                  uv_view,
-                  ..
-                } => {
+                nv12 => {
+                  // The two planes to draw, and which frame they are: of memory's one texture, or of the card's
+                  // texture that is shown now.
+                  let (bind_group, y_view, uv_view, frame) = match nv12 {
+                    CachedImageTexture::Nv12 {
+                      bind_group,
+                      y_view,
+                      uv_view,
+                      ..
+                    } => (&*bind_group, &*y_view, &*uv_view, img.frame_index),
+                    #[cfg(windows)]
+                    CachedImageTexture::SharedNv12 { slots, frames, .. } => {
+                      let shown = frames.shown().min(slots.len().saturating_sub(1));
+                      let Some(slot) = slots.get(shown) else {
+                        continue;
+                      };
+                      (&slot.bind_group, &slot.y_view, &slot.uv_view, shown)
+                    }
+                    _ => continue,
+                  };
                   if active_pipeline != Some(ActivePipeline::Nv12Image) {
                     pass.set_pipeline(&nv12_image_pipeline);
                     active_pipeline = Some(ActivePipeline::Nv12Image);
@@ -2725,7 +2784,7 @@ impl RenderEngine for WgpuRenderEngine {
                     let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
                     let bind_key = ImageClipBindGroupKey {
                       image_id: img.image_id,
-                      frame_index: img.frame_index,
+                      frame_index: frame,
                       clip: clip_key,
                       format: ImageClipFormat::Nv12,
                     };
@@ -3290,6 +3349,10 @@ fn create_nv12_cached_image_texture(
     Some(crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
   ) {
     return create_macos_native_nv12_cached_image_texture(device, nv12_image_bgl, image_sampler, globals_buffer, image);
+  }
+  #[cfg(windows)]
+  if shared_nv12_of(image) {
+    return shared_nv12::cached(device, nv12_image_bgl, image_sampler, globals_buffer, image);
   }
 
   let y_texture = device.create_texture(&wgpu::TextureDescriptor {

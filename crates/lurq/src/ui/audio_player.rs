@@ -343,23 +343,31 @@ struct Words {
   retry: Arc<str>,
 }
 
+impl Words {
+  /// The words a locale has for a player.
+  fn of(words: &crate::core::MediaWords) -> Self {
+    Self {
+      label: words.audio_player.clone(),
+      play: words.play.clone(),
+      pause: words.pause.clone(),
+      previous: words.previous.clone(),
+      next: words.next.clone(),
+      shuffle: words.shuffle.clone(),
+      repeat: words.repeat.clone(),
+      more: words.more.clone(),
+      speed: words.playback_speed.clone(),
+      queue: words.queue.clone(),
+      expand: words.expand.clone(),
+      seek: words.seek.clone(),
+      retry: words.try_again.clone(),
+    }
+  }
+}
+
+/// The words of the locale of what is being built: the app's in a render, English outside one.
 impl Default for Words {
   fn default() -> Self {
-    Self {
-      label: Arc::from("Audio player"),
-      play: Arc::from("Play"),
-      pause: Arc::from("Pause"),
-      previous: Arc::from("Previous"),
-      next: Arc::from("Next"),
-      shuffle: Arc::from("Shuffle"),
-      repeat: Arc::from("Repeat"),
-      more: Arc::from("More"),
-      speed: Arc::from("Playback speed"),
-      queue: Arc::from("Queue"),
-      expand: Arc::from("Expand"),
-      seek: Arc::from("Seek"),
-      retry: Arc::from("Try again"),
-    }
+    Self::of(&super::current_locale().media)
   }
 }
 
@@ -430,6 +438,8 @@ pub struct AudioPlayer {
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// The words it was told to speak in, in place of the app's: what its source's errors are said in.
+  locale: Option<crate::core::MediaWords>,
   #[cfg(feature = "media")]
   source: Option<crate::resources::Source>,
 }
@@ -469,6 +479,7 @@ impl AudioPlayer {
       forced: None,
       id: None,
       key: None,
+      locale: None,
       #[cfg(feature = "media")]
       source: None,
     }
@@ -827,6 +838,15 @@ impl AudioPlayer {
   /// What the seek bar is called: "Seek" unless told.
   pub fn seek_label(mut self, label: &str) -> Self {
     self.words.seek = Arc::from(label);
+    self
+  }
+
+  /// The words this player speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)):
+  /// the names of its controls, "Try again", and what its source says when it cannot play. Said before the
+  /// words that are told one by one (`play_label` and the others), which stay what they were told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.words = Words::of(&locale.media);
+    self.locale = Some(locale.media.clone());
     self
   }
 
@@ -2018,8 +2038,12 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     player.buffered = player.buffered.or(Some(duration));
   }
   player.loading = player.loading || state.waiting;
+  // Why it cannot play, in the words of the locale: a short line, which the times give their room to.
   if let (None, Some(why)) = (&player.error, &state.error) {
-    player.error = Some(why.clone());
+    player.error = Some(match &player.locale {
+      Some(words) => words.error(why),
+      None => super::current_locale().media.error(why),
+    });
   }
   player
 }

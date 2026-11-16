@@ -74,9 +74,10 @@ const ADDRESS: &str = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1
 
 /// What the playground's player is given to play, in the order of the select: nothing, so that the page's
 /// clock moves it; the gallery's track from its bytes or from a file; a sound at an address.
-const SOURCES: [(&str, usize); 4] = [("None", 0), ("Bytes", 1), ("A file", 2), ("An address", ADDRESSED)];
+const SOURCES: [(&str, usize); 4] = [("None", 0), ("Bytes", 1), ("A file", FILED), ("An address", ADDRESSED)];
 
-/// The place of an address among the sources.
+/// The places of a file and of an address among the sources.
+const FILED: usize = 2;
 const ADDRESSED: usize = 3;
 
 /// The track as bytes: one source for every render, so that it is one sound.
@@ -88,61 +89,44 @@ fn track_bytes() -> lurq::resources::Source {
     .clone()
 }
 
-/// The track as a file on this machine's disk, written there once: a player reads it from the disk.
+/// Where the track is as a file on this machine's disk, written there once: the path the playground plays as a
+/// file until another is typed.
 #[cfg(not(target_arch = "wasm32"))]
-fn track_file() -> lurq::resources::Source {
+fn track_path() -> String {
   static TRACK_FILE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-  let path = TRACK_FILE.get_or_init(|| {
-    let folder = std::env::temp_dir().join("lurq-gallery");
-    let path = folder.join("track.m4a");
-    let _ = std::fs::create_dir_all(&folder);
-    let _ = std::fs::write(&path, TRACK);
-    path
-  });
-  lurq::resources::Source::file(path)
+  TRACK_FILE
+    .get_or_init(|| {
+      let folder = std::env::temp_dir().join("lurq-gallery");
+      let path = folder.join("track.m4a");
+      let _ = std::fs::create_dir_all(&folder);
+      let _ = std::fs::write(&path, TRACK);
+      path
+    })
+    .display()
+    .to_string()
 }
 
-/// The source the playground's player plays: none for the first of [`SOURCES`], and for an address that is
-/// not typed yet.
+/// The source the playground's player plays: none for the first of [`SOURCES`], and for a path or an address
+/// that is not typed yet.
 #[cfg(not(target_arch = "wasm32"))]
-fn source_of(chosen: usize, address: &str) -> Option<lurq::resources::Source> {
+fn source_of(chosen: usize, path: &str, address: &str) -> Option<lurq::resources::Source> {
   match chosen {
     1 => Some(track_bytes()),
-    2 => Some(track_file()),
+    FILED if !path.trim().is_empty() => Some(lurq::resources::Source::file(path.trim())),
     ADDRESSED if !address.trim().is_empty() => Some(lurq::resources::Source::url(address.trim())),
     _ => None,
   }
 }
 
-/// The field an address is typed into, as the playground's fields are. What plays stops at the first key, so
-/// that half an address is not asked for.
+/// What a key in a path or an address does: what plays stops, so that half of one is not asked for.
 #[cfg(not(target_arch = "wasm32"))]
-fn address_field(address: &Signal<String>, playing: &Signal<bool>) -> Element {
-  let body = lurq::ui::current_theme().typography_style(lurq::app::theme::TypographyStyle::Body);
+fn stops(playing: &Signal<bool>) -> impl Fn() + Send + Sync + 'static {
   let playing = playing.clone();
-  Row::new()
-    .width(FILL)
-    .height(36.0)
-    .padding_horizontal(12.0)
-    .align_items(Alignment::Center)
-    .rounded(RadiusSize::Md)
-    .background(PaletteColor::Background)
-    .border(lurq::node::border::Border::inside(
-      lurq::app::theme::BorderSize::Sm,
-      PaletteColor::Input,
-    ))
-    .child(
-      lurq::components::TextInput::styled(address.clone(), body)
-        .flex(1.0)
-        .height(FILL)
-        .tab_index(0)
-        .on_input(move |_| {
-          if playing.get_untracked() {
-            playing.set(false);
-          }
-        }),
-    )
-    .into()
+  move || {
+    if playing.get_untracked() {
+      playing.set(false);
+    }
+  }
 }
 
 /// Under the address: whether its sound is kept and how much is kept in all, and what lets go of it.
@@ -407,6 +391,8 @@ pub struct AudioPlayerPage {
   /// bytes of sounds are kept, which the clock reads again for the line under the address.
   source: Signal<usize>,
   address: Signal<String>,
+  /// The path typed for a file: the gallery's own track on this disk until another is.
+  path: Signal<String>,
   #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
   kept: Signal<u64>,
   /// The page's clock: while the playground plays with no source, it moves the position on, and stops it at
@@ -460,7 +446,7 @@ impl AudioPlayerPage {
     // What it really plays, where a source is chosen: where it is and how long are then the sound's.
     let chosen = self.source.get().min(SOURCES.len() - 1);
     #[cfg(not(target_arch = "wasm32"))]
-    let source = source_of(chosen, &self.address.get());
+    let source = source_of(chosen, &self.path.get(), &self.address.get());
     #[cfg(target_arch = "wasm32")]
     let source: Option<()> = None;
     let sourced = chosen != 0;
@@ -582,7 +568,7 @@ impl AudioPlayerPage {
     ];
     match chosen {
       1 => code.push("    .source(&Source::bytes(include_bytes!(\"track.m4a\").to_vec()))".to_owned()),
-      2 => code.push("    .source(&Source::file(\"songs/track.m4a\"))".to_owned()),
+      FILED => code.push(format!("    .source(&Source::file({:?}))", self.path.get().trim())),
       ADDRESSED => code.push(format!("    .source(&Source::url({:?}))", self.address.get().trim())),
       _ => {}
     }
@@ -718,8 +704,20 @@ impl AudioPlayerPage {
           to_source.set(index);
         }),
       ));
+      // A file of the person's own is its path, and a sound on the network its address: typed here.
+      if chosen == FILED {
+        controls.push(prop(
+          "path",
+          "impl Into<PathBuf>",
+          crate::playground::field_telling(&self.path, stops(&self.playing)),
+        ));
+      }
       if chosen == ADDRESSED {
-        controls.push(prop("address", "&str", address_field(&self.address, &self.playing)));
+        controls.push(prop(
+          "address",
+          "&str",
+          crate::playground::field_telling(&self.address, stops(&self.playing)),
+        ));
         controls.push(kept_line(source.as_ref(), self.kept.get()));
       }
     }
@@ -796,10 +794,14 @@ impl AudioPlayerPage {
         self.unheard.clone(),
         self.disabled.clone(),
       );
-      let (source, address) = (self.source.clone(), self.address.clone());
+      let (source, address, path) = (self.source.clone(), self.address.clone(), self.path.clone());
       move || {
         source.set(0);
         address.set(ADDRESS.to_owned());
+        #[cfg(not(target_arch = "wasm32"))]
+        path.set(track_path());
+        #[cfg(target_arch = "wasm32")]
+        let _ = &path;
         variant.set(0);
         window.set(0);
         title.set("Night Drive".to_owned());
@@ -933,6 +935,10 @@ impl Component for AudioPlayerPage {
       disabled: ctx.signal(false),
       source,
       address: ctx.signal(ADDRESS.to_owned()),
+      #[cfg(not(target_arch = "wasm32"))]
+      path: ctx.signal(track_path()),
+      #[cfg(target_arch = "wasm32")]
+      path: ctx.signal(String::new()),
       kept,
       _clock: clock,
     }
@@ -1125,93 +1131,93 @@ impl Component for AudioPlayerPage {
     ];
     let playground = self.play(ctx);
     let sections = vec![
-        Section::new(
-          "Playground",
-          "Every prop is a control on the right; the player on the stage is bound to the page's signals, and a \
+      Section::new(
+        "Playground",
+        "Every prop is a control on the right; the player on the stage is bound to the page's signals, and a \
            clock of the page moves the position on while it plays and stops it at the end. With a source chosen \
-           (the gallery's own track from its bytes or from a file, or a sound at an address) the player really \
-           plays it: where it is and how long are then the sound's. An address is loaded when it is first \
-           played, and kept.",
-          playground,
-        ),
-        Section::new(
-          "Card",
-          "The board's card: paused; playing with shuffle on and repeat one; loading, with lines for the texts and \
+           (the gallery's own track from its bytes, a file by its path, a sound at an address) the player really \
+           plays it: where it is and how long are then the sound's. A file of your own is its path, typed in \
+           place of the gallery's. An address is loaded when it is first played, and kept.",
+        playground,
+      ),
+      Section::new(
+        "Card",
+        "The board's card: paused; playing with shuffle on and repeat one; loading, with lines for the texts and \
            a spinner in play; and an error, which says what went wrong in place of the times.",
-          self.frame.demo(
-            0,
-            cards,
-            "AudioPlayer::new(position, 250.0).title(..).description(..)",
-            &[
-              "AudioPlayer::new(position, 250.0)",
-              "    .title(\"Night Drive\")",
-              "    .description(\"Aurora Lane · Low Tide\")",
-              "    .media(artwork)",
-              "    .playing(playing)",
-              "    .shuffle(shuffle)",
-              "    .repeat(repeat)",
-              "    .mount(ctx)",
-            ],
-          ),
+        self.frame.demo(
+          0,
+          cards,
+          "AudioPlayer::new(position, 250.0).title(..).description(..)",
+          &[
+            "AudioPlayer::new(position, 250.0)",
+            "    .title(\"Night Drive\")",
+            "    .description(\"Aurora Lane · Low Tide\")",
+            "    .media(artwork)",
+            "    .playing(playing)",
+            "    .shuffle(shuffle)",
+            "    .repeat(repeat)",
+            "    .mount(ctx)",
+          ],
         ),
-        Section::new(
-          "Compact",
-          "One row of 48 for a list or a message: play, the bar (or a waveform), the time. After an error the \
+      ),
+      Section::new(
+        "Compact",
+        "One row of 48 for a list or a message: play, the bar (or a waveform), the time. After an error the \
            button turns to retry.",
-          self.frame.demo(
-            1,
-            rows,
-            "AudioPlayer::new(..).variant(AudioPlayerVariant::Compact)",
-            &[
-              "AudioPlayer::new(position, 250.0)",
-              "    .variant(AudioPlayerVariant::Compact)",
-              "    .playing(playing)",
-              "    .mount(ctx)",
-            ],
-          ),
+        self.frame.demo(
+          1,
+          rows,
+          "AudioPlayer::new(..).variant(AudioPlayerVariant::Compact)",
+          &[
+            "AudioPlayer::new(position, 250.0)",
+            "    .variant(AudioPlayerVariant::Compact)",
+            "    .playing(playing)",
+            "    .mount(ctx)",
+          ],
         ),
-        Section::new(
-          "Voice message",
-          "A play button, the waveform, the time, and the speed while it plays, which a press steps through 1×, \
+      ),
+      Section::new(
+        "Voice message",
+        "A play button, the waveform, the time, and the speed while it plays, which a press steps through 1×, \
            1.5× and 2×; a dot while it has not been heard.",
-          self.frame.demo(
-            2,
-            voices,
-            "AudioPlayer::new(..).variant(AudioPlayerVariant::Voice).peaks(&peaks)",
-            &[
-              "AudioPlayer::new(position, 42.0)",
-              "    .variant(AudioPlayerVariant::Voice)",
-              "    .peaks(&peaks)",
-              "    .unheard(!heard)",
-              "    .rate(rate)",
-              "    .mount(ctx)",
-            ],
-          ),
+        self.frame.demo(
+          2,
+          voices,
+          "AudioPlayer::new(..).variant(AudioPlayerVariant::Voice).peaks(&peaks)",
+          &[
+            "AudioPlayer::new(position, 42.0)",
+            "    .variant(AudioPlayerVariant::Voice)",
+            "    .peaks(&peaks)",
+            "    .unheard(!heard)",
+            "    .rate(rate)",
+            "    .mount(ctx)",
+          ],
         ),
-        Section::new(
-          "Mini player",
-          "Docked along the bottom of a window, as wide as it: a progress line along its top edge, the track, the \
+      ),
+      Section::new(
+        "Mini player",
+        "Docked along the bottom of a window, as wide as it: a progress line along its top edge, the track, the \
            transport, the time, the volume, the queue and expand. Under 480 wide, the track, play and next.",
-          self.frame.demo(
-            3,
-            docked,
-            "AudioPlayer::new(..).variant(AudioPlayerVariant::Mini)",
-            &[
-              "Column::new()",
-              "    .child(content.flex(1.0))",
-              "    .child(",
-              "        AudioPlayer::new(position, 250.0)",
-              "            .variant(AudioPlayerVariant::Mini)",
-              "            .title(\"Night Drive\")",
-              "            .description(\"Aurora Lane\")",
-              "            .on_queue(|| show_queue())",
-              "            .on_expand(|| expand())",
-              "            .mount(ctx),",
-              "    )",
-            ],
-          ),
+        self.frame.demo(
+          3,
+          docked,
+          "AudioPlayer::new(..).variant(AudioPlayerVariant::Mini)",
+          &[
+            "Column::new()",
+            "    .child(content.flex(1.0))",
+            "    .child(",
+            "        AudioPlayer::new(position, 250.0)",
+            "            .variant(AudioPlayerVariant::Mini)",
+            "            .title(\"Night Drive\")",
+            "            .description(\"Aurora Lane\")",
+            "            .on_queue(|| show_queue())",
+            "            .on_expand(|| expand())",
+            "            .mount(ctx),",
+            "    )",
+          ],
         ),
-        Section::new("Props", "", props_table(&rows_table, &["new"], self.frame.room())),
+      ),
+      Section::new("Props", "", props_table(&rows_table, &["new"], self.frame.room())),
     ];
     self.frame.page(
       ctx,

@@ -56,6 +56,7 @@ The main theme accessors are:
 | `theme.palette_color(key)` / `theme.set_palette_color(key, color)` | Read one palette role in the palette the theme is in; set one in every appearance. |
 | `theme.set_palettes(light, dark)` | Give the theme a palette for each appearance. |
 | `theme.set_palette_color_for(appearance, key, color)` | Set one palette role in the palette of one appearance. |
+| `theme.palette_color_for(appearance, key)` | Read one palette role in the palette of one appearance, whatever the theme is in. |
 | `theme.typography()` / `theme.set_typography(...)` | Read or replace `ThemeTypography`. |
 | `theme.typography_style(key)` / `theme.set_typography_style(key, style)` | Read or set one typography role. |
 | `theme.default_text_style()` / `theme.set_default_text_style(style)` | Compatibility alias for the `body` typography style. |
@@ -153,6 +154,7 @@ given others: it is in the dark one when the system is dark (see [The System's S
 
 - `set_palette_color(role, color)` sets a role in every appearance: a brand color set once is the brand color in the light look and in the dark one.
 - `set_palette_color_for(appearance, role, color)` sets a role in the palette of one appearance.
+- `palette_color_for(appearance, role)` reads a role in the palette of one appearance, whatever appearance the theme is in now: what is drawn alike in both looks, as a QR code is dark on light in either.
 - `set_palette(palette)` sets the palette of the appearance the theme is in now and leaves the other as it is.
 - `set_palettes(light, dark)` sets both.
 

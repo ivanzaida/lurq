@@ -196,6 +196,9 @@ pub const PANEL_BOTTOM: &str = "panel-bottom";
 pub const PANEL_TOP_OPEN: &str = "panel-top-open";
 pub const ROUTE: &str = "route";
 pub const TABLE_OF_CONTENTS: &str = "table-of-contents";
+pub const ARROW_LEFT_RIGHT: &str = "arrow-left-right";
+pub const QR_CODE: &str = "qr-code";
+pub const STAMP: &str = "stamp";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -388,4 +391,7 @@ pub const ALL: &[(&str, char)] = &[
   (PANEL_TOP_OPEN, '\u{E0BA}'),
   (ROUTE, '\u{E0BB}'),
   (TABLE_OF_CONTENTS, '\u{E0BC}'),
+  (ARROW_LEFT_RIGHT, '\u{E0BD}'),
+  (QR_CODE, '\u{E0BE}'),
+  (STAMP, '\u{E0BF}'),
 ];

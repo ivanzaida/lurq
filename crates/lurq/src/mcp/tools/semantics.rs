@@ -56,7 +56,19 @@ pub(super) fn is_text_node(node: &Node) -> bool {
   }
 }
 
+/// Whether the node and all it holds are nothing to tooling: `a11y_hidden` is `true` (a watermark's marks, a
+/// chart's axis drawn beside what it says).
+pub(super) fn hidden_from_tooling(node: &Node) -> bool {
+  node
+    .debug_attrs()
+    .iter()
+    .any(|(key, value)| key.as_ref() == "a11y_hidden" && value.as_ref() == "true")
+}
+
 pub(super) fn descendant_label(node: &Node, parts: &mut Vec<String>) {
+  if hidden_from_tooling(node) {
+    return;
+  }
   if is_text_node(node)
     && let Some(text) = node.inspection_text().filter(|text| !text.trim().is_empty())
   {

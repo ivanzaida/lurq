@@ -1,6 +1,7 @@
 //! A column view: its columns against the board, what a press of an item does to the path, the keys along a column
-//! and across the columns, activating, a disabled item, children that come later, a label longer than its room,
-//! the density, a narrow room that the columns scroll in, tooling, and a theme's other anatomy.
+//! and across the columns, activating, the props of a menu of columns (a single press that activates, Enter into an
+//! item that holds others, the pointer that opens a column), a disabled item, children that come later, a label
+//! longer than its room, the density, a narrow room that the columns scroll in, tooling, and a theme's other anatomy.
 
 use std::sync::{Arc, Mutex};
 
@@ -606,4 +607,110 @@ fn tooling_reads_listboxes_of_options_with_the_path_selected() {
   assert_eq!(read(&mut stage, "demo", "a11y_posinset").as_deref(), Some("3"));
   assert_eq!(read(&mut stage, "demo", "a11y_setsize").as_deref(), Some("3"));
   assert_eq!(read(&mut stage, "Cargo.toml", "a11y_expanded"), None);
+}
+
+/// The board's view at `path`, mounted, with the three props of a menu of columns as given, which tells `told` what
+/// its handlers hear.
+fn menu(
+  path: &[Id],
+  press_activates: bool,
+  activate_branches: bool,
+  open_on_hover: bool,
+) -> (Stage, Signal<Vec<Id>>, Told) {
+  let path = Signal::new(path.to_vec());
+  let told: Told = Arc::default();
+  let (bound, heard) = (path.clone(), told.clone());
+  let stage = wide(move |ctx| {
+    let (change, activate) = (heard.clone(), heard.clone());
+    Column::new()
+      .size(640.0, 300.0)
+      .padding(8.0)
+      .child(
+        ColumnView::new(bound.clone(), files())
+          .id("view")
+          .press_activates(press_activates)
+          .activate_branches(activate_branches)
+          .open_on_hover(open_on_hover)
+          .on_change(move |path| change.lock().unwrap().push(format!("change {path:?}")))
+          .on_activate(move |id| activate.lock().unwrap().push(format!("activate {id}")))
+          .mount(ctx),
+      )
+      .into()
+  });
+  (stage, path, told)
+}
+
+#[test]
+fn with_press_activates_a_single_press_activates_what_it_chooses() {
+  let (mut stage, path, told) = menu(&["crates", "lurq"], true, true, false);
+  stage.presses_at(std::time::Duration::from_secs(10));
+  stage.click("Cargo.toml");
+  assert_eq!(path.get(), ["crates", "lurq", "Cargo.toml"]);
+  assert_eq!(
+    said(&told),
+    [r#"change ["crates", "lurq", "Cargo.toml"]"#, "activate Cargo.toml"]
+  );
+  // An item that holds others is activated too, where branches are.
+  stage.presses_at(std::time::Duration::from_secs(20));
+  stage.click("docs");
+  assert_eq!(said(&told), [r#"change ["docs"]"#, "activate docs"]);
+  // Without branches, a press of one only chooses it, and one that holds nothing is still activated.
+  let (mut stage, _, told) = menu(&["crates", "lurq"], true, false, false);
+  stage.presses_at(std::time::Duration::from_secs(30));
+  stage.click("docs");
+  assert_eq!(said(&told), [r#"change ["docs"]"#]);
+  stage.presses_at(std::time::Duration::from_secs(40));
+  stage.click("index.md");
+  assert_eq!(said(&told), [r#"change ["docs", "index.md"]"#, "activate index.md"]);
+}
+
+#[test]
+fn without_press_activates_a_single_press_only_chooses() {
+  let (mut stage, path, told) = menu(&["crates", "lurq"], false, true, false);
+  stage.presses_at(std::time::Duration::from_secs(50));
+  stage.click("Cargo.toml");
+  assert_eq!(path.get(), ["crates", "lurq", "Cargo.toml"]);
+  assert_eq!(said(&told), [r#"change ["crates", "lurq", "Cargo.toml"]"#]);
+}
+
+#[test]
+fn without_activate_branches_enter_goes_into_an_item_that_holds_others() {
+  let (mut stage, path, told) = menu(&["crates", "lurq"], false, false, false);
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("lurq"));
+  stage.key("Enter");
+  assert_eq!(focused(&stage).as_deref(), Some("src"));
+  assert_eq!(path.get(), ["crates", "lurq", "src"]);
+  assert_eq!(said(&told), [r#"change ["crates", "lurq", "src"]"#]);
+  // On an item that holds nothing Enter activates it.
+  stage.key("ArrowRight");
+  stage.key("Enter");
+  assert_eq!(
+    said(&told),
+    [r#"change ["crates", "lurq", "src", "lib.rs"]"#, "activate lib.rs"]
+  );
+  // With branches, Enter activates the item that holds others.
+  let (mut stage, path, told) = menu(&["crates", "lurq"], false, true, false);
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(said(&told), ["activate lurq"]);
+  assert_eq!(path.get(), ["crates", "lurq"]);
+}
+
+#[test]
+fn with_open_on_hover_the_pointer_opens_an_items_column() {
+  let (mut stage, path, told) = menu(&["crates", "lurq"], false, true, true);
+  stage.hover("docs");
+  assert_eq!(path.get(), ["docs"]);
+  assert_eq!(said(&told), [r#"change ["docs"]"#]);
+  assert!(stage.paints("index.md"));
+  // An item that holds nothing chooses nothing under the pointer.
+  stage.hover("index.md");
+  assert_eq!(path.get(), ["docs"]);
+  assert!(said(&told).is_empty());
+  // Without it the pointer opens nothing.
+  let (mut stage, path, told) = menu(&["crates", "lurq"], false, true, false);
+  stage.hover("docs");
+  assert_eq!(path.get(), ["crates", "lurq"]);
+  assert!(said(&told).is_empty());
 }
