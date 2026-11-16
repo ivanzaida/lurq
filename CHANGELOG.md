@@ -86,6 +86,15 @@ Added:
 - `ui::MediaSpeedMenu` is a component of the design system: the menu's panel 168 wide with the heading "Playback speed" and the speeds, the one in use checked at the end of its row; `on_change` is told only for another speed; it has a menu's `placement`, `offset`, `collision`, `inline`, `on_dismiss`, `on_open_change` and `label`, and `MediaSpeedMenuPart`, `MediaSpeedMenuState`, `MediaSpeedMenuView` and `MediaSpeedMenuRenderer` are new.
 - `CursorIcon::None`: no pointer over an element, which the shells draw by hiding it.
 - The gallery has a group `Media` of nine pages, each with a playground driven by a clock of the page's own: Video Player, Audio Player, Audio Queue, Seek Bar, Media Time, Waveform, Play Button, Volume, Speed Menu.
+- `ui::Picture` is a component of the design system: an image from pixels, a file, bytes, a resource or an address,
+- `lurq::resources` reads what an app shows from a file, bytes, a resource of the app or an address, off the UI
+- `Element::component::<C>(props)` declares a component where an element goes: it is mounted by the component whose
+- `on_wheel` is called for a wheel or a trackpad turned over an element, before anything scrolls and whether or not
+- `components::Image` is deprecated: `ui::Picture` takes its place.
+- `ui::Avatar::picture` takes a `Picture` (it was `image(Image)`).
+- `ui::Lightbox` is a component of the design system: pictures one at a time over the window or in a page, brought
+- `ui::Gallery` is a component of the design system: pictures in rows of rooms of one shape, with one lightbox for
+- `ui::Carousel` is a component of the design system: slides between two round buttons with dots under them,
 - The gallery's pages open in tabs, as a browser's do: a strip in its title bar (`ui::WindowTabs` in a `ui::WindowChrome`) over the engine's set of tabs (`Tabs`, `TabOutlet` with no bar of its own), each tab a router with its own history, its page kept as it was left while another is shown. The add button and Ctrl+T open one, a press of the middle button or a press with Ctrl on a page of the side bar opens that page in one, a tab is closed by its button, the middle button or Ctrl+W and dragged along the strip; the last one stays. In a browser the gallery has the one tab, and the browser's own.
 - `RouterHandle::new(routes)`: a router made outside a render, for a place that is added while the app runs, such as a tab a person opens. `Ctx::router` makes the same.
 - `Tabs::move_to(key, index)`: moves a tab among the others, as a strip of tabs a person drags along asks for; the tab keeps its history, its screens and whether it is the one shown.

@@ -6844,6 +6844,233 @@ MediaSpeedMenu::new(open.clone(), speed_button.clone(), speed.get())
 - In the design it is the menu's panel 168 wide (where a menu is at least 230), with the group label and a menu item for each speed; the check is at the end of the row of the speed in use. Over a picture it stays themed: it is the system's own surface, and opaque.
 - A renderer that draws another speed menu starts from `view.menu()`, the menu with its speeds, or `view.item(rate)` for one speed.
 
+## Picture
+
+An image in its box: it covers the box unless told otherwise, shows a skeleton while it loads and its name when it
+cannot be shown, and carries a badge, a bar and a layer of the app's over it.
+
+```rust
+use lurq::ui::{Picture, PictureFit, PicturePlaceholder};
+
+// Pixels the app has, a file, bytes, a resource of the app, an address.
+Picture::from_file("photos/lake.jpg")
+  .label("The lake at dusk")
+  .size_px(640.0, 360.0)
+  .lightbox(true);
+
+// As wide as its room, 3 by 2 before its pixels are there, with a small version blurred while they come.
+Picture::from_url("https://example.com/lake.jpg")
+  .label("The lake at dusk")
+  .aspect_ratio(3.0 / 2.0)
+  .placeholder(PicturePlaceholder::blur("photos/lake-small.jpg"))
+  .on_error(|why| tracing::warn!("{why}"));
+
+// A figure: the picture with a caption under it.
+Picture::from_resource("images/lake.jpg")
+  .width(320.0)
+  .caption("Figure 1. The lake at dusk.");
+```
+
+| Builder | |
+| --- | --- |
+| `new(ImageData)`, `from_file(path)`, `from_bytes(bytes)`, `from_resource(path)`, `from_url(url)`, `from_source(source)`, `empty()` | Pixels the app has; a file or bytes, decoded off the UI thread; a resource of the app or an address, read by the app's `Loader`; any `resources::Source`; or no source: a box that says it has no picture. `ImageData` converts into a picture. An address outside a browser needs the feature `http`, decoding the feature `image`: without it the box says the picture did not load, and why |
+| `cache_key(u64)`, `downscale_to(width, height)` | The key the decoded pixels are kept under, for bytes the app tells apart itself; and the most pixels that are kept of a large picture |
+| `label(&str)`, `decorative(bool)` | What the picture is called: what it shows of itself where there are no pixels, and its name to tooling. A decorative one says nothing to tooling |
+| `width(Length)`, `height(Length)`, `size_px(width, height)`, `aspect_ratio(f32)` | As a browser's `img`: with neither side it is as large as its pixels, with one the other follows their ratio, with both it is a box. A ratio gives the side that is not said, and with neither makes the box as wide as its room; it holds the box of a picture whose pixels are not there yet. The width is the most the box takes: in a narrower room it is as wide as the room, and a box of pixels keeps its shape |
+| `fit(PictureFit)`, `anchor(StackAlignment)` | `Cover` (the default), `Contain`, `Fill`, `None` (its own size); and which side is kept where the pixels are cut or do not fill the box |
+| `shape(PictureShape)`, `bare(bool)` | `Rounded` or `Circle`; bare is the pixels alone, with no fill, no corners and no line |
+| `size(PictureSize)` | The form: `Lg` from 240 wide, `Md` under it, `Sm` at 96 and under, `Xs` at 40 and under. Not said, it follows the width: a width in pixels gives the form, and a box as wide as its room takes the form of the width it gets |
+| `placeholder(PicturePlaceholder)` | What the box shows while the pixels are on their way: `Skeleton` (the sheen), `blur(source)` or `blur_pixels(data)` (a small version of the picture, blurred), `None` (the box alone) |
+| `loading(bool)`, `progress(Option<f64>)`, `progress_text(Fn(PictureLoad) -> String)` | The box as while its pixels are on their way, for a picture the app is still fetching; how far the load has come, of 1, which draws a rail in place of the sheen; and the words under the rail. A picture that loads from an address shows its own progress where the server says how long it is |
+| `on_load(Fn())`, `on_error(Fn(&str))`, `on_retry(Fn())` | Told once the pixels are there; once the picture did not come, with why; and on a press of "Try again", before the picture asks again |
+| `error_description(&str)`, `retry_label(&str)`, `download_label(&str)`, `more_label(&str)`, `open_label(&str)` | Its words: "The picture didn't load.", "Try again", "Download", "More", "Open" |
+| `title(&str)`, `description(&str)`, `badge(element)` | What the bar along the bottom says, and what stands at the top, at the start. The bar shows under the pointer and with the focus |
+| `on_download(Fn())`, `menu_item(MenuItem)`, `menu_items(..)`, `action(element)`, `actions(..)` | The bar's Download button, the menu behind More, and buttons of the app's |
+| `bar(bool)`, `force_bar_shown(Option<bool>)` | Whether the bar is drawn, and whether it shows whatever the pointer does |
+| `child(element)`, `children(..)` | The app's own layer over the whole picture |
+| `caption(&str)` | A caption under the picture, which makes it a figure |
+| `on_click(handler)` | A press of the picture as a whole |
+| `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
+| `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
+
+- A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
+  by the component whose render returns it, keeps its load, its menu and its lightbox there, and is told apart from
+  its like by its place or its `key`. In a tree no component renders (`Tree::set_root(element)`) it shows nothing.
+  `mount(ctx)` mounts it at once, for a place that needs the element.
+- A picture made of the same plain things as the last time is not rendered again with what holds it: a list of five
+  hundred costs what its changed pictures cost. A handler, a child, a badge or a menu makes it render with its
+  parent.
+- While a box that does not wait for its pixels loads, what stands in for them goes out over them as they come;
+  a box the pixels size drops it at once.
+- A press, Enter and Space press a picture that takes a press; Tab reaches it, and the ring of the focus is drawn
+  from the keyboard. The buttons of the bar are pressed on their own, and the picture is not.
+- Parts: `PicturePart::Figure`, `Root`, `Image`, `Edge`, `StandIn`, `Sheen`, `Veil`, `Overlay`, `Center`, `Mark`,
+  `Label`, `ErrorIcon`, `ErrorLabel`, `ErrorDescription`, `Retry`, `Progress`, `Track`, `Fill`, `ProgressLabel`,
+  `ProgressLine`, `Count`, `Top`, `Select`, `SelectIcon`, `Controls`, `Text`, `Title`, `Description`, `Actions`,
+  `Control`, `ControlIcon`, `MoreMenu`, `Caption`. States: `PictureState::Bare`, `Circle`, `Pressable`,
+  `Selectable`, `Selected`, `Disabled`, `Shown` (the bar is held shown), `On` (a button of the bar whose menu is
+  open). Sizes
+  `PictureSize::Xs`, `Sm`, `Md`, `Lg`.
+- In the design the box is `Muted` with a line of `Border` inside it, round by `RadiusSize::Lg` (`Md` for a small
+  one); the bar is white on a gradient to black at 70% in both themes, since the picture is not themed. A chosen
+  picture has a disc of `Primary` with a check at its top end and a line of `Primary` about it.
+- To what reads the tree it is an `img` called by its label, a `button` where it is pressed, a `checkbox` where it
+  is chosen, and a `figure` about the two where it has a caption.
+- A renderer that draws another picture has `view.frame()` (the box with everything in it), and the pieces it is
+  made of: `view.image()`, `view.empty()`, `view.overlay()`, `view.top()`, `view.controls()`, `view.edge()`.
+
+## Lightbox
+
+Pictures one at a time, whole, over the window: to look at closely, to bring closer, to turn through.
+
+```rust
+use lurq::ui::{Lightbox, Picture};
+
+// open: Signal<bool>. Open while it says so; Escape, a press beside the picture and Close set it to false.
+Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.path).title(&photo.name)))
+  .index(shown.clone())
+  .wrap(true)
+  .on_download(move |which| save(which));
+
+// One picture needs none of this: Picture::lightbox(true). A grid of them: Gallery.
+```
+
+| Builder | |
+| --- | --- |
+| `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
+| `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
+| `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
+| `wrap(bool)` | Whether the first picture comes after the last |
+| `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
+| `on_download(Fn(usize))` | Shows the Download button, and is called with the picture shown |
+| `action(element)`, `actions(..)` | Buttons of the app's in the top row, before Download |
+| `inline(bool)`, `width(Length)`, `height(Length)` | Stands in the page where it is declared, open or not, in place of over the window: for a gallery, a screenshot, a test, a viewer that is part of a page. Its size there; the width is the most it takes |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)`, `close_button(bool)` | Told when a person closes it; and whether Escape, a press beside the picture and a Close button do |
+| `label`, `close_label`, `previous_label`, `next_label`, `zoom_in_label`, `zoom_out_label`, `fit_label`, `download_label` | Its words to tooling: "Pictures", "Close", "Previous picture", "Next picture", "Zoom in", "Zoom out", "Fit to the window", "Download" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel; its parts are `<id>-close`, `-next`, `-previous`, `-zoom-in`, `-zoom-out`, `-level`, `-download`, `-stage` |
+
+- It is a component wherever it is put, as a [picture](#picture) is: it keeps which picture is shown, how close, and
+  where the view is.
+- The wheel brings the picture closer about the pointer and a drag moves it; two fingers on a touch screen pinch and
+  pan. A double click goes to twice the size it fits and back.
+- Keys, while the focus is in it: the left and right arrows turn to the picture before and after, and move a
+  picture that is closer than it fits, as the up and down arrows do; `+` and `-` bring it closer and further, `0`
+  fits it; Escape closes. Over the window it takes the focus.
+- The level says how close the picture is as a share of the size it fits at (100% fitted), and a press of it fits
+  the picture again. In a panel too narrow for the whole top row the level is not there.
+- The strip shows as many small pictures as it has room for, about the one shown.
+- Parts: `LightboxPart::Veil` (what covers the window), `Root` (the panel), `Top`, `Counter`, `Total`, `Control`,
+  `ControlIcon`, `Level`, `Stage`, `Step`, `StepIcon`, `Side`, `Caption`, `Title`, `Description`, `Filmstrip`,
+  `Thumb`. States: `LightboxState::Inline`, `Current` (the small picture of the one shown).
+- In the design it is white on near black (`#09090BF2`) in both themes, since a picture is not themed: a top row of
+  52 with the counter in the mono face and buttons of 36, round buttons of 36 on black at 40% over the sides of
+  the stage, a caption on a gradient to black at 70%, and a strip of 52 with pictures of 44 by 32, the one shown
+  whole and ringed in white, the others at 60%.
+- To what reads the tree its buttons are `button`s called by their labels.
+- A renderer that draws another lightbox has `view.top()`, `view.stage()`, `view.caption()`, `view.filmstrip()`,
+  `view.panel()` (the three with the keys) and `view.dismisser()`.
+
+## Gallery
+
+Pictures in rows, each in a room of one shape, with one [lightbox](#lightbox) for them all; a gallery that chooses
+keeps which of them are chosen.
+
+```rust
+use lurq::ui::{Gallery, Picture};
+
+// A press of a picture opens it in a lightbox that holds them all.
+Gallery::new(photos.iter().map(|photo| Picture::from_file(&photo.path).label(&photo.name)))
+  .columns(4)
+  .max_shown(8);
+
+// chosen: Signal<Vec<PhotoId>>. A press chooses, Enter opens.
+Gallery::keyed(photos.iter().map(|photo| (photo.id, Picture::from_file(&photo.path))))
+  .selectable(true)
+  .selected(chosen.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(pictures)`, `picture(Picture)`, `pictures(..)` | The pictures, told apart by their place |
+| `keyed(items)`, `item(key, Picture)` | The pictures, each with a key of the app's (`GalleryKey`: `Clone + PartialEq + Send + Sync`): what is chosen is a list of those keys, which stays right when the pictures are put in another order |
+| `columns(usize)`, `gap(f32)`, `aspect_ratio(f32)` | How many stand in a row (4), the room between them across and down (8), and the width of a picture's room to its height (92 to 68). A row the pictures do not fill keeps its empty rooms: its pictures are as wide as the others |
+| `width(Length)` | How wide the gallery is: all the room there is unless told, and never wider than its room. The pictures share it |
+| `size(PictureSize)` | The form of its pictures: `Sm` unless told |
+| `max_shown(usize)`, `more_text(Fn(usize) -> String)` | The most pictures it shows: with more, the last one shown lies under a veil that says how many more there are, itself among them ("+5"). A press of it opens that picture in the lightbox, which holds every picture |
+| `selectable(bool)`, `selected(Signal<Vec<K>>)`, `selected_controlled(keys, on_change)`, `on_selection_change(Fn(&[K]))` | Pictures that can be chosen, and the keys of the ones that are. Without a signal the gallery keeps them |
+| `lightbox(bool)`, `open(Signal<Option<usize>>)`, `on_open_change(Fn(Option<usize>))` | Whether a picture opens in the lightbox (it does unless told), and which one is open, `None` while it is closed |
+| `on_select(Fn(usize))` | A press of a picture, with its place, in a gallery that neither chooses nor opens |
+| `label(&str)`, `disabled(bool)` | What it is called to tooling; and a gallery that takes nothing, its pictures at half the opacity |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the gallery; its pictures are `<id>-0`, `<id>-1`, … |
+
+- It is a component wherever it is put, as a [picture](#picture) is: it keeps which picture is open, and what is
+  chosen where the app gives no signal.
+- Each picture is the app's, without what lies over it (its bar, its badge, its own press and its own lightbox):
+  the gallery gives it its press, its mark and its place in the lightbox. Its title and description are what the
+  lightbox says under it.
+- In a gallery that chooses, a press chooses a picture and takes it out again, and Enter opens the one with the
+  focus; the picture that stands for the rest opens and is not chosen.
+- Tab reaches the gallery once, and the arrows move the focus among its pictures, across and down.
+- Parts: `GalleryPart::Root`, `Row`, `Cell`. States: `GalleryState::Selectable`, `Disabled`. What a picture looks
+  like in it is the picture's recipe: `.rules(..)` on the pictures the app gives.
+- To what reads the tree it is a `list` of pictures, or a `listbox` that takes several where it chooses.
+- A renderer that draws another gallery has `view.render()` and the parts' styles; the rows are of `flex(1)` rooms
+  with the ratio, so a picture is as wide as its share.
+
+## Carousel
+
+Slides one after another in a room that shows one, or a few, at a time: turned by the round buttons beside them,
+the dots under them, the arrow keys, a swipe or a drag.
+
+```rust
+use std::time::Duration;
+use lurq::ui::{Carousel, Picture};
+
+// Pictures as wide as the room, the first after the last.
+Carousel::new(photos.iter().map(|photo| Picture::from_file(&photo.path).aspect_ratio(16.0 / 9.0)))
+  .wrap(true)
+  .label("Photos");
+
+// Three cards in view, turning by itself every five seconds.
+Carousel::new(cards)
+  .per_view(3)
+  .autoplay(Duration::from_secs(5))
+  .index(shown.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(slides)`, `slide(element)`, `slides(..)` | The slides: any elements, each laid out as wide as its room |
+| `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which slide it is at, counted from 0: the first one shown. Without either the carousel keeps it and starts at the first |
+| `per_view(usize)`, `gap(f32)` | How many slides the room shows at once, each as wide as its share (1); and the room between two (12). A turn moves by one, and the last few slides are one place |
+| `wrap(bool)` | Whether the first slide comes after the last, and the last before the first |
+| `arrows(bool)`, `dots(bool)` | The round buttons beside the slides and the dots under them: both show unless told. With one place there are no dots |
+| `autoplay(Duration)` | Turns to the next slide by itself, from the last to the first. It waits while the pointer is over it and while the focus is in it from the keyboard, and stops for good once a person turns it |
+| `width(Length)` | How wide it is, its buttons with it: all the room there is unless told, and never wider than its room. The slides share what the buttons leave |
+| `label(&str)`, `previous_label(&str)`, `next_label(&str)`, `slide_label(Fn(usize, usize) -> String)` | Its words to tooling: "Carousel", "Previous slide", "Next slide", "Slide 2 of 4" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the carousel; its parts are `<id>-previous`, `-next`, `-viewport`, `-slide-<n>`, `-dot-<n>` |
+
+- It is a component wherever it is put, as a [picture](#picture) is: it keeps which slide it is at.
+- A press of a round button turns by one, a press of a dot goes to its place; a turn takes the slides there over a
+  few frames, at once with motion reduced. A finger swipes a page at a time, as many slides as are shown. A drag
+  of the mouse carries the slides, and let go a fifth of a slide away it goes on to the next. A trackpad scrolls
+  them sideways and they come to rest on a slide.
+- Keys: Tab reaches a round button, and the left and right arrow keys on it turn to the slide before and after;
+  Tab reaches the dots once, the arrow keys move among them and Enter or Space goes to the one with the focus. A
+  button that has nothing more to turn to takes nothing, and the focus it had goes to the other one. The slides
+  that are not shown take neither the focus nor the pointer.
+- Parts: `CarouselPart::Root`, `Track`, `Viewport`, `Slide`, `Arrow` (the round buttons, which are design-system
+  [buttons](#button), `Outline`, round), `Dots`, `Dot`, `DotMark`. States: `CarouselState::Current` (the dot of the
+  place it is at), `Disabled`.
+- In the design the buttons are outline buttons of 36 with arrows of 16, 12 from the slides; 12 under the slides
+  the dots are 6 across, 6 apart, in `Input`, the current one in `Primary`. A dot is pressed in a room 3 larger on
+  every side.
+- To what reads the tree it is a `region` described as a carousel, each slide a `group` described as a slide and
+  called by its label, the dots a `tablist` of `tab`s.
+- A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
+  what turns them) and `view.dots()`.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
