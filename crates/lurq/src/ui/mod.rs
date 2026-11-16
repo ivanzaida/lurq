@@ -22,6 +22,7 @@ mod alert;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 mod banner;
 #[cfg(feature = "canvas")]
@@ -182,6 +183,9 @@ pub use audio_queue::{
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
   AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView, Presence,
+};
+pub use back_to_top::{
+  BACK_TO_TOP_THRESHOLD, BackToTop, BackToTopPart, BackToTopRenderer, BackToTopState, BackToTopView,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};

@@ -7,6 +7,7 @@ mod alert;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 #[cfg(feature = "canvas")]
 mod bar_chart;

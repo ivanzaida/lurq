@@ -12,6 +12,7 @@ mod area_chart;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 mod bar_list;
 mod gauge;
@@ -658,6 +659,14 @@ pub const PAGES: &[Page] = &[
     about: "ai label artificial intelligence generated model assistant sparkles mark badge suggestion draft text icon size abel",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<ai_label::AiLabelPage>(()),
+  },
+  Page {
+    path: "/back-to-top",
+    name: "Back To Top",
+    icon: Some("arrow-up"),
+    about: "back to top scroll up button page long list threshold floating return arrow smooth reduced motion on_click force_shown ack",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<back_to_top::BackToTopPage>(()),
   },
   Page {
     path: "/command-palette",

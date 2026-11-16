@@ -3517,6 +3517,44 @@ AiLabel::new().size(AiLabelSize::Sm).icon(None);
 - Parts: `AiLabelPart::Root`, `Icon`, `Label`. State: `AiLabelState::Icon` (it has one). Sizes: `AiLabelSize`.
 - In the design it is 22 high with the corners of `RadiusSize::Sm`, on `InfoMuted` in an edge of 1 in `Info`, padded 8, with sparkles of 12 4 before "AI" in 11 and semibold, both in `Info`. The board draws that one size: small is 18, padded 6, at 10 with an icon of 10, and large 26, padded 10, at 12 with an icon of 14, the steps of a [badge](#badge).
 
+## Back To Top
+
+A round button that shows once a page is scrolled down, and takes it back to its top.
+
+```rust
+use lurq::{
+  components::{Column, Stack},
+  layout::{StackAlignment, layout_kind::ScrollState},
+  ui::{BackToTop, ScrollArea},
+};
+
+// scroll: ScrollState, kept by the page and given to what scrolls it too.
+Stack::new()
+  .stack_align(StackAlignment::BottomEnd)
+  .child(ScrollArea::new().scroll_state(scroll.clone()).children(article))
+  .child(Column::new().padding(16.0).overflow_visible().child(BackToTop::new(&scroll).mount(ctx)));
+```
+
+| Builder | |
+| --- | --- |
+| `new(&ScrollState)` | The state of what it scrolls |
+| `threshold(f32)` | How far down the content is scrolled before the button shows: 300 (`ui::BACK_TO_TOP_THRESHOLD`) unless told; at 0, as soon as it leaves its top |
+| `label(&str)` | What the button is called to tooling, in place of "Back to top" |
+| `icon(name)` | Its icon, in place of the arrow that points up |
+| `on_click(..)` | Hears the press, and Enter and Space, before the content is scrolled; a handler that prevents the event's default keeps the content where it is. A second handler is called after the first |
+| `force_shown(Option<bool>)` | Shown wherever the content is scrolled to, or never |
+| `disabled(bool)` | It takes no input |
+| `mount(ctx)` | The button where it goes: it shows and goes with the scroll. Converting it (`.into()`) builds its still form, always shown, whose press takes the content to its top at once |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- It is a mounted component: after each layout it reads how far the content is scrolled, and shows once that is past the threshold, fading in, and goes, fading out, as the content comes back above it. A page opened scrolled shows it at once.
+- A press takes the content to its top with `ctx.scroll_to_top_of(&scroll)` (see [layout](../layout/#scroll)): over the frames that follow, as a wheel's scroll goes, and at once while motion is reduced or the theme's smooth scroll is off. A notch of the wheel that comes meanwhile adds to where the content is going, as with any wheel's scroll.
+- Where it floats is the app's to say, as a [fab](#fab)'s is: it is an element, put in a corner of a `Stack` over the scroll, in something that gives its shadow room or does not clip (`.overflow_visible()`). While it is gone it takes no room.
+- It is a [button](#button) to tooling, called "Back to top" or by its label, and a stop of Tab while it shows. Once the content is at its top the button is gone and the keyboard's focus with it: the next Tab goes on from where it stood.
+- Parts: `BackToTopPart::Root` and `Icon`, each laid over the theme's recipe for the same part of an outlined, round button that is an icon alone; the root's `enter` and `exit` are how it comes and goes. State: `BackToTopState::Disabled`.
+- In the design it is a circle of 40 on `Background` in an edge of 1 in `Border`, with the medium shadow and an arrow of 16 in `Foreground`. Under the pointer, pressed and focused it is the outlined button it is made of.
+- A renderer that draws another has `view.button()`, the button with its press attached, to build or to put in what it likes; when it shows stays the component's. It fades out only where the renderer's root is that button.
+
 ## Command Palette
 
 A search over the window that finds a command or a place by typing: every command of an editor, the pages of an app, the files of a project.
