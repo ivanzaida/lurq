@@ -1435,3 +1435,97 @@ fn a_picture_the_app_does_not_draw_is_a_picture_of_its_source() {
   editor.shortcut("z", "KeyZ", false, false);
   assert_eq!(editor.document().to_markdown(), source);
 }
+
+/// A clipboard that holds a picture as pixels, two by two: what a screenshot is.
+fn screenshot() -> lurq::app::events::ClipboardContent {
+  let image = lurq::app::events::ClipboardImage::from_rgba(2, 2, vec![255; 16]).expect("four pixels");
+  lurq::app::events::ClipboardContent::image(image)
+}
+
+#[test]
+fn a_pasted_screenshot_is_given_to_the_app_to_keep_and_put_in_as_the_picture_it_names() {
+  let kept = Arc::new(Mutex::new(Vec::new()));
+  let store = kept.clone();
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), move |editor| {
+    let store = store.clone();
+    editor
+      .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+      .on_paste_image(move |image| {
+        let mut store = store.lock().unwrap();
+        store.push((image.width(), image.height()));
+        Some(format!("attachments/pasted-{}.png", store.len()))
+      })
+  });
+  editor.focus();
+  editor.select(1, 1);
+  assert!(editor.stage.tree.paste(screenshot()));
+  editor.stage.pass();
+  assert_eq!(*kept.lock().unwrap(), [(2, 2)], "the app was given the pixels once");
+  assert_eq!(editor.document().to_markdown(), "a![](attachments/pasted-1.png)b");
+  assert_eq!(pictures(&editor).len(), 1);
+  // It is one step of the undo.
+  assert!(editor.editor.undo());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+}
+
+#[test]
+fn a_pasted_screenshot_does_nothing_where_the_app_keeps_none_or_the_editor_takes_no_change() {
+  // No handler: a document names its pictures and has nowhere to keep pixels.
+  let mut editor = pictured(RichText::plain("ab"));
+  editor.focus();
+  editor.stage.tree.paste(screenshot());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+  // A handler that refuses puts nothing in.
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), |editor| editor.on_paste_image(|_| None));
+  editor.focus();
+  editor.stage.tree.paste(screenshot());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+  // Read only, the app is not asked.
+  let asked = Arc::new(Mutex::new(0));
+  let count = asked.clone();
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), move |editor| {
+    let count = count.clone();
+    editor.read_only(true).on_paste_image(move |_| {
+      *count.lock().unwrap() += 1;
+      Some("kept.png".to_owned())
+    })
+  });
+  editor.focus();
+  editor.stage.tree.paste(screenshot());
+  editor.stage.pass();
+  assert_eq!(
+    (*asked.lock().unwrap(), editor.document().to_markdown().as_str()),
+    (0, "ab")
+  );
+}
+
+#[test]
+fn a_clipboard_with_words_is_pasted_as_text_and_pasted_picture_files_go_in_by_their_paths() {
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), |editor| {
+    editor
+      .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+      .on_paste_image(|_| Some("kept.png".to_owned()))
+  });
+  editor.focus();
+  // Words and pixels at once, as a sheet's cells are copied: the words are what is pasted.
+  let both = screenshot().with_text("words");
+  assert!(editor.stage.tree.paste(both));
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "abwords");
+  // Files copied in a file manager: the pictures among them, each called by its name.
+  let files = lurq::app::events::ClipboardContent::files([
+    std::path::PathBuf::from("photos/lake.JPG"),
+    std::path::PathBuf::from("notes.txt"),
+    std::path::PathBuf::from("photos/hill.png"),
+  ]);
+  assert!(editor.stage.tree.paste(files));
+  editor.stage.pass();
+  assert_eq!(
+    editor.document().to_markdown(),
+    "abwords![lake](photos/lake.JPG)![hill](photos/hill.png)"
+  );
+  assert_eq!(pictures(&editor).len(), 2);
+}

@@ -624,6 +624,16 @@ fn an_expandable_tile_is_no_wider_than_a_narrow_room() {
   });
 }
 
+#[cfg(feature = "canvas")]
+#[test]
+fn a_signature_pad_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    lurq::ui::SignaturePad::controlled(lurq::ui::Signature::default(), |_| {})
+      .id("it")
+      .into()
+  });
+}
+
 #[test]
 fn a_tree_select_is_no_wider_than_a_narrow_room() {
   fits(|| {
