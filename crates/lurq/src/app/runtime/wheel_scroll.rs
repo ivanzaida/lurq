@@ -94,6 +94,41 @@ impl Tree {
     true
   }
 
+  /// Sends the scroll container `state` is the state of to the offset `(x, y)`, held to its content, as a
+  /// wheel turned that far would: over the frames that follow, on the wheel's curve, and at once where a
+  /// wheel's scroll is not animated. What it does otherwise is what
+  /// [`scroll_state_to_top`](Self::scroll_state_to_top) does. `false` when no container of the tree has the
+  /// state, or it is going there already. What [`Ctx::scroll_state_to`](crate::app::ctx::Ctx::scroll_state_to)
+  /// asks for.
+  pub fn scroll_state_to(&mut self, state: &ScrollState, x: f32, y: f32) -> bool {
+    self.rebuild_if_dirty();
+    self.step_wheel_scrolls();
+    let Some(target_id) = self
+      .root
+      .as_ref()
+      .and_then(|root| find_scroll_node_id_by_state(root, state))
+    else {
+      return false;
+    };
+    let (going_x, going_y) = state.scroll_target();
+    let (delta_x, delta_y) = (x.max(0.0) - going_x, y.max(0.0) - going_y);
+    if delta_x.abs() < 0.01 && delta_y.abs() < 0.01 {
+      return false;
+    }
+    if self.wheel_motion {
+      let now = self.now();
+      state.wheel_by_with_overflow(delta_x, delta_y, now);
+      Self::wheel_turned(&mut self.wheel_scrolls, target_id, state, (0.0, 0.0), now);
+    } else {
+      state.set_scroll(x, y);
+      if let Some(root) = &self.root {
+        mark_scroll_layout_dirty(root, target_id);
+      }
+    }
+    self.needs_redraw = true;
+    true
+  }
+
   /// Whether a wheel's scroll is on its way in some container.
   pub(super) fn wheel_scrolling(&self) -> bool {
     self.wheel_scrolls.iter().any(|scroll| scroll.state.wheel_scrolling())

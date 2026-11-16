@@ -6355,6 +6355,14 @@ impl Tree {
     {
       self.scroll_state_to_top(&state);
     }
+    for (state, x, y) in self
+      .root_ctx
+      .as_ref()
+      .map(Ctx::take_scroll_states_to)
+      .unwrap_or_default()
+    {
+      self.scroll_state_to(&state, x, y);
+    }
     let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
       return;
     };

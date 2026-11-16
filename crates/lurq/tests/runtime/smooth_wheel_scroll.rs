@@ -752,6 +752,30 @@ fn a_container_sent_to_its_top_goes_there_over_the_frames_that_follow() {
 }
 
 #[test]
+fn a_container_sent_to_an_offset_goes_there_over_the_frames_that_follow_held_to_its_content() {
+  let (mut stage, state) = page_with_state();
+  assert!(
+    !stage.tree.scroll_state_to(&state, 0.0, 0.0),
+    "there already: nothing to do"
+  );
+  stage.clock(100);
+  assert!(stage.tree.scroll_state_to(&state, 0.0, 500.0));
+  assert_eq!(state.scroll_y(), 0.0, "nothing moves before a frame");
+  assert_eq!(state.scroll_target().1, 500.0);
+  assert!(stage.frame(140), "the tree asks for the frames of its way");
+  assert!(0.0 < state.scroll_y() && state.scroll_y() < 500.0);
+  let end = stage.settle(148);
+  assert_eq!(state.scroll_y(), 500.0);
+  assert!(stage.idle());
+
+  // Past the end of the content, it goes to the end.
+  stage.clock(end + 10);
+  stage.tree.scroll_state_to(&state, 0.0, 5000.0);
+  stage.settle(end + 10);
+  assert_eq!(state.scroll_y(), 1800.0);
+}
+
+#[test]
 fn a_notch_of_the_wheel_turns_a_container_on_its_way_to_its_top_round() {
   let (mut stage, state) = page_with_state();
   state.set_scroll(0.0, 600.0);
