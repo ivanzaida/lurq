@@ -902,6 +902,63 @@ impl Picture {
     }
   }
 
+  /// The picture as a viewer shows it: the pixels alone, whole, in all the room there is, with nothing over
+  /// them and nothing a press does. What it is called and how it loads stay.
+  pub(crate) fn in_viewer(mut self) -> Self {
+    self = self.stripped();
+    self.width = Some(Length::Fill);
+    self.height = Some(Length::Fill);
+    self.aspect_ratio = None;
+    self.fit = PictureFit::Contain;
+    self.shape = PictureShape::Rounded;
+    self.bare = true;
+    self.size = Some(PictureSize::Lg.into());
+    self
+  }
+
+  /// The picture as a small one of `width` by `height` in a strip or a grid of them: the pixels covering the
+  /// box, with nothing over them and nothing a press does.
+  pub(crate) fn as_thumb(mut self, width: f32, height: f32) -> Self {
+    self = self.stripped();
+    self.width = Some(Length::Px(width));
+    self.height = Some(Length::Px(height));
+    self.aspect_ratio = None;
+    self.fit = PictureFit::Cover;
+    self.bare = true;
+    self.size = None;
+    // What holds it is what tooling reads.
+    self.decorative = true;
+    self
+  }
+
+  /// The picture with what lies over it and what a press of it does taken off, and no name in the tree of its
+  /// own: what another component shows of it.
+  fn stripped(mut self) -> Self {
+    self.caption = None;
+    self.badge = None;
+    self.bar = false;
+    self.force_bar_shown = None;
+    self.children.clear();
+    self.count = None;
+    self.on_click.clear();
+    self.selectable = false;
+    self.selected = false;
+    self.on_change.clear();
+    self.id = None;
+    self.key = None;
+    self
+  }
+
+  /// The title and the description of its bar.
+  pub(crate) fn caption_of(&self) -> (Option<Arc<str>>, Option<Arc<str>>) {
+    (self.title.clone(), self.description.clone())
+  }
+
+  /// What it is called: its label, or its title.
+  pub(crate) fn label_of(&self) -> Option<Arc<str>> {
+    self.label.clone().or_else(|| self.title.clone())
+  }
+
   /// Whether a press of the picture as a whole does something.
   fn pressable(&self) -> bool {
     !self.disabled && (self.selectable || !self.on_click.is_empty())

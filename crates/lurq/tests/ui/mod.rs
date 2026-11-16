@@ -60,6 +60,7 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod list_item;
