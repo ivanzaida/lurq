@@ -723,3 +723,87 @@ fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_dra
   until(&mut second, "its own length", |stage| stage.paints("0:08"));
   assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two players");
 }
+
+#[cfg(all(any(windows, target_os = "macos"), feature = "media", feature = "http"))]
+#[test]
+fn a_sound_the_apps_folder_keeps_from_an_earlier_run_is_opened_as_it_is_drawn_and_asks_the_server_for_nothing() {
+  use std::{
+    io::{Read, Write},
+    sync::atomic::{AtomicUsize, Ordering},
+  };
+
+  use lurq::{app::App, resources::Source};
+  // A server on this machine that answers each request with the tone, and counts them.
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let address = format!("http://{}/tone.wav", listener.local_addr().unwrap());
+  let asked = Arc::new(AtomicUsize::new(0));
+  let counted = asked.clone();
+  std::thread::spawn(move || {
+    let body = tone(8.0);
+    for stream in listener.incoming() {
+      let Ok(mut stream) = stream else {
+        return;
+      };
+      let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
+      while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk) {
+          Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+          _ => break,
+        }
+      }
+      counted.fetch_add(1, Ordering::Relaxed);
+      let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+      );
+      let _ = stream.write_all(head.as_bytes());
+      let _ = stream.write_all(&body);
+    }
+  });
+  let folder = std::env::temp_dir().join(format!("lurq-audio-player-cache-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&folder);
+  let source = Source::url(&address);
+  // An app that gave a folder for its cache on the disk, with a player of the address.
+  let run = |folder: &std::path::Path| {
+    let shown = source.clone();
+    Stage::in_app(App::new().enable_media_disk_cache(folder), move |_| {
+      Column::new()
+        .width(360.0)
+        .child(
+          AudioPlayer::controlled(0.0, 95.0, |_| {})
+            .source(&shown)
+            .muted_controlled(true, |_| {})
+            .title("Tone")
+            .id("p"),
+        )
+        .into()
+    })
+  };
+
+  // The first run: drawn, it loads nothing; played, it loads once, and the sound is a file in the folder.
+  let mut first = run(&folder);
+  for _ in 0..3 {
+    first.tree.tick_timers_at(std::time::Instant::now());
+    first.pass();
+  }
+  assert_eq!(asked.load(Ordering::Relaxed), 0);
+  assert!(first.paints("1:35"), "the length the app gave");
+  first.click("p-play");
+  until(&mut first, "its own length", |stage| stage.paints("0:08"));
+  until(&mut first, "playing", |stage| stage.paints("0:01"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1);
+  assert!(first.app.loader().media_disk_cache().holds(&source));
+  assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+  drop(first);
+
+  // The next run of the app: the sound is kept, so the player opens it as it is drawn, with its own length,
+  // and plays it, and the server is asked for nothing.
+  let mut next = run(&folder);
+  assert!(lurq::media::sound_cache().holds(&source));
+  until(&mut next, "its own length", |stage| stage.paints("0:08"));
+  next.click("p-play");
+  until(&mut next, "playing", |stage| stage.paints("0:01"));
+  assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two runs of the app");
+  drop(next);
+  let _ = std::fs::remove_dir_all(&folder);
+}
