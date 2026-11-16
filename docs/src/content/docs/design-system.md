@@ -1606,10 +1606,15 @@ Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
 - A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
 
-**In a narrow room.** Steps across put in the tree with `mount` measure their room: their marks are always whole;
-the titles end in an ellipsis first, then stand under their marks (the `stacked` state), and under the room the
-marks and their lines need the steps run down the page. Steps that are only built keep their marks whole and cut
-their titles.
+**In a narrow room.** Steps across put in the tree with `mount(ctx)` measure their room before a frame is
+painted. Their marks are always whole, and the titles end in an ellipsis first. Under the room the titles need
+beside the marks, steps that are only read are the board's progress of a phone (Mobile/Step Progress, the
+`progress` state): a segment for each step, 4 high and 4 apart, in the primary color up to the current step, over
+a line that says where the process is, "Step 2 of 4 · Billing" (parts `segments`, `segment`, `summary`). Steps a
+person presses keep every step to press: the titles stand under their marks (the `stacked` state), and under the
+room the marks and their lines need, the steps run down the page; the board draws neither of these two. Steps that
+are only built (converted into an element, or `build`) cannot measure: they stay a row, keep their marks whole and
+cut their titles.
 
 ## Badge
 
