@@ -20,7 +20,7 @@ use std::{
 };
 
 use lurq::{
-  media::{Media, MediaState},
+  media::{Media, MediaError, MediaState},
   resources::{Loader, Source},
 };
 
@@ -198,16 +198,19 @@ fn bytes_play_as_a_file_does_and_what_is_no_video_says_why() {
   let broken = Media::open(&Loader::new(), &Source::bytes(b"this is not a video".to_vec()));
   let state = until(&broken, "failed", |state| state.error.is_some());
   assert!(!state.playing && !state.waiting);
+  assert_eq!(
+    state.error,
+    Some(MediaError::Unsupported),
+    "what is no video is a kind it does not play"
+  );
   let missing = Media::open(&Loader::new(), &Source::file("no/such/clip.mp4"));
-  until(&missing, "failed", |state| state.error.is_some());
+  let state = until(&missing, "failed", |state| state.error.is_some());
+  assert_eq!(state.error, Some(MediaError::NotFound));
   // An address the app does not allow is not asked for.
   let loader = Loader::new();
   loader.allow(|_| false);
   let refused = Media::open(&loader, &Source::url("https://example.com/clip.mp4"));
-  assert_eq!(
-    refused.state().error.as_deref(),
-    Some("the app does not allow this address")
-  );
+  assert_eq!(refused.state().error, Some(MediaError::Denied));
 }
 
 #[cfg(windows)]
@@ -261,7 +264,11 @@ fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
     media.set_muted(true);
     media.set_volume(0.5);
     let state = until(&media, "opened", |state| !state.waiting);
-    assert_eq!((state.error.clone(), state.size, state.sound), (None, None, true), "{from}");
+    assert_eq!(
+      (state.error.clone(), state.size, state.sound),
+      (None, None, true),
+      "{from}"
+    );
     assert!(
       state.duration.is_some_and(|duration| (duration - 1.2).abs() < 0.05),
       "{from}: {:?}",
@@ -281,6 +288,13 @@ fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   }
   let broken = Media::sound(&Loader::new(), &Source::bytes(b"this is not a sound".to_vec()));
   let state = until(&broken, "failed", |state| state.error.is_some());
+  assert_eq!(state.error, Some(MediaError::Unsupported));
+  // The app's locale says it: a short line a player shows.
+  let said = |tag: &str| lurq::core::Locale::for_tag(tag).media.error(&MediaError::Unsupported);
+  assert_eq!(
+    (&*said("en"), &*said("uk")),
+    ("Unsupported format", "Непідтримуваний формат")
+  );
   assert!(!state.playing && !state.waiting);
 }
 
@@ -400,7 +414,7 @@ fn a_sound_that_is_not_at_its_address_says_so_and_one_the_app_refuses_is_not_ask
   let (address, asked) = serve(None, "404 Not Found");
   let missing = Media::sound(&Loader::new(), &Source::url(&address));
   let state = until(&missing, "failed", |state| state.error.is_some());
-  assert_eq!(state.error.as_deref(), Some("it was not found"));
+  assert_eq!(state.error, Some(MediaError::NotFound));
   assert!(!state.waiting && !state.playing);
   assert!(!lurq::media::sound_cache().holds(&Source::url(&address)));
 
@@ -408,12 +422,315 @@ fn a_sound_that_is_not_at_its_address_says_so_and_one_the_app_refuses_is_not_ask
   loader.allow(|_| false);
   let before = asked.load(Ordering::Relaxed);
   let refused = Media::sound(&loader, &Source::url(&address));
-  assert_eq!(
-    refused.state().error.as_deref(),
-    Some("the app does not allow this address")
-  );
+  assert_eq!(refused.state().error, Some(MediaError::Denied));
   std::thread::sleep(Duration::from_millis(100));
   assert_eq!(asked.load(Ordering::Relaxed), before);
+}
+
+/// An empty folder of this test's own, for a cache on the disk.
+#[cfg(feature = "http")]
+fn cache_folder(test: &str) -> PathBuf {
+  let folder = std::env::temp_dir().join(format!("lurq-media-cache-{}-{test}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&folder);
+  folder
+}
+
+/// A loader with its cache on the disk turned on in `folder`: what a run of an app that gave the folder has.
+#[cfg(feature = "http")]
+fn run_with(folder: &std::path::Path) -> Loader {
+  let loader = Loader::new();
+  loader.enable_media_disk_cache(folder);
+  loader
+}
+
+/// The names of the files in `folder`, in order.
+#[cfg(feature = "http")]
+fn kept_in(folder: &std::path::Path) -> Vec<String> {
+  let mut names: Vec<String> = std::fs::read_dir(folder)
+    .unwrap()
+    .map(|file| file.unwrap().file_name().into_string().unwrap())
+    .collect();
+  names.sort();
+  names
+}
+
+/// The sound of `source` by `loader`, silenced and opened, with nothing wrong.
+#[cfg(feature = "http")]
+#[track_caller]
+fn opened(loader: &Loader, source: &Source) -> Media {
+  let media = Media::sound(loader, source);
+  media.set_muted(true);
+  let state = until(&media, "opened", |state| !state.waiting);
+  assert_eq!((state.error, state.sound), (None, true));
+  media
+}
+
+/// Does `change` to a file a media played a moment ago, once the system has let go of it.
+#[cfg(feature = "http")]
+#[track_caller]
+fn once_let_go(mut change: impl FnMut() -> std::io::Result<()>) {
+  let started = Instant::now();
+  while let Err(error) = change() {
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "the file is still held: {error}"
+    );
+    std::thread::sleep(Duration::from_millis(20));
+  }
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn with_a_folder_given_a_sound_at_an_address_is_a_file_there_and_the_next_run_asks_the_server_for_nothing() {
+  use lurq::{media::sound_cache, resources::LoadState};
+  let folder = cache_folder("next-run");
+  let body = tone(0.6);
+  let (address, asked) = serve(Some(body.clone()), "200 OK");
+  let source = Source::url(&address);
+
+  let loader = run_with(&folder);
+  let disk = loader.media_disk_cache();
+  assert!(disk.is_on() && disk.is_empty() && !sound_cache().holds(&source));
+  let media = opened(&loader, &source);
+  let state = media.state();
+  assert!(state.duration.is_some_and(|duration| (duration - 0.6).abs() < 0.05));
+  // One file, whole, named by the source and its length, with the ending of its address.
+  let names = kept_in(&folder);
+  assert_eq!(names.len(), 1, "{names:?}");
+  assert!(names[0].ends_with(&format!("-{:x}.wav", body.len())), "{names:?}");
+  assert_eq!(std::fs::read(folder.join(&names[0])).unwrap(), body);
+  assert!(disk.holds(&source) && sound_cache().holds(&source));
+  assert_eq!((disk.len(), disk.bytes()), (1, body.len() as u64));
+  media.play();
+  until(&media, "ended", |state| state.ended);
+  // Played again by the same run: from the file.
+  let again = opened(&loader, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 1, "one request for two plays");
+  drop((media, again, loader));
+
+  // The next run of the app: a new loader, given the same folder. It knows what is kept before anything is
+  // asked for, plays it, and gives its bytes to what reads them whole, with no request to the server.
+  let next = run_with(&folder);
+  assert!(next.media_disk_cache().holds(&source));
+  let media = opened(&next, &source);
+  assert!(
+    media
+      .state()
+      .duration
+      .is_some_and(|duration| (duration - 0.6).abs() < 0.05)
+  );
+  media.play();
+  until(&media, "ended", |state| state.ended);
+  let load = next.load(&source);
+  let started = Instant::now();
+  let bytes = loop {
+    match load.state() {
+      LoadState::Ready(bytes) => break bytes,
+      LoadState::Failed(error) => panic!("the load failed: {error}"),
+      LoadState::Loading { .. } => assert!(started.elapsed() < Duration::from_secs(10), "the load does not end"),
+    }
+    std::thread::sleep(Duration::from_millis(5));
+  };
+  assert_eq!(bytes[..], body[..]);
+  assert_eq!(
+    asked.load(Ordering::Relaxed),
+    1,
+    "the next run asks the server for nothing"
+  );
+
+  // An address with no ending: its file has none, and plays as well.
+  let unnamed = Source::url(&address.replace("/tone.wav", "/track/12"));
+  let other = opened(&next, &unnamed);
+  assert!(
+    other
+      .state()
+      .duration
+      .is_some_and(|duration| (duration - 0.6).abs() < 0.05)
+  );
+  assert_eq!(asked.load(Ordering::Relaxed), 2);
+  assert!(
+    kept_in(&folder).iter().any(|name| !name.contains('.')),
+    "{:?}",
+    kept_in(&folder)
+  );
+  drop((media, other, next));
+  let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn forgetting_a_sound_deletes_its_file_and_it_is_loaded_again() {
+  use lurq::media::sound_cache;
+  let folder = cache_folder("forget");
+  let (address, asked) = serve(Some(tone(2.0)), "200 OK");
+  let source = Source::url(&address);
+  let loader = run_with(&folder);
+  let disk = loader.media_disk_cache();
+
+  // Forgotten while it plays: the file is gone at once, and what plays goes on.
+  let media = opened(&loader, &source);
+  media.play();
+  until(&media, "playing", |state| state.playing && state.position > 0.1);
+  assert!(sound_cache().forget(&source));
+  assert!(kept_in(&folder).is_empty() && !disk.holds(&source) && !sound_cache().holds(&source));
+  assert!(!sound_cache().forget(&source));
+  std::thread::sleep(Duration::from_millis(200));
+  let state = media.state();
+  assert!(state.playing && state.error.is_none(), "{state:?}");
+
+  // Asked for again, it is loaded from its address again, and kept again. The loader is told to forget too,
+  // as a player's "Try again" tells it: the bytes of a load that ended a moment ago are not given a second time.
+  loader.forget(&source);
+  let second = opened(&loader, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 2);
+  assert_eq!(kept_in(&folder).len(), 1);
+
+  // The loader's own forgetting deletes the file as well: the way to load anew what is not a sound.
+  drop((media, second));
+  assert!(loader.forget(&source));
+  assert!(kept_in(&folder).is_empty() && !disk.holds(&source));
+  let third = opened(&loader, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 3);
+  drop(third);
+
+  // And clearing deletes every file.
+  assert_eq!(disk.len(), 1);
+  disk.clear();
+  assert!(kept_in(&folder).is_empty() && disk.is_empty());
+  drop(loader);
+  let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn over_the_budget_of_the_folder_the_sound_played_longest_ago_is_deleted() {
+  let folder = cache_folder("budget");
+  let body = tone(0.3);
+  let served: Vec<_> = (0..3).map(|_| serve(Some(body.clone()), "200 OK")).collect();
+  let sources: Vec<Source> = served.iter().map(|(address, _)| Source::url(address)).collect();
+  let loader = run_with(&folder);
+  let disk = loader.media_disk_cache();
+  // Room for two of them, and not for three.
+  disk.budget(body.len() as u64 * 5 / 2);
+
+  drop(opened(&loader, &sources[0]));
+  drop(opened(&loader, &sources[1]));
+  // The first is played again, so the second is the one played longest ago.
+  drop(opened(&loader, &sources[0]));
+  drop(opened(&loader, &sources[2]));
+  assert!(disk.holds(&sources[0]) && !disk.holds(&sources[1]) && disk.holds(&sources[2]));
+  assert_eq!((disk.len(), disk.bytes()), (2, body.len() as u64 * 2));
+  assert_eq!(kept_in(&folder).len(), 2);
+  for (_, asked) in &served {
+    assert_eq!(asked.load(Ordering::Relaxed), 1);
+  }
+
+  // The next run knows which was played longest ago: the first was played before the third.
+  drop(loader);
+  let next = run_with(&folder);
+  let disk = next.media_disk_cache();
+  disk.budget(body.len() as u64 * 5 / 2);
+  drop(opened(&next, &sources[1]));
+  assert!(!disk.holds(&sources[0]) && disk.holds(&sources[1]) && disk.holds(&sources[2]));
+  assert_eq!(
+    served[1].1.load(Ordering::Relaxed),
+    2,
+    "what was deleted is loaded again"
+  );
+
+  // One that is larger than the whole budget is not kept in the folder: it is kept in memory, as with no folder.
+  disk.budget(100);
+  assert!(disk.is_empty() && kept_in(&folder).is_empty());
+  drop(opened(&next, &sources[0]));
+  assert!(disk.is_empty() && kept_in(&folder).is_empty());
+  assert!(lurq::media::sound_cache().holds(&sources[0]));
+  assert!(lurq::media::sound_cache().forget(&sources[0]));
+  drop(next);
+  let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn a_file_of_the_folder_that_is_gone_cut_short_or_spoiled_is_loaded_again_and_not_played_broken() {
+  let folder = cache_folder("broken");
+  let body = tone(0.6);
+  let (address, asked) = serve(Some(body.clone()), "200 OK");
+  let source = Source::url(&address);
+  drop(opened(&run_with(&folder), &source));
+  let file = folder.join(&kept_in(&folder)[0]);
+  let whole = |media: &Media| {
+    let state = media.state();
+    assert!(
+      state.duration.is_some_and(|duration| (duration - 0.6).abs() < 0.05),
+      "{state:?}"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), body, "the file is whole again");
+  };
+
+  // Cut short while the app was not running: the next run finds its size is not the length in its name.
+  once_let_go(|| std::fs::write(&file, &body[..body.len() / 2]));
+  let next = run_with(&folder);
+  assert!(!next.media_disk_cache().holds(&source));
+  let media = opened(&next, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 2);
+  whole(&media);
+  drop((media, next));
+
+  // Cut short while the app runs: it is found when the sound is opened.
+  let next = run_with(&folder);
+  assert!(next.media_disk_cache().holds(&source));
+  once_let_go(|| std::fs::write(&file, &body[..body.len() / 2]));
+  let media = opened(&next, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 3);
+  whole(&media);
+  drop((media, next));
+
+  // Deleted by somebody else while the app runs.
+  let next = run_with(&folder);
+  once_let_go(|| std::fs::remove_file(&file));
+  let media = opened(&next, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 4);
+  whole(&media);
+  drop((media, next));
+
+  // As long as it was written, and not what was written: the media says it cannot play it, the file is let
+  // go, and the next try loads it anew.
+  let next = run_with(&folder);
+  once_let_go(|| std::fs::write(&file, vec![0_u8; body.len()]));
+  let spoiled = Media::sound(&next, &source);
+  spoiled.set_muted(true);
+  let state = until(&spoiled, "failed", |state| state.error.is_some());
+  assert!(!state.playing && !state.waiting);
+  assert_eq!(asked.load(Ordering::Relaxed), 4, "it was there to open");
+  let started = Instant::now();
+  while next.media_disk_cache().holds(&source) {
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "the spoiled file is still kept"
+    );
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  assert!(kept_in(&folder).is_empty());
+  let media = opened(&next, &source);
+  assert_eq!(asked.load(Ordering::Relaxed), 5);
+  whole(&media);
+  drop((spoiled, media, next));
+  let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn with_no_folder_given_nothing_is_written_and_a_sound_is_kept_in_memory() {
+  use lurq::media::sound_cache;
+  let (address, asked) = serve(Some(tone(0.3)), "200 OK");
+  let (loader, source) = (Loader::new(), Source::url(&address));
+  let disk = loader.media_disk_cache();
+  assert!(!disk.is_on() && disk.folder().is_none());
+  drop(opened(&loader, &source));
+  assert!(sound_cache().holds(&source) && !disk.holds(&source) && disk.is_empty());
+  drop(opened(&loader, &source));
+  assert_eq!(asked.load(Ordering::Relaxed), 1);
+  assert!(sound_cache().forget(&source));
 }
 
 /// How loud it is right now, from 0 to 1, by the system's own meters: what this process gives the default
@@ -502,11 +819,17 @@ fn its_sound_reaches_the_output_as_loud_as_it_is_told() {
   println!("(process, device) before {before:?} at 0.1 {quiet:?} at 0.2 {louder:?} muted {muted:?}");
   println!("(process, device) heard again {again:?} paused {paused:?}");
 
-  assert!(before.0 < 0.001, "nothing is given to the output before it plays: {before:?}");
+  assert!(
+    before.0 < 0.001,
+    "nothing is given to the output before it plays: {before:?}"
+  );
   assert!(quiet.0 > 0.1, "the tone is given to the output: {quiet:?}");
   assert!(paused.0 < 0.001, "paused, nothing is given to it: {paused:?}");
   // The rest is of the device, and holds only where nothing else plays.
-  assert!(before.1 < 0.001, "something else plays, which this test cannot tell from the tone: {before:?}");
+  assert!(
+    before.1 < 0.001,
+    "something else plays, which this test cannot tell from the tone: {before:?}"
+  );
   assert!(quiet.1 > 0.005, "it comes out of the device: {quiet:?}");
   assert!(
     (quiet.1 * 1.6..quiet.1 * 2.4).contains(&louder.1),

@@ -399,41 +399,48 @@ struct Words {
   live: Arc<str>,
 }
 
+impl Words {
+  /// The words a locale has for a player.
+  fn of(words: &crate::core::MediaWords) -> Self {
+    Self {
+      label: words.video_player.clone(),
+      play: words.play.clone(),
+      pause: words.pause.clone(),
+      replay: words.replay.clone(),
+      mute: words.mute.clone(),
+      unmute: words.unmute.clone(),
+      volume: words.volume.clone(),
+      seek: words.seek.clone(),
+      captions: words.captions.clone(),
+      speed: words.speed.clone(),
+      speed_heading: words.playback_speed.clone(),
+      settings: words.settings.clone(),
+      quality: words.quality.clone(),
+      picture_in_picture: words.picture_in_picture.clone(),
+      in_picture: words.in_picture.clone(),
+      back: words.back_to_window.clone(),
+      unplayable: words.unplayable_video.clone(),
+      fullscreen: words.fullscreen.clone(),
+      exit_fullscreen: words.exit_fullscreen.clone(),
+      more: words.more.clone(),
+      retry: words.try_again.clone(),
+      rewind: words.rewind.clone(),
+      forward: words.forward.clone(),
+      seconds: words.seconds.clone(),
+      minimize: words.minimize.clone(),
+      leave: words.back.clone(),
+      auto: words.auto.clone(),
+      on: words.on.clone(),
+      off: words.off.clone(),
+      live: words.live.clone(),
+    }
+  }
+}
+
+/// The words of the locale of what is being built: the app's in a render, English outside one.
 impl Default for Words {
   fn default() -> Self {
-    let word = Arc::from;
-    Self {
-      label: word("Video player"),
-      play: word("Play"),
-      pause: word("Pause"),
-      replay: word("Replay"),
-      mute: word("Mute"),
-      unmute: word("Unmute"),
-      volume: word("Volume"),
-      seek: word("Seek"),
-      captions: word("Captions"),
-      speed: word("Speed"),
-      speed_heading: word("Playback speed"),
-      settings: word("Settings"),
-      quality: word("Quality"),
-      picture_in_picture: word("Picture in picture"),
-      in_picture: word("Playing in picture in picture"),
-      back: word("Back to the window"),
-      unplayable: word("This video can't be played"),
-      fullscreen: word("Fullscreen"),
-      exit_fullscreen: word("Exit fullscreen"),
-      more: word("More"),
-      retry: word("Try again"),
-      rewind: word("Back 10 seconds"),
-      forward: word("Forward 10 seconds"),
-      seconds: word("seconds"),
-      minimize: word("Minimize"),
-      leave: word("Back"),
-      auto: word("Auto"),
-      on: word("On"),
-      off: word("Off"),
-      live: word("LIVE"),
-    }
+    Self::of(&super::current_locale().media)
   }
 }
 
@@ -504,6 +511,8 @@ pub struct VideoPlayer {
   ended: bool,
   error: Option<Arc<str>>,
   error_description: Option<Arc<str>>,
+  /// The words it was told to speak in, in place of the app's: what its source's errors are said in.
+  locale: Option<crate::core::MediaWords>,
   on_retry: Vec<Action>,
   #[cfg(feature = "media")]
   source: Option<crate::resources::Source>,
@@ -604,6 +613,7 @@ impl VideoPlayer {
       ended: false,
       error: None,
       error_description: None,
+      locale: None,
       on_retry: Vec::new(),
       #[cfg(feature = "media")]
       source: None,
@@ -1058,6 +1068,15 @@ impl VideoPlayer {
     on_text => on, "The captions on, where their track has no name: \"On\".";
     off_text => off, "The captions off: \"Off\".";
     live_text => live, "The badge of what is live: \"LIVE\".";
+  }
+
+  /// The words this player speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)):
+  /// the names of its controls, its menus' words, and what its source says when it cannot play. Said before the
+  /// words that are told one by one (`play_label` and the others), which stay what they were told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.words = Words::of(&locale.media);
+    self.locale = Some(locale.media.clone());
+    self
   }
 
   /// Puts the player in a state the theme's recipe names, or takes it out.
@@ -1703,7 +1722,11 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
   player.ended = player.ended || state.ended;
   if let (None, Some(why)) = (&player.error, &state.error) {
     player.error = Some(player.words.unplayable.clone());
-    player.error_description = Some(why.clone());
+    // The reason, in the words of the locale.
+    player.error_description = Some(match &player.locale {
+      Some(words) => words.error(why),
+      None => super::current_locale().media.error(why),
+    });
   }
   if let Some(image) = media.frame() {
     player.media = Some(

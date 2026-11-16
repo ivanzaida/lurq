@@ -15,6 +15,8 @@ pub use image_data::{Dx12Nv12Image, Dx12Nv12ImageSlot};
 pub use image_data::{ImageData, ImageKind, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage};
 #[cfg(target_os = "macos")]
 pub use image_data::{MacosCvPixelBuffer, MacosCvPixelBufferNv12Image};
+#[cfg(windows)]
+pub use image_data::{SharedNv12Frames, set_shared_nv12_adapter, shared_nv12_adapter};
 pub(crate) use render::ImageCmd;
 #[cfg(feature = "wgpu")]
 pub use wgpu_external::WgpuExternalImageSlot;

@@ -8,15 +8,19 @@
 //! changes in a way a clock does not tell: it opened, it ended, it failed.
 //!
 //! [`Media::open`] is what is seen, with its sound; [`Media::sound`] what is only heard: a song, a recording, a
-//! message. A sound at an address is loaded whole through the app's loader and kept ([`sound_cache`]), so that
-//! it plays again at once.
+//! message. A sound at an address is loaded whole through the app's loader and kept, so that it plays again at
+//! once: in memory ([`sound_cache`]), or as a file in the folder of an app that turned the cache on the disk on
+//! (`App::enable_media_disk_cache`), where it is there for the next run of the app too.
 //!
 //! `ui::VideoPlayer::source` and `ui::AudioPlayer::source` do all of this for a player. An app that draws its
 //! own asks for a media itself.
 //!
+//! On Windows, where the `wgpu` renderer draws on Direct3D 12, a frame stays on the graphics card from the
+//! decoder to the screen: decoded there, copied there once, drawn there. Elsewhere it is copied through memory
+//! once.
+//!
 //! What is not here yet: a speed that keeps the pitch of the sound (faster is higher); a video at an address
-//! read through the app's loader (the system reads it itself where it can); a frame that stays on the graphics
-//! card from the decoder to the screen (a frame is copied through memory once).
+//! read through the app's loader (the system reads it itself where it can).
 
 use std::{
   collections::VecDeque,
@@ -24,9 +28,10 @@ use std::{
   time::{Duration, Instant},
 };
 
+pub use crate::core::MediaError;
 use crate::{
   images::ImageData,
-  resources::{Load, LoadError, LoadState, Loader, Source, SourceKind},
+  resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Source, SourceKind},
 };
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -62,10 +67,25 @@ pub struct MediaState {
   pub waiting: bool,
   /// Whether it played to its end.
   pub ended: bool,
-  /// Why it cannot play, where it cannot.
-  pub error: Option<Arc<str>>,
+  /// Why it cannot play, where it cannot: the kind of failure, which the app's
+  /// [`Locale`](crate::core::Locale) puts into words ([`MediaWords::error`](crate::core::MediaWords::error)).
+  pub error: Option<MediaError>,
   /// How fast it goes: 1 is as it was made.
   pub rate: f64,
+}
+
+/// What a load that failed is, as a media says it.
+fn load_failed(error: LoadError) -> MediaError {
+  match error {
+    LoadError::NotFound => MediaError::NotFound,
+    LoadError::Denied => MediaError::Denied,
+    LoadError::Status(status) => MediaError::Server(status),
+    LoadError::TooLarge { .. } => MediaError::TooLarge,
+    LoadError::TimedOut => MediaError::TimedOut,
+    LoadError::Unsupported(why) => MediaError::Unavailable(Arc::from(why)),
+    LoadError::Io(said) => MediaError::Network(Arc::from(said)),
+    LoadError::Cancelled => MediaError::Other(Arc::from("the load was stopped")),
+  }
 }
 
 /// What the thread of a media is told.
@@ -100,7 +120,7 @@ pub(crate) struct Inner {
   pub playing: bool,
   pub waiting: bool,
   pub ended: bool,
-  pub error: Option<Arc<str>>,
+  pub error: Option<MediaError>,
   pub rate: f64,
   pub at: f64,
   pub since: Instant,
@@ -150,11 +170,11 @@ impl Shared {
   }
 
   /// It cannot play, and why.
-  pub fn fail(&self, why: impl Into<Arc<str>>) {
+  pub fn fail(&self, why: MediaError) {
     {
       let mut inner = self.inner();
       inner.hold();
-      inner.error = Some(why.into());
+      inner.error = Some(why);
       inner.playing = false;
       inner.waiting = false;
     }
@@ -238,6 +258,7 @@ impl Drop for Handle {
 pub struct Media(Arc<Handle>);
 
 /// What a source is, for what opens it: the file it is read from, the bytes it is, or its address.
+#[derive(Clone)]
 pub(crate) enum Opened {
   File(std::path::PathBuf),
   /// The bytes, and the name they came by where they have one: its ending tells the decoder what they are.
@@ -248,11 +269,19 @@ pub(crate) enum Opened {
 /// What a media starts from: what is there to open, or a load of it that is on its way.
 enum Asked {
   Opened(Opened),
-  /// The bytes at `address`, loaded whole by the app's loader and kept under `key`.
+  /// The file `disk` keeps under `key`: a sound that was loaded before, by this run of the app or an earlier.
+  Kept {
+    path: std::path::PathBuf,
+    key: u64,
+    disk: MediaDiskCache,
+  },
+  /// The bytes at `address`, loaded whole by the app's loader and kept under `key`: by `disk` where it is on,
+  /// and in memory where it is not.
   Load {
     load: Load,
     key: u64,
     address: Arc<str>,
+    disk: MediaDiskCache,
   },
 }
 
@@ -275,24 +304,54 @@ fn loaded(shared: &Arc<Shared>, load: &Load) -> Option<Result<Arc<[u8]>, LoadErr
   }
 }
 
-/// What `asked` is once it is there to open: a load is waited for, and what it loaded is kept. `None` where
+/// What `asked` is once it is there to open: a load is waited for, and what it loaded is kept. With it, the
+/// cache on the disk and the key of the file that is opened, where it is one that cache keeps. `None` where
 /// there is nothing to open: the media was let go, or the load failed, which the media's state then says.
-fn settle(shared: &Arc<Shared>, asked: Asked) -> Option<Opened> {
+fn settle(shared: &Arc<Shared>, asked: Asked) -> Option<(Opened, Option<(MediaDiskCache, u64)>)> {
   match asked {
-    Asked::Opened(opened) => Some(opened),
-    Asked::Load { load, key, address } => match loaded(shared, &load)? {
-      Ok(bytes) => {
-        sound_cache().put(key, bytes.clone());
-        Some(Opened::Bytes(bytes, Some(address)))
-      }
+    Asked::Opened(opened) => Some((opened, None)),
+    Asked::Kept { path, key, disk } => Some((Opened::File(path), Some((disk, key)))),
+    Asked::Load {
+      load,
+      key,
+      address,
+      disk,
+    } => match loaded(shared, &load)? {
+      // The app's loader wrote the file as it loaded it; where it did not (the load was one that had ended
+      // before the cache was told to forget), it is written now. The sound plays from the file, and its bytes
+      // are let go.
+      Ok(bytes) => Some(match disk.put(key, &address, &bytes) {
+        Some(path) => (Opened::File(path), Some((disk, key))),
+        // No cache on the disk, or one that cannot keep this: it is kept in memory.
+        None => {
+          sound_cache().put(key, bytes.clone());
+          (Opened::Bytes(bytes, Some(address)), None)
+        }
+      }),
       // More than the loader reads whole, or a build that loads no address: the system reads it itself, and
       // nothing of it is kept.
-      Err(LoadError::TooLarge { .. } | LoadError::Unsupported(_)) => Some(Opened::Url(address)),
+      Err(LoadError::TooLarge { .. } | LoadError::Unsupported(_)) => Some((Opened::Url(address), None)),
       Err(error) => {
-        shared.fail(error.to_string());
+        shared.fail(load_failed(error));
         None
       }
     },
+  }
+}
+
+/// The life of a media on its thread: `asked` is waited for, and `run` plays it until nothing holds the media.
+#[cfg_attr(not(any(windows, target_os = "macos", target_os = "ios")), allow(dead_code))]
+fn live(shared: &Arc<Shared>, asked: Asked, heard: bool, run: impl FnOnce(&Arc<Shared>, Opened, bool)) {
+  let Some((opened, kept)) = settle(shared, asked) else {
+    return;
+  };
+  run(shared, opened, heard);
+  // A file of the cache on the disk that could not be played is let go: it has the length it was written
+  // with, and is not what was written. The next try loads it anew.
+  if let Some((disk, key)) = kept
+    && shared.inner().error.is_some()
+  {
+    disk.forget_key(key);
   }
 }
 
@@ -308,8 +367,10 @@ impl Media {
   /// picture is not decoded.
   ///
   /// At an address it is loaded whole through the app's `loader` (with its headers, its timeout and what the
-  /// loader allows) and kept in [`sound_cache`]: played again, it starts at once and asks the network for
-  /// nothing. What is larger than the loader reads whole is read by the system itself as it plays, and not kept.
+  /// loader allows) and kept: played again, it starts at once and asks the network for nothing. It is kept in
+  /// memory ([`sound_cache`]) for the run of the app; where the loader's cache on the disk is on
+  /// ([`Loader::enable_media_disk_cache`]), it is kept there as a file, for the next run too, and plays from the
+  /// file. What is larger than the loader reads whole is read by the system itself as it plays, and not kept.
   /// While it loads, its state says it waits.
   pub fn sound(loader: &Loader, source: &Source) -> Self {
     Self::start_from(loader, source, true)
@@ -341,16 +402,29 @@ impl Media {
       SourceKind::File(path) => Ok(Asked::Opened(Opened::File(path.clone()))),
       SourceKind::Resource(resource) => Ok(Asked::Opened(Opened::File(loader.resource_path(resource)))),
       SourceKind::Bytes(bytes) => Ok(Asked::Opened(Opened::Bytes(bytes.clone(), None))),
-      SourceKind::Url(address) if !loader.allows(address) => Err("the app does not allow this address"),
-      // A sound is loaded whole and kept; kept already, it is there.
-      SourceKind::Url(address) if heard => Ok(match sound_cache().get(source.cache_key()) {
-        Some(bytes) => Asked::Opened(Opened::Bytes(bytes, Some(address.clone()))),
-        None => Asked::Load {
-          load: loader.load(source),
-          key: source.cache_key(),
-          address: address.clone(),
-        },
-      }),
+      SourceKind::Url(address) if !loader.allows(address) => Err(MediaError::Denied),
+      // A sound is loaded whole and kept; kept already, it is there: as a file where the app's cache on the
+      // disk is on, in memory where it is not.
+      SourceKind::Url(address) if heard => {
+        let (key, disk) = (source.cache_key(), loader.media_disk_cache());
+        sound_cache().follow(disk);
+        Ok(if let Some(path) = disk.file(key) {
+          Asked::Kept {
+            path,
+            key,
+            disk: disk.clone(),
+          }
+        } else if let Some(bytes) = sound_cache().get(key) {
+          Asked::Opened(Opened::Bytes(bytes, Some(address.clone())))
+        } else {
+          Asked::Load {
+            load: loader.load(source),
+            key,
+            address: address.clone(),
+            disk: disk.clone(),
+          }
+        })
+      }
       SourceKind::Url(address) => Ok(Asked::Opened(Opened::Url(address.clone()))),
     };
     match asked {
@@ -365,13 +439,11 @@ impl Media {
     let thread = shared.clone();
     let spawned = std::thread::Builder::new()
       .name("lurq-media".to_owned())
-      .spawn(move || {
-        if let Some(opened) = settle(&thread, asked) {
-          mf::run(&thread, opened, heard);
-        }
-      });
+      .spawn(move || live(&thread, asked, heard, mf::run));
     if spawned.is_err() {
-      shared.fail("a thread to decode on could not be started");
+      shared.fail(MediaError::Other(Arc::from(
+        "a thread to decode on could not be started",
+      )));
     }
   }
 
@@ -380,20 +452,17 @@ impl Media {
     let thread = shared.clone();
     let spawned = std::thread::Builder::new()
       .name("lurq-media".to_owned())
-      .spawn(move || {
-        if let Some(opened) = settle(&thread, asked) {
-          apple::run(&thread, opened, heard);
-        }
-      });
+      .spawn(move || live(&thread, asked, heard, apple::run));
     if spawned.is_err() {
-      shared.fail("a thread to play on could not be started");
+      shared.fail(MediaError::Other(Arc::from("a thread to play on could not be started")));
     }
   }
 
   #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
   fn start(shared: &Arc<Shared>, _: Asked, _: bool) {
-    let _ = settle;
-    shared.fail("this build has no decoder for this system yet");
+    shared.fail(MediaError::Unavailable(Arc::from(
+      "this build has no decoder for this system yet",
+    )));
   }
 
   fn shared(&self) -> &Shared {

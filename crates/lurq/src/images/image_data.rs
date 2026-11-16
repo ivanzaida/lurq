@@ -80,6 +80,9 @@ pub enum NativeImageBackend {
   #[cfg(feature = "canvas")]
   Canvas,
   Dx12Nv12,
+  /// Frames in NV12 textures of the graphics card, shared by handle: [`SharedNv12Frames`].
+  #[cfg(windows)]
+  SharedNv12,
   #[cfg(feature = "wgpu")]
   WgpuExternalRgba,
   #[cfg(target_os = "macos")]
@@ -119,6 +122,88 @@ struct Dx12Nv12ImageSlotState {
   image: Dx12Nv12Image,
   version: u64,
   pending_external_bump: bool,
+}
+
+/// The frames of a video that stay on the graphics card: a few NV12 textures of one size, each shared by a
+/// handle any Direct3D device on the same card opens, of which one is the frame to show.
+///
+/// What decodes copies each frame into a texture that is not the one shown, and then says it is the one to show
+/// ([`show`](Self::show)); what draws opens the handles once and draws the one that is shown. A frame is never in
+/// the memory of the program.
+#[cfg(windows)]
+#[derive(Clone)]
+pub struct SharedNv12Frames {
+  state: Arc<SharedNv12State>,
+}
+
+#[cfg(windows)]
+struct SharedNv12State {
+  handles: Vec<isize>,
+  shown: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(windows)]
+impl Drop for SharedNv12State {
+  fn drop(&mut self) {
+    for handle in &self.handles {
+      // SAFETY: the handles were given to `SharedNv12Frames::new` to keep and to close.
+      unsafe {
+        let _ = windows::Win32::Foundation::CloseHandle(windows::Win32::Foundation::HANDLE(*handle as _));
+      }
+    }
+  }
+}
+
+#[cfg(windows)]
+impl SharedNv12Frames {
+  /// The frames behind `handles`, the first of them shown.
+  ///
+  /// # Safety
+  ///
+  /// Each handle is an NT handle of a shared NV12 texture (`IDXGIResource1::CreateSharedHandle`), all of one
+  /// size. They are closed when the last of this is dropped.
+  pub unsafe fn new(handles: Vec<isize>) -> Self {
+    Self {
+      state: Arc::new(SharedNv12State {
+        handles,
+        shown: std::sync::atomic::AtomicUsize::new(0),
+      }),
+    }
+  }
+
+  /// The handles of the textures, in the order of their numbers.
+  pub fn handles(&self) -> &[isize] {
+    &self.state.handles
+  }
+
+  /// The number of the texture that holds the frame to show.
+  pub fn shown(&self) -> usize {
+    self.state.shown.load(Ordering::Acquire)
+  }
+
+  /// Says the texture `slot` holds the frame to show.
+  pub fn show(&self, slot: usize) {
+    self.state.shown.store(slot, Ordering::Release);
+  }
+}
+
+/// The graphics card what draws shared frames draws on, by its identifier: what decodes a video decodes on that
+/// card, so that a frame is copied on it and nowhere else. `None` where nothing that draws them has started: a
+/// frame then goes through memory.
+#[cfg(windows)]
+static SHARED_NV12_ADAPTER: RwLock<Option<(u32, i32)>> = RwLock::new(None);
+
+/// Says which card draws [`SharedNv12Frames`], by the two halves of its identifier (its LUID), or that none does.
+/// A renderer that draws them says so once it has its device.
+#[cfg(windows)]
+pub fn set_shared_nv12_adapter(adapter: Option<(u32, i32)>) {
+  *SHARED_NV12_ADAPTER.write() = adapter;
+}
+
+/// The card that draws [`SharedNv12Frames`], where one does.
+#[cfg(windows)]
+pub fn shared_nv12_adapter() -> Option<(u32, i32)> {
+  *SHARED_NV12_ADAPTER.read()
 }
 
 #[cfg(target_os = "macos")]
@@ -397,6 +482,12 @@ impl ImageData {
 
   pub fn is_streaming(&self) -> bool {
     self.streaming.is_some()
+  }
+
+  /// What holds its pixels where they are not in memory: a texture of the graphics card, a pixel buffer of the
+  /// system.
+  pub fn native(&self) -> Option<&NativeImageData> {
+    self.native.as_ref()
   }
 
   pub fn is_native(&self) -> bool {
@@ -817,6 +908,21 @@ impl NativeImageData {
       ImagePixelFormat::Nv12,
       NativeImageBackend::Dx12Nv12,
       slot,
+      true,
+    )
+  }
+}
+
+#[cfg(windows)]
+impl NativeImageData {
+  /// An image of `frames`, `width` by `height`: drawn again by itself as frames come.
+  pub fn from_shared_nv12(width: u32, height: u32, frames: SharedNv12Frames) -> Self {
+    Self::new_with_continuous_redraw(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::SharedNv12,
+      frames,
       true,
     )
   }

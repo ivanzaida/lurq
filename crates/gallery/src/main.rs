@@ -118,9 +118,34 @@ fn size() -> (u32, u32) {
     .unwrap_or_else(|| panic!("--size is a width and a height, as in 800x600"))
 }
 
+/// The folder the gallery keeps what it loaded from addresses in, for its next run: its own, among the caches of the
+/// user. The app chooses it; lurq picks none.
+#[cfg(not(target_arch = "wasm32"))]
+fn cache_folder() -> std::path::PathBuf {
+  use std::{env::var_os, path::PathBuf};
+  let home = |under: &str| var_os("HOME").map(|home| PathBuf::from(home).join(under));
+  let caches = if cfg!(windows) {
+    var_os("LOCALAPPDATA").map(PathBuf::from)
+  } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+    home("Library/Caches")
+  } else {
+    var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| home(".cache"))
+  };
+  caches
+    .unwrap_or_else(std::env::temp_dir)
+    .join("lurq-gallery")
+    .join("media")
+}
+
 fn main() {
+  // What a page loads from an address (the Audio Player's sound) is kept on the disk, and is there the next
+  // time the gallery is opened.
   #[cfg(not(target_arch = "wasm32"))]
-  run(App::new(), route(), WgpuRenderEngine::new);
+  run(
+    App::new().enable_media_disk_cache(cache_folder()),
+    route(),
+    WgpuRenderEngine::new,
+  );
   // A page waits for its GPU device and its fonts first; see `web`.
   #[cfg(target_arch = "wasm32")]
   web::start();

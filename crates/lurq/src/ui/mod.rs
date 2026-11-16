@@ -581,7 +581,9 @@ pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
   TextareaView,
 };
-pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
+pub use theme::{
+  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_theme, in_theme,
+};
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
 pub use time_picker::{
   ColumnKind, TimePicker, TimePickerPart, TimePickerRenderer, TimePickerSize, TimePickerState, TimePickerView,

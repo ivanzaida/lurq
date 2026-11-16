@@ -21,7 +21,7 @@ use objc2::{
 use objc2_avf_audio::AVAudioPlayer;
 use objc2_foundation::{NSData, NSError, NSURL};
 
-use super::{Command, Opened, Shared};
+use super::{Command, MediaError, Opened, Shared};
 
 /// How often the thread looks at the player while it plays: where it is, and whether it came to its end.
 const STEP: Duration = Duration::from_millis(20);
@@ -31,7 +31,9 @@ const APART: f64 = 0.03;
 /// Runs a sound to its end: opens `opened`, and does what it is told until nothing holds the media.
 pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
   if !heard {
-    shared.fail("this build shows no video on this system yet: it plays a sound (Media::sound)");
+    shared.fail(MediaError::Unavailable(Arc::from(
+      "this build shows no video on this system yet: it plays a sound (Media::sound)",
+    )));
     return;
   }
   // What the system makes while the thread runs is let go when the thread ends.
@@ -41,33 +43,39 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
   });
 }
 
-/// What the system says went wrong.
-fn said(error: &NSError) -> String {
-  error.localizedDescription().to_string()
+/// What the system's error is, as a media says it. The player answers a file it does not play with one of the
+/// audio file's own codes ('typ?', 'fmt?', 'dta?': a kind, a format or data it has no reader for); the rest is
+/// kept in the system's words.
+fn failed(error: &NSError) -> MediaError {
+  const UNSUPPORTED: [isize; 3] = [0x7479_703F, 0x666D_743F, 0x6474_613F];
+  if UNSUPPORTED.contains(&error.code()) {
+    MediaError::Unsupported
+  } else {
+    MediaError::Other(Arc::from(error.localizedDescription().to_string()))
+  }
 }
 
 /// A player of `opened`, ready to play.
-fn open(opened: Opened) -> Result<Retained<AVAudioPlayer>, String> {
+fn open(opened: Opened) -> Result<Retained<AVAudioPlayer>, MediaError> {
   // SAFETY: the player is made, used and let go on this thread alone; its initializers take what they are given
   // and answer an error where they cannot read it.
   let player = unsafe {
     match opened {
       Opened::File(path) => {
-        let address = NSURL::from_file_path(&path).ok_or("the path of the file is not one the system takes")?;
+        let address = NSURL::from_file_path(&path).ok_or(MediaError::NotFound)?;
         AVAudioPlayer::initWithContentsOfURL_error(AVAudioPlayer::alloc(), &address)
       }
       // The player tells what the bytes are from the bytes themselves.
       Opened::Bytes(bytes, _) => AVAudioPlayer::initWithData_error(AVAudioPlayer::alloc(), &NSData::with_bytes(&bytes)),
       Opened::Url(_) => {
-        return Err(
+        return Err(MediaError::Unavailable(Arc::from(
           "a sound at an address is loaded by the app's loader, which could not load this one: the feature \
-           `http`, and no more than the loader reads whole"
-            .to_owned(),
-        );
+           `http`, and no more than the loader reads whole",
+        )));
       }
     }
   }
-  .map_err(|error| said(&error))?;
+  .map_err(|error| failed(&error))?;
   // SAFETY: as above.
   unsafe {
     // A speed other than 1 is taken only by a player told so before it plays.
@@ -116,9 +124,12 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
             if player.play() {
               inner.since = Instant::now();
               inner.playing = true;
+              drop(inner);
+              // Who draws it may have asked whether it plays before this thread heard the command.
+              shared.wake();
             } else {
               drop(inner);
-              shared.fail("the system's output would not start");
+              shared.fail(MediaError::Other(Arc::from("the system's output would not start")));
               return;
             }
           }

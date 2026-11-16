@@ -862,7 +862,10 @@ fn given_to_a_tree_as_it_is_it_is_its_component_with_the_chip_and_a_drag_that_ho
   stage.tree.mouse_move(at(0.4), y + 8.0);
   stage.pass();
   assert_eq!(heard.take(), ["Some(100.0)"]);
-  assert!(stage.paints("1:40"), "the time under the pointer is kept between renders");
+  assert!(
+    stage.paints("1:40"),
+    "the time under the pointer is kept between renders"
+  );
 
   // A drag holds over the renders its own changes make.
   stage.tree.mouse_down(at(0.4), y + 8.0, MouseButton::Left);

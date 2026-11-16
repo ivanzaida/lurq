@@ -108,7 +108,7 @@ impl Waveform {
       peaks: peaks.to_vec(),
       unheard: false,
       step: 0.05,
-      label: Arc::from("Seek"),
+      label: super::current_locale().media.seek.clone(),
       disabled: false,
       on_change: Vec::new(),
       on_change_end: Vec::new(),
