@@ -1,5 +1,5 @@
 //! A list item, one row of a list, and the list that holds them: its lines, the inset they start at, and, as a
-//! contained list, a box with a header.
+//! contained list, a box with a header. A row of a settings card is a list item too, in its `Setting` state.
 
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use super::{
   names,
   part_style::{FontFamily, PartStyle},
   radio::{RadioPart, RadioState},
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  recipe::{Case, Interaction, Name, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   separator::Separator,
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
@@ -20,7 +20,7 @@ use crate::{
     events::MouseEvent,
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{Column, Row},
+  components::{Column, Row, TextOverflow},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{
     CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, border::Border, dimension::Dimension,
@@ -49,7 +49,7 @@ pub enum ListItemPart {
   Value,
   /// A note at the end, smaller and set in the mono type: a time, "2m".
   Meta,
-  /// The chevron at the very end of a row that leads somewhere.
+  /// The chevron at the very end of a row that leads somewhere, or that opens what is under it.
   Chevron,
 }
 
@@ -81,6 +81,9 @@ pub enum ListItemState {
   Icon,
   /// The row is in a contained list: rows that touch, in a box.
   Contained,
+  /// The row is a setting, in a [`SettingsCard`](super::SettingsCard): its title and its description, with the
+  /// control that sets it at its end.
+  Setting,
 }
 
 names!(ListItemState {
@@ -90,12 +93,14 @@ names!(ListItemState {
   Description => "description",
   Icon => "icon",
   Contained => "contained",
+  Setting => "setting",
 });
 
 /// What builds a list item's nodes: a theme's in place of the default one.
 pub type ListItemRenderer = Arc<dyn Fn(ListItemView) -> Element + Send + Sync>;
 
 /// What stands before a row's text.
+#[derive(Clone)]
 enum Lead {
   Element(Element),
   Icon(Name),
@@ -123,7 +128,10 @@ type Press = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 /// A row that is given [`on_click`](Self::on_click) or [`href`](Self::href) is pressed: by the pointer, and by
 /// Enter and Space while it is focused, and Tab stops at it. It is a button to what reads the tree, or a link with
 /// an `href`, and a checkbox or a radio where it has one before its text. A row that is not pressed is not a stop
-/// of Tab and answers no pointer: what it holds (a switch at its end) is pressed on its own.
+/// of Tab and answers no pointer: what it holds (a switch at its end) is pressed on its own. In a row that is
+/// pressed, what the app put at its end ([`trailing`](Self::trailing)) keeps its own presses, which are not the
+/// row's, and is a stop of Tab after the row.
+#[derive(Clone)]
 pub struct ListItem {
   title: Arc<str>,
   description: Option<Arc<str>>,
@@ -133,6 +141,8 @@ pub struct ListItem {
   trailing: Option<Element>,
   shortcut: Option<Arc<str>>,
   chevron: bool,
+  /// Whether what the row opens is open, where it is the header of something that opens under it.
+  expands: Option<bool>,
   selected: bool,
   disabled: bool,
   on_click: Vec<EventHandler<MouseEvent>>,
@@ -157,6 +167,7 @@ impl ListItem {
       trailing: None,
       shortcut: None,
       chevron: false,
+      expands: None,
       selected: false,
       disabled: false,
       on_click: Vec::new(),
@@ -230,6 +241,31 @@ impl ListItem {
   pub fn chevron(mut self, chevron: bool) -> Self {
     self.chevron = chevron;
     self
+  }
+
+  /// The row as the header of what opens under it, open or not: its chevron points down while that is closed and
+  /// up while it is open, and it says so to what reads the tree. What a settings card makes of its header.
+  pub(crate) fn expands(mut self, open: bool) -> Self {
+    self.expands = Some(open);
+    self
+  }
+
+  /// The row at `density` and drawn in `forced`, where it says neither itself: what the component that holds it
+  /// says of its rows.
+  pub(crate) fn inherit(mut self, density: Option<Density>, forced: Option<Interaction>) -> Self {
+    self.density = self.density.or(density);
+    self.forced = self.forced.or(forced);
+    self
+  }
+
+  /// What the row says.
+  pub(crate) fn title_text(&self) -> Arc<str> {
+    self.title.clone()
+  }
+
+  /// Whether the row has a description under its title.
+  pub(crate) fn has_description(&self) -> bool {
+    self.description.is_some()
   }
 
   /// Whether the row is the one selected, or one of them.
@@ -348,6 +384,7 @@ impl ListItem {
       meta: self.meta,
       shortcut: self.shortcut,
       chevron: self.chevron,
+      expands: self.expands,
       selected: self.selected,
       disabled: self.disabled,
       link: self.href.is_some(),
@@ -408,6 +445,9 @@ pub struct ListItemView {
   /// The keys at its end, as [`Kbd::shortcut`] writes them.
   pub shortcut: Option<Arc<str>>,
   pub chevron: bool,
+  /// Whether what the row opens is open, where it is the header of something that opens under it: its chevron
+  /// points down or up in place of right.
+  pub expands: Option<bool>,
   pub selected: bool,
   pub disabled: bool,
   /// Whether a press goes somewhere: the row is a link to what reads the tree.
@@ -476,6 +516,8 @@ impl ListItemView {
     let mut row = pressable(&part, self.disabled)
       .justify(Justify::Start)
       .align_items(Alignment::Center)
+      // What the app put at the row's end is a stop of Tab of its own, after the row.
+      .stops_inside(true)
       .describe("a11y_role", role)
       .describe("a11y_name", self.title.clone())
       .focus_label(self.title.clone())
@@ -487,6 +529,9 @@ impl ListItemView {
       Some((_, on)) => row = row.describe("a11y_checked", flag(on)),
       None if self.selected => row = row.describe("a11y_selected", "true"),
       None => {}
+    }
+    if let Some(open) = self.expands {
+      row = row.describe("a11y_expanded", flag(open));
     }
     if self.disabled {
       row = row.describe("a11y_disabled", "true");
@@ -541,8 +586,8 @@ impl ListItemView {
     Some(held.child(shown))
   }
 
-  /// The title over the description, as wide as the room the row leaves them: a longer title is cut, a longer
-  /// description goes on to the next line.
+  /// The title over the description, as wide as the room the row leaves them: a longer title is cut with an
+  /// ellipsis, a longer description goes on to the next line.
   pub fn content(&self) -> Column {
     let fill = Dimension::Pct(100.0);
     let title = self.part(ListItemPart::Title);
@@ -554,7 +599,7 @@ impl ListItemView {
         Column::new()
           .width(fill)
           .min_width(Dimension::Px(0.0))
-          .child(title.text(&self.title).nowrap()),
+          .child(title.text(&self.title).nowrap().text_overflow(TextOverflow::Elipsis)),
       );
     if let Some(description) = &self.description {
       let part = self.part(ListItemPart::Description);
@@ -582,17 +627,28 @@ impl ListItemView {
       ends.push(Row::new().part(&part).child(part.text(meta).nowrap()).into());
     }
     if let Some(element) = self.trailing.take() {
-      ends.push(element);
+      // In a row that is pressed, a press of the app's control is the control's and not the row's.
+      ends.push(if self.pressable() {
+        Row::new()
+          .align_items(Alignment::Center)
+          .overflow_visible()
+          .on_click(|event: MouseEvent| event.stop_propagation())
+          .child(element)
+          .into()
+      } else {
+        element
+      });
     }
     if let Some(keys) = &self.shortcut {
       ends.push(Kbd::shortcut(keys).platform(KeyPlatform::current()).build(self.theme()));
     }
-    if self.chevron {
-      ends.push(glyph(
-        &self.part(ListItemPart::Chevron),
-        Name::new(icons::CHEVRON_RIGHT),
-        false,
-      ));
+    let chevron = match self.expands {
+      Some(true) => Some(icons::CHEVRON_UP),
+      Some(false) => Some(icons::CHEVRON_DOWN),
+      None => self.chevron.then_some(icons::CHEVRON_RIGHT),
+    };
+    if let Some(chevron) = chevron {
+      ends.push(glyph(&self.part(ListItemPart::Chevron), Name::new(chevron), false));
     }
     if ends.is_empty() {
       return None;
@@ -632,13 +688,19 @@ impl Themed for ListItem {
   /// title at 16, its value at 15, its chevron 18, its icon of 18 on a tile of 32 in the muted fill. The board draws
   /// no row under the pointer, held down, focused or disabled: a pressed row has the veils of those states, the
   /// ring inside it, and a disabled row is faded.
+  ///
+  /// A setting (Settings Row, and the Settings Card's own row) is 14 in from its sides and 12 from its top and
+  /// bottom, 12 between what it holds, square: its title 13 at 500 over a description of 12, the board's 57 of
+  /// two lines; an icon of 20 in the foreground before them, the control 12 from a chevron of 16 at its end. The
+  /// board draws no setting of one line: it is 44 at the least. Its height and the room over and under it follow
+  /// the density, by a row's step and half of it.
   fn recipe() -> Recipe {
     use ListItemPart::{Chevron, Content, Description, Icon, Leading, Meta, Root, Title, Trailing, Value};
-    use ListItemState::{Contained, Disabled, Pressable, Selected};
+    use ListItemState::{Contained, Disabled, Pressable, Selected, Setting};
     let (two_lines, with_icon) = (ListItemState::Description, ListItemState::Icon);
     use PaletteColor::{Foreground, Highlight, Muted, MutedForeground, Ring, StateHover, StatePressed};
     let two_line = |density: Density| Selector::new().density(density).state(two_lines);
-    Recipe::new()
+    let recipe = Recipe::new()
       .base(Root, |s| {
         fading(
           s.min_height(36.0)
@@ -697,7 +759,28 @@ impl Themed for ListItem {
           .foreground(MutedForeground)
       })
       .base(Chevron, |s| s.square(IconSize::Sm).foreground(MutedForeground))
-      .density(Density::Touch, Chevron, |s| s.square(18.0))
+      .density(Density::Touch, Chevron, |s| s.square(18.0));
+    // A setting: written after the rest, so that among the rules of one state these are the ones that hold.
+    let recipe = recipe
+      .state(Setting, Root, |s| {
+        s.min_height(44.0).padding_x(14.0).padding_y(12.0).gap(12.0).radius(0.0)
+      })
+      .state(Setting, Title, |s| s.font_size(13.0).weight(FontWeight::Medium))
+      .state(Setting, Description, |s| s.font_size(12.0))
+      .state(Setting, Icon, |s| s.square(20.0).foreground(Foreground))
+      .state(Setting, Trailing, |s| s.gap(12.0))
+      .state(Setting, Chevron, |s| s.square(IconSize::Md));
+    // Two lines of the theme's type are a pixel under the board's, whose lines are whole pixels: the row is the
+    // board's 57 at the least.
+    let described = || Selector::new().state(Setting).state(two_lines);
+    let recipe = recipe.when(described(), Root, |s| s.min_height(57.0));
+    ROW_STEPS.iter().fold(recipe, |recipe, (density, step)| {
+      recipe
+        .when(Selector::new().density(*density).state(Setting), Root, |s| {
+          s.min_height(44.0 + step).padding_y(12.0 + step / 2.0)
+        })
+        .when(described().density(*density), Root, |s| s.min_height(57.0 + step))
+    })
   }
 }
 

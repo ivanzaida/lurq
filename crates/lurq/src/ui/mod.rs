@@ -122,6 +122,7 @@ mod segmented;
 mod select;
 mod selection;
 mod separator;
+mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
@@ -421,6 +422,9 @@ pub use segmented::{
 };
 pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
+pub use settings_card::{
+  SettingsCard, SettingsCardPart, SettingsCardRenderer, SettingsCardState, SettingsCardView,
+};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{

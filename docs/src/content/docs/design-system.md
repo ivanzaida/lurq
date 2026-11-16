@@ -1807,7 +1807,7 @@ Card::new()
 - A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its body is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
 - Parts: `CardPart::Root` (the surface; what is pressed), `Content` (the header over the body, padded), `Header` (the text and the action), `Text` (the title over the description), `Title`, `Description`, `Action`, `Body` (what the app put in it), `Footer`. States: `CardState::Pressable`, `Disabled`, `Footer` (it has a footer under its content; the line over the footer is the content's `underline`).
 - In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its content is padded 24 with 24 between the header and the body; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the body is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
-- The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the body.
+- A surface of the app's own is a card with its parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what it holds as the body. The settings card and the stat card of the design are components of their own: a [settings card](#settings-card) and a [stat card](#stat-card).
 - To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
 - A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
 
@@ -4451,6 +4451,59 @@ PathField::new(report.clone())
 - To what reads the tree the input is a `textbox` called by its label, and the button a `button` called by what it says.
 - A renderer that draws another path field (`PathFieldRenderer`) is given `view.input` (the input's own view), `view.field()` (the input in its place, which takes a drop), `view.button()`, `view.root()` and `view.browse()` (what a press of the button does).
 
+## Settings Card
+
+A card of a settings page: one setting with its icon, its title, its description and the control that sets it, which may open to more settings; or the rows of several settings in one card.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, ListItem, Select, SelectSize, SettingsCard, Switch, icons};
+
+// One setting in a card of its own. With rows it opens to them; mounted, it keeps whether it is open.
+SettingsCard::new(
+  ListItem::new("App theme")
+    .icon(icons::PALETTE)
+    .description("Choose how lurq looks.")
+    .trailing(Select::new(theme, themes).size(SelectSize::Sm)),
+)
+.item(ListItem::new("High contrast").trailing(Switch::new("High contrast").label_hidden(true).bind(contrast)))
+.item(ListItem::new("Accent color").value("Blue").chevron(true).href("/settings/accent"))
+.mount(ctx);
+
+// Several settings in one card, a row each.
+SettingsCard::group([
+  ListItem::new("Open at login")
+    .description("Start lurq when you sign in to this computer.")
+    .trailing(Switch::new("Open at login").label_hidden(true).bind(login)),
+  ListItem::new("Default project folder")
+    .description("Where new projects are created.")
+    .trailing(Button::new("Choose…").variant(ButtonVariant::Outline).size("sm")),
+])
+.label("Startup");
+```
+
+| Builder | |
+| --- | --- |
+| `SettingsCard::new(ListItem)` | The card of one setting: the row is its own, with its icon, its title, its description and the control that sets it at its end |
+| `SettingsCard::group(rows)` | A card of several settings, a row each, with a line between each two |
+| `item(ListItem)`, `items(rows)` | Rows, after those it holds: the settings of a group, or what the card of one setting opens to |
+| `open(bool)` | Whether the rows under the card's own row are shown, where the app holds it: the card opens nothing itself, and tells `on_open_change` |
+| `bind(Signal<bool>)` | Open while the signal is true, which a press of the card's row turns; the handlers of `on_open_change` are told after it is set |
+| `default_open(bool)` | Whether a card that keeps it itself starts open |
+| `on_open_change(Fn(bool))` | Called on a press of the card's own row with what the card is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
+| `mount(ctx)` | Puts it where it goes, keeping whether it is open where the app says neither `open` nor `bind`. Built on its own (`build`, `.into()`) with neither, it is its still form, as it starts |
+| `label(&str)` | What the card is called to what reads the tree, in place of the title of its own row. It draws nothing: a heading over a group of settings is the page's own text |
+| `density(Density)`, `width(..)` | How high its rows are, whatever the theme is at; a width of its own in place of all the room it is given |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` takes everything in the card out of input and dims it; `force` draws the card's own row where it opens, and the pressed rows of a group. A row has the id the app gave it |
+
+- A row is a [list item](#list): its `icon`, its `description`, the control at its end (`trailing`), a `value` and a `chevron` for one that leads to a page of its own, which `on_click` or `href` makes pressed. The card puts each in the list item's `Setting` state, which is the design's Settings Row. Nothing else is a settings row: `ListItem::new("Open at login").description("..").trailing(Switch::new(..))` in a `SettingsCard`.
+- A card with a row of its own and rows under it opens. Its own row is pressed as a whole, by the pointer and by Enter and Space, after what the app made of its press, and shows a chevron at its end: down while the card is closed, up while it is open. A press of the control in that row is the control's and not the card's, and the control is a stop of Tab after the row. The rows open and close with their height over the theme's base duration and fade with it, as a [collapsible](#collapsible)'s panel does, and at once where motion is reduced; while the card is closed they are not there.
+- In a card the rows that are pressed and the controls in rows are one group to Up and Down, Home and End, as in a list.
+- Parts: `SettingsCardPart::Root` (the card), `Header` (laid over the root of the card's own row: the room over and under it), `Panel` (what opens and closes), `Body` (what the panel holds, under a line). States: `SettingsCardState::Open`, `Disabled`, `Header` (it has a row of its own). A row's parts are the list item's.
+- In the design (`Settings Card`, `Settings Row` and the cards of the Preferences window) the card is on `Card` with an edge of 1 in `Border` and the large radius, as wide as its room. A setting is 14 in from its sides, 12 between what it holds: an icon of 20 in `Foreground`, the title 13 at 500 over the description, 12 in `MutedForeground`, 2 under it, the control, and a chevron of 16 in `MutedForeground` 12 after it. The card's own row is 14 from the top and the bottom of the card, 61 high with a description; a row of a group is 12 from them, 57 high, with a line of 1 in `Border` between each two, along the bottom of the row over it. The board draws no setting of one line and no open card: a setting of one line is 44 at the least, and the rows of an open card are under a line. A longer title is cut with an ellipsis, a longer description wraps, and the control keeps its room.
+- A setting follows the [density](../theme/#density) by half of a row's step over and under it: a row of a group with a description is 49, 65 and 69 at compact, comfortable and touch, and one of a single line 36, 52 and 56.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the card is a `group` called by its label or the title of its own row, its rows a `list`; the row of a card that opens is a `button` with `a11y_expanded`.
+- A renderer that draws another card (`SettingsCardRenderer`) starts from `view.root()` and puts in it `view.header()` (the card's own row with its behavior), `view.panel()` (what opens and closes, with the rows while the card is open) or `view.rows()` (the rows of a group).
+
 ## Highlight
 
 A text with marks on ranges of it: the matches of a search, one of them the current one.
@@ -5637,11 +5690,11 @@ List::new().contained(true).title("Recent").item(ListItem::new("theme.md").chevr
 | `label(&str)`, `density(Density)`, `force(..)` | What the list is called to what reads the tree; the density of every row; every row drawn as under the pointer or focused |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them, on the row and on the list |
 
-- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
+- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a row that is pressed, what the app put at its end with `trailing` keeps its own presses, which are not the row's, and is a stop of Tab after the row. A title longer than its room is cut with an ellipsis, and a description goes on to the next line. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
 - A row with `href` goes to its path in the router around it (`router::current_navigator`), after its `on_click`; outside a router it goes nowhere.
 - What is selected is the app's: `selected(true)` on the row. A list of which one or many are chosen by a person is a [listbox](#listbox).
 - To what reads the tree a list is a `list` called by its label or its title. A row is a `listitem`; a pressed one a `button`, a `link` with a path, a `checkbox` or `radio` with one before its text (with `a11y_checked`), and a selected one says `a11y_selected`.
-- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`. Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
+- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`, `Setting` (it is a row of a [settings card](#settings-card), which draws it as the design's Settings Row). Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
 - In the design a row is 36 high (28, 44 and 56 at the compact, comfortable and touch densities), 12 in, with the medium radius and 12 between what it holds; with a description it is 16 higher, 52 at the default, its title at 500. The title is the body's type at 14, the description 12 in `MutedForeground` 2 under it, a value 13 and a chevron of 14 in `MutedForeground`, a note the mono type at 11, an icon 16 in `MutedForeground`. The selected row is on `Highlight`. A pressed row under the pointer and held down has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. Under a finger a row is the board's mobile row: 56 high, 16 in, its title at 16, its value at 15, its chevron 18, its icon of 18 on a tile of 32 on `Muted` with the large radius.
 - Rows are 2 apart; with lines between them they touch, a line of 1 in `Border` from the inset to the end along the bottom of the row over it, inside it: the lines add no height, and a contained list of three rows is 32 + 3 × 36 = 140, as the board's is. A disabled row says `a11y_disabled` to tooling. A contained list is a box on `Background` with an edge of 1 in `Border` and the large radius; its header is 32 high on `Muted`, 12 in, with a line under it, its title the mono type at 11 in `MutedForeground`, 1 apart; its rows are square, their titles 13 and 8 from what is at their end.
 - A theme's renderer is given `ListItemView` (`view.root(children)`, `view.leading()`, `view.content()`, `view.trailing()`, `view.render()`) and `ListView` (`view.root()`, `view.header()`, `view.rows()`, `view.separator()`).

@@ -489,3 +489,91 @@ fn a_rows_on_click_is_given_the_press() {
   stage.key("Enter");
   assert_eq!(*pressed.lock().unwrap(), [(true, false), (false, true)]);
 }
+
+#[test]
+fn in_a_pressed_row_the_control_at_its_end_keeps_its_own_presses_and_is_a_stop_of_tab_after_it() {
+  let (rows, switches) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let (row, switch) = (rows.clone(), switches.clone());
+  let mut stage = stage_of(move || {
+    let (row, switch) = (row.clone(), switch.clone());
+    List::new().item(
+      ListItem::new("Dark mode")
+        .id("row")
+        .on_click(move |_| {
+          row.fetch_add(1, Ordering::Relaxed);
+        })
+        .trailing(
+          Switch::new("Dark mode")
+            .label_hidden(true)
+            .id("switch")
+            .on_change(move |_| {
+              switch.fetch_add(1, Ordering::Relaxed);
+            }),
+        ),
+    )
+  });
+  stage.click("switch");
+  assert_eq!(switches.load(Ordering::Relaxed), 1);
+  assert_eq!(
+    rows.load(Ordering::Relaxed),
+    0,
+    "a press of the switch is not the row's"
+  );
+  stage.click("row");
+  assert_eq!(rows.load(Ordering::Relaxed), 1);
+  assert_eq!(
+    switches.load(Ordering::Relaxed),
+    1,
+    "nor a press of the row the switch's"
+  );
+}
+
+#[test]
+fn tab_stops_on_a_pressed_row_and_then_on_the_control_at_its_end() {
+  let (rows, switches) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let (row, switch) = (rows.clone(), switches.clone());
+  let mut stage = stage_of(move || {
+    let (row, switch) = (row.clone(), switch.clone());
+    List::new().item(
+      ListItem::new("Dark mode")
+        .id("row")
+        .on_click(move |_| {
+          row.fetch_add(1, Ordering::Relaxed);
+        })
+        .trailing(
+          Switch::new("Dark mode")
+            .label_hidden(true)
+            .id("switch")
+            .on_change(move |_| {
+              switch.fetch_add(1, Ordering::Relaxed);
+            }),
+        ),
+    )
+  });
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("row"));
+  stage.key("Enter");
+  assert_eq!((rows.load(Ordering::Relaxed), switches.load(Ordering::Relaxed)), (1, 0));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("switch"));
+  stage.key(" ");
+  assert_eq!(
+    (rows.load(Ordering::Relaxed), switches.load(Ordering::Relaxed)),
+    (1, 1),
+    "a key on the switch is the switch's"
+  );
+}
+
+#[test]
+fn a_title_longer_than_its_room_is_cut_with_an_ellipsis_and_what_is_at_the_end_keeps_its_room() {
+  let title = "A setting whose name goes on for far longer than the row it is in has room for";
+  let mut stage = stage_of(move || List::new().item(ListItem::new(title).value("Home").chevron(true).id("row")));
+  let (x, _, width, _) = stage.bounds("row");
+  assert_eq!(width, 340.0);
+  assert!(!stage.paints(title), "the title has no room for all of itself");
+  let cut = stage.cut_text_quad(title).expect("it is cut with an ellipsis");
+  let value = stage.text_quad("Home").expect("the value is whole");
+  assert!(cut.x + cut.width <= value.x + 0.5, "the title ends before the value");
+  let chevron = texts(&stage, CHEVRON_RIGHT).pop().expect("the chevron");
+  assert!(chevron.x + chevron.width <= x + width - 12.0 + 0.5);
+}

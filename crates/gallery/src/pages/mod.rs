@@ -96,6 +96,7 @@ mod search_field;
 mod seek_bar;
 mod select;
 mod separator;
+mod settings_card;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
@@ -1155,6 +1156,14 @@ pub const PAGES: &[Page] = &[
     about: "path field pathfield file folder directory browse choose pick save dialog system rfd input mono drop on_browse on_pick picks PathKind FileDialog browse_label placeholder size invalid read_only disabled full_width mount",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<path_field::PathFieldPage>(()),
+  },
+  Page {
+    path: "/settings-card",
+    name: "Settings Card",
+    icon: Some("settings"),
+    about: "settings card row settings row preferences options expander expand open collapse group rows control switch select button icon title description chevron SettingsCard ListItem group item items open bind default_open on_open_change density disabled label width mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<settings_card::SettingsCardPage>(()),
   },
   Page {
     path: "/play-button",

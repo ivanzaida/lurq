@@ -629,8 +629,9 @@ impl Component for CardPage {
         ),
         Section::new(
           "Composed from a card",
-          "The board's settings card and stat card are cards with their parts styled: a padding and a radius of \
-           their own, and what they hold as the content.",
+          "A surface of the app's own is a card with its parts styled: a padding and a radius of its own, and what \
+           it holds as the content. The board's settings card and stat card, drawn here by hand, are components \
+           of their own: SettingsCard and StatCard.",
           self.frame.demo(
             3,
             composed,

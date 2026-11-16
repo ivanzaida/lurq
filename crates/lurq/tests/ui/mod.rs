@@ -101,6 +101,7 @@ mod scroll_area;
 mod seek_bar;
 mod select;
 mod separator;
+mod settings_card;
 #[cfg(feature = "canvas")]
 mod sparkline;
 mod sheet;

@@ -10,10 +10,10 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker,
-    DropZone, ErrorSummary, Field, FieldError, Fieldset, FieldsetVariant, FileUpload, Input, InputGroup, Mentions,
-    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, PathField,
-    Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder,
-    Textarea, TimeField, TimePicker, Toast, TokenInput, Waveform,
+    DropZone, ErrorSummary, Field, FieldError, Fieldset, FieldsetVariant, FileUpload, Input, InputGroup, ListItem,
+    Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput,
+    PathField, Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, SettingsCard,
+    ShortcutRecorder, Textarea, TimeField, TimePicker, Toast, TokenInput, Waveform,
   },
 };
 
@@ -89,6 +89,17 @@ fn a_search_field_is_no_wider_than_a_narrow_room() {
 #[test]
 fn a_path_field_is_no_wider_than_a_narrow_room() {
   fits(|| PathField::new(text()).id("it").into());
+}
+
+#[test]
+fn a_settings_card_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    SettingsCard::new(ListItem::new("Default project folder").description("Where new projects are created."))
+      .item(ListItem::new("Open at login"))
+      .open(true)
+      .id("it")
+      .into()
+  });
 }
 
 #[test]
