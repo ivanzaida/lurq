@@ -147,7 +147,7 @@ fn a_spinning_icon_turns_about_its_middle_once_in_its_period() {
 }
 
 #[test]
-fn a_spinning_icon_stands_still_while_motion_is_reduced() {
+fn a_spinning_icon_turns_while_motion_is_reduced_too() {
   let app = lurq::app::App::new();
   app.theme().set_reduced_motion(Some(true));
   let mut stage = Stage::in_app(app, |_| {
@@ -159,7 +159,14 @@ fn a_spinning_icon_stands_still_while_motion_is_reduced() {
   let spinner = glyph(icons::SPINNER);
   stage.pass_after(SPIN_PERIOD / 4);
   let quarter = stage.text_quad(&spinner).expect("it is drawn");
-  assert!(quarter.transform.is_identity(), "as it is drawn, not turned");
+  assert!(
+    !quarter.transform.is_identity(),
+    "it says that something is under way, and nothing else does"
+  );
   stage.pass_after(SPIN_PERIOD / 2);
-  assert!(stage.text_quad(&spinner).unwrap().transform.is_identity());
+  assert_ne!(
+    quarter.transform,
+    stage.text_quad(&spinner).unwrap().transform,
+    "and goes on turning"
+  );
 }

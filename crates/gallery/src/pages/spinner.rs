@@ -430,8 +430,7 @@ impl Component for SpinnerPage {
         Section::new(
           "Kinds",
           "The ring is the spinner of the design and of a button that loads. Dots and bars say the same in \
-           another form. Each is a status to tooling, called \"Loading\" unless it has a label. While motion is \
-           reduced each stands still, as the design draws it.",
+           another form. Each is a status to tooling, called \"Loading\" unless it has a label.",
           self.frame.demo(
             0,
             kinds,

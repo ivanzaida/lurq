@@ -448,7 +448,7 @@ fn the_veil_fades_in_and_out() {
 }
 
 #[test]
-fn while_motion_is_reduced_a_spinner_stands_as_the_design_draws_it() {
+fn a_spinner_and_a_loading_buttons_move_while_motion_is_reduced_too() {
   let app = App::new();
   app.theme().set_reduced_motion(Some(true));
   let mut stage = Stage::in_app(app, |_| {
@@ -469,32 +469,38 @@ fn while_motion_is_reduced_a_spinner_stands_as_the_design_draws_it() {
     bars.sort_by(|a, b| a.x.total_cmp(&b.x));
     bars
   };
-  for part in 0..6 {
-    stage.pass_after(SPINNER_DOTS_PERIOD / 6 * part);
-    let rings: Vec<Quad> = stage
-      .quads()
-      .into_iter()
-      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::SPINNER)))
-      .collect();
-    assert_eq!(rings.len(), 2, "the spinner's ring and the button's");
-    assert!(
-      rings.iter().all(|ring| ring.transform.is_identity()),
-      "no ring is turned, the button's neither"
-    );
-    let dots: Vec<f32> = rects(&stage, 8.0, 8.0).iter().map(|dot| dot.opacity).collect();
-    assert_eq!(
-      dots,
-      [1.0, 0.6, 0.3],
-      "a wave caught at a moment, as the board draws it"
-    );
-    let still = bars(&stage);
-    assert_eq!(
-      still.iter().map(|bar| bar.height).collect::<Vec<_>>(),
-      [8.0, 18.0, 12.0, 20.0, 10.0],
-      "the board's heights"
-    );
-    assert!(still.iter().all(|bar| bar.transform.is_identity()), "no bar shrinks");
+  // A quarter of a turn on, the spinner's ring and the button's are both turned.
+  stage.pass_after(SPIN_PERIOD / 4);
+  let rings: Vec<Quad> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::SPINNER)))
+    .collect();
+  assert_eq!(rings.len(), 2, "the spinner's ring and the button's");
+  assert!(
+    rings.iter().all(|ring| !ring.transform.is_identity()),
+    "both rings turn: they say that something is under way, and nothing else does"
+  );
+  // Over a period each dot fades and comes back, and each bar shrinks and grows back.
+  let mut faded = [Vec::new(), Vec::new(), Vec::new()];
+  let mut shrunk = [false; 5];
+  for step in 0..12 {
+    stage.pass_after(SPINNER_DOTS_PERIOD / 12 * step);
+    for (index, dot) in rects(&stage, 8.0, 8.0).iter().enumerate() {
+      faded[index].push(dot.opacity);
+    }
+    stage.pass_after(SPINNER_BARS_PERIOD / 12 * step);
+    for (index, bar) in bars(&stage).iter().enumerate() {
+      shrunk[index] |= !bar.transform.is_identity();
+    }
   }
+  for (index, seen) in faded.iter().enumerate() {
+    let (least, most) = seen.iter().fold((f32::MAX, f32::MIN), |(least, most), opacity| {
+      (least.min(*opacity), most.max(*opacity))
+    });
+    assert!(most - least > 0.3, "dot {index} fades and comes back: {seen:?}");
+  }
+  assert_eq!(shrunk, [true; 5], "every bar shrinks at some moment of its period");
 }
 
 mod page_loader {
@@ -570,7 +576,7 @@ mod page_loader {
   }
 
   #[test]
-  fn its_ring_turns_and_stands_still_while_motion_is_reduced() {
+  fn its_ring_turns_and_while_motion_is_reduced_too() {
     let mut stage = room(starting);
     stage.pass_after(SPIN_PERIOD / 4);
     assert!(!stage.text_quad(&glyph(icons::SPINNER)).unwrap().transform.is_identity());
@@ -579,7 +585,10 @@ mod page_loader {
     app.theme().set_reduced_motion(Some(true));
     let mut stage = Stage::in_app(app, |_| Column::new().size(280.0, 180.0).child(starting()).into());
     stage.pass_after(SPIN_PERIOD / 4);
-    assert!(stage.text_quad(&glyph(icons::SPINNER)).unwrap().transform.is_identity());
+    assert!(
+      !stage.text_quad(&glyph(icons::SPINNER)).unwrap().transform.is_identity(),
+      "a page that starts says so by its ring, whatever the setting"
+    );
   }
 
   #[test]

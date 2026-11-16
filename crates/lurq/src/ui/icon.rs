@@ -81,8 +81,7 @@ impl Icon {
     self
   }
 
-  /// Whether the icon turns, once in [`SPIN_PERIOD`]: a spinner. While motion is reduced
-  /// ([`Theme::reduced_motion`]) it stands still, as it is drawn.
+  /// Whether the icon turns, once in [`SPIN_PERIOD`]: a spinner.
   pub fn spin(mut self, spin: bool) -> Self {
     self.spin = spin;
     self
@@ -138,7 +137,7 @@ impl Icon {
     if let Some(color) = self.color {
       icon = icon.color(color);
     }
-    if self.spin && !theme.reduced_motion() {
+    if self.spin {
       icon = icon.animation(
         Animation::new(SPIN)
           .duration(SPIN_PERIOD)

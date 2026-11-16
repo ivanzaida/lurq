@@ -181,9 +181,8 @@ const LOADING: &str = "Loading";
 /// "Loading" when it has none. It is drawn in the color of the text around
 /// it, the ring, the dots and the bars alike, so a spinner in a button is the
 /// color of the button's label.
-/// While motion is reduced ([`Theme::reduced_motion`]) a spinner stands still,
-/// as the design draws it: the ring with its gap, the dots at the three
-/// strengths of a wave caught at a moment, the bars at their five heights.
+/// Spinners move whether or not motion is reduced: one that stood still would
+/// say nothing.
 #[derive(Clone)]
 pub struct Spinner {
   kind: SpinnerKind,
@@ -306,7 +305,6 @@ impl Spinner {
       label: self.label,
       label_hidden: self.label_hidden,
       decorative: self.decorative,
-      reduced_motion: theme.reduced_motion(),
       recipe: theme.resolve::<Spinner>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -340,8 +338,6 @@ pub struct SpinnerView {
   pub label_hidden: bool,
   /// Whether it is no status of its own.
   pub decorative: bool,
-  /// Whether motion is reduced: the spinner then stands still, as the design draws it.
-  pub reduced_motion: bool,
   /// The style of each part of this spinner.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -372,19 +368,16 @@ impl SpinnerView {
   }
 
   /// An animation of the dots or the bars: once in `period`, without end, the `index`th a step after the one
-  /// before it. `None` while motion is reduced: the dot or the bar stays as the design draws it.
-  fn wave(&self, keyframes: KeyframesId, period: Duration, index: usize, count: usize) -> Option<Animation> {
-    (!self.reduced_motion).then(|| {
-      Animation::new(keyframes)
-        .duration(period)
-        .delay(period / (2 * count as u32) * index as u32)
-        .easing(Easing::EASE_IN_OUT)
-        .infinite()
-    })
+  /// before it.
+  fn wave(keyframes: KeyframesId, period: Duration, index: usize, count: usize) -> Animation {
+    Animation::new(keyframes)
+      .duration(period)
+      .delay(period / (2 * count as u32) * index as u32)
+      .easing(Easing::EASE_IN_OUT)
+      .infinite()
   }
 
-  /// What moves, in the style of its part: the ring, the dots or the bars. While motion is reduced it is what
-  /// the design draws, and does not move.
+  /// What moves, in the style of its part: the ring, the dots or the bars.
   pub fn indicator(&self) -> Element {
     let part = self.part(SpinnerPart::Indicator);
     match self.kind {
@@ -400,11 +393,12 @@ impl SpinnerView {
         let count = DOT_OPACITIES.len();
         let mut row = Row::new().part(&part).align_items(Alignment::Center);
         for (index, opacity) in DOT_OPACITIES.into_iter().enumerate() {
-          let mut dot = Row::new().part(&dot).opacity(opacity);
-          if let Some(wave) = self.wave(SPINNER_DOTS, SPINNER_DOTS_PERIOD, index, count) {
-            dot = dot.animation(wave);
-          }
-          row = row.child(dot);
+          row = row.child(Row::new().part(&dot).opacity(opacity).animation(Self::wave(
+            SPINNER_DOTS,
+            SPINNER_DOTS_PERIOD,
+            index,
+            count,
+          )));
         }
         row.into()
       }
@@ -414,11 +408,12 @@ impl SpinnerView {
         let count = BAR_HEIGHTS.len();
         let mut row = Row::new().part(&part).align_items(Alignment::Center);
         for (index, share) in BAR_HEIGHTS.into_iter().enumerate() {
-          let mut bar = Row::new().part(&bar).height(height * share);
-          if let Some(wave) = self.wave(SPINNER_BARS, SPINNER_BARS_PERIOD, index, count) {
-            bar = bar.animation(wave);
-          }
-          row = row.child(bar);
+          row = row.child(Row::new().part(&bar).height(height * share).animation(Self::wave(
+            SPINNER_BARS,
+            SPINNER_BARS_PERIOD,
+            index,
+            count,
+          )));
         }
         row.into()
       }
@@ -844,7 +839,7 @@ pub type PageLoaderRenderer = Arc<dyn Fn(PageLoaderView) -> Element + Send + Syn
 /// it; a title or a description longer than the room goes on to the next
 /// line, centred. It paints no surface of its own: it stands on the page's. To
 /// tooling that reads the tree it is a status, called by its title and
-/// described by its description. Its ring stands still while motion is
+/// described by its description. Its ring turns whether or not motion is
 /// reduced, as a [`Spinner`]'s does. What loads over content that stays in
 /// place is a [`LoadingOverlay`]'s.
 pub struct PageLoader {

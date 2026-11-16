@@ -400,7 +400,6 @@ Added:
 - `ui::BackToTop`: a round button that shows once the content of a `ScrollState` is scrolled past its `threshold` (300 unless told) and takes it back to its top (`new(&scroll)`, `label`, `icon`, `on_click`, which may refuse, `force_shown`, `disabled`, `mount(ctx)`). See [Back To Top](docs/src/content/docs/design-system.md#back-to-top).
 - `ui::PageLoader`: what stands in the place of a whole page while it starts, a ring of 28 over a title and a description in the middle of the room it is given (`new(title)`, `description`, `spinner(Spinner)`). See [Spinner](docs/src/content/docs/design-system.md#spinner).
 - `Ctx::scroll_to_top_of(&ScrollState)` and `Tree::scroll_state_to_top(&ScrollState)`: take a scroll container back to its top as a wheel's scroll goes, over the frames that follow, and at once while motion is reduced or the theme's smooth scroll is off. See [layout](docs/src/content/docs/layout.md#scroll).
-- A `ui::Spinner`, the spinner of a button that loads and any `ui::Icon` that spins stand still while motion is reduced (`Theme::reduced_motion`), as the design draws them: the ring with its gap, the dots at 1, 0.6 and 0.3 of their color, the bars at their five heights. They moved whatever the setting. `SpinnerView::reduced_motion` says so to a theme's renderer.
 
 Fixes:
 

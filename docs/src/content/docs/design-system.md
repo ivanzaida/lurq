@@ -278,7 +278,7 @@ Icon::new(icons::SPINNER).spin(true);                 // a spinner
 | `Icon::new(name)` | A constant of `ui::icons`, or a name the theme added |
 | `size(size)` | An [`IconSize`](../theme/#icon-size) (`Md`, 16, by default) or a number of logical pixels. The icon is a square of that side |
 | `color(color)` | A color in place of the foreground of what it is in |
-| `spin(bool)` | It turns once in `ui::SPIN_PERIOD`, a second. While motion is reduced (`Theme::reduced_motion`) it stands still, as it is drawn |
+| `spin(bool)` | It turns once in `ui::SPIN_PERIOD`, a second |
 | `id(id)`, `key(key)` | Its id and key |
 
 - An icon names no color: it is drawn in the `.foreground(..)` of what it is in, as text is, so the icon of a button is the color of its label.
@@ -1973,7 +1973,7 @@ PageLoader::new("Starting lurq").description("Loading your workspace…");
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - To what reads the tree a spinner is a `status`, called by its label, or "Loading" when it has none.
-- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. While motion is reduced (`Theme::reduced_motion`) a spinner stands still, as the design draws it: the ring with its gap, the dots at the three strengths of a wave caught at a moment, the bars at their five heights; a button that loads holds its ring still too. `view.reduced_motion` says so to a renderer.
+- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. A spinner moves whether or not motion is reduced: one that stood still would say nothing.
 - A spinner is drawn in the color of the text around it, so a spinner in a button is the color of its label: the ring as text is, and the dots and the bars by the fill `BackgroundColor::CurrentForeground`. Where nothing around it names a color, that is `Foreground`. A variant gives it a color of its own.
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
