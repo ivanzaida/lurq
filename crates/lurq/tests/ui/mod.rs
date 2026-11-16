@@ -5,6 +5,7 @@ mod action_bar;
 mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod audio_player;
 mod audio_queue;
 mod avatar;
@@ -131,6 +132,8 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
+#[cfg(feature = "canvas")]
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;

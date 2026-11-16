@@ -270,6 +270,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "key": { "type": "string", "description": "Key name for key, key_down and key_up, e.g. Enter, Tab, Escape, ArrowDown, a, Shift, \" \" (space)" },
           "text": { "type": "string", "description": "Text for the type action, or the text a paste holds" },
           "files": { "type": "array", "items": { "type": "string" }, "description": "File paths a paste holds (as files copied in Explorer or Finder)" },
+          "image": { "type": "string", "description": "Path of an image file whose pixels a paste holds (as a screenshot on the clipboard)" },
           "paths": { "type": "array", "items": { "type": "string" }, "description": "File or folder paths of drag_files and drop_files" },
           "modifiers": { "type": "array", "items": { "type": "string", "enum": ["shift", "ctrl", "alt", "meta"] } },
           "window": { "type": "string", "description": WINDOW_PROP }

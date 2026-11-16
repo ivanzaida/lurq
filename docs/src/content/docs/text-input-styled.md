@@ -283,7 +283,9 @@ assert_eq!(notes.to_markdown(), "The lake ![at dusk](photos/lake.jpg) from the n
   text otherwise, so another app or another lurq process reads the Markdown as it is written. An object is there as
   the image Markdown writes, `![label](source)`, and in the plain text as its label: the clipboard stays text, and
   the pixels of a picture are not put on it. A paste of that Markdown into an input with objects is the object
-  again, with its record; a picture the system's clipboard holds as pixels is not read. This process keeps the plain text beside
+  again, with its record. A picture the clipboard holds as pixels (a screenshot) is not inserted by the input, which
+  inserts text: an `on_paste` handler takes it (`PasteEvent::image`) and puts an object in with
+  `controller.insert_object`, as the design system's editor does with `on_paste_image`. This process keeps the plain text beside
   it, and while the clipboard still holds what it wrote, an input of the app without the option pastes the plain
   text. A paste with Markdown beside its text, or whose text reads as Markdown (`RichText::reads_as_markdown`: a line
   with a block mark, `#`, `-`, `1.`, `>` or a fence, or a mark Markdown reads, `**bold**`, `` `code` ``, a link), is
