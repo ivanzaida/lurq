@@ -92,6 +92,15 @@ fn items() -> Row {
     .overflow_visible()
 }
 
+/// The gallery's own clip: fifteen seconds of a test picture, 640 by 360, in the gallery's binary.
+#[cfg(not(target_arch = "wasm32"))]
+fn clip() -> lurq::resources::Source {
+  static CLIP: OnceLock<lurq::resources::Source> = OnceLock::new();
+  CLIP
+    .get_or_init(|| lurq::resources::Source::bytes(include_bytes!("../../assets/media/sample.mp4").to_vec()))
+    .clone()
+}
+
 /// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state: 432 wide and no wider than
 /// what holds it, as high as 16 by 9 makes it.
 fn state() -> VideoPlayer {
@@ -865,6 +874,22 @@ impl Component for VideoPlayerPage {
       }
       sizes.into()
     };
+    // A real clip, decoded by the system: the player is given its source and nothing else, and the media says
+    // where it is. A browser has no decoder of ours yet.
+    #[cfg(not(target_arch = "wasm32"))]
+    let real: Element = items()
+      .child(item(
+        VideoPlayer::new()
+          .source(&clip())
+          .width(640.0)
+          .max_width(Length::Fill)
+          .key("clip")
+          .mount(ctx),
+        "the gallery's clip · 15 s of 640 × 360, decoded by Media Foundation",
+      ))
+      .into();
+    #[cfg(target_arch = "wasm32")]
+    let real: Element = quiet("A video is not decoded in a browser build yet.", 13.0).into();
     // The touch form on its side is as wide as a phone on its side: where the stage is narrower it scrolls.
     let upright = ctx.mount::<Demo>(Scene::Touch);
     let side = ctx.mount::<Demo>(Scene::TouchSide);
@@ -971,6 +996,13 @@ impl Component for VideoPlayerPage {
         "&str",
         "",
         "The line to show now, and the track's name the settings say.",
+      ),
+      (
+        "source",
+        "&Source",
+        "",
+        "What it plays (feature media): a mounted player decodes it and draws its frames, and its time, its \
+         length and whether it plays are the media's. No sound yet.",
       ),
       (
         "touch",
@@ -1128,6 +1160,24 @@ impl Component for VideoPlayerPage {
               "    .error(\"This video can't be played\")",
               "    .error_description(\"Check the connection and try again.\")",
               "    .on_retry(move || retry())",
+            ],
+          ),
+        ),
+        Section::new(
+          "Playing a file",
+          "Given a source (a file, bytes, a resource, an address), a mounted player decodes it with the system's \
+           decoder and draws its frames: play, pause, the seek bar, the speed and the keys move the video itself. \
+           No sound yet: the volume is drawn and changes nothing.",
+          self.frame.demo(
+            5,
+            real,
+            ".source(&Source::file(\"clip.mp4\"))",
+            &[
+              "VideoPlayer::new()",
+              "    .source(&Source::file(\"clips/lake.mp4\"))",
+              "    .width(640.0)",
+              "    .max_width(Length::Fill)",
+              "    .mount(ctx)",
             ],
           ),
         ),

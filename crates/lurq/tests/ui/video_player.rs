@@ -1472,3 +1472,70 @@ fn on_its_side_the_touch_form_has_its_title_its_speed_and_a_way_back() {
   own.click("v-back");
   assert_eq!(told.take(), ["back"]);
 }
+
+/// Renders `stage` again until `is` holds, for at most ten seconds: a media works on a thread of its own.
+#[cfg(all(windows, feature = "media"))]
+#[track_caller]
+fn until(stage: &mut Stage, what: &str, mut is: impl FnMut(&mut Stage) -> bool) {
+  let started = std::time::Instant::now();
+  loop {
+    // The player's clock is a timer of its window, which a window with no loop does not run by itself.
+    stage.tree.tick_timers_at(std::time::Instant::now());
+    stage.pass();
+    if is(stage) {
+      return;
+    }
+    assert!(
+      started.elapsed() < std::time::Duration::from_secs(10),
+      "it never came to: {what}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+  }
+}
+
+#[cfg(all(windows, feature = "media"))]
+#[test]
+fn given_a_source_it_plays_the_file_and_its_controls_move_the_video() {
+  use lurq::resources::Source;
+  let clip = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4");
+  let told = Told::default();
+  let said = told.clone();
+  let mut stage = mounted(move || {
+    let say = said.say();
+    VideoPlayer::new()
+      .id("v")
+      .width(640.0)
+      .source(&Source::file(&clip))
+      .on_playing_change(move |to| say(format!("playing {to}")))
+  });
+  // It opened: its length is the file's, and its picture is the media's.
+  until(&mut stage, "its length", |stage| stage.paints("0:15"));
+  assert!(stage.paints("0:00"));
+  says(&mut stage, "v-play", "a11y_name", "Play");
+  // Play: the app hears of it, and the video goes, by its own clock.
+  stage.click("v-play");
+  assert_eq!(told.take(), ["playing true"]);
+  until(&mut stage, "playing", |stage| {
+    has(stage, "v-play") && stage.paints("0:01")
+  });
+  says(&mut stage, "v-play", "a11y_name", "Pause");
+  // Pause: it stands where it is.
+  stage.click("v-play");
+  assert_eq!(told.take(), ["playing false"]);
+  stage.pass();
+  says(&mut stage, "v-play", "a11y_name", "Play");
+  std::thread::sleep(std::time::Duration::from_millis(1200));
+  stage.pass();
+  assert!(stage.paints("0:01"), "paused, the time stands");
+  // What is no video says so, with the reason under it and nothing to play.
+  let mut broken = mounted(|| {
+    VideoPlayer::new()
+      .id("v")
+      .width(640.0)
+      .source(&Source::bytes(b"not a video".to_vec()))
+  });
+  until(&mut broken, "the error", |stage| {
+    stage.paints("This video can't be played")
+  });
+  assert!(!has(&mut broken, "v-play"));
+}

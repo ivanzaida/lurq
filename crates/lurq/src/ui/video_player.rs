@@ -383,6 +383,7 @@ struct Words {
   picture_in_picture: Arc<str>,
   in_picture: Arc<str>,
   back: Arc<str>,
+  unplayable: Arc<str>,
   fullscreen: Arc<str>,
   exit_fullscreen: Arc<str>,
   more: Arc<str>,
@@ -418,6 +419,7 @@ impl Default for Words {
       picture_in_picture: word("Picture in picture"),
       in_picture: word("Playing in picture in picture"),
       back: word("Back to the window"),
+      unplayable: word("This video can't be played"),
       fullscreen: word("Fullscreen"),
       exit_fullscreen: word("Exit fullscreen"),
       more: word("More"),
@@ -502,6 +504,8 @@ pub struct VideoPlayer {
   error: Option<Arc<str>>,
   error_description: Option<Arc<str>>,
   on_retry: Vec<Action>,
+  #[cfg(feature = "media")]
+  source: Option<crate::resources::Source>,
   touch: bool,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
@@ -600,6 +604,8 @@ impl VideoPlayer {
       error: None,
       error_description: None,
       on_retry: Vec::new(),
+      #[cfg(feature = "media")]
+      source: None,
       touch: false,
       title: None,
       description: None,
@@ -926,6 +932,20 @@ impl VideoPlayer {
     self
   }
 
+  /// What it plays: a file, bytes, a resource of the app or an address. A mounted player opens it with the app's
+  /// loader, decodes it with the system's decoder ([`Media`](crate::media::Media)) and draws its frames as its
+  /// picture; where it is, how long it is, whether it plays, waits, ended or failed are the media's, in place of
+  /// what the app would say. A press on a control still tells the app's handlers, and does what it says to the
+  /// media: plays, pauses, goes to a time, changes the speed. An app that holds `playing` or `rate` moves the
+  /// media by changing them. With no source the player is drawn from the values it is given, as before.
+  ///
+  /// The sound of what plays is not played yet: the volume and the mute are told and drawn, and change nothing.
+  #[cfg(feature = "media")]
+  pub fn source(mut self, source: &crate::resources::Source) -> Self {
+    self.source = Some(source.clone());
+    self
+  }
+
   /// The touch form, for a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play
   /// in the middle, the time and fullscreen over the seek bar at the bottom, and no volume (a phone has keys for
   /// it). A tap on the picture shows the controls and hides them; two on its left or its right third seek ten
@@ -1022,6 +1042,7 @@ impl VideoPlayer {
     picture_in_picture_label => picture_in_picture, "The name of the button of picture in picture.";
     in_picture_text => in_picture, "What stands where the player was while it plays in its small window.";
     back_label => back, "The button that brings it back from its small window: \"Back to the window\".";
+    unplayable_text => unplayable, "The error's title where its source cannot be played: the reason is under it.";
     fullscreen_label => fullscreen, "The name of the fullscreen button while a press would fill the screen.";
     exit_fullscreen_label => exit_fullscreen, "The name of the fullscreen button while it fills the screen.";
     more_label => more, "The name of the compact player's menu button.";
@@ -1163,7 +1184,25 @@ struct Live {
   told: Option<Timeout>,
   /// What opens the small window.
   opener: Option<crate::app::WindowOpener>,
+  /// What it plays, where it was given a source.
+  #[cfg(feature = "media")]
+  played: Option<Played>,
   mounted: bool,
+}
+
+/// What a mounted player with a source keeps: the media it opened, and what renders the player again for it.
+#[cfg(feature = "media")]
+#[derive(Clone)]
+struct Played {
+  /// The media, with the key of the source it was opened from: another source is another media.
+  media: Arc<Mutex<Option<(u64, crate::media::Media)>>>,
+  /// Counted up when the media changed, and while it plays: the player reads it and is rendered again.
+  beat: Signal<u64>,
+  /// Whether it plays: the clock that counts the beat runs while it does.
+  plays: Arc<AtomicBool>,
+  /// What the app last said of playing and of the speed: a change of them moves the media.
+  said: Arc<Mutex<(Option<bool>, Option<f64>)>>,
+  _clock: crate::app::ctx::Interval,
 }
 
 /// What a player and its small window share: the player as it was last rendered (none once it left picture in
@@ -1231,6 +1270,8 @@ impl Live {
       picture: None,
       told: None,
       opener: None,
+      #[cfg(feature = "media")]
+      played: None,
       mounted: false,
     }
   }
@@ -1301,6 +1342,27 @@ impl Component for VideoPlayerHost {
       let mark = mark.clone();
       move || mark.set(None)
     });
+    #[cfg(feature = "media")]
+    let played = {
+      let (beat, plays) = (ctx.signal(0_u64), Arc::new(AtomicBool::new(false)));
+      // While it plays the time and the seek bar move: four times a second is what they show.
+      let clock = ctx.create_interval(Duration::from_millis(250), {
+        let (beat, plays) = (beat.clone(), plays.clone());
+        move || {
+          if plays.load(Ordering::Relaxed) {
+            beat.update(|count| *count += 1);
+          }
+        }
+      });
+      clock.start();
+      Played {
+        media: Arc::default(),
+        beat,
+        plays,
+        said: Arc::default(),
+        _clock: clock,
+      }
+    };
     let live = Live {
       root: ElementRef::new(),
       row: ElementRef::new(),
@@ -1326,6 +1388,8 @@ impl Component for VideoPlayerHost {
       picture: Some(picture),
       told: Some(told),
       opener: Some(ctx.window_opener()),
+      #[cfg(feature = "media")]
+      played: Some(played),
       mounted: true,
     };
     // Before the frame is painted: the form that fits the width it was laid out at, so that no frame shows another.
@@ -1378,6 +1442,8 @@ impl Component for VideoPlayerHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let player = ctx.props::<VideoPlayerProps>().0.clone();
     let live = &self.live;
+    #[cfg(feature = "media")]
+    let player = playing(player, live, ctx);
     // In fullscreen it fills its window, and takes the window to the whole screen, unless the app does it.
     let fills = player.fullscreen.value && player.fullscreen_fills != VideoFullscreen::App;
     live.filling.store(fills, Ordering::Relaxed);
@@ -1484,6 +1550,126 @@ impl Component for VideoPlayerHost {
     .takes_focus(true);
     place.child(layer).into()
   }
+}
+
+/// `player` as the media of its source has it: opened where it is not yet, its frames as the picture, its time,
+/// its length and its state in place of the app's, and each control doing to the media what it tells the app.
+/// A player with no source is given back as it is.
+#[cfg(feature = "media")]
+fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
+  use crate::media::Media;
+  let Some(played) = &live.played else {
+    return player;
+  };
+  let mut held = played.media.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  let Some(source) = player.source.take() else {
+    // No source any more: the media ends with what held it.
+    *held = None;
+    played.plays.store(false, Ordering::Relaxed);
+    return player;
+  };
+  // Rendered again when the media says it changed, and as its clock goes.
+  played.beat.get();
+  let key = source.cache_key();
+  if held.as_ref().is_none_or(|(of, _)| *of != key) {
+    // The app's loader, with its resource root and what it allows; a tree with no app has a loader of its own.
+    let loader = ctx
+      .app_handle()
+      .map_or_else(crate::resources::Loader::new, |app| app.loader().clone());
+    let media = Media::open(&loader, &source);
+    let beat = played.beat.clone();
+    media.on_change(move || beat.update(|count| *count += 1));
+    *held = Some((key, media));
+    *played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (None, None);
+  }
+  let media = held
+    .as_ref()
+    .map(|(_, media)| media.clone())
+    .expect("the media just held");
+  drop(held);
+  // What the app says of playing and of the speed moves the media when it changes: an app that holds them
+  // plays, pauses and changes the speed by setting them.
+  {
+    let mut said = played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if said.0 != Some(player.playing.value) {
+      // A player that starts paused has nothing to tell a media that opens paused.
+      if player.playing.value {
+        media.play();
+      } else if said.0.is_some() {
+        media.pause();
+      }
+      said.0 = Some(player.playing.value);
+    }
+    if said.1 != Some(player.rate.value) {
+      media.set_rate(player.rate.value);
+      said.1 = Some(player.rate.value);
+    }
+  }
+  // What a person does on a control is done to the media, after the app's own handlers heard of it.
+  let again = {
+    let beat = played.beat.clone();
+    move || beat.update(|count| *count += 1)
+  };
+  // What the app last said stays what the app said: a player whose app holds nothing is paused in its props
+  // for as long as it lives, and that is not the app pausing it after a person pressed play.
+  player.playing.add({
+    let (media, again) = (media.clone(), again.clone());
+    move |to| {
+      if to {
+        media.play();
+      } else {
+        media.pause();
+      }
+      again();
+    }
+  });
+  player.position.add({
+    let (media, again) = (media.clone(), again.clone());
+    move |to| {
+      media.seek(to);
+      again();
+    }
+  });
+  player.rate.add({
+    let (media, again) = (media.clone(), again.clone());
+    move |to| {
+      media.set_rate(to);
+      again();
+    }
+  });
+  // Trying again opens the source anew.
+  player.on_retry.push({
+    let (held, again) = (played.media.clone(), again);
+    Arc::new(move || {
+      *held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+      again();
+    })
+  });
+  let state = media.state();
+  played.plays.store(state.playing, Ordering::Relaxed);
+  player.playing.value = state.playing;
+  player.position.value = state.position;
+  player.rate.value = state.rate;
+  if state.duration.is_some() {
+    player.duration = state.duration;
+    // All of a file is there to play: its bar is loaded to its end, unless the app says how far.
+    player.buffered = player.buffered.or(state.duration);
+  }
+  player.waiting = player.waiting || state.waiting;
+  player.ended = player.ended || state.ended;
+  if let (None, Some(why)) = (&player.error, &state.error) {
+    player.error = Some(player.words.unplayable.clone());
+    player.error_description = Some(why.clone());
+  }
+  if let Some(image) = media.frame() {
+    player.media = Some(
+      crate::components::Video::new(image)
+        .contain()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .into(),
+    );
+  }
+  player
 }
 
 /// The style of the parts of `player` at rest, in the form `size`.
@@ -1626,6 +1812,10 @@ impl Component for PictureWindow {
     // It is the picture in picture: it opens no window of its own, and its fullscreen is the app's.
     player.picture_in_picture_window = false;
     player.fullscreen_fills = VideoFullscreen::App;
+    #[cfg(feature = "media")]
+    {
+      player.source = None;
+    }
     player.id = None;
     player.key = None;
     Stack::new()

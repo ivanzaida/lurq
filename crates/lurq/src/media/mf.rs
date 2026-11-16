@@ -238,7 +238,13 @@ unsafe fn play(shared: &Shared, opened: Opened) -> Result<()> {
         // Nothing to do until it is told something.
         _ => Some(Duration::from_secs(3600)),
       };
-      for command in shared.take(wait) {
+      let commands = shared.take(wait);
+      // Sent to many times while a seek bar is dragged, it goes to the last of them.
+      let last_seek = commands.iter().rposition(|command| matches!(command, Command::Seek(_)));
+      for (index, command) in commands.into_iter().enumerate() {
+        if matches!(command, Command::Seek(_)) && Some(index) != last_seek {
+          continue;
+        }
         match command {
           Command::Close => return Ok(()),
           Command::Play => {

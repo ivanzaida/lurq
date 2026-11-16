@@ -278,16 +278,34 @@ impl Media {
     self.shared().tell(Command::Play);
   }
 
-  /// Stops where it is.
+  /// Stops where it is. Its state says so at once: the thread stops decoding when it hears.
   pub fn pause(&self) {
+    {
+      let mut inner = self.shared().inner();
+      inner.hold();
+      inner.playing = false;
+    }
     self.shared().tell(Command::Pause);
   }
 
-  /// Goes to `seconds` and shows the frame there, playing or not.
+  /// Goes to `seconds` and shows the frame there, playing or not. Its state is at that time at once, so what
+  /// draws where it is (a seek bar being dragged) does not see it go back: the frame comes when it is decoded.
   pub fn seek(&self, seconds: f64) {
-    if seconds.is_finite() {
-      self.shared().tell(Command::Seek(seconds.max(0.0)));
+    if !seconds.is_finite() {
+      return;
     }
+    let to = {
+      let mut inner = self.shared().inner();
+      let to = match inner.duration {
+        Some(duration) => seconds.clamp(0.0, duration),
+        None => seconds.max(0.0),
+      };
+      inner.at = to;
+      inner.since = Instant::now();
+      inner.ended = false;
+      to
+    };
+    self.shared().tell(Command::Seek(to));
   }
 
   /// How fast it goes: 1 is as it was made. Nothing that is not a speed is taken.
