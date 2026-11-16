@@ -701,7 +701,7 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
   },
   Page {
-    path: "C:/Program Files/Git/table-of-contents",
+    path: "/table-of-contents",
     name: "Table of Contents",
     icon: Some("list-tree"),
     about: "table of contents toc on this page outline sections headings anchors scroll spy scrollspy reading current section jump navigation article docs sticky new entry entries level container reading_line current on_change on_select title label mount disabled",
@@ -920,7 +920,7 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
   },
   Page {
-    path: "C:/Program Files/Git/event-calendar",
+    path: "/event-calendar",
     name: "Event Calendar",
     icon: Some("calendar-days"),
     about: "event calendar events schedule scheduler agenda week month day planner meeting appointment today more weekdays weekends timetable new controlled event events period shown weekends header max_shown first_day locale today on_change on_select on_more more_text today_label previous_label next_label mount disabled variant",
