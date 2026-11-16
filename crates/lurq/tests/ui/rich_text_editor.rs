@@ -1223,3 +1223,32 @@ fn a_named_editor_gives_its_document_to_the_form_as_markdown() {
   let values = submit(&mut stage);
   assert_eq!(values.get_string("notes"), Some("# Changed\n\n- **one**"));
 }
+
+#[test]
+fn the_panel_of_a_link_hangs_from_the_selection_a_press_made() {
+  let mut editor = Editor::new(notes());
+  editor.focus();
+  // The caret at the end of the document first, then a press in the heading puts it there.
+  let end = editor.document().text.len();
+  editor.select(end, end);
+  editor.stage.pass();
+  let (x, y, ..) = editor.stage.bounds(CONTENT);
+  let (px, py) = (x + 18.0 + 30.0, y + 16.0 + 13.0);
+  editor.stage.tree.mouse_move(px, py);
+  editor
+    .stage
+    .tree
+    .mouse_down(px, py, lurq::app::events::MouseButton::Left);
+  editor.stage.tree.mouse_up(px, py, lurq::app::events::MouseButton::Left);
+  editor.stage.pass();
+  let caret = editor.editor.input().selection().unwrap().range().start;
+  assert!(caret < "Release notes".len(), "the caret is in the heading: {caret}");
+  editor.shortcut("k", "KeyK", false, false);
+  editor.stage.pass();
+  editor.stage.pass();
+  let (_, field_y, ..) = editor.stage.bounds("editor-link-field");
+  assert!(
+    field_y < y + 16.0 + 26.0 + 30.0,
+    "the panel is under the heading, not under the last item: {field_y} in a box at {y}"
+  );
+}

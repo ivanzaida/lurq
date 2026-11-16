@@ -1413,6 +1413,13 @@ impl RichTextEditorView {
       &part.rest().merged(&self.part(RichTextEditorPart::Placeholder).rest()),
     );
     let kept = &self.kept;
+    // The panel of a link hangs from where the selection starts: read before the controller is bound to the
+    // input built here, which has no selection of its own yet.
+    let start = kept
+      .controller
+      .input
+      .selection()
+      .map_or(0, |selection| selection.range().start);
     let input = TextInput::styled(kept.text.clone(), text)
       .placeholder_style(placeholder)
       .spans(kept.spans.clone())
@@ -1431,12 +1438,6 @@ impl RichTextEditorView {
     if let Some(id) = self.sub_id("content") {
       input = input.id(id);
     }
-    // The panel of a link hangs from where the selection starts.
-    let start = kept
-      .controller
-      .input
-      .selection()
-      .map_or(0, |selection| selection.range().start);
     input = input.anchor_at(kept.link_anchor.clone(), start);
     let changed = {
       let (held, last, handlers) = (self.held.clone(), kept.last.clone(), self.on_change.clone());
