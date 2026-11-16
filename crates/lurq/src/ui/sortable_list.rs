@@ -8,18 +8,19 @@ use super::{
   icons,
   list_item::{ListItem, ListItemPart},
   names,
-  part_style::PartStyle,
+  part_style::{PartStyle, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   selection::{ListSelection, Pick, select_all_key},
   shared::{fading, glyph},
   theme::{Themed, current_theme},
 };
 use crate::{
+  animation::Transition,
   app::{
     component::Component,
     ctx::Ctx,
     events::{DragEvent, KeyboardEvent, MouseButtonMask, MouseEvent},
-    theme::{BorderSize, IconSize, PaletteColor, RadiusSize, ShadowStyle, Theme},
+    theme::{BorderSize, IconSize, MotionDuration, PaletteColor, RadiusSize, ShadowStyle, Theme},
   },
   components::{Column, Row, Stack},
   core::{ElementRef, Signal, SignalValue},
@@ -55,12 +56,19 @@ pub enum SortableListPart {
   Description,
   /// What stands where a dragged row was, until it is let go.
   Ghost,
+  /// The room between two rows, and before the first and after the last: where the line shows, it opens to hold
+  /// the line with the room between rows on each side of it. Its transition is how the rows move to make that
+  /// room.
+  Slot,
   /// The line between two rows where what is dragged would go.
   Line,
   /// The dot at the line's start.
   Cap,
   /// The badge on the corner of the row under the pointer that counts the rows dragged, where they are several.
   Count,
+  /// What holds the row under the pointer of a drag over the list. Its padding at the start and at the end is how
+  /// much narrower than the list that row is drawn, taken off about the pointer.
+  Lifted,
 }
 
 names!(SortableListPart {
@@ -71,9 +79,11 @@ names!(SortableListPart {
   Title => "title",
   Description => "description",
   Ghost => "ghost",
+  Slot => "slot",
   Line => "line",
   Cap => "cap",
   Count => "count",
+  Lifted => "lifted",
 });
 
 /// The states of a sortable list a recipe styles, besides what the pointer and the keyboard do to its rows.
@@ -227,7 +237,8 @@ type Told<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
 /// The list does not keep the order: the app's rows do. A row is dragged by any of it, or by its handle alone
 /// ([`handle_only`](Self::handle_only)); past a few pixels the drag begins, the row follows the pointer over the
 /// list, what stood in its place is a ghost, and a line shows between which rows it would go. Let go, the app is
-/// told where: [`on_reorder(from, to)`](Self::on_reorder), as a strip of tabs tells it. Escape during a drag puts
+/// told where: [`on_reorder(from, to)`](Self::on_reorder), as a strip of tabs tells it. The line stands in the
+/// flow of the list, and the rows it goes between move apart to make room for it. Escape during a drag puts
 /// the row back and tells nothing.
 ///
 /// The list is one stop of Tab. Up and Down move the focus through the rows; Alt with Up or Down moves the focused
@@ -586,6 +597,8 @@ struct Drag {
   places: Vec<(f32, f32)>,
   /// How wide the list is.
   width: f32,
+  /// Where along the row the button went down, as a share of the row's width.
+  grab: f32,
   /// How far the pointer has moved since the press.
   moved: (f32, f32),
   /// Whether the pointer has moved far enough for this to be a drag and not a press.
@@ -593,14 +606,6 @@ struct Drag {
 }
 
 impl Drag {
-  /// The room between two rows.
-  fn gap(&self) -> f32 {
-    match self.places.as_slice() {
-      [(top, height), (next, _), ..] => (next - top - height).max(0.0),
-      _ => 0.0,
-    }
-  }
-
   /// Between which rows what is dragged would go: before the row at the slot, after the last at the count. It is
   /// where the middle of the row under the pointer is among the middles of the rows.
   fn slot(&self) -> usize {
@@ -622,21 +627,6 @@ impl Drag {
   /// Whether letting go here moves nothing: the rows stand together where they would go.
   fn stays(&self) -> bool {
     self.rows.windows(2).all(|pair| pair[1] == pair[0] + 1) && self.rows.first() == Some(&self.target())
-  }
-
-  /// How far under the list's top the middle of the line at the slot is: in the middle of the room between two
-  /// rows, and half of it before the first and after the last.
-  fn line(&self) -> f32 {
-    let (slot, gap) = (self.slot(), self.gap());
-    match (
-      slot.checked_sub(1).and_then(|before| self.places.get(before)),
-      self.places.get(slot),
-    ) {
-      (Some((top, height)), Some((next, _))) => (top + height + next) / 2.0,
-      (None, Some((next, _))) => next - gap / 2.0,
-      (Some((top, height)), None) => top + height + gap / 2.0,
-      (None, None) => 0.0,
-    }
   }
 }
 
@@ -720,11 +710,14 @@ impl SortableListView {
     self.drag.as_ref().map_or(0, |drag| drag.rows.len())
   }
 
-  /// The rows one under the other in the style of the root: one stop of Tab, whose Up and Down move the focus. It
-  /// is a list to what reads the tree, a listbox of any number where its rows are selected, called by its label.
+  /// The rows one under the other in the style of the root, with a [slot](Self::slot) before each and after the
+  /// last, which is the room between them: one stop of Tab, whose Up and Down move the focus. It is a list to what
+  /// reads the tree, a listbox of any number where its rows are selected, called by its label.
   pub fn list(&mut self) -> Column {
     let mut list = Column::new()
       .align_items(Alignment::Stretch)
+      // The dot of a line before the first row reaches past the list's top.
+      .overflow_visible()
       .focus_group(
         FocusGroup::vertical()
           .one_stop(true)
@@ -733,7 +726,9 @@ impl SortableListView {
       )
       .ref_element(self.kept.list.clone())
       .describe("a11y_role", if self.selects { "listbox" } else { "list" })
-      .part(&self.part(SortableListPart::Root));
+      .part(&self.part(SortableListPart::Root))
+      // The room between two rows is their slot's, which opens round the line: not a gap of the column.
+      .spacing(0.0);
     if self.selects {
       list = list.describe("a11y_multiselectable", "true");
     }
@@ -746,41 +741,92 @@ impl SortableListView {
     if let Some(id) = &self.id {
       list = list.id(id.clone());
     }
-    list.with_children(std::mem::take(&mut self.rows).into_iter().map(SortableRow::render))
+    let rows = std::mem::take(&mut self.rows);
+    let count = rows.len();
+    let mut children = Vec::with_capacity(2 * count + 1);
+    children.push(self.slot(0, count));
+    for (index, row) in rows.into_iter().enumerate() {
+      children.push(row.render());
+      children.push(self.slot(index + 1, count));
+    }
+    list.with_children(children)
   }
 
-  /// The line where what is dragged would go, with the dot at its start: `None` while nothing is dragged, and where
-  /// letting go would move nothing.
-  pub fn line(&self) -> Option<Element> {
-    let drag = self.drag.as_ref().filter(|drag| !drag.stays())?;
-    let (line, cap) = (self.part(SortableListPart::Line), self.part(SortableListPart::Cap));
+  /// Between which rows the line shows: before the row at the place, after the last at the count. `None` while
+  /// nothing is dragged, and where letting go would move nothing.
+  pub fn line_at(&self) -> Option<usize> {
+    self.drag.as_ref().filter(|drag| !drag.stays()).map(|drag| drag.slot())
+  }
+
+  /// The room before the row at `index` of `count`, and after the last at `count`, in the flow of the list: as
+  /// high as the room between two rows (none before the first and after the last), and, where the line shows in
+  /// it, open to hold the line with that room on each side of it that has a row. Its height runs from the one to
+  /// the other by the transition of its part, so the rows move to make room for the line and do not jump.
+  pub fn slot(&self, index: usize, count: usize) -> Element {
     let theme = self.theme();
-    let thick = super::select::px(line.rest().height, theme).unwrap_or(2.0);
-    let dot = super::select::px(cap.rest().width, theme).unwrap_or(0.0);
-    let high = thick.max(dot);
-    Some(
-      Row::new()
-        .align_items(Alignment::Center)
-        .pointer_events_none()
-        .overflow_visible()
-        .absolute(0.0, drag.line() - high / 2.0, drag.width, high)
-        .child(Row::new().flex_shrink(0.0).part(&cap))
-        .child(Row::new().flex(1.0).part(&line))
-        .into(),
-    )
+    let gap = super::select::spacing(self.part(SortableListPart::Root).rest().gap, theme).unwrap_or(0.0);
+    let thick = super::select::px(self.part(SortableListPart::Line).rest().height, theme).unwrap_or(0.0);
+    let (first, last) = (index == 0, index == count);
+    let shown = count > 0 && self.line_at() == Some(index);
+    let sides = f32::from(u8::from(!first)) + f32::from(u8::from(!last));
+    let height = if shown {
+      thick + gap * sides
+    } else if first || last {
+      0.0
+    } else {
+      gap
+    };
+    let mut slot = Column::new()
+      .key(format!("slot-{index}"))
+      .align_items(Alignment::Stretch)
+      .justify(match (first, last) {
+        (true, false) => Justify::Start,
+        (false, true) => Justify::End,
+        _ => Justify::Center,
+      })
+      .overflow_visible()
+      .pointer_events_none()
+      .part(&self.part(SortableListPart::Slot))
+      .height(height);
+    if shown {
+      slot = slot.child(self.line());
+    }
+    slot.into()
   }
 
-  /// The row under the pointer of a drag, drawn over the list where the pointer has it, turned a little, with the
-  /// count of the rows dragged on its corner where they are several.
+  /// The line where what is dragged would go, with the dot at its start, in the styles of their parts.
+  pub fn line(&self) -> Element {
+    let (line, cap) = (self.part(SortableListPart::Line), self.part(SortableListPart::Cap));
+    let thick = super::select::px(line.rest().height, self.theme()).unwrap_or(0.0);
+    Row::new()
+      .height(thick)
+      .flex_shrink(0.0)
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .child(Row::new().flex_shrink(0.0).part(&cap))
+      .child(Row::new().flex(1.0).part(&line))
+      .into()
+  }
+
+  /// The row under the pointer of a drag, drawn over the list where the pointer has it, turned a little, narrower
+  /// than the list by what its part says, with the count of the rows dragged on its corner where they are several.
   pub fn lifted(&self, row: Option<Element>) -> Option<Element> {
     let drag = self.drag.as_ref()?;
     let (top, height) = drag.places[drag.from];
+    let [_, end, _, start] = self.part(SortableListPart::Lifted).rest().paddings();
+    let theme = self.theme();
+    let inset = (super::select::spacing(start, theme).unwrap_or(0.0)
+      + super::select::spacing(end, theme).unwrap_or(0.0))
+    .min(drag.width);
+    let width = drag.width - inset;
+    // Narrower about the pointer: what was under it when the button went down stays under it.
+    let left = drag.moved.0 + drag.grab * inset;
     let mut lifted = Stack::new()
       .overflow_visible()
       .pointer_events_none()
       .transform(Transform2D::rotate_deg(SORTABLE_LIST_TILT))
-      .absolute(drag.moved.0, top + drag.moved.1, drag.width, height)
-      .child(Row::new().width(drag.width).overflow_visible().with_children(row));
+      .absolute(left, top + drag.moved.1, width, height)
+      .child(Row::new().width(width).overflow_visible().with_children(row));
     if drag.rows.len() > 1 {
       let count = self.part(SortableListPart::Count);
       let side = super::select::px(count.rest().height, self.theme()).unwrap_or(20.0);
@@ -789,7 +835,7 @@ impl SortableListView {
         Row::new()
           .justify(Justify::Center)
           .align_items(Alignment::Center)
-          .absolute_position(drag.width - side + 4.0, -8.0)
+          .absolute_position(width - side + 4.0, -8.0)
           .part(&count)
           .child(count.text(&drag.rows.len().to_string()).part(&count)),
       );
@@ -797,12 +843,11 @@ impl SortableListView {
     Some(lifted.into())
   }
 
-  /// How the default renderer builds a list: its rows, and over them, while rows are dragged, the line where they
-  /// would go and the row under the pointer.
+  /// How the default renderer builds a list: its rows with the room between them, in which the line shows where
+  /// what is dragged would go, and over them, while rows are dragged, the row under the pointer.
   pub fn render(mut self) -> Element {
     // The row under the pointer is built twice while it is dragged: its ghost in the list, and itself over it.
     let lifted_row = self.rows.iter().find(|row| row.dragged).map(|row| row.lifted_element());
-    let line = self.line();
     let lifted = self.lifted(lifted_row);
     let list = self.list();
     // No wider than the room it has: the list in it is as wide as its part says at most.
@@ -813,7 +858,7 @@ impl SortableListView {
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
-    root.with_children(line).with_children(lifted).into()
+    root.with_children(lifted).into()
   }
 }
 
@@ -881,8 +926,14 @@ impl SortableRow {
     let (start, moved, end) = (self.kept.clone(), self.kept.clone(), self.kept.clone());
     let (with, tell) = (self.moved_with.clone(), self.tell.clone());
     NodeUpdate::start_drag_buttons(node, MouseButtonMask::LEFT);
-    NodeUpdate::on_drag_start(node, move |_: DragEvent| {
+    NodeUpdate::on_drag_start(node, move |event: DragEvent| {
       let top = start.list.y();
+      let pressed = start.row(index);
+      let grab = if pressed.width() > 0.0 {
+        ((event.x - pressed.x()) / pressed.width()).clamp(0.0, 1.0)
+      } else {
+        0.0
+      };
       let places = (0..count)
         .map(|row| {
           let at = start.row(row);
@@ -894,6 +945,7 @@ impl SortableRow {
         rows: with(index),
         places,
         width: start.list.width(),
+        grab,
         moved: (0.0, 0.0),
         begun: false,
       });
@@ -1122,14 +1174,18 @@ impl<T: Send + Sync + 'static> Themed for SortableList<T> {
   /// card's fill in an edge of 1 in the border's color, 6 round, with a grip of 14 in the muted foreground 6 from
   /// its start and its text 8 after it in the body's type at 13, 10 from its end. While rows are dragged, what
   /// stood in the place of each is a ghost on the muted fill in an edge of 1 in the color of an input's, at 0.6; a
-  /// line of 2 in the info color with a dot of 6 at its start shows between which rows they would go; and the row
-  /// under the pointer is drawn over the list with the theme's large shadow, turned by [`SORTABLE_LIST_TILT`], with
-  /// a badge of 20 on its corner, in the info color with the count in white at 11 and 600, where several rows are
-  /// dragged. The board draws no row under the pointer, held down, focused, selected or disabled: a row has a list
-  /// item's veils and ring, a selected one is in the highlight, and a disabled one is faded.
+  /// line of 2 in the info color with a dot of 6 at its start stands in the flow between the rows they would go
+  /// between, 4 from each, so those two are 10 apart and the list is as much higher; and the row under the pointer
+  /// is drawn over the list 40 narrower than it (the board's 260 over a list of 300), with the theme's large
+  /// shadow, turned by [`SORTABLE_LIST_TILT`], with a badge of 20 on its corner, in the info color with the count in
+  /// white at 11 and 600, where several rows are dragged. The rows move to make room for the line over the theme's
+  /// base duration in its standard easing, at once where motion is reduced: the board is still, and that is the
+  /// motion a row has that opens in a tree. The board draws no row under the pointer, held down, focused, selected
+  /// or disabled: a row has a list item's veils and ring, a selected one is in the highlight, and a disabled one is
+  /// faded.
   fn recipe() -> Recipe {
     use PaletteColor::{Card, CardForeground, Highlight, Info, Muted, MutedForeground};
-    use SortableListPart::{Cap, Count, Ghost, Handle, Icon, Item, Line, Root, Title};
+    use SortableListPart::{Cap, Count, Ghost, Handle, Icon, Item, Lifted, Line, Root, Slot, Title};
     use SortableListState::{Dragged, Selected};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
     Recipe::new()
@@ -1160,6 +1216,10 @@ impl<T: Send + Sync + 'static> Themed for SortableList<T> {
           .border(edge(PaletteColor::Input))
           .opacity(0.6)
       })
+      .base(Slot, |s| {
+        s.transition(PartTransition::new(Transition::height(), MotionDuration::Base))
+      })
+      .base(Lifted, |s| s.padding_x(20.0))
       .base(Line, |s| s.height(2.0).background(Info))
       .base(Cap, |s| s.square(6.0).radius(RadiusSize::Full).background(Info))
       .base(Count, |s| {

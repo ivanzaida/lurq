@@ -190,7 +190,7 @@ fn a_drag_tells_where_the_row_was_let_go_and_a_small_move_tells_nothing() {
 }
 
 #[test]
-fn the_dragged_row_follows_the_pointer_over_its_ghost_and_a_line_shows_where_it_would_go() {
+fn the_dragged_row_follows_the_pointer_and_the_rows_make_room_for_the_line_as_the_board_has_them() {
   let (mut stage, held) = staged(true, false);
   let (x, y) = stage.center("Tabs");
   stage.tree.mouse_move(x, y);
@@ -199,14 +199,18 @@ fn the_dragged_row_follows_the_pointer_over_its_ghost_and_a_line_shows_where_it_
     stage.tree.mouse_move(x + 2.0 * step as f32, y - 6.0 * step as f32);
     stage.pass();
   }
-  // The ghost stands where Tabs was, as high, on the muted fill in the edge of an input.
+  // The board's list while Tabs is dragged to between Buttons and Inputs: the line stands in the flow, 4 from
+  // each, so those two are 10 apart, and the list is 162 high: four rows, three rooms of 4 and one of 10.
+  assert_eq!(stage.bounds("list"), (8.0, 8.0, 300.0, 162.0));
   assert_eq!(stage.bounds("Buttons"), (8.0, 8.0, 300.0, 36.0));
-  assert_eq!(stage.bounds("Toggles"), (8.0, 128.0, 300.0, 36.0));
+  assert_eq!(stage.bounds("Inputs"), (8.0, 54.0, 300.0, 36.0));
+  assert_eq!(stage.bounds("Toggles"), (8.0, 134.0, 300.0, 36.0));
+  // The ghost stands where Tabs is in the list, as high, on the muted fill in the edge of an input.
   let ghost = stage
     .quads()
     .into_iter()
     .find(|quad| {
-      (quad.x, quad.y, quad.width, quad.height) == (8.0, 88.0, 300.0, 36.0)
+      (quad.x, quad.y, quad.width, quad.height) == (8.0, 94.0, 300.0, 36.0)
         && quad
           .border
           .as_ref()
@@ -215,10 +219,25 @@ fn the_dragged_row_follows_the_pointer_over_its_ghost_and_a_line_shows_where_it_
     })
     .is_some();
   assert!(ghost, "the ghost in the row's place");
-  // The row itself is drawn over the list, as wide as it was, where the pointer has it.
+  // The row itself is drawn over the list where the pointer has it, 40 narrower than the list as the board's is
+  // (260 over 300), taken off about the pointer: it went down in the row's middle, so 20 at each side.
   let title = stage.text_quad("Tabs").expect("the dragged row");
-  assert!(close_to(title.x, 8.0 + 28.0 + 20.0), "{}", title.x);
+  assert!(close_to(title.x, 8.0 + 20.0 + 20.0 + 28.0), "{}", title.x);
   assert!(title.y < 88.0 - 40.0, "{}", title.y);
+  let card = light(PaletteColor::Card);
+  let lifted = stage
+    .quads()
+    .into_iter()
+    .find(|quad| quad.width == 260.0 && matches!(&quad.content, QuadContent::Rect { color, .. } if *color == card))
+    .expect("the row over the list");
+  // Turned 2 degrees about its middle, its corner is within 5 of where the row unturned has it: 48, 28.
+  assert_eq!(lifted.height, 36.0);
+  assert!(
+    (lifted.x - 48.0).abs() < 1.0 && (lifted.y - 28.0).abs() < 5.0,
+    "at {}, {}",
+    lifted.x,
+    lifted.y
+  );
   // The line of 2 in the info color, between Buttons and Inputs, with its dot of 6 at its start.
   let info = light(PaletteColor::Info);
   let line = stage
@@ -226,32 +245,97 @@ fn the_dragged_row_follows_the_pointer_over_its_ghost_and_a_line_shows_where_it_
     .into_iter()
     .find(|quad| quad.height == 2.0 && matches!(&quad.content, QuadContent::Rect { color, .. } if *color == info))
     .expect("the line");
-  assert!(
-    close_to(line.y + 1.0, 46.0),
-    "in the middle of the room between the rows: {}",
-    line.y
-  );
-  assert!(close_to(line.x + line.width, 308.0));
+  assert_eq!(line.y, 48.0, "4 under Buttons, and 4 over Inputs");
+  assert_eq!((line.x, line.x + line.width), (14.0, 308.0));
   let dot = stage
     .quads()
     .into_iter()
     .find(|quad| quad.height == 6.0 && matches!(&quad.content, QuadContent::Rect { color, .. } if *color == info))
     .expect("the dot");
   assert_eq!((dot.x, dot.width), (8.0, 6.0));
-  assert!(close_to(dot.y + 3.0, 46.0));
+  assert_eq!(dot.y + 3.0, 49.0, "on the middle of the line");
   // One row dragged has no count.
   assert!(!stage.paints("1"));
   stage.tree.mouse_up(x + 20.0, y - 60.0, MouseButton::Left);
   stage.pass();
   assert_eq!(said(&held.told), ["reorder 2 1"]);
-  // Nothing is left over the list.
+  // Nothing is left over the list, which is as high as its rows again.
   assert_eq!(stage.bounds("Tabs"), (8.0, 48.0, 300.0, 36.0));
+  assert_eq!(stage.bounds("list"), (8.0, 8.0, 300.0, 156.0));
   assert!(
     !stage
       .quads()
       .into_iter()
       .any(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == info))
   );
+}
+
+/// A press in the middle of Tabs and one move up past Inputs: the line shows between Buttons and Inputs.
+fn lift_tabs(stage: &mut Stage) -> (f32, f32) {
+  let (x, y) = stage.center("Tabs");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_move(x, y - 60.0);
+  (x, y - 60.0)
+}
+
+#[test]
+fn the_rows_move_to_make_room_for_the_line_and_do_not_jump() {
+  let (mut stage, _) = staged(true, false);
+  stage.pass();
+  let (x, y) = lift_tabs(&mut stage);
+  // A few frames after the line showed, Inputs is on its way from 48 to 54, and further a few frames on.
+  for _ in 0..3 {
+    stage.frame();
+  }
+  let early = stage.bounds("Inputs").1;
+  for _ in 0..3 {
+    stage.frame();
+  }
+  let later = stage.bounds("Inputs").1;
+  assert!(early > 48.0 && early < 54.0, "{early}");
+  assert!(later > early && later < 54.0, "{later} after {early}");
+  stage.pass();
+  assert_eq!(stage.bounds("Inputs").1, 54.0);
+  // Back where it came from, letting go would move nothing: no line, and the rows close up again, in time too.
+  stage.tree.mouse_move(x, y + 60.0 + 6.0);
+  for _ in 0..4 {
+    stage.frame();
+  }
+  let closing = stage.bounds("Inputs").1;
+  assert!(closing > 48.0 && closing < 54.0, "{closing}");
+  stage.pass();
+  assert_eq!(stage.bounds("Inputs").1, 48.0);
+  assert_eq!(stage.bounds("list").3, 156.0);
+  // Before the first row the line has the room of one side: the list is 6 higher, and every row 6 lower.
+  stage.tree.mouse_move(x, y - 60.0);
+  stage.pass();
+  assert_eq!(stage.bounds("Buttons").1, 14.0);
+  assert_eq!(stage.bounds("list").3, 162.0);
+  stage.tree.mouse_up(x, y - 60.0, MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn where_motion_is_reduced_the_rows_make_room_at_once() {
+  let held = Held::new();
+  let scene = held.clone();
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let mut stage = Stage::in_app(app, move |ctx: &mut Ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(scene.list(false).mount(ctx))
+      .into()
+  });
+  stage.pass();
+  let (x, y) = lift_tabs(&mut stage);
+  stage.frame();
+  stage.frame();
+  assert_eq!(stage.bounds("Inputs").1, 54.0);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
 }
 
 #[test]
@@ -333,8 +417,9 @@ fn a_selection_is_pressed_as_a_list_of_files_and_dragged_together() {
   }
   assert_eq!(stage.text("2"), (Color::from_hex("#FFFFFF"), 11.0));
   let count = stage.text_quad("2").unwrap();
+  // The row over the list is 260 wide from 28: the badge of 20 is 4 past its end.
   assert!(
-    count.x > 8.0 + 300.0 - 20.0,
+    count.x > 8.0 + 20.0 + 260.0 - 20.0 && count.x < 8.0 + 20.0 + 260.0 + 4.0,
     "on the corner at the row's end: {}",
     count.x
   );

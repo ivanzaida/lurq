@@ -200,7 +200,9 @@ impl SortableListPage {
       "   └─ description  12, muted, where the row has one".to_owned(),
       "while rows are dragged".to_owned(),
       "├─ ghost    in the place of each row dragged".to_owned(),
+      "├─ slot     the room between two rows, which opens round the line: 4, the line of 2, 4".to_owned(),
       "├─ line     2 in the info color, with a dot of 6: where they would go".to_owned(),
+      "├─ lifted   the row under the pointer, 40 narrower than the list".to_owned(),
       "└─ count    20, on the corner of the row under the pointer, where they are several".to_owned(),
     ];
 
@@ -390,14 +392,14 @@ impl Component for SortableListPage {
         "mount",
         "&mut Ctx",
         "",
-        "Keeps a drag from one render to the next: the row follows the pointer, its place is a ghost, and a line \
-         shows where it would go.",
+        "Keeps a drag from one render to the next: the row follows the pointer, its place is a ghost, and the rows \
+         make room for a line where it would go.",
       ),
       (
         "style / rules",
         "SortableListPart",
         "",
-        "Root, Item, Handle, Icon, Title, Description, Ghost, Line, Cap, Count.",
+        "Root, Item, Handle, Icon, Title, Description, Ghost, Slot, Line, Cap, Count, Lifted.",
       ),
     ];
     let playground = self.play(ctx);
@@ -423,7 +425,7 @@ impl Component for SortableListPage {
         Section::new(
           "Rows in another order",
           "The board's list. A press that moves past a few pixels is a drag: the row follows the pointer, a ghost \
-           stands in its place, and a line shows between which rows it would go. Escape puts it back. Tab reaches \
+           stands in its place, and the rows it would go between move apart round a line. Escape puts it back. Tab reaches \
            the list; Up and Down move the focus, Alt with Up or Down moves the focused row one place, and Alt with \
            Home or End to the first or the last.",
           self.frame.demo(
