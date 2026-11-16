@@ -270,9 +270,7 @@ impl LayoutCache {
   /// Whether a transition engine ticked this subtree at its generation as it is, with nothing running in it.
   pub(crate) fn ticked_clean(&self) -> bool {
     let ticked = self.ticked.take();
-    let clean = ticked
-      .as_ref()
-      .is_some_and(|ticked| ticked.generation == self.watch().generation() && ticked.world == world_changes());
+    let clean = ticked.as_ref().is_some_and(|ticked| ticked.is_current(self.watch()));
     self.ticked.set(ticked);
     clean
   }
@@ -589,9 +587,9 @@ impl LayoutCache {
   }
 }
 
-/// The changes of every element's state of interaction and of every theme, so far.
+/// The changes of every theme, so far.
 pub(crate) fn world_changes() -> u64 {
-  crate::node::interaction_state::interaction_changes() + crate::app::theme::theme_mutations()
+  crate::app::theme::theme_mutations()
 }
 
 /// A subtree a transition engine ticked with no transition running in it and no animation playing: its generation
@@ -600,11 +598,21 @@ pub(crate) fn world_changes() -> u64 {
 pub(crate) struct TickedClean {
   pub(crate) generation: u64,
   pub(crate) epoch: u64,
-  /// The changes of interaction and of themes so far when it was ticked: a state style or a theme changes what a
-  /// node heads to without a layout.
+  /// The subtree's revision of its state styles when it was ticked (see
+  /// [`crate::core::layout_dirty::LayoutWatch::mark_tick`]): a state of interaction changes what a node heads to
+  /// without a layout.
+  pub(crate) ticks: u64,
+  /// The changes of themes so far when it was ticked: a theme changes what a node heads to without a layout.
   pub(crate) world: u64,
   /// The nodes under it that have transitions; `None` for none.
   pub(crate) ids: Option<Arc<TickedIds>>,
+}
+
+impl TickedClean {
+  /// Whether the subtree is as it was ticked: no layout, no state of interaction and no theme changed in it since.
+  pub(crate) fn is_current(&self, watch: &crate::core::layout_dirty::LayoutWatch) -> bool {
+    self.generation == watch.generation() && self.ticks == watch.ticks() && self.world == world_changes()
+  }
 }
 
 /// The nodes of a clean subtree that have transitions: its own, and its children's as they each left them, shared

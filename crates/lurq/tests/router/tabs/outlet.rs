@@ -8,7 +8,7 @@ use lurq::{
     Column, NavigationItem, StackOutlet, TabBar, TabBarPlace, TabItem, TabOutlet, TabOutletProps, Tabs, Text,
   },
   node::Element,
-  router::Routes,
+  router::{RouterHandle, Routes},
 };
 
 use crate::support::{pointer_click, run_pass};
@@ -249,6 +249,62 @@ fn the_bar_goes_while_the_keyboard_is_up() {
   });
   run_pass(&mut tree);
   assert!(shows(&mut tree, "clear of 300"));
+}
+
+#[test]
+fn a_tab_moved_among_the_others_keeps_its_screens_and_stays_the_one_shown() {
+  let keys = |tabs: &Tabs| tabs.list().into_iter().map(|tab| tab.key).collect::<Vec<_>>();
+  let (mut tree, tabs) = setup(Bar::Bottom);
+  assert_eq!(keys(&tabs), ["home", "other", "stacked"]);
+  let made = MADE.with(std::cell::Cell::get);
+
+  // As taking it out of the list and putting it back at the place does.
+  tabs.move_to("home", 2);
+  run_pass(&mut tree);
+  assert_eq!(keys(&tabs), ["other", "stacked", "home"]);
+  assert_eq!(tabs.active(), "home", "the tab that is shown is still the one shown");
+  assert!(shows(&mut tree, "home screen"));
+  assert_eq!(MADE.with(std::cell::Cell::get), made, "its screen is the one it had");
+
+  tabs.move_to("stacked", 0);
+  assert_eq!(keys(&tabs), ["stacked", "other", "home"]);
+  // A place past the end is the last, and a key no tab has moves nothing.
+  tabs.move_to("other", 9);
+  assert_eq!(keys(&tabs), ["stacked", "home", "other"]);
+  tabs.move_to("nobody", 0);
+  tabs.move_to("home", 1);
+  assert_eq!(keys(&tabs), ["stacked", "home", "other"]);
+  run_pass(&mut tree);
+  assert!(shows(&mut tree, "home screen"));
+  assert_eq!(MADE.with(std::cell::Cell::get), made);
+}
+
+#[test]
+fn a_tab_added_while_the_app_runs_has_a_router_made_outside_a_render() {
+  let (mut tree, tabs) = setup(Bar::None);
+  // No `Ctx` here, as in the handler of a strip's add button.
+  let late = RouterHandle::new(
+    Routes::new()
+      .route("/", |_| Text::new("late screen").into())
+      .route("/more", |_| Text::new("late, further").into()),
+  );
+  late.replace("/");
+  tabs.add("late", TabItem::new("Late"), late.clone());
+  tabs.select("late");
+  run_pass(&mut tree);
+  assert!(shows(&mut tree, "late screen"));
+  assert!(!shows(&mut tree, "home screen"));
+
+  // It has a history of its own.
+  late.push("/more");
+  run_pass(&mut tree);
+  assert!(shows(&mut tree, "late, further"));
+  assert!(late.back());
+  run_pass(&mut tree);
+  assert!(shows(&mut tree, "late screen"));
+  tabs.select("home");
+  run_pass(&mut tree);
+  assert!(shows(&mut tree, "home screen"));
 }
 
 #[test]

@@ -12,13 +12,13 @@ use std::{
 use lurq::{
   animation::{Easing, Transition},
   app::{App, Tree, component::Component, ctx::Ctx},
-  components::{Column, Popup, Rect, Row, ScrollVertical},
+  components::{Button, Column, Popup, Rect, Row, ScrollVertical},
   core::{ElementRef, Signal},
   layout::{
     layout_kind::{ScrollState, ShrinkLimit},
     quad::QuadContent,
   },
-  node::{Element, color::Color},
+  node::{Element, Style, color::Color},
 };
 
 use crate::support::render_pass_with_app;
@@ -35,6 +35,13 @@ enum Stage {
   Layer,
   Dropping,
   Fades,
+  /// A button whose fill heads to another on its own focus.
+  Focused,
+  /// An interaction group: the pointer on one of what it holds lights the `within` style of another.
+  Within,
+  /// An interaction group whose button takes the focus: the focus in the group lights the `within` style of what
+  /// else it holds.
+  FocusWithin,
 }
 
 #[derive(Clone)]
@@ -60,7 +67,16 @@ fn scene() -> Scene {
 }
 
 fn stage_of(value: u8) -> Stage {
-  [Stage::Nothing, Stage::Ref, Stage::Layer, Stage::Dropping, Stage::Fades][usize::from(value)]
+  [
+    Stage::Nothing,
+    Stage::Ref,
+    Stage::Layer,
+    Stage::Dropping,
+    Stage::Fades,
+    Stage::Focused,
+    Stage::Within,
+    Stage::FocusWithin,
+  ][usize::from(value)]
 }
 
 /// The deep part: it alone renders when the stage changes.
@@ -103,9 +119,45 @@ impl Component for Deep {
         .transition(Transition::background_color().duration_ms(400).easing(Easing::Linear))
         .hovered(|style| style.background(HOVER))
         .into(),
+      Stage::Focused => Button::new("Go")
+        .id("go")
+        .size(100.0, 40.0)
+        .tab_index(0)
+        .background(REST)
+        .transition(Transition::background_color().duration_ms(400).easing(Easing::Linear))
+        .focused(|style| style.background(HOVER))
+        .into(),
+      Stage::Within => Row::new()
+        .interaction_group(true)
+        .child(Rect::new(60.0, 40.0).id("hit").background(LIT))
+        .child(fading_within("fades"))
+        .into(),
+      Stage::FocusWithin => Row::new()
+        .interaction_group(true)
+        .child(Button::new("Go").id("go").size(60.0, 40.0).tab_index(0))
+        .child(fading_within("fades"))
+        .into(),
     };
     element
   }
+}
+
+/// A part of an interaction group that fades to `HOVER` while the group is lit: under the pointer, or holding the
+/// focus.
+fn fading_within(id: &str) -> Rect {
+  Rect::new(100.0, 40.0)
+    .id(id.to_owned())
+    .background(REST)
+    .transition(Transition::background_color().duration_ms(400).easing(Easing::Linear))
+    .within_style(Style::new().background(HOVER))
+}
+
+/// Whether `fills` holds a color halfway from `REST` to `HOVER`.
+fn halfway_to_hover(fills: &[Color]) -> bool {
+  let (rest, hover) = (Color::from_hex(REST), Color::from_hex(HOVER));
+  fills
+    .iter()
+    .any(|color| *color != rest && *color != hover && color.g() > rest.g() && color.a() == 255)
 }
 
 /// A long untouched page with transitions of its own, and the deep part three columns down.
@@ -402,4 +454,62 @@ fn what_a_subtree_draws_past_its_box_is_drawn_while_its_box_is_out_of_view() {
     drawn < 40,
     "the rest of the 400 rows out of view are culled: {drawn} drawn"
   );
+}
+
+// A change of a state of interaction marks the way to what changed, not the tree: what styles itself by it heads to
+// its new look, also deep in a page ticked clean for frames and after a keyed reorder or a rebuild of its parent.
+
+#[test]
+fn a_focus_transition_deep_in_a_subtree_ticked_clean_runs() {
+  for how in HOWS {
+    let mut fixture = Fixture::new(Stage::Focused);
+    fixture.prepare(how);
+    assert_eq!(
+      fixture.tab().as_deref(),
+      Some("go"),
+      "{how:?}: Tab takes the focus to the button"
+    );
+    fixture.now += Duration::from_millis(200);
+    let halfway = fixture.fills();
+    assert!(halfway_to_hover(&halfway), "{how:?}: its own focus: {halfway:?}");
+  }
+}
+
+#[test]
+fn a_within_transition_lit_by_the_pointer_on_its_group_runs() {
+  for how in HOWS {
+    let mut fixture = Fixture::new(Stage::Within);
+    fixture.prepare(how);
+    let center = fixture
+      .tree
+      .get_element_by_id_mut("hit")
+      .and_then(|element| element.bounds())
+      .expect("laid out")
+      .center();
+    // On what else the group holds: the part that fades is lit by its group, not by its own state.
+    fixture.tree.mouse_move(center.0, center.1);
+    fixture.frames(1);
+    fixture.now += Duration::from_millis(200);
+    let halfway = fixture.fills();
+    assert!(halfway_to_hover(&halfway), "{how:?}: lit by its group: {halfway:?}");
+  }
+}
+
+#[test]
+fn a_within_transition_lit_by_the_focus_in_its_group_runs() {
+  for how in HOWS {
+    let mut fixture = Fixture::new(Stage::FocusWithin);
+    fixture.prepare(how);
+    assert_eq!(
+      fixture.tab().as_deref(),
+      Some("go"),
+      "{how:?}: Tab takes the focus into the group"
+    );
+    fixture.now += Duration::from_millis(200);
+    let halfway = fixture.fills();
+    assert!(
+      halfway_to_hover(&halfway),
+      "{how:?}: lit by the focus in its group: {halfway:?}"
+    );
+  }
 }

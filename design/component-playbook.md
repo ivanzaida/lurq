@@ -366,6 +366,12 @@ an alias.
 - **The merge compiles the browser's build and checks the docs' links every time**:
   `cargo check -p gallery --target wasm32-unknown-unknown`, and the docs build with `scripts/check-docs.py`.
   The engine's clock is `crate::time::Instant`, never `std`'s.
+- **`scripts/check.ps1` is run whole before a batch is called done.** It is the pipeline's check, and its four
+  steps turn on features the suites of a merge do not: the tests without `form` and `router`, the tests with
+  `devtools`, `perf_profile` and the counting allocator, and all of them together. For days it failed on the
+  branch with nobody running it: a test that uses a form is behind `form`, a type a test hands to a component
+  derives `lurq::DevtoolsInspectable`, and what a profiling feature keeps is kept only once something asks for it,
+  so that the guards on allocations measure the tree and not the profiler.
 - **What moves, moves in every form of the component.** A category that opens with a motion in an accordion
   opens with it in a property grid and a tree; a chart whose bars move to new values has lines and slices
   that do. One of a family animated and the others not reads as a fault.

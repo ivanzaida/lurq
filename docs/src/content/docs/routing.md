@@ -533,6 +533,7 @@ and going back moves in that tab alone.
 | --- | --- |
 | `add(key, item, router)`, `insert(index, ..)` | A tab, told from the others by its key. The first added is the active one |
 | `remove(key)` | Takes a tab out with its history; the next one is shown if it was the active one |
+| `move_to(key, index)` | Moves a tab to a place among the others, as taking it out and putting it back there does; it keeps its history, its screens and whether it is the one shown |
 | `select(key)` | Shows a tab |
 | `press(key)` | What a press on a tab's place does: shows it, or, for the active one, goes back to its first screen, and once there scrolls its page to the top |
 | `active()`, `active_signal()` | The key of the tab that is shown |
@@ -581,6 +582,30 @@ down as that screen comes in, comes back as it goes out, and follows a finger th
 
 `TabOutletProps::bar_with(place, builder)` draws a bar of the app's own from a `TabBarState`: the set, the
 tabs in order and the window's safe area. A press on a place calls `Tabs::press`.
+
+### Tabs a person opens, in a strip of the app's own
+
+A desktop app with tabs as a browser has them draws its strip elsewhere than the outlet, in the title bar,
+and mounts the outlet with no bar. The strip is drawn from the set (`Tabs::list`, each tab's
+`router.path()` for what it is called), and what a person does to it is told to the set: `select`, `remove`,
+`move_to` for a tab dragged along the strip. A tab opened while the app runs needs a router made outside a
+render, where there is no `Ctx`: `RouterHandle::new(routes)`.
+
+```rust
+use lurq::{components::{TabItem, Tabs}, router::{RouterHandle, Routes}};
+
+fn open(tabs: &Tabs, key: &str, routes: Routes, path: &str) {
+  let router = RouterHandle::new(routes);
+  router.replace(path);
+  tabs.add(key, TabItem::new("Page"), router);
+  tabs.select(key);
+}
+```
+
+What is outside the outlet (a side bar, a search) goes where the tab that is shown is:
+`tabs.active_router()`, read in a render with `tabs.active()` so that it is built again when another tab is
+shown. The gallery (`crates/gallery/src/tabs.rs`) does this with the design system's
+[`WindowTabs`](../design-system/#window-tabs) in a [`WindowChrome`](../design-system/#window-chrome).
 
 ### The safe area under a bar
 

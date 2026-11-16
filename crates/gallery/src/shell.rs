@@ -1,10 +1,5 @@
-//! The gallery's shell: its own title bar, the header across the top, the
-//! sidebar with the pages, and the page beside it.
-
-use std::sync::{
-  Arc,
-  atomic::{AtomicBool, Ordering},
-};
+//! The gallery's shell: the header across the top, the sidebar with the pages, and beside it the page of the tab
+//! that is shown.
 
 use lurq::{
   app::{
@@ -13,13 +8,10 @@ use lurq::{
     theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Appearance,
   },
-  components::{
-    ChromeTitleBar, Column, Outlet, Popup, Row, ScrollVertical, WindowControlColors, WindowControlContent,
-    WindowControlKind, WindowControls,
-  },
+  components::{Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
+  node::{CursorIcon, Element, border::Border, color::Color},
   ui::{
     Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
     Length, Recipe, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState, SidebarTrigger, icons,
@@ -29,9 +21,9 @@ use lurq::{
 use crate::{
   kit::{FILL, icon, mono, popover, segmented, select, text},
   pages::{Group, PAGES, page_at},
+  tabs::OpenTabs,
 };
 
-const TITLE_BAR: f32 = 36.0;
 const HEADER: f32 = 56.0;
 const SIDEBAR: f32 = 248.0;
 
@@ -49,10 +41,6 @@ pub struct Shell {
   /// Whether the sidebar is its rail, and whether it is open over the page on a narrow window.
   collapsed: Signal<bool>,
   sidebar_open: Signal<bool>,
-  /// The page's own scroll, its main content: where the focus goes when the search has gone to a page.
-  page: ElementRef,
-  /// The search has gone to a page, and the focus is to go to it once it is built.
-  focus_page: Arc<AtomicBool>,
 }
 
 /// Whether motion is reduced: as the system says, or as the app does.
@@ -70,62 +58,16 @@ impl Shell {
       motion: ctx.signal(0),
       collapsed: ctx.signal(false),
       sidebar_open: ctx.signal(false),
-      page: ElementRef::new(),
-      focus_page: Arc::new(AtomicBool::new(false)),
     }
   }
 }
 
-/// The title bar of the gallery's window, drawn by the gallery from the
-/// theme: the window has no frame of the system's.
-pub fn title_bar() -> ChromeTitleBar {
-  let glyph = |name: &'static str, size: f32| WindowControlContent::element(move |_| icon(name, size).into());
-  let clear = BackgroundColor::Color(Color::new(0, 0, 0, 0));
-  let controls = WindowControls::new()
-    .button_size(46.0, TITLE_BAR)
-    .content(WindowControlKind::Minimize, glyph("minus", 16.0))
-    // The square is drawn smaller than the others, so that it weighs as much as they do.
-    .content(WindowControlKind::Maximize, glyph("square", 12.0))
-    .content(WindowControlKind::Restore, glyph("duplicate", 14.0))
-    .content(WindowControlKind::Close, glyph("close", 16.0))
-    .foreground(PaletteColor::Foreground)
-    .hover_background(PaletteColor::StateHover)
-    .active_background(PaletteColor::StatePressed)
-    .control_colors(
-      WindowControlKind::Close,
-      WindowControlColors {
-        foreground: PaletteColor::Foreground.into(),
-        background: clear,
-        hover_background: PaletteColor::Destructive.into(),
-        active_background: PaletteColor::DestructiveHover.into(),
-      },
-    )
-    .hover_foreground(WindowControlKind::Close, PaletteColor::DestructiveForeground);
-  ChromeTitleBar::new()
-    .height(TITLE_BAR)
-    .background(PaletteColor::Muted)
-    .border_bottom(Border::inside(BorderSize::Sm, PaletteColor::Border))
-    .leading(
-      Row::new()
-        .padding_left(12.0)
-        .spacing(8.0)
-        .align_items(Alignment::Center)
-        .foreground(PaletteColor::Foreground)
-        .child(icon("box", 16.0))
-        .child(text("lurq gallery", 13.0, FontWeight::Medium)),
-    )
-    .controls(controls)
-}
-
-/// The shell around the page the route is at.
-pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
-  let current = page_at(&ctx.route_path()).path;
+/// The shell around the page of the tab that is shown.
+pub fn shell(ctx: &mut Ctx, state: &Shell, open: &OpenTabs) -> Element {
+  let router = open.router();
+  let current = page_at(&router.path().get()).path;
   let find = state.search_open.clone();
-  // The search went to this page: what it found has the focus, and the next Tab goes on from its start. Asked for
-  // here, by the render that builds the page, so that the page asked for is the new one.
-  if state.focus_page.swap(false, Ordering::SeqCst) {
-    ctx.focus(&state.page);
-  }
+  let new_tab = open.clone();
   // What is behind the cards is the theme's canvas. A card, the header and a control are surfaces on it, so each
   // stands out from what it is on.
   Column::new()
@@ -134,30 +76,27 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
     .foreground(PaletteColor::Foreground)
     // Every key pressed in the window comes by here, whatever has the focus.
     .on_key_down(move |event: KeyboardEvent| {
-      if (event.ctrl || event.meta) && (event.code == "KeyK" || event.key.eq_ignore_ascii_case("k")) {
+      if !(event.ctrl || event.meta) || event.alt {
+        return;
+      }
+      if event.code == "KeyK" || event.key.eq_ignore_ascii_case("k") {
         find.set(true);
+        event.prevent_default();
+      } else if !event.shift && (event.code == "KeyT" || event.key.eq_ignore_ascii_case("t")) {
+        // A new tab, as a browser opens one; the strip's own keys close it and go between the tabs.
+        new_tab.open("/");
         event.prevent_default();
       }
     })
     .child(header(ctx, state))
-    .child(search(ctx, state))
+    .child(search(state, open))
     .child(
       Row::new()
         .width(FILL)
         .flex(1.0)
         .align_items(Alignment::Stretch)
-        .child(sidebar(ctx, state, current))
-        .child(
-          // Each page has a scroll of its own: a page opened from another starts at its top, wherever the
-          // one before it was scrolled to.
-          // It takes the focus but is no stop of Tab.
-          ScrollVertical::new(Outlet::mount(ctx))
-            .key(current)
-            .flex(1.0)
-            .ref_element(state.page.clone())
-            .tab_index(-1)
-            .describe("a11y_role", "main"),
-        ),
+        .child(sidebar(ctx, state, open, current))
+        .child(Column::new().flex(1.0).min_width(0.0).child(open.outlet(ctx))),
     )
     .into()
 }
@@ -214,9 +153,7 @@ fn search_field(state: &Shell, roomy: bool) -> Row {
 
 /// The search across the pages: a command palette of every page, in the groups of the side bar, found by its name
 /// and by what it is about. Running one goes to it.
-fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
-  let navigator = ctx.navigator();
-  let focus_page = state.focus_page.clone();
+fn search(state: &Shell, open: &OpenTabs) -> CommandPalette {
   let mut palette = CommandPalette::new(state.search_open.clone())
     .placeholder("Search components and props…")
     .empty_text("No page for that.")
@@ -229,14 +166,12 @@ fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
       if let Some(name) = page.icon {
         command = command.icon(name);
       }
-      if let Some(navigator) = navigator.clone() {
-        let (path, focus_page) = (page.path, focus_page.clone());
-        command = command.on_select(move || {
-          focus_page.store(true, Ordering::SeqCst);
-          navigator.push(path);
-        });
-      }
-      command
+      // In the tab that is shown when it is run, which may be another than the one the search was built in.
+      let (path, open) = (page.path, open.clone());
+      command.on_select(move || {
+        open.focus_next_page();
+        open.router().push(path);
+      })
     });
     palette = palette.group(group.name(), pages);
   }
@@ -412,7 +347,9 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
         move |_| open.update(|open| *open = !*open)
       }),
   );
-  let mut controls = Row::new().spacing(if narrow { 4.0 } else { 12.0 }).align_items(Alignment::Center);
+  let mut controls = Row::new()
+    .spacing(if narrow { 4.0 } else { 12.0 })
+    .align_items(Alignment::Center);
   if narrow {
     // The search is a button there: its field has no room beside the brand.
     controls = controls.child(
@@ -468,19 +405,23 @@ fn density_name(density: Density) -> &'static str {
   }
 }
 
-/// The pages in the design system's groups, each group with how many it has, and the page the route is at
-/// selected. A row of it is 32 high at the default density, and follows the density.
-fn sidebar(ctx: &mut Ctx, state: &Shell, current: &str) -> Element {
+/// The pages in the design system's groups, each group with how many it has, and the page the tab that is shown is
+/// at selected: a press goes there in that tab, the middle button or a press with Ctrl opens it in another. A row of it
+/// is 32 high at the default density, and follows the density.
+fn sidebar(ctx: &mut Ctx, state: &Shell, open: &OpenTabs, current: &str) -> Element {
   let groups = Group::ALL.into_iter().filter_map(|group| {
     let pages: Vec<_> = PAGES.iter().filter(|page| page.group == group).collect();
     if pages.is_empty() {
       return None;
     }
     let items = pages.iter().map(|page| {
+      let (path, aside) = (page.path, open.clone());
       let mut item = SidebarItem::new(page.name)
         .key(page.path)
         .href(page.path)
-        .selected(page.path == current);
+        .selected(page.path == current)
+        // The middle button, or a press with Ctrl: in a tab of its own.
+        .on_open_aside(move || aside.open(path));
       if let Some(name) = page.icon {
         item = item.icon(name);
       }

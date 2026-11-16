@@ -1056,6 +1056,10 @@ pub(crate) struct NodeDebug {
   pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  /// How the component whose root this is has rendered: how many times, and how long the last took. `None` on
+  /// a node no component rendered.
+  #[cfg(feature = "devtools")]
+  pub(crate) component_render_debug: Option<crate::app::ctx::ComponentRenderDebug>,
   pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
 }
 
@@ -4975,6 +4979,23 @@ impl Node {
       return;
     }
     self.debug.component_contexts_debug = contexts;
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_component_render_debug(&mut self, render: Option<crate::app::ctx::ComponentRenderDebug>) {
+    // A root no component rendered (`set_root` of an element) has a context that rendered nothing.
+    let render = render.filter(|render| render.count > 0);
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if render.is_none() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_render_debug = render;
+  }
+
+  /// How the component whose root this is has rendered: `None` on a node no component rendered.
+  #[cfg(feature = "devtools")]
+  pub fn component_render_debug(&self) -> Option<crate::app::ctx::ComponentRenderDebug> {
+    self.debug.component_render_debug
   }
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]

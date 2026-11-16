@@ -95,7 +95,7 @@ impl InteractionState {
 
   pub(crate) fn set_disabled(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
-    note_change(inner.disabled != val);
+    note_change(&inner, inner.disabled != val);
     inner.disabled = val;
   }
 
@@ -129,7 +129,7 @@ impl InteractionState {
     let mut inner = self.shared_inner().lock().unwrap();
     let (hovered, pressed) = (within && hovered, within && pressed);
     let changed = inner.within != within || inner.within_hovered != hovered || inner.within_pressed != pressed;
-    note_change(changed);
+    note_change(&inner, changed);
     inner.within = within;
     inner.within_hovered = hovered;
     inner.within_pressed = pressed;
@@ -146,19 +146,19 @@ impl InteractionState {
 
   pub(crate) fn set_drag_over(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
-    note_change(inner.drag_over != val);
+    note_change(&inner, inner.drag_over != val);
     inner.drag_over = val;
   }
 
   pub(crate) fn set_hovered(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
-    note_change(inner.hovered != val);
+    note_change(&inner, inner.hovered != val);
     inner.hovered = val;
   }
 
   pub(crate) fn set_active(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
-    note_change(inner.active != val);
+    note_change(&inner, inner.active != val);
     inner.active = val;
   }
 
@@ -166,7 +166,7 @@ impl InteractionState {
   pub(crate) fn set_focused(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
     let focus_visible = inner.focus_visible && val;
-    note_change(inner.focused != val || inner.focus_visible != focus_visible);
+    note_change(&inner, inner.focused != val || inner.focus_visible != focus_visible);
     inner.focused = val;
     inner.focus_visible = focus_visible;
   }
@@ -175,7 +175,7 @@ impl InteractionState {
   pub(crate) fn set_focus_visible(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
     let focus_visible = val && inner.focused;
-    note_change(inner.focus_visible != focus_visible);
+    note_change(&inner, inner.focus_visible != focus_visible);
     inner.focus_visible = focus_visible;
   }
 
@@ -288,17 +288,10 @@ mod tests {
   }
 }
 
-/// How many times any element's state of interaction changed, so far: what a transition engine's clean subtree
-/// was ticked against, as a state style is painted without a layout.
-static INTERACTION_CHANGES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-fn note_change(changed: bool) {
+/// Notes a change of the state on the nodes it is bound to and their ancestors, where it changed: a state style is
+/// painted without a layout, and a transition engine ticks again only the way to what changed.
+fn note_change(inner: &InteractionStateInner, changed: bool) {
   if changed {
-    INTERACTION_CHANGES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    inner.layout_subscribers.mark_tick();
   }
-}
-
-/// How many times any element's state of interaction changed, so far.
-pub(crate) fn interaction_changes() -> u64 {
-  INTERACTION_CHANGES.load(std::sync::atomic::Ordering::Relaxed)
 }

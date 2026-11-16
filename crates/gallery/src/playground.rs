@@ -104,21 +104,34 @@ pub struct Playground {
   other: Signal<bool>,
   /// The theme of the stage while it is: the design's, in the other appearance.
   opposite: Theme,
+  /// What the window of its own shows in place of `Spec::make`, for a component that is mounted.
+  mounted: Arc<std::sync::Mutex<Option<MakeMounted>>>,
 }
 
 /// What builds the component of a playground again, as its props were: for a window of its own.
 pub type Make = Arc<dyn Fn() -> Element + Send + Sync>;
+
+/// What builds the component of a playground in a window of its own with the window's context: for a component
+/// that is mounted, and keeps there what it keeps on the stage.
+pub type MakeMounted = Arc<dyn Fn(&mut Ctx) -> Element + Send + Sync>;
 
 /// The props of the window a playground opens: what builds what it shows.
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct DetachedProps {
   #[devtools_ignore]
   make: Make,
+  #[devtools_ignore]
+  mounted: Option<MakeMounted>,
 }
 
 impl PartialEq for DetachedProps {
   fn eq(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.make, &other.make)
+      && match (&self.mounted, &other.mounted) {
+        (Some(one), Some(another)) => Arc::ptr_eq(one, another),
+        (None, None) => true,
+        _ => false,
+      }
   }
 }
 
@@ -133,7 +146,12 @@ impl Component for Detached {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let make = ctx.props::<DetachedProps>().make.clone();
+    let props = ctx.props::<DetachedProps>();
+    let (make, mounted) = (props.make.clone(), props.mounted.clone());
+    let shown = match mounted {
+      Some(mounted) => mounted(ctx),
+      None => make(),
+    };
     Column::new()
       .size(FILL, FILL)
       .padding(32.0)
@@ -141,7 +159,7 @@ impl Component for Detached {
       .justify(Justify::Center)
       .background(PaletteColor::Canvas)
       .foreground(PaletteColor::Foreground)
-      .child(make())
+      .child(shown)
   }
 }
 
@@ -246,7 +264,31 @@ impl Playground {
       panel_height: ctx.signal(0.0),
       other: ctx.signal(false),
       opposite: Theme::new(),
+      mounted: Arc::default(),
     }
+  }
+
+  /// What the window of its own shows: `build`, given the window's context, for a component that is mounted and
+  /// would be without what it keeps (its timers, its measured width, its menus) if it were only built. Said by
+  /// the page each time it renders, before [`Playground::card`].
+  pub fn window_shows(&self, build: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) {
+    *self.mounted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(build));
+  }
+
+  /// How wide what is on the stage may be before the stage scrolls to it: the stage less the room around what
+  /// it shows. Nothing until the card was laid out once. A component that is as wide as it is told, and that an
+  /// app would make no wider than its window (a player), asks.
+  pub fn stage_room(&self) -> f32 {
+    let room = self.room.get();
+    if room <= 0.0 {
+      return 0.0;
+    }
+    let stage = if room >= BESIDE {
+      room - 2.0 - PANEL - 1.0
+    } else {
+      room - 2.0
+    };
+    (stage - 2.0 * stage_padding()).max(1.0)
   }
 
   /// The state the switch over the stage asks for: what the page gives its component's `force`.
@@ -370,6 +412,7 @@ impl Playground {
     }
     let other = self.other.clone();
     let (opener, make, title) = (ctx.window_opener(), spec.make.clone(), spec.title);
+    let mounted = self.mounted.clone();
     let bar = bar.child(
       Row::new()
         .spacing(4.0)
@@ -391,8 +434,9 @@ impl Playground {
             .icon_only(true)
             .on_click(move |_| {
               let make = make.clone();
+              let mounted = mounted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
               opener.open(format!("{title} · lurq gallery"), 520, 360, move |app, tree| {
-                tree.mount_root::<Detached>(app, DetachedProps { make });
+                tree.mount_root::<Detached>(app, DetachedProps { make, mounted });
               });
             }),
         ),

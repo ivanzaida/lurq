@@ -430,7 +430,7 @@ impl Component for SidebarPage {
         "SidebarItem",
         "",
         "An item in a group of no label: icon, count, badge, shortcut, selected, disabled, default_open, \
-         on_select, href, children. items(..) adds several.",
+         on_select, on_open_aside, href, children. items(..) adds several.",
       ),
       (
         "build",

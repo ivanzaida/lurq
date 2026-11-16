@@ -25,7 +25,7 @@ fn light(role: PaletteColor) -> Color {
   ThemePalette::light().get(role)
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
 struct File {
   name: String,
   status: usize,

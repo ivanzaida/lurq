@@ -608,7 +608,7 @@ impl SliderView {
 
 /// A part's style as the engine's slider paints a part: its size in pixels,
 /// its fill in the theme's palette, its corners, its border and its ring.
-fn engine_part(style: &PartStyle, theme: &Theme) -> SliderPartStyle {
+pub(super) fn engine_part(style: &PartStyle, theme: &Theme) -> SliderPartStyle {
   let px = |length: Option<Length>| match length?.resolve(theme)? {
     Dimension::Px(px) => Some(px),
     _ => None,

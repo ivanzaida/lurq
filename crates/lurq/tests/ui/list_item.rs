@@ -20,7 +20,6 @@ use lurq::{
     text_style::FontWeight,
   },
   node::color::Color,
-  router::{RouterHandle, Routes},
   ui::{
     Avatar, Case, List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, Switch,
     Themed, icons,
@@ -362,8 +361,11 @@ fn a_contained_list_is_a_box_with_a_header_and_rows_that_touch() {
   assert_eq!(gap(false), Some(12.0));
 }
 
+#[cfg(feature = "router")]
 #[test]
 fn a_row_with_a_path_goes_there_in_the_router() {
+  use lurq::router::{RouterHandle, Routes};
+
   let held: Arc<Mutex<Option<RouterHandle>>> = Arc::default();
   let shared = held.clone();
   let mut stage = Stage::new(move |ctx| {

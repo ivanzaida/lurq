@@ -33,7 +33,8 @@ use crate::{
 ///   ui::{CellEditor, CellValue, DataGrid, TableColumn},
 /// };
 ///
-/// #[derive(Clone)]
+/// // In a signal, so DevTools must be able to show it where they are compiled in.
+/// #[derive(Clone, lurq::DevtoolsInspectable)]
 /// struct File { name: String, kind: usize, size_kb: f64, shared: bool }
 ///
 /// fn grid(ctx: &mut Ctx, files: Signal<Vec<File>>, selected: Signal<Vec<String>>) -> Element {

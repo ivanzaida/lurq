@@ -3,6 +3,8 @@
 mod accordion;
 mod action_bar;
 mod alert;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 #[cfg(feature = "canvas")]
@@ -65,6 +67,9 @@ mod kbd;
 mod line_chart;
 mod list_item;
 mod listbox;
+mod media_speed_menu;
+mod media_time;
+mod media_volume;
 mod menu;
 mod menubar;
 mod message_box;
@@ -79,6 +84,7 @@ mod outcome;
 mod pagination;
 #[cfg(feature = "canvas")]
 mod pie_chart;
+mod play_button;
 mod popconfirm;
 mod popover;
 mod progress;
@@ -92,6 +98,7 @@ mod reopened_layers;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
+mod seek_bar;
 mod select;
 mod separator;
 #[cfg(feature = "canvas")]
@@ -124,5 +131,7 @@ mod token_input;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
