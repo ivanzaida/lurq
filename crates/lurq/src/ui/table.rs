@@ -4916,7 +4916,9 @@ thread_local! {
 /// with Shift, Ctrl or the system key, or from the keyboard, changes the selection and is never one.
 fn second_press(index: usize, event: &MouseEvent) -> bool {
   let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
-  let now = Instant::now();
+  // The time the window was given the press at, and not the time its handler runs at: what holds the two
+  // presses of a double press apart is how fast a person pressed, not how long the first took to be handled.
+  let now = event.time;
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
   LAST_PRESS.with(|last| {
     let second = plain
@@ -5454,7 +5456,7 @@ thread_local! {
 
 fn second_cell_press(cell: (usize, usize), event: &MouseEvent) -> bool {
   let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
-  let now = Instant::now();
+  let now = event.time;
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
   LAST_CELL_PRESS.with(|last| {
     let second = plain

@@ -892,6 +892,8 @@ pub struct Tree {
   animation_engine: AnimationEngine,
   /// The time animations and transitions tick at instead of each pass's: see [`Tree::set_animation_clock`].
   animation_clock: Option<Instant>,
+  /// The time presses are given at instead of the wall clock's: see [`Tree::set_press_clock`].
+  press_clock: Option<Instant>,
   last_theme_version: u64,
   quad_scratch: Vec<Quad>,
   render_rects: Vec<RectCmd>,
@@ -1353,6 +1355,7 @@ impl Tree {
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       animation_clock: None,
+      press_clock: None,
       last_theme_version: u64::MAX,
       quad_scratch: Vec::new(),
       render_rects: Vec::new(),
@@ -2803,7 +2806,7 @@ impl Tree {
     let now = Instant::now();
     {
       crate::app::profile_support::frame_section!("setup:pending_click");
-      self.flush_due_pending_click(now);
+      self.flush_due_pending_click(self.press_clock.unwrap_or(now));
     }
     {
       crate::app::profile_support::frame_section!("interaction_groups");
@@ -4045,7 +4048,7 @@ impl Tree {
     });
 
     if button == MouseButton::Left {
-      let now = Instant::now();
+      let now = self.press_now();
       if let Some(click_target_id) = self.click_tracker.pending_match_for_targets(
         now,
         position,
@@ -5113,6 +5116,7 @@ impl Tree {
         crate::app::events::PointerKind::Mouse
       },
       target_id: NodeId::UNASSIGNED,
+      time: self.press_now(),
       control,
     };
     let scale = self.scale_factor();
@@ -5398,6 +5402,7 @@ impl Tree {
           .first()
           .map(|(node, _)| node.node_id())
           .unwrap_or(NodeId::UNASSIGNED),
+        time: evt.time,
         control: EventControl::new(),
       };
       let callbacks = self
@@ -5667,7 +5672,7 @@ impl Tree {
       {
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
           let text_click_count = self.text_click_tracker.record(
-            Instant::now(),
+            self.press_now(),
             (evt.x, evt.y),
             button,
             node.node_id(),
@@ -5698,7 +5703,7 @@ impl Tree {
         && let Some((state, value)) = selectable_text_state_and_value(node)
       {
         let text_click_count = self.text_click_tracker.record(
-          Instant::now(),
+          self.press_now(),
           (evt.x, evt.y),
           button,
           node.node_id(),
@@ -7398,6 +7403,20 @@ impl Tree {
   #[doc(hidden)]
   pub fn set_animation_clock(&mut self, now: Option<Instant>) {
     self.animation_clock = now;
+  }
+
+  /// Sets the time presses are given at, in place of the wall clock, until set back to `None`: what a double
+  /// press, a double or triple click in text and a click held back for a double click are measured by, and the
+  /// time a pointer's events carry. For tests that tell a second press from a first on a clock of their own; a
+  /// shell leaves it alone.
+  #[doc(hidden)]
+  pub fn set_press_clock(&mut self, now: Option<Instant>) {
+    self.press_clock = now;
+  }
+
+  /// The clock of presses: the one [`Self::set_press_clock`] set, or the wall clock.
+  fn press_now(&self) -> Instant {
+    self.press_clock.unwrap_or_else(Instant::now)
   }
 
   /// The runtime's clock: the one [`Self::set_animation_clock`] set, or the wall clock.
@@ -9820,6 +9839,7 @@ impl MouseModifiers {
       from_keyboard: true,
       pointer: crate::app::events::PointerKind::Mouse,
       target_id,
+      time: Instant::now(),
       control: EventControl::new(),
     }
   }
@@ -10284,6 +10304,7 @@ impl<'t> ElementHandle<'t> {
       from_keyboard: false,
       pointer: crate::app::events::PointerKind::Mouse,
       target_id: self.node_id,
+      time: Instant::now(),
       control: EventControl::new(),
     };
     for handler in handlers {

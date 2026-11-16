@@ -50,6 +50,7 @@ pub(crate) fn keyboard_click() -> MouseEvent {
     from_keyboard: true,
     pointer: PointerKind::Mouse,
     target_id: NodeId::UNASSIGNED,
+    time: crate::time::Instant::now(),
     control: EventControl::new(),
   }
 }
