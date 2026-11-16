@@ -427,6 +427,18 @@ impl Component for InputPage {
         "Called with what it holds when Enter is pressed in it.",
       ),
       (
+        "completion",
+        "&str",
+        "",
+        "What would complete what is typed, drawn after it while the caret is at the end: Tab takes it.",
+      ),
+      (
+        "squiggles",
+        "impl IntoIterator<Item = Range<usize>>",
+        "",
+        "Wavy lines in the destructive color under ranges of its text: what the app's spelling checker marks.",
+      ),
+      (
         "name",
         "impl Into<Arc<str>>",
         "",

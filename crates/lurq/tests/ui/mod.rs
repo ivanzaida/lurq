@@ -122,6 +122,7 @@ mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
+mod text_editing;
 mod textarea;
 mod theming;
 mod time_field;

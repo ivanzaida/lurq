@@ -390,6 +390,12 @@ impl Component for TextareaPage {
         "Called before each edit with what it will hold (event.new_value); a handler may refuse it.",
       ),
       (
+        "squiggles",
+        "impl IntoIterator<Item = Range<usize>>",
+        "",
+        "Wavy lines in the destructive color under ranges of its text: what the app's spelling checker marks.",
+      ),
+      (
         "full_width",
         "bool",
         "false",

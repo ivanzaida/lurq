@@ -112,6 +112,7 @@ mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
+mod text_editing;
 mod textarea;
 mod time_field;
 mod time_picker;
@@ -1148,6 +1149,14 @@ pub const PAGES: &[Page] = &[
     about: "find bar findbar search find in page replace replace all match case whole word regex regular expression count matches next previous f3 enter escape ctrl+f query on_query on_next on_previous on_replace on_replace_all on_dismiss return_focus open count_text",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<find_bar::FindBarPage>(()),
+  },
+  Page {
+    path: "/text-editing",
+    name: "Text Editing",
+    icon: Some("text-cursor"),
+    about: "text editing selection caret cursor ime composition input method spell check spelling squiggle wavy underline misspelled ghost completion autocomplete suggestion tab edit menu cut copy paste select all squiggles completion InputSquiggles InputGhost",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<text_editing::TextEditingPage>(()),
   },
   Page {
     path: "/floating-panel",

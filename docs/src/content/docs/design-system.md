@@ -580,6 +580,7 @@ Input::new(email.clone()).invalid(!email_ok);
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent`; `prevent_default()` refuses it |
 | `on_submit(Fn(&str))` | Called with what it holds when Enter is pressed in it, with no modifier and outside a composition. A second handler is called after the first |
+| `completion(&str)`, `squiggles(ranges)` | What would complete what is typed, drawn after it and taken by Tab; and wavy lines under ranges of its text, what the app's spelling checker marks. See [text editing](#text-editing) |
 | `name(..)` | The name of its value in a form (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, the box that is typed in |
 
@@ -677,6 +678,7 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: the edge in the destructive, warning or success color. One is shown, in that order |
 | `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent` (`new_value` is what it will hold); `prevent_default()` refuses it. A read-only one makes no edit |
+| `squiggles(ranges)` | Wavy lines in `Destructive` under ranges of its text, bytes of it: what the app's spelling checker marks. See [text editing](#text-editing) |
 | `full_width(bool)` | As wide as what holds it, in place of 260: in a form, as wide as its field. The state `FullWidth` |
 | `name(..)` | The name of its text in a form (feature `form`) |
 | `label(&str)` | What it is called, to what reads the tree. It draws nothing: a [field](#field) gives it its own label |
@@ -4490,6 +4492,41 @@ view.on_key_down(move |event: KeyboardEvent| {
 - To what reads the tree it is a `search` called by its label; each option says `a11y_pressed`, the chevron `a11y_expanded`, and the count is `a11y_live` polite.
 - The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
+
+## Text Editing
+
+What every field of the design system draws while it is typed in. It is the engine's text input, so nothing is
+asked for but the two marks an app gives a field: the ranges its spelling checker found, and what would complete
+what is typed.
+
+```rust
+use lurq::ui::{ContextMenu, Input, MenuItem, Textarea};
+
+// The app's own checker says which bytes of the text are wrong.
+Input::new(text.clone()).squiggles(misspelled(&text.get()));
+Textarea::new(note.clone()).squiggles(misspelled(&note.get()));
+
+// What would complete what is typed, for what the field holds now. Tab takes it.
+Input::new(command.clone()).completion("n --release");
+
+// The commands of an edit in one row over the field.
+ContextMenu::new(open.clone(), Input::new(text.clone()))
+  .bar(true)
+  .items(["Cut", "Copy", "Paste", "Select All"].map(|name| MenuItem::new(name)));
+```
+
+| Mark | What draws it | |
+| --- | --- | --- |
+| Selection | The engine, in `PaletteColor::Selection` | Behind the band of the selected text (the font's ascent and descent), while the field has the focus. `TextInput::selection_color` for one field |
+| Caret | The engine, in the color of the text | A line where the next character goes. It blinks unless the theme's `CaretMode` is `Persistent`. `TextInput::caret_color` for one field |
+| Composition | The engine, in the color of the text | A line under what an input method is composing, until it is committed |
+| Spell check | `Input::squiggles(ranges)`, `Textarea::squiggles(ranges)` | A wavy line in `Destructive` under each range, bytes of the text, on every row the range is on. lurq has no checker: the app finds the ranges, and again after an edit. The part `Squiggle` (`InputPart`, `TextareaPart`) gives them another color |
+| Ghost completion | `Input::completion(&str)` | What would complete what is typed, drawn after it in `MutedForeground` at 0.7 while the field has the focus, holds text, and has the caret at its end with nothing selected. Tab puts it in the field as an edit (through `on_input`, one step of the undo) and the focus stays; anywhere else Tab goes on. The part `InputPart::Completion` gives it another color and opacity |
+| Edit menu | [`ContextMenu::bar(true)`](#context-menu) | The commands of selected text in one row over a field |
+
+- On the engine's input the two marks are `TextInput::squiggles(InputSquiggles::new(ranges).color(..))` and `TextInput::ghost(InputGhost::new(text).color(..).opacity(..))`. A masked input draws no squiggle, and an input with tokens or styled spans no ghost.
+- The key that takes a completion is not drawn by the input: put a [`Kbd`](#kbd) beside the field where it should be said.
+- The board fills a selection with `info-muted`; the engine's is the theme's `Selection` role, which the board has as a variable of its own.
 
 ## Highlight
 

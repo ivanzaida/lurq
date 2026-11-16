@@ -776,6 +776,11 @@ impl PartStyle {
     }
   }
 
+  /// The part's opacity in `theme`, as a number: for a component that draws something itself and not as a node.
+  pub(crate) fn opacity_in(&self, theme: &Theme) -> Option<f32> {
+    self.resolved_opacity(theme)
+  }
+
   fn resolved_opacity(&self, theme: &Theme) -> Option<f32> {
     match self.opacity? {
       Opacity::Value(value) => Some(value),
