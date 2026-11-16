@@ -484,6 +484,43 @@ fn a_signature_is_a_picture_of_its_own_size_drawn_on_nothing() {
 }
 
 #[test]
+fn a_signature_is_a_png_of_straight_rgba_that_reads_back() {
+  // Ink at half its opacity: a PNG holds the color as it is and its alpha beside it, not the color times the alpha.
+  let bytes = one_stroke()
+    .to_png(2.0, Color::new(0, 0, 255, 128), 2.0)
+    .expect("a PNG");
+  assert_eq!(
+    &bytes[..8],
+    [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
+    "the signature of a PNG"
+  );
+  let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+    .read_info()
+    .expect("a PNG that reads back");
+  let mut pixels = vec![0; reader.output_buffer_size().expect("a size")];
+  let info = reader.next_frame(&mut pixels).expect("its pixels");
+  assert_eq!((info.width, info.height), (560, 248));
+  assert_eq!(
+    (info.color_type, info.bit_depth),
+    (png::ColorType::Rgba, png::BitDepth::Eight)
+  );
+  let at = |x: usize, y: usize| pixels[(y * 560 + x) * 4..][..4].to_vec();
+  let inked = at(120, 100);
+  assert_eq!(
+    &inked[..3],
+    [0, 0, 255],
+    "the ink's own color, not darkened by its alpha"
+  );
+  assert!((i32::from(inked[3]) - 128).abs() <= 1, "{inked:?}");
+  assert_eq!(at(400, 200)[3], 0, "and nothing under it");
+  assert!(
+    Signature::default()
+      .to_png(1.0, Color::new(0, 0, 0, 255), 2.0)
+      .is_none()
+  );
+}
+
+#[test]
 fn a_forced_focus_draws_the_ring_with_nothing_pointing_at_it() {
   let stage = scene(|| SignaturePad::controlled(Signature::default(), |_| {}).force(Some(Interaction::FocusVisible)));
   assert!(stage.has_ring(light(PaletteColor::Ring)));

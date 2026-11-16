@@ -236,7 +236,14 @@ impl Component for SignaturePadPage {
         .then(|| self.board.get().to_image(2.0, ink, 2.0))
         .flatten();
       let caption = match &image {
-        Some(image) => format!("to_image(2.0, ink, 2.0): {} × {} px", image.width(), image.height()),
+        Some(image) => {
+          let bytes = self.board.get().to_png(2.0, ink, 2.0).map_or(0, |png| png.len());
+          format!(
+            "to_image(2.0, ink, 2.0): {} × {} px · to_png: {bytes} bytes",
+            image.width(),
+            image.height()
+          )
+        }
         None if self.picture.get() => "Nothing signed: no picture.".to_owned(),
         None => "to_image(scale, ink, line_width)".to_owned(),
       };
@@ -404,6 +411,7 @@ impl Component for SignaturePadPage {
               "if let Some(image) = signature.get().to_image(2.0, ink, 2.0) {",
               "    // image.width(), image.height(), image.data(): RGBA",
               "}",
+              "let png: Option<Vec<u8>> = signature.get().to_png(2.0, ink, 2.0);",
             ],
           ),
         ),

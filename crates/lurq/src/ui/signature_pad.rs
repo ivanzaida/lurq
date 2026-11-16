@@ -193,6 +193,22 @@ impl Signature {
     self.paint(&canvas.context_2d(), self.width, self.height, ink, line_width);
     canvas.to_image_data()
   }
+
+  /// The picture of [`to_image`](Self::to_image) as the bytes of a PNG file, 8 bits of red, green, blue and alpha (not
+  /// premultiplied), to store or to send. `None` where `to_image` is `None`.
+  pub fn to_png(&self, scale_factor: f32, ink: Color, line_width: f32) -> Option<Vec<u8>> {
+    let image = self.to_image(scale_factor, ink, line_width)?;
+    let mut out = Vec::new();
+    {
+      let mut encoder = png::Encoder::new(&mut out, image.width(), image.height());
+      encoder.set_color(png::ColorType::Rgba);
+      encoder.set_depth(png::BitDepth::Eight);
+      let mut writer = encoder.write_header().ok()?;
+      // The canvas's pixels are given straight (`CanvasHandle::to_image_data`), as a PNG holds them.
+      writer.write_image_data(image.data()).ok()?;
+    }
+    Some(out)
+  }
 }
 
 /// Draws `points` as one stroke on `draw`: a curve through the middles between them, or a dot of one.
