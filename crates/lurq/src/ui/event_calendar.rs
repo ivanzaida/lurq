@@ -21,7 +21,7 @@ use crate::{
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row, TextOverflow},
-  core::{Date, DateRange, DateText, Signal, Weekday, YearMonth, shared_date_text},
+  core::{Date, DateRange, DateText, ElementRef, Signal, Weekday, YearMonth, shared_date_text},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, FocusGroup, Outline, border::Border, color::Color, dimension::Dimension},
 };
@@ -59,6 +59,10 @@ pub enum EventCalendarPart {
   Event,
   /// What stands for the events of a day that are not shown: "+2 more".
   More,
+  /// The row of dots under a day's number in a month narrower than seven days need ([`EventCalendarForm::Dots`]).
+  Dots,
+  /// A dot: one event, in the ink of its kind.
+  Dot,
 }
 
 names!(EventCalendarPart {
@@ -76,6 +80,8 @@ names!(EventCalendarPart {
   Events => "events",
   Event => "event",
   More => "more",
+  Dots => "dots",
+  Dot => "dot",
 });
 
 /// The states of an event calendar a recipe styles, besides what the pointer and the keyboard do to it. The
@@ -102,6 +108,12 @@ pub enum EventCalendarState {
   Last,
   /// The event takes no input.
   Unavailable,
+  /// It is a month too narrow for seven days with their events: each day shows its events as dots under its
+  /// number ([`EventCalendarForm::Dots`]).
+  Compact,
+  /// It is a week too narrow for its days side by side, which scroll sideways under the header
+  /// ([`EventCalendarForm::Scrolling`]).
+  Scrolling,
 }
 
 names!(EventCalendarState {
@@ -115,7 +127,38 @@ names!(EventCalendarState {
   Outside => "outside",
   Last => "last",
   Unavailable => "unavailable",
+  Compact => "compact",
+  Scrolling => "scrolling",
 });
+
+/// What form a mounted event calendar takes in the room it is laid out in, measured before the frame is painted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum EventCalendarForm {
+  /// The days side by side, each with its events: the room holds them all.
+  #[default]
+  Full,
+  /// A week whose days, each [`EventCalendar::WEEK_DAY_LEAST`] wide, are more than the room: they scroll sideways
+  /// inside the calendar, under its header, which stands still.
+  Scrolling,
+  /// A week in a room under [`EventCalendar::DAY_VIEW_BELOW`]: the calendar shows one day, the chosen one or the
+  /// first of the week, with its buttons going a day back and on.
+  OneDay,
+  /// A month in a room under seven days of [`EventCalendar::MONTH_DAY_LEAST`]: each day shows its number and a dot
+  /// for each of its events, and a press of it tells `on_more`.
+  Dots,
+}
+
+impl EventCalendarForm {
+  /// The form of a calendar of `period`, `days` to a week, in a room `width` wide.
+  pub fn for_room(period: EventCalendarPeriod, days: usize, width: f32) -> Self {
+    match period {
+      EventCalendarPeriod::Month if width < 7.0 * EventCalendar::<()>::MONTH_DAY_LEAST => Self::Dots,
+      EventCalendarPeriod::Week if width < EventCalendar::<()>::DAY_VIEW_BELOW => Self::OneDay,
+      EventCalendarPeriod::Week if width < days as f32 * EventCalendar::<()>::WEEK_DAY_LEAST => Self::Scrolling,
+      _ => Self::Full,
+    }
+  }
+}
 
 /// What an event calendar shows at once.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -356,6 +399,18 @@ pub struct EventCalendar<T = ()> {
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// The form the room it was measured in gives it, and the ref it is measured by: a mounted calendar's.
+  form: EventCalendarForm,
+  room: Option<ElementRef>,
+}
+
+impl EventCalendar<()> {
+  /// The least width of a day of a week: under seven (or five) of them the week scrolls sideways.
+  pub const WEEK_DAY_LEAST: f32 = 110.0;
+  /// The room under which a week shows one day: a scroll that holds fewer than three days at a time is no week.
+  pub const DAY_VIEW_BELOW: f32 = 3.0 * Self::WEEK_DAY_LEAST;
+  /// The least width of a day of a month with its events: under seven of them each day shows dots.
+  pub const MONTH_DAY_LEAST: f32 = 80.0;
 }
 
 impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
@@ -389,6 +444,8 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       rules: Recipe::new(),
       id: None,
       key: None,
+      form: EventCalendarForm::Full,
+      room: None,
     }
   }
 
@@ -597,6 +654,11 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
     let today = self.today.unwrap_or_else(Date::today);
     let first_day = self.first_day.unwrap_or_else(|| locale.first_day());
     let chosen = self.value.get();
+    // A week in a room under a few days' shows one day of it.
+    let period = match (self.period, self.form) {
+      (EventCalendarPeriod::Week, EventCalendarForm::OneDay) => EventCalendarPeriod::Day,
+      (period, _) => period,
+    };
     let source = match (&self.shown, &self.kept) {
       (Some(shown), _) => ShownSource::App(shown.clone()),
       (None, Some(kept)) => ShownSource::Own(kept.clone(), chosen.unwrap_or(today)),
@@ -606,7 +668,7 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       value: self.value,
       controlled: self.controlled,
       shown: source,
-      period: self.period,
+      period,
       first_day,
       weekends: self.weekends,
       on_change: self.on_change,
@@ -619,9 +681,11 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       .fold(Case::new().breakpoint(current_breakpoint()), |case, state| {
         case.state(*state, true)
       })
-      .state(EventCalendarState::Month, self.period == EventCalendarPeriod::Month)
-      .state(EventCalendarState::Week, self.period == EventCalendarPeriod::Week)
-      .state(EventCalendarState::Day, self.period == EventCalendarPeriod::Day)
+      .state(EventCalendarState::Month, period == EventCalendarPeriod::Month)
+      .state(EventCalendarState::Week, period == EventCalendarPeriod::Week)
+      .state(EventCalendarState::Day, period == EventCalendarPeriod::Day)
+      .state(EventCalendarState::Compact, self.form == EventCalendarForm::Dots)
+      .state(EventCalendarState::Scrolling, self.form == EventCalendarForm::Scrolling)
       .state(EventCalendarState::Header, self.header)
       .state(EventCalendarState::Disabled, self.disabled);
     // What an event is to the app is out of sight of the view: its press tells the handlers its value.
@@ -651,14 +715,15 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       })
       .collect();
     EventCalendarView {
-      period: self.period,
+      period,
+      form: self.form,
       anchor,
       first_day,
       today,
       chosen,
       weekends: self.weekends,
       header: self.header,
-      max_shown: self.max_shown.or(match self.period {
+      max_shown: self.max_shown.or(match period {
         EventCalendarPeriod::Month => Some(3),
         EventCalendarPeriod::Week => Some(4),
         EventCalendarPeriod::Day => None,
@@ -679,6 +744,7 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       rules: self.rules,
       id: self.id,
       key: self.key,
+      room: self.room,
     }
   }
 }
@@ -804,7 +870,10 @@ fn day_key(date: Date) -> String {
 /// An event calendar as a renderer sees it: the period it shows, its events, the style of its parts, and its
 /// behavior ready to be dressed.
 pub struct EventCalendarView {
+  /// The period shown: the app's, or a day where a week has too little room for more.
   pub period: EventCalendarPeriod,
+  /// The form its room gives it.
+  pub form: EventCalendarForm,
   /// The date whose period is shown.
   pub anchor: Date,
   pub first_day: Weekday,
@@ -837,6 +906,7 @@ pub struct EventCalendarView {
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  room: Option<ElementRef>,
 }
 
 impl EventCalendarView {
@@ -1023,6 +1093,11 @@ impl EventCalendarView {
           .flex(1.0)
           .min_width(Dimension::Px(0.0))
           .align_items(Alignment::Center)
+          .justify(if self.form == EventCalendarForm::Dots {
+            Justify::Center
+          } else {
+            Justify::Start
+          })
           .part(&part)
           .describe("a11y_role", "columnheader")
           .describe("a11y_name", self.locale.weekday_name(day))
@@ -1064,8 +1139,9 @@ impl EventCalendarView {
     states
   }
 
-  /// An event: what is pressed, in the fill and the ink of its kind, its title on one line. A `button` to what
-  /// reads the tree. Its press is its own: it does not choose the day it is on.
+  /// An event: what is pressed, in the fill and the ink of its kind, its title on one line cut with an ellipsis in
+  /// a week and a month, and wrapping in the day view, where the room is the day's. A `button` to what reads the
+  /// tree. Its press is its own: it does not choose the day it is on.
   pub fn event(&self, event: &ShownEvent) -> components::Button {
     let states: &[EventCalendarState] = if event.disabled {
       &[EventCalendarState::Unavailable]
@@ -1080,12 +1156,21 @@ impl EventCalendarView {
       .align_items(Alignment::Center)
       .describe("a11y_role", "button")
       .describe("a11y_name", event.title.clone())
-      .child(
-        Row::new()
-          .flex(1.0)
+      .child(if self.period == EventCalendarPeriod::Day {
+        // A text wraps in a column of the room it has, not in a row.
+        Column::new()
+          .width(Dimension::Pct(100.0))
           .min_width(Dimension::Px(0.0))
-          .child(part.text(&event.title).nowrap().text_overflow(TextOverflow::Elipsis)),
-      );
+          .child(part.text(&event.title).width(Dimension::Pct(100.0)))
+          .into()
+      } else {
+        Element::from(
+          Row::new()
+            .flex(1.0)
+            .min_width(Dimension::Px(0.0))
+            .child(part.text(&event.title).nowrap().text_overflow(TextOverflow::Elipsis)),
+        )
+      });
     let press = event.press.clone();
     pill = pill.on_click(move |click: MouseEvent| {
       click.stop_propagation();
@@ -1150,6 +1235,21 @@ impl EventCalendarView {
     events
   }
 
+  /// The events of `date` as dots in a row, each in the ink of its kind, where a month is too narrow for them
+  /// ([`EventCalendarForm::Dots`]): what they are is told by a press of the day, to `on_more`.
+  pub fn dots(&self, date: Date) -> Row {
+    let mut dots = Row::new()
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .wrap()
+      .part(&self.part(EventCalendarPart::Dots));
+    for event in self.events.iter().filter(|event| event.date == date) {
+      let part = self.recipe_in(Some(event.variant), &[]).part(EventCalendarPart::Dot);
+      dots = dots.child(Row::new().part(&part));
+    }
+    dots
+  }
+
   /// A day: what is pressed, focused and chosen, with its label over its events. A `gridcell` to what reads the
   /// tree. Tab goes on from it into its events. A day of the month beside is pressed to choose it and show its
   /// month, and is no stop of the keys.
@@ -1163,9 +1263,15 @@ impl EventCalendarView {
       .forced(self.forced.filter(|_| entry));
     let label = recipe.part(EventCalendarPart::Label);
     let selected = states.contains(&EventCalendarState::Selected);
+    // In a week that scrolls, a day keeps its least width.
+    let least = match self.form {
+      EventCalendarForm::Scrolling => EventCalendar::<()>::WEEK_DAY_LEAST,
+      _ => 0.0,
+    };
+    let dotted = self.form == EventCalendarForm::Dots;
     let mut day = components::Button::empty()
       .flex(1.0)
-      .min_width(Dimension::Px(0.0))
+      .min_width(Dimension::Px(least))
       .justify(Justify::Start)
       .align_items(Alignment::Stretch)
       .disabled(self.disabled)
@@ -1201,6 +1307,12 @@ impl EventCalendarView {
       let press = self.model.clone();
       day = day.on_click(move |event: MouseEvent| {
         press.choose(date);
+        if dotted {
+          // Its events are dots: the app is told to show them.
+          for handler in &press.on_more {
+            handler(date);
+          }
+        }
         if outside {
           // The day pressed is gone with the month it was beside: the focus goes to the day in its own month.
           press.show(date);
@@ -1219,14 +1331,22 @@ impl EventCalendarView {
           .min_width(Dimension::Px(0.0))
           .align_items(Alignment::Stretch)
           .child(
-            Row::new().align_items(Alignment::Center).part(&label).child(
-              label
-                .text(&self.day_text(date))
-                .nowrap()
-                .text_overflow(TextOverflow::Elipsis),
-            ),
+            Row::new()
+              .align_items(Alignment::Center)
+              .justify(if dotted { Justify::Center } else { Justify::Start })
+              .part(&label)
+              .child(
+                label
+                  .text(&self.day_text(date))
+                  .nowrap()
+                  .text_overflow(TextOverflow::Elipsis),
+              ),
           )
-          .child(self.events(date)),
+          .child(if dotted {
+            Element::from(self.dots(date))
+          } else {
+            self.events(date).into()
+          }),
       )
       .into()
   }
@@ -1264,6 +1384,18 @@ impl EventCalendarView {
     grid
   }
 
+  /// The days as the room has them: the grid, or in a week that scrolls the grid in a sideways scroll as wide as
+  /// the calendar, under the header that stands still.
+  pub fn days(&self) -> Element {
+    match self.form {
+      EventCalendarForm::Scrolling => components::ScrollHorizontal::new(self.grid())
+        .fill_width(true)
+        .key("days")
+        .into(),
+      _ => self.grid().into(),
+    }
+  }
+
   /// The box with nothing in it yet: what holds the header over the days.
   pub fn root(&self) -> Column {
     let mut root = Column::new()
@@ -1279,6 +1411,9 @@ impl EventCalendarView {
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
+    if let Some(room) = &self.room {
+      root = root.ref_element(room.clone());
+    }
     root
   }
 
@@ -1288,7 +1423,7 @@ impl EventCalendarView {
     if self.header {
       root = root.child(self.header());
     }
-    root.child(self.grid()).into()
+    root.child(self.days()).into()
   }
 }
 
@@ -1313,9 +1448,9 @@ impl<T: 'static> Themed for EventCalendar<T> {
   fn recipe() -> Recipe {
     use CalendarEventVariant::{Destructive, Info, Neutral, Success, Warning};
     use EventCalendarPart::{
-      Day, Event, Events, Header, Label, More, Nav, NavIcon, Root, Title, Week, Weekday, Weekdays,
+      Day, Dot, Dots, Event, Events, Header, Label, More, Nav, NavIcon, Root, Title, Week, Weekday, Weekdays,
     };
-    use EventCalendarState::{Current, Disabled, Last, Month, Outside, Selected, Unavailable};
+    use EventCalendarState::{Compact, Current, Disabled, Last, Month, Outside, Selected, Unavailable};
     use PaletteColor as Role;
     let none = Color::new(0, 0, 0, 0);
     let line = || Border::inside(BorderSize::Sm, Role::Border);
@@ -1402,7 +1537,14 @@ impl<T: 'static> Themed for EventCalendar<T> {
       })
       .hovered(More, |s| s.foreground(Role::Foreground))
       .focus_visible(More, |s| s.outline(ring()))
-      .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled));
+      .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
+      // A month too narrow for its events: the names of the days and the numbers in the middle of their columns,
+      // and a dot of 6 for each event under the number.
+      .state(Compact, Weekday, |s| s.padding_x(2.0))
+      .state(Compact, Day, |s| s.min_height(56.0))
+      .state(Compact, Label, |s| s.height(28.0).padding_x(2.0))
+      .base(Dots, |s| s.padding_x(4.0).padding_y(6.0).gap(3.0))
+      .base(Dot, |s| s.square(6.0).radius(RadiusSize::Full).background(Role::Foreground));
     [
       (Neutral, Role::Muted, Role::Foreground),
       (Info, Role::InfoMuted, Role::Info),
@@ -1412,7 +1554,10 @@ impl<T: 'static> Themed for EventCalendar<T> {
     ]
     .into_iter()
     .fold(recipe, |recipe, (variant, fill, ink)| {
-      recipe.variant(variant, Event, |s| s.background(fill).foreground(ink))
+      let dot = ink.clone();
+      recipe
+        .variant(variant, Event, |s| s.background(fill).foreground(ink))
+        .variant(variant, Dot, |s| s.background(dot))
     })
   }
 }
@@ -1439,6 +1584,9 @@ struct Host<T> {
   shown: Signal<Option<Date>>,
   /// The chosen day as the last render had it: one set from outside since is followed to its period.
   last: Arc<Mutex<Option<Option<Date>>>>,
+  /// What the calendar is laid out in, measured before paint, and the form that room gives it.
+  room: ElementRef,
+  form: Signal<EventCalendarForm>,
   value: std::marker::PhantomData<fn() -> T>,
 }
 
@@ -1449,6 +1597,8 @@ impl<T: Clone + Send + Sync + 'static> Component for Host<T> {
     Self {
       shown: Signal::new(None),
       last: Arc::new(Mutex::new(None)),
+      room: ElementRef::new(),
+      form: Signal::new(EventCalendarForm::Full),
       value: std::marker::PhantomData,
     }
   }
@@ -1470,6 +1620,18 @@ impl<T: Clone + Send + Sync + 'static> Component for Host<T> {
       self.shown.set(Some(date));
     }
     calendar.kept = Some(self.shown.clone());
+    // The form follows the room the calendar is laid out in, from its first frame: the observer changes it only
+    // where the width crosses one of the widths it is chosen by.
+    let (period, form) = (calendar.period, self.form.clone());
+    let days = if calendar.weekends { 7 } else { 5 };
+    self.room.observe_rect_before_paint(move |rect| {
+      let fits = EventCalendarForm::for_room(period, days, rect.width);
+      if form.get_untracked() != fits {
+        form.set(fits);
+      }
+    });
+    calendar.form = self.form.get();
+    calendar.room = Some(self.room.clone());
     // The app's date text is read in the build, which is in this render: a change of it renders this again.
     calendar.build(&current_theme())
   }

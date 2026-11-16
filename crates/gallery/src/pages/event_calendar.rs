@@ -13,12 +13,9 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet, segmented_fill},
+  kit::{FILL, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, flag, prop},
 };
-
-/// The least width of a day at which its name and its events read: under it the calendar scrolls in its card.
-const DAY: f32 = 80.0;
 
 /// A day of November 2026, the month of the board's week.
 fn day(day: u8) -> Date {
@@ -158,12 +155,6 @@ impl EventCalendarPage {
         disabled.set(false);
       })
     };
-    // A day cannot be narrower than its name and its events read at: under that the calendar scrolls sideways.
-    let days = match (period, weekends) {
-      (EventCalendarPeriod::Day, _) => 1.0,
-      (_, true) => 7.0,
-      (_, false) => 5.0,
-    };
     let shown = {
       let (build, playground) = (build.clone(), &self.playground);
       Shown::built(move |ctx| {
@@ -173,12 +164,8 @@ impl EventCalendarPage {
           .on_select(move |event: &&str| select(format!("on_select({event:?})")))
           .on_more(move |date| more(format!("on_more({date})")))
           .mount(ctx);
-        fit(
-          "event-calendar-play",
-          playground.stage_room(),
-          (days * DAY).max(280.0),
-          Column::new().width(FILL).child(playground.measure(calendar)),
-        )
+        // The calendar takes the form its room gives it: its own sideways scroll, one day, or dots.
+        Column::new().width(FILL).child(playground.measure(calendar))
       })
       .measured()
     };
@@ -264,49 +251,38 @@ impl Component for EventCalendarPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let room = self.frame.stage_room();
     // The board's week: five days, no header, today the Thursday.
-    let board = fit(
-      "event-calendar-board",
-      room,
-      5.0 * DAY,
-      Column::new()
-        .width(FILL)
-        .max_width(560.0)
-        .spacing(10.0)
-        .child(
-          EventCalendar::new(self.board.clone(), board_events())
-            .today(today())
-            .weekends(false)
-            .header(false)
-            .mount(ctx),
-        )
-        .child(quiet(&format!("the board's week · {}", chosen(&self.board)), 12.0)),
-    );
+    let board = Column::new()
+      .width(FILL)
+      .max_width(560.0)
+      .spacing(10.0)
+      .child(
+        EventCalendar::new(self.board.clone(), board_events())
+          .today(today())
+          .weekends(false)
+          .header(false)
+          .mount(ctx),
+      )
+      .child(quiet(&format!("the board's week · {}", chosen(&self.board)), 12.0));
     // A month: the 17th has five events, of which it shows two and "+3 more".
-    let month = fit(
-      "event-calendar-month",
-      room,
-      7.0 * DAY,
-      Column::new()
-        .width(FILL)
-        .spacing(10.0)
-        .child({
-          let told = self.told.clone();
-          EventCalendar::new(self.month.clone(), month_events())
-            .today(today())
-            .period(EventCalendarPeriod::Month)
-            .on_more(move |date| told.set(Some(date)))
-            .mount(ctx)
-        })
-        .child(quiet(
-          &match self.told.get() {
-            Some(date) => format!("{} · on_more({date})", chosen(&self.month)),
-            None => format!("{} · press \"+3 more\" on the 17th", chosen(&self.month)),
-          },
-          12.0,
-        )),
-    );
+    let month = Column::new()
+      .width(FILL)
+      .spacing(10.0)
+      .child({
+        let told = self.told.clone();
+        EventCalendar::new(self.month.clone(), month_events())
+          .today(today())
+          .period(EventCalendarPeriod::Month)
+          .on_more(move |date| told.set(Some(date)))
+          .mount(ctx)
+      })
+      .child(quiet(
+        &match self.told.get() {
+          Some(date) => format!("{} · on_more({date})", chosen(&self.month)),
+          None => format!("{} · press \"+3 more\" on the 17th", chosen(&self.month)),
+        },
+        12.0,
+      ));
     // One day, which shows all that is on it.
     let one = Column::new()
       .width(FILL)
@@ -321,35 +297,30 @@ impl Component for EventCalendarPage {
       )
       .child(quiet("period(Day) · the 17th, all five of its events", 12.0));
     // What a press of an event tells.
-    let events = fit(
-      "event-calendar-events",
-      room,
-      5.0 * DAY,
-      Column::new()
-        .width(FILL)
-        .max_width(560.0)
-        .spacing(10.0)
-        .child({
-          let pressed = self.pressed.clone();
-          EventCalendar::new(
-            self.events_day.clone(),
-            board_events()
-              .into_iter()
-              .chain([CalendarEvent::new("offsite", day(11), "Offsite (held)").disabled(true)]),
-          )
-          .today(today())
-          .weekends(false)
-          .on_select(move |event: &&str| pressed.set((*event).to_owned()))
-          .mount(ctx)
-        })
-        .child(quiet(
-          &match self.pressed.get().as_str() {
-            "" => "press an event".to_owned(),
-            event => format!("on_select({event:?})"),
-          },
-          12.0,
-        )),
-    );
+    let events = Column::new()
+      .width(FILL)
+      .max_width(560.0)
+      .spacing(10.0)
+      .child({
+        let pressed = self.pressed.clone();
+        EventCalendar::new(
+          self.events_day.clone(),
+          board_events()
+            .into_iter()
+            .chain([CalendarEvent::new("offsite", day(11), "Offsite (held)").disabled(true)]),
+        )
+        .today(today())
+        .weekends(false)
+        .on_select(move |event: &&str| pressed.set((*event).to_owned()))
+        .mount(ctx)
+      })
+      .child(quiet(
+        &match self.pressed.get().as_str() {
+          "" => "press an event".to_owned(),
+          event => format!("on_select({event:?})"),
+        },
+        12.0,
+      ));
     let rows = [
       (
         "new",

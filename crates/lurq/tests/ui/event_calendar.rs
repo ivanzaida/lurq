@@ -657,3 +657,177 @@ fn to_tooling_the_days_are_a_grid_of_cells_and_an_event_is_a_button() {
   assert_eq!(said("release", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("release", "a11y_name").as_deref(), Some("Release 0.60"));
 }
+
+/// The calendar `scene` makes, mounted at the top of a window `width` wide and 900 high: its first frame, which is
+/// checked against the next, and the stage settled after it.
+fn in_room(width: f32, scene: impl Fn() -> EventCalendar<&'static str> + Send + Sync + 'static) -> Stage {
+  let mut stage = Stage::first_frame_in(light_app(), width, 900.0, move |ctx| {
+    Column::new().size(width, 900.0).child(scene().mount(ctx)).into()
+  });
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(first, stage.picture(), "{width}: the first frame is the settled one");
+  stage.pass();
+  stage
+}
+
+/// The board's events in a week of seven days, with its header.
+fn week(value: &Signal<Option<Date>>) -> EventCalendar<&'static str> {
+  board(value).weekends(true).header(true)
+}
+
+#[test]
+fn a_week_keeps_its_days_least_width_and_scrolls_them_under_its_header() {
+  // 900 holds seven days of 110: they share it.
+  let value = Signal::new(None);
+  let bound = value.clone();
+  let mut stage = in_room(900.0, move || week(&bound));
+  let (_, _, width, _) = stage.bounds("team-2026-11-09");
+  assert!((width - 900.0 / 7.0).abs() < 0.6, "a seventh of the room: {width}");
+  assert!(stage.paints("Sun 15"));
+
+  // 520 does not: each day keeps 110, and the days scroll sideways inside the calendar.
+  let value = Signal::new(None);
+  let bound = value.clone();
+  let mut stage = in_room(520.0, move || week(&bound));
+  assert_eq!(stage.bounds("team").2, 520.0, "the calendar is as wide as its room");
+  let (monday, _, width, _) = stage.bounds("team-2026-11-09");
+  assert_eq!(width, EventCalendar::WEEK_DAY_LEAST);
+  let title = text_of(&stage, "Nov 9 – Nov 15, 2026");
+  let (_, day_y, ..) = stage.bounds("team-2026-11-09");
+  stage
+    .tree
+    .scroll(260.0, day_y + 40.0, -300.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  let (moved, ..) = stage.bounds("team-2026-11-09");
+  assert!(moved < monday - 100.0, "the days scrolled: {monday} to {moved}");
+  let still = text_of(&stage, "Nov 9 – Nov 15, 2026");
+  assert_eq!((still.x, still.y), (title.x, title.y), "the header stands still");
+  // A press and the keys are as ever.
+  stage.click("team-2026-11-13");
+  assert_eq!(value.get(), Some(day(13)));
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-14"));
+}
+
+#[test]
+fn a_week_under_the_room_of_a_few_days_shows_one_day_with_the_keys_and_the_choice_unchanged() {
+  let value = Signal::new(None);
+  let changes = Arc::new(Mutex::new(Vec::new()));
+  let (bound, told) = (value.clone(), changes.clone());
+  let mut stage = in_room(300.0, move || {
+    let told = told.clone();
+    week(&bound).on_change(move |date| told.lock().unwrap().push(date))
+  });
+  // Today's day, the 12th, alone, with what is on it, its title wrapping where it is longer than the day.
+  assert!(
+    stage.cut_text_quad("Thursday, Nov 12, 2026").is_some(),
+    "the day in the header"
+  );
+  assert!(stage.paints("Thu 12") && stage.paints("Design review"));
+  assert!(!stage.paints("Mon 9") && !stage.paints("Fri 13"));
+  assert_eq!(stage.bounds("team-2026-11-12").2, 300.0);
+  // Its buttons go a day.
+  stage.click("team-next");
+  assert!(stage.paints("Fri 13") && stage.paints("Deploy freeze"));
+  stage.click("team-previous");
+  // The keys: Tab on to the day, Right to the next, which is shown; Enter chooses it.
+  for _ in 0..3 {
+    if focused(&stage).as_deref() == Some("team-2026-11-12") {
+      break;
+    }
+    stage.key("Tab");
+  }
+  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-12"));
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-13"));
+  assert!(stage.cut_text_quad("Friday, Nov 13, 2026").is_some());
+  assert_eq!(value.get(), None, "a key moves the focus and chooses nothing");
+  stage.key("Enter");
+  assert_eq!(value.get(), Some(day(13)));
+  assert_eq!(*changes.lock().unwrap(), [day(13)]);
+}
+
+#[test]
+fn a_month_under_seven_days_room_shows_its_events_as_dots_and_a_press_of_a_day_tells_on_more() {
+  let month = |value: &Signal<Option<Date>>, told: Arc<Mutex<Vec<Date>>>| {
+    board(value)
+      .weekends(true)
+      .header(true)
+      .period(EventCalendarPeriod::Month)
+      .on_more(move |date| told.lock().unwrap().push(date))
+  };
+  // 900 holds seven days with their events.
+  let (value, told) = (Signal::new(None), Arc::new(Mutex::new(Vec::new())));
+  let (bound, tell) = (value.clone(), told.clone());
+  let stage = in_room(900.0, move || month(&bound, tell.clone()));
+  assert!(stage.paints("Standup") && stage.paints("Deploy freeze"));
+  for width in [520.0, 300.0] {
+    let (value, told) = (Signal::new(None), Arc::new(Mutex::new(Vec::new())));
+    let (bound, tell) = (value.clone(), told.clone());
+    let mut stage = in_room(width, move || month(&bound, tell.clone()));
+    assert!(!stage.paints("Standup"), "{width}: no titles");
+    assert!(stage.paints("November 2026"), "{width}");
+    // A dot of 6 for each event, in the ink of its kind, under the number of its day.
+    let (x, y, day_width, height) = stage.bounds("team-2026-11-10");
+    assert!(x + day_width <= width + 0.5, "{width}: the days fit");
+    let dots: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        matches!(quad.content, QuadContent::Rect { .. })
+          && quad.width == 6.0
+          && quad.height == 6.0
+          && quad.x >= x
+          && quad.x + 6.0 <= x + day_width
+          && quad.y >= y
+          && quad.y + 6.0 <= y + height
+      })
+      .collect();
+    assert_eq!(dots.len(), 2, "{width}: two events on the 10th");
+    let number = text_of(&stage, "10");
+    assert!(dots.iter().all(|dot| dot.y > number.y + number.height));
+    let colors: Vec<Color> = dots
+      .iter()
+      .filter_map(|dot| match dot.content {
+        QuadContent::Rect { color, .. } => Some(color),
+        _ => None,
+      })
+      .collect();
+    assert!(
+      colors.contains(&light(PaletteColor::Success)),
+      "{width}: the release's ink"
+    );
+    // A press of a day chooses it and tells the app to show what is on it.
+    stage.click("team-2026-11-10");
+    assert_eq!(value.get(), Some(day(10)));
+    assert_eq!(*told.lock().unwrap(), [day(10)], "{width}");
+  }
+}
+
+#[test]
+fn an_events_title_wraps_in_the_day_view_and_is_one_line_in_a_week() {
+  const LONG: &str = "Quarterly planning of the renderer team with the design system group";
+  let value = Signal::new(None);
+  let bound = value.clone();
+  let mut stage = in_room(240.0, move || {
+    EventCalendar::new(bound.clone(), [CalendarEvent::new("long", day(12), LONG).id("long")])
+      .today(day(12))
+      .period(EventCalendarPeriod::Day)
+      .id("team")
+  });
+  let (x, _, width, height) = stage.bounds("long");
+  assert!(height > 30.0, "on more than one line: {height}");
+  assert!(stage.cut_text_quad(LONG).is_some_and(|quad| {
+    matches!(&quad.content, QuadContent::Text { text, .. } if !text.ends_with('…'))
+      && quad.x + quad.width <= x + width + 0.5
+  }));
+  let value = Signal::new(None);
+  let bound = value.clone();
+  let mut stage = in_room(900.0, move || {
+    EventCalendar::new(bound.clone(), [CalendarEvent::new("long", day(12), LONG).id("long")])
+      .today(day(12))
+      .id("team")
+  });
+  assert!((stage.bounds("long").3 - 21.0).abs() < 0.6, "one line in a week");
+}

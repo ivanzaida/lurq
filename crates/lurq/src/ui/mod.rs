@@ -307,7 +307,7 @@ pub use empty_state::{
 };
 pub use event_calendar::{
   CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarPart, EventCalendarPeriod, EventCalendarRenderer,
-  EventCalendarState, EventCalendarView, ShownEvent,
+  EventCalendarForm, EventCalendarState, EventCalendarView, ShownEvent,
 };
 pub use expandable_tile::{
   ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,
