@@ -131,6 +131,7 @@ impl Tree {
         PointerKind::Mouse
       },
       target_id: node,
+      time: self.press_now(),
       control: EventControl::new(),
     };
     for handler in &handlers {

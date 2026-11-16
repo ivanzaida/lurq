@@ -895,6 +895,8 @@ pub struct Tree {
   animation_engine: AnimationEngine,
   /// The time animations and transitions tick at instead of each pass's: see [`Tree::set_animation_clock`].
   animation_clock: Option<Instant>,
+  /// The time presses are given at instead of the wall clock's: see [`Tree::set_press_clock`].
+  press_clock: Option<Instant>,
   last_theme_version: u64,
   quad_scratch: Vec<Quad>,
   render_rects: Vec<RectCmd>,
@@ -922,6 +924,8 @@ pub struct Tree {
   /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
   /// overlay that opens or closes from one that stays open.
   overlay_focus_movers: Vec<OwnedElementRef>,
+  /// The anchors of the open overlays that hold Tab while the focus is in them (`Overlay::traps_tab`).
+  overlay_tab_traps: Vec<OwnedElementRef>,
   /// The element the focus goes to in an overlay that takes it and has just opened, once the pass has put
   /// the interaction state back.
   overlay_focus_entry: Option<NodeId>,
@@ -1354,6 +1358,7 @@ impl Tree {
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       animation_clock: None,
+      press_clock: None,
       last_theme_version: u64::MAX,
       quad_scratch: Vec::new(),
       render_rects: Vec::new(),
@@ -1377,6 +1382,7 @@ impl Tree {
       overlay_focus_entry: None,
       overlay_focus_back: None,
       overlay_focus_returns: Vec::new(),
+      overlay_tab_traps: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
       focus_start: None,
@@ -2815,7 +2821,7 @@ impl Tree {
     let now = Instant::now();
     {
       crate::app::profile_support::frame_section!("setup:pending_click");
-      self.flush_due_pending_click(now);
+      self.flush_due_pending_click(self.press_clock.unwrap_or(now));
     }
     {
       crate::app::profile_support::frame_section!("interaction_groups");
@@ -4057,7 +4063,7 @@ impl Tree {
     });
 
     if button == MouseButton::Left {
-      let now = Instant::now();
+      let now = self.press_now();
       if let Some(click_target_id) = self.click_tracker.pending_match_for_targets(
         now,
         position,
@@ -4664,7 +4670,8 @@ impl Tree {
       .filter(|_| focused.is_none())
       .map(|start| start.point(root, &self.dropped_nodes));
     let moved = self.focus_moving_layers();
-    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, start, reverse) {
+    let trap = self.tab_trap();
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, trap, focused, start, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         if let Some(state) = self.current_slider_state(target.input_id) {
           state.enter_by_tab(reverse);
@@ -5124,6 +5131,7 @@ impl Tree {
         crate::app::events::PointerKind::Mouse
       },
       target_id: NodeId::UNASSIGNED,
+      time: self.press_now(),
       control,
     };
     let scale = self.scale_factor();
@@ -5409,6 +5417,7 @@ impl Tree {
           .first()
           .map(|(node, _)| node.node_id())
           .unwrap_or(NodeId::UNASSIGNED),
+        time: evt.time,
         control: EventControl::new(),
       };
       let callbacks = self
@@ -5678,7 +5687,7 @@ impl Tree {
       {
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
           let text_click_count = self.text_click_tracker.record(
-            Instant::now(),
+            self.press_now(),
             (evt.x, evt.y),
             button,
             node.node_id(),
@@ -5709,7 +5718,7 @@ impl Tree {
         && let Some((state, value)) = selectable_text_state_and_value(node)
       {
         let text_click_count = self.text_click_tracker.record(
-          Instant::now(),
+          self.press_now(),
           (evt.x, evt.y),
           button,
           node.node_id(),
@@ -7454,6 +7463,20 @@ impl Tree {
     self.animation_clock = now;
   }
 
+  /// Sets the time presses are given at, in place of the wall clock, until set back to `None`: what a double
+  /// press, a double or triple click in text and a click held back for a double click are measured by, and the
+  /// time a pointer's events carry. For tests that tell a second press from a first on a clock of their own; a
+  /// shell leaves it alone.
+  #[doc(hidden)]
+  pub fn set_press_clock(&mut self, now: Option<Instant>) {
+    self.press_clock = now;
+  }
+
+  /// The clock of presses: the one [`Self::set_press_clock`] set, or the wall clock.
+  fn press_now(&self) -> Instant {
+    self.press_clock.unwrap_or_else(Instant::now)
+  }
+
   /// The runtime's clock: the one [`Self::set_animation_clock`] set, or the wall clock.
   fn now(&self) -> Instant {
     self.animation_clock.unwrap_or_else(Instant::now)
@@ -8069,6 +8092,9 @@ impl Tree {
       self.overlay_focus_back = Some(target);
     }
     let leaving = self.leaving_layers(&mut old_parts, &layers, &old_origins, now);
+    // What declared the old layers, for what follows to tell an overlay that went to another anchor from one that
+    // closed.
+    self.overlay_layer_origins = old_origins;
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
       let focus_return = self
@@ -8076,6 +8102,7 @@ impl Tree {
         .or_else(|| self.focused_overlay_closed(had_host, &layers));
       self.note_focus_returns(&layers, focus_return.as_ref());
       self.overlay_focus_movers = layers.focus_movers;
+      self.overlay_tab_traps = layers.tab_traps;
       self.overlay_focus_entry = None;
       #[cfg(feature = "canvas")]
       detach_canvases_not_carried(old_parts.unused_canvas_bindings(), Some(&base));
@@ -8084,6 +8111,7 @@ impl Tree {
       // Overlays hidden with their anchor are still dismissed.
       self.overlay_dismiss_entries = layers.dismiss_entries;
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_origins.clear();
       self.overlay_layer_parents.clear();
       self.dropdown_anchors.clear();
       return focus_return;
@@ -8114,6 +8142,7 @@ impl Tree {
     self.overlay_focus_entry = self.opened_overlay_focus(&layers);
     self.note_focus_returns(&layers, focus_return.as_ref());
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
+    self.overlay_tab_traps = std::mem::take(&mut layers.tab_traps);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
     self.overlay_layer_parents = self.focus_layer_parents();
@@ -8920,8 +8949,11 @@ fn build_overlays_from_layout_index(
         // Hidden or drawn, it is open: it moves the focus when it opens, not when its anchor comes back. One
         // that Tab reaches after its anchor is walked and gives the focus back as one that takes it, and moves
         // nothing as it opens.
-        if spec.takes_focus || spec.tab_after_anchor {
+        if spec.takes_focus || spec.tab_after_anchor || spec.traps_tab {
           layers.focus_movers.push(spec.anchor.clone());
+        }
+        if spec.traps_tab {
+          layers.tab_traps.push(spec.anchor.clone());
         }
         if spec.takes_focus {
           layers.focus_takers.push(spec.anchor.clone());
@@ -9867,6 +9899,7 @@ impl MouseModifiers {
       from_keyboard: true,
       pointer: crate::app::events::PointerKind::Mouse,
       target_id,
+      time: Instant::now(),
       control: EventControl::new(),
     }
   }
@@ -10331,6 +10364,7 @@ impl<'t> ElementHandle<'t> {
       from_keyboard: false,
       pointer: crate::app::events::PointerKind::Mouse,
       target_id: self.node_id,
+      time: Instant::now(),
       control: EventControl::new(),
     };
     for handler in handlers {

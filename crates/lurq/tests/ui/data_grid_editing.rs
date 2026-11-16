@@ -258,6 +258,15 @@ fn a_box_in_a_cell_turns_by_one_press_focused_or_not_and_once_by_a_double_press(
   let (rows, edits) = (Signal::new(files()), Edits::default());
   let mut stage = stage_of(&rows, &edits, 120.0);
   let edits_of = |edits: &Edits| edits.lock().unwrap().len();
+  // The presses are given at times the test says, so that neither a slow machine parts the two of a double
+  // press nor a fast one joins two that are not.
+  let start = std::time::Instant::now();
+  let mut at_ms = |stage: &mut Stage, ms: u64| {
+    stage
+      .tree
+      .set_press_clock(Some(start + std::time::Duration::from_millis(ms)))
+  };
+  at_ms(&mut stage, 0);
 
   // A cell that has not the focus: one press.
   let at = stage.center("g-cell-1-3");
@@ -267,15 +276,16 @@ fn a_box_in_a_cell_turns_by_one_press_focused_or_not_and_once_by_a_double_press(
   assert!(rows.get()[1].shared);
 
   // The same cell, focused now, pressed again after a double press's while: one press again.
-  std::thread::sleep(std::time::Duration::from_millis(600));
+  at_ms(&mut stage, 600);
   press_at(&mut stage, at);
   assert_eq!(edits_of(&edits), 2);
   assert!(!rows.get()[1].shared);
 
   // A double press turns it once: its second press is not another turn, nor an edit of the box.
-  std::thread::sleep(std::time::Duration::from_millis(600));
+  at_ms(&mut stage, 1200);
   let other = stage.center("g-cell-2-3");
   press_at(&mut stage, other);
+  at_ms(&mut stage, 1300);
   press_at(&mut stage, other);
   assert_eq!(edits_of(&edits), 3);
   assert!(rows.get()[2].shared);
