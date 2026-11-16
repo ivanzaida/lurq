@@ -674,7 +674,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/tour",
     name: "Tour",
-    icon: Some("list-numbered"),
+    icon: Some("route"),
     about: "tour walkthrough onboarding steps step guide coach marks product tour next back skip done 2 of 4 count arrow keys focus escape Tour TourStep new controlled on_change on_finish on_dismiss skip_button skip_label back_label next_label done_label takes_focus placement variant mount",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<tour::TourPage>(()),
@@ -1253,7 +1253,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/tray-popover",
     name: "Tray Popover",
-    icon: Some("box"),
+    icon: Some("panel-bottom"),
     about: "tray popover system tray menu bar status item taskbar notification area icon panel background app status synced switches toggles commands open preferences quit TrayPopover TrayAction TrayToggle TrayItem TrayStatusVariant anchored status status_variant item separator on_select on_change bind",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<tray_popover::TrayPopoverPage>(()),
