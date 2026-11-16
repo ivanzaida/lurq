@@ -156,12 +156,13 @@ pub struct ActionBarAction {
 /// that leaves with the focus in it gives the focus to what
 /// [`return_focus`](Self::return_focus) names: the list it acted on; and a
 /// bar wider than its room draws each action that has an icon as its icon
-/// alone, called by its label in a tooltip, before its text gives way: the
+/// alone, called by its label in a tooltip, and its text stays whole: the
 /// first frame at a width is already so, and with room again the labels are
 /// back. An action with no icon keeps its label. Narrower than that too, the
-/// text is cut, and then the actions go, the last first, into the menu of a
-/// More button before the clear button, which stays, as the text's room does
-/// not: nothing of the bar is past its room.
+/// actions go, the last first, into the menu of a More button before the
+/// clear button: what the bar says and the clear button stay, and the text
+/// is cut only once every action is in the menu. Nothing of the bar is past
+/// its room.
 #[derive(Clone)]
 pub struct ActionBar {
   count: usize,
@@ -623,8 +624,8 @@ impl Fits {
 }
 
 impl More {
-  /// `action`, the one at `index`, as what drops out of the bar whole where the bar has no room for it, after the
-  /// text has given way, and says so through its ref.
+  /// `action`, the one at `index`, as what drops out of the bar whole where the bar has no room for it, before
+  /// the text gives way, and says so through its ref.
   fn slot(&self, index: usize, action: Element) -> Element {
     let slot = self.slots[index].clone();
     let (told, open) = (self.told.clone(), self.open.clone());
@@ -650,7 +651,7 @@ impl More {
       .overflow_visible()
       .flex_shrink(1.0)
       .shrink_limit(ShrinkLimit::Drop)
-      .shrink_order(1)
+      .shrink_order(0)
       .ref_element(slot)
       .child(action)
       .into()
@@ -748,15 +749,15 @@ impl ActionBarView {
 
   /// How many are selected, on one line: where the bar is narrower than
   /// what it holds, this gives way and is cut with an ellipsis. A mounted
-  /// bar draws its actions as icons first: with their labels it is measured
-  /// whole, and this keeps its width.
+  /// bar draws its actions as icons and then puts them in its menu first:
+  /// with their labels it is measured whole, and this keeps its width.
   pub fn count(&self) -> Element {
     let part = self.part(ActionBarPart::Count);
     let whole = self.last.is_some() && !self.compact;
     Row::new()
       .flex_shrink(if whole { 0.0 } else { 1.0 })
-      // It gives way before any action goes into the menu.
-      .shrink_order(0)
+      // It gives way last: only once every action is in the menu.
+      .shrink_order(1)
       .min_width(0.0)
       .child(
         part

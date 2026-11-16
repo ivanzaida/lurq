@@ -135,8 +135,11 @@ impl ActionBarPage {
     };
     // On the stage the bar is mounted: as it leaves with the focus, the focus goes back to the list.
     let rows = self.rows[0].clone();
+    // The list is 480 wide where the stage has room for it, and as wide as the stage where it has not: the bar
+    // over it measures that room.
+    let room = self.frame.stage_room();
     let shown: Element = Stack::new()
-      .width(480.0)
+      .width(if room > 0.0 { room.min(480.0) } else { 480.0 })
       .height(260.0)
       .overflow_visible()
       .child(list(&self.selected, 260.0, &rows))

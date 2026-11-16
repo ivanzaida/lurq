@@ -533,14 +533,15 @@ fn a_mounted_bar_follows_its_room_its_labels_back_when_there_is_room() {
 }
 
 #[test]
-fn an_action_with_no_icon_keeps_its_label_and_a_room_too_narrow_for_the_icons_cuts_the_text() {
+fn an_action_with_no_icon_keeps_its_label_and_actions_with_no_room_go_into_the_menu_of_more() {
   let moved = Arc::new(AtomicUsize::new(0));
   let width = lurq::core::Signal::new(380.0f32);
   let mut stage = roomed(&width, &moved, true);
   assert!(stage.bounds("move").2 <= 36.0, "an action with an icon is its icon");
   assert!(stage.paints("Tag"), "one with none keeps its label");
-  // Narrower than the icons too, what the bar says gives way, and then the actions go into the menu of More, the
-  // last first: the clear button stays, and nothing of the bar is past it.
+  assert!(stage.paints("3 selected"));
+  // Narrower than the icons too, the actions go into the menu of More, the last first: what the bar says and
+  // the clear button stay, and nothing of the bar is past it.
   width.set(250.0);
   stage.frame();
   let (x, _, bar_width, _) = stage.bounds("bar");
@@ -548,7 +549,7 @@ fn an_action_with_no_icon_keeps_its_label_and_a_room_too_narrow_for_the_icons_cu
     x >= 16.0 - 0.5 && x + bar_width <= 250.0 - 16.0 + 0.5,
     "the bar is in its room"
   );
-  assert!(!stage.paints("3 selected"), "the text is cut");
+  assert!(stage.paints("3 selected"), "the text is whole");
   let (clear, _, clear_width, _) = stage.bounds("bar-clear");
   assert_eq!(clear_width, 32.0);
   assert!(
@@ -556,7 +557,6 @@ fn an_action_with_no_icon_keeps_its_label_and_a_room_too_narrow_for_the_icons_cu
     "the clear button 6 from the bar's end"
   );
   assert_eq!(stage.bounds("tag").2, 0.0, "the last action went");
-  assert_eq!(stage.bounds("move").2, 36.0, "the first is in the bar");
   let (more, _, more_width, _) = stage.bounds("bar-more");
   assert!(
     more_width > 0.0 && more + more_width <= clear,
@@ -567,14 +567,23 @@ fn an_action_with_no_icon_keeps_its_label_and_a_room_too_narrow_for_the_icons_cu
   assert_eq!(stage.picture(), settled, "settled in the frame the room narrowed in");
   stage.click("bar-more");
   stage.pass();
-  assert!(stage.paints("Tag"), "its menu holds what went");
-  stage.key("Escape");
-  stage.pass();
-  stage.click("move");
-  assert_eq!(moved.load(Ordering::SeqCst), 1, "what stayed still acts");
+  assert!(stage.paints("Tag") && stage.paints("Move"), "its menu holds what went");
+  stage.click("move-item");
+  assert_eq!(moved.load(Ordering::SeqCst), 1, "chosen there, an action acts");
+  // Narrower than what it says with More and the clear button, the text gives way at last.
+  width.set(170.0);
+  stage.frame();
+  let (x, _, bar_width, _) = stage.bounds("bar");
+  assert!(
+    x >= 16.0 - 0.5 && x + bar_width <= 170.0 - 16.0 + 0.5,
+    "the bar is in its room"
+  );
+  assert!(!stage.paints("3 selected"), "the text is cut");
+  assert_eq!(stage.bounds("bar-clear").2, 32.0);
   // With room again every action is back in the bar, and More is gone.
   width.set(380.0);
   stage.frame();
   stage.frame();
   assert!(stage.bounds("tag").2 > 0.0 && stage.bounds("bar-more").2 == 0.0);
+  assert!(stage.paints("3 selected"));
 }

@@ -3811,9 +3811,10 @@ Stack::new()
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
 
 **In a narrow room.** A mounted bar wider than its room draws each action that has an icon as its icon alone,
-called by its label in a tooltip, before its text gives way (`ActionBarView::compact`); an action with no icon
-keeps its label, and the count and the clear button stay. Narrower than its icons too, the text ends in an
-ellipsis. A bar that is only built keeps its labels and cuts its text.
+called by its label in a tooltip (`ActionBarView::compact`); an action with no icon keeps its label, and the
+count and the clear button stay. Narrower than its icons too, the actions go, the last first, into the menu of a
+More button before the clear button (`more_label`, "More actions"), and the text ends in an ellipsis only once
+every action is in the menu. A bar that is only built keeps its labels and cuts its text.
 
 ## Floating Panel
 
