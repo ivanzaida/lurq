@@ -627,7 +627,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/transfer",
     name: "Transfer",
-    icon: Some("replace"),
+    icon: Some("arrow-left-right"),
     about: "transfer dual list shuttle two lists move left right source target available selected chosen checkbox check all select all range shift features columns members new controlled on_change checked checked_controlled on_checked_change source_title target_title count_text select_all_label add_label remove_label empty_text label disabled density style rules mount virtual long narrow stacked",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<transfer::TransferPage>(()),
@@ -1462,7 +1462,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/qr-code",
     name: "QR Code",
-    icon: Some("grid"),
+    icon: Some("qr-code"),
     about: "qr code qrcode barcode scan camera phone pair link address ticket wifi level error correction low medium quartile high quiet zone length module logo media label text QrCode QrLevel QrMatrix",
     group: Group::Media,
     mount: |ctx| ctx.mount::<qr_code::QrCodePage>(()),
@@ -1470,7 +1470,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/watermark",
     name: "Watermark",
-    icon: Some("layers"),
+    icon: Some("stamp"),
     about: "watermark stamp confidential draft internal shared screen mark repeated pattern faint turned angle rotate gap offset stagger opacity media picture logo over content tooling Watermark Repeat",
     group: Group::Media,
     mount: |ctx| ctx.mount::<watermark::WatermarkPage>(()),
