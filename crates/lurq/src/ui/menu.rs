@@ -1026,6 +1026,21 @@ impl MenuItem {
 
   /// Called when the item is chosen, after its menu closed: a handler that opens a dialog keeps the focus the
   /// dialog takes. A second handler is called after the first.
+  /// What it says.
+  pub(crate) fn label_of(&self) -> &Arc<str> {
+    &self.label
+  }
+
+  /// Whether it destroys something.
+  pub(crate) fn is_destructive(&self) -> bool {
+    self.destructive
+  }
+
+  /// What choosing it does: an action sheet shows a menu's items as its options.
+  pub(crate) fn select_handlers(&self) -> Vec<Arc<dyn Fn() + Send + Sync>> {
+    self.on_select.clone()
+  }
+
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_select.push(Arc::new(handler));
     self

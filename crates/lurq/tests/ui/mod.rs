@@ -2,6 +2,7 @@
 
 mod accordion;
 mod action_bar;
+mod action_sheet;
 mod ai_label;
 mod alert;
 mod audio_player;

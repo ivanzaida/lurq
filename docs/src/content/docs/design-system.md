@@ -7507,6 +7507,7 @@ Picture::from_resource("images/lake.jpg")
 | `on_click(handler)` | A press of the picture as a whole |
 | `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
 | `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
+| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's where the theme is at `Density::Touch`, an app for a finger, unless told |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
@@ -7687,6 +7688,41 @@ Carousel::new(cards)
   called by its label, the dots a `tablist` of `tab`s.
 - A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
   what turns them) and `view.dots()`.
+
+## Action Sheet
+
+On a phone, the actions on something, risen from the bottom of the screen over a scrim, and Cancel under them.
+
+```rust
+use lurq::ui::{ActionSheet, MenuItem};
+
+// open: Signal<bool>. An option does what it does and closes the sheet.
+ActionSheet::new(open.clone(), [
+  MenuItem::new("Save to library").on_select(save),
+  MenuItem::new("Duplicate").on_select(duplicate),
+  MenuItem::new("Delete photo").destructive(true).on_select(delete),
+])
+.title("Photo options");
+```
+
+| Builder | |
+| --- | --- |
+| `new(open, items)`, `item(MenuItem)` | Open while the signal says so, with its options: what an item says, whether it destroys something or is disabled, and what choosing it does. An icon, a shortcut and a submenu of an item are not shown |
+| `title(&str)` | What the sheet is about, over its options |
+| `cancel_label(&str)` | What Cancel says: "Cancel" |
+| `on_dismiss(Fn())` | Told when it is closed with no option: Cancel, a press on the scrim, Escape |
+| `inline(bool)` | The sheet where it is declared, open or not, without the scrim: for a gallery, a screenshot, a test |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Its options are `<id>-option-<n>`, Cancel `<id>-cancel` |
+
+- It rises from the bottom as the scrim fades in, and goes down as it fades out. It takes the focus as it opens and
+  gives it back as it closes; the arrow keys move among the options, and Enter and Space choose.
+- Parts: `ActionSheetPart::Scrim`, `Root`, `Options`, `Title`, `Option`, `Label`, `Cancel`, `CancelLabel`. States:
+  `ActionSheetState::Destructive`, `Disabled`.
+- In the design the options are a card in `Card` with a line of `Border` and the large corners, 8 in from the
+  screen's sides and bottom: the title 13 in `MutedForeground`, 12 over and under; options of 56 with a line over
+  each and their words 17 in the middle, in `Foreground` or `Destructive`; Cancel 8 under them, a card of its own,
+  17 semibold. The scrim is `Scrim`.
+- To what reads the tree it is a `dialog` called by its title, its options and Cancel `button`s.
 
 ## Tab And The Design System's Controls
 
