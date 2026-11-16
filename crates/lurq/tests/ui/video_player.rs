@@ -1338,3 +1338,137 @@ fn in_picture_in_picture_it_says_so_where_it_stood_and_a_button_brings_it_back()
   let mut still_one = still(move || player(&told).picture_in_picture_controlled(true, |_| {}));
   assert!(has(&mut still_one, "v-play"));
 }
+
+/// Whether two measures are the same to half a pixel.
+fn near(one: f32, other: f32) -> bool {
+  (one - other).abs() <= 0.5
+}
+
+/// The touch form of [`player`], as wide as the board's phone.
+fn touch(told: &Told) -> VideoPlayer {
+  player(told).width(360.0).touch(true)
+}
+
+#[test]
+fn the_touch_form_is_the_boards() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || touch(&made));
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 360.0, 203.0));
+  // The top row: the captions and the settings, 44 each, 4 from the end. Nothing leaves it: the app does not listen.
+  assert_eq!(stage.bounds("v-settings"), (312.0, 0.0, 44.0, 44.0));
+  assert_eq!(stage.bounds("v-captions"), (268.0, 0.0, 44.0, 44.0));
+  assert!(!has(&mut stage, "v-back"));
+  // The middle: a play of 56 with ten seconds back and on, 44, 32 from it.
+  let (disc, rewind, forward) = (
+    stage.bounds("v-play"),
+    stage.bounds("v-rewind"),
+    stage.bounds("v-forward"),
+  );
+  assert_eq!((disc.2, disc.3), (56.0, 56.0));
+  assert!(
+    near(disc.0 + 28.0, 180.0) && near(disc.1 + 28.0, 101.5),
+    "in the middle: {disc:?}"
+  );
+  assert_eq!((rewind.2, rewind.3, forward.2, forward.3), (44.0, 44.0, 44.0, 44.0));
+  assert!(near(rewind.0 + 44.0 + 32.0, disc.0) && near(disc.0 + 56.0 + 32.0, forward.0));
+  // The bottom: the time 16 from the start, fullscreen 44 at the end, and the seek bar 16 from the sides, 6 up.
+  assert_eq!(stage.bounds("v-fullscreen").2, 44.0);
+  assert!(near(stage.bounds("v-fullscreen").0, 312.0));
+  let seek = stage.bounds("v-seek");
+  assert!(
+    near(seek.0, 16.0) && near(seek.2, 328.0) && near(seek.1 + seek.3 + 6.0, 203.0),
+    "{seek:?}"
+  );
+  assert!(!has(&mut stage, "v-mute"), "a phone has keys for the volume");
+  // What they tell.
+  told.take();
+  stage.click("v-rewind");
+  stage.click("v-forward");
+  stage.click("v-play");
+  assert_eq!(
+    told.take(),
+    [
+      "position 74",
+      "position end 74",
+      "position 94",
+      "position end 94",
+      "playing true"
+    ]
+  );
+}
+
+#[test]
+fn a_tap_shows_and_hides_the_touch_forms_controls_and_two_on_a_side_seek() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || touch(&made));
+  told.take();
+  // A tap on the picture, in its middle third and over no control: the controls go, and come back with the next.
+  press_at(&mut stage, 180.0, 60.0);
+  assert!(!has(&mut stage, "v-play") && !has(&mut stage, "v-settings") && !has(&mut stage, "v-seek"));
+  press_at(&mut stage, 180.0, 60.0);
+  assert!(has(&mut stage, "v-play") && has(&mut stage, "v-settings"));
+  assert!(told.take().is_empty(), "a tap in the middle tells nothing");
+  // Two on the right third: ten seconds on, the mark, and no control.
+  press_at(&mut stage, 330.0, 60.0);
+  press_at(&mut stage, 330.0, 60.0);
+  assert_eq!(told.take(), ["position 94", "position end 94"]);
+  assert!(stage.paints("10 seconds"));
+  assert!(!has(&mut stage, "v-play"), "nothing but the mark shows");
+  // A third adds up.
+  press_at(&mut stage, 330.0, 60.0);
+  assert!(stage.paints("20 seconds"));
+  told.take();
+  // The other side starts again.
+  press_at(&mut stage, 30.0, 60.0);
+  press_at(&mut stage, 30.0, 60.0);
+  assert_eq!(told.take(), ["position 74", "position end 74"]);
+  assert!(stage.paints("10 seconds") && !stage.paints("20 seconds"));
+}
+
+#[test]
+fn on_its_side_the_touch_form_has_its_title_its_speed_and_a_way_back() {
+  use lurq::ui::VideoFullscreen;
+  let told = Told::default();
+  let made = told.clone();
+  let side = move |made: &Told| {
+    touch(made)
+      .width(780.0)
+      .aspect(780.0 / 360.0)
+      .title("Night Drive")
+      .description("Aurora Lane")
+      .fullscreen_controlled(true, {
+        let say = made.say();
+        move |to| say(format!("fullscreen {to}"))
+      })
+      .fullscreen_fills(VideoFullscreen::App)
+  };
+  let mut stage = mounted({
+    let side = side.clone();
+    move || side(&made)
+  });
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 780.0, 360.0));
+  assert!(stage.paints("Night Drive") && stage.paints("Aurora Lane"));
+  // 44 at each side for the notch.
+  assert!(near(stage.bounds("v-back").0, 44.0));
+  assert!(near(stage.bounds("v-settings").0 + 44.0, 780.0 - 44.0));
+  let (disc, rewind) = (stage.bounds("v-play"), stage.bounds("v-rewind"));
+  assert_eq!((disc.2, rewind.2), (72.0, 48.0));
+  assert!(near(rewind.0 + 48.0 + 56.0, disc.0));
+  assert!(has(&mut stage, "v-speed"), "the speed is in its bottom row");
+  let seek = stage.bounds("v-seek");
+  assert!(near(seek.0, 56.0) && near(seek.2, 780.0 - 112.0));
+  // The way back leaves fullscreen where the app does not listen for it.
+  told.take();
+  stage.click("v-back");
+  assert!(told.take().iter().any(|what| what == "fullscreen false"));
+  let heard = told.clone();
+  let mut own = mounted(move || {
+    let say = heard.say();
+    side(&heard).on_back(move || say("back".to_owned()))
+  });
+  told.take();
+  own.click("v-back");
+  assert_eq!(told.take(), ["back"]);
+}

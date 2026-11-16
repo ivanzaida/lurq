@@ -58,6 +58,12 @@ pub const VIDEO_PLAYER_ASPECT: f32 = 16.0 / 9.0;
 /// How wide the window of a player in picture in picture is; it is as high as the picture's aspect makes it.
 pub const VIDEO_PLAYER_PICTURE_WIDTH: u32 = 400;
 
+/// How far a double tap on a side of the touch form seeks, in seconds, and each tap after it.
+pub const VIDEO_PLAYER_TAP_SEEKS: f64 = 10.0;
+
+/// How long the mark of a double tap stays after the last tap.
+pub const VIDEO_PLAYER_MARK_STAYS: Duration = Duration::from_millis(800);
+
 /// How soon a second press of the picture asks for fullscreen.
 pub const VIDEO_PLAYER_DOUBLE_PRESS: Duration = Duration::from_millis(500);
 
@@ -125,6 +131,40 @@ pub enum VideoPlayerPart {
   MoreMenu,
   /// The value at the end of a row of a menu of the player: "1080p", "Normal".
   MenuValue,
+  /// The touch form: the dark layer over the whole picture while its controls show.
+  Scrim,
+  /// The touch form: the row at the top, of what leaves the player, its title, the captions and the settings.
+  Top,
+  /// The touch form: the column of the title and the line under it, in the top row of the landscape one.
+  Heading,
+  /// The touch form: the line under the title.
+  Line,
+  /// The touch form: a round button of the top and the bottom rows.
+  Touch,
+  /// The touch form: the glyph of such a button.
+  TouchIcon,
+  /// The touch form: the row in the middle, of ten seconds back, play, and ten seconds on.
+  Transport,
+  /// The touch form: a button of ten seconds back or on.
+  Skip,
+  /// The touch form: the glyph of such a button.
+  SkipIcon,
+  /// The touch form: the disc of play in the middle.
+  Disc,
+  /// The touch form: the glyph of the disc.
+  DiscIcon,
+  /// The touch form: the row at the bottom, of the time and of fullscreen.
+  Foot,
+  /// The touch form: the speed in the bottom row of the landscape one, a pill of text: "1×".
+  Pill,
+  /// The touch form: the room of the seek bar under the bottom row.
+  Rail,
+  /// The touch form: the mark of a double tap, an ellipse that comes in from the side tapped, half of it.
+  Mark,
+  /// The touch form: the glyph of the mark.
+  MarkIcon,
+  /// The touch form: the words of the mark, "10 seconds".
+  MarkText,
 }
 
 names!(VideoPlayerPart {
@@ -155,6 +195,23 @@ names!(VideoPlayerPart {
   SettingsMenu => "settings_menu",
   MoreMenu => "more_menu",
   MenuValue => "menu_value",
+  Scrim => "scrim",
+  Top => "top",
+  Heading => "heading",
+  Line => "line",
+  Touch => "touch",
+  TouchIcon => "touch_icon",
+  Transport => "transport",
+  Skip => "skip",
+  SkipIcon => "skip_icon",
+  Disc => "disc",
+  DiscIcon => "disc_icon",
+  Foot => "foot",
+  Pill => "pill",
+  Rail => "rail",
+  Mark => "mark",
+  MarkIcon => "mark_icon",
+  MarkText => "mark_text",
 });
 
 /// The states of a video player a recipe styles.
@@ -187,6 +244,10 @@ pub enum VideoPlayerState {
   /// A button of the bar that is on: the captions while they show, the button of a menu while it is open. Resolved
   /// for those buttons alone.
   On,
+  /// It is the touch form: larger controls over a scrim, shown and hidden by a tap.
+  Touch,
+  /// The touch form as wide as a phone on its side: in fullscreen.
+  Landscape,
 }
 
 names!(VideoPlayerState {
@@ -203,6 +264,8 @@ names!(VideoPlayerState {
   Hidden => "hidden",
   Narrow => "narrow",
   On => "on",
+  Touch => "touch",
+  Landscape => "landscape",
 });
 
 /// The forms of a video player, by the room it has.
@@ -324,6 +387,11 @@ struct Words {
   exit_fullscreen: Arc<str>,
   more: Arc<str>,
   retry: Arc<str>,
+  rewind: Arc<str>,
+  forward: Arc<str>,
+  seconds: Arc<str>,
+  minimize: Arc<str>,
+  leave: Arc<str>,
   auto: Arc<str>,
   on: Arc<str>,
   off: Arc<str>,
@@ -354,6 +422,11 @@ impl Default for Words {
       exit_fullscreen: word("Exit fullscreen"),
       more: word("More"),
       retry: word("Try again"),
+      rewind: word("Back 10 seconds"),
+      forward: word("Forward 10 seconds"),
+      seconds: word("seconds"),
+      minimize: word("Minimize"),
+      leave: word("Back"),
       auto: word("Auto"),
       on: word("On"),
       off: word("Off"),
@@ -428,6 +501,10 @@ pub struct VideoPlayer {
   error: Option<Arc<str>>,
   error_description: Option<Arc<str>>,
   on_retry: Vec<Action>,
+  touch: bool,
+  title: Option<Arc<str>>,
+  description: Option<Arc<str>>,
+  on_back: Vec<Action>,
   volume: Held<f64>,
   on_volume_change_end: Vec<Handler<f64>>,
   muted: Held<bool>,
@@ -522,6 +599,10 @@ impl VideoPlayer {
       error: None,
       error_description: None,
       on_retry: Vec::new(),
+      touch: false,
+      title: None,
+      description: None,
+      on_back: Vec::new(),
       volume: Held::new(1.0),
       on_volume_change_end: Vec::new(),
       muted: Held::new(false),
@@ -844,6 +925,35 @@ impl VideoPlayer {
     self
   }
 
+  /// The touch form, for a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play
+  /// in the middle, the time and fullscreen over the seek bar at the bottom, and no volume (a phone has keys for
+  /// it). A tap on the picture shows the controls and hides them; two on its left or its right third seek ten
+  /// seconds, and more of them add up. In fullscreen it is the form for a phone on its side, with its
+  /// [`title`](Self::title) at the top and its speed at the bottom.
+  pub fn touch(mut self, touch: bool) -> Self {
+    self.touch = touch;
+    self
+  }
+
+  /// What plays, said at the top of the touch form on its side.
+  pub fn title(mut self, title: &str) -> Self {
+    self.title = (!title.is_empty()).then(|| Arc::from(title));
+    self
+  }
+
+  /// The line under the [`title`](Self::title).
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = (!description.is_empty()).then(|| Arc::from(description));
+    self
+  }
+
+  /// The touch form: called by the first button of the top row, which is drawn upright where a handler is given
+  /// (to make the player small) and always on its side (to go back, which leaves fullscreen where there is none).
+  pub fn on_back(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_back.push(Arc::new(handler));
+    self
+  }
+
   /// Which form it is drawn in, a [`VideoPlayerSize`], in place of the one its width gives it.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = Some(size.into());
@@ -915,6 +1025,11 @@ impl VideoPlayer {
     exit_fullscreen_label => exit_fullscreen, "The name of the fullscreen button while it fills the screen.";
     more_label => more, "The name of the compact player's menu button.";
     retry_label => retry, "The words of the error's button: \"Try again\".";
+    rewind_label => rewind, "The touch form: the name of the button of ten seconds back.";
+    forward_label => forward, "The touch form: the name of the button of ten seconds on.";
+    seconds_text => seconds, "The touch form: the word after the count in the mark of a double tap, \"seconds\".";
+    minimize_label => minimize, "The touch form: the name of the first button of the top row, upright.";
+    leave_label => leave, "The touch form: the name of the first button of the top row, on its side.";
     auto_text => auto, "The quality the player picks: \"Auto\".";
     on_text => on, "The captions on, where their track has no name: \"On\".";
     off_text => off, "The captions off: \"Off\".";
@@ -1008,6 +1123,12 @@ struct Live {
   page: Signal<Option<usize>>,
   /// When the picture was last pressed: a second press soon after asks for fullscreen.
   pressed: Arc<Mutex<Option<Instant>>>,
+  /// The touch form: when the picture was last tapped, and on which third of it (-1 the left, 1 the right).
+  tapped: Arc<Mutex<Option<(Instant, i8)>>>,
+  /// The touch form: the mark of a double tap, forward or back and how many seconds so far.
+  mark: Signal<Option<(bool, u32)>>,
+  /// What takes the mark away a while after the last tap.
+  unmark: Option<Timeout>,
   /// Whether the pointer moved over the player lately.
   shown: Signal<bool>,
   /// What fades the controls out after the pointer rests.
@@ -1031,8 +1152,10 @@ struct Live {
   screen: Arc<AtomicBool>,
   /// How large it was laid out where it stands, before it filled its window: the room it keeps there.
   rested: Arc<Mutex<(f32, f32)>>,
-  /// Its window, which fullscreen takes to the whole screen.
-  window: Option<crate::app::window::WindowHandle>,
+  /// The window it took to the whole screen, to give back. It is the window the player is rendered in when it
+  /// goes there: the window a component is created under is not always its own (the root of a second window is
+  /// mounted before that window is).
+  window: Arc<Mutex<Option<crate::app::window::WindowHandle>>>,
   /// What its small window is given, while it plays in picture in picture.
   picture: Option<Picture>,
   /// What tells the small window, after a render, that the player changed.
@@ -1089,6 +1212,9 @@ impl Live {
       menus: [Signal::new(false), Signal::new(false), Signal::new(false)],
       page: Signal::new(None),
       pressed: Arc::default(),
+      tapped: Arc::default(),
+      mark: Signal::new(None),
+      unmark: None,
       shown: Signal::new(true),
       hide: None,
       show: None,
@@ -1100,7 +1226,7 @@ impl Live {
       filling: Arc::default(),
       screen: Arc::default(),
       rested: Arc::default(),
-      window: None,
+      window: Arc::default(),
       picture: None,
       told: None,
       opener: None,
@@ -1169,6 +1295,11 @@ impl Component for VideoPlayerHost {
       let changed = picture.changed.clone();
       move || changed.update(|count| *count += 1)
     });
+    let mark = ctx.signal(None);
+    let unmark = ctx.create_timeout(VIDEO_PLAYER_MARK_STAYS, {
+      let mark = mark.clone();
+      move || mark.set(None)
+    });
     let live = Live {
       root: ElementRef::new(),
       row: ElementRef::new(),
@@ -1176,6 +1307,9 @@ impl Component for VideoPlayerHost {
       menus: [ctx.signal(false), ctx.signal(false), ctx.signal(false)],
       page: ctx.signal(None),
       pressed: Arc::default(),
+      tapped: Arc::default(),
+      mark,
+      unmark: Some(unmark),
       shown,
       hide: Some(hide),
       show: Some(show),
@@ -1187,7 +1321,7 @@ impl Component for VideoPlayerHost {
       filling: Arc::default(),
       screen: Arc::default(),
       rested: Arc::default(),
-      window: Some(ctx.window()),
+      window: Arc::default(),
       picture: Some(picture),
       told: Some(told),
       opener: Some(ctx.window_opener()),
@@ -1220,10 +1354,16 @@ impl Component for VideoPlayerHost {
 
   /// A player taken away while it fills the screen gives the window back.
   fn on_unmounted(&self) {
-    if self.live.screen.swap(false, Ordering::Relaxed)
-      && let Some(window) = &self.live.window
-    {
-      window.set_full_screen(false);
+    if self.live.screen.swap(false, Ordering::Relaxed) {
+      let taken = self
+        .live
+        .window
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+      if let Some(window) = taken {
+        window.set_full_screen(false);
+      }
     }
     // And its small window closes with it.
     if let Some(picture) = &self.live.picture
@@ -1241,10 +1381,11 @@ impl Component for VideoPlayerHost {
     let fills = player.fullscreen.value && player.fullscreen_fills != VideoFullscreen::App;
     live.filling.store(fills, Ordering::Relaxed);
     let screen = fills && player.fullscreen_fills == VideoFullscreen::Screen;
-    if live.screen.swap(screen, Ordering::Relaxed) != screen
-      && let Some(window) = &live.window
-    {
+    if live.mounted && live.screen.swap(screen, Ordering::Relaxed) != screen {
+      // The window it is rendered in now, asked for only when it changes.
+      let window = ctx.window();
       window.set_full_screen(screen);
+      *live.window.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = screen.then_some(window);
     }
     let follows = !fills && player.height.is_none() && (player.width.is_some() || player.max_width.is_some());
     live.follows.store(follows, Ordering::Relaxed);
@@ -1268,7 +1409,11 @@ impl Component for VideoPlayerHost {
       if let Some(hide) = &live.hide {
         hide.cancel();
       }
-      if !shown && let Some(show) = &live.show {
+      // The touch form's controls are the finger's to hide while it is paused too.
+      if !shown
+        && !player.touch
+        && let Some(show) = &live.show
+      {
         show.start();
       }
     }
@@ -1411,15 +1556,7 @@ struct PictureWindow;
 impl Component for PictureWindow {
   type Props = PictureProps;
 
-  fn create(ctx: &mut Ctx) -> Self {
-    // Closed by the system, it asks the app to leave picture in picture as its button does.
-    let picture = ctx.props::<PictureProps>().0.clone();
-    ctx.window().on_close_requested(move |request| {
-      if let Some(player) = picture.held() {
-        (player.picture_in_picture.teller())(false);
-      }
-      request.proceed();
-    });
+  fn create(_: &mut Ctx) -> Self {
     Self
   }
 
@@ -1428,6 +1565,17 @@ impl Component for PictureWindow {
     // Rendered again each time the player is.
     picture.changed.get();
     let window = ctx.window();
+    // Closed by the system, it asks the app to leave picture in picture as its button does. Said at each render,
+    // of the window it is rendered in: the root of a second window is created before that window is its own.
+    window.on_close_requested({
+      let picture = picture.clone();
+      move |request| {
+        if let Some(player) = picture.held() {
+          (player.picture_in_picture.teller())(false);
+        }
+        request.proceed();
+      }
+    });
     let black = Color::new(0, 0, 0, 255);
     let Some(mut player) = picture.held() else {
       // It left picture in picture, or was taken away.
@@ -1510,10 +1658,12 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
   let poster = player.shows_poster();
   let menu_open = player.force_menu.is_some() || live.menus.iter().any(|open| open.get());
   let resting = player.playing.value && !player.waiting && !player.ended && player.error.is_none();
-  let shown = player
-    .force_controls_shown
-    .unwrap_or_else(|| !resting || live.shown.get() || menu_open || (live.mounted && live.root.focus_visible_within()));
+  let shown = player.force_controls_shown.unwrap_or_else(|| {
+    // A tap shows and hides the touch form's controls whether it plays or not.
+    (!resting && !player.touch) || live.shown.get() || menu_open || (live.mounted && live.root.focus_visible_within())
+  });
   let has_bar = player.controls && player.error.is_none() && !poster;
+  let landscape = player.touch && player.fullscreen.value;
   let case = Case {
     variant: None,
     size: Some(form.into()),
@@ -1531,7 +1681,9 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
   .state(VideoPlayerState::Fullscreen, player.fullscreen.value)
   .state(VideoPlayerState::Poster, poster)
   .state(VideoPlayerState::Bare, !player.controls)
-  .state(VideoPlayerState::Hidden, has_bar && !shown)
+  .state(VideoPlayerState::Hidden, has_bar && !shown && !player.touch)
+  .state(VideoPlayerState::Touch, player.touch)
+  .state(VideoPlayerState::Landscape, landscape)
   .state(VideoPlayerState::Narrow, narrow);
   let recipe = theme.resolve::<VideoPlayer>(&case, Some(&player.rules));
   let on_recipe = theme.resolve::<VideoPlayer>(&case.clone().state(VideoPlayerState::On, true), Some(&player.rules));
@@ -1543,8 +1695,13 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     ctx,
     form,
   };
-  let bar = has_bar.then(|| make.bar(narrow));
-  let center = player.controls.then(|| make.center()).flatten();
+  let touch = (player.touch && player.controls).then(|| make.touch(landscape));
+  let bar = (has_bar && !player.touch).then(|| make.bar(narrow));
+  // The touch form has its transport in the middle: only the error and the spinner stand there.
+  let center = (player.controls && (!player.touch || player.error.is_some() || player.waiting))
+    .then(|| make.center())
+    .flatten();
+  let tap = (player.touch && player.controls && player.error.is_none()).then(|| make.tap());
   let retry = make.retry();
   let root_keys: Arc<dyn Fn(KeyboardEvent) + Send + Sync> = Arc::new(make.keys());
   VideoPlayerView {
@@ -1582,10 +1739,13 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     center,
     retry,
     keys: root_keys,
+    touch,
+    tap,
     toggle: make.toggle(),
     pressed: live.pressed.clone(),
     fullscreen: make.fullscreen_toggle(),
-    poke: live.mounted.then(|| Arc::new(live.poke()) as Action),
+    // A finger does not hover: the touch form's controls are shown by a tap, not by the pointer moving.
+    poke: (live.mounted && !player.touch).then(|| Arc::new(live.poke()) as Action),
     root: live.root.clone(),
     // A menu drawn open by force hangs from its anchor in the still form too: a picture of it, not dragged.
     mounted: live.mounted || player.force_menu.is_some(),
@@ -1603,6 +1763,34 @@ struct Make<'a, 'c> {
   live: &'a Live,
   ctx: Option<&'c mut Ctx>,
   form: VideoPlayerSize,
+}
+
+/// The controls of the touch form, made: a renderer lays them out.
+pub struct VideoPlayerTouch {
+  /// Whether it is the form for a phone on its side: in fullscreen.
+  pub landscape: bool,
+  /// The first button of the top row, which leaves the player: none upright where the app does not listen.
+  pub lead: Option<Element>,
+  /// The title and its line, on its side.
+  pub heading: Option<Element>,
+  /// The buttons at the end of the top row: the captions and the settings.
+  pub tools: Vec<Element>,
+  /// The middle: ten seconds back, play, ten seconds on. None while it waits or failed.
+  pub transport: Option<Element>,
+  /// The time, or the live badge.
+  pub time: Element,
+  /// The buttons at the end of the bottom row: the speed (on its side) and fullscreen.
+  pub foot: Vec<Element>,
+  /// The seek bar.
+  pub seek: Element,
+  /// The menus, which take no room.
+  pub menus: Vec<Element>,
+  /// The mark of a double tap, while it stays.
+  pub mark: Option<Element>,
+  /// The top row, which the settings hang from.
+  pub top: ElementRef,
+  /// The bottom row, which the speeds hang from.
+  pub row: ElementRef,
 }
 
 /// The controls of a player's bar, made: a renderer lays them out.
@@ -1789,6 +1977,10 @@ impl Make<'_, '_> {
     if let Some(id) = self.id("seek") {
       bar = bar.id(id);
     }
+    // A finger's: 28 high, the thumb 16.
+    if player.touch {
+      bar = bar.size(super::SeekBarSize::Lg);
+    }
     // Mounted, the bar shows the time and the frame under the pointer.
     match self.ctx.as_deref_mut() {
       Some(ctx) => bar.mount(ctx),
@@ -1809,7 +2001,7 @@ impl Make<'_, '_> {
         time = time.id(id);
       }
       time.build(self.recipe.theme())
-    } else if self.form == VideoPlayerSize::Sm {
+    } else if self.form == VideoPlayerSize::Sm && !player.touch {
       let elapsed = self.part(VideoPlayerPart::Elapsed);
       let hours = player.duration.is_some_and(|duration| duration >= 3600.0);
       Row::new()
@@ -1818,11 +2010,12 @@ impl Make<'_, '_> {
         .into()
     } else {
       let remaining = self.live.remaining.clone();
-      // Mono 12 in the large bar, 11 in the compact one.
-      let size = if self.form == VideoPlayerSize::Md {
-        MediaTimeSize::Sm
-      } else {
-        MediaTimeSize::Md
+      // Mono 12 in the large bar, 11 in the compact one; the touch form's is 12, and 13 on its side.
+      let size = match (player.touch, player.fullscreen.value, self.form) {
+        (true, true, _) => MediaTimeSize::Lg,
+        (true, false, _) => MediaTimeSize::Md,
+        (false, _, VideoPlayerSize::Md) => MediaTimeSize::Sm,
+        (false, ..) => MediaTimeSize::Md,
       };
       let mut time = MediaTime::new(player.position.value, player.duration)
         .remaining(remaining.get())
@@ -1948,7 +2141,12 @@ impl Make<'_, '_> {
       VideoPlayerMenu::Speed => "speed-menu",
       VideoPlayerMenu::More => "more-menu",
     };
-    let anchor = self.live.row.clone();
+    // The touch form's settings are at its top, and open under it.
+    let (anchor, placement) = if self.player.touch {
+      (self.live.buttons.clone(), Placement::BottomEnd)
+    } else {
+      (self.live.row.clone(), Placement::TopEnd)
+    };
     let shell = if self.player.force_menu == Some(menu) {
       Menu::controlled(true, anchor, |_| {})
     } else {
@@ -1961,7 +2159,7 @@ impl Make<'_, '_> {
     };
     shell
       .label(label)
-      .placement(Placement::TopEnd)
+      .placement(placement)
       .offset(above)
       .page(self.live.page.clone())
       .rules(&self.recipe.rules_for(panel, MenuPart::Panel))
@@ -2131,6 +2329,302 @@ impl Make<'_, '_> {
       .menu_shell(VideoPlayerMenu::More, VideoPlayerPart::MoreMenu, &player.words.more)
       .items(items)
       .build(self.recipe.theme())
+  }
+
+  /// A round button of the touch form: its glyph and its name, on where `on` is.
+  fn touch_button(
+    &mut self,
+    suffix: &str,
+    (button, glyph_of): (VideoPlayerPart, VideoPlayerPart),
+    icon: &'static str,
+    label: &str,
+    on: bool,
+    press: Action,
+  ) -> Element {
+    let recipe = if on { self.on_recipe } else { self.recipe };
+    let part = recipe.part(button).forced(self.player.forced);
+    let mut made = pressable(&part, false)
+      .describe("a11y_role", "button")
+      .describe("a11y_name", Arc::<str>::from(label))
+      .child(glyph(&recipe.part(glyph_of), Name::new(icon), false))
+      .on_click(move |_| press());
+    if let Some(id) = self.id(suffix) {
+      made = made.id(id);
+    }
+    made.into()
+  }
+
+  /// The controls of the touch form.
+  fn touch(&mut self, landscape: bool) -> VideoPlayerTouch {
+    use VideoPlayerPart::{Disc, DiscIcon, Skip, SkipIcon, Touch, TouchIcon};
+    let player = self.player;
+    let seek = self.seek();
+    let time = self.time();
+    let poke = self.live.mounted.then(|| self.live.poke());
+    // What leaves the player: the app's, or out of fullscreen where it is on its side and the app says nothing.
+    let lead = (landscape || !player.on_back.is_empty()).then(|| {
+      let (handlers, exit) = (player.on_back.clone(), self.fullscreen_toggle());
+      let press: Action = Arc::new(move || {
+        if handlers.is_empty() {
+          exit();
+        }
+        for handler in &handlers {
+          handler();
+        }
+      });
+      let (icon, label) = if landscape {
+        (icons::CHEVRON_LEFT, player.words.leave.clone())
+      } else {
+        (icons::CHEVRON_DOWN, player.words.minimize.clone())
+      };
+      self.touch_button("back", (Touch, TouchIcon), icon, &label, false, press)
+    });
+    let heading = (landscape && player.title.is_some()).then(|| {
+      let (title, line) = (self.part(VideoPlayerPart::Title), self.part(VideoPlayerPart::Line));
+      let mut words = Column::new().part(&self.part(VideoPlayerPart::Heading));
+      if let Some(said) = &player.title {
+        words = words.child(title.text(said).nowrap().part(&title));
+      }
+      if let Some(said) = &player.description {
+        words = words.child(line.text(said).nowrap().part(&line));
+      }
+      words.into()
+    });
+    let captions_on = player.captions.value;
+    let press = self.pressed(player.captions.teller(), !captions_on);
+    let captions = self.touch_button(
+      "captions",
+      (Touch, TouchIcon),
+      icons::CAPTIONS,
+      &player.words.captions,
+      captions_on,
+      press,
+    );
+    let settings = {
+      let open = self.live.menu(VideoPlayerMenu::Settings).clone();
+      let is_open = player.force_menu == Some(VideoPlayerMenu::Settings) || open.get();
+      let poke = poke.clone();
+      let press: Action = Arc::new(move || {
+        open.update(|open| *open = !*open);
+        if let Some(poke) = &poke {
+          poke();
+        }
+      });
+      self.touch_button(
+        "settings",
+        (Touch, TouchIcon),
+        icons::SETTINGS,
+        &player.words.settings,
+        is_open,
+        press,
+      )
+    };
+    let mut menus = vec![self.settings_menu()];
+    // The middle: none while it waits or failed, where the spinner or the error stands.
+    let transport = (player.error.is_none() && !player.waiting).then(|| {
+      let seekable = !player.live || player.duration.is_some();
+      let step = |by: f64| -> Action {
+        let (seek, position, poke) = (self.seeker(), player.position.value, poke.clone());
+        Arc::new(move || {
+          if seekable {
+            seek(position + by);
+          }
+          if let Some(poke) = &poke {
+            poke();
+          }
+        })
+      };
+      let (back, on) = (step(-VIDEO_PLAYER_TAP_SEEKS), step(VIDEO_PLAYER_TAP_SEEKS));
+      let rewind = self.touch_button(
+        "rewind",
+        (Skip, SkipIcon),
+        icons::REWIND_10,
+        &player.words.rewind,
+        false,
+        back,
+      );
+      let forward = self.touch_button(
+        "forward",
+        (Skip, SkipIcon),
+        icons::FORWARD_10,
+        &player.words.forward,
+        false,
+        on,
+      );
+      let (icon, label) = if player.ended {
+        (icons::ROTATE_LEFT, player.words.replay.clone())
+      } else if player.playing.value {
+        (icons::PAUSE, player.words.pause.clone())
+      } else {
+        (icons::PLAY, player.words.play.clone())
+      };
+      let press = self.toggle();
+      let disc = self.touch_button("play", (Disc, DiscIcon), icon, &label, false, press);
+      Row::new()
+        .part(&self.part(VideoPlayerPart::Transport))
+        .align_items(Alignment::Center)
+        .child(rewind)
+        .child(disc)
+        .child(forward)
+        .into()
+    });
+    let mut foot = Vec::new();
+    if landscape && !player.live {
+      let open = self.live.menu(VideoPlayerMenu::Speed).clone();
+      let is_open = player.force_menu == Some(VideoPlayerMenu::Speed) || open.get();
+      let recipe = if is_open { self.on_recipe } else { self.recipe };
+      let part = recipe.part(VideoPlayerPart::Pill).forced(player.forced);
+      let poke = poke.clone();
+      let mut pill = pressable(&part, false)
+        .describe("a11y_role", "button")
+        .describe("a11y_name", player.words.speed.clone())
+        .child(part.text(&format!("{}×", player.rate.value)).nowrap())
+        .on_click(move |_| {
+          open.update(|open| *open = !*open);
+          if let Some(poke) = &poke {
+            poke();
+          }
+        });
+      if let Some(id) = self.id("speed") {
+        pill = pill.id(id);
+      }
+      foot.push(pill.into());
+      menus.push(self.speed_menu());
+    }
+    let full = player.fullscreen.value;
+    let (icon, label) = if full {
+      (icons::FULLSCREEN_EXIT, player.words.exit_fullscreen.clone())
+    } else {
+      (icons::FULLSCREEN, player.words.fullscreen.clone())
+    };
+    let press = self.fullscreen_toggle();
+    foot.push(self.touch_button("fullscreen", (Touch, TouchIcon), icon, &label, false, press));
+    VideoPlayerTouch {
+      landscape,
+      lead,
+      heading,
+      tools: vec![captions, settings],
+      transport,
+      time,
+      foot,
+      seek,
+      menus,
+      mark: self.mark(),
+      top: self.live.buttons.clone(),
+      row: self.live.row.clone(),
+    }
+  }
+
+  /// The mark of a double tap: half an ellipse that comes in from the side tapped, with the glyph of ten seconds
+  /// and how many it has gone so far.
+  fn mark(&self) -> Option<Element> {
+    let (forward, seconds) = self.live.mark.get()?;
+    let (mark, text) = (self.part(VideoPlayerPart::Mark), self.part(VideoPlayerPart::MarkText));
+    let wide = match mark.rest().width.and_then(|width| width.resolve(self.recipe.theme())) {
+      Some(Dimension::Px(px)) => px,
+      _ => 288.0,
+    };
+    let said = Column::new()
+      .width(wide / 2.0)
+      .height(Dimension::Pct(100.0))
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .spacing(mark.rest().gap.unwrap_or_default())
+      .child(glyph(
+        &self.part(VideoPlayerPart::MarkIcon),
+        Name::new(if forward { icons::FORWARD_10 } else { icons::REWIND_10 }),
+        false,
+      ))
+      .child(
+        text
+          .text(&format!("{seconds} {}", self.player.words.seconds))
+          .nowrap()
+          .part(&text),
+      );
+    let blank = Row::new().width(wide / 2.0);
+    // The half of the ellipse that is in the picture holds what it says; the other is past the picture's edge.
+    let halves: [Element; 2] = if forward {
+      [said.into(), blank.into()]
+    } else {
+      [blank.into(), said.into()]
+    };
+    let ellipse = Row::new()
+      .part(&mark)
+      .height(Dimension::Pct(100.0))
+      .flex_shrink(0.0)
+      .with_children(halves)
+      .offset(if forward { wide / 2.0 } else { -wide / 2.0 }, 0.0);
+    Some(
+      Row::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .justify(if forward { Justify::End } else { Justify::Start })
+        .pointer_events_none()
+        .describe("a11y_hidden", "true")
+        .child(ellipse)
+        .into(),
+    )
+  }
+
+  /// What a tap on the picture of the touch form does, given where across the window it was: it shows the
+  /// controls or hides them; a second one soon after on the same side third seeks ten seconds that way and hides
+  /// them, and each one after it ten more.
+  fn tap(&self) -> Arc<dyn Fn(f32) + Send + Sync> {
+    let player = self.player;
+    let (shown, hide) = (self.live.shown.clone(), self.live.hide.clone());
+    let (mark, unmark, tapped) = (
+      self.live.mark.clone(),
+      self.live.unmark.clone(),
+      self.live.tapped.clone(),
+    );
+    let (root, mounted) = (self.live.root.clone(), self.live.mounted);
+    let (seek, position) = (self.seeker(), player.position.value);
+    let seekable = !player.live || player.duration.is_some();
+    Arc::new(move |x: f32| {
+      let side: i8 = match (mounted, root.width()) {
+        (true, width) if width > 0.0 => match (x - root.x()) / width {
+          at if at < 1.0 / 3.0 => -1,
+          at if at > 2.0 / 3.0 => 1,
+          _ => 0,
+        },
+        _ => 0,
+      };
+      let now = Instant::now();
+      let again = {
+        let mut last = tapped.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let again = matches!(*last, Some((then, was)) if side != 0 && was == side
+          && now.duration_since(then) <= VIDEO_PLAYER_DOUBLE_PRESS);
+        *last = Some((now, side));
+        again
+      };
+      if again && seekable {
+        let forward = side > 0;
+        let so_far = match mark.get_untracked() {
+          Some((was, seconds)) if was == forward => seconds,
+          _ => 0,
+        };
+        mark.set(Some((forward, so_far + VIDEO_PLAYER_TAP_SEEKS as u32)));
+        if let Some(unmark) = &unmark {
+          unmark.restart();
+        }
+        seek(position + f64::from(side) * VIDEO_PLAYER_TAP_SEEKS);
+        // Nothing but the mark shows.
+        if shown.get_untracked() {
+          shown.set(false);
+        }
+        if let Some(hide) = &hide {
+          hide.cancel();
+        }
+        return;
+      }
+      if shown.get_untracked() {
+        shown.set(false);
+        if let Some(hide) = &hide {
+          hide.cancel();
+        }
+      } else {
+        shown.set(true);
+      }
+    })
   }
 
   /// The controls of the bar, made for the form.
@@ -2459,6 +2953,10 @@ pub struct VideoPlayerView {
   /// The style of each part.
   pub recipe: ResolvedRecipe,
   keys: Arc<dyn Fn(KeyboardEvent) + Send + Sync>,
+  /// The touch form's controls, where it is drawn.
+  pub touch: Option<VideoPlayerTouch>,
+  /// What a tap on the picture of the touch form does, given where across the window it was.
+  tap: Option<Arc<dyn Fn(f32) + Send + Sync>>,
   toggle: Action,
   fullscreen: Action,
   pressed: Arc<Mutex<Option<Instant>>>,
@@ -2553,7 +3051,10 @@ impl VideoPlayerView {
     if let Some(poster) = &self.poster {
       layer = layer.child(Self::layer().child(poster.clone()));
     }
-    if self.controls && self.error.is_none() {
+    if let Some(tap) = self.tap.clone() {
+      // The touch form: a tap shows and hides the controls, and two on a side seek.
+      layer = layer.on_click(move |event: MouseEvent| tap(event.x));
+    } else if self.controls && self.error.is_none() {
       // A press plays and pauses at once; a second one soon after asks for fullscreen too, as the engine's double
       // press would only after holding the first press back for its while.
       let (toggle, fullscreen, pressed) = (self.toggle.clone(), self.fullscreen.clone(), self.pressed.clone());
@@ -2728,9 +3229,105 @@ impl VideoPlayerView {
     )
   }
 
+  /// How the default renderer builds the touch form: the picture, the scrim while its controls show, the app's
+  /// layer, the mark of a double tap, the error or the spinner, and its controls: the top row, the transport in
+  /// the middle, and at the bottom the captions, the row of the time and the seek bar under it.
+  fn render_touch(&self, touch: &VideoPlayerTouch) -> Element {
+    let shown = self.bar_shown && self.error.is_none();
+    let mut root = self.root().child(self.media());
+    if let Some(veil) = self.veil() {
+      root = root.child(veil);
+    }
+    if shown {
+      root = root.child(
+        Self::layer()
+          .part(&self.part(VideoPlayerPart::Scrim))
+          .pointer_events_none(),
+      );
+    }
+    root = root.child(self.overlay());
+    if let Some(mark) = &touch.mark {
+      root = root.child(mark.clone());
+    }
+    if let Some(center) = self.center() {
+      root = root.child(center);
+    }
+    if shown && let Some(transport) = &touch.transport {
+      root = root.child(
+        Column::new()
+          .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+          .align_items(Alignment::Center)
+          .justify(Justify::Center)
+          .hit_test(HitTestBehavior::ContentOnly)
+          .child(transport.clone()),
+      );
+    }
+    let mut edges = Column::new()
+      .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+      .justify(Justify::SpaceBetween)
+      .align_items(Alignment::Stretch)
+      .overflow_visible()
+      .hit_test(HitTestBehavior::ContentOnly);
+    let mut bottom = Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .overflow_visible();
+    if let Some(captions) = self.captions() {
+      bottom = bottom.child(captions);
+    }
+    if shown {
+      let mut top = Row::new()
+        .part(&self.part(VideoPlayerPart::Top))
+        .width(Dimension::Pct(100.0))
+        .align_items(Alignment::Center)
+        .overflow_visible();
+      if self.mounted {
+        top = top.ref_element(touch.top.clone());
+      }
+      if let Some(lead) = &touch.lead {
+        top = top.child(lead.clone());
+      }
+      top = top.child(match &touch.heading {
+        Some(heading) => Row::new().flex(1.0).min_width(0.0).clip().child(heading.clone()),
+        None => Row::new().flex(1.0),
+      });
+      top = top.with_children(touch.tools.iter().cloned());
+      let mut foot = Row::new()
+        .part(&self.part(VideoPlayerPart::Foot))
+        .width(Dimension::Pct(100.0))
+        .align_items(Alignment::Center)
+        .overflow_visible();
+      if self.mounted {
+        foot = foot.ref_element(touch.row.clone());
+      }
+      foot = foot
+        .child(touch.time.clone())
+        .child(Row::new().flex(1.0))
+        .with_children(touch.foot.iter().cloned());
+      let rail = Row::new()
+        .part(&self.part(VideoPlayerPart::Rail))
+        .width(Dimension::Pct(100.0))
+        .overflow_visible()
+        .child(touch.seek.clone());
+      let mut controls = bottom.child(foot).child(rail);
+      if let Some(id) = self.id("controls") {
+        controls = controls.id(id);
+      }
+      edges = edges.child(top).child(controls);
+    } else {
+      edges = edges.child(Row::new()).child(bottom);
+    }
+    root
+      .child(edges.with_children(touch.menus.iter().filter(|_| shown).cloned()))
+      .into()
+  }
+
   /// How the default renderer builds a player: the picture, the veil, the app's layer, the middle, and at the
   /// bottom the captions, the poster's length and the bar.
   pub fn render(self) -> Element {
+    if let Some(touch) = &self.touch {
+      return self.render_touch(touch);
+    }
     let mut root = self.root().child(self.media());
     if let Some(veil) = self.veil() {
       root = root.child(veil);
@@ -2805,6 +3402,95 @@ impl Themed for VideoPlayer {
       .state(VideoPlayerState::Hidden, Root, |s| s.cursor(CursorIcon::None))
       .state(VideoPlayerState::Hidden, Media, |s| s.cursor(CursorIcon::None))
       .base(Veil, |s| s.background(black_60))
+      // The touch form (Mobile/Video Player `Md4tS`, Landscape `HFTze`): no radius; a scrim of black at 40% while
+      // its controls show; a top row of 44 padded 4 with round buttons of 44 and glyphs of 24; in the middle ten
+      // seconds back and on, 44 with glyphs of 28, beside a play of 56 with a glyph of 32 on black at 40%, 32
+      // apart; a bottom row of 44 padded 16 and 4, and the seek bar 16 from the sides and 6 from the bottom. On
+      // its side: 44 at each side for the notch, the top row 8 down with a title of 16/600 and a line of 13 at
+      // 60%, the transport 56 apart with 48, 32, 72 and 36, the bottom row padded 56 and 44 with the speed in a
+      // pill of 44, 15/500, and the seek bar 56 from the sides.
+      .state(VideoPlayerState::Touch, Root, |s| s.radius(0.0))
+      .base(Scrim, |s| s.background(Color::new(0, 0, 0, 0x66)))
+      .base(Top, |s| s.height(44.0).padding_x(4.0))
+      .state(VideoPlayerState::Landscape, Top, |s| s.height(52.0).padding_top(8.0).padding_x(44.0).gap(4.0))
+      .base(Heading, |s| s.padding_x(8.0))
+      .state(VideoPlayerState::Landscape, Title, |s| s.font_size(16.0).weight(FontWeight::SemiBold))
+      .base(Line, |s| {
+        s.typography(TypographyStyle::Body).font_size(13.0).foreground(white_60)
+      })
+      .base(Touch, |s| {
+        fading(
+          s.square(44.0)
+            .radius(RadiusSize::Full)
+            .foreground(white)
+            .cursor(CursorIcon::Pointer),
+        )
+      })
+      .hovered(Touch, |s| s.background(white_12))
+      .pressed(Touch, |s| s.background(white_20))
+      .focus_visible(Touch, ring)
+      .state(VideoPlayerState::On, Touch, |s| s.background(white_20))
+      .base(TouchIcon, |s| s.square(24.0))
+      .base(Transport, |s| s.gap(32.0))
+      .state(VideoPlayerState::Landscape, Transport, |s| s.gap(56.0))
+      .base(Skip, |s| {
+        fading(
+          s.square(44.0)
+            .radius(RadiusSize::Full)
+            .foreground(white)
+            .cursor(CursorIcon::Pointer),
+        )
+      })
+      .state(VideoPlayerState::Landscape, Skip, |s| s.square(48.0))
+      .hovered(Skip, |s| s.background(white_12))
+      .pressed(Skip, |s| s.background(white_20))
+      .focus_visible(Skip, ring)
+      .base(SkipIcon, |s| s.square(28.0))
+      .state(VideoPlayerState::Landscape, SkipIcon, |s| s.square(32.0))
+      .base(Disc, |s| {
+        fading(
+          s.square(56.0)
+            .radius(RadiusSize::Full)
+            .background(Color::new(0, 0, 0, 0x66))
+            .foreground(white)
+            .cursor(CursorIcon::Pointer),
+        )
+      })
+      .state(VideoPlayerState::Landscape, Disc, |s| s.square(72.0))
+      .hovered(Disc, |s| s.background(black_60))
+      .pressed(Disc, |s| s.background(black_70))
+      .focus_visible(Disc, ring)
+      .base(DiscIcon, |s| s.square(32.0))
+      .state(VideoPlayerState::Landscape, DiscIcon, |s| s.square(36.0))
+      .base(Foot, |s| s.height(44.0).padding_start(16.0).padding_end(4.0))
+      .state(VideoPlayerState::Landscape, Foot, |s| s.padding_start(56.0).padding_end(44.0).gap(4.0))
+      .base(Pill, |s| {
+        fading(
+          s.height(44.0)
+            .min_width(44.0)
+            .padding_x(12.0)
+            .radius(RadiusSize::Full)
+            .foreground(white)
+            .typography(TypographyStyle::Body)
+            .font_size(15.0)
+            .weight(FontWeight::Medium)
+            .cursor(CursorIcon::Pointer),
+        )
+      })
+      .hovered(Pill, |s| s.background(white_12))
+      .pressed(Pill, |s| s.background(white_20))
+      .focus_visible(Pill, ring)
+      .state(VideoPlayerState::On, Pill, |s| s.background(white_20))
+      .base(Rail, |s| s.padding_x(16.0).padding_bottom(6.0))
+      .state(VideoPlayerState::Landscape, Rail, |s| s.padding_x(56.0).padding_bottom(12.0))
+      .base(Mark, |s| s.width(288.0).radius(RadiusSize::Full).background(white_20).gap(4.0))
+      .base(MarkIcon, |s| s.square(28.0).foreground(white))
+      .base(MarkText, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(13.0)
+          .weight(FontWeight::Medium)
+          .foreground(white)
+      })
       .base(Center, |s| s.gap(8.0))
       .base(Spinner, |s| s.square(32.0).foreground(white))
       .base(Error, |s| s.gap(12.0).padding_x(24.0).max_width(360.0))

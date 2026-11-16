@@ -120,6 +120,8 @@ enum Scene {
   Large,
   Compact,
   Minimal,
+  Touch,
+  TouchSide,
 }
 
 #[cfg(feature = "devtools")]
@@ -183,7 +185,7 @@ impl Component for Demo {
       rate,
       captions: ctx.signal(scene == Scene::Captions),
       quality: ctx.signal(None),
-      fullscreen: ctx.signal(scene == Scene::Fullscreen),
+      fullscreen: ctx.signal(matches!(scene, Scene::Fullscreen | Scene::TouchSide)),
       picture_in_picture: ctx.signal(false),
       ended: ctx.signal(scene == Scene::Ended),
       error,
@@ -197,6 +199,9 @@ impl Component for Demo {
       Scene::Large => (640.0, None),
       Scene::Compact => (320.0, Some(VideoPlayerSize::Md)),
       Scene::Minimal => (200.0, Some(VideoPlayerSize::Sm)),
+      // The board's phone, upright and on its side.
+      Scene::Touch => (360.0, None),
+      Scene::TouchSide => (780.0, None),
       _ => (432.0, None),
     };
     let position = f64::from(self.position.get());
@@ -231,8 +236,17 @@ impl Component for Demo {
     if scene == Scene::Idle {
       player = player.poster(poster());
     }
+    if matches!(scene, Scene::Touch | Scene::TouchSide) {
+      player = player
+        .touch(true)
+        .title("Night Drive")
+        .description("Aurora Lane · Low Tide");
+    }
+    if scene == Scene::TouchSide {
+      player = player.aspect(780.0 / 360.0);
+    }
     // The state is drawn where it stands: a player that filled the window would leave nothing of the page.
-    if scene == Scene::Fullscreen {
+    if matches!(scene, Scene::Fullscreen | Scene::TouchSide) {
       player = player.fullscreen_fills(VideoFullscreen::App);
     }
     if self.error.get() {
@@ -281,6 +295,10 @@ pub struct VideoPlayerPage {
   quality: Signal<Option<usize>>,
   fullscreen: Signal<bool>,
   picture_in_picture: Signal<bool>,
+  /// Whether the player in the playground's own window fills that window, and whether it is in picture in
+  /// picture: they are of a window, and a press in one window is not a press in the other.
+  window_fullscreen: Signal<bool>,
+  window_picture: Signal<bool>,
   waiting: Signal<bool>,
   ended: Signal<bool>,
   live: Signal<bool>,
@@ -342,7 +360,14 @@ impl VideoPlayerPage {
       );
       let buffered = LENGTH.min(200.0);
       let (was_ended, failed) = (self.ended.clone(), self.error.clone());
-      move || {
+      let own = (self.window_fullscreen.clone(), self.window_picture.clone());
+      // `window`: for the playground's own window, whose fullscreen and picture in picture are its own.
+      move |window: bool| {
+        let (fullscreen, pip) = if window {
+          (own.0.clone(), own.1.clone())
+        } else {
+          (fullscreen.clone(), pip.clone())
+        };
         let mut player = VideoPlayer::new()
           .media(picture())
           .width(width)
@@ -429,7 +454,7 @@ impl VideoPlayerPage {
           say("on_picture_in_picture_change"),
           say("on_retry"),
         );
-        let mut player = make();
+        let mut player = make(false);
         // The stage scrolls to what is wider than it, so it has no width to be a share of: the room is told.
         if room > 0.0 {
           player = player.max_width(room);
@@ -569,13 +594,13 @@ impl VideoPlayerPage {
     controls_list.extend(flags);
     self.playground.window_shows({
       let make = make.clone();
-      move |ctx| make().mount(ctx)
+      move |ctx| make(true).mount(ctx)
     });
     self.playground.card(
       ctx,
       Spec {
         title: "VideoPlayer",
-        make: Arc::new(move || -> Element { make().build(&lurq::ui::current_theme()) }),
+        make: Arc::new(move || -> Element { make(false).build(&lurq::ui::current_theme()) }),
         shown: Shown::built(shown),
         fill: false,
         forceable: true,
@@ -776,6 +801,8 @@ impl Component for VideoPlayerPage {
       quality: ctx.signal(None),
       fullscreen: ctx.signal(false),
       picture_in_picture: ctx.signal(false),
+      window_fullscreen: ctx.signal(false),
+      window_picture: ctx.signal(false),
       waiting,
       ended,
       live: ctx.signal(false),
@@ -838,6 +865,27 @@ impl Component for VideoPlayerPage {
       }
       sizes.into()
     };
+    // The touch form on its side is as wide as a phone on its side: where the stage is narrower it scrolls.
+    let upright = ctx.mount::<Demo>(Scene::Touch);
+    let side = ctx.mount::<Demo>(Scene::TouchSide);
+    let touch = Column::new()
+      .width(FILL)
+      .spacing(28.0)
+      .overflow_visible()
+      .child(item(
+        upright,
+        "upright · a tap shows and hides the controls, two on a side seek 10 s",
+      ))
+      .child(
+        Column::new()
+          .width(FILL)
+          .spacing(9.0)
+          .child(fit("touch-side", room, 780.0, side))
+          .child(quiet(
+            "on its side, as in fullscreen · the title, the speed, 44 at each side for the notch",
+            12.0,
+          )),
+      );
     let bare = items().child(item(
       state().controls(false).mount(ctx),
       "the picture alone, as in a feed",
@@ -923,6 +971,19 @@ impl Component for VideoPlayerPage {
         "&str",
         "",
         "The line to show now, and the track's name the settings say.",
+      ),
+      (
+        "touch",
+        "bool",
+        "false",
+        "The touch form: larger controls over a scrim, shown and hidden by a tap, two taps on a side seeking ten \
+         seconds. On its side while in fullscreen.",
+      ),
+      (
+        "title / description / on_back",
+        "&str / &str / impl Fn()",
+        "",
+        "The touch form: what plays, said at its top on its side, and what its first button calls.",
       ),
       (
         "picture_in_picture_window",
@@ -1082,6 +1143,25 @@ impl Component for VideoPlayerPage {
               "VideoPlayer::new().media(frame).width(640.0).height(360.0)",
               "VideoPlayer::new().media(frame).width(320.0).height(180.0)",
               "VideoPlayer::new().media(frame).width(200.0).height(113.0)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Touch",
+          "For a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play, the time \
+           and fullscreen over a seek bar with a thumb of 16, and no volume. In fullscreen it is the form for a \
+           phone on its side. An app chooses it with touch(true).",
+          self.frame.demo(
+            4,
+            touch,
+            ".touch(true)",
+            &[
+              "VideoPlayer::new()",
+              "    .media(frame)",
+              "    .touch(true)",
+              "    .title(\"Night Drive\")",
+              "    .description(\"Aurora Lane · Low Tide\")",
+              "    .on_back(|| minimize())",
             ],
           ),
         ),

@@ -519,8 +519,9 @@ pub use tree_view::{
 };
 pub use video_player::{
   VIDEO_PLAYER_COMPACT_BELOW, VIDEO_PLAYER_HIDE_AFTER, VIDEO_PLAYER_MINIMAL_BELOW, VIDEO_PLAYER_SEEK_STEP,
-  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoPlayer, VideoPlayerBar, VideoPlayerMenu,
-  VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoFullscreen, VideoPlayerView,
+  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoFullscreen, VideoPlayer, VideoPlayerBar,
+  VideoPlayerMenu, VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerTouch,
+  VideoPlayerView,
 };
 pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{
