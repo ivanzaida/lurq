@@ -52,6 +52,17 @@ pub struct Stage {
   now: Instant,
   /// Where [`presses_at`](Self::presses_at) counts the time of presses from.
   press_start: Instant,
+  /// Whether the timers started on the stage count from its clock too ([`Stage::own_timers`]).
+  timers: bool,
+}
+
+/// A stage that had its timers on its own clock gives the thread's back to the wall clock.
+impl Drop for Stage {
+  fn drop(&mut self) {
+    if self.timers {
+      self.tree.set_timer_clock(None);
+    }
+  }
 }
 
 impl Stage {
@@ -81,6 +92,7 @@ impl Stage {
       tree,
       now: Instant::now(),
       press_start: Instant::now(),
+      timers: false,
     };
     stage.pass();
     stage
@@ -108,6 +120,7 @@ impl Stage {
       tree,
       now: Instant::now(),
       press_start: Instant::now(),
+      timers: false,
     };
     stage.frame();
     stage
@@ -144,9 +157,33 @@ impl Stage {
       .collect()
   }
 
+  /// Puts the timers started from now on (a `Timeout`, an `Interval`) on the stage's clock: each counts its
+  /// delay from the clock of the frame before it started, and [`tick_timers`](Self::tick_timers) fires those
+  /// that have run out by a moment of that clock. Which of two timers has run out then does not depend on how
+  /// long the machine took between them: for a test that ticks one timer and not another.
+  #[allow(dead_code)]
+  pub fn own_timers(&mut self) {
+    self.timers = true;
+    self.tree.set_timer_clock(Some(self.now));
+  }
+
+  /// Fires the timers that have run out `later` after the stage's clock: see [`own_timers`](Self::own_timers).
+  #[allow(dead_code)]
+  pub fn tick_timers(&mut self, later: Duration) {
+    self.tree.tick_timers_at(self.now + later);
+  }
+
+  /// The clock of a frame, which the timers started after it count from where they are the stage's.
+  fn clock(&mut self, now: Instant) {
+    self.tree.set_animation_clock(Some(now));
+    if self.timers {
+      self.tree.set_timer_clock(Some(now));
+    }
+  }
+
   /// Renders, lays out and paints one frame, a sixtieth of a second after the last.
   pub fn frame(&mut self) {
-    self.tree.set_animation_clock(Some(self.now));
+    self.clock(self.now);
     self.tree.request_redraw();
     self.tree.pass(&mut self.app, &TestSurface);
     self.now += Duration::from_millis(16);
@@ -157,7 +194,7 @@ impl Stage {
   /// run to its end.
   pub fn pass(&mut self) {
     for _ in 0..2 {
-      self.tree.set_animation_clock(Some(self.now));
+      self.clock(self.now);
       self.tree.request_redraw();
       self.tree.pass(&mut self.app, &TestSurface);
       self.now += Duration::from_secs(1);
@@ -295,7 +332,7 @@ impl Stage {
 
   /// Paints once more, `later` after the last pass: for what moves on its own.
   pub fn pass_after(&mut self, later: Duration) {
-    self.tree.set_animation_clock(Some(self.now + later));
+    self.clock(self.now + later);
     self.tree.request_redraw();
     self.tree.pass(&mut self.app, &TestSurface);
   }

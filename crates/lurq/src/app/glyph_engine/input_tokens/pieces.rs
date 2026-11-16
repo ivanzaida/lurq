@@ -10,7 +10,7 @@ use std::{
 
 use cosmic_text::LineIter;
 
-use super::{DecoratedInputLayout, GlyphEngine, InputConfig, TokenStyle};
+use super::{DecoratedInputLayout, GlyphEngine, InputConfig, ParagraphFormat, ParagraphMark, TokenStyle};
 
 /// At most this many paragraphs, and this many bytes of them, are kept.
 const MAX_PARAGRAPHS: usize = 2048;
@@ -83,25 +83,140 @@ impl GlyphEngine {
       paragraphs.push((source.len()..source.len(), cosmic_text::LineEnding::None));
     }
     let mut first_style = 0;
-    for (range, ending) in paragraphs {
+    let formatted = !output.config.paragraphs.is_empty();
+    // The fill and the bar of the run of paragraphs being laid out, which a paragraph that continues it grows,
+    // and every fill, to be made as wide as the input once that is known.
+    let (mut run_fill, mut run_bar) = (None::<usize>, None::<usize>);
+    let mut fills = Vec::new();
+    for (index, (range, ending)) in paragraphs.into_iter().enumerate() {
       let styles = &output.config.styles;
       while first_style < styles.len() && styles[first_style].range.end <= range.start {
         first_style += 1;
       }
       let local = local_styles(&styles[first_style..], range.clone());
+      let format = output.config.paragraphs.get(index).cloned();
+      let indent = format.as_ref().map_or(0.0, |format| format.indent.max(0.0));
       let config = InputConfig {
         source: source[range.clone()].into(),
-        base: output.config.base.clone(),
+        base: format
+          .as_ref()
+          .map_or_else(|| output.config.base.clone(), |format| format.base.clone()),
         styles: local,
-        width: output.config.width,
+        width: (output.config.width - indent).max(0.0),
         min_width: 0.0,
         wrap: true,
+        paragraphs: Vec::new(),
+        exact_rows: format.is_some(),
       };
       let piece = self.paragraph_piece(config);
-      output.append_piece(&piece, range.start);
+      let gap = format
+        .as_ref()
+        .filter(|_| index > 0)
+        .map_or(0.0, |format| format.gap_before.max(0.0));
+      output.size.height += gap;
+      let (top, first_row) = (output.size.height, output.rows_len());
+      if let Some(format) = &format {
+        if !format.continues {
+          (run_fill, run_bar) = (None, None);
+        }
+        // Under what the paragraph itself draws: its marks' fills and lines come after these.
+        let part = |x: f32, width: f32, color, radius| super::InputFragment {
+          x,
+          y: top,
+          width,
+          height: 0.0,
+          color,
+          radius,
+          token: None,
+          row: first_row,
+        };
+        match format.fill {
+          Some((color, radius)) if run_fill.is_none() => {
+            run_fill = Some(output.fragments.len());
+            fills.push(output.fragments.len());
+            output.fragments.push(part(-indent, 0.0, color, radius));
+          }
+          Some(_) => {}
+          None => run_fill = None,
+        }
+        match format.marker {
+          ParagraphMark::Bar { width, color } if run_bar.is_none() => {
+            run_bar = Some(output.fragments.len());
+            output.fragments.push(part(-indent, width, color, 0.0));
+          }
+          ParagraphMark::Bar { .. } => {}
+          _ => run_bar = None,
+        }
+      }
+      output.append_piece(&piece, range.start, indent);
+      for grown in [run_fill, run_bar].into_iter().flatten() {
+        output.fragments[grown].height = output.size.height - output.fragments[grown].y;
+      }
+      if let Some(format) = &format {
+        self.append_marker(output, format, first_row);
+      }
       let ending = ending.as_str().len();
       if ending > 0 {
         output.append_ending(range.end..range.end + ending);
+      }
+    }
+    if formatted {
+      // The rows an input counts its height in are of its own type, whatever its headings are.
+      let base = &output.config.base;
+      output.line_height = (base.font_size * base.line_height).max(1.0);
+      let width = output.size.width.max(output.config.min_width).min(output.config.width);
+      for fill in fills {
+        output.fragments[fill].width = width;
+      }
+    }
+  }
+
+  /// Draws what stands before the text of a paragraph whose first row is the row `first_row`: a dot as a fill, a
+  /// number as glyphs. They are placed from the start of the paragraph's text, which the alignment then moves
+  /// with the row.
+  fn append_marker(&mut self, output: &mut DecoratedInputLayout, format: &ParagraphFormat, first_row: usize) {
+    let Some((row_y, row_height)) = output.row_box(first_row) else {
+      return;
+    };
+    match &format.marker {
+      ParagraphMark::None | ParagraphMark::Bar { .. } => {}
+      ParagraphMark::Dot { size, gap, color } => {
+        output.fragments.push(super::InputFragment {
+          x: -(gap + size),
+          y: row_y + (row_height - size) * 0.5,
+          width: *size,
+          height: *size,
+          color: *color,
+          radius: size * 0.5,
+          token: None,
+          row: first_row,
+        });
+      }
+      ParagraphMark::Text { text, gap, color } => {
+        let mut base = format.base.clone();
+        base.color = *color;
+        let piece = self.paragraph_piece(InputConfig {
+          source: text.clone(),
+          base,
+          styles: Vec::new(),
+          width: f32::MAX,
+          min_width: 0.0,
+          wrap: true,
+          paragraphs: Vec::new(),
+          exact_rows: true,
+        });
+        let start = -(gap + piece.size.width);
+        output.glyphs.extend(piece.glyphs.iter().map(|glyph| {
+          let mut layout = glyph.glyph.clone();
+          layout.x += start;
+          super::InputGlyph {
+            glyph: layout,
+            baseline: glyph.baseline + row_y,
+            row: first_row,
+            color: glyph.color,
+            shadow: glyph.shadow,
+          }
+        }));
       }
     }
   }
@@ -120,9 +235,18 @@ impl GlyphEngine {
 }
 
 impl DecoratedInputLayout {
+  fn rows_len(&self) -> usize {
+    self.rows.len()
+  }
+
+  /// The top and the height of a row.
+  fn row_box(&self, row: usize) -> Option<(f32, f32)> {
+    self.rows.get(row).map(|row| (row.y, row.height))
+  }
+
   /// Places a paragraph laid out on its own below the rows so far, its
-  /// source starting at byte `offset`.
-  fn append_piece(&mut self, piece: &Self, offset: usize) {
+  /// source starting at byte `offset`, its rows kept `indent` from the start.
+  fn append_piece(&mut self, piece: &Self, offset: usize, indent: f32) {
     let (top, first_row) = (self.size.height, self.rows.len());
     self.glyphs.extend(piece.glyphs.iter().map(|glyph| {
       let mut layout = glyph.glyph.clone();
@@ -160,9 +284,10 @@ impl DecoratedInputLayout {
       range: row.range.start + offset..row.range.end + offset,
       ending: None,
       y: row.y + top,
+      indent,
       ..*row
     }));
-    self.size.width = self.size.width.max(piece.size.width);
+    self.size.width = self.size.width.max(piece.size.width + indent);
     self.size.height += piece.size.height;
     self.line_height = self.line_height.max(piece.line_height);
   }

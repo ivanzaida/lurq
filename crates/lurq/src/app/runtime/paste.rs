@@ -42,6 +42,11 @@ pub trait ClipboardReader: Send + Sync {
   fn read_text(&self) -> Option<String>;
   /// Everything the clipboard holds, for a paste a handler looks at.
   fn read(&self) -> Option<ClipboardContent>;
+  /// The Markdown a styled input copied beside `text`, where the clipboard still holds that text: what
+  /// [`ClipboardWriter::write_rich`] was given with it. `None` where the clipboard keeps none.
+  fn read_markdown(&self, _text: &str) -> Option<String> {
+    None
+  }
 }
 
 /// Where a copy writes: the OS clipboard (with the `clipboard` feature), or
@@ -49,6 +54,61 @@ pub trait ClipboardReader: Send + Sync {
 pub trait ClipboardWriter: Send + Sync {
   /// Puts `text` on the clipboard: whether it was written.
   fn write_text(&self, text: &str) -> bool;
+  /// Puts `text` on the clipboard with its Markdown beside it, as a styled input with
+  /// [`rich_clipboard`](crate::components::TextInput::rich_clipboard) copies: whether it was written. A clipboard
+  /// that keeps no second form writes the text alone.
+  fn write_rich(&self, text: &str, _markdown: &str) -> bool {
+    self.write_text(text)
+  }
+}
+
+/// What lurq copied last with its Markdown beside it. The OS clipboard holds one text, so a copy of formatted text
+/// gives it the Markdown, which another app or another lurq process reads as it is; this process keeps the plain
+/// text and the Markdown beside it, so that while the clipboard still holds what was written a plain input of the
+/// app pastes the plain text and a styled one the Markdown.
+#[cfg(feature = "clipboard")]
+#[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+struct CopiedRich {
+  /// The selection's text, as a plain input pastes it.
+  plain: String,
+  /// The selection with its marks and the kinds of its paragraphs.
+  markdown: String,
+  /// What the OS clipboard was given: the Markdown where the selection has formatting, else the plain text.
+  written: String,
+}
+
+#[cfg(feature = "clipboard")]
+static COPIED_RICH: parking_lot::Mutex<Option<CopiedRich>> = parking_lot::Mutex::new(None);
+
+/// A text as two clipboards hold the same lines.
+#[cfg(feature = "clipboard")]
+fn same_lines(a: &str, b: &str) -> bool {
+  a == b
+    || a.replace(
+      "
+", "
+",
+    ) == b.replace(
+      "
+", "
+",
+    )
+}
+
+/// The Markdown lurq copied beside `text`, where `text` is the plain text of what it copied last.
+#[cfg(all(feature = "clipboard", not(target_arch = "wasm32")))]
+fn copied_markdown(text: &str) -> Option<String> {
+  let copied = COPIED_RICH.lock();
+  let copied = copied.as_ref()?;
+  same_lines(&copied.plain, text).then(|| copied.markdown.clone())
+}
+
+/// What lurq copied last, where the OS clipboard still holds what it wrote: the plain text and the Markdown.
+#[cfg(feature = "clipboard")]
+pub(crate) fn copied_rich(clipboard_text: &str) -> Option<(String, String)> {
+  let copied = COPIED_RICH.lock();
+  let copied = copied.as_ref()?;
+  same_lines(&copied.written, clipboard_text).then(|| (copied.plain.clone(), copied.markdown.clone()))
 }
 
 /// The OS clipboard.
@@ -58,11 +118,21 @@ struct OsClipboard;
 #[cfg(all(feature = "clipboard", not(target_arch = "wasm32")))]
 impl ClipboardReader for OsClipboard {
   fn read_text(&self) -> Option<String> {
-    crate::clipboard::read_from_clipboard()
+    let text = crate::clipboard::read_from_clipboard()?;
+    // The Markdown this app wrote is the plain text it copied, to an input of the app.
+    Some(copied_rich(&text).map_or(text, |(plain, _)| plain))
   }
 
   fn read(&self) -> Option<ClipboardContent> {
-    crate::clipboard::read_clipboard()
+    let content = crate::clipboard::read_clipboard()?;
+    match content.text_content().and_then(copied_rich) {
+      Some((plain, _)) => Some(content.with_text(plain)),
+      None => Some(content),
+    }
+  }
+
+  fn read_markdown(&self, text: &str) -> Option<String> {
+    copied_markdown(text)
   }
 }
 
@@ -156,8 +226,54 @@ impl Tree {
   pub(super) fn write_clipboard_text(&self, text: &str) -> bool {
     match &self.clipboard_writer {
       Some(writer) => writer.write_text(text),
-      None => super::write_os_clipboard_text(text),
+      None => {
+        // What was copied with its Markdown is no longer what the clipboard holds.
+        #[cfg(feature = "clipboard")]
+        COPIED_RICH.lock().take();
+        super::write_os_clipboard_text(text)
+      }
     }
+  }
+
+  /// Writes `text` where copies go, with its Markdown beside it: whether it was written. The OS clipboard, which
+  /// holds one text, is given the Markdown where the text has formatting (marks, or a paragraph that is not body
+  /// text), so that another app or another lurq process has it; this process keeps the plain text beside it.
+  #[cfg(feature = "markdown")]
+  pub(super) fn write_clipboard_rich(&self, text: &str, markdown: &str) -> bool {
+    match &self.clipboard_writer {
+      Some(writer) => writer.write_rich(text, markdown),
+      None => {
+        let rich = crate::components::RichText::from_markdown(markdown);
+        let formatted = !rich.spans.is_empty()
+          || rich
+            .paragraphs
+            .iter()
+            .any(|kind| *kind != crate::components::ParagraphKind::Body);
+        let written = if formatted { markdown } else { text };
+        let done = super::write_os_clipboard_text(written);
+        #[cfg(feature = "clipboard")]
+        {
+          *COPIED_RICH.lock() = done.then(|| CopiedRich {
+            plain: text.to_owned(),
+            markdown: markdown.to_owned(),
+            written: written.to_owned(),
+          });
+        }
+        done
+      }
+    }
+  }
+
+  /// Writes what a text input copies or cuts: its text, and beside it the Markdown of it where the input keeps
+  /// its formatting through the clipboard.
+  pub(super) fn write_input_copy(&self, state: &crate::node::node_kind::TextInputState, text: &str) -> bool {
+    #[cfg(feature = "markdown")]
+    if let Some(markdown) = state.clipboard_markdown() {
+      return self.write_clipboard_rich(text, &markdown);
+    }
+    #[cfg(not(feature = "markdown"))]
+    let _ = state;
+    self.write_clipboard_text(text)
   }
 
   /// A copy, a cut or a paste shortcut on a focused element that is not a
@@ -215,11 +331,20 @@ impl Tree {
     };
     self.paste_content(
       |wants_everything| {
-        if wants_everything {
+        let content = if wants_everything {
           reader.read()
         } else {
           reader.read_text().map(ClipboardContent::text)
-        }
+        }?;
+        // The Markdown a styled input copied beside this text, where the clipboard keeps it.
+        let markdown = match (content.markdown_content(), content.text_content()) {
+          (None, Some(text)) => reader.read_markdown(text),
+          _ => None,
+        };
+        Some(match markdown {
+          Some(markdown) => content.with_markdown(markdown),
+          None => content,
+        })
       },
       keyboard,
     )
@@ -269,6 +394,12 @@ impl Tree {
     let Some(text) = event.text() else {
       return false;
     };
+    // An input that keeps its formatting through the clipboard takes the Markdown beside the text, or a text that
+    // reads as Markdown, with its marks and kinds.
+    #[cfg(feature = "markdown")]
+    if let Some(pasted) = state.paste_rich(text, event.markdown(), keyboard) {
+      return pasted;
+    }
     state.insert(text, keyboard)
   }
 }

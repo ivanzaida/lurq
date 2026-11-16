@@ -792,6 +792,31 @@ A missing extra name follows the palette:
 
 `Breakpoint` has no extras: `Responsive` orders overrides by the `Breakpoint` enum, not by threshold, so a named threshold could not be placed in that order.
 
+## Caret
+
+`theme.caret()` is the caret every text input draws, and the line under what an input method composes:
+
+```rust
+use lurq::app::theme::{CaretHeight, CaretMode, ThemeCaret};
+
+app.theme().set_caret(
+  ThemeCaret::default()
+    .with_mode(CaretMode::Persistent)
+    .with_width(2.0)
+    .with_height(CaretHeight::TextBand)
+    .with_composition_line(1.0),
+);
+```
+
+| | What it is | The design's theme | `legacy()` and `bare()` |
+| --- | --- | --- | --- |
+| `mode` | `CaretMode::Blinking` or `Persistent`; an input's own `caret_mode` comes first | `Blinking` | `Blinking` |
+| `width` | How wide the caret is | 1.5 | 1 |
+| `height` | `CaretHeight::FontSize(share)`, a share of the font size of the text the caret stands in, or `CaretHeight::TextBand`, the font's ascent and descent, which a selection covers too | `FontSize(18.0 / 14.0)`: 18 in type of 14 | `FontSize(1.0)` |
+| `composition_line` | How thick the line under a composition is; 0 draws none | 1.5 | 1 |
+
+The caret is centered in its line. Among the rows of a multiline input it is never higher than its row; in a single-line input it may be higher than the line, up to the box the text is in: 18 in an `Input` whose text of 14 has a line of 16.8. Its color is not the theme's caret's: it is the text's, or the input's `caret_color`. `ThemeCaret::default()` and `ThemeCaret::new(mode)` are the design's caret and `ThemeCaret::legacy()` the one lurq 0.62 drew. `theme.set_caret_mode(mode)` changes the mode alone and keeps the size the theme has.
+
 ## Scrollbar
 
 `theme.scrollbar()` is the default style for scroll components. Set it once to make scrollbars consistent across the app:

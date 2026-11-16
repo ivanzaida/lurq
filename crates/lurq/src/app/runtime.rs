@@ -108,6 +108,8 @@ mod paste;
 mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
 mod profiler_screenshot_tests;
+#[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+pub(crate) use paste::copied_rich;
 pub use paste::{ClipboardReader, ClipboardWriter};
 pub use touch::TouchMomentum;
 pub use touch_pointer::TouchRoute;
@@ -6190,13 +6192,13 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            return self.write_clipboard_text(&selected);
+            return self.write_input_copy(&state, &selected);
           }
           ("x" | "X", _) | (_, "KeyX") if shortcut => {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            if !self.write_clipboard_text(&selected) {
+            if !self.write_input_copy(&state, &selected) {
               return false;
             }
             let _ = state.cut_selection(evt);
@@ -6210,7 +6212,7 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            return self.write_clipboard_text(&selected);
+            return self.write_input_copy(&state, &selected);
           }
           ("Insert", _) | (_, "Insert") if shift => {
             if !self.paste_from_clipboard_shortcut(evt) {
@@ -6221,7 +6223,7 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            if !self.write_clipboard_text(&selected) {
+            if !self.write_input_copy(&state, &selected) {
               return false;
             }
             let _ = state.cut_selection(evt);
@@ -7485,6 +7487,15 @@ impl Tree {
   /// The clock of presses: the one [`Self::set_press_clock`] set, or the wall clock.
   fn press_now(&self) -> Instant {
     self.press_clock.unwrap_or_else(Instant::now)
+  }
+
+  /// Has every `Timeout` and `Interval` started or restarted on this thread from now on count its delay from
+  /// `now`, until set back to `None`. With [`Self::tick_timers_at`] a test then fires timers at moments counted
+  /// from its own clock: which of two timers has run out does not depend on how long the machine took between
+  /// starting them and the tick. For tests that drive time explicitly; a shell's timers run on the wall clock.
+  #[doc(hidden)]
+  pub fn set_timer_clock(&mut self, now: Option<Instant>) {
+    crate::app::ctx::set_timer_clock(now);
   }
 
   /// The runtime's clock: the one [`Self::set_animation_clock`] set, or the wall clock.

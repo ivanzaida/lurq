@@ -169,7 +169,7 @@ fn input_scroll_presentation_preedit_break_cursor_underline_cancel_and_commit() 
   let underlines: Vec<_> = snapshot
     .rects
     .iter()
-    .filter(|rect| rect.height == 1.0 && rect.width > 1.0)
+    .filter(|rect| rect.height == crate::support::composition_line() && rect.width > crate::support::composition_line())
     .collect();
   assert_eq!(underlines.len(), 1);
   assert!(underlines[0].y >= bounds.y && underlines[0].y <= bounds.y + bounds.height);

@@ -24,6 +24,7 @@ mod select {
 mod text_input {
   mod autofill;
   mod basic_layout;
+  mod caret_after_focus_moves;
   mod clipped_paint;
   mod controller;
   mod controller_focus;
@@ -34,11 +35,11 @@ mod text_input {
   mod ime;
   mod letter_spacing;
   mod line_metrics;
+  mod marks;
   mod masked_editing;
   mod mode_rerender;
   mod overflow_anchor;
   mod preserves_editing_state_across_render;
-  mod caret_after_focus_moves;
   mod renders_caret;
   mod scroll_presentation;
   mod scroll_tokens;
@@ -50,6 +51,7 @@ mod text_input {
   mod style;
   #[cfg(feature = "markdown")]
   mod styled;
+  mod theme_caret;
   mod token_chips;
   mod tokens;
   mod typing_updates_value;

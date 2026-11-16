@@ -120,6 +120,9 @@ impl ClipboardKinds {
 #[derive(Clone, Default, PartialEq)]
 pub struct ClipboardContent {
   text: Option<String>,
+  /// The Markdown a lurq input copied beside the text: the same text with its marks and the kinds of its
+  /// paragraphs.
+  markdown: Option<String>,
   image: Option<ClipboardImage>,
   files: Vec<PathBuf>,
 }
@@ -147,6 +150,14 @@ impl ClipboardContent {
     self
   }
 
+  /// The content with the Markdown of its text beside it: what a styled input with
+  /// [`rich_clipboard`](crate::components::TextInput::rich_clipboard) copies, and what one pastes with its marks
+  /// and the kinds of its paragraphs. It is beside the text, never in place of it: a plain input pastes the text.
+  pub fn with_markdown(mut self, markdown: impl Into<String>) -> Self {
+    self.markdown = Some(markdown.into());
+    self
+  }
+
   pub fn with_image(mut self, image: ClipboardImage) -> Self {
     self.image = Some(image);
     self
@@ -160,6 +171,12 @@ impl ClipboardContent {
   /// The text, if the clipboard holds some; an empty string counts as none.
   pub fn text_content(&self) -> Option<&str> {
     self.text.as_deref().filter(|text| !text.is_empty())
+  }
+
+  /// The Markdown beside the text, where a lurq input copied it with its formatting; an empty one counts as
+  /// none.
+  pub fn markdown_content(&self) -> Option<&str> {
+    self.markdown.as_deref().filter(|markdown| !markdown.is_empty())
   }
 
   pub fn image_content(&self) -> Option<&ClipboardImage> {

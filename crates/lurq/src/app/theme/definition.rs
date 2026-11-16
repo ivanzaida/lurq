@@ -150,6 +150,7 @@ impl ThemeDefinition {
       radii: ThemeRadii::legacy(),
       shadows: ThemeShadows::legacy(),
       scrollbar: legacy_scrollbar(),
+      caret: ThemeCaret::legacy(),
       ..Self::neutral()
     }
   }
@@ -161,6 +162,8 @@ impl ThemeDefinition {
   pub fn bare() -> Self {
     Self {
       ui: crate::ui::UiDefinition::bare(),
+      // What lurq draws itself is as plain as the components: the caret of 0.62.
+      caret: ThemeCaret::legacy(),
       ..Self::neutral()
     }
   }

@@ -42,6 +42,9 @@ enum Shape {
   Under,
   /// The steps down the page: the room is under what the marks and their lines need in a row.
   Down,
+  /// The board's progress of a phone: a segment for each step and a line that says where the process is. Steps
+  /// that are only read, in a room under what the titles need beside the marks.
+  Progress,
 }
 
 /// A signal's value is something DevTools can inspect: this one has nothing to show.
@@ -74,6 +77,12 @@ pub enum StepsPart {
   Connector,
   /// The line after a step, to the next: drawn up to the current step in the color of what is done.
   Line,
+  /// Of the progress form: the row of segments, one for each step.
+  Segments,
+  /// Of the progress form: the segment of a step, in the color of what is done up to the current step.
+  Segment,
+  /// Of the progress form: the line under the segments that says where the process is, "Step 2 of 4 · Billing".
+  Summary,
 }
 
 names!(StepsPart {
@@ -88,6 +97,9 @@ names!(StepsPart {
   Rail => "rail",
   Connector => "connector",
   Line => "line",
+  Segments => "segments",
+  Segment => "segment",
+  Summary => "summary",
 });
 
 /// The states of a step a recipe styles, besides what the pointer and the
@@ -114,6 +126,9 @@ pub enum StepsState {
   /// The steps run in a row with each title under its mark: mounted steps in a room too narrow for the titles
   /// beside the marks.
   Stacked,
+  /// The steps are a segment each over a line that says where the process is: mounted steps that are only read,
+  /// in a room too narrow for the titles beside the marks.
+  Progress,
 }
 
 names!(StepsState {
@@ -126,6 +141,7 @@ names!(StepsState {
   Horizontal => "horizontal",
   Vertical => "vertical",
   Stacked => "stacked",
+  Progress => "progress",
 });
 
 /// Which way the steps run: in a row, a line between each step and the
@@ -419,7 +435,8 @@ impl Steps {
     }
     .state(StepsState::Horizontal, !vertical)
     .state(StepsState::Vertical, vertical)
-    .state(StepsState::Stacked, !vertical && self.shape == Shape::Under);
+    .state(StepsState::Stacked, !vertical && self.shape == Shape::Under)
+    .state(StepsState::Progress, !vertical && self.shape == Shape::Progress);
     match step {
       // The whole is dimmed once, on its root; a step is dimmed on its own where it alone is disabled.
       None => case.state(StepsState::Disabled, self.disabled),
@@ -433,9 +450,12 @@ impl Steps {
 
   /// The steps mounted where they are declared: steps in a row read the room they have, before the frame is
   /// painted, and take the form it has room for. Where the titles have no room beside the marks, cut to a few
-  /// letters, each title is under its mark; where the marks and the lines between them have none in a row, the
-  /// steps run down the page. Steps that are only built are in a row whatever their room: their titles give way,
-  /// to nothing if they must, and their marks and lines never do.
+  /// letters, steps that are only read are the board's progress of a phone (Mobile/Step Progress): a segment for
+  /// each step, in the primary color up to the current one, over a line that says where the process is, "Step 2
+  /// of 4 · Billing". Steps a person presses keep every step to press: each title goes under its mark, and where
+  /// the marks and the lines between them have no room in a row, the steps run down the page. Steps that are
+  /// only built are in a row whatever their room: their titles give way, to nothing if they must, and their marks
+  /// and lines never do.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     match self.key.clone() {
       Some(key) => ctx.mount_keyed::<StepsHost>(&key, StepsProps { steps: self }),
@@ -479,8 +499,15 @@ impl Steps {
     )
   }
 
-  /// Builds the steps in `theme`. Converting steps into an element does this
-  /// in the theme of what is being rendered.
+  /// Whether a press or a key selects a step: the steps are operated, not only read.
+  fn operated(&self) -> bool {
+    let shown = matches!(self.current, CurrentStep::Shown(_));
+    (self.pressable || !self.on_change.is_empty()) && !self.disabled && !shown
+  }
+
+  /// Builds the steps in `theme`, in a row or a column as they were told, whatever their room: their titles give
+  /// way in a row too narrow for them, and their marks and lines never do. Converting steps into an element does
+  /// this in the theme of what is being rendered; [`mount`](Self::mount) is what measures the room.
   pub fn build(mut self, theme: &Theme) -> Element {
     // Down the page they are the steps of a column, in everything.
     if self.shape == Shape::Down {
@@ -490,8 +517,7 @@ impl Steps {
       CurrentStep::Index(index) | CurrentStep::Shown(index) => *index,
       CurrentStep::Signal(signal) => signal.get(),
     };
-    let shown = matches!(self.current, CurrentStep::Shown(_));
-    let operated = (self.pressable || !self.on_change.is_empty()) && !self.disabled && !shown;
+    let operated = self.operated();
     let select: Option<Change> = operated.then(|| {
       let handlers = self.on_change.clone();
       let signal = match &self.current {
@@ -539,6 +565,7 @@ impl Steps {
       current,
       orientation: self.orientation,
       stacked: self.orientation == Orientation::Horizontal && self.shape == Shape::Under,
+      progress: self.orientation == Orientation::Horizontal && self.shape == Shape::Progress,
       disabled: self.disabled,
       label: self.label,
       forced: self.forced,
@@ -587,8 +614,9 @@ impl crate::app::component::DevtoolsInspectable for StepsProps {}
 struct StepsHost {
   anchor: ElementRef,
   shape: Signal<Shape>,
-  /// What the steps need of width for each of their two forms in a row, as they were last built.
-  needs: Arc<Mutex<(f32, f32)>>,
+  /// What the steps need of width for each of their two forms in a row, as they were last built, and whether
+  /// a person presses them.
+  needs: Arc<Mutex<(f32, f32, bool)>>,
 }
 
 impl Component for StepsHost {
@@ -596,13 +624,16 @@ impl Component for StepsHost {
 
   fn create(ctx: &mut Ctx) -> Self {
     let (anchor, shape) = (ElementRef::new(), ctx.signal(Shape::default()));
-    let needs = Arc::new(Mutex::new((0.0, 0.0)));
+    let needs = Arc::new(Mutex::new((0.0, 0.0, false)));
     // Written only where the room crosses what a form needs: a panel dragged within one form renders nothing.
     let (watch, needed) = (shape.clone(), needs.clone());
     anchor.observe_rect_before_paint(move |rect| {
-      let (beside, under) = *needed.lock();
+      let (beside, under, operated) = *needed.lock();
       let now = if rect.width >= beside - 0.5 {
         Shape::Beside
+      } else if !operated {
+        // Steps that are only read are the board's progress of a phone.
+        Shape::Progress
       } else if rect.width >= under - 0.5 {
         Shape::Under
       } else {
@@ -620,10 +651,11 @@ impl Component for StepsHost {
     let theme = current_theme();
     // Steps the app runs down the page are so in any room.
     if steps.orientation == Orientation::Horizontal {
-      *self.needs.lock() = steps.needs(&theme);
+      let (beside, under) = steps.needs(&theme);
+      *self.needs.lock() = (beside, under, steps.operated());
       steps.shape = self.shape.get();
     } else {
-      *self.needs.lock() = (0.0, 0.0);
+      *self.needs.lock() = (0.0, 0.0, false);
     }
     Column::new()
       .width(Dimension::Pct(100.0))
@@ -656,6 +688,8 @@ pub struct StepsView {
   pub orientation: StepsOrientation,
   /// Whether each title is under its mark: steps in a row in a room too narrow for the titles beside the marks.
   pub stacked: bool,
+  /// Whether the steps are the progress form: a segment each, over a line that says where the process is.
+  pub progress: bool,
   pub disabled: bool,
   pub label: Option<Arc<str>>,
   /// The style of the parts of the whole: its root.
@@ -914,10 +948,73 @@ impl StepsView {
     }
   }
 
+  /// What the progress form says under its segments: where the process is and what that step is called, "Step 2
+  /// of 4 · Billing", and that every step is done once they are.
+  pub fn summary(&self) -> String {
+    let count = self.steps.len();
+    match self.steps.get(self.current) {
+      Some(step) => format!("Step {} of {count} · {}", self.current + 1, step.step.title),
+      None => format!("{count} of {count} steps done"),
+    }
+  }
+
+  /// The progress form: a segment for each step, sharing the width, over the line that says where the process
+  /// is. To what reads the tree it is a progress bar called by the steps' label, whose value is that line.
+  pub fn progress(&self) -> Element {
+    let count = self.steps.len();
+    let mut segments = Row::new().part(&self.part(StepsPart::Segments));
+    for index in 0..count {
+      let mut segment = Row::new()
+        .part(&self.step_part(index, StepsPart::Segment))
+        .flex_full(1.0, 1.0, Some(0.0))
+        .min_width(Dimension::Px(0.0));
+      if let Some(id) = self.child_id(index, "-segment") {
+        segment = segment.id(id);
+      }
+      segments = segments.child(segment);
+    }
+    let said = self.summary();
+    let summary = self.part(StepsPart::Summary);
+    let mut root = Column::new()
+      .part(&self.part(StepsPart::Root))
+      .align_items(Alignment::Stretch)
+      .describe("a11y_role", "progressbar")
+      .describe("a11y_valuemin", "0")
+      .describe("a11y_valuemax", count.to_string())
+      .describe("a11y_valuenow", self.current.min(count).to_string())
+      .describe("a11y_valuetext", said.clone())
+      .child(segments)
+      .child(
+        Row::new().min_width(Dimension::Px(0.0)).child(
+          summary
+            .text(&said)
+            .nowrap()
+            .text_overflow(crate::components::TextOverflow::Elipsis)
+            .flex_full(0.0, 1.0, None)
+            .min_width(Dimension::Px(0.0))
+            .part(&summary),
+        ),
+      );
+    if let Some(label) = self.label.clone() {
+      root = root.describe("a11y_name", label);
+    }
+    if let Some(id) = self.id.clone() {
+      root = root.id(id);
+    }
+    if let Some(key) = self.key.clone() {
+      root = root.key(key);
+    }
+    root.into()
+  }
+
   /// How the default renderer builds steps: in a row, each step's mark and
   /// text with a line to the next; in a column, each step's mark with the
-  /// line down from it, and its text beside them.
+  /// line down from it, and its text beside them; and the progress form
+  /// where mounted steps that are only read have no room for their titles.
   pub fn render(self) -> Element {
+    if self.progress {
+      return self.progress();
+    }
     let count = self.steps.len();
     let mut children: Vec<Element> = Vec::with_capacity(count * 2);
     for index in 0..count {
@@ -1005,10 +1102,18 @@ impl Themed for Steps {
   /// padded 4 all round, for the ring of its focus and the veil of the
   /// pointer where it is pressed, and the whole is 8 apart from its lines,
   /// so the line is 12 from the mark and the title as the board has it.
+  ///
+  /// The progress form is the board's progress of a phone (Mobile/Step
+  /// Progress): segments 4 high and round, 4 apart, sharing the width, in the
+  /// primary color up to the current step and in the secondary after it (in
+  /// the destructive one for a step in error), and 8 under them, in the
+  /// body's type at 13 and the muted foreground, where the process is.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use StepsPart::{Connector, Description, Icon, Line, Marker, Number, Rail, Root, Step, Text, Title};
-    use StepsState::{Current, Disabled, Done, Horizontal, Invalid, Pressable, Stacked, Upcoming, Vertical};
+    use StepsPart::{
+      Connector, Description, Icon, Line, Marker, Number, Rail, Root, Segment, Segments, Step, Summary, Text, Title,
+    };
+    use StepsState::{Current, Disabled, Done, Horizontal, Invalid, Pressable, Progress, Stacked, Upcoming, Vertical};
     let filled = |s: super::PartStyle| s.background(Primary).foreground(PrimaryForeground);
     Recipe::new()
       .state(Horizontal, Root, |s| s.width(Length::Fill).gap(8.0))
@@ -1025,6 +1130,18 @@ impl Themed for Steps {
       .base(Rail, |s| s.gap(4.0))
       // Under its mark a title is as high as its words: it is not level with the mark there.
       .state(Stacked, Title, |s| s.height(Length::Auto))
+      // The progress form: the segments over the line that says where the process is.
+      .state(Progress, Root, |s| s.width(Length::Fill).gap(8.0))
+      .base(Segments, |s| s.width(Length::Fill).gap(4.0))
+      .base(Segment, |s| s.height(4.0).radius(RadiusSize::Full).background(Secondary))
+      .state(Done, Segment, |s| s.background(Primary))
+      .state(Current, Segment, |s| s.background(Primary))
+      .state(Invalid, Segment, |s| s.background(Destructive))
+      .base(Summary, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(13.0)
+          .foreground(MutedForeground)
+      })
       // In a row, as high as a step with its padding, so that the line is level with the middle of the mark.
       .state(Horizontal, Connector, |s| s.height(32.0))
       // In a column, as wide as the mark, and long enough to be seen between two steps without descriptions.

@@ -194,6 +194,7 @@ pub struct Button {
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
+  focuses: Option<crate::core::ElementRef>,
   #[cfg(feature = "form")]
   submit: bool,
 }
@@ -221,6 +222,7 @@ impl Button {
       id: None,
       key: None,
       element_ref: None,
+      focuses: None,
       #[cfg(feature = "form")]
       submit: false,
     }
@@ -354,6 +356,14 @@ impl Button {
     self
   }
 
+  /// What a press of the button gives the focus to, in place of taking it itself: the text a button of an
+  /// editor's bar works on, which goes on being typed in. The button is still a stop of Tab, and a press of it
+  /// from the keyboard gives the focus on too.
+  pub fn focuses(mut self, target: &crate::core::ElementRef) -> Self {
+    self.focuses = Some(target.clone());
+    self
+  }
+
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
@@ -433,6 +443,7 @@ impl Button {
       id: self.id,
       key: self.key,
       element_ref: self.element_ref,
+      focuses: self.focuses,
       #[cfg(feature = "form")]
       submit: self.submit,
     };
@@ -479,6 +490,7 @@ pub struct ButtonView {
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
+  focuses: Option<crate::core::ElementRef>,
   #[cfg(feature = "form")]
   submit: bool,
 }
@@ -529,6 +541,9 @@ impl ButtonView {
     }
     if let Some(element) = &self.element_ref {
       root = root.ref_element(element.clone());
+    }
+    if let Some(target) = &self.focuses {
+      root = root.focuses(target);
     }
     root
   }

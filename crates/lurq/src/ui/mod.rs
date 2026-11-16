@@ -61,6 +61,7 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
 mod fab;
 mod field;
@@ -123,6 +124,8 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod recipe;
+#[cfg(feature = "markdown")]
+mod rich_text_editor;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
@@ -295,6 +298,7 @@ pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use drop_zone::{
   DropZone, DropZonePart, DropZoneRenderer, DropZoneState, DropZoneView, RejectReason, RejectedFile,
 };
+pub use editable::{Editable, EditablePart, EditableRenderer, EditableState, EditableView};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };
@@ -440,6 +444,11 @@ pub use rating::{
 };
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
+};
+#[cfg(feature = "markdown")]
+pub use rich_text_editor::{
+  RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor, RichTextEditorPart,
+  RichTextEditorRenderer, RichTextEditorState, RichTextEditorView, RichTextFormat, RichTextTool,
 };
 #[cfg(feature = "canvas")]
 pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};

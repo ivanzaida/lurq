@@ -235,6 +235,7 @@ pub struct SelectStyle {
   pub(crate) checkmark_gap: SpacingValue,
   pub(crate) single_checkmark: bool,
   pub(crate) min_menu_width: f32,
+  pub(crate) menu_fits_options: bool,
   pub(crate) max_menu_height: f32,
   pub(crate) menu_gap: f32,
 }
@@ -335,6 +336,7 @@ impl SelectStyle {
       checkmark_gap: SpacingValue::from(6.0),
       single_checkmark: false,
       min_menu_width: 0.0,
+      menu_fits_options: false,
       max_menu_height: 240.0,
       menu_gap: 4.0,
     }
@@ -560,6 +562,14 @@ impl SelectStyle {
   /// The menu still fits inside the viewport.
   pub fn min_menu_width(mut self, width: f32) -> Self {
     self.min_menu_width = width;
+    self
+  }
+
+  /// Makes the open menu as wide as its longest option, with the room a chosen option's mark takes, in place of
+  /// as wide as its trigger: for a trigger that is as wide as the one value it shows. It is still no narrower
+  /// than [`min_menu_width`](Self::min_menu_width) and fits inside the viewport.
+  pub fn menu_fits_options(mut self, fits: bool) -> Self {
+    self.menu_fits_options = fits;
     self
   }
 

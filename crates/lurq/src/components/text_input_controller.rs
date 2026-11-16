@@ -130,6 +130,36 @@ impl TextInputController {
     Ok(state.replace_selection_text(text, &keyboard))
   }
 
+  /// Takes back the last edit, as Ctrl+Z does, through the input's `on_input`. `false` where there is none.
+  pub fn undo(&self) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    if state.history_depths().0 == 0 {
+      return Ok(false);
+    }
+    let keyboard = KeyboardEvent::new("z", "KeyZ", false, true, false, false, NodeId::UNASSIGNED);
+    Ok(state.undo(&keyboard))
+  }
+
+  /// Makes again the edit last taken back, as Ctrl+Y does. `false` where there is none.
+  pub fn redo(&self) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    if state.history_depths().1 == 0 {
+      return Ok(false);
+    }
+    let keyboard = KeyboardEvent::new("y", "KeyY", false, true, false, false, NodeId::UNASSIGNED);
+    Ok(state.redo(&keyboard))
+  }
+
+  /// Whether there is an edit to take back: what an undo button is enabled by.
+  pub fn can_undo(&self) -> bool {
+    self.state().is_ok_and(|state| state.history_depths().0 > 0)
+  }
+
+  /// Whether there is an edit taken back to make again.
+  pub fn can_redo(&self) -> bool {
+    self.state().is_ok_and(|state| state.history_depths().1 > 0)
+  }
+
   /// Where the caret before `byte` stood when the input was last laid out, for what is hung from a place in
   /// the text, as a list of suggestions under a word being typed. It is measured from the start of the
   /// text's box, inside the input's padding (and, for a single line, the room that centres it), with what

@@ -719,7 +719,8 @@ fn the_first_frame_of_mounted_steps_in_a_narrow_room_is_the_settled_one() {
           Column::new()
             .id("room")
             .width(room)
-            .child(Steps::at(1, WIZARD).id("steps").mount(ctx)),
+            // Steps a person presses: under 330 their titles are under the marks, under 200 they run down the page.
+            .child(Steps::controlled(1, WIZARD, |_| {}).id("steps").mount(ctx)),
         )
         .into()
     });
@@ -755,4 +756,74 @@ fn steps_the_app_runs_down_the_page_stay_so_at_any_width() {
     (x1 - x0).abs() < 0.5 && y1 > y0 + 24.0,
     "the marks are one under another, with room to spare"
   );
+}
+
+#[test]
+fn mounted_steps_that_are_only_read_are_the_boards_progress_of_a_phone_in_a_narrow_room() {
+  let width = Signal::new(330.0f32);
+  let held = width.clone();
+  let mut stage = Stage::first_frame(700.0, 400.0, move |ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(held.get())
+          .child(Steps::at(1, WIZARD).label("Sign up").id("steps").mount(ctx)),
+      )
+      .into()
+  });
+  // Mobile/Step Progress: four segments 4 high, 4 apart, sharing the width; the first two in the primary color,
+  // the rest in the secondary; and 8 under them where the process is, at 13 in the muted foreground.
+  let (room, _, room_width, _) = stage.bounds("room");
+  let segments: Vec<_> = (0..4)
+    .map(|index| stage.bounds(&format!("steps-{index}-segment")))
+    .collect();
+  assert!((segments[0].0 - room).abs() < 0.5, "the first at the start of the room");
+  assert!(
+    (segments[3].0 + segments[3].2 - (room + room_width)).abs() < 0.5,
+    "the last at its end"
+  );
+  for (index, (x, _, wide, high)) in segments.iter().enumerate() {
+    assert_eq!(*high, 4.0);
+    assert!((wide - (330.0 - 12.0) / 4.0).abs() < 0.5, "a share of the room: {wide}");
+    if index > 0 {
+      let before = segments[index - 1];
+      assert!((x - (before.0 + before.2) - 4.0).abs() < 0.5, "4 apart");
+    }
+  }
+  for (index, role) in [
+    PaletteColor::Primary,
+    PaletteColor::Primary,
+    PaletteColor::Secondary,
+    PaletteColor::Secondary,
+  ]
+  .into_iter()
+  .enumerate()
+  {
+    assert_eq!(stage.fill_color(&format!("steps-{index}-segment")), Some(light(role)));
+  }
+  let said = stage.text_quad("Step 2 of 4 · Billing").expect("where the process is");
+  assert!(
+    (said.y - (segments[0].1 + 4.0) - 8.0).abs() < 0.5,
+    "8 under the segments"
+  );
+  assert_eq!(
+    stage.text("Step 2 of 4 · Billing"),
+    (light(PaletteColor::MutedForeground), 13.0)
+  );
+  assert!(
+    !stage.paints("Account"),
+    "no title but the current step's, in that line"
+  );
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), first, "settled in its first frame");
+
+  // With room for the titles beside the marks, the steps are the row of marks again.
+  width.set(520.0);
+  stage.frame();
+  assert!(stage.paints("Account") && stage.paints("Workspace"));
+  assert_eq!(stage.bounds("steps-0-marker").2, 24.0);
+  assert!(!stage.paints("Step 2 of 4 · Billing"));
 }

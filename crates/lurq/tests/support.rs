@@ -11,13 +11,36 @@ use std::{
 };
 
 use lurq::{
-  app::{App, Tree, events::MouseButton, render_engine::RenderEngine},
+  app::{
+    App, Tree,
+    events::MouseButton,
+    render_engine::RenderEngine,
+    theme::{CaretHeight, ThemeCaret},
+  },
   layout::render_list::{GlyphCmd, RectCmd, RenderList},
   node::color::Color,
 };
 
 pub fn default_app() -> App {
   App::new()
+}
+
+/// How wide the default theme draws a text input's caret: what a test finds the caret by.
+pub fn caret_width() -> f32 {
+  ThemeCaret::default().width()
+}
+
+/// How high the default theme draws the caret in text of `font_size`.
+pub fn caret_height(font_size: f32) -> f32 {
+  match ThemeCaret::default().height() {
+    CaretHeight::FontSize(share) => font_size * share,
+    CaretHeight::TextBand => font_size,
+  }
+}
+
+/// How thick the default theme draws the line under what an input method composes.
+pub fn composition_line() -> f32 {
+  ThemeCaret::default().composition_line()
 }
 use raw_window_handle::{
   DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
