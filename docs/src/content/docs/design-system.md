@@ -1577,6 +1577,54 @@ Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
 - A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
 
+## Table of Contents
+
+The list of a page's sections, with the one being read marked: "On this page" beside an article, the outline of a document. It follows the scroll of the container the app names, and a press of an entry brings its section to the top.
+
+```rust
+use lurq::{core::ElementRef, ui::{TableOfContents, TableOfContentsEntry}};
+
+// In `create`: a ref for each section, and one for what scrolls them.
+let (page, theme, palette, roles) = (ElementRef::new(), ElementRef::new(), ElementRef::new(), ElementRef::new());
+
+// In `render`: each section has its ref on it (`.ref_element(theme.clone())`), the scroll has `page`.
+TableOfContents::new([("Runtime theme", &theme), ("Palette", &palette)])
+  .entry(TableOfContentsEntry::new("Extra roles", &roles).level(2))
+  .container(&page)
+  .on_change(|index| println!("reading section {index}"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `TableOfContents::new(entries)` | Its entries: `TableOfContentsEntry`s, or pairs of a label and the ref of a section |
+| `entry(..)`, `entries(..)` | Adds to them |
+| `mount(ctx)` | The list where it is declared: it follows the scroll and goes to a section when its entry is pressed. Converted (`.into()`) it is still: see below |
+| `container(&ElementRef)` | What scrolls the sections, by the ref the app gave it: the reading line is measured from its top. With none, from the top of the window |
+| `reading_line(impl Into<f32>)` | How far under the top of the container a section's top is when the section becomes the one read: 24 unless told |
+| `current(Signal<usize>)` | The entry marked, the app's: the list sets it as the page scrolls and as an entry is pressed, and marks what the app sets. Without it a mounted list keeps the entry itself |
+| `on_change(Fn(usize))` | Another section became the one read, by the scroll or by a press: after the signal is set, and not when the app sets it |
+| `on_select(Fn(usize))` | An entry was pressed, before the list goes to its section |
+| `title(&str)` | What the list is called over its entries, in place of "On this page"; drawn in capitals. An empty one draws no title |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the marked entry |
+
+| Entry | |
+| --- | --- |
+| `TableOfContentsEntry::new(&str, &ElementRef)` | What the section is called, and the ref on the section's element, or on its heading |
+| `level(usize)` | How deep the section is: 1 for a section of the page, 2 for a section of a section, which is set in |
+| `disabled(bool)` | It takes no input, and the keys pass it by |
+| `id`, `key` | Of the entry |
+
+- A mounted list marks the last entry whose section's top has come up to the reading line: at the top of a page the first, and each next one as its heading nears the top of the container. It watches the refs of its sections (`ElementRef::observe_rect_before_paint`), so the entry is marked in the frame the scroll is drawn in; an observer the app registered on one of those refs is replaced.
+- A press of an entry scrolls its section to the start of what scrolls it (`ctx.scroll_into_view_start`, clear of what sticks to the top), and marks the entry. A section near the end of the page cannot come up to the line, the page ends first: its entry is the marked one because it was pressed, until the page is scrolled again.
+- Converted into an element on its own it is the still form of itself: it marks what its signal says (the first entry with no signal), follows no scroll, and a press sets the signal and tells the handlers, and scrolls nothing. A list that is to stay in view while the page scrolls is in a container of the app's that sticks (`.sticky(Sticky::top(0.0))`).
+- To the keyboard it is one stop of Tab, at the marked entry. Up and Down move between the entries and do not wrap, Home and End go to the first and the last, Enter and Space go to the section; the focus stays on the entry. A label longer than the list is cut with an ellipsis on its one line.
+- To what reads the tree it is a `navigation`, called by its label or its title, of `link`s called by their labels; the marked one says it is the current location (`a11y_current`).
+- Parts: `TableOfContentsPart::Root` (the width, the room between the entries), `Title`, `Entry` (what is pressed: its height, the line at its start, the room before its label), `Indent` (its width is how far a level sets an entry in), `Label`. States, each an entry's own: `TableOfContentsState::Current`, `Disabled`.
+- In the design (`i7m0J`) it is 200 wide, its entries 2 apart under a title in the mono face at 11, in capitals a pixel apart, in `MutedForeground`, 12 in and 6 over the first entry. An entry is 28 high with a line of 1 in `Border` at its start and its label 12 after it, 13 in `MutedForeground`; one of the second level is 12 further in. The marked one has a line of 2 in `Primary` and its label in `Foreground` at medium weight. The board draws no pointer: a label is in `Foreground` under it, and the focus is a line of 2 in the ring's color inside the entry. An entry is a row and follows the density.
+- A renderer that draws another list has `view.root()`, `view.title()`, `view.entry(index)`, `view.entry_recipe(index)` and `view.render()`.
+
 ## Badge
 
 A short label of a state or a count, read and not operated: beta, passing, 3 unread.

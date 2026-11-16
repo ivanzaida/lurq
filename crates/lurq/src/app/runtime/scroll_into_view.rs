@@ -11,6 +11,9 @@
 //! scrolls under it, so the element is shown clear of it, as the web's `scroll-padding` would have it: the
 //! viewport an element is brought into leaves out the room of what sticks to its edges, unless the element is in
 //! what sticks.
+//!
+//! `Ctx::scroll_into_view_start` brings the element's top to the top of each viewport that scrolls down, as the web's
+//! `block: "start"` does, and is else resolved the same way.
 
 use super::Tree;
 use crate::{
@@ -41,6 +44,10 @@ impl Tree {
       .root_ctx
       .as_ref()
       .and_then(|ctx| ctx.take_scroll_range_into_view_request());
+    let to_start = self
+      .root_ctx
+      .as_ref()
+      .and_then(|ctx| ctx.take_scroll_into_view_start_request());
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return false;
     };
@@ -49,12 +56,16 @@ impl Tree {
     for node_id in targets {
       scrolled |= scroll_into_view(root, layout, node_id);
     }
+    // To the start of what scrolls it: after the nearest requests, so that it has the last word on its container.
+    if let Some(node_id) = to_start.and_then(|element| node_with_ref(root, &element)) {
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Start, |_, _| None);
+    }
     // A range of a text: the lines it covers, where the text is laid out now.
     if let Some((element, range)) = range
       && let Some(node_id) = node_with_ref(root, &element)
     {
       let engine = &self.layout_engine;
-      scrolled |= scroll_part_into_view(root, layout, node_id, |node, result| {
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Nearest, |node, result| {
         engine
           .text_range_rect(node, result, range.clone())
           .map(|(x, y, width, height)| Rect { x, y, width, height })
@@ -79,7 +90,16 @@ fn node_with_ref(node: &Node, element: &OwnedElementRef) -> Option<NodeId> {
 /// Scrolls every scroll container around `node_id` just enough to show the
 /// node, innermost first. Returns whether any container moved.
 pub(super) fn scroll_into_view(root: &Node, layout: &LayoutResult, node_id: NodeId) -> bool {
-  scroll_part_into_view(root, layout, node_id, |_, _| None)
+  scroll_part_into_view(root, layout, node_id, Block::Nearest, |_, _| None)
+}
+
+/// Where a container that scrolls down brings what is scrolled into view.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Block {
+  /// By the smallest amount that shows it.
+  Nearest,
+  /// Its top to the top of the viewport, as far as the content lets it.
+  Start,
 }
 
 /// Scrolls every scroll container around `node_id` just enough to show the
@@ -91,6 +111,7 @@ fn scroll_part_into_view(
   root: &Node,
   layout: &LayoutResult,
   node_id: NodeId,
+  block: Block,
   part: impl Fn(&Node, &LayoutResult) -> Option<Rect>,
 ) -> bool {
   let mut containers = Vec::new();
@@ -120,10 +141,11 @@ fn scroll_part_into_view(
     } else {
       0.0
     };
-    let dy = if scrolls_y {
-      axis_delta(target.y, target.height, viewport.y, viewport.height)
-    } else {
-      0.0
+    let dy = match (scrolls_y, block) {
+      (false, _) => 0.0,
+      (true, Block::Nearest) => axis_delta(target.y, target.height, viewport.y, viewport.height),
+      // The scroll state keeps the offset within what there is to scroll.
+      (true, Block::Start) => target.y - viewport.y,
     };
     if dx == 0.0 && dy == 0.0 {
       continue;

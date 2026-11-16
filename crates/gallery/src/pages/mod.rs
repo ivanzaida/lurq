@@ -109,6 +109,7 @@ mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -697,6 +698,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal orientation on_select pressable ahead disabled label",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "C:/Program Files/Git/table-of-contents",
+    name: "Table of Contents",
+    icon: Some("list-tree"),
+    about: "table of contents toc on this page outline sections headings anchors scroll spy scrollspy reading current section jump navigation article docs sticky new entry entries level container reading_line current on_change on_select title label mount disabled",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<table_of_contents::TableOfContentsPage>(()),
   },
   Page {
     path: "/tree-view",

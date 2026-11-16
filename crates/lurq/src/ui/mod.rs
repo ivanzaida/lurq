@@ -139,6 +139,7 @@ mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -479,6 +480,10 @@ pub use table::{
   SourceLabels, SourceRow, SummaryKind, SummaryLabels, Table, TableCell, TableColumn, TableCount, TableFilters,
   TableGroup, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState, TableSummary, TableTextError,
   TableView, TextMatch, in_tracks, to_csv, to_delimited, to_tsv,
+};
+pub use table_of_contents::{
+  TableOfContents, TableOfContentsEntry, TableOfContentsPart, TableOfContentsRenderer, TableOfContentsState,
+  TableOfContentsView,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};

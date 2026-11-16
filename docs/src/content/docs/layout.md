@@ -625,6 +625,17 @@ into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/
 ctx.scroll_into_view(&details);
 ```
 
+`ctx.scroll_into_view_start(&element_ref)` brings the element's top to the top of every container around it that
+scrolls down, as far as the content lets it, like the web's `scrollIntoView({ block: "start", inline: "nearest" })`:
+an element already in view moves to the top too. It is what a list of a page's sections does when one of them is
+pressed (`ui::TableOfContents`). The top is clear of what sticks to the container's top, and a container that scrolls
+sideways moves by the smallest amount that shows the element.
+
+```rust
+// The heading comes to the top of the page, under the header that sticks there.
+ctx.scroll_into_view_start(&heading);
+```
+
 `ctx.scroll_range_into_view(&text_ref, range)` does the same for a range of a text, in bytes of its content: the lines
 the range covers are brought into view, and no more of the text, wherever it is wrapped. The current match of a search,
 in a long text that scrolls. The text must know where its characters are drawn, which one that is selectable or has
