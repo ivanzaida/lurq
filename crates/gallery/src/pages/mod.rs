@@ -9,6 +9,7 @@ mod action_bar;
 mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod area_chart;
 mod audio_player;
 mod audio_queue;
@@ -116,6 +117,7 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -627,6 +629,22 @@ pub const PAGES: &[Page] = &[
     about: "transfer dual list shuttle two lists move left right source target available selected chosen checkbox check all select all range shift features columns members new controlled on_change checked checked_controlled on_checked_change source_title target_title count_text select_all_label add_label remove_label empty_text label disabled density style rules mount virtual long narrow stacked",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<transfer::TransferPage>(()),
+  },
+  Page {
+    path: "/signature-pad",
+    name: "Signature Pad",
+    icon: Some("pencil"),
+    about: "signature pad sign signed draw ink pen stylus finger touch stroke strokes pressure undo clear consent delivery picture image png to_image Signature SignatureStroke SignaturePoint new controlled on_change placeholder read_only disabled invalid full_width width height label undo_label clear_label signed_text empty_text mount canvas",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<signature_pad::SignaturePadPage>(()),
+  },
+  Page {
+    path: "/angle-slider",
+    name: "Angle Slider",
+    icon: Some("rotate-left"),
+    about: "angle slider dial knob rotation degrees direction compass turn wrap round drag press keys step page_step min max new controlled on_change on_change_end value_text label disabled slider",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<angle_slider::AngleSliderPage>(()),
   },
   Page {
     path: "/tooltip",
