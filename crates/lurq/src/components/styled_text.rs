@@ -11,9 +11,12 @@ use crate::{
   core::Signal,
 };
 
+mod objects;
 mod ops;
 mod paragraphs;
 mod rich_text;
+pub use objects::{InlineObject, OBJECT_CHARACTER};
+pub(crate) use objects::{normalize_objects, place_objects, slice_objects, splice_objects, text_with_labels};
 pub(crate) use ops::{insertion_style, normalize, restyle, slice, splice, style_at, summarize};
 pub use paragraphs::{ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles};
 pub(crate) use paragraphs::{normalize_kinds, paragraph_of, paragraph_ranges, place_kinds, splice_kinds};
