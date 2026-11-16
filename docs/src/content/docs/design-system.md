@@ -7743,6 +7743,36 @@ QrCode::new(address).media(logo);
 - Parts: `QrCodePart::Root` (the card), `Module` (a dark module), `Media` (the logo's well). State: `QrCodeState::Media`.
 - In the design the card has an edge of 1 inside it in `Border`, `radius-lg` corners and 10 of padding, white, with modules of near black. The board draws eleven modules of 7, a picture of a code: a code of a real text has 21 or more, so the card is 160 by default. The board draws no logo, no loading and no expired code.
 
+## Watermark
+
+A text, or a picture, repeated across what it covers, turned and faint, over the content: who a shared screen is shown to, a draft, a confidential report.
+
+```rust
+use lurq::ui::Watermark;
+
+Watermark::new("lurq internal").child(card);
+Watermark::new("ivan@lurq.dev · 16 Nov 2026").child(page);
+Watermark::new("Draft").angle(-35.0).gap(16.0, 24.0).child(page);
+Watermark::new("lurq").media(logo).child(report);
+```
+
+| Builder | |
+| --- | --- |
+| `Watermark::new(text)` | The marks of a text |
+| `child(element)`, `children(elements)` | What it covers; the watermark is as large as that |
+| `media(element)` | A picture repeated in place of the text, turned and faint as the text would be |
+| `gap(x, y)` | The room between one mark's box and the next, across and down, before they are turned: 27 and 29 |
+| `angle(degrees)` | Clockwise where more than nothing: -20, rising to the right |
+| `offset(x, y)` | Where the first mark's box is from the top left: -20 and 18 |
+| `stagger(x)` | How much further along every other row is: 40 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The marks take nothing from the content: their layer is hit by no pointer, so the content is pressed, selected and scrolled through them, and it says `a11y_hidden`, so tooling reads the content and not the marks (see [the MCP page](../mcp/)). The layer's id is the watermark's with `-layer` after it.
+- The mark is in the tree once; the engine paints it again across the layer ([`.repeat(Repeat)`](../layout/#repeat)), only where it can be seen. Over a page of any length in a scroll a watermark costs the marks in view, scrolling builds nothing again, and what is laid out again is the mark when its text or look changes, and the layer when the size of what it covers does.
+- A mark's glyphs are drawn at its angle (`TextTransformMode::Rasterized`), so it is sharp at every scale. Its color is `Foreground` at 0.12: dark on the light look, light on the dark one.
+- Parts: `WatermarkPart::Root` (what holds the content and the layer), `Layer`, `Mark` (its type, color and faintness). State: `WatermarkState::Media`. The board's numbers are `WATERMARK_GAP`, `WATERMARK_ANGLE`, `WATERMARK_OFFSET` and `WATERMARK_STAGGER`.
+- In the design the marks are "lurq internal" in the sans of 12, medium, in `foreground` at 0.12, turned 20 degrees counter-clockwise, 96 apart along a row and 44 from row to row, every other row 40 further along, over a card of 220 by 120 with an edge and `radius-lg` corners. The card is the content it covers, not the watermark's: a watermark draws no box of its own.
+
 ## Action Sheet
 
 On a phone, the actions on something, risen from the bottom of the screen over a scrim, and Cancel under them.

@@ -53,6 +53,7 @@ mod padding;
 mod ported_flex;
 mod quads;
 mod ref_size;
+mod repeat;
 mod row;
 mod scroll;
 mod scroll_padding;

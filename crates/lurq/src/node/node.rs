@@ -637,6 +637,8 @@ pub(crate) trait NodeUpdate {
   /// (150%) an edge is crisp and not a column of half covered pixels. Two boxes that meet still meet. What is laid
   /// out, and what a pointer hits, is as before; a text, an image and a box that is turned are drawn where they are.
   fn snap_to_pixels(&mut self, snap: bool);
+  /// Paints what the node holds again and again across its box; see [`crate::layout::Repeat`].
+  fn repeat(&mut self, repeat: Option<crate::layout::Repeat>);
   /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
   /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system so, which on
   /// Windows answers the system's hit test with the minimize, the maximize or the close button where the element
@@ -1048,6 +1050,8 @@ pub(crate) struct RareStyle {
   pub(crate) interaction_group: bool,
   /// The boxes of the node and its subtree are drawn on whole device pixels; see [`NodeUpdate::snap_to_pixels`].
   pub(crate) snaps_to_pixels: bool,
+  /// What the node holds is painted again and again across its box; see [`NodeUpdate::repeat`].
+  pub(crate) repeat: Option<crate::layout::Repeat>,
   /// Which of the window's controls the node is, if it is one; see [`NodeUpdate::window_control`].
   pub(crate) window_control: Option<WindowControl>,
 }
@@ -1801,6 +1805,13 @@ impl NodeUpdate for Node {
 
   fn interaction_group(&mut self, group: bool) {
     self.rare_style.interaction_group = group;
+  }
+
+  fn repeat(&mut self, repeat: Option<crate::layout::Repeat>) {
+    // Writing through the lazy box would allocate it for a node that repeats nothing.
+    if self.rare_style.repeat != repeat {
+      self.rare_style.repeat = repeat;
+    }
   }
 
   fn snap_to_pixels(&mut self, snap: bool) {
@@ -5734,6 +5745,11 @@ impl Node {
   /// [`NodeUpdate::snap_to_pixels`].
   pub(crate) fn snaps_to_pixels(&self) -> bool {
     self.rare_style.snaps_to_pixels
+  }
+
+  /// How what the node holds is painted again and again across its box: see [`NodeUpdate::repeat`].
+  pub(crate) fn repeat_spec(&self) -> Option<crate::layout::Repeat> {
+    self.rare_style.repeat
   }
 
   /// Which of the window's controls the node is: see [`NodeUpdate::window_control`].

@@ -7,7 +7,7 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{PaletteColor, RadiusSize},
+    theme::{PaletteColor, RadiusSize, ThemePalette},
   },
   components::{Column, Row},
   core::Signal,
@@ -44,15 +44,21 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .child(quiet(caption, 12.0))
 }
 
-/// The logo of the examples: the mark of the app on its primary fill.
+/// The logo of the examples: the mark of the app on its primary fill, in the light look's colors as a brand's
+/// logo has them, since the code is light in either look.
 fn logo() -> Row {
+  let light = ThemePalette::light();
   Row::new()
     .size(24.0, 24.0)
     .rounded(RadiusSize::Sm)
-    .background(PaletteColor::Primary)
+    .background(light.get(PaletteColor::Primary))
     .align_items(Alignment::Center)
     .justify(Justify::Center)
-    .child(Icon::new("bolt").size(14.0).color(PaletteColor::PrimaryForeground))
+    .child(
+      Icon::new("bolt")
+        .size(14.0)
+        .color(light.get(PaletteColor::PrimaryForeground)),
+    )
 }
 
 pub struct QrCodePage {

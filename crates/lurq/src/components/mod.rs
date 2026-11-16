@@ -784,6 +784,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Paints what the element holds again and again across its box: a watermark, a pattern. What it holds is
+      /// laid out once, and is the first tile; the tiles are its first child's box with the repeat's gap after
+      /// it, across and down both ways, every other row moved by the repeat's stagger. Only the tiles that can be
+      /// seen are painted, so a pattern over a page of any length in a scroll costs the tiles in view. The copies
+      /// are paint alone: no pointer hits them and tooling does not read them. See [`Repeat`]($crate::layout::Repeat).
+      pub fn repeat(mut self, repeat: $crate::layout::Repeat) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::repeat(node, Some(repeat)));
+        self
+      }
+
       /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
       /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system where it
       /// is: on Windows the window answers the system's hit test there with the minimize, the maximize or the

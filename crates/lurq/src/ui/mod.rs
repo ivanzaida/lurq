@@ -185,6 +185,7 @@ mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -621,6 +622,10 @@ pub use video_player::{
   VideoPlayerView,
 };
 pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
+pub use watermark::{
+  WATERMARK_ANGLE, WATERMARK_GAP, WATERMARK_OFFSET, WATERMARK_STAGGER, Watermark, WatermarkPart, WatermarkRenderer,
+  WatermarkState, WatermarkView,
+};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,

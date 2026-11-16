@@ -150,6 +150,7 @@ mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -1429,6 +1430,14 @@ pub const PAGES: &[Page] = &[
     about: "qr code qrcode barcode scan camera phone pair link address ticket wifi level error correction low medium quartile high quiet zone length module logo media label text QrCode QrLevel QrMatrix",
     group: Group::Media,
     mount: |ctx| ctx.mount::<qr_code::QrCodePage>(()),
+  },
+  Page {
+    path: "/watermark",
+    name: "Watermark",
+    icon: Some("layers"),
+    about: "watermark stamp confidential draft internal shared screen mark repeated pattern faint turned angle rotate gap offset stagger opacity media picture logo over content tooling Watermark Repeat",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<watermark::WatermarkPage>(()),
   },
 ];
 

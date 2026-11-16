@@ -358,6 +358,21 @@ Use:
 
 There is no z-index. Rendering order is structural: later stack children paint above earlier children.
 
+## Repeat
+
+`.repeat(Repeat)` paints what an element holds again and again across the element's box: a watermark, a pattern.
+
+```rust
+use lurq::{components::{Rect, Stack}, layout::Repeat};
+
+Stack::new()
+  .size(lurq::node::dimension::Dimension::Pct(100.0), lurq::node::dimension::Dimension::Pct(100.0))
+  .repeat(Repeat::new().gap(27.0, 29.0).stagger(40.0))
+  .child(Rect::new(20.0, 20.0).background("#e4e4e7"));
+```
+
+What the element holds is laid out once, where it is, and is the first tile. The tiles are the first child's box with the gap after it, across and down both ways from the first, every other row moved by the stagger, and they are cut to the element's box where it clips. Only the tiles that can be seen are painted: in a scroll, those in its view, so a pattern over a page of any length costs the tiles in view and scrolling builds nothing. The copies are paint alone: no pointer hits them and tooling does not read them, and what the element holds is in the tree once. A child that fades fades in every tile. A tile that holds what cannot be painted twice (a text input) is painted once, where it is. `ui::Watermark` is built on it.
+
 ## Alignment
 
 ### Row And Column Alignment

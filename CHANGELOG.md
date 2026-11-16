@@ -52,6 +52,9 @@ Deprecated:
 
 Added:
 
+- `ui::Watermark`: a text, or a picture (`media`), repeated across what it covers, turned and faint, over the content: `gap`, `angle`, `offset`, `stagger` and the mark's part as the board draws them. No pointer hits the marks and tooling does not read them; they are one mark in the tree, painted by the engine only where they can be seen, so a watermark over a long scrolled page costs the marks in view
+- `.repeat(Repeat)` on any element paints what it holds again and again across its box, a gap apart, every other row moved by a stagger, only where it can be seen: a pattern, a watermark. The copies are paint alone
+- An element described `a11y_hidden` `true` is left out of `lurq_read_tree` (but with `filter: "all"`) and `lurq_inspect` with all it holds, and its text is no part of a control's name: a watermark's marks, a chart's axis
 - `ui::QrCode`: a text an app gives drawn as a code a phone reads, dark on light in either appearance (its roles read in the light palette), with `level(QrLevel)`, `length`, `quiet_zone`, a logo (`media`) and `label`; to tooling an image described by its text. Its modules are drawn on whole device pixels. The encoder is lurq's own (byte mode, versions 1 to 40, four levels), and `ui::QrMatrix::encode` gives the modules themselves
 - `.snap_to_pixels(true)` on any element draws its fills and borders, and those of everything in it, on whole device pixels: crisp at 150%, and two boxes that meet still meet
 - `Theme::palette_color_for(appearance, role)` reads a role in the palette of one appearance, whatever the theme is in

@@ -166,5 +166,6 @@ mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;
