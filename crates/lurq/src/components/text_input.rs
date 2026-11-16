@@ -268,6 +268,30 @@ impl TextInput {
     self
   }
 
+  /// Keeps the formatting of a styled input with kinds of paragraphs ([`Self::paragraphs`]) through the
+  /// clipboard. A copy or a cut puts the selected text on the clipboard as before and keeps the Markdown of it
+  /// beside it, its marks and the kinds of the paragraphs it touches. A paste whose content has Markdown beside
+  /// its text ([`ClipboardContent::markdown_content`](crate::app::events::ClipboardContent::markdown_content)),
+  /// or whose text reads as Markdown
+  /// ([`RichText::reads_as_markdown`](super::RichText::reads_as_markdown)), is inserted with its marks and kinds
+  /// as one undo step; any other is plain text, and so is every paste into a line of code. An `on_paste` handler
+  /// that prevents the default still takes the paste itself. An input without kinds of paragraphs is not
+  /// changed by it.
+  ///
+  /// The operating system's clipboard holds one text: a copy of a selection with a mark or a paragraph that is
+  /// not body text gives it the Markdown, which another app or another lurq process reads as it is written (and
+  /// such an input there pastes with its formatting). This process keeps the plain text beside it: while the
+  /// clipboard still holds what was written, an input of the app without this option pastes the plain text.
+  #[cfg(feature = "markdown")]
+  pub fn rich_clipboard(mut self, on: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_rich_clipboard(on);
+      }
+    });
+    self
+  }
+
   /// Runs when a person clicks a link of a styled input with the platform's
   /// shortcut modifier held (Ctrl, or Cmd on macOS); the app opens the
   /// target. A plain click places the caret, as in any text.

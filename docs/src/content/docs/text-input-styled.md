@@ -161,8 +161,12 @@ The controller's commands:
 What an editor does at the keys is the app's (or the design system's editor's): Enter in an empty item ending the
 list, a paragraph after a heading. The input's own rule is the split and the join above.
 
-Kinds are laid out where the input wraps its lines and its text is not justified. An empty input that shows its
-placeholder draws it as body text.
+Kinds are drawn where the input wraps its lines and its text is not justified: in a single-line input, one that
+does not wrap or one whose text is justified, every paragraph is drawn as body text, and the kinds are still kept,
+edited and reported. A justified row is stretched to the input's width, which is known only once every paragraph is
+laid out, and the input lays out a paragraph at a time. A row of a paragraph with a kind is as high as its line
+height says, whatever the font's own line is. An empty input that shows its placeholder draws it in the kind of its
+first paragraph: its type, after its indent and its mark.
 
 ## One value: `RichText`
 
@@ -190,6 +194,19 @@ nested, numbered items numbered, what would read as markup escaped, an underline
   text, such as Markdown. Without it the plain text is copied.
 - A paste inserts the clipboard's text in the typing style. To paste styled text, handle `on_paste`, parse the
   text, call `controller.replace_selection_styled(&styled)` and `prevent_default()`.
+- `rich_clipboard(true)` (feature `markdown`) keeps the formatting of an input with kinds of paragraphs through the
+  clipboard, as the design system's rich text editor does. A copy or a cut writes the selection's Markdown, its marks
+  and the kinds of the paragraphs it touches, beside its text. The system's clipboard holds one text: it is given the
+  Markdown where the selection has a mark or a paragraph that is not body text, and the plain text otherwise, so
+  another app or another lurq process reads the Markdown as it is written. This process keeps the plain text beside
+  it, and while the clipboard still holds what it wrote, an input of the app without the option pastes the plain
+  text. A paste with Markdown beside its text, or whose text reads as Markdown (`RichText::reads_as_markdown`: a line
+  with a block mark, `#`, `-`, `1.`, `>` or a fence, or a mark Markdown reads, `**bold**`, `` `code` ``, a link), is
+  inserted with its marks and kinds as one undo step: what is copied from one editor is pasted into another, in this
+  app or another, as it was. Any other text, and every paste into a line of code, is plain text. A single pasted
+  paragraph goes into the line at the caret and leaves it its kind unless the line is empty; of several, the last
+  gives its kind to the text after the caret. `controller.replace_selection_rich(&rich)` does the same from the
+  app.
 - `on_link_click(f)` runs when a link is clicked with Ctrl (Cmd on macOS) held, with its target and whole range;
   the app opens it. A plain click places the caret.
 

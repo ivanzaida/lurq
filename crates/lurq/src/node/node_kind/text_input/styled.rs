@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use super::*;
 use crate::components::{
-  LinkClick, ParagraphKind, ParagraphStyles, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan,
+  LinkClick, ParagraphKind, ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan,
   StyledText, TextMark, styled_text as spans_ops,
 };
 
@@ -41,6 +41,9 @@ pub(super) struct StyledState {
   pending: Option<(usize, SpanStyle)>,
   on_change: Vec<ChangeHandler>,
   copy_format: Option<CopyFormat>,
+  /// A copy keeps the Markdown of the selection beside its text, and a paste that has Markdown is inserted with
+  /// its marks and kinds.
+  rich_clipboard: bool,
   on_link_click: Vec<LinkHandler>,
 }
 
@@ -79,8 +82,11 @@ pub(super) type SnapshotSpans = Arc<Vec<StyledSpan>>;
 /// The kinds of the paragraphs a snapshot of the undo history keeps, shared.
 pub(super) type SnapshotParagraphs = Arc<Vec<ParagraphKind>>;
 
-/// Text inserted with its own spans.
-pub(super) type InsertedText = StyledText;
+/// Text inserted with its own spans, and with the kinds of its paragraphs where it brings them.
+pub(super) struct InsertedText<'a> {
+  pub(super) styled: &'a StyledText,
+  pub(super) kinds: Option<&'a [ParagraphKind]>,
+}
 
 impl TextInputState {
   pub(crate) fn set_spans_signal(&self, spans: Signal<Vec<StyledSpan>>) {
@@ -303,11 +309,12 @@ impl TextInputState {
 
   /// What the input draws: the text, with a composition in progress in the
   /// style typing would give it, and its spans. `None` for a plain input
-  /// and for an empty one showing its placeholder.
-  pub(crate) fn styled_display(&self) -> Option<(Arc<str>, SnapshotSpans)> {
+  /// and for an empty one showing its placeholder, unless `empty` asks for that one too: an input whose kinds
+  /// of paragraphs are drawn lays its one empty paragraph out as what it is, and its placeholder in it.
+  pub(crate) fn styled_display(&self, empty: bool) -> Option<(Arc<str>, SnapshotSpans)> {
     let spans = self.current_spans()?;
     let Some(composed) = self.composed_text() else {
-      if self.is_showing_placeholder() {
+      if self.is_showing_placeholder() && !(empty && self.current_paragraphs().is_some()) {
         return None;
       }
       return Some((self.shared_value().into(), spans));
@@ -389,12 +396,23 @@ impl TextInputState {
     &self,
     edit: Option<SpansBeforeEdit>,
     range: Range<usize>,
-    inserted: &InsertedText,
+    inserted: &InsertedText<'_>,
   ) {
     let Some(edit) = edit else {
       return;
     };
+    let (inserted, pasted) = (inserted.styled, inserted.kinds);
     self.splice_paragraphs(&edit, &range, inserted.text.len());
+    if let (Some(pasted), Some(kinds)) = (pasted, self.current_paragraphs()) {
+      let after = spans_ops::paragraph_ranges(&self.shared_value());
+      self.write_paragraphs(spans_ops::place_kinds(
+        kinds.to_vec(),
+        &after,
+        range.start,
+        inserted.text.len(),
+        pasted,
+      ));
+    }
     let start = range.start;
     let mut spans = spans_ops::splice(&edit.spans, range.clone(), inserted.text.len(), &SpanStyle::default());
     spans.extend(
@@ -534,6 +552,51 @@ impl TextInputState {
       (Some(format), Some(styled)) => Some(format(&styled)),
       _ => Some(selected),
     }
+  }
+
+  pub(crate) fn set_rich_clipboard(&self, on: bool) {
+    self.inner.lock().styled.rich_clipboard = on;
+  }
+
+  /// The Markdown of the selection, which a copy keeps beside its text: its marks and the kinds of the
+  /// paragraphs it touches. Only an input with kinds of paragraphs that keeps its formatting through the
+  /// clipboard has one, and never while it is masked.
+  pub(crate) fn clipboard_markdown(&self) -> Option<String> {
+    if !self.inner.lock().styled.rich_clipboard || self.is_masked() {
+      return None;
+    }
+    let kinds = self.current_paragraphs()?;
+    let selected = self.selected_styled_text()?;
+    if selected.text.is_empty() {
+      return None;
+    }
+    let (range, _) = self.selected_paragraph_range();
+    Some(RichText::new(selected.text, selected.spans, kinds[range].to_vec()).to_markdown())
+  }
+
+  /// Pastes formatted text into an input that keeps its formatting through the clipboard: the `markdown` beside
+  /// the text, or the text itself where it reads as Markdown with block marks. `None` where the paste is plain
+  /// text: an input without kinds of paragraphs, a caret in a line of code, a text that is not Markdown.
+  pub(crate) fn paste_rich(&self, text: &str, markdown: Option<&str>, keyboard: &KeyboardEvent) -> Option<bool> {
+    if !self.inner.lock().styled.rich_clipboard || self.is_masked() {
+      return None;
+    }
+    let kinds = self.current_paragraphs()?;
+    // Code is pasted into code as it is written.
+    let (touched, _) = self.selected_paragraph_range();
+    if kinds[touched.start] == ParagraphKind::Code {
+      return None;
+    }
+    let source = match markdown {
+      Some(markdown) => markdown,
+      None if RichText::reads_as_markdown(text) => text,
+      None => return None,
+    };
+    let rich = RichText::from_markdown(source);
+    if rich.is_empty() {
+      return None;
+    }
+    Some(self.replace_selection_rich(&rich, keyboard))
   }
 
   /// Reports the link under a point of the content box to the input's link

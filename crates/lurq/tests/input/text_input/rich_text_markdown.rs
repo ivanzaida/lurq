@@ -98,3 +98,44 @@ fn rich_text_is_canonical_and_counts_its_words() {
   assert_eq!(blocks.len(), 2);
   assert_eq!((blocks[1].0, blocks[1].1.text.as_str()), (Body, "three"));
 }
+
+#[test]
+fn a_text_reads_as_markdown_where_a_line_of_it_has_a_block_mark_or_markdown_reads_a_mark_in_it() {
+  for source in [
+    "# Title",
+    "text\n\n###### Small",
+    "- item",
+    "* item",
+    "+ item",
+    "1. first",
+    "12) twelfth",
+    "> quoted",
+    "```\ncode\n```",
+    "~~~\ncode\n~~~",
+    "   - three spaces in",
+    "2 * 3 = 6, **really**",
+    "*emphasis* at the start",
+    "a `call()` in a line",
+    "~~struck~~",
+    "see [the docs](https://lurq.dev)",
+    "<u>under</u> it",
+  ] {
+    assert!(RichText::reads_as_markdown(source), "{source:?}");
+  }
+  for source in [
+    "",
+    "Plain words.",
+    "2 * 3 = 6",
+    "snake_case_names and a_b_c",
+    "a < b and [x]",
+    "#hashtag and #another",
+    "####### seven",
+    "-dash",
+    "- ",
+    "1.5 is a number",
+    "a > b",
+    "    - four spaces in is code",
+  ] {
+    assert!(!RichText::reads_as_markdown(source), "{source:?}");
+  }
+}

@@ -90,4 +90,17 @@ impl TextInputController {
     let keyboard = KeyboardEvent::new(&text.text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
     Ok(state.replace_selection_styled(text, &keyboard))
   }
+
+  /// Replaces the selection, or inserts at the caret, text that brings its own spans and the kinds of its
+  /// paragraphs, as one undo step: what a paste of formatted text does. A single paragraph goes into the line
+  /// the caret is in and leaves it what it is, unless the line holds nothing else. Of several, the first goes on
+  /// from the text before the caret and takes its own kind only where there is none, those between come with
+  /// their kinds, and the last gives its kind to the text after the caret unless it is empty. An input without
+  /// kinds of paragraphs takes the text and its spans, a plain one the text.
+  pub fn replace_selection_rich(&self, text: &RichText) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    state.sync_external_value();
+    let keyboard = KeyboardEvent::new(&text.text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
+    Ok(state.replace_selection_rich(text, &keyboard))
+  }
 }

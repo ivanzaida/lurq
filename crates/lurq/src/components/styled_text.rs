@@ -16,7 +16,7 @@ mod paragraphs;
 mod rich_text;
 pub(crate) use ops::{insertion_style, normalize, restyle, slice, splice, style_at, summarize};
 pub use paragraphs::{ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles};
-pub(crate) use paragraphs::{normalize_kinds, paragraph_of, paragraph_ranges, splice_kinds};
+pub(crate) use paragraphs::{normalize_kinds, paragraph_of, paragraph_ranges, place_kinds, splice_kinds};
 pub use rich_text::RichText;
 
 /// The marks of one run of text. The default is plain text.

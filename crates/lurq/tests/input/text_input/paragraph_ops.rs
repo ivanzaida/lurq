@@ -103,3 +103,44 @@ fn paragraph_styles_give_each_kind_its_type_over_the_inputs() {
   assert_eq!(styles.of(Bullet).indent, 21.0);
   assert_eq!(ParagraphStyle::new().font_size_scale(1.5).text(&base).font_size, 21.0);
 }
+
+/// The kinds after `pasted`, with a kind for each of its lines, is inserted at `at` of `before`.
+fn paste(
+  kinds: &[ParagraphKind],
+  before: &str,
+  at: usize,
+  pasted: &str,
+  pasted_kinds: &[ParagraphKind],
+) -> Vec<ParagraphKind> {
+  let moved = edit(kinds, before, at..at, pasted);
+  let mut after = before.to_owned();
+  after.insert_str(at, pasted);
+  place_kinds(moved, &paragraph_ranges(&after), at, pasted.len(), pasted_kinds)
+}
+
+#[test]
+fn text_pasted_with_kinds_of_its_own_brings_them_where_it_does_not_go_on_from_a_line() {
+  // One paragraph goes into the line it is put in, and gives its kind only to a line that holds nothing else.
+  assert_eq!(paste(&[Body], "abcd", 2, "x", &[Heading(1)]), [Body]);
+  assert_eq!(paste(&[Body], "cd", 0, "x", &[Heading(1)]), [Body]);
+  assert_eq!(paste(&[Body, Body], "ab\n", 3, "x", &[Heading(1)]), [Body, Heading(1)]);
+  // Of several, the first goes on from the text before it, the last gives its kind to the text after it.
+  assert_eq!(
+    paste(&[Body], "abcd", 2, "x\ny\nz", &[Heading(1), Quote, Bullet]),
+    [Body, Quote, Bullet]
+  );
+  // With nothing before it the first is what it was copied as.
+  assert_eq!(
+    paste(&[Body], "cd", 0, "x\ny", &[Heading(1), Bullet]),
+    [Heading(1), Bullet]
+  );
+  // A last one that is empty, of text that ended in a line break, leaves the text after it what it was.
+  assert_eq!(
+    paste(&[Quote], "cd", 0, "x\n", &[Heading(1), Body]),
+    [Heading(1), Quote]
+  );
+  // Kinds that are not one for each pasted line are left out.
+  assert_eq!(paste(&[Quote], "cd", 0, "x\ny", &[Heading(1)]), [Quote, Quote]);
+  // A heading's level is kept within 1 to 6.
+  assert_eq!(paste(&[Body], "", 0, "x", &[Heading(9)]), [Heading(6)]);
+}

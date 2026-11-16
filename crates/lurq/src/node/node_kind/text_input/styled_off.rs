@@ -21,7 +21,7 @@ pub(super) type SnapshotSpans = Infallible;
 
 pub(super) type SnapshotParagraphs = Infallible;
 
-pub(super) enum InsertedText {}
+pub(super) struct InsertedText<'a>(std::marker::PhantomData<&'a ()>, Infallible);
 
 impl TextInputState {
   #[inline]
@@ -45,9 +45,9 @@ impl TextInputState {
     &self,
     _edit: Option<SpansBeforeEdit>,
     _range: Range<usize>,
-    inserted: &InsertedText,
+    inserted: &InsertedText<'_>,
   ) {
-    match *inserted {}
+    match inserted.1 {}
   }
 
   #[inline]

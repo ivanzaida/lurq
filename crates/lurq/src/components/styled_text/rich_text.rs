@@ -105,6 +105,48 @@ impl RichText {
     reader.finish()
   }
 
+  /// Whether a text reads as Markdown: one of its lines starts a heading (`# ` to `###### `), an item of a list
+  /// (`- `, `* `, `+ `, `1. `, `1) `), a quote (`>`) or a fence of code (three backticks or tildes), after at most
+  /// three spaces; or Markdown reads a mark in it (`**bold**`, `_italic_`, `` `code` ``, `~~struck~~`,
+  /// `[a link](target)`, `<u>under</u>`). What [`Self::to_markdown`] writes of formatted text reads as Markdown;
+  /// a text with neither is plain, whatever asterisks it has (`2 * 3`). What an input that keeps its formatting
+  /// through the clipboard asks of a pasted text.
+  ///
+  /// ```
+  /// use lurq::components::RichText;
+  ///
+  /// assert!(RichText::reads_as_markdown("## Notes\n\n- one\n- two"));
+  /// assert!(RichText::reads_as_markdown("and **that** is all"));
+  /// assert!(!RichText::reads_as_markdown("2 * 3 = 6, and that is all"));
+  /// ```
+  pub fn reads_as_markdown(text: &str) -> bool {
+    text.lines().any(|line| {
+      let indent = line.len() - line.trim_start_matches(' ').len();
+      if indent > 3 {
+        return false;
+      }
+      let line = &line[indent..];
+      let hashes = line.len() - line.trim_start_matches('#').len();
+      if (1..=6).contains(&hashes) && line[hashes..].starts_with(' ') {
+        return true;
+      }
+      if line.starts_with("```") || line.starts_with("~~~") || line.starts_with('>') {
+        return true;
+      }
+      let item = |rest: &str| rest.starts_with(' ') && !rest.trim().is_empty();
+      if line.starts_with(['-', '*', '+']) && item(&line[1..]) {
+        return true;
+      }
+      let digits = line.len() - line.trim_start_matches(|ch: char| ch.is_ascii_digit()).len();
+      (1..=9).contains(&digits) && line[digits..].starts_with(['.', ')']) && item(&line[digits + 1..])
+    }) || Self::has_inline_marks(text)
+  }
+
+  /// Whether Markdown reads a mark in `text`: only a text with one of the characters that open a mark is read.
+  fn has_inline_marks(text: &str) -> bool {
+    text.contains(['*', '_', '`', '~', '[', '<']) && !Self::from_markdown(text).spans.is_empty()
+  }
+
   /// The document as Markdown, which [`Self::from_markdown`] reads back as
   /// the same document. An underline is written `<u>…</u>`.
   pub fn to_markdown(&self) -> String {

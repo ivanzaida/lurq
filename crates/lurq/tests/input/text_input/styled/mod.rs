@@ -15,6 +15,7 @@ mod clipboard;
 mod editing;
 mod paint;
 mod paragraphs;
+mod rich_clipboard;
 
 pub(super) const ID: &str = "editor";
 

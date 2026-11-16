@@ -272,6 +272,46 @@ pub(crate) fn splice_kinds(
   normalize_kinds(out, after.len())
 }
 
+/// The kinds after text that brought kinds of its own was inserted at `start`, `inserted` bytes long: `kinds` are
+/// those of the text as it is now, moved over the edit ([`splice_kinds`]), `after` its paragraphs, and `pasted`
+/// one kind for each paragraph of what was inserted.
+///
+/// A single paragraph goes into the line it is put in and leaves it what it was, unless the line held nothing
+/// else. Of several, the first goes on from the text before it and takes its own kind only where there is none;
+/// those between come with their kinds; the last gives its kind to the text after it, unless it is empty (text
+/// that ended in a line break), which leaves that text what it was.
+pub(crate) fn place_kinds(
+  mut kinds: Vec<ParagraphKind>,
+  after: &[Range<usize>],
+  start: usize,
+  inserted: usize,
+  pasted: &[ParagraphKind],
+) -> Vec<ParagraphKind> {
+  let first = paragraph_of(after, start);
+  let last = paragraph_of(after, start + inserted);
+  if kinds.len() != after.len() || pasted.len() != last - first + 1 {
+    return kinds;
+  }
+  let nothing_before = after[first].start == start;
+  let nothing_after = after[last].end == start + inserted;
+  if first == last {
+    if nothing_before && nothing_after {
+      kinds[first] = pasted[0].canonical();
+    }
+    return kinds;
+  }
+  if nothing_before {
+    kinds[first] = pasted[0].canonical();
+  }
+  for index in first + 1..last {
+    kinds[index] = pasted[index - first].canonical();
+  }
+  if after[last].start != start + inserted {
+    kinds[last] = pasted[last - first].canonical();
+  }
+  kinds
+}
+
 #[cfg(test)]
 #[path = "../../../tests/input/text_input/paragraph_ops.rs"]
 mod tests;
