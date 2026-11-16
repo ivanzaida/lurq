@@ -69,25 +69,15 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
 #[cfg(not(target_arch = "wasm32"))]
 const TRACK: &[u8] = include_bytes!("../../assets/media/track.m4a");
 
-/// A sound anyone may fetch, for the player that plays an address until another is typed.
-#[cfg(not(target_arch = "wasm32"))]
+/// A sound anyone may fetch: the address the playground plays until another is typed.
 const ADDRESS: &str = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
-/// Where a player that really plays takes its sound from.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Origin {
-  Bytes,
-  File,
-  Address,
-}
+/// What the playground's player is given to play, in the order of the select: nothing, so that the page's
+/// clock moves it; the gallery's track from its bytes or from a file; a sound at an address.
+const SOURCES: [(&str, usize); 4] = [("None", 0), ("Bytes", 1), ("A file", 2), ("An address", ADDRESSED)];
 
-#[cfg(all(feature = "devtools", not(target_arch = "wasm32")))]
-impl lurq::app::component::DevtoolsInspectable for Origin {
-  fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
-    formatter.value_debug(self);
-  }
-}
+/// The place of an address among the sources.
+const ADDRESSED: usize = 3;
 
 /// The track as bytes: one source for every render, so that it is one sound.
 #[cfg(not(target_arch = "wasm32"))]
@@ -112,127 +102,78 @@ fn track_file() -> lurq::resources::Source {
   lurq::resources::Source::file(path)
 }
 
-/// A player that really plays: it is given a source and nothing of where it is or how long, which are the
-/// sound's. Its volume starts at a half.
+/// The source the playground's player plays: none for the first of [`SOURCES`], and for an address that is
+/// not typed yet.
 #[cfg(not(target_arch = "wasm32"))]
-struct Sourced {
-  playing: Signal<bool>,
-  position: Signal<f32>,
-  volume: Signal<f32>,
-  muted: Signal<bool>,
-  rate: Signal<f32>,
-  repeat: Signal<AudioRepeat>,
-  /// What is typed for an address, and the address that plays.
-  typed: Signal<String>,
-  address: Signal<String>,
-  /// How many bytes of sounds the process keeps: read again a few times a second, for the line under the player.
-  kept: Signal<u64>,
-  _clock: Interval,
+fn source_of(chosen: usize, address: &str) -> Option<lurq::resources::Source> {
+  match chosen {
+    1 => Some(track_bytes()),
+    2 => Some(track_file()),
+    ADDRESSED if !address.trim().is_empty() => Some(lurq::resources::Source::url(address.trim())),
+    _ => None,
+  }
 }
 
+/// The field an address is typed into, as the playground's fields are. What plays stops at the first key, so
+/// that half an address is not asked for.
 #[cfg(not(target_arch = "wasm32"))]
-impl Component for Sourced {
-  type Props = Origin;
+fn address_field(address: &Signal<String>, playing: &Signal<bool>) -> Element {
+  let body = lurq::ui::current_theme().typography_style(lurq::app::theme::TypographyStyle::Body);
+  let playing = playing.clone();
+  Row::new()
+    .width(FILL)
+    .height(36.0)
+    .padding_horizontal(12.0)
+    .align_items(Alignment::Center)
+    .rounded(RadiusSize::Md)
+    .background(PaletteColor::Background)
+    .border(lurq::node::border::Border::inside(
+      lurq::app::theme::BorderSize::Sm,
+      PaletteColor::Input,
+    ))
+    .child(
+      lurq::components::TextInput::styled(address.clone(), body)
+        .flex(1.0)
+        .height(FILL)
+        .tab_index(0)
+        .on_input(move |_| {
+          if playing.get_untracked() {
+            playing.set(false);
+          }
+        }),
+    )
+    .into()
+}
 
-  fn create(ctx: &mut Ctx) -> Self {
-    let kept = ctx.signal(lurq::media::sound_cache().bytes());
-    let clock = ctx.create_interval(Duration::from_millis(500), {
-      let kept = kept.clone();
-      move || {
-        let now = lurq::media::sound_cache().bytes();
-        if kept.get_untracked() != now {
-          kept.set(now);
-        }
-      }
-    });
-    if *ctx.props::<Origin>() == Origin::Address {
-      clock.start();
-    }
-    Self {
-      playing: ctx.signal(false),
-      position: ctx.signal(0.0),
-      volume: ctx.signal(0.5),
-      muted: ctx.signal(false),
-      rate: ctx.signal(1.0),
-      repeat: ctx.signal(AudioRepeat::Off),
-      typed: ctx.signal(ADDRESS.to_owned()),
-      address: ctx.signal(ADDRESS.to_owned()),
-      kept,
-      _clock: clock,
-    }
+/// Under the address: whether its sound is kept and how much is kept in all, and what lets go of it.
+#[cfg(not(target_arch = "wasm32"))]
+fn kept_line(source: Option<&lurq::resources::Source>, kept: u64) -> Element {
+  let cache = lurq::media::sound_cache();
+  let holds = source.is_some_and(|source| cache.holds(source));
+  let megabytes = kept as f64 / (1024.0 * 1024.0);
+  let said = match (holds, kept) {
+    (true, _) => format!("kept · {megabytes:.1} MB of sounds"),
+    (false, 0) => "loaded when it is first played, then kept".to_owned(),
+    (false, _) => format!("not kept yet · {megabytes:.1} MB of sounds"),
+  };
+  let mut line = Row::new()
+    .width(FILL)
+    .min_height(28.0)
+    .spacing(8.0)
+    .align_items(Alignment::Center)
+    .child(quiet(&said, 12.0).flex(1.0).min_width(0.0));
+  if let (true, Some(source)) = (holds, source) {
+    let source = source.clone();
+    line = line.child(
+      lurq::ui::Button::new("Forget")
+        .variant(lurq::ui::ButtonVariant::Ghost)
+        .size(lurq::ui::ButtonSize::Sm)
+        .on_click(move |_| {
+          lurq::media::sound_cache().forget(&source);
+        }),
+    );
   }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let origin = *ctx.props::<Origin>();
-    let address = self.address.get();
-    let source = match origin {
-      Origin::Bytes => track_bytes(),
-      Origin::File => track_file(),
-      Origin::Address => lurq::resources::Source::url(address.trim()),
-    };
-    let (title, by) = match origin {
-      Origin::Bytes => ("Paper Boats", "Bytes in the app"),
-      Origin::File => ("Paper Boats", "A file on the disk"),
-      Origin::Address => ("From an address", "Loaded once, then kept"),
-    };
-    let mut player = AudioPlayer::new(self.position.clone(), 0.0)
-      .title(title)
-      .description(by)
-      .media(artwork(64.0))
-      .playing(self.playing.clone())
-      .volume(self.volume.clone())
-      .muted(self.muted.clone())
-      .rate(self.rate.clone())
-      .repeat(self.repeat.clone());
-    if origin != Origin::Address || !address.trim().is_empty() {
-      player = player.source(&source);
-    }
-    let shown = Column::new().width(360.0).spacing(10.0).overflow_visible().child(player);
-    if origin != Origin::Address {
-      return shown;
-    }
-    // Another address is played once it is entered; what was kept of this one is let go on asking.
-    let (typed, entered, playing) = (self.typed.clone(), self.address.clone(), self.playing.clone());
-    let play = move || {
-      playing.set(false);
-      entered.set(typed.get_untracked());
-    };
-    let kept = lurq::media::sound_cache().holds(&source);
-    let forgotten = source.clone();
-    shown
-      .child(lurq::ui::Input::new(self.typed.clone()).placeholder("https://…/sound.mp3").on_submit({
-        let play = play.clone();
-        move |_| play()
-      }))
-      .child(
-        Row::new()
-          .spacing(8.0)
-          .align_items(Alignment::Center)
-          .child(
-            lurq::ui::Button::new("Play this address")
-              .variant(lurq::ui::ButtonVariant::Secondary)
-              .size(lurq::ui::ButtonSize::Sm)
-              .on_click(move |_| play()),
-          )
-          .child(
-            lurq::ui::Button::new("Forget it")
-              .variant(lurq::ui::ButtonVariant::Ghost)
-              .size(lurq::ui::ButtonSize::Sm)
-              .disabled(!kept)
-              .on_click(move |_| {
-                lurq::media::sound_cache().forget(&forgotten);
-              }),
-          ),
-      )
-      .child(quiet(
-        &format!(
-          "{} · {:.1} MB of sounds kept",
-          if kept { "this one is kept" } else { "this one is not kept yet" },
-          self.kept.get() as f64 / (1024.0 * 1024.0)
-        ),
-        12.0,
-      ))
-  }
+  line.into()
 }
 
 /// What is on a stage, side by side; what does not fit goes on to the next line.
@@ -462,9 +403,15 @@ pub struct AudioPlayerPage {
   error: Signal<bool>,
   unheard: Signal<bool>,
   disabled: Signal<bool>,
-  /// The page's clock: while the playground plays, it moves the position on, and stops it at the end.
-  #[allow(dead_code)]
-  clock: Interval,
+  /// What the playground's player plays, of [`SOURCES`]; the address typed for the last of them; and how many
+  /// bytes of sounds are kept, which the clock reads again for the line under the address.
+  source: Signal<usize>,
+  address: Signal<String>,
+  #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+  kept: Signal<u64>,
+  /// The page's clock: while the playground plays with no source, it moves the position on, and stops it at
+  /// the end; and it reads how much is kept.
+  _clock: Interval,
 }
 
 impl AudioPlayerPage {
@@ -510,13 +457,20 @@ impl AudioPlayerPage {
       }
     };
 
+    // What it really plays, where a source is chosen: where it is and how long are then the sound's.
+    let chosen = self.source.get().min(SOURCES.len() - 1);
+    #[cfg(not(target_arch = "wasm32"))]
+    let source = source_of(chosen, &self.address.get());
+    #[cfg(target_arch = "wasm32")]
+    let source: Option<()> = None;
+    let sourced = chosen != 0;
     let record = self.playground.recorder();
     let say = |what: &'static str| {
       let record = record.clone();
       move || record(format!("{what}()"))
     };
     let position = self.position.clone();
-    let mut player = AudioPlayer::new(self.position.clone(), length)
+    let mut player = AudioPlayer::new(self.position.clone(), if sourced { 0.0 } else { length })
       .variant(variant)
       .loading(loading)
       .error(error.then_some("This track can't be played."))
@@ -529,9 +483,6 @@ impl AudioPlayerPage {
       .rate(self.rate.clone())
       .shuffle(self.shuffle.clone())
       .repeat(self.repeat.clone())
-      // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and
-      // a position read here would build the whole page again for every step of a drag.
-      .buffered(f64::from(length).min(200.0))
       .on_change({
         let record = record.clone();
         move |to| record(format!("on_change({to:.1})"))
@@ -603,11 +554,38 @@ impl AudioPlayerPage {
     if waves {
       player = player.peaks(&PEAKS);
     }
+    // The window of its own shows the player with no source: two players of one sound would be heard twice.
+    let alone = player.clone().buffered(f64::from(length).min(200.0));
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      player = match &source {
+        Some(source) => player.source(source),
+        // The page reads nothing that moves as it plays or is dragged: the player is a component of its own,
+        // and a position read here would build the whole page again for every step of a drag.
+        None if !sourced => player.buffered(f64::from(length).min(200.0)),
+        None => player,
+      };
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+      let _ = &source;
+      player = player.buffered(f64::from(length).min(200.0));
+    }
 
     let mut code = vec![
       "// position: Signal<f32>, playing: Signal<bool>, ...".to_owned(),
-      format!("AudioPlayer::new(position, {length:.1})"),
+      if sourced {
+        "AudioPlayer::new(position, 0.0)".to_owned()
+      } else {
+        format!("AudioPlayer::new(position, {length:.1})")
+      },
     ];
+    match chosen {
+      1 => code.push("    .source(&Source::bytes(include_bytes!(\"track.m4a\").to_vec()))".to_owned()),
+      2 => code.push("    .source(&Source::file(\"songs/track.m4a\"))".to_owned()),
+      ADDRESSED => code.push(format!("    .source(&Source::url({:?}))", self.address.get().trim())),
+      _ => {}
+    }
     if !full {
       code.push(format!("    .variant({variant_code})"));
     }
@@ -727,6 +705,24 @@ impl AudioPlayerPage {
       controls.push(prop("title", "&str", field(&self.title)));
       controls.push(prop("description", "&str", field(&self.description)));
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let (to_source, stop, rewind) = (self.source.clone(), self.playing.clone(), self.position.clone());
+      controls.push(prop(
+        "source",
+        "&Source",
+        self.playground.select(3, &SOURCES, &chosen, move |index| {
+          // Another sound: what played stops, and the new one starts from its start.
+          stop.set(false);
+          rewind.set(0.0);
+          to_source.set(index);
+        }),
+      ));
+      if chosen == ADDRESSED {
+        controls.push(prop("address", "&str", address_field(&self.address, &self.playing)));
+        controls.push(kept_line(source.as_ref(), self.kept.get()));
+      }
+    }
     if full {
       controls.push(prop(
         "repeat",
@@ -758,6 +754,7 @@ impl AudioPlayerPage {
     controls.push(flag("disabled", &self.disabled));
 
     let changed = usize::from(variant_index != 0)
+      + usize::from(sourced)
       + usize::from(title != "Night Drive")
       + usize::from(description != "Aurora Lane · Low Tide")
       + [
@@ -799,7 +796,10 @@ impl AudioPlayerPage {
         self.unheard.clone(),
         self.disabled.clone(),
       );
+      let (source, address) = (self.source.clone(), self.address.clone());
       move || {
+        source.set(0);
+        address.set(ADDRESS.to_owned());
         variant.set(0);
         window.set(0);
         title.set("Night Drive".to_owned());
@@ -819,13 +819,17 @@ impl AudioPlayerPage {
         disabled.set(false);
       }
     };
-    let facts = format!(
-      "{variant_name} · {} long",
-      lurq::ui::media_time_text(f64::from(length), false)
-    );
+    let facts = if sourced {
+      format!("{variant_name} · plays its source")
+    } else {
+      format!(
+        "{variant_name} · {} long",
+        lurq::ui::media_time_text(f64::from(length), false)
+      )
+    };
     self.playground.window_shows({
       // Behind a lock: the artwork is an element, which threads do not share.
-      let player = std::sync::Mutex::new(player.clone().force(None));
+      let player = std::sync::Mutex::new(alone.force(None));
       move |ctx| {
         let player = player.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
         player.mount(ctx)
@@ -868,6 +872,7 @@ impl Component for AudioPlayerPage {
       ctx.signal(1.0_f32),
       ctx.signal(AudioRepeat::Off),
     );
+    let (source, kept) = (ctx.signal(0_usize), ctx.signal(0_u64));
     // A quarter of a second at a time, at the speed chosen; at the end it stops, or begins again on repeat one.
     let clock = ctx.create_interval(Duration::from_millis(250), {
       let (variant, playing, position, rate, repeat) = (
@@ -877,8 +882,20 @@ impl Component for AudioPlayerPage {
         rate.clone(),
         repeat.clone(),
       );
+      let (source, kept) = (source.clone(), kept.clone());
       move || {
-        if !playing.get_untracked() {
+        #[cfg(target_arch = "wasm32")]
+        let _ = &kept;
+        // How much is kept changes when a sound was loaded, and when one was let go.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+          let now = lurq::media::sound_cache().bytes();
+          if kept.get_untracked() != now {
+            kept.set(now);
+          }
+        }
+        // A player with a source is moved by its sound, not by this clock.
+        if !playing.get_untracked() || source.get_untracked() != 0 {
           return;
         }
         let length = length_of(variant.get_untracked());
@@ -893,9 +910,10 @@ impl Component for AudioPlayerPage {
         }
       }
     });
+    clock.start();
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 3),
+      playground: Playground::new(ctx, 4),
       variant,
       window: ctx.signal(0),
       title: ctx.signal("Night Drive".to_owned()),
@@ -913,7 +931,10 @@ impl Component for AudioPlayerPage {
       error: ctx.signal(false),
       unheard: ctx.signal(false),
       disabled: ctx.signal(false),
-      clock,
+      source,
+      address: ctx.signal(ADDRESS.to_owned()),
+      kept,
+      _clock: clock,
     }
   }
 
@@ -1103,21 +1124,14 @@ impl Component for AudioPlayerPage {
       ),
     ];
     let playground = self.play(ctx);
-    #[cfg(not(target_arch = "wasm32"))]
-    let real = items()
-      .child(item(ctx.mount::<Sourced>(Origin::Bytes), "bytes: in the app's own binary"))
-      .child(item(ctx.mount::<Sourced>(Origin::File), "a file: read from the disk"))
-      .child(item(
-        ctx.mount::<Sourced>(Origin::Address),
-        "an address: loaded through the app's loader, then kept",
-      ));
-    #[allow(unused_mut)]
-    let mut sections = vec![
+    let sections = vec![
         Section::new(
           "Playground",
           "Every prop is a control on the right; the player on the stage is bound to the page's signals, and a \
-           clock of the page moves the position on while it plays and stops it at the end. Nothing really plays \
-           here: the players of the next section do.",
+           clock of the page moves the position on while it plays and stops it at the end. With a source chosen \
+           (the gallery's own track from its bytes or from a file, or a sound at an address) the player really \
+           plays it: where it is and how long are then the sound's. An address is loaded when it is first \
+           played, and kept.",
           playground,
         ),
         Section::new(
@@ -1199,33 +1213,6 @@ impl Component for AudioPlayerPage {
         ),
         Section::new("Props", "", props_table(&rows_table, &["new"], self.frame.room())),
     ];
-    #[cfg(not(target_arch = "wasm32"))]
-    sections.insert(
-      1,
-      Section::new(
-        "Plays a source",
-        "Given a source, a player really plays: the sound is decoded by the system and heard, and where it is, \
-         how long it is and whether it loads are the sound's own. The same track from the bytes of the app's \
-         binary and from a file on the disk, and a sound at an address, which is loaded once through the app's \
-         loader and kept: forget it, and playing it loads it again.",
-        self.frame.demo(
-          4,
-          real,
-          "AudioPlayer::new(position, 0.0).source(&Source::url(..))",
-          &[
-            "// Bytes, a file, a resource of the app, an address:",
-            "AudioPlayer::new(position, 0.0)",
-            "    .source(&Source::url(\"https://example.com/night-drive.mp3\"))",
-            "    .title(\"Night Drive\")",
-            "    .volume(volume)",
-            "",
-            "// What was loaded from an address is kept, up to a number of bytes:",
-            "sound_cache().budget(256 * 1024 * 1024);",
-            "sound_cache().forget(&source);",
-          ],
-        ),
-      ),
-    );
     self.frame.page(
       ctx,
       Header {

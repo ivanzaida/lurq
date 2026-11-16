@@ -104,47 +104,52 @@ or "playing" is guess 1.
 cargo run -p gallery
 ```
 
-Components, Media, **Audio Player**, the section **Plays a source**. Three players; their volume starts at a
-half.
+Components, Media, **Audio Player**. The player of the **Playground** really plays once it is given a source:
+in the panel **Props**, the select **source** (`None`, `Bytes`, `A file`, `An address`). Its volume starts at
+0.6. Choosing another source stops what played.
 
-The first, "bytes in the app's own binary":
+**source: Bytes** (the gallery's own track, from the app's binary):
 
-- [ ] It shows `0:00` and `0:24` before anything is pressed: it opened, and its length is the track's.
-- [ ] Play: plucked notes over a low tone are heard, and the time and the bar move.
+- [ ] The player shows `0:00` and `0:24` before anything is pressed: it opened, and its length is the track's.
+- [ ] Play (the button, or the switch **playing** in the panel): plucked notes over a low tone are heard, and
+      the time and the bar move.
 - [ ] Pause: silence at once, and the time stands. Play: it goes on from there.
 - [ ] A press in the middle of the bar: it is heard from there. A drag of the handle: it follows, and plays
       from where it is let go.
 - [ ] The volume's slider: louder and quieter at once, not a moment later. All the way down: nothing.
-- [ ] The volume's button: silence, and the slider goes to nothing; again: as loud as it was.
+- [ ] The volume's button, or the switch **muted**: silence, and the slider goes to nothing; again: as loud as
+      it was.
 - [ ] The speed, `1×`: at 1.5 and 2 it is faster and **the notes are as high as they were**; at 0.5 slower.
       (On Windows they are higher and lower. That difference is known.)
 - [ ] Left to play to its end: it stops, the button is "play" again and the time is `0:24`. Play: from its
       start.
-- [ ] Repeat pressed to "one" (the glyph with a 1): at its end it starts over by itself.
+- [ ] **repeat: One** in the panel: at its end it starts over by itself.
+- [ ] **variant**: `Compact`, `Voice` and `Mini` play the same sound, each with the controls it has.
 
-The second, "a file: read from the disk":
+**source: A file** (the same track, written to the temporary folder and read from the disk):
 
-- [ ] The same track, and everything above holds for it. Both players playing at once are both heard.
+- [ ] Everything above holds for it.
 
-The third, "an address":
+**source: An address** (a field **address** comes under the select, with an MP3 of six minutes in it):
 
-- [ ] Before anything is pressed it shows `-:--` and the line under it says "this one is not kept yet": it
-      has not loaded anything.
-- [ ] Play: lines and a spinner while it loads (8.5 MB), then music, and its length is `6:12`. The line
-      under it says "this one is kept · 8.5 MB of sounds kept".
-- [ ] Another page of the gallery, then back: the player shows `6:12` at once, and plays at once.
+- [ ] Before anything is pressed the player shows `-:--`, and the line under the field says "loaded when it
+      is first played, then kept": it has not loaded anything.
+- [ ] Play: lines and a spinner while it loads (8.5 MB), then music, and its length is `6:12`. The line under
+      the field says "kept · 8.5 MB of sounds", with **Forget** at its end.
+- [ ] **source** to `Bytes` and back to `An address`: the player shows `6:12` at once, and plays at once.
 - [ ] With the network off: it still plays (it is kept).
-- [ ] "Forget it", then play, still with the network off: an error line in the player, with "Try again".
+- [ ] **Forget**, then play, still with the network off: an error line in the player, with "Try again".
       Network on, "Try again": it loads and plays.
-- [ ] An address that is not a sound typed into the field, "Play this address", play: an error line, no
-      crash.
+- [ ] While it plays, a key in the field **address**: it stops at the first key. An address that is not a
+      sound, then play: an error line, no crash.
 
 Around them:
 
 - [ ] Headphones plugged in and pulled out while it plays, and another output chosen in the system: what
       happens. Nothing was written for this on these systems: on a Mac the player may go on by itself on the
       new output, or stop (then the media is paused where it was, by guess 2).
-- [ ] The window closed while a player plays: the sound stops.
+- [ ] The window closed while the player plays: the sound stops.
+- [ ] The playground's player opened in a window of its own (the button at the end of the bar over the stage): it is shown there with no source, so that one sound is not heard twice.
 - [ ] **Video Player**, the section with the clip: the player says it cannot play, with "this build shows no
       video on this system yet" under it. That is what it is meant to say for now.
 
