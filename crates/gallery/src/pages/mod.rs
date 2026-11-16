@@ -101,6 +101,7 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 mod spinner;
 mod splitter;
 mod status_bar;
@@ -1164,6 +1165,14 @@ pub const PAGES: &[Page] = &[
     about: "column view columns miller finder file browser hierarchy folders path drill down side by side lazy spinner new controlled path items on_change on_activate disabled label loading_label mount TreeItem ColumnView",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<column_view::ColumnViewPage>(()),
+  },
+  Page {
+    path: "/sortable-list",
+    name: "Sortable List",
+    icon: Some("grip-vertical"),
+    about: "sortable list reorder drag drop rows order move handle grip ghost insertion line count selection keyboard alt arrows SortableList SortableItem on_reorder on_reorder_many move_rows selected selected_controlled on_selected_change handle handle_only disabled label mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<sortable_list::SortableListPage>(()),
   },
   Page {
     path: "/play-button",

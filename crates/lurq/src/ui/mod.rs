@@ -128,6 +128,7 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 #[cfg(feature = "canvas")]
 mod sparkline;
 mod spinner;
@@ -444,6 +445,10 @@ pub use skeleton::{
 };
 pub use slider::{
   RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
+};
+pub use sortable_list::{
+  SORTABLE_LIST_TILT, SortableItem, SortableList, SortableListPart, SortableListRenderer, SortableListState,
+  SortableListView, SortableRow, move_rows,
 };
 #[cfg(feature = "canvas")]
 pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};

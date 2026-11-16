@@ -4481,6 +4481,57 @@ ColumnView::controlled(app.path(), items, |path| app.go(path));
 - In the design the view is 520 by 176 on `Background` in an edge of 1 in `Border`, `radius-lg`. A column is padded 4 with a line of 1 in `Border` at its end, its items 1 apart. An item is 26 high with `radius-sm`, 6 at each side, and holds an icon of 14 and a chevron of 12 in `MutedForeground` and its label in the body's type at 13, 6 apart. On the path it is on `Highlight`; at its end on `Info`, its icon, label and chevron in white. Under the pointer and held down it has the `StateHover` and `StatePressed` veils, the focus is a ring of 2 in `Ring` inside it, and a disabled item is half opaque. An item follows the [density](../theme/#density): 18, 26, 34 and 38 high.
 - A theme's renderer is given `ColumnViewView`: `view.columns` (each a `ColumnViewColumn` with its `items`, each a `ColumnViewItem` with its label, icon, whether it opens, is selected, is current, is disabled), `view.root()`, `column.render()`, and on an item `item.button()`, `item.icon()`, `item.label()`, `item.chevron()` and `item.render()`.
 
+## Sortable List
+
+A list whose rows a person puts in another order, by a drag of a row or of its handle and by the keys: the columns of a table, the layers of a scene, the steps of a pipeline.
+
+```rust
+use lurq::ui::{SortableItem, SortableList, move_rows};
+
+// sections: Signal<Vec<&str>>, the rows in the app's order.
+let order = sections.clone();
+SortableList::new(sections.get().into_iter().map(|name| (name, name)))
+  .label("Sections")
+  .on_reorder(move |from, to| {
+    order.update(|rows| {
+      let row = rows.remove(from);
+      rows.insert(to, row);
+    })
+  })
+  .mount(ctx);
+
+// A selection, whose rows are dragged together.
+SortableList::new(rows)
+  .selected(selected)
+  .on_reorder(|from, to| ..)
+  .on_reorder_many(move |rows, to| sections.update(|order| move_rows(order, rows, to)))
+  .mount(ctx);
+
+// Rows that hold what is pressed itself are dragged by their grip alone.
+SortableList::new(settings.map(|name| SortableItem::new(name, name).trailing(switch(name)))).handle_only(true);
+```
+
+| Builder | |
+| --- | --- |
+| `new(items)` | The rows in the app's order: `(value, title)`, or `SortableItem::new(value, title)` with `description`, `icon`, `trailing`, `disabled`, `id` and `key` |
+| `on_reorder(handler)` | Told `(from, to)` when a person moves one row: where it was and where it goes, as it is taken out and put back, `rows.insert(to, rows.remove(from))`, as a [strip of tabs](#window-tabs) tells it. The app reorders its rows |
+| `on_reorder_many(handler)` | Told `(&rows, to)` when several selected rows are moved together: where they were, in order, and where the first of them goes in the list without them. `ui::move_rows(&mut list, rows, to)` does it to a `Vec` |
+| `selected(Signal<Vec<T>>)`, `selected_controlled(values, on_selected_change)` | The rows that are selected, bound or held by the app. A list without it has no selection. `on_selected_change(&[T])` hears each change a person makes |
+| `handle(bool)`, `handle_only(bool)` | Whether each row has its grip (it has unless told otherwise), and whether a row is dragged by its grip alone and not by the rest of it |
+| `label(&str)` | What the list is called to what reads the tree |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the row Tab stops on so |
+| `mount(ctx)` | In place of converting it: the list keeps a drag from one render to the next, and draws it |
+
+- The list does not keep the order: the app's rows do, and it shows them in the order it is given. A row is a [list item](#list) in the list's dress, so it has a list item's two lines, its veils, its ring and its heights at each [density](../theme/#density).
+- A press that moves past a few pixels is a drag. The row follows the pointer over the list, turned a little (`ui::SORTABLE_LIST_TILT`) under the theme's large shadow; what stood in its place is a ghost; and a line with a dot at its start shows between which rows it would go, in the room between them, so no row moves on the way. Let go, the app is told where; let go where it was, nothing. Escape puts it back, and the release that follows tells nothing. A drag that moved presses and selects nothing.
+- The list is one stop of Tab. Up and Down move the focus through the rows. Alt with Up or Down moves the focused row one place, Alt with Home or End to the first or the last, and the focus goes with it. A disabled row is passed by, is not moved, and other rows are put before and after it.
+- With a selection a press selects a row, with Ctrl (Cmd) one in or out and with Shift the rows from the last selected, Space adds the focused row or takes it out, Shift with the arrows selects on the way, and Ctrl+A selects them all. A drag of a selected row, or Alt with a key on it, moves every selected row together: each leaves a ghost, the row under the pointer counts them in a badge on its corner, they land together in their order, and the app is told by `on_reorder_many`. One row moved, selected or not, is told by `on_reorder`.
+- Converted into an element on its own the list keeps nothing: a drag still tells where the row was let go, with nothing drawn on the way.
+- To what reads the tree it is a `list` of `listitem`s, or with a selection a `listbox` (`a11y_multiselectable`) of `option`s with `a11y_selected`; each row says `a11y_posinset` and `a11y_setsize`.
+- Parts: `SortableListPart::Root` (the room between the rows), `Item` (laid over the list item's root), `Handle`, `Icon`, `Title`, `Description`, `Ghost`, `Line`, `Cap` (the dot at the line's start) and `Count`. States of a row: `SortableListState::Selected`, `Dragged` (the row drawn under the pointer), `Disabled`.
+- In the design the rows are 4 apart, each 36 high on `Card` in an edge of 1 in `Border`, `radius-md`, with a grip of 14 in `MutedForeground` 6 from its start, its text 8 after it at 13 and 10 from its end. The ghost is on `Muted` in an edge of 1 in `Input` at 0.6; the line is 2 in `Info` with a dot of 6; the count is a disc of 20 in `Info` with its number in white at 11 and 600, 4 past the row's end and 8 over it. A selected row is on `Highlight`.
+- A theme's renderer is given `SortableListView`: `view.rows` (each a `SortableRow` with its title, whether it is selected, disabled, a ghost, dragged), `view.list()`, `view.line()`, `view.lifted(row)`, `view.dragged()` and `view.dragged_count()`; on a row `row.handle()` and `row.render()`.
+
 
 ## Highlight
 

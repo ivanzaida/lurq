@@ -108,6 +108,7 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 mod spinner;
 mod stat_card;
 mod splitter;
