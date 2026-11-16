@@ -7447,6 +7447,16 @@ sound_cache().forget(&source);           // this one has changed: load it again
 sound_cache().clear();
 ```
 
+That is kept in memory, for the run of the app. An app that gives a folder has what it loads from addresses kept there as files, for its next run too:
+
+```rust
+// The folder is the app's own cache folder: lurq picks none.
+let app = App::new().enable_media_disk_cache(cache_folder);
+app.loader().media_disk_cache().budget(2 * 1024 * 1024 * 1024); // 512 MiB unless told
+```
+
+A sound then plays from its file and is not kept in memory as well, and a player of a sound an earlier run kept opens it as it is drawn. `sound_cache()` goes on answering whether a sound is kept and how much is, and `forget` and `clear` delete the files too; its `budget` is of the memory alone. Over the folder's budget the file used longest ago is deleted. What is kept is not asked of the server again, however old it is: an app that knows a sound changed forgets it. See [Loading](../resources-media/#loading).
+
 An app that draws its own player asks for the sound itself:
 
 ```rust

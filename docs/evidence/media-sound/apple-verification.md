@@ -57,6 +57,20 @@ Each of these is a guess a run settles. They are the first places to look when s
    option of `lurq` is an open question to answer after hearing it.
 9. **The framework is found.** The binding links `AVFAudio`, which is its own framework from macOS 11.3 and
    iOS 14.5. On an older system the app may not start.
+10. **A sound the cache on the disk keeps is opened from its file** (`initWithContentsOfURL:`). The file is
+    named by a key and its length, with the ending of its address where that is a sound's
+    (`9f3a41c2d07be815-8a3f10.mp3`) and with none where the address has none. Nothing else tells the player
+    what the file is. On Windows a file with no ending, and one with a wrong ending, open. Here it is a guess.
+11. **The demo's folder on a phone is `$HOME/Library/Caches/lurq-mobile-demo/media`**: that `HOME` is the
+    app's own container on iOS is taken on trust. Where the folder cannot be made, the log says so once
+    ("the folder of the media disk cache ... could not be made"), nothing is written, and the sound is kept in
+    memory as it was before the cache on the disk: the screen then works, and nothing is there after a restart.
+
+The cache on the disk (`App::enable_media_disk_cache`, the gallery and the demo turn it on) was built after the
+rest, on the branch `claude/media-disk-cache`, and is the same code on every system: the files, their names,
+the budget and the forgetting were run on Windows (`design/handoff/media-playback.md`, "The cache on the
+disk"). What is new on these systems is guesses 10 and 11, and that a file is deleted while it plays, which
+these systems always allowed.
 
 ## macOS
 
@@ -81,7 +95,7 @@ cargo test -p lurq --features media --lib media::
 cargo test -p lurq --features form,router,mcp,raster,media,http --test ui_tests audio_player
 ```
 
-- [ ] `media_tests`: four run on a Mac (the tests of a video and of Windows' meters are not built there), and
+- [ ] `media_tests`: nine run on a Mac (the tests of a video and of Windows' meters are not built there), and
       pass:
   - `a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again`: a WAV of 1.2 s from a file and from
     bytes takes about 1.2 s, ends, says so, and plays again from its start. **This is the test of guess 2.**
@@ -91,9 +105,21 @@ cargo test -p lurq --features form,router,mcp,raster,media,http --test ui_tests 
   - `a_sound_at_an_address_is_loaded_once_and_kept`: one request of a server of the test's own for two
     plays; a third after it is forgotten.
   - `a_sound_that_is_not_at_its_address_says_so_and_one_the_app_refuses_is_not_asked_for`.
-- [ ] The three tests of the cache pass (they are the same on every system).
-- [ ] `ui_tests audio_player`: among them `given_a_source_it_plays_the_sound_and_its_controls_move_it` and
-      `a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_drawn` pass.
+  - The five of the cache on the disk, each with a folder of its own under the temporary one:
+    `with_a_folder_given_a_sound_at_an_address_is_a_file_there_and_the_next_run_asks_the_server_for_nothing`
+    (its last part plays a file with no ending: **guess 10**),
+    `forgetting_a_sound_deletes_its_file_and_it_is_loaded_again` (the file is deleted while it plays),
+    `over_the_budget_of_the_folder_the_sound_played_longest_ago_is_deleted`,
+    `a_file_of_the_folder_that_is_gone_cut_short_or_spoiled_is_loaded_again_and_not_played_broken` (its last
+    part gives the player a file of nothing: it is to say it cannot play it, not to crash), and
+    `with_no_folder_given_nothing_is_written_and_a_sound_is_kept_in_memory`.
+- [ ] The four tests of the sounds' cache pass (`--lib media::`), and
+      `cargo test -p lurq --features http --lib resources::`, with the eleven of the cache on the disk: they
+      are the same on every system.
+- [ ] `ui_tests audio_player`: among them `given_a_source_it_plays_the_sound_and_its_controls_move_it`,
+      `a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_drawn` and
+      `a_sound_the_apps_folder_keeps_from_an_earlier_run_is_opened_as_it_is_drawn_and_asks_the_server_for_nothing`
+      pass.
 
 A test that waits ten seconds and fails with "it never came to: ended" is guess 2; "it never came to: opened"
 or "playing" is guess 1.
@@ -142,6 +168,18 @@ in the panel **Props**, the select **source** (`None`, `Bytes`, `A file`, `An ad
       Network on, "Try again": it loads and plays.
 - [ ] While it plays, a key in the field **address**: it stops at the first key. An address that is not a
       sound, then play: an error line, no crash.
+
+**The gallery closed and opened again** (it keeps what it loaded in `~/Library/Caches/lurq-gallery/media`):
+
+- [ ] After the address was played once: that folder holds one file of 8.5 MB, named by a key and its length
+      and ending in `.mp3`, and nothing ending in `.part`.
+- [ ] The gallery quit and run again, the network off, **source** to `An address`: the player shows `6:12`
+      before anything is pressed, and the line under the field says "kept". Play: music at once. (**Guess 10**,
+      with an MP3.)
+- [ ] **Forget** while it plays: the file is gone from the folder at once, and the music goes on to where it
+      is paused.
+- [ ] The file cut short by hand while the gallery is closed (`truncate -s 1000000 <file>`), the network on,
+      the gallery run again: the line does not say "kept", and play loads it anew and plays all of it.
 
 Around them:
 
@@ -201,6 +239,12 @@ it plays, its speed and volume, and its error.
 - [ ] The last player: Play loads the address (a spinner), then plays six minutes of music, and the line over
       it says "Now it is kept; 8.5 MB of sounds are kept". Back to the list and into Sound again: it plays at
       once. **Forget the sound that is kept**: the line says "not kept".
+- [ ] The app closed (swiped away) after the address was played, the phone's network off, the app opened
+      again, **Sound**: the line over the last player says it is kept before anything is pressed, and Play
+      plays at once. That is the cache on the disk, in `Library/Caches/lurq-mobile-demo/media` of the app's
+      container (**guesses 10 and 11**). If the line says "not kept": the console has the warning of guess 11,
+      or the container (Xcode, Devices and Simulators, the app, "Download Container") has no such folder.
+- [ ] **Forget the sound that is kept**, the app closed and opened again: "not kept".
 
 ### What a phone does to a sound
 

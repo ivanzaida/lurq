@@ -289,8 +289,37 @@ app
 - `loader.open(&source)` gives a `Reader`: `len()`, `read_at(offset, buf)` and `buffered()`, for what reads a part
   of a source and not all of it. A file, a resource and bytes are read where they are. A reader of an address is not
   built yet.
-- The loader keeps no bytes. What is decoded from them is kept by who decodes: a picture's pixels are in
+- The loader keeps no bytes in memory. What is decoded from them is kept by who decodes: a picture's pixels are in
   `lurq::images::decoded_images()`.
+
+What is loaded from an address is kept on the disk where the app gives a folder for it, and is then there for the
+next run of the app:
+
+```rust
+// The app's own cache folder: lurq picks none. Not called, nothing is written to the disk.
+let app = App::new().enable_media_disk_cache(cache_folder);
+let kept = app.loader().media_disk_cache();
+kept.budget(2 * 1024 * 1024 * 1024); // 512 MiB unless told
+kept.forget(&source);                // or `app.loader().forget(&source)`: it is loaded from its address again
+kept.clear();
+```
+
+- A load of an address writes a file there, named by the source's key and its length, and a load of the same source
+  reads the file and asks the network for nothing. A file is written under another name and renamed when it is
+  whole. One that is gone, or is not as long as its name says, is loaded again.
+- Over the budget the file used longest ago is deleted. Only the cache's own files are counted and deleted: the
+  folder may hold other things.
+- Nothing asks the server whether a file has changed, and nothing is let go for being old: an app that knows a
+  source changed forgets it, or gives it a key of its own. What came with a header is kept as it came.
+- `kept.holds(&source)`, `bytes()`, `len()`, `folder()` and `is_on()` say what it keeps. A folder that cannot be
+  written is one warning in the log, and nothing is kept there.
+- A sound at an address plays from its file ([playing a sound](../design-system/#playing-a-sound)).
+
+With the feature `tokio`, an app that gives its runtime (`App::with_tokio_handle(handle)`) has its loader read on
+that: a load is a blocking task of the runtime, four at a time, and the loader starts no threads of its own. A
+loader made by itself is told with `loader.tokio_handle(handle)`. The runtime is to run for as long as the app
+loads: a load given to one that has stopped fails with `LoadError::Cancelled`, and `App::clear_tokio_handle()`
+gives the loader its own threads back.
 
 A `LoadError` says why: `NotFound`, `Denied`, `Status(code)`, `TooLarge { limit }`, `TimedOut`, `Cancelled`, `Io`, and
 `Unsupported`, which is what a build that cannot load such a source answers. An address in a build without the
