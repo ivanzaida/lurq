@@ -62,7 +62,7 @@ Picture::from_resource("images/lake.jpg")
 | `width(Length)`, `height(Length)`, `size_px(width, height)`, `aspect_ratio(f32)` | As a browser's `img`: with neither side it is as large as its pixels, with one the other follows their ratio, with both it is a box. A ratio gives the side that is not said, and with neither makes the box as wide as its room; it holds the box of a picture whose pixels are not there yet. The width is the most the box takes: in a narrower room it is as wide as the room, and a box of pixels keeps its shape |
 | `fit(PictureFit)`, `anchor(StackAlignment)` | `Cover` (the default), `Contain`, `Fill`, `None` (its own size); and which side is kept where the pixels are cut or do not fill the box |
 | `shape(PictureShape)`, `bare(bool)` | `Rounded` or `Circle`; bare is the pixels alone, with no fill, no corners and no line |
-| `size(PictureSize)` | The form: `Lg` from 240 wide, `Md` under it, `Sm` at 96 and under, `Xs` at 40 and under. Not said, it follows the width: a width in pixels gives the form, and a box as wide as its room takes the form of the width it gets |
+| `size(PictureSize)` | The form: `Lg` from 240 wide, `Md` under it, `Sm` at 96 and under, `Xs` at 40 and under. Not said, it follows the width the box gets: the width in pixels it was told, or less where its room is narrower, or the width of its room |
 | `placeholder(PicturePlaceholder)` | What the box shows while the pixels are on their way: `Skeleton` (the sheen), `blur(source)` or `blur_pixels(data)` (a small version of the picture, blurred), `None` (the box alone) |
 | `loading(bool)`, `progress(Option<f64>)`, `progress_text(Fn(PictureLoad) -> String)` | The box as while its pixels are on their way, for a picture the app is still fetching; how far the load has come, of 1, which draws a rail in place of the sheen; and the words under the rail. A picture that loads from an address shows its own progress where the server says how long it is |
 | `on_load(Fn())`, `on_error(Fn(&str))`, `on_retry(Fn())` | Told once the pixels are there; once the picture did not come, with why; and on a press of "Try again", before the picture asks again |
@@ -126,9 +126,10 @@ Picture::from_resource("images/lake.jpg")
   2026-11-16). `Into<Element>` declares the component.
 - A box of px by px keeps its shape in a room narrower than it, as `max-width: 100%; height: auto` does: it has a
   ratio a hair under its own and its height as the most, so that at its full width it is exactly as high as said.
-- A picture given a width in pixels builds the one form of that width; narrowed by its room it keeps it. Building
-  every smaller form for each would double to quadruple what a fixed thumbnail builds. A picture that is to change
-  its form with its room is as wide as its room (`aspect_ratio` alone, or `width(Length::Fill)`).
+- A picture given a width in pixels builds the one form of that width. Where its room makes the box narrower, the
+  box is measured before paint and the form of the width it got is built in its place, from the first frame; a
+  box at its width builds the one form it always did. Building every smaller form for each would double to
+  quadruple what a fixed thumbnail builds.
 - What stands in the middle of a box keeps 8 over and under it (the board pads 24): it is centered, so a box of the
   board's size looks the same, and a failed picture of 252 by 142 shows all four of its lines.
 - The color of a chosen picture is `Primary` (Ivan), the disc at the top end.
@@ -139,8 +140,6 @@ Picture::from_resource("images/lake.jpg")
 ## Not done
 
 - The board's Mobile Picture (`VmTdR`, dark `zzLvV`): the phone's forms are not built.
-- A picture given a width in pixels and made narrower by its room keeps the form of the width it was given (see
-  Decided).
 - `ctx.mount` does not hold an unchanged component's nodes as `Element::component` does: the design is in
   `held-components-for-every-mount-handover.md`.
 

@@ -2,6 +2,8 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
+use parking_lot::Mutex;
+
 use super::{
   Lightbox, Picture, PictureSize, names,
   part_style::Length,
@@ -16,7 +18,7 @@ use crate::{
     theme::Theme,
   },
   components::{Column, Row},
-  core::Signal,
+  core::{ElementRef, Signal},
   node::{Element, FocusGroup, dimension::Dimension},
 };
 
@@ -56,6 +58,18 @@ pub type GalleryRenderer = Arc<dyn Fn(GalleryView) -> Element + Send + Sync>;
 
 type Told<T> = Arc<dyn Fn(T) + Send + Sync>;
 
+/// The least width of a gallery's picture unless it is told: the board's thumbnail, 92 by 68.
+pub const GALLERY_LEAST_PICTURE: f32 = 92.0;
+
+/// How many pictures of at least `least`, `gap` apart, a row of `room` holds, of `columns` at most and one at
+/// least.
+fn fitting(columns: usize, least: f32, gap: f32, room: f32) -> usize {
+  if least <= 0.0 {
+    return columns;
+  }
+  (((room + gap) / (least + gap)).floor() as usize).clamp(1, columns)
+}
+
 /// What a key of a gallery's picture is: what the app tells its pictures apart by.
 pub trait GalleryKey: Clone + PartialEq + Send + Sync + 'static {}
 
@@ -94,6 +108,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> GalleryKey for T {}
 pub struct Gallery<K = usize> {
   items: Vec<(K, Picture)>,
   columns: usize,
+  least: f32,
   gap: f32,
   aspect_ratio: f32,
   size: Name,
@@ -121,6 +136,7 @@ impl<K: Clone> Clone for Gallery<K> {
     Self {
       items: self.items.clone(),
       columns: self.columns,
+      least: self.least,
       gap: self.gap,
       aspect_ratio: self.aspect_ratio,
       size: self.size,
@@ -172,6 +188,7 @@ impl<K: GalleryKey> Gallery<K> {
     Self {
       items: items.into_iter().collect(),
       columns: 4,
+      least: GALLERY_LEAST_PICTURE,
       gap: 8.0,
       aspect_ratio: 92.0 / 68.0,
       size: PictureSize::Sm.into(),
@@ -201,9 +218,17 @@ impl<K: GalleryKey> Gallery<K> {
     self
   }
 
-  /// How many pictures stand in a row: 4 unless told.
+  /// The most pictures that stand in a row: 4 unless told. A room too narrow for that many pictures of
+  /// [`min_picture_width`](Self::min_picture_width) has fewer in a row, down to one.
   pub fn columns(mut self, columns: usize) -> Self {
     self.columns = columns.max(1);
+    self
+  }
+
+  /// The least width of a picture: where the room cannot give every column that much, a row has fewer
+  /// pictures. 92 unless told, the board's thumbnail; 0 keeps [`columns`](Self::columns) in a row in any room.
+  pub fn min_picture_width(mut self, width: f32) -> Self {
+    self.least = width.max(0.0);
     self
   }
 
@@ -392,17 +417,70 @@ struct GalleryHost<K> {
   open: Signal<Option<usize>>,
   /// Whether the lightbox is open: what the lightbox itself is given.
   shown: Signal<bool>,
+  /// The gallery as it is laid out: its width is the room its rows have.
+  root: ElementRef,
+  /// What the room and the props make of a row: the room, the most columns, the least width of a picture, the
+  /// gap, and how many stand in a row.
+  fit: Arc<Mutex<Fit>>,
+  /// Moves on where a row has another number of pictures: what renders the gallery again.
+  refit: Signal<u64>,
   _keys: PhantomData<fn() -> K>,
+}
+
+/// What a gallery's room and props make of a row.
+#[derive(Clone, Copy, Default)]
+struct Fit {
+  room: Option<f32>,
+  columns: usize,
+  least: f32,
+  gap: f32,
+  in_a_row: usize,
+}
+
+impl Fit {
+  /// Works out how many stand in a row again. Tells whether that changed.
+  fn settle(&mut self) -> bool {
+    let in_a_row = match self.room {
+      Some(room) => fitting(self.columns.max(1), self.least, self.gap, room),
+      None => self.columns.max(1),
+    };
+    let changed = in_a_row != self.in_a_row;
+    self.in_a_row = in_a_row;
+    changed
+  }
 }
 
 impl<K: GalleryKey> Component for GalleryHost<K> {
   type Props = GalleryProps<K>;
 
   fn create(ctx: &mut Ctx) -> Self {
+    // A row has as many pictures as its room holds from the first frame: the room is measured before paint, and
+    // a frame whose rows change is laid out again before it is painted.
+    let (root, fit, refit) = (
+      ElementRef::new(),
+      Arc::new(Mutex::new(Fit::default())),
+      ctx.signal(0u64),
+    );
+    {
+      let (fit, refit) = (fit.clone(), refit.clone());
+      root.observe_rect_before_paint(move |rect| {
+        let changed = {
+          let mut fit = fit.lock();
+          fit.room = Some(rect.width);
+          fit.settle()
+        };
+        if changed {
+          refit.update(|refit| *refit = refit.wrapping_add(1));
+        }
+      });
+    }
     Self {
       selected: ctx.signal(Vec::new()),
       open: ctx.signal(None),
       shown: ctx.signal(false),
+      root,
+      fit,
+      refit,
       _keys: PhantomData,
     }
   }
@@ -411,6 +489,13 @@ impl<K: GalleryKey> Component for GalleryHost<K> {
     let gallery = ctx.props::<GalleryProps<K>>().0.clone();
     let theme = current_theme();
     let total = gallery.items.len();
+    let _ = self.refit.get();
+    let in_a_row = {
+      let mut fit = self.fit.lock();
+      (fit.columns, fit.least, fit.gap) = (gallery.columns, gallery.least, gallery.gap);
+      fit.settle();
+      fit.in_a_row
+    };
     let open_signal = gallery.open.clone().unwrap_or_else(|| self.open.clone());
     let opened = open_signal.get().filter(|at| *at < total);
     let selected_signal = gallery.selected.clone().unwrap_or_else(|| self.selected.clone());
@@ -526,8 +611,9 @@ impl<K: GalleryKey> Component for GalleryHost<K> {
       recipe: theme.resolve::<Gallery<K>>(&case, Some(&gallery.rules)),
       cells,
       viewer,
-      columns: gallery.columns,
+      columns: in_a_row,
       gap: gallery.gap,
+      root: self.root.clone(),
       aspect_ratio: gallery.aspect_ratio,
       width: gallery.width,
       selectable: gallery.selectable,
@@ -550,6 +636,7 @@ pub struct GalleryView {
   cells: Vec<(Element, Option<(Told<Option<usize>>, usize)>)>,
   /// The lightbox that holds them all, which takes no room.
   viewer: Option<Element>,
+  /// How many pictures stand in a row: as many as the room holds, of the gallery's columns.
   pub columns: usize,
   pub gap: f32,
   pub aspect_ratio: f32,
@@ -558,6 +645,8 @@ pub struct GalleryView {
   label: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// The gallery as it is laid out, whose width says how many pictures a row has.
+  root: ElementRef,
 }
 
 impl GalleryView {
@@ -584,6 +673,7 @@ impl GalleryView {
       .spacing(self.gap)
       // One stop of Tab, and the arrows move among the pictures.
       .focus_group(FocusGroup::both().one_stop(true))
+      .ref_element(self.root.clone())
       .describe("a11y_role", if self.selectable { "listbox" } else { "list" });
     if let Some(label) = &self.label {
       root = root.describe("a11y_name", label.clone());

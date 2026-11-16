@@ -320,6 +320,12 @@ impl Component for LightboxPage {
         "How close the picture is, 1 where it fits, and the closest it is brought.",
       ),
       (
+        "preload",
+        "usize",
+        "1",
+        "How many pictures each way of the one shown are brought on once it came, so that an arrow shows the next          at once; 0 for none.",
+      ),
+      (
         "filmstrip / counter",
         "bool",
         "more than one",

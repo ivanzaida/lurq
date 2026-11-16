@@ -226,7 +226,7 @@ impl Component for GalleryPage {
       .align_items(Alignment::End)
       .id("gallery-board")
       .child(item(
-        Gallery::new(pictures_of(&self.shots, 8)).width(392.0),
+        Gallery::new(pictures_of(&self.shots, 8)).width(392.0).id("gallery-eight"),
         "eight pictures · four in a row, 92 × 68, 8 apart",
       ))
       .child(item(
@@ -252,10 +252,10 @@ impl Component for GalleryPage {
          `item` add more.",
       ),
       (
-        "columns / gap / aspect_ratio",
-        "usize / f32 / f32",
-        "4 / 8 / 92:68",
-        "How many stand in a row, the room between them, and the width of a picture's room to its height.",
+        "columns / min_picture_width / gap / aspect_ratio",
+        "usize / f32 / f32 / f32",
+        "4 / 92 / 8 / 92:68",
+        "The most that stand in a row, the least width of a picture (a narrower room has fewer in a row, down to          one; 0 keeps the columns), the room between them, and the width of a picture's room to its height.",
       ),
       (
         "size / width",

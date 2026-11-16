@@ -262,3 +262,35 @@ fn one_slide_has_no_dots_and_its_buttons_take_nothing() {
   assert!(stage.tree.get_element_by_id("c-dot-0").is_none());
   assert_eq!(stage.bounds("c").3, 140.0);
 }
+
+#[test]
+fn a_sideways_scroll_comes_to_rest_on_a_slide() {
+  use lurq::app::events::ScrollPhase;
+  let index = Signal::new(0);
+  let shown = index.clone();
+  let mut stage = on_stage(move || Carousel::new(slides(3)).index(shown.clone()));
+  let (x, y) = stage.center("c-viewport");
+  // A trackpad: its fingers' way, and the end of it.
+  stage.tree.scroll(x, y, -150.0, 0.0, ScrollPhase::Start);
+  stage.tree.scroll(x, y, 0.0, 0.0, ScrollPhase::End);
+  stage.pass();
+  stage.pass();
+  assert_eq!(index.get(), 1);
+  assert_eq!(slide_x(&mut stage, 1), 56.0);
+
+  // A mouse's wheel turned sideways, which tells of no end: it comes to rest a moment after it stops.
+  stage.tree.wheel(x, y, -100.0, 0.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(1));
+  stage.pass();
+  stage.pass();
+  assert_eq!(index.get(), 1, "100 of 252 is nearer the slide it was at");
+  assert_eq!(slide_x(&mut stage, 1), 56.0);
+  stage.tree.wheel(x, y, -200.0, 0.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(2));
+  stage.pass();
+  stage.pass();
+  assert_eq!(index.get(), 2);
+  assert_eq!(slide_x(&mut stage, 2), 56.0);
+}

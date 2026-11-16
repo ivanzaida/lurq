@@ -531,6 +531,35 @@ fn a_box_wider_than_its_room_is_as_wide_as_the_room_and_keeps_its_shape() {
 }
 
 #[test]
+fn a_box_its_room_made_narrower_takes_the_form_of_the_width_it_got_from_the_first_frame() {
+  let lake = || {
+    Picture::new(pixels(8, 6))
+      .size_px(640.0, 360.0)
+      .title("Lake at dusk")
+      .description("Ivan Zaida · 4032 × 3024")
+      .force_bar_shown(Some(true))
+      .id("lake")
+  };
+  // In a room that holds it, the large form: the line under the title.
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| Row::new().child(lake()).into());
+  stage.pass();
+  assert!(stage.paints("Ivan Zaida · 4032 × 3024"));
+
+  // In a room of 200, the form of 200: the title alone, from the first frame on.
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(Row::new().width(200.0).child(lake()))
+      .into()
+  });
+  assert!(stage.paints("Lake at dusk"), "the first frame");
+  assert!(!stage.paints("Ivan Zaida · 4032 × 3024"), "the first frame");
+  stage.pass();
+  assert!(stage.paints("Lake at dusk"));
+  assert!(!stage.paints("Ivan Zaida · 4032 × 3024"));
+}
+
+#[test]
 fn a_figure_wider_than_its_room_is_as_wide_as_the_room() {
   let mut stage = in_a_narrow_room(|| {
     Picture::new(pixels(8, 6))

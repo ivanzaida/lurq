@@ -430,3 +430,113 @@ fn the_level_gives_way_where_the_top_row_has_no_room_for_it() {
   settled(&mut stage);
   assert!(stage.tree.get_element_by_id("viewer-zoom-out").is_some());
 }
+
+/// What a lightbox brings on ahead: the pictures about the one shown, asked of the loader once its own pixels came.
+#[cfg(feature = "image")]
+mod ahead {
+  use std::time::Duration;
+
+  use lurq::{
+    images::{ImageKey, decoded_images},
+    resources::Source,
+  };
+
+  use super::*;
+
+  const RED: &[u8] = include_bytes!("../assets/images/red_64x32.png");
+
+  /// Five pictures that are resources of the app, `<name>-0.png` to `<name>-4.png`, in a folder of this test's
+  /// own; the ones in `missing` are not there.
+  fn app_with(name: &str, missing: &[usize]) -> (lurq::app::App, Vec<String>) {
+    let folder = std::env::temp_dir().join(format!("lurq-lightbox-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let names: Vec<String> = (0..5).map(|at| format!("{name}-{at}.png")).collect();
+    for (at, file) in names.iter().enumerate() {
+      let _ = std::fs::remove_file(folder.join(file));
+      if !missing.contains(&at) {
+        std::fs::write(folder.join(file), RED).unwrap();
+      }
+    }
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    (app, names)
+  }
+
+  /// Whether the pixels of the resource `name` were asked for: they are decoded, or on their way.
+  fn asked(name: &str) -> bool {
+    decoded_images()
+      .state(ImageKey::new(Source::resource(name).cache_key()), None)
+      .is_some()
+  }
+
+  fn lightbox_of(app: lurq::app::App, names: &[String], preload: Option<usize>) -> Stage {
+    let names = names.to_vec();
+    Stage::first_frame_in(app, 600.0, 400.0, move |_| {
+      let mut lightbox = Lightbox::new(Signal::new(true), names.iter().map(|name| Picture::from_resource(name)))
+        .inline(true)
+        .width(420.0)
+        .height(290.0)
+        // The strip decodes its small pictures small: what it asks for is not the pictures themselves.
+        .index(Signal::new(2))
+        .id("viewer");
+      if let Some(preload) = preload {
+        lightbox = lightbox.preload(preload);
+      }
+      Column::new().size(600.0, 400.0).child(lightbox).into()
+    })
+  }
+
+  /// Passes until `done`, a second at most.
+  fn until(stage: &mut Stage, done: impl Fn() -> bool) -> bool {
+    for _ in 0..100 {
+      stage.pass();
+      if done() {
+        return true;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+  }
+
+  #[test]
+  fn the_pictures_beside_the_one_shown_are_asked_for_once_it_came() {
+    let (app, names) = app_with("beside", &[]);
+    // When is the next test's: nothing is asked for ahead of a picture that did not come. A picture that is a
+    // file on this disk comes within the first frame, and the ones beside it with it.
+    let mut stage = lightbox_of(app, &names, None);
+    assert!(
+      until(&mut stage, || asked(&names[1]) && asked(&names[3])),
+      "the one before and the one after"
+    );
+    assert!(asked(&names[2]));
+    // One each way, and no further.
+    std::thread::sleep(Duration::from_millis(100));
+    stage.pass();
+    assert!(!asked(&names[0]) && !asked(&names[4]));
+  }
+
+  #[test]
+  fn nothing_is_asked_for_ahead_of_one_that_did_not_come() {
+    let (app, names) = app_with("failed", &[2]);
+    let mut stage = lightbox_of(app, &names, None);
+    for _ in 0..20 {
+      stage.pass();
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!asked(&names[1]) && !asked(&names[3]));
+  }
+
+  #[test]
+  fn told_none_it_asks_for_nothing_ahead_and_told_two_it_asks_for_two_each_way() {
+    let (app, names) = app_with("none", &[]);
+    let mut stage = lightbox_of(app, &names, Some(0));
+    assert!(until(&mut stage, || asked(&names[2])));
+    std::thread::sleep(Duration::from_millis(100));
+    stage.pass();
+    assert!(!asked(&names[1]) && !asked(&names[3]));
+
+    let (app, names) = app_with("two", &[]);
+    let mut stage = lightbox_of(app, &names, Some(2));
+    assert!(until(&mut stage, || names.iter().all(|name| asked(name))));
+  }
+}
