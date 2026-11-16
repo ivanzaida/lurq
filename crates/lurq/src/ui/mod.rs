@@ -602,6 +602,8 @@ inspectable!(
   kbd::KeyPlatform,
   message_box::MessageBoxRole,
   pagination::PageItem,
+  picture::PictureFit,
+  picture::PictureShape,
   part_style::Length,
   part_style::Opacity,
   part_style::FontFamily,
