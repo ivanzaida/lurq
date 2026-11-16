@@ -57,6 +57,7 @@ mod find_bar;
 mod floating_panel;
 mod follows_room;
 mod forced_on_one_item;
+mod gallery;
 #[cfg(feature = "canvas")]
 mod heatmap;
 mod highlight;
