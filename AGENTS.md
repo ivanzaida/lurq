@@ -1,0 +1,30 @@
+# For agents working in this repository
+
+How components are named and shaped is in `design/component-playbook.md`. What is here is what holds across the
+whole repository, whoever writes it.
+
+## Every word lurq writes by itself is in the app's one locale
+
+lurq draws and reads out words of its own: the name of a button ("Play"), a placeholder, a line that says what
+went wrong ("Unsupported format"), "Try again", a month. An app in another language, or with another voice, must
+be able to replace every one of them in one place. That place is `lurq::core::Locale`, as `DateLocale` was for
+dates before it, and now is a part of it (`Locale::dates`).
+
+- **No literal in a component or in the engine for a word a person sees or a tool reads.** The word is a field of
+  `Locale`, in the part for its area (`dates`, `media`; a new area adds a part, as `core/media_words.rs` does).
+  English is the default, and the part has the languages lurq knows: `en`, `uk`, `de`, `fr`, `es`, `pl`.
+- **A component takes its words from `ui::current_locale()`** where it is built. The app sets its locale once
+  (`App::set_locale(Locale::for_tag("uk"))`), and what read it is rendered again when it changes. Outside a render
+  it is English.
+- **A component may be given a locale of its own** (`.locale(&Locale)`), and the playbook's single words
+  (`play_label`, `retry_text`) stay over both: one word told by itself is that word.
+- **What went wrong is a kind, not a sentence.** A failure is an enum (`core::MediaError`); the locale puts it
+  into words (`MediaWords::error`), short enough for the line that shows it. What the system said in its own
+  words is kept beside the kind for a log (`MediaError::detail`), and is never shown to a person.
+- **A sentence with a number in it** has a place for the number in the locale's word (`{status}`), or is a
+  function of the locale, as a date's format is.
+
+Not there yet, and to be moved when a component is touched: every component outside the media ones still has its
+English words as literals in its constructor, behind its single-word methods (about 180 words in about 46 files
+of `crates/lurq/src/ui` and `crates/lurq/src/components`), and reads only how dates are written from the app
+(`ui::current_date_locale()`).

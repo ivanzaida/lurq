@@ -29,6 +29,7 @@ use crate::{
   images::ImageData,
   resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Source, SourceKind},
 };
+pub use crate::core::MediaError;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
@@ -63,10 +64,25 @@ pub struct MediaState {
   pub waiting: bool,
   /// Whether it played to its end.
   pub ended: bool,
-  /// Why it cannot play, where it cannot.
-  pub error: Option<Arc<str>>,
+  /// Why it cannot play, where it cannot: the kind of failure, which the app's
+  /// [`Locale`](crate::core::Locale) puts into words ([`MediaWords::error`](crate::core::MediaWords::error)).
+  pub error: Option<MediaError>,
   /// How fast it goes: 1 is as it was made.
   pub rate: f64,
+}
+
+/// What a load that failed is, as a media says it.
+fn load_failed(error: LoadError) -> MediaError {
+  match error {
+    LoadError::NotFound => MediaError::NotFound,
+    LoadError::Denied => MediaError::Denied,
+    LoadError::Status(status) => MediaError::Server(status),
+    LoadError::TooLarge { .. } => MediaError::TooLarge,
+    LoadError::TimedOut => MediaError::TimedOut,
+    LoadError::Unsupported(why) => MediaError::Unavailable(Arc::from(why)),
+    LoadError::Io(said) => MediaError::Network(Arc::from(said)),
+    LoadError::Cancelled => MediaError::Other(Arc::from("the load was stopped")),
+  }
 }
 
 /// What the thread of a media is told.
@@ -101,7 +117,7 @@ pub(crate) struct Inner {
   pub playing: bool,
   pub waiting: bool,
   pub ended: bool,
-  pub error: Option<Arc<str>>,
+  pub error: Option<MediaError>,
   pub rate: f64,
   pub at: f64,
   pub since: Instant,
@@ -151,11 +167,11 @@ impl Shared {
   }
 
   /// It cannot play, and why.
-  pub fn fail(&self, why: impl Into<Arc<str>>) {
+  pub fn fail(&self, why: MediaError) {
     {
       let mut inner = self.inner();
       inner.hold();
-      inner.error = Some(why.into());
+      inner.error = Some(why);
       inner.playing = false;
       inner.waiting = false;
     }
@@ -312,7 +328,7 @@ fn settle(shared: &Arc<Shared>, asked: Asked) -> Option<(Opened, Option<(MediaDi
       // nothing of it is kept.
       Err(LoadError::TooLarge { .. } | LoadError::Unsupported(_)) => Some((Opened::Url(address), None)),
       Err(error) => {
-        shared.fail(error.to_string());
+        shared.fail(load_failed(error));
         None
       }
     },
@@ -382,7 +398,7 @@ impl Media {
       SourceKind::File(path) => Ok(Asked::Opened(Opened::File(path.clone()))),
       SourceKind::Resource(resource) => Ok(Asked::Opened(Opened::File(loader.resource_path(resource)))),
       SourceKind::Bytes(bytes) => Ok(Asked::Opened(Opened::Bytes(bytes.clone(), None))),
-      SourceKind::Url(address) if !loader.allows(address) => Err("the app does not allow this address"),
+      SourceKind::Url(address) if !loader.allows(address) => Err(MediaError::Denied),
       // A sound is loaded whole and kept; kept already, it is there: as a file where the app's cache on the
       // disk is on, in memory where it is not.
       SourceKind::Url(address) if heard => {
@@ -421,7 +437,7 @@ impl Media {
       .name("lurq-media".to_owned())
       .spawn(move || live(&thread, asked, heard, mf::run));
     if spawned.is_err() {
-      shared.fail("a thread to decode on could not be started");
+      shared.fail(MediaError::Other(Arc::from("a thread to decode on could not be started")));
     }
   }
 
@@ -432,13 +448,15 @@ impl Media {
       .name("lurq-media".to_owned())
       .spawn(move || live(&thread, asked, heard, apple::run));
     if spawned.is_err() {
-      shared.fail("a thread to play on could not be started");
+      shared.fail(MediaError::Other(Arc::from("a thread to play on could not be started")));
     }
   }
 
   #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
   fn start(shared: &Arc<Shared>, _: Asked, _: bool) {
-    shared.fail("this build has no decoder for this system yet");
+    shared.fail(MediaError::Unavailable(Arc::from(
+      "this build has no decoder for this system yet",
+    )));
   }
 
   fn shared(&self) -> &Shared {

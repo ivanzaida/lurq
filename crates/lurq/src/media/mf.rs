@@ -11,7 +11,10 @@ use std::{
 use windows::{
   Win32::{
     Media::MediaFoundation::{
-      IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_BYTESTREAM_ORIGIN_NAME, MF_MT_AUDIO_BITS_PER_SAMPLE,
+      IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM,
+      MF_E_INVALID_FILE_FORMAT,
+      MF_E_INVALID_FORMAT, MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE,
+      MF_E_UNSUPPORTED_FORMAT, MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE,
       MF_MT_AUDIO_NUM_CHANNELS,
       MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
       MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
@@ -29,7 +32,7 @@ use windows::{
 };
 
 use super::{
-  Command, Opened, Shared,
+  Command, MediaError, Opened, Shared,
   output::{CHANNELS, Output},
 };
 use crate::images::ImageData;
@@ -58,13 +61,40 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
     match MFStartup(MF_VERSION, MFSTARTUP_FULL) {
       Ok(()) => {
         if let Err(error) = play(shared, opened, heard) {
-          shared.fail(error.message());
+          shared.fail(failed(&error));
         }
         let _ = MFShutdown();
       }
-      Err(error) => shared.fail(error.message()),
+      Err(error) => shared.fail(failed(&error)),
     }
     CoUninitialize();
+  }
+}
+
+/// What the system's error is, as a media says it: what it does not play is one kind, a file that is not there
+/// another, and the rest is kept in the system's words.
+fn failed(error: &windows::core::Error) -> MediaError {
+  // A file or a folder that is not there, as the system says it of a path.
+  const NOT_FOUND: [u32; 2] = [0x8007_0002, 0x8007_0003];
+  let code = error.code();
+  if [
+    MF_E_UNSUPPORTED_BYTESTREAM_TYPE,
+    MF_E_UNSUPPORTED_FORMAT,
+    MF_E_UNSUPPORTED_SCHEME,
+    MF_E_INVALIDMEDIATYPE,
+    MF_E_INVALID_FILE_FORMAT,
+    MF_E_INVALID_FORMAT,
+    MF_E_TOPO_CODEC_NOT_FOUND,
+    // What is too short to be anything: the system reads to its end looking for what it is.
+    MF_E_END_OF_STREAM,
+  ]
+  .contains(&code)
+  {
+    MediaError::Unsupported
+  } else if NOT_FOUND.contains(&(code.0 as u32)) {
+    MediaError::NotFound
+  } else {
+    MediaError::Other(Arc::from(error.message()))
   }
 }
 
@@ -438,7 +468,8 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
     let mut picture = if heard { None } else { Picture::of(&reader).ok() };
     let mut sound = Sound::of(&reader, shared.inner().rate, level(volume, muted)).ok();
     if picture.is_none() && sound.is_none() {
-      shared.fail("it has no picture and no sound that can be played");
+      // What the system opened and found nothing in to play: a kind of picture or sound it has no decoder for.
+      shared.fail(MediaError::Unsupported);
       return Ok(());
     }
     let duration = reader
