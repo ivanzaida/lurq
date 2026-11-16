@@ -641,8 +641,6 @@ impl TablePage {
 
 /// The least the board's bar is wide: its search, the two filters, Filter and the More button.
 const BAR: f32 = 640.0;
-/// The least a table with a count and a pagination in its footer is wide.
-const FOOTER: f32 = 300.0;
 
 fn capitalized(name: &str) -> String {
   let mut chars = name.chars();
@@ -759,8 +757,6 @@ impl Component for TablePage {
       .row_key(|row: &Krate| row.name)
       .loading(true)
       .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill));
-    // The footer's count and its pagination need this much: in a narrower card the table scrolls sideways.
-    let grid = fit("grid", self.frame.stage_room(), FOOTER, grid);
     let forms = Row::new()
       .spacing(28.0)
       .wrap()

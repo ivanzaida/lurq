@@ -3833,7 +3833,9 @@ impl TableView {
   pub fn footer(&mut self) -> Option<Row> {
     let text = self.footer.take()?;
     let count = self.part(TablePart::Count);
+    // In a table too narrow for the count and the pagination on one line, the pagination is under the count.
     let mut footer = Row::new()
+      .wrap()
       .align_items(Alignment::Center)
       .justify(Justify::SpaceBetween)
       .part(&self.part(TablePart::Footer))
@@ -7107,7 +7109,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .density(Density::Comfortable, TablePart::Summary, |s| s.height(52.0))
       .density(Density::Touch, TablePart::Summary, |s| s.height(52.0))
       .base(Empty, |s| s.width(Length::Fill))
-      .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
+      .base(Footer, |s| s.min_height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)

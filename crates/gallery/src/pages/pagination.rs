@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet},
+  kit::{FILL, phone, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -28,21 +28,10 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .child(quiet(caption, 12.0))
 }
 
-/// How long the row of a pagination with an ellipsis in it is, and the same with no siblings.
-const ROW: f32 = 356.0;
-const ROW_NO_SIBLINGS: f32 = 276.0;
-
-/// A pagination on a stage with what it is under it. Its row is as long as its buttons and no shorter: on a
-/// stage with less than the `least` it needs, it scrolls sideways in it.
-fn fitted(key: &str, room: f32, least: f32, shown: impl Into<Element>, caption: &str) -> Column {
-  if room <= 0.0 || room >= least {
-    return item(shown, caption);
-  }
-  Column::new()
-    .width(FILL)
-    .spacing(9.0)
-    .child(fit(key, room, least, shown))
-    .child(quiet(caption, 12.0))
+/// A pagination on a stage with what it is under it, mounted: on a stage with less room than its buttons need it
+/// draws fewer pages, and then says where it is between previous and next.
+fn mounted(ctx: &mut Ctx, key: &str, pagination: Pagination, caption: &str) -> Column {
+  item(pagination.key(key).mount(ctx), caption)
 }
 
 /// What is on a stage, one under another.
@@ -155,8 +144,9 @@ impl PaginationPage {
       Spec {
         title: "Pagination",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(pagination),
-        fill: false,
+        // Mounted, it draws what the stage has room for; in a window as narrow as a phone it has the stage's width.
+        shown: Shown::built(move |ctx| pagination.mount(ctx)),
+        fill: phone(),
         forceable: true,
         facts: format!("page {current} of {pages}"),
         event: "on_change",
@@ -222,37 +212,32 @@ impl Component for PaginationPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let says = |page: &Signal<usize>| format!("the signal has: {}", page.get());
-    let room = self.frame.stage_room();
     let live = stacked()
-      .child(fitted(
+      .child(mounted(
+        ctx,
         "live",
-        room,
-        ROW,
         Pagination::new(self.results.clone(), 20),
         &says(&self.results),
       ))
-      .child(fitted(
+      .child(mounted(
+        ctx,
         "board",
-        room,
-        ROW_NO_SIBLINGS,
         Pagination::new(self.board.clone(), 12).siblings(0),
         &format!("no siblings, as the board draws it · {}", says(&self.board)),
       ));
     // The same pagination on five pages of twenty: the row is as long on each.
     let moving = [1, 4, 5, 16, 20].into_iter().fold(stacked(), |column, current| {
-      column.child(fitted(
+      column.child(mounted(
+        ctx,
         &format!("on-page-{current}"),
-        room,
-        ROW,
         Pagination::controlled(current, 20, |_| {}),
         &format!("on page {current} of 20"),
       ))
     });
     let edges = stacked()
-      .child(fitted(
+      .child(mounted(
+        ctx,
         "seven",
-        room,
-        ROW,
         Pagination::controlled(1, 7, |_| {}),
         "7 pages: every one is drawn",
       ))
@@ -261,21 +246,19 @@ impl Component for PaginationPage {
         "1 page: previous and next are disabled",
       ))
       .child(item(Pagination::controlled(0, 0, |_| {}), "no pages"))
-      .child(fitted(
+      .child(mounted(
+        ctx,
         "disabled",
-        room,
-        ROW,
         Pagination::controlled(4, 12, |_| {}).disabled(true),
         "disabled",
       ));
     // The board's compact form, as wide as the board draws it, over the rows of a table.
     let size = self.size.get();
     let compact = stacked()
-      .child(fitted(
-        "rows",
-        room,
-        440.0,
-        Column::new().width(440.0).child(
+      // In a card narrower than the board's 440 it is as wide as the card, and what has no room beside the
+      // select is on a line under it.
+      .child(item(
+        Column::new().width(440.0).max_width(FILL).child(
           Pagination::for_items(self.rows.clone(), 284, size)
             .compact(true)
             .page_size("Rows per page", Select::new(self.size.clone(), SIZES)),

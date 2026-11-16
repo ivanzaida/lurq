@@ -381,8 +381,6 @@ const PINNED: f32 = 480.0;
 
 /// The least a grid with its bar over it is wide: the search, a filter that is set, and the bar's buttons.
 const BAR: f32 = 700.0;
-/// The least a grid with a count and a pagination in its footer is wide.
-const FOOTER: f32 = 300.0;
 
 /// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
 fn million_columns() -> Vec<TableColumn<Job>> {
@@ -951,8 +949,6 @@ impl Component for DataGridPage {
       })
       .key("board")
       .mount(ctx);
-    // The footer's count and its pagination need this much: in a narrower card the grid scrolls sideways.
-    let board = crate::kit::fit("board", self.frame.stage_room(), FOOTER, board);
 
     // Editing in place, each commit written under the grid.
     let (rows, log) = (self.edited.clone(), self.log.clone());

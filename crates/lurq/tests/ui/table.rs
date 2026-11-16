@@ -1621,3 +1621,43 @@ fn a_loading_line_is_a_share_of_its_cell_and_ends_inside_it() {
     "the lines of the other columns are 70 in a column of 90"
   );
 }
+
+#[test]
+fn a_footer_too_narrow_for_its_count_and_its_pagination_puts_the_pagination_under_the_count() {
+  let mut stage = window(Stage::new(|_| {
+    Column::new()
+      .size(256.0, 400.0)
+      .child(
+        Table::new(narrow_columns(), crates())
+          .row_key(|row: &Crate| row.name)
+          .selected_controlled(["crates/lurq"], |_| {})
+          .total(24)
+          .pagination(
+            lurq::ui::Pagination::for_items(Signal::new(1), 24, 3)
+              .compact(true)
+              .id("pages"),
+          )
+          .id("t"),
+      )
+      .into()
+  }));
+  let (x, _, width, _) = stage.bounds("t");
+  let count = stage.text_quad("1 of 24 rows selected").expect("the footer's count");
+  for id in ["pages-previous", "pages-next"] {
+    let (button, y, side, _) = stage.bounds(id);
+    assert!(
+      button >= x - 0.5 && button + side <= x + width + 0.5,
+      "{id} is in the table, {x} to {}: {button}",
+      x + width
+    );
+    assert!(
+      y >= count.y + count.height - 0.5,
+      "{id} is on a line under the count: {y}"
+    );
+  }
+  let summary = stage.text_quad("1–3 of 24").expect("where the list is");
+  assert!(
+    summary.x + summary.width <= x + width + 0.5,
+    "the summary is in the table"
+  );
+}
