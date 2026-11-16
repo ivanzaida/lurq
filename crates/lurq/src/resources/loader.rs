@@ -5,8 +5,10 @@
 //! parts it needs. The loader holds the app's resource root and what the network may do, reads on threads of its
 //! own, makes one load of the same source asked for twice, and lets go of a load nobody waits for any more.
 //!
-//! It keeps no bytes: once what asked has taken them they are let go. What is decoded from them is kept by who
-//! decodes (the pixels of a picture in [`decoded_images`](crate::images::decoded_images)).
+//! It keeps no bytes in memory: once what asked has taken them they are let go. What is decoded from them is kept
+//! by who decodes (the pixels of a picture in [`decoded_images`](crate::images::decoded_images)). What came from
+//! an address is kept on the disk where the app gave a folder for it ([`Loader::enable_media_disk_cache`]), and
+//! is then read from the folder and not from the network; see [`MediaDiskCache`].
 
 use std::{
   collections::HashMap,
@@ -23,6 +25,7 @@ use parking_lot::{Mutex, RwLock};
 
 use super::{
   Source,
+  disk_cache::MediaDiskCache,
   reader::{BytesReader, FileReader, Reader, read_all},
   source::SourceKind,
   thread_pool::ThreadPool,
@@ -219,6 +222,8 @@ struct Shared {
   entries: Mutex<HashMap<u64, Arc<Entry>>>,
   /// Made by the first load that reads: an app that loads nothing has no threads for it.
   pool: OnceLock<ThreadPool>,
+  /// What was loaded from addresses, kept in the folder the app gave: off until it gives one.
+  disk: MediaDiskCache,
 }
 
 impl Drop for Shared {
@@ -269,6 +274,7 @@ impl Loader {
         }),
         entries: Mutex::new(HashMap::new()),
         pool: OnceLock::new(),
+        disk: MediaDiskCache::new(),
       }),
     }
   }
@@ -307,6 +313,30 @@ impl Loader {
     self
   }
 
+  /// Turns on the cache on the disk, in `folder`: what is loaded from an address is kept there as a file, is
+  /// there for the next run of the app, and is read from the folder and not from the network when it is asked
+  /// for again. Not called, nothing is written to the disk. The folder is the app's to choose: a cache folder
+  /// of its own, which the system may empty. `App::enable_media_disk_cache` is this, said where the app is
+  /// made.
+  ///
+  /// ```no_run
+  /// use lurq::resources::Loader;
+  ///
+  /// let loader = Loader::new();
+  /// loader.enable_media_disk_cache("cache");
+  /// loader.media_disk_cache().budget(1024 * 1024 * 1024);
+  /// ```
+  pub fn enable_media_disk_cache(&self, folder: impl Into<PathBuf>) -> &Self {
+    self.shared.disk.turn_on(folder.into());
+    self
+  }
+
+  /// The cache on the disk: how much it keeps and may keep, and what it is told to forget. It is off until
+  /// [`enable_media_disk_cache`](Self::enable_media_disk_cache) gives it a folder.
+  pub fn media_disk_cache(&self) -> &MediaDiskCache {
+    &self.shared.disk
+  }
+
   /// Whether `address` may be loaded: what [`allow`](Self::allow) says of it, and yes where nothing was said.
   /// For what reads an address by itself and not through a load: a video.
   #[cfg_attr(not(feature = "media"), allow(dead_code))]
@@ -326,7 +356,8 @@ impl Loader {
   /// Loads all the bytes of `source`, off the caller's thread. The source's
   /// [`cache_key`](Source::cache_key) tells it from another: a load of the same key that is on its way, or that
   /// failed, is joined. A failed one stays failed until it is [forgotten](Self::forget); a finished one is let
-  /// go once nobody holds it, and asked for again it is loaded again.
+  /// go once nobody holds it, and asked for again it is loaded again: from the file the
+  /// [cache on the disk](Self::media_disk_cache) keeps of an address, where it is on.
   pub fn load(&self, source: &Source) -> Load {
     let key = source.cache_key();
     let mut entries = self.shared.entries.lock();
@@ -373,6 +404,7 @@ impl Loader {
         return;
       }
       let source = source.clone();
+      let disk = self.shared.disk.clone();
       let pool = self.shared.pool.get_or_init(|| ThreadPool::new(LOADER_THREADS));
       pool.execute(move || {
         let told = |loaded, total| entry.progress(loaded, total);
@@ -383,7 +415,13 @@ impl Loader {
               io::ErrorKind::FileTooLarge => LoadError::TooLarge { limit: max_bytes },
               _ => LoadError::from(error),
             }),
-          (None, SourceKind::Url(address)) => fetch(address, &source, timeout, max_bytes, told),
+          // What the cache on the disk keeps of the address is read from there; what is fetched is kept.
+          (None, SourceKind::Url(address)) => match disk.read(source.cache_key(), max_bytes) {
+            Some(bytes) => Ok(bytes),
+            None => fetch(address, &source, timeout, max_bytes, told).inspect(|bytes| {
+              disk.put(source.cache_key(), address, bytes);
+            }),
+          },
           (None, _) => Err(LoadError::Unsupported("nothing reads this source")),
         };
         entry.finish(result);
@@ -406,16 +444,19 @@ impl Loader {
   }
 
   /// Forgets the load of `source` that ended, so that it is loaded again when it is next asked for: the way to
-  /// try again one that failed. `true` where there was one to forget. A load still on its way is left to end.
+  /// try again one that failed. The file the [cache on the disk](Self::media_disk_cache) keeps of it is deleted,
+  /// so that an address is asked of the network again: the way to load anew what has changed there. `true`
+  /// where there was a load or a file to forget. A load still on its way is left to end.
   pub fn forget(&self, source: &Source) -> bool {
-    let mut entries = self.shared.entries.lock();
     let key = source.cache_key();
+    let kept = self.shared.disk.forget_key(key);
+    let mut entries = self.shared.entries.lock();
     match entries.get(&key) {
       Some(entry) if !entry.state.lock().is_loading() => {
         entries.remove(&key);
         true
       }
-      _ => false,
+      _ => kept,
     }
   }
 

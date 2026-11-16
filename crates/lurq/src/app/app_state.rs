@@ -403,6 +403,29 @@ impl App {
     &self.shared.loader
   }
 
+  /// Turns on the cache on the disk, in `folder`: what the app loads from an address (a sound, a picture) is
+  /// kept there as a file, is there for the next run of the app, and is read from the folder and not from the
+  /// network when it is asked for again. It is said where the app is made:
+  ///
+  /// ```no_run
+  /// let app = lurq::app::App::new().enable_media_disk_cache("cache");
+  /// // 512 MiB are kept unless told; over that, what was used longest ago is deleted.
+  /// app.loader().media_disk_cache().budget(2 * 1024 * 1024 * 1024);
+  /// ```
+  ///
+  /// Not called, nothing is written to the disk, and a sound loaded from an address is kept in memory for the
+  /// run of the app (`media::sound_cache()`). The folder is the app's to choose, and lurq picks none: a cache
+  /// folder of the app's own, which the system may empty. A browser keeps what it loads itself, and nothing is
+  /// written there. The same as `app.loader().enable_media_disk_cache(folder)`; see
+  /// [`MediaDiskCache`](crate::resources::MediaDiskCache).
+  pub fn enable_media_disk_cache(self, folder: impl Into<PathBuf>) -> Self {
+    self.shared.loader.enable_media_disk_cache(folder);
+    // What the folder keeps of a sound is answered for by the sounds' cache.
+    #[cfg(feature = "media")]
+    crate::media::sound_cache().follow(self.shared.loader.media_disk_cache());
+    self
+  }
+
   /// The folder the app's resources are under: a path given as a resource is a path in it. The same as
   /// `app.loader().root(root)`.
   pub fn set_resource_root(&mut self, root: PathBuf) {
