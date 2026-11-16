@@ -415,6 +415,26 @@ if let Some(result) = readback.try_take() {
 
 A worker can use `wait_timeout(Duration)` while the UI continues rendering. Never wait for a queued GPU readback on the rendering thread. Readbacks are bounded to two outstanding requests per canvas and eight process-wide, including in-flight GPU copies. Dropping a queued request, detaching, resizing, or losing the renderer completes its ticket with an error. A full `clear()` preserves prior snapshot requests. Submitted pixels are never reapplied following a failed window presentation.
 
+### A picture drawn off the screen
+
+A picture made of a drawing, to save or to send (a signature, a chart), needs no node and no window: `CanvasHandle::offscreen(width, height, scale_factor)` is a canvas of that many logical pixels drawn on the CPU, in no tree. What is drawn on its `context_2d()` is in its pixels when the call returns, `snapshot()` is ready at once, and `to_image_data()` gives them as an `ImageData` of straight RGBA, `width × scale_factor` by `height × scale_factor`. It draws no text, since it has no window's fonts. It is `None` for a size that is not a number, is nothing, or is past the limits below.
+
+```rust
+use lurq::canvas::CanvasHandle;
+
+let canvas = CanvasHandle::offscreen(280.0, 124.0, 2.0).expect("a size a canvas can be");
+let draw = canvas.context_2d();
+draw.set_stroke_style("#0a0a0a");
+draw.set_line_width(2.0);
+draw.begin_path();
+draw.move_to(20.0, 60.0);
+draw.line_to(200.0, 40.0);
+draw.stroke();
+let image = canvas.to_image_data().expect("its pixels"); // 560 × 248
+```
+
+`to_image_data()` of a canvas in a tree that is drawn on the CPU (`Canvas::new().software()`) is what it shows; of one drawn on the GPU it is `None`, and `snapshot()` reads it.
+
 ### Lifetime and resource limits
 
 Removing the node invalidates the ref and rejects further GPU drawing with `Detached`. Old handles retain their identity and never target a replacement. The renderer releases detached backing textures after pending GPU use. Device loss reports `RendererLost`; there is no retained CPU checkpoint or complete drawing history, so applications must redraw after recovery.

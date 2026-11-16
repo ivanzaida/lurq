@@ -192,3 +192,27 @@ fn a_resize_or_reduced_motion_stops_a_canvas_where_it_goes() {
   );
   assert!(!stage.tree.has_moving_canvas());
 }
+
+#[test]
+fn an_offscreen_canvas_is_drawn_at_once_in_its_own_pixels() {
+  use lurq::canvas::CanvasHandle;
+  let canvas = CanvasHandle::offscreen(10.0, 4.0, 2.0).expect("a canvas of 10 by 4");
+  assert_eq!(canvas.pixel_size(), (20, 8));
+  assert!(canvas.is_attached());
+  let draw = canvas.context_2d();
+  draw.set_fill_style("#ff0000");
+  draw.fill_rect(0.0, 0.0, 5.0, 4.0);
+  let image = canvas.to_image_data().expect("its pixels");
+  assert_eq!((image.width(), image.height()), (20, 8));
+  let pixel = |x: usize, y: usize| image.data()[(y * 20 + x) * 4..][..4].to_vec();
+  assert_eq!(pixel(2, 2), [255, 0, 0, 255], "drawn at once, in device pixels");
+  assert_eq!(pixel(15, 2), [0, 0, 0, 0], "and nothing where it was not drawn");
+  let snapshot = canvas
+    .snapshot()
+    .try_take()
+    .expect("ready when it returns")
+    .expect("its pixels");
+  assert_eq!(snapshot.rgba, image.data());
+  assert!(CanvasHandle::offscreen(0.0, 4.0, 1.0).is_none(), "a canvas of nothing");
+  assert!(CanvasHandle::offscreen(f32::NAN, 4.0, 1.0).is_none());
+}

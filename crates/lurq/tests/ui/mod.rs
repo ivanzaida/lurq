@@ -130,6 +130,8 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
+#[cfg(feature = "canvas")]
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;

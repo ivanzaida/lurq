@@ -979,6 +979,52 @@ Rating::at(3.0).icon(icons::HEART).empty_icon(icons::HEART);
 - In a [field](#field) it is called by the field's label unless it has one of its own, invalid where the field is and disabled where the field is.
 - A renderer that draws another rating is given a `RatingView`: `view.root()` is the row with its behavior (the keys, the role, the value), `view.star(index)` a star with its room for a press, `view.lit(index)` how much of a star is lit, `view.stars` the value and `view.shown` what is lit now.
 
+## Signature Pad
+
+A surface a person signs on with a mouse, a pen or a finger: the signature on a delivery, the consent on a form. Behind the `canvas` feature.
+
+```rust
+use lurq::ui::{Field, Signature, SignaturePad};
+
+// signature: Signal<Signature>. Each stroke let go, Undo and Clear set it.
+SignaturePad::new(signature.clone()).label("Signature of the recipient").mount(ctx);
+
+// The app holds the signature, and is told what a person makes of it.
+SignaturePad::controlled(held.clone(), move |signature| save(signature));
+
+// In a field, which names it and judges it.
+Field::new("Signature", SignaturePad::new(consent.clone()).placeholder("Sign to accept the delivery"))
+  .error("Sign to accept the delivery.");
+
+// The signature as a picture: its own size twice over, in the ink and the width given, on nothing.
+let image = signature.get().to_image(2.0, ink, 2.0); // Option<ImageData>
+```
+
+| Builder | |
+| --- | --- |
+| `SignaturePad::new(Signal<Signature>)` | The signature the signal holds; each stroke, Undo and Clear set it |
+| `SignaturePad::controlled(Signature, on_change)` | The app holds the signature: it is told what a stroke, Undo or Clear make of it, and what is drawn is what it gives next |
+| `on_change(Fn(&Signature))` | Called after a stroke is let go, after Undo and after Clear, once the signal is set. Not while a stroke is drawn, nor when the app sets the signal. Each call adds |
+| `placeholder(&str)` | The words under the line, "Sign above the line" unless told. They stay once it is signed, as the board draws them, and end in an ellipsis where they do not fit |
+| `read_only(bool)` | It shows the signature and takes nothing: no stroke, no buttons, no stop of Tab |
+| `full_width(bool)`, `width(..)`, `height(..)` | As wide as what holds it; or a size of its own, 280 by 124 unless told, and no wider than what holds it |
+| `label(&str)` | What it is called to tooling, "Signature" unless told. A [field](#field) gives it its label |
+| `undo_label(&str)`, `clear_label(&str)` | The names of its two buttons, "Undo" and "Clear" unless told |
+| `signed_text(&str)`, `empty_text(&str)` | What it says to tooling it holds: "Signed" and "Not signed" unless told |
+| `invalid(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the pad, what takes the focus; its canvas is `<id>-surface` and its buttons `<id>-undo` and `<id>-clear` |
+| `mount(ctx)`, `build(theme)` | Converted into an element, or mounted, it is the pad that is signed on: it keeps the stroke being drawn. `build` is its still form, which shows the signature and takes nothing |
+
+- **The value.** A `Signature` is the app's: `strokes`, each a `SignatureStroke` of `points` in the order they were drawn, and the `width` and `height` of the surface they were signed on. A `SignaturePoint` is `x` and `y` in logical pixels from that surface's top left, `pressure` from 0 to 1 where the input measures it (a pen, a screen that feels force; `None` for a mouse) and `time` in milliseconds from the first point of its stroke. A stroke of one point is a dot. It is `Clone`, `PartialEq` and inspectable, to keep in a signal and to store. Given back to a pad of another size, it is drawn scaled to fit from its top left, keeping its shape, and a stroke drawn on it joins it in its own pixels.
+- **The pointer.** A press draws a stroke where the pointer goes until it is let go, and the stroke is shown as it is drawn; the signature is told only when it is let go. A move of less than three quarters of a pixel from the last point is no point. A stroke stays on the pad: one dragged past its edge goes along the edge. A finger or a pen draws as the mouse does, with its pressure, and is taken from the page: it does not scroll what the pad is in. A second finger while one draws draws nothing, and a touch the system takes away signs nothing.
+- **The line.** Each stroke is a curve through the middles between its points (each point bends the line toward it), 2 wide in `Foreground` with round ends and joins. The board's line is even, so the pad's is: its width does not follow the speed or the pressure, which are in the value for an app that draws otherwise.
+- **The keys and the focus.** The pad is one stop of Tab, and its Undo and Clear buttons the next two, in its top corner while it is signed. With the pad focused, Backspace and Ctrl+Z (Cmd+Z on a Mac) take back the last stroke and Delete all of them. A press on the pad focuses it, so its keys go on from there; a press of Clear, or of Undo that takes back the last stroke, gives the focus to the pad, as the buttons are gone after it. A press of a button draws nothing under it.
+- **A picture.** `Signature::to_image(scale_factor, ink, line_width)` draws it on lurq's CPU canvas ([`CanvasHandle::offscreen`](../canvas/#a-picture-drawn-off-the-screen)) at its own size times `scale_factor`, in `ink` and `line_width` wide, on nothing: an `ImageData` of straight RGBA, the same wherever it is made and with no window. `Signature::paint(&draw, width, height, ink, line_width)` draws it on any canvas, scaled to fit.
+- In the design the pad is 280 by 124 on `Background`, its corners `Lg`, an edge of 1 in `Input` inside it. At its bottom, 12 and 16 in, a line of 1 in `Input` and, 6 under it, the words in the mono type of 11 in `MutedForeground`. The board draws it signed and no other state: the ring of the focus is around the pad, Undo and Clear are ghost buttons of the `Xs` size 6 in from its top corner, an invalid pad has its edge in `Destructive`, a disabled one is dimmed, and the pointer is a cross over a pad that is signed on. It is drawn on the canvas, again only when what it shows changes.
+- To a screen reader it is a picture (`img`) called by its label and described as signed or not.
+- Parts: `SignaturePadPart::Root` (the pad, what is focused), `Surface` (the canvas over the whole pad), `Ink` (the line: its background is the ink, its width the line's), `Guide` (the column at the bottom: its padding and gap), `Baseline`, `Placeholder`, `Actions` (the row of the buttons). States: `SignaturePadState::Empty` or `Signed` (one of them is on), `Drawing`, `Interactive`, `ReadOnly`, `Invalid`, `Disabled`.
+- In a [field](#field) it is called by the field's label unless it has one of its own, invalid where the field is and disabled where the field is.
+- A renderer that draws another pad is given a `SignaturePadView`: `view.root()` is the pad with its keys and its role, `view.surface()` the canvas that draws and takes the strokes, `view.guide()` the line and its words, `view.actions()` the buttons where they are shown, `view.signature` the value and `view.draft` the points of the stroke being drawn.
+
 ## Shortcut Recorder
 
 A box that holds a key combination, which a person sets by pressing it: the shortcut of a command in an app's settings, the key that shows a window.

@@ -146,6 +146,8 @@ mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
+#[cfg(feature = "canvas")]
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -506,6 +508,11 @@ pub use sheet::{
 pub use shortcut_recorder::{
   ShortcutCheck, ShortcutRecorder, ShortcutRecorderPart, ShortcutRecorderRenderer, ShortcutRecorderSize,
   ShortcutRecorderState, ShortcutRecorderView, ShortcutValue,
+};
+#[cfg(feature = "canvas")]
+pub use signature_pad::{
+  Signature, SignaturePad, SignaturePadPart, SignaturePadRenderer, SignaturePadState, SignaturePadView, SignaturePoint,
+  SignatureStroke,
 };
 pub use sidebar::{
   Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
