@@ -171,8 +171,10 @@ impl Entry {
 }
 
 /// Ends a load whose read was dropped before it ended: a runtime that stopped drops what it had not started.
+#[cfg(not(target_arch = "wasm32"))]
 struct Unread(Arc<Entry>);
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for Unread {
   fn drop(&mut self) {
     if self.0.state.lock().is_loading() {
