@@ -107,8 +107,9 @@ type Handler<T> = Arc<dyn Fn(T) + Send + Sync>;
 /// from a half up, the low one under it, and the crossed one while muted or at nothing.
 ///
 /// Collapsed it is the button alone, and the slider comes while the pointer is over it or the focus is in it. What
-/// that needs between renders is kept by [`MediaVolume::mount`], the only way a control is put where it goes: it
-/// is not an element by itself. [`MediaVolume::build`] is a still picture of it, for a test.
+/// that needs between renders is kept by [`MediaVolume::mount`]. A control given to a tree as it is
+/// (`.child(MediaVolume::new(..))`) is the same component, declared: what renders the tree mounts it.
+/// [`MediaVolume::build`] is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct MediaVolume {
   /// The app's volume, where it is bound to a signal.
@@ -316,7 +317,7 @@ impl MediaVolume {
   }
 
   /// Builds a still picture of the volume control in `theme`, for a test or a screenshot: collapsed, it is the
-  /// button alone. An app mounts the control ([`MediaVolume::mount`]).
+  /// button alone. An app gives the control to its tree, or mounts it ([`MediaVolume::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     self.build_with(theme, &mut |button| button)
   }
@@ -674,8 +675,23 @@ impl Themed for MediaVolume {
   }
 }
 
+/// A control in a tree is its component, declared: the component that renders the tree mounts it.
+impl crate::app::component::IntoComponent for MediaVolume {
+  type Component = MediaVolumeHost;
+
+  fn into_props(self) -> MediaVolumeProps {
+    MediaVolumeProps { control: self }
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
+/// A volume control to mount.
+#[doc(hidden)]
 #[derive(Clone)]
-struct MediaVolumeProps {
+pub struct MediaVolumeProps {
   control: MediaVolume,
 }
 
@@ -691,7 +707,8 @@ impl crate::app::component::DevtoolsInspectable for MediaVolumeProps {}
 
 /// A mounted volume control: it keeps whether the pointer is over it, whether the focus is in it, and whether its
 /// slider is being dragged.
-struct MediaVolumeHost {
+#[doc(hidden)]
+pub struct MediaVolumeHost {
   kept: Kept,
 }
 

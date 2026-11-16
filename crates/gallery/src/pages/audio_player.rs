@@ -919,8 +919,9 @@ impl Component for AudioPlayerPage {
         "mount",
         "&mut Ctx",
         "",
-        "Puts it where it goes, the only way: it keeps the tooltips of the buttons, the speed menu, the mini \
-         player's form from its width and the time over its line.",
+        "Mounts it at once: it keeps the tooltips of the buttons, the speed menu, the mini player's form from \
+         its width and the time over its line. Given to a tree as it is (.child(player)), it is the same \
+         component.",
       ),
     ];
     let playground = self.play(ctx);

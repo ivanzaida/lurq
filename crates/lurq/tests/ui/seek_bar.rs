@@ -841,3 +841,41 @@ fn live_it_is_full_with_the_thumb_at_its_end_and_tells_nothing() {
     "and it stays at the end"
   );
 }
+
+#[test]
+fn given_to_a_tree_as_it_is_it_is_its_component_with_the_chip_and_a_drag_that_holds() {
+  let heard = Heard::default();
+  let told = heard.clone();
+  let position = Signal::new(20.0_f32);
+  let bound = position.clone();
+  // No `mount` and no `Ctx`: the bar is a child as any element is.
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    scene(
+      SeekBar::new(bound.clone(), 250.0)
+        .on_hover(move |time| told.tell(format!("{time:?}")))
+        .id("bar"),
+    )
+  });
+  let (x, y, ..) = stage.bounds("bar");
+  let at = |share: f32| x + 8.0 + 304.0 * share;
+  stage.tree.mouse_move(at(0.4), y + 8.0);
+  stage.pass();
+  assert_eq!(heard.take(), ["Some(100.0)"]);
+  assert!(stage.paints("1:40"), "the time under the pointer is kept between renders");
+
+  // A drag holds over the renders its own changes make.
+  stage.tree.mouse_down(at(0.4), y + 8.0, MouseButton::Left);
+  stage.pass();
+  stage.tree.mouse_move(at(0.6), y + 8.0);
+  stage.pass();
+  assert_eq!(position.get(), 150.0);
+  stage.tree.mouse_move(at(0.8), y + 8.0);
+  stage.pass();
+  assert_eq!(position.get(), 200.0, "the second move of the drag is still the bar's");
+  assert!(stage.paints("3:20"), "and the chip is over the time it is dragged to");
+  stage.tree.mouse_up(at(0.8), y + 8.0, MouseButton::Left);
+  stage.pass();
+  stage.key("ArrowRight");
+  assert_eq!(position.get(), 205.0, "the focus stayed on it");
+}

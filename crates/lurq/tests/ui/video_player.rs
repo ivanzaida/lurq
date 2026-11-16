@@ -1539,3 +1539,35 @@ fn given_a_source_it_plays_the_file_and_its_controls_move_the_video() {
   });
   assert!(!has(&mut broken, "v-play"));
 }
+
+#[test]
+fn given_to_a_tree_as_it_is_it_is_its_component_with_the_form_of_its_width_and_its_menus() {
+  for (width, form) in [(640.0, "large"), (320.0, "compact"), (200.0, "minimal")] {
+    let told = Told::default();
+    // No `mount` and no `Ctx`: the player is a child as any element is.
+    let mut stage = Stage::first_frame(800.0, 520.0, move |_| {
+      Column::new()
+        .size(800.0, 520.0)
+        .child(player(&told).width(width).height(width * 9.0 / 16.0))
+        .into()
+    });
+    let first = stage.picture();
+    match form {
+      "large" => assert!(has(&mut stage, "v-settings"), "{width} is the large player"),
+      "compact" => assert!(
+        has(&mut stage, "v-more") && !has(&mut stage, "v-settings"),
+        "{width} is compact"
+      ),
+      _ => assert!(!has(&mut stage, "v-fullscreen"), "{width} is minimal"),
+    }
+    stage.frame();
+    assert_eq!(stage.picture(), first, "the first frame at {width} is the settled one");
+  }
+
+  // Its menus are kept between renders: a press of settings opens its panel.
+  let told = Told::default();
+  let mut stage = stage(move |_| player(&told).width(640.0).height(360.0).into());
+  assert!(!has(&mut stage, "v-settings-menu"));
+  stage.click("v-settings");
+  assert!(has(&mut stage, "v-settings-menu"), "the menu a mounted player keeps");
+}

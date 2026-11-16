@@ -1120,8 +1120,8 @@ impl Component for VideoPlayerPage {
         "mount",
         "&mut Ctx",
         "",
-        "Puts it where it goes, the only way: it keeps its width, the timer that fades the bar, its menus and \
-         its tooltips.",
+        "Mounts it at once: it keeps its width, the timer that fades the bar, its menus and its tooltips. \
+         Given to a tree as it is (.child(player)), it is the same component.",
       ),
     ];
     self.frame.page(

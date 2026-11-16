@@ -483,8 +483,9 @@ pub enum VideoFullscreen {
 /// forms of the bar is drawn follows the player's own width, unless [`size`](Self::size) says.
 ///
 /// [`mount`](Self::mount) keeps what the player needs between renders: the timer that fades the controls out while
-/// it plays, its width, its menus, and the tooltips of its controls. It is the only way a player is put where it
-/// goes: a player is not an element by itself. [`build`](Self::build) is a still picture of it, for a test.
+/// it plays, its width, its menus, and the tooltips of its controls. A player given to a tree as it is
+/// (`.child(VideoPlayer::new())`) is the same component, declared: what renders the tree mounts it.
+/// [`build`](Self::build) is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct VideoPlayer {
   media: Option<Element>,
@@ -1112,14 +1113,16 @@ impl VideoPlayer {
   }
 
   /// Builds a still picture of the player in `theme`, for a test or a screenshot: its controls shown, its menus
-  /// closed, nothing kept between two of them. An app mounts the player ([`mount`](Self::mount)).
+  /// closed, nothing kept between two of them. An app gives the player to its tree, or mounts it
+  /// ([`mount`](Self::mount)).
   pub fn build(self, theme: &Theme) -> Element {
     let held = Live::still();
     view(self, theme, &held, None).render_themed()
   }
 
-  /// The player mounted where it is declared: it keeps its width, the timer that fades its controls out while it
-  /// plays, its menus and its tooltips.
+  /// The player mounted in `ctx` at once: it keeps its width, the timer that fades its controls out while it
+  /// plays, its menus and its tooltips. Converting it into an element does the same once the render that returns
+  /// it has returned.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
     let props = VideoPlayerProps(self);
@@ -1294,9 +1297,23 @@ impl Live {
   }
 }
 
+/// A player in a tree is its component, declared: the component that renders the tree mounts it.
+impl crate::app::component::IntoComponent for VideoPlayer {
+  type Component = VideoPlayerHost;
+
+  fn into_props(self) -> VideoPlayerProps {
+    VideoPlayerProps(self)
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
 /// A player to mount.
+#[doc(hidden)]
 #[derive(Clone)]
-struct VideoPlayerProps(VideoPlayer);
+pub struct VideoPlayerProps(VideoPlayer);
 
 /// A player is built anew by every render of what holds it, so props are never the same as before.
 impl PartialEq for VideoPlayerProps {
@@ -1309,7 +1326,8 @@ impl PartialEq for VideoPlayerProps {
 impl crate::app::component::DevtoolsInspectable for VideoPlayerProps {}
 
 /// What keeps a mounted player's timer, width and menus.
-struct VideoPlayerHost {
+#[doc(hidden)]
+pub struct VideoPlayerHost {
   live: Live,
 }
 

@@ -479,3 +479,61 @@ fn one_whose_root_is_dressed_otherwise_is_made_again_from_what_it_rendered_last(
   assert_eq!(book.renders("a"), 2, "once at first and once for its own count");
   assert_eq!(book.log(), ["created a"]);
 }
+
+/// What an app writes for a counter: a value that stands in a tree as the component `Counter`.
+struct CounterTag {
+  name: &'static str,
+  key: Option<&'static str>,
+  book: Arc<Book>,
+}
+
+impl lurq::app::component::IntoComponent for CounterTag {
+  type Component = Counter;
+
+  fn into_props(self) -> CounterProps {
+    CounterProps {
+      name: self.name,
+      book: self.book,
+    }
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.map(Arc::from)
+  }
+}
+
+#[test]
+fn a_value_that_is_a_component_converts_into_its_component_declared() {
+  let book = Arc::new(Book::default());
+  let its = book.clone();
+  let mut window = Window::new(move |step| {
+    let tag = |name: &'static str, key: Option<&'static str>| CounterTag {
+      name,
+      key,
+      book: its.clone(),
+    };
+    let column = Column::new().child(Text::new(&format!("step {step}")));
+    // Given as it is, with no `Ctx` and no conversion written: the two with keys change places.
+    match step {
+      0 => column
+        .child(tag("plain", None))
+        .child(tag("a", Some("a")))
+        .child(tag("b", Some("b"))),
+      _ => column
+        .child(tag("plain", None))
+        .child(tag("b", Some("b")))
+        .child(tag("a", Some("a"))),
+    }
+    .into()
+  });
+  assert!(window.shows("plain 0") && window.shows("a 0") && window.shows("b 0"));
+  book.count("plain");
+  book.count("a");
+  window.pass();
+  assert!(window.shows("plain 1") && window.shows("a 1"));
+
+  // What holds them renders again: each is the component it was, the keyed ones by their keys.
+  window.step(1);
+  assert!(window.shows("step 1") && window.shows("plain 1") && window.shows("a 1") && window.shows("b 0"));
+  assert_eq!(book.log(), ["created plain", "created a", "created b"]);
+}

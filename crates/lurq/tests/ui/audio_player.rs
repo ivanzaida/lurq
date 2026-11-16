@@ -507,3 +507,25 @@ fn under_480_the_mini_player_keeps_the_track_play_and_next() {
   }
   assert!(!stage.paints("1:24 "), "no time");
 }
+
+#[test]
+fn given_to_a_tree_as_it_is_a_mini_player_has_the_form_of_its_width_from_the_first_frame() {
+  let log = log();
+  // No `mount` and no `Ctx`: the player is a child as any element is.
+  let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+    Column::new().width(360.0).child(mini(&log)).into()
+  });
+  assert!(
+    stage.tree.get_element_by_id_mut("m-queue").is_none(),
+    "the first frame already has the narrow form"
+  );
+  stage.pass();
+  stage.bounds("m-play");
+  stage.bounds("m-next");
+  for id in ["m-previous", "m-volume", "m-queue", "m-expand"] {
+    assert!(
+      stage.tree.get_element_by_id_mut(id).is_none(),
+      "{id} is not there under 480"
+    );
+  }
+}
