@@ -152,9 +152,10 @@ in the panel **Props**, the select **source** (`None`, `Bytes`, `A file`, `An ad
 - [ ] **repeat: One** in the panel: at its end it starts over by itself.
 - [ ] **variant**: `Compact`, `Voice` and `Mini` play the same sound, each with the controls it has.
 
-**source: A file** (the same track, written to the temporary folder and read from the disk):
+**source: A file** (a field **path** comes under the select, with the same track in it, written to the temporary folder and read from the disk):
 
 - [ ] Everything above holds for it.
+- [ ] The path of a sound of your own typed in place of it (an `.mp3`, an `.m4a`, a `.wav`): it plays, and its length is its own. A path that is not there: an error line, "Not found".
 
 **source: An address** (a field **address** comes under the select, with an MP3 of six minutes in it):
 

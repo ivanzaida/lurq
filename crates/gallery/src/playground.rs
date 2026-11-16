@@ -834,6 +834,12 @@ pub fn flag(label: &str, value: &Signal<bool>) -> Element {
 
 /// A prop that is text: a field bound to it.
 pub fn field(value: &Signal<String>) -> Element {
+  field_telling(value, || {})
+}
+
+/// A [`field`] that tells `typed` at each key: for a prop whose half-typed value is not to be used, a path or
+/// an address, which stops what it drives until it is whole.
+pub fn field_telling(value: &Signal<String>, typed: impl Fn() + Send + Sync + 'static) -> Element {
   let body = lurq::ui::current_theme().typography_style(TypographyStyle::Body);
   Row::new()
     .width(FILL)
@@ -847,7 +853,8 @@ pub fn field(value: &Signal<String>) -> Element {
       TextInput::styled(value.clone(), body)
         .flex(1.0)
         .height(FILL)
-        .tab_index(0),
+        .tab_index(0)
+        .on_input(move |_| typed()),
     )
     .into()
 }

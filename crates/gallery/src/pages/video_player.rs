@@ -30,6 +30,18 @@ use crate::{
 /// How long the playground's video is, in seconds.
 const LENGTH: f64 = 250.0;
 
+/// What the playground's player is given to play, in the order of the select: nothing, so that the page's
+/// clock moves a picture that stands for a video; the gallery's clip from its bytes; a file by its path; a
+/// video at an address.
+const SOURCES: [(&str, usize); 4] = [("None", 0), ("Bytes", 1), ("A file", FILED), ("An address", ADDRESSED)];
+
+/// The places of a file and of an address among the sources.
+const FILED: usize = 2;
+const ADDRESSED: usize = 3;
+
+/// A video anyone may fetch: the address the playground plays until another is typed.
+const ADDRESS: &str = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
+
 /// How often the page's clock moves the position on while it plays.
 const TICK: Duration = Duration::from_millis(250);
 
@@ -99,6 +111,35 @@ fn clip() -> lurq::resources::Source {
   CLIP
     .get_or_init(|| lurq::resources::Source::bytes(include_bytes!("../../assets/media/sample.mp4").to_vec()))
     .clone()
+}
+
+/// Where the clip is as a file on this machine's disk, written there once: the path the playground plays as a
+/// file until another is typed.
+#[cfg(not(target_arch = "wasm32"))]
+fn clip_path() -> String {
+  static CLIP_FILE: OnceLock<std::path::PathBuf> = OnceLock::new();
+  CLIP_FILE
+    .get_or_init(|| {
+      let folder = std::env::temp_dir().join("lurq-gallery");
+      let path = folder.join("sample.mp4");
+      let _ = std::fs::create_dir_all(&folder);
+      let _ = std::fs::write(&path, include_bytes!("../../assets/media/sample.mp4"));
+      path
+    })
+    .display()
+    .to_string()
+}
+
+/// The source the playground's player plays: none for the first of [`SOURCES`], and for a path or an address
+/// that is not typed yet.
+#[cfg(not(target_arch = "wasm32"))]
+fn source_of(chosen: usize, path: &str, address: &str) -> Option<lurq::resources::Source> {
+  match chosen {
+    1 => Some(clip()),
+    FILED if !path.trim().is_empty() => Some(lurq::resources::Source::file(path.trim())),
+    ADDRESSED if !address.trim().is_empty() => Some(lurq::resources::Source::url(address.trim())),
+    _ => None,
+  }
 }
 
 /// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state: 432 wide and no wider than
@@ -317,6 +358,10 @@ pub struct VideoPlayerPage {
   overlay: Signal<bool>,
   feed_playing: Signal<bool>,
   feed_muted: Signal<bool>,
+  /// What the playground's player plays, of [`SOURCES`], and the path and the address typed for the last two.
+  source: Signal<usize>,
+  path: Signal<String>,
+  address: Signal<String>,
   _clock: Interval,
 }
 
@@ -350,6 +395,12 @@ impl VideoPlayerPage {
     let width = WIDTHS[self.width.get().min(WIDTHS.len() - 1)].1;
     let (waiting, ended, live, error) = (self.waiting.get(), self.ended.get(), self.live.get(), self.error.get());
     let (poster_on, controls, overlay) = (self.poster.get(), self.controls.get(), self.overlay.get());
+    // What it really plays, where a source is chosen: its picture, its length and where it is are then the
+    // video's own.
+    let chosen = self.source.get().min(SOURCES.len() - 1);
+    #[cfg(not(target_arch = "wasm32"))]
+    let source = source_of(chosen, &self.path.get(), &self.address.get());
+    let sourced = chosen != 0;
     // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and a
     // position read here would build the whole page again for every step of a drag. The player finds the cue of
     // its position in the track it is given.
@@ -377,12 +428,26 @@ impl VideoPlayerPage {
         } else {
           (fullscreen.clone(), pip.clone())
         };
-        let mut player = VideoPlayer::new()
-          .media(picture())
-          .width(width)
-          .live(live)
-          .buffered(buffered)
-          .waiting(waiting)
+        let mut player = VideoPlayer::new().width(width).live(live).waiting(waiting);
+        // The window of its own shows the player with no source: two players of one video would be heard twice.
+        #[cfg(not(target_arch = "wasm32"))]
+        let played = source.clone().filter(|_| !window);
+        #[cfg(target_arch = "wasm32")]
+        let played: Option<()> = None;
+        player = match played {
+          #[cfg(not(target_arch = "wasm32"))]
+          Some(source) => player.source(&source),
+          // With none, a picture stands for the video, as long and as far loaded as the page says.
+          _ => {
+            let stood = player
+              .media(picture())
+              .buffered(buffered)
+              // The frame under the pointer of the seek bar: the picture stands for it.
+              .preview(|_| picture().into());
+            if live { stood } else { stood.duration(LENGTH) }
+          }
+        };
+        let mut player = player
           .ended(ended)
           .controls(controls)
           .playing(playing.clone())
@@ -396,12 +461,7 @@ impl VideoPlayerPage {
           .qualities(&["1080p", "720p", "480p"])
           .quality(quality.clone())
           .fullscreen(fullscreen.clone())
-          .picture_in_picture(pip.clone())
-          // The frame under the pointer of the seek bar: the picture stands for it.
-          .preview(|_| picture().into());
-        if !live {
-          player = player.duration(LENGTH);
-        }
+          .picture_in_picture(pip.clone());
         if let Some(size) = size {
           player = player.size(size);
         }
@@ -486,15 +546,18 @@ impl VideoPlayerPage {
       }
     };
 
-    let mut code = vec![
-      "VideoPlayer::new()".to_owned(),
-      "    .media(frame)".to_owned(),
-      format!("    .width({width}.0)"),
-    ];
+    let mut code = vec!["VideoPlayer::new()".to_owned()];
+    code.push(match chosen {
+      1 => "    .source(&Source::bytes(include_bytes!(\"clip.mp4\").to_vec()))".to_owned(),
+      FILED => format!("    .source(&Source::file({:?}))", self.path.get().trim()),
+      ADDRESSED => format!("    .source(&Source::url({:?}))", self.address.get().trim()),
+      _ => "    .media(frame)".to_owned(),
+    });
+    code.push(format!("    .width({width}.0)"));
     if let Some(size) = size {
       code.push(format!("    .size(VideoPlayerSize::{size:?})"));
     }
-    if !live {
+    if !live && !sourced {
       code.push(format!("    .duration({LENGTH:.1})"));
     }
     for (on, line) in [
@@ -539,7 +602,9 @@ impl VideoPlayerPage {
     ];
     let facts = format!(
       "{} · {}×",
-      if live {
+      if sourced {
+        "plays its source".to_owned()
+      } else if live {
         "live".to_owned()
       } else {
         format!("{} long", media_time_text(LENGTH, false))
@@ -548,7 +613,7 @@ impl VideoPlayerPage {
     );
     let (set_size, set_width) = (self.size.clone(), self.width.clone());
     let reset = (
-      [self.size.clone(), self.width.clone()],
+      [self.size.clone(), self.width.clone(), self.source.clone()],
       [
         self.playing.clone(),
         self.muted.clone(),
@@ -568,6 +633,7 @@ impl VideoPlayerPage {
         self.rate.clone(),
         self.quality.clone(),
       ),
+      (self.path.clone(), self.address.clone()),
     );
     let flags = [
       flag("playing", &self.playing),
@@ -598,8 +664,52 @@ impl VideoPlayerPage {
           set_width.set(WIDTHS.iter().position(|(_, chosen)| *chosen == width).unwrap_or(0))
         }),
       ),
-      divider(),
     ];
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let (to_source, stop, rewind, over) = (
+        self.source.clone(),
+        self.playing.clone(),
+        self.position.clone(),
+        self.ended.clone(),
+      );
+      controls_list.push(prop(
+        "source",
+        "&Source",
+        self.playground.select(2, &SOURCES, &chosen, move |index| {
+          // Another video: what played stops, and the new one starts from its start.
+          stop.set(false);
+          over.set(false);
+          rewind.set(0.0);
+          to_source.set(index);
+        }),
+      ));
+      // What a key in a path or an address does: what plays stops, so that half of one is not asked for.
+      let stops = |playing: &Signal<bool>| {
+        let playing = playing.clone();
+        move || {
+          if playing.get_untracked() {
+            playing.set(false);
+          }
+        }
+      };
+      // A file of the person's own is its path, and a video on the network its address: typed here.
+      if chosen == FILED {
+        controls_list.push(prop(
+          "path",
+          "impl Into<PathBuf>",
+          crate::playground::field_telling(&self.path, stops(&self.playing)),
+        ));
+      }
+      if chosen == ADDRESSED {
+        controls_list.push(prop(
+          "address",
+          "&str",
+          crate::playground::field_telling(&self.address, stops(&self.playing)),
+        ));
+      }
+    }
+    controls_list.push(divider());
     controls_list.extend(flags);
     self.playground.window_shows({
       let make = make.clone();
@@ -619,6 +729,7 @@ impl VideoPlayerPage {
         tree,
         controls: controls_list,
         changed: [
+          sourced,
           size.is_some(),
           width != 432.0,
           self.playing.get(),
@@ -651,6 +762,9 @@ impl VideoPlayerPage {
           reset.3.1.set(0.8);
           reset.3.2.set(1.0);
           reset.3.3.set(None);
+          reset.4.1.set(ADDRESS.to_owned());
+          #[cfg(not(target_arch = "wasm32"))]
+          reset.4.0.set(clip_path());
         }),
       },
     )
@@ -776,13 +890,19 @@ impl Component for VideoPlayerPage {
   fn create(ctx: &mut Ctx) -> Self {
     let (playing, position, rate) = (ctx.signal(false), ctx.signal(0.0_f32), ctx.signal(1.0_f32));
     let (waiting, ended, error) = (ctx.signal(false), ctx.signal(false), ctx.signal(false));
+    let source = ctx.signal(0_usize);
     // The page's clock: while it plays it moves the position on by the time gone at the speed chosen, and at the
-    // end it stops and says it ended.
+    // end it stops and says it ended. A player with a source is moved by its video, and not by this clock.
     let clock = ctx.create_interval(TICK, {
       let (playing, position, rate) = (playing.clone(), position.clone(), rate.clone());
       let (waiting, ended, error) = (waiting.clone(), ended.clone(), error.clone());
+      let source = source.clone();
       move || {
-        if !playing.get_untracked() || waiting.get_untracked() || error.get_untracked() {
+        if !playing.get_untracked()
+          || waiting.get_untracked()
+          || error.get_untracked()
+          || source.get_untracked() != 0
+        {
           return;
         }
         let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();
@@ -798,7 +918,7 @@ impl Component for VideoPlayerPage {
     clock.start();
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 2),
+      playground: Playground::new(ctx, 3),
       size: ctx.signal(0),
       width: ctx.signal(0),
       playing,
@@ -821,6 +941,12 @@ impl Component for VideoPlayerPage {
       overlay: ctx.signal(false),
       feed_playing: ctx.signal(false),
       feed_muted: ctx.signal(true),
+      source,
+      #[cfg(not(target_arch = "wasm32"))]
+      path: ctx.signal(clip_path()),
+      #[cfg(target_arch = "wasm32")]
+      path: ctx.signal(String::new()),
+      address: ctx.signal(ADDRESS.to_owned()),
       _clock: clock,
     }
   }
@@ -1139,9 +1265,12 @@ impl Component for VideoPlayerPage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of VideoPlayer is a control on the right. Nothing is decoded: a clock of the page's own moves \
-           the position on while it plays, and at the end it stops and says it ended. Every press of the player \
-           tells the page what it is to be, and the page sets it.",
+          "Every prop of VideoPlayer is a control on the right. With no source nothing is decoded: a clock of the \
+           page's own moves the position on while it plays, and at the end it stops and says it ended. With a \
+           source (the gallery's clip from its bytes, a file by its path, a video at an address) the player \
+           really plays it, and its picture, its length and where it is are the video's own. A file of your own \
+           is its path, typed in place of the gallery's. Every press of the player tells the page what it is to \
+           be, and the page sets it.",
           playground,
         ),
         Section::new(
