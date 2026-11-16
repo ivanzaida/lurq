@@ -653,7 +653,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 
 **In a narrow room.** A field whose label stands beside its control puts the label over the control where the
 field's own room, not the window's, is narrower than the two need side by side: the label is then as high as its
-text, and the control fills the row under it. With room again they stand side by side.
+text, and the control fills the row under it. With room again they stand side by side. The board draws the label beside its control (Fieldset, the horizontal field) and no narrow form of it: the label over the control is the form of its other fields.
 
 ## Info Label
 
@@ -1372,7 +1372,7 @@ list along the top is wider than it, they are their overflowing form (the list b
 its end), scrolled to the selected tab, with no frame of the other form, and the list alone again when it fits.
 `overflow(true)` keeps that form whether or not the list fits. Tabs converted into an element on their own cannot
 measure: in a room too narrow they end their labels in an ellipsis, every tab still in the room. A theme's renderer
-gives the box that is the tabs' room `TabsView::room_ref`.
+gives the box that is the tabs' room `TabsView::room_ref`. The form is the board's Tabs/Overflow. Its tabs of a phone (Mobile/Scrollable Tabs: 48 high, labels of 15, scrolled with no buttons) are another dress of the same scrolling list, which an app gives with rules; the room does not choose it.
 
 ## Accordion
 
@@ -1559,7 +1559,10 @@ Pagination::controlled(current, 12, move |to| go(to));
 than its buttons, it draws fewer pages on each side of the current one, down to the first, the current and the last
 between two ellipses; narrower than those, it says where the list is between previous and next ("Page 6 of 12").
 With room again it draws what the app says. Its root wraps: beside a select of how many to a page the pages go on
-to a line under it, and a table's footer puts its pagination under its count.
+to a line under it, and a table's footer puts its pagination under its count. The board draws no narrower form than
+its compact one (Pagination/Compact, where the list is between previous and next), which is what the last step
+is. A pagination that is only built (converted into an element, or `build`) cannot measure: it draws the pages the
+app says in any room, and only its root wraps; `mount(ctx)` is the one that measures.
 
 ## Steps
 
@@ -3972,7 +3975,7 @@ a toggle (checked), a group of toggles, a labelled group (under its label), a st
 was given `in_menu`. What is kept in the bar is a control that `stays`, and a select, a field or any element with
 no `in_menu`. What is kept never runs past the bar: a bar narrower than what stays in it (and a bar without
 `overflow` narrower than its controls) scrolls sideways to it, by the wheel, a drag, and the keys, which bring the
-focused control into view. A bar that is only built has no menu, and scrolls to all of its controls.
+focused control into view. A bar that is only built has no menu, and scrolls to all of its controls. The board draws the bar and its overflow menu (Toolbar, Overflow Menu, Table Toolbar) and no narrower form: scrolling to what stays is lurq's.
 
 ## Action Bar
 
@@ -4019,7 +4022,9 @@ Stack::new()
 called by its label in a tooltip (`ActionBarView::compact`); an action with no icon keeps its label, and the
 count and the clear button stay. Narrower than its icons too, the actions go, the last first, into the menu of a
 More button before the clear button (`more_label`, "More actions"), and the text ends in an ellipsis only once
-every action is in the menu. A bar that is only built keeps its labels and cuts its text.
+every action is in the menu. This is the order of the board's bar of a phone (Mobile/Selection Bar: the count, the
+actions as icons, More). A bar that is only built (converted into an element, or `build`) cannot measure: it keeps
+its labels in any room and cuts its text; `mount(ctx)` is the one that measures.
 
 ## Floating Panel
 
@@ -4635,7 +4640,7 @@ view.on_key_down(move |event: KeyboardEvent| {
 
 **In a narrow room.** A mounted bar measures its field: where the field has no room for the options in it,
 they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
-and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it.
+and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it. The board draws the bar at 440 with the options in its field and no narrower form: the one button is lurq's.
 
 ## Column View
 
@@ -4994,7 +4999,7 @@ NavigationMenu::new()
 go, the last first, behind a More item at its end (`more_label`), which opens a menu of them, a link as an item
 (the page shown checked) and an item with a panel as its name over its panel's links. More is an item of the row
 to the keys, is drawn as the item of the page shown while that page is behind it, and is gone when every item is
-back. A theme's renderer builds the row of `NavigationMenuView::slot` and `more`.
+back. A theme's renderer builds the row of `NavigationMenuView::slot` and `more`. Its open panel takes the room a narrow window has: its columns go one under another where two have no room side by side, and none is wider than the window lets it be. The board draws the menu with room for all of it (Navigation Menu, a panel of two columns of 208) and no narrow form: More and the panel of one column are lurq's.
 
 ## Table
 
@@ -5072,7 +5077,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 **In a narrow room.** A cell's text wider than its column ends in an ellipsis unless the column wraps; the
 whole text is what tooling reads of the cell. The lines of a loading table are shares of their cells, so they
 end inside a narrow column. A footer too narrow for its count and its pagination puts the pagination under the
-count.
+count. The shares are the board's (Table/Loading: lines of 150, 190, 120 and 170 in a cell of 176, and 70 in one of 90).
 
 ## Charts
 

@@ -345,9 +345,12 @@ impl ActionBar {
     element
   }
 
-  /// Builds the bar in `theme`, with nothing kept: its actions with their
-  /// labels in any room, its text giving way. Converting a bar into an
-  /// element does this in the theme of what is being rendered.
+  /// Builds the bar in `theme`, with nothing kept: a still one, which cannot
+  /// measure its room, has its actions with their labels in any room, and
+  /// its text gives way, cut with an ellipsis. [`mount`](Self::mount) is the
+  /// one that measures, and draws its actions as icons and then puts them in
+  /// its menu as its room narrows. Converting a bar into an element does
+  /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     self.build_with(theme, None, None)
   }
