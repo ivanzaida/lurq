@@ -1,7 +1,10 @@
 //! The page of the video player: its playground, driven by a clock of the page's own, its states, its three forms,
 //! the player without controls, and one with an app's own controls laid over the picture.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+  sync::{Arc, OnceLock},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -13,7 +16,7 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, Gradient, HitTestBehavior, color::Color, dimension::Dimension, gradient::GradientStop},
   ui::{
-    Button, ButtonPart, ButtonShape, ButtonVariant, Length, PlayButton, PlayButtonVariant, VideoPlayer,
+    Button, ButtonPart, ButtonShape, ButtonVariant, Length, MediaCaptions, PlayButton, PlayButtonVariant, VideoPlayer,
     VideoPlayerSize, icons, media_time_text,
   },
 };
@@ -212,7 +215,7 @@ impl Component for Demo {
       .muted(self.muted.clone())
       .rate(self.rate.clone())
       .captions(self.captions.clone())
-      .caption_text(VideoPlayerPage::cue(position))
+      .caption_cues(&VideoPlayerPage::captions())
       .captions_track("English")
       .qualities(&["1080p", "720p", "480p"])
       .quality(self.quality.clone())
@@ -281,23 +284,33 @@ pub struct VideoPlayerPage {
   poster: Signal<bool>,
   controls: Signal<bool>,
   overlay: Signal<bool>,
-  /// Which cue of the captions the clock's time is in.
-  cue: Signal<usize>,
   feed_playing: Signal<bool>,
   feed_muted: Signal<bool>,
   _clock: Interval,
 }
 
 impl VideoPlayerPage {
-  /// The line of the captions for a time: the cue the app would have.
-  fn cue(position: f64) -> &'static str {
-    const CUES: [&str; 4] = [
-      "The bar fades out while the video plays.",
-      "Move the pointer and it comes back.",
-      "Space or K plays and pauses; the arrows seek.",
-      "C turns these captions off.",
-    ];
-    CUES[(position / 6.0) as usize % CUES.len()]
+  /// The track of the captions, read from the text of a WebVTT file as an app would read its own: a cue every
+  /// six seconds, to the end.
+  fn captions() -> MediaCaptions {
+    static TRACK: OnceLock<MediaCaptions> = OnceLock::new();
+    TRACK
+      .get_or_init(|| {
+        const CUES: [&str; 4] = [
+          "The bar fades out while the video plays.",
+          "Move the pointer and it comes back.",
+          "Space or K plays and pauses; the arrows seek.",
+          "C turns these captions off.",
+        ];
+        let stamp = |seconds: usize| format!("{:02}:{:02}.000", seconds / 60, seconds % 60);
+        let mut vtt = String::from("WEBVTT\n");
+        for (index, start) in (0..LENGTH as usize).step_by(6).enumerate() {
+          let cue = CUES[index % CUES.len()];
+          vtt.push_str(&format!("\n{} --> {}\n{cue}\n", stamp(start), stamp(start + 6)));
+        }
+        MediaCaptions::parse(&vtt)
+      })
+      .clone()
   }
 
   /// The playground: the player as the panel's props make it, its values held by the page and moved on by its clock.
@@ -307,8 +320,8 @@ impl VideoPlayerPage {
     let (waiting, ended, live, error) = (self.waiting.get(), self.ended.get(), self.live.get(), self.error.get());
     let (poster_on, controls, overlay) = (self.poster.get(), self.controls.get(), self.overlay.get());
     // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and a
-    // position read here would build the whole page again for every step of a drag. The cue is the clock's.
-    let caption = Self::cue(self.cue.get() as f64 * 6.0);
+    // position read here would build the whole page again for every step of a drag. The player finds the cue of
+    // its position in the track it is given.
     let make = {
       let (playing, position, volume, muted, rate) = (
         self.playing.clone(),
@@ -340,7 +353,7 @@ impl VideoPlayerPage {
           .muted(muted.clone())
           .rate(rate.clone())
           .captions(captions.clone())
-          .caption_text(caption)
+          .caption_cues(&Self::captions())
           .captions_track("English")
           .qualities(&["1080p", "720p", "480p"])
           .quality(quality.clone())
@@ -467,7 +480,7 @@ impl VideoPlayerPage {
         "    .muted(muted)",
         "    .rate(rate)",
         "    .captions(captions)",
-        "    .caption_text(cue)",
+        "    .caption_cues(&track)",
         "    .qualities(&[\"1080p\", \"720p\", \"480p\"])",
         "    .quality(quality)",
         "    .fullscreen(fullscreen)",
@@ -725,21 +738,16 @@ impl Component for VideoPlayerPage {
   fn create(ctx: &mut Ctx) -> Self {
     let (playing, position, rate) = (ctx.signal(false), ctx.signal(0.0_f32), ctx.signal(1.0_f32));
     let (waiting, ended, error) = (ctx.signal(false), ctx.signal(false), ctx.signal(false));
-    let cue = ctx.signal(0_usize);
     // The page's clock: while it plays it moves the position on by the time gone at the speed chosen, and at the
-    // end it stops and says it ended. It says which cue of the captions the time is in, when that changes.
+    // end it stops and says it ended.
     let clock = ctx.create_interval(TICK, {
-      let (playing, position, rate, cue) = (playing.clone(), position.clone(), rate.clone(), cue.clone());
+      let (playing, position, rate) = (playing.clone(), position.clone(), rate.clone());
       let (waiting, ended, error) = (waiting.clone(), ended.clone(), error.clone());
       move || {
         if !playing.get_untracked() || waiting.get_untracked() || error.get_untracked() {
           return;
         }
         let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();
-        let index = (next / 6.0) as usize;
-        if cue.get_untracked() != index {
-          cue.set(index);
-        }
         if f64::from(next) >= LENGTH {
           position.set(LENGTH as f32);
           playing.set(false);
@@ -771,7 +779,6 @@ impl Component for VideoPlayerPage {
       poster: ctx.signal(true),
       controls: ctx.signal(true),
       overlay: ctx.signal(false),
-      cue,
       feed_playing: ctx.signal(false),
       feed_muted: ctx.signal(true),
       _clock: clock,
@@ -912,6 +919,13 @@ impl Component for VideoPlayerPage {
         "&str",
         "",
         "The line to show now, and the track's name the settings say.",
+      ),
+      (
+        "caption_cues",
+        "&MediaCaptions",
+        "",
+        "A track read from a WebVTT or a SubRip file (MediaCaptions::parse): the player shows what it says at its \
+         position.",
       ),
       (
         "qualities / quality",

@@ -13,9 +13,9 @@ use std::{
 };
 
 use super::{
-  MEDIA_RATES, MediaSpeedMenu, MediaTime, MediaTimeSize, MediaVolume, MediaVolumeSize, Menu, MenuItem, MenuItemPart,
-  MenuPart, PlayButton, PlayButtonSize, PlayButtonVariant, SeekBar, Tooltip, icons, media_rate_text, media_time_text,
-  names,
+  MEDIA_RATES, MediaCaptions, MediaSpeedMenu, MediaTime, MediaTimeSize, MediaVolume, MediaVolumeSize, Menu, MenuItem,
+  MenuItemPart, MenuPart, PlayButton, PlayButtonSize, PlayButtonVariant, SeekBar, Tooltip, icons, media_rate_text,
+  media_time_text, names,
   part_style::{Length, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
@@ -416,6 +416,7 @@ pub struct VideoPlayer {
   rates: Vec<f32>,
   captions: Held<bool>,
   caption_text: Option<Arc<str>>,
+  caption_cues: Option<MediaCaptions>,
   captions_track: Option<Arc<str>>,
   qualities: Vec<Arc<str>>,
   quality: Held<Option<usize>>,
@@ -507,6 +508,7 @@ impl VideoPlayer {
       rates: MEDIA_RATES.to_vec(),
       captions: Held::new(false),
       caption_text: None,
+      caption_cues: None,
       captions_track: None,
       qualities: Vec::new(),
       quality: Held::new(None),
@@ -735,9 +737,18 @@ impl VideoPlayer {
     "whether the captions show."
   );
 
-  /// The line of the captions to show now, while they are on: the cue the app has for the time.
+  /// The line of the captions to show now, while they are on: the cue the app has for the time. It is shown in
+  /// place of what a track given with [`caption_cues`](Self::caption_cues) says.
   pub fn caption_text(mut self, text: &str) -> Self {
     self.caption_text = (!text.is_empty()).then(|| Arc::from(text));
+    self
+  }
+
+  /// The track of the captions, read from a WebVTT or a SubRip file ([`MediaCaptions::parse`]): while the
+  /// captions are on, the player shows what the track says at the position it is at, and nothing between two
+  /// cues.
+  pub fn caption_cues(mut self, track: &MediaCaptions) -> Self {
+    self.caption_cues = Some(track.clone());
     self
   }
 
@@ -1204,7 +1215,14 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     error: player.error.clone(),
     error_description: player.error_description.clone(),
     caption: (player.controls && player.captions.value && player.error.is_none())
-      .then(|| player.caption_text.clone())
+      .then(|| {
+        player.caption_text.clone().or_else(|| {
+          player
+            .caption_cues
+            .as_ref()
+            .and_then(|track| track.at(player.position.value))
+        })
+      })
       .flatten(),
     label: player.words.label.clone(),
     width: player.width,

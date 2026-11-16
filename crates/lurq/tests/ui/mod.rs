@@ -66,6 +66,7 @@ mod kbd;
 mod line_chart;
 mod list_item;
 mod listbox;
+mod media_captions;
 mod media_speed_menu;
 mod media_time;
 mod media_volume;

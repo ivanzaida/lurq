@@ -1207,3 +1207,37 @@ fn nothing_of_the_bar_is_cut_at_any_width_still_or_mounted() {
     }
   }
 }
+
+#[test]
+fn it_shows_what_a_track_of_captions_says_at_its_position() {
+  use lurq::ui::MediaCaptions;
+  let track =
+    MediaCaptions::parse("WEBVTT\n\n01:20.000 --> 01:30.000\nThe bar fades out.\n\n02:00.000 --> 02:05.000\nLater.\n");
+  let told = Told::default();
+  // The player is at 1:24.
+  let (made, cues) = (told.clone(), track.clone());
+  let mut on = still(move || player(&made).captions_controlled(true, |_| {}).caption_cues(&cues));
+  assert!(on.paints("The bar fades out."), "the cue of its position");
+  assert!(!on.paints("Later."));
+  let (made, cues) = (told.clone(), track.clone());
+  let mut off = still(move || player(&made).caption_cues(&cues));
+  assert!(!off.paints("The bar fades out."), "off, nothing is said");
+  let (made, cues) = (told.clone(), track.clone());
+  let mut between = still(move || {
+    player(&made)
+      .captions_controlled(true, |_| {})
+      .position_controlled(100.0, |_| {})
+      .caption_cues(&cues)
+  });
+  assert!(!has(&mut between, "v-caption"), "between two cues there is no line");
+  let mut own = still(move || {
+    player(&told)
+      .captions_controlled(true, |_| {})
+      .caption_cues(&track)
+      .caption_text("The app's own.")
+  });
+  assert!(
+    own.paints("The app's own.") && !own.paints("The bar fades out."),
+    "a line the app gives is shown in the track's place"
+  );
+}
