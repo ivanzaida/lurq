@@ -457,6 +457,28 @@ fn in_a_narrow_room_the_lists_are_one_over_the_other_from_the_first_frame() {
 }
 
 #[test]
+fn converted_into_a_child_in_a_narrow_room_it_stacks_from_the_first_frame() {
+  let mut stage = Stage::first_frame(320.0, 600.0, |_| {
+    Column::new()
+      .size(320.0, 600.0)
+      .child(Transfer::new(Signal::new(vec!["wgpu"]), features()).id("transfer"))
+      .into()
+  });
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(first, stage.picture(), "the first frame is the settled one");
+  let (_, sy, sw, sh) = stage.bounds("transfer-source");
+  let (_, ay, ..) = stage.bounds("transfer-add");
+  assert_eq!(sw, 320.0);
+  assert!(ay > sy + sh, "the buttons under the left list");
+  assert_eq!(glyphs(&stage, CHEVRON_DOWN), 1);
+  // Converted, it is live: a press checks, and the count says so.
+  stage.pass();
+  stage.click("transfer-source-0");
+  assert!(stage.paints("1/4"));
+}
+
+#[test]
 fn a_theme_restyles_its_parts() {
   let mut stage = wide(|_| {
     Transfer::controlled(["wgpu"], features(), |_| {})

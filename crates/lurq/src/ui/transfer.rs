@@ -124,9 +124,11 @@ const WINDOWED: usize = 200;
 /// does not move.
 ///
 /// What is checked is kept where the transfer is [mounted](Self::mount), or by the app ([`checked`](Self::checked));
-/// mounted, it measures its room before it is painted and lays the lists one over the other, the buttons in a row
-/// between them and their chevrons turned, where they do not fit side by side, and a list of more than two hundred
-/// items builds only those near its view. Converted into an element on its own it is the still form of itself.
+/// mounted, or converted into an element, which declares the same live component, it measures its room before it is
+/// painted and lays the lists one over the other, the buttons in a row between them and their chevrons turned, where
+/// they do not fit side by side, and a list of more than two hundred items builds only those near its view.
+/// [`build`](Self::build) is the still form of itself, side by side whatever its room.
+#[derive(Clone)]
 pub struct Transfer<T: 'static = ()> {
   items: Vec<SelectOption<T>>,
   value: Vec<T>,
@@ -339,9 +341,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
     self
   }
 
-  /// Builds the transfer in `theme`, with nothing kept but what the app gives it: side by side, with nothing checked
-  /// unless the app holds what is. Converting a transfer into an element does this in the theme of what is being
-  /// rendered.
+  /// Builds the still form of the transfer in `theme`, with nothing kept but what the app gives it: side by side
+  /// whatever its room, wide only, with nothing checked unless the app holds what is. Converting a transfer into an
+  /// element gives the live one in place of this, which keeps what is checked and stacks in a narrow room.
   pub fn build(self, theme: &Theme) -> Element {
     let kept = Kept {
       checked: Arc::default(),
@@ -546,9 +548,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
   }
 }
 
+/// The transfer declared where it is converted: the live component, as [`mount`](Transfer::mount) makes it, which
+/// keeps what is checked and finds its narrow form by its own room. `.child(transfer)` stacks in a narrow room.
 impl<T: Clone + PartialEq + Send + Sync + 'static> From<Transfer<T>> for Element {
   fn from(transfer: Transfer<T>) -> Self {
-    transfer.build(&current_theme())
+    let key = transfer.key.clone();
+    let props = TransferProps { transfer };
+    match key {
+      Some(key) => Element::component_keyed::<TransferHost<T>>(key, props),
+      None => Element::component::<TransferHost<T>>(props),
+    }
   }
 }
 
@@ -971,6 +980,7 @@ impl<T: Send + Sync + 'static> Themed for Transfer<T> {
   }
 }
 
+#[derive(Clone)]
 struct TransferProps<T: 'static> {
   transfer: Transfer<T>,
 }
