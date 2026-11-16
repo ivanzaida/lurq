@@ -31,18 +31,8 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     modal_declaration: None,
     layout_neutral: false,
     synthetic_role: None,
-    #[cfg(feature = "devtools")]
-    component_props_debug: None,
-    #[cfg(feature = "devtools")]
-    component_signals_debug: Vec::new(),
-    #[cfg(feature = "devtools")]
-    component_memos_debug: Vec::new(),
-    #[cfg(feature = "devtools")]
-    component_effects_debug: Vec::new(),
-    #[cfg(feature = "devtools")]
-    component_contexts_debug: Vec::new(),
     #[cfg(any(feature = "devtools", feature = "mcp"))]
-    debug_attrs: Vec::new(),
+    debug: crate::node::lazy_box::LazyBox::new(),
     theme_scope: None,
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),

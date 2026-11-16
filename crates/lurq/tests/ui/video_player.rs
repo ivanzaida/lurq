@@ -11,7 +11,7 @@ use lurq::{
   app::{ctx::Ctx, events::MouseButton, theme::Theme, window::Appearance},
   components::Column,
   layout::quad::QuadContent,
-  node::{Element, color::Color, dimension::Dimension},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
   ui::{Length, VIDEO_PLAYER_HIDE_AFTER, VideoPlayer, VideoPlayerMenu, VideoPlayerPart, VideoPlayerSize},
 };
 
@@ -86,7 +86,7 @@ fn stage(scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Stage {
 
 /// The still form of what `make` builds.
 fn still(make: impl Fn() -> VideoPlayer + Send + Sync + 'static) -> Stage {
-  stage(move |_| make().into())
+  stage(move |_| make().build(&lurq::ui::current_theme()))
 }
 
 /// The mounted form of what `make` builds.
@@ -134,6 +134,26 @@ fn bar_quad(stage: &mut Stage) -> lurq::layout::quad::Quad {
         && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
     })
     .expect("the bar is painted with its gradient")
+}
+
+/// How opaque the bar is as the window composites it: the opacity of the groups it is painted in, nothing where it
+/// is not painted at all. A faded group is painted into a layer of its own at its opacity, its quads at their own.
+fn bar_opacity(stage: &mut Stage) -> f32 {
+  let (x, y, width, height) = stage.bounds("v-controls");
+  let snapshot = crate::support::render_pass_with_app(&mut stage.tree, &mut stage.app);
+  let Some(bar) = snapshot
+    .rects
+    .iter()
+    .find(|rect| (rect.x, rect.y, rect.width, rect.height) == (x, y, width, height))
+  else {
+    return 0.0;
+  };
+  snapshot
+    .layers
+    .iter()
+    .filter(|layer| (layer.start_order..layer.end_order).contains(&bar.order))
+    .map(|layer| layer.opacity)
+    .product()
 }
 
 /// A press at a point of the window.
@@ -368,6 +388,162 @@ fn the_overlay_takes_presses_without_the_controls() {
     1,
     "the app's own control is pressed through the player"
   );
+}
+
+#[test]
+fn with_the_controls_the_overlay_and_the_bar_each_take_their_own_presses() {
+  for mount in [false, true] {
+    let told = Told::default();
+    let pressed = Arc::new(Mutex::new(0));
+    let (made, count) = (told.clone(), pressed.clone());
+    let mut stage = stage(move |ctx| {
+      let count = count.clone();
+      let player = player(&made).width(640.0).child(
+        Column::new()
+          .id("like")
+          .size(40.0, 40.0)
+          .on_click(move |_| *count.lock().unwrap() += 1),
+      );
+      if mount {
+        player.mount(ctx)
+      } else {
+        player.build(&lurq::ui::current_theme())
+      }
+    });
+    stage.click("like");
+    assert_eq!(
+      *pressed.lock().unwrap(),
+      1,
+      "the app's own control is pressed (mounted: {mount})"
+    );
+    assert_eq!(
+      told.take(),
+      Vec::<String>::new(),
+      "and the press of it is not a press of the picture (mounted: {mount})"
+    );
+    stage.click("v-play");
+    assert_eq!(
+      told.take(),
+      ["playing true"],
+      "the bar's play is still the player's (mounted: {mount})"
+    );
+  }
+}
+
+#[test]
+fn a_play_button_in_the_middle_of_the_apps_layer_is_pressed_under_a_layer_that_draws_nothing_there() {
+  use lurq::{
+    components::{Row, Stack},
+    layout::{Alignment, layout_kind::Justify},
+    node::HitTestBehavior,
+    ui::{PlayButton, PlayButtonVariant},
+  };
+  for mount in [false, true] {
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let tell = heard.clone();
+    let mut stage = stage(move |ctx| {
+      let tell = tell.clone();
+      let center = Row::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .child(
+          PlayButton::new()
+            .id("own-play")
+            .variant(PlayButtonVariant::Overlay)
+            .on_change(move |to| tell.lock().unwrap().push(to)),
+        );
+      let over = Column::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .hit_test(HitTestBehavior::ContentOnly)
+        .justify(Justify::SpaceBetween)
+        .child(Row::new().id("top").width(Dimension::Pct(100.0)).height(40.0))
+        .child(Row::new().id("bottom").width(Dimension::Pct(100.0)).height(40.0));
+      let layer = Stack::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .child(center)
+        .child(over);
+      let player = VideoPlayer::new()
+        .id("v")
+        .width(243.0)
+        .height(432.0)
+        .controls(false)
+        .playing_controlled(false, |_| {})
+        .child(layer);
+      if mount {
+        player.mount(ctx)
+      } else {
+        player.build(&lurq::ui::current_theme())
+      }
+    });
+    stage.click("own-play");
+    assert_eq!(
+      *heard.lock().unwrap(),
+      [true],
+      "the app's play button hears one press (mounted: {mount})"
+    );
+  }
+}
+
+#[test]
+fn a_bound_player_is_dragged_through_the_renders_its_own_change_causes() {
+  use lurq::core::Signal;
+  for mount in [false, true] {
+    let position = Signal::new(84.0_f32);
+    let shown = position.clone();
+    let mut stage = stage(move |ctx| {
+      let player = VideoPlayer::new()
+        .id("v")
+        .width(640.0)
+        .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
+        .duration(250.0)
+        .position(shown.clone());
+      if mount {
+        player.mount(ctx)
+      } else {
+        player.build(&lurq::ui::current_theme())
+      }
+    });
+    let (x, y, width, height) = stage.bounds("v-seek");
+    let (at, middle) = (|share: f32| x + width * share, y + height / 2.0);
+    stage.tree.mouse_move(at(0.34), middle);
+    stage.tree.mouse_down(at(0.34), middle, MouseButton::Left);
+    stage.pass();
+    // What plays moves the position on by itself while the handle is held: the player is built again with
+    // nothing of the pointer in it, and the drag goes on.
+    position.set(position.get_untracked() + 0.25);
+    stage.pass();
+    stage.tree.mouse_move(at(0.5), middle);
+    stage.pass();
+    let first = position.get_untracked();
+    // And again between two moves of the pointer, as a clock does four times a second.
+    position.set(first + 0.25);
+    stage.pass();
+    position.set(first + 0.5);
+    stage.pass();
+    stage.tree.mouse_move(at(0.8), middle);
+    stage.pass();
+    let second = position.get_untracked();
+    stage.tree.mouse_up(at(0.8), middle, MouseButton::Left);
+    stage.pass();
+    assert!(
+      (110.0..140.0).contains(&first),
+      "the handle follows the pointer to the middle (mounted: {mount}): {first}"
+    );
+    assert!(
+      second > 185.0,
+      "and goes on following it after the player was built again (mounted: {mount}): {first}, then {second}"
+    );
+    // The keys too: the focus stays in the bar from one render to the next.
+    let before = position.get_untracked();
+    stage.key("ArrowRight");
+    stage.key("ArrowRight");
+    let after = position.get_untracked();
+    assert!(
+      (after - before - 10.0).abs() < 0.01,
+      "two arrow keys move it two steps of 5 (mounted: {mount}): from {before} to {after}"
+    );
+  }
 }
 
 #[test]
@@ -619,12 +795,18 @@ fn playing_the_controls_fade_after_the_pointer_rests_and_come_back_when_it_moves
   });
   stage.tree.mouse_move(100.0, 60.0);
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 1.0, "shown while the pointer moves");
+  assert_eq!(bar_opacity(&mut stage), 1.0, "shown while the pointer moves");
+  assert_eq!(
+    stage.tree.cursor(),
+    CursorIcon::Pointer,
+    "the picture is pressed to play"
+  );
   stage
     .tree
     .tick_timers_at(Instant::now() + VIDEO_PLAYER_HIDE_AFTER + Duration::from_millis(100));
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 0.0, "faded 3 s after the pointer rests");
+  assert_eq!(bar_opacity(&mut stage), 0.0, "faded 3 s after the pointer rests");
+  assert_eq!(stage.tree.cursor(), CursorIcon::None, "and the pointer hidden");
   let (_, y, _, height) = stage.bounds("v-caption");
   assert!(
     (y + height - (360.0 - 12.0)).abs() < 1.0,
@@ -632,7 +814,8 @@ fn playing_the_controls_fade_after_the_pointer_rests_and_come_back_when_it_moves
   );
   stage.tree.mouse_move(120.0, 80.0);
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 1.0, "back as the pointer moves");
+  assert_eq!(bar_opacity(&mut stage), 1.0, "back as the pointer moves");
+  assert_eq!(stage.tree.cursor(), CursorIcon::Pointer, "with the pointer");
 }
 
 #[test]
@@ -646,7 +829,8 @@ fn paused_the_controls_stay() {
     .tree
     .tick_timers_at(Instant::now() + VIDEO_PLAYER_HIDE_AFTER + Duration::from_secs(1));
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 1.0);
+  assert_eq!(bar_opacity(&mut stage), 1.0);
+  assert_eq!(stage.tree.cursor(), CursorIcon::Pointer);
 }
 
 #[test]
@@ -659,7 +843,7 @@ fn hidden_by_force_the_captions_sit_at_the_bottom() {
       .caption_text("A line")
       .force_controls_shown(Some(false))
   });
-  assert_eq!(bar_quad(&mut stage).opacity, 0.0);
+  assert_eq!(bar_opacity(&mut stage), 0.0);
   let (_, y, _, height) = stage.bounds("v-caption");
   assert!((y + height - (360.0 - 12.0)).abs() < 1.0);
 }
@@ -671,7 +855,7 @@ fn over_the_picture_it_is_the_same_in_a_dark_theme() {
   dark.set_preferred_appearance(Some(Appearance::Dark));
   let mut stage = stage(move |ctx| {
     let player = player(&told).captions_controlled(true, |_| {}).caption_text("A line");
-    ctx.in_theme(&dark, move |_| player)
+    ctx.in_theme(&dark, move |ctx| player.mount(ctx))
   });
   assert_eq!(stage.fill_color("v-caption"), Some(BLACK_70));
   assert_eq!(stage.fill_color("v-captions"), Some(WHITE_20));
@@ -683,4 +867,194 @@ fn a_theme_rule_changes_it() {
   let mut stage = still(move || player(&told).style(VideoPlayerPart::Controls, |s| s.height(100.0)));
   let (_, y, _, height) = stage.bounds("v-controls");
   assert_eq!((y, height), (260.0, 100.0));
+}
+
+/// The point in the middle of the text `content` as painted.
+fn on_text(stage: &Stage, content: &str) -> (f32, f32) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} is painted"));
+  (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0)
+}
+
+#[test]
+fn a_row_of_the_settings_shows_its_choices_in_the_menus_place() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made).captions_track("English"));
+  stage.click("v-settings");
+  let (x, y) = on_text(&stage, "Quality");
+  press_at(&mut stage, x, y);
+  // The page: a row back with the title, then the choices, in the same panel.
+  for choice in ["Quality", "Auto", "1080p", "720p"] {
+    assert!(stage.paints(choice), "the page holds {choice}");
+  }
+  assert!(!stage.paints("Speed"), "the menu's own rows give way to the page");
+  let (_, _, width, _) = stage.bounds("v-settings-menu");
+  assert_eq!(width, 240.0, "in the same panel");
+  assert!(told.take().is_empty(), "opening a page tells nothing");
+  // The row back returns to the menu's own rows.
+  let (x, y) = on_text(&stage, "Quality");
+  press_at(&mut stage, x, y);
+  assert!(
+    stage.paints("Speed") && stage.paints("Captions"),
+    "back to the settings"
+  );
+  // A choice of a page is told, and closes the menu.
+  let (x, y) = on_text(&stage, "Captions");
+  press_at(&mut stage, x, y);
+  let (x, y) = on_text(&stage, "English");
+  press_at(&mut stage, x, y);
+  assert_eq!(told.take(), ["captions true"]);
+  assert!(!has(&mut stage, "v-settings-menu"), "the menu closes on a choice");
+  // It opens again at its own rows.
+  stage.click("v-settings");
+  assert!(stage.paints("Speed"), "a closed menu opens at its own rows");
+}
+
+#[test]
+fn a_second_press_of_the_picture_asks_for_fullscreen() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made));
+  press_at(&mut stage, 100.0, 60.0);
+  assert_eq!(told.take(), ["playing true"], "a press plays at once");
+  press_at(&mut stage, 100.0, 60.0);
+  assert_eq!(told.take(), ["playing true", "fullscreen true"]);
+}
+
+#[test]
+fn the_seek_bar_shows_the_frame_the_app_gives_under_the_pointer() {
+  let told = Told::default();
+  let mut stage = mounted(move || {
+    player(&told).preview(|_| {
+      Column::new()
+        .id("frame")
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .into()
+    })
+  });
+  let (x, y, width, height) = stage.bounds("v-seek");
+  stage.tree.mouse_move(x + width * 0.4, y + height / 2.0);
+  stage.pass();
+  let (_, _, width, height) = stage.bounds("frame");
+  assert_eq!((width, height), (128.0, 72.0), "the frame of 128 by 72 over the time");
+}
+
+#[test]
+fn the_frame_shows_with_the_pointer_anywhere_on_the_seek_bar_its_middle_too() {
+  for across in [640.0_f32, 432.0, 320.0] {
+    for share in [0.1_f32, 0.5, 0.9] {
+      let told = Told::default();
+      let mut stage = mounted(move || {
+        player(&told).width(across).preview(|_| {
+          Column::new()
+            .id("frame")
+            .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+            .into()
+        })
+      });
+      let (x, y, width, height) = stage.bounds("v-seek");
+      stage.tree.mouse_move(x + width * share, y + height / 2.0);
+      stage.pass();
+      assert!(
+        has(&mut stage, "frame"),
+        "the frame with the pointer at {share} of the bar of a player {across} wide"
+      );
+    }
+  }
+}
+
+/// The controls of a bar by their ids, whichever of them the form in use has.
+const BAR: [&str; 9] = [
+  "v-play",
+  "v-mute",
+  "v-time",
+  "v-captions",
+  "v-speed",
+  "v-more",
+  "v-settings",
+  "v-pip",
+  "v-fullscreen",
+];
+
+#[test]
+fn the_controls_of_the_large_bar_stand_40_apart() {
+  let told = Told::default();
+  let mut stage = still(move || player(&told).width(640.0));
+  let x = |stage: &mut Stage, id: &str| stage.bounds(id).0;
+  let (settings, pip, fullscreen) = (
+    x(&mut stage, "v-settings"),
+    x(&mut stage, "v-pip"),
+    x(&mut stage, "v-fullscreen"),
+  );
+  assert_eq!(
+    (pip - settings, fullscreen - pip),
+    (40.0, 40.0),
+    "a control of 36 and a gap of 4"
+  );
+  let (left, _, width, _) = stage.bounds("v");
+  let (_, _, side, _) = stage.bounds("v-fullscreen");
+  assert_eq!(
+    left + width - (fullscreen + side),
+    12.0,
+    "the last control ends at the bar's padding of 12"
+  );
+}
+
+#[test]
+fn a_still_player_folds_its_volume_by_the_width_it_was_given() {
+  let time_at = |width: f32| {
+    let told = Told::default();
+    let mut stage = still(move || player(&told).width(width));
+    stage.bounds("v-time").0
+  };
+  let (narrow, wide) = (time_at(432.0), time_at(640.0));
+  assert!(
+    wide - narrow >= 60.0,
+    "not mounted, a player 432 wide has no slider: the time at {narrow} and {wide}"
+  );
+}
+
+#[test]
+fn nothing_of_the_bar_is_cut_at_any_width_still_or_mounted() {
+  for mount in [false, true] {
+    for step in 0..=26 {
+      let width = 200.0 + 20.0 * step as f32;
+      let told = Told::default();
+      let mut stage = stage(move |ctx| {
+        let player = player(&told).width(width);
+        if mount {
+          player.mount(ctx)
+        } else {
+          player.build(&lurq::ui::current_theme())
+        }
+      });
+      let (left, _, across, _) = stage.bounds("v");
+      assert_eq!(across, width, "the player is as wide as it was told");
+      let mut found = Vec::new();
+      for id in BAR {
+        if has(&mut stage, id) {
+          let (x, _, w, _) = stage.bounds(id);
+          found.push((id, x, w));
+        }
+      }
+      // The minimal form has play alone of these, beside its seek bar.
+      assert!(!found.is_empty(), "a bar at {width}");
+      found.sort_by(|a, b| a.1.total_cmp(&b.1));
+      for (id, x, w) in &found {
+        assert!(
+          *x >= left - 0.5 && x + w <= left + width + 0.5,
+          "{id} is inside a player {width} wide (mounted: {mount}): from {x}, {w} wide"
+        );
+      }
+      for pair in found.windows(2) {
+        let ((before, x, w), (after, next, _)) = (pair[0], pair[1]);
+        assert!(
+          next >= x + w - 0.5,
+          "{after} does not lie over {before} in a player {width} wide (mounted: {mount})"
+        );
+      }
+    }
+  }
 }

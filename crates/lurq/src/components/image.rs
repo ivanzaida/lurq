@@ -6,7 +6,7 @@ use crate::{images::ImageData, impl_into_node, node::BackgroundSize};
 impl_into_node!(
   /// The engine's image element: pixels in a box.
   #[deprecated(
-    since = "0.62.0",
+    since = "0.63.0",
     note = "use `lurq::ui::Picture`: the same sources, with a box, what stands in while it loads, and a load of             its own"
   )]
   Image

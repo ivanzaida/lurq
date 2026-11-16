@@ -339,6 +339,7 @@ impl MarkdownPage {
     let page = |ctx: &mut Ctx, source: &str| -> Element {
       Column::new()
         .width(420.0)
+        .max_width(FILL)
         .child(Markdown::mount(
           ctx,
           MarkdownProps::styled(source, prose()).selectable(true),

@@ -548,7 +548,7 @@ impl Component for BarChartPage {
             2,
             Row::new()
               .width(crate::kit::FILL)
-              .child(Column::new().width(320.0).child(stacked)),
+              .child(Column::new().width(320.0).max_width(crate::kit::FILL).child(stacked)),
             ".stacked(true)",
             &["BarChart::new(builds, [layout, text, paint]).size(ChartSize::Sm).stacked(true).mount(ctx)"],
           ),

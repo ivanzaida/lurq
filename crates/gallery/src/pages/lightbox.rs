@@ -367,7 +367,7 @@ impl Component for LightboxPage {
                       a strip of them all.",
         import: Some("use lurq::ui::Lightbox;"),
         status: Some("Stable"),
-        since: Some("0.62"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

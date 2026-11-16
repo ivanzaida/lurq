@@ -958,7 +958,7 @@ impl Themed for TokenInput {
     use PaletteColor::*;
     use TokenInputPart::{Control, Placeholder, Root, Token, TokenIcon, TokenLabel};
     let recipe = Recipe::new()
-      .base(Root, |s| s.width(260.0))
+      .base(Root, |s| s.width(260.0).max_width(Length::Fill))
       .base(Control, |s| {
         text_box::box_style(s)
           .padding_x(6.0)

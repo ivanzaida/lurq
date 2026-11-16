@@ -25,8 +25,9 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -279,6 +280,7 @@ impl Component for WaveformPage {
     // A voice message, as the audio player draws it: the waveform between the time and the play button's place.
     let voice = self.voice.get();
     let message = Row::new()
+      .max_width(FILL)
       .padding_left(12.0)
       .padding_right(12.0)
       .padding_top(8.0)
@@ -368,7 +370,7 @@ impl Component for WaveformPage {
                       seek bar.",
         import: Some("use lurq::ui::Waveform;"),
         status: Some("Preview"),
-        since: None,
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

@@ -4,13 +4,21 @@
 //! `cargo run -p gallery`, or `cargo run -p gallery -- --route /tokens` to
 //! open on a page; `--size 800x600` opens the window at a size, to see a
 //! breakpoint.
+//!
+//! Its pages open in tabs, as a browser's do: the strip is in the title bar, and each tab keeps its own page, its
+//! history and its scroll (see `tabs`).
 
 mod doc;
 mod icon;
 mod kit;
+#[cfg(test)]
+mod narrow;
 mod pages;
 mod playground;
 mod shell;
+#[cfg(test)]
+mod speed;
+mod tabs;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
@@ -19,12 +27,12 @@ use lurq::{
     App, Tree, component::Component, ctx::Ctx, theme::PaletteColor, wgpu_render::WgpuRenderEngine,
     winit_shell::WinitWindow,
   },
-  components::{ChromeBorderPolicy, Router, WindowChrome},
+  components::ChromeBorderPolicy,
   node::Element,
-  router::{RouterHandle, Routes},
+  ui::WindowChrome,
 };
 
-use crate::{pages::PAGES, shell::Shell};
+use crate::{shell::Shell, tabs::OpenTabs};
 
 #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct GalleryProps {
@@ -35,20 +43,8 @@ struct GalleryProps {
 static MCP: std::sync::OnceLock<lurq::mcp::McpHandle> = std::sync::OnceLock::new();
 
 struct Gallery {
-  router: RouterHandle,
-}
-
-fn routes(shell: Shell) -> Routes {
-  Routes::new().layout(
-    "/",
-    move |ctx| shell::shell(ctx, &shell),
-    |mut routes| {
-      for page in PAGES {
-        routes = routes.route(page.path, page.mount);
-      }
-      routes.fallback(PAGES[0].mount)
-    },
-  )
+  shell: Shell,
+  open: OpenTabs,
 }
 
 impl Component for Gallery {
@@ -56,29 +52,34 @@ impl Component for Gallery {
 
   fn create(ctx: &mut Ctx) -> Self {
     let shell = Shell::new(ctx);
-    let router = ctx.router(routes(shell));
-    router.replace(&ctx.props::<GalleryProps>().route);
-    // In a browser the address names the page: it is opened on, follows the pages and takes the back button.
-    router.follow_address();
+    let open = OpenTabs::new(&ctx.props::<GalleryProps>().route);
+    // In a browser the address names the page: it is opened on, follows the pages and takes the back button. Its
+    // own tabs are the browser's, so the gallery has the one there, and no strip.
+    open.router().follow_address();
+    Self { shell, open }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    // What is outside the pages (the side bar, the search, a tool that drives the window) goes where the tab that
+    // is shown is: read here, so that this is built again when another tab is shown.
+    let router = self.open.router();
+    ctx.provide(router.navigator());
     #[cfg(feature = "mcp")]
     if let Some(handle) = MCP.get() {
       handle.set_navigator(router.navigator());
     }
-    Self { router }
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    // The window has no frame of the system's: the gallery draws its title bar from the theme.
-    let pages = Router::mount(ctx, self.router.clone());
-    WindowChrome::new()
+    let content = shell::shell(ctx, &self.shell, &self.open);
+    // The window has no frame of the system's: the gallery draws its title bar from the theme, with its tabs in it.
+    let chrome = WindowChrome::new()
+      .title("lurq gallery")
       .border(ChromeBorderPolicy::Visible {
         size: 1.0,
         color: PaletteColor::Border.into(),
       })
-      .frame_background(PaletteColor::Canvas)
-      .title_bar(shell::title_bar())
-      .content(pages)
-      .mount(ctx)
+      .content(content);
+    #[cfg(not(target_arch = "wasm32"))]
+    let chrome = chrome.tabs(self.open.strip(ctx));
+    chrome.mount(ctx)
   }
 }
 
@@ -148,7 +149,7 @@ fn run(mut app: App, route: String, engine: impl Fn() -> WgpuRenderEngine + 'sta
     .with_title("lurq gallery")
     .with_icon(icon::icon())
     .with_size(width, height)
-    .with_min_size(720, 480)
+    .with_min_size(320, 480)
     .with_decorations(false)
     .run();
 }

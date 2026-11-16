@@ -68,12 +68,25 @@ fn a_volume_control_is_a_ghost_button_and_a_slider_72_long_4_apart() {
     Column::new()
       .padding(8.0)
       .spacing(12.0)
-      .child(holder("md", MediaVolume::new(volume.clone()).id("mute")))
+      .child(holder(
+        "md",
+        MediaVolume::new(volume.clone())
+          .id("mute")
+          .build(&lurq::ui::current_theme()),
+      ))
       .child(holder(
         "lg",
-        MediaVolume::new(volume.clone()).size(MediaVolumeSize::Lg).id("big"),
+        MediaVolume::new(volume.clone())
+          .size(MediaVolumeSize::Lg)
+          .id("big")
+          .build(&lurq::ui::current_theme()),
       ))
-      .child(holder("long", MediaVolume::new(volume.clone()).length(96.0)))
+      .child(holder(
+        "long",
+        MediaVolume::new(volume.clone())
+          .length(96.0)
+          .build(&lurq::ui::current_theme()),
+      ))
       .into()
   });
   let (x, _, width, height) = stage.bounds("mute");
@@ -121,7 +134,11 @@ fn the_glyph_is_loud_from_a_half_low_under_it_and_crossed_while_muted_or_at_noth
     let stage = Stage::new(move |_| {
       Row::new()
         .padding(8.0)
-        .child(MediaVolume::controlled(volume, |_| {}).muted_controlled(muted, |_| {}))
+        .child(
+          MediaVolume::controlled(volume, |_| {})
+            .muted_controlled(muted, |_| {})
+            .build(&lurq::ui::current_theme()),
+        )
         .into()
     });
     assert!(stage.paints(&glyph(name)), "{volume} {muted}: {name}");
@@ -137,7 +154,10 @@ fn muted_the_slider_stands_at_nothing_and_the_volume_is_kept() {
       .padding(8.0)
       .child(holder(
         "volume",
-        MediaVolume::new(held.clone()).muted(quiet.clone()).id("mute"),
+        MediaVolume::new(held.clone())
+          .muted(quiet.clone())
+          .id("mute")
+          .build(&lurq::ui::current_theme()),
       ))
       .into()
   });
@@ -176,7 +196,8 @@ fn a_press_of_the_button_tells_the_other_state() {
         MediaVolume::new(Signal::new(0.6))
           .muted(held.clone())
           .on_muted_change(move |next| tell.lock().unwrap().push(next))
-          .id("mute"),
+          .id("mute")
+          .build(&lurq::ui::current_theme()),
       )
       .into()
   });
@@ -196,7 +217,12 @@ fn the_button_is_named_by_what_a_press_would_do() {
   let mut stage = Stage::new(move |_| {
     Row::new()
       .padding(8.0)
-      .child(MediaVolume::new(Signal::new(0.6)).muted(held.clone()).id("mute"))
+      .child(
+        MediaVolume::new(Signal::new(0.6))
+          .muted(held.clone())
+          .id("mute")
+          .build(&lurq::ui::current_theme()),
+      )
       .into()
   });
   let name = |stage: &mut Stage| {
@@ -222,7 +248,8 @@ fn the_keyboard_draws_the_ring_presses_the_button_and_moves_the_slider() {
       .child(
         MediaVolume::new(held.clone())
           .muted(quiet.clone())
-          .on_change(move |to| tell.lock().unwrap().push(to)),
+          .on_change(move |to| tell.lock().unwrap().push(to))
+          .build(&lurq::ui::current_theme()),
       )
       .into()
   });
@@ -252,7 +279,8 @@ fn moving_the_slider_up_from_nothing_while_muted_turns_the_sound_back_on() {
         MediaVolume::new(held.clone())
           .muted(quiet.clone())
           .on_change(move |to| volume_told.lock().unwrap().push(format!("on_change({to})")))
-          .on_muted_change(move |next| muted_told.lock().unwrap().push(format!("on_muted_change({next})"))),
+          .on_muted_change(move |next| muted_told.lock().unwrap().push(format!("on_muted_change({next})")))
+          .build(&lurq::ui::current_theme()),
       )
       .into()
   });
@@ -280,7 +308,8 @@ fn a_disabled_control_takes_nothing() {
         MediaVolume::new(held.clone())
           .muted(quiet.clone())
           .disabled(true)
-          .id("mute"),
+          .id("mute")
+          .build(&lurq::ui::current_theme()),
       )
       .child(Button::new("After").id("after"))
       .into()
@@ -309,12 +338,16 @@ fn over_a_picture_it_is_white_in_both_appearances() {
         .spacing(12.0)
         .child(holder(
           "volume",
-          MediaVolume::new(Signal::new(0.5)).on_media(true).id("mute"),
+          MediaVolume::new(Signal::new(0.5))
+            .on_media(true)
+            .id("mute")
+            .build(&lurq::ui::current_theme()),
         ))
         .child(
           MediaVolume::new(Signal::new(0.5))
             .on_media(true)
-            .force(Some(Interaction::FocusVisible)),
+            .force(Some(Interaction::FocusVisible))
+            .build(&lurq::ui::current_theme()),
         )
         .into()
     });
@@ -378,9 +411,11 @@ fn collapsed_it_is_the_button_alone_and_the_slider_comes_with_the_pointer_and_th
   let mut still = Stage::new(|_| {
     Row::new()
       .child(
-        Row::new()
-          .id("volume")
-          .child(MediaVolume::new(Signal::new(0.5)).collapsed(true)),
+        Row::new().id("volume").child(
+          MediaVolume::new(Signal::new(0.5))
+            .collapsed(true)
+            .build(&lurq::ui::current_theme()),
+        ),
       )
       .into()
   });
@@ -394,7 +429,9 @@ fn a_rule_lays_over_the_recipe() {
       .padding(8.0)
       .child(holder(
         "volume",
-        MediaVolume::new(Signal::new(0.5)).style(MediaVolumePart::Slider, |s| s.width(120.0)),
+        MediaVolume::new(Signal::new(0.5))
+          .style(MediaVolumePart::Slider, |s| s.width(120.0))
+          .build(&lurq::ui::current_theme()),
       ))
       .into()
   });

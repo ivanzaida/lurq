@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Length, Skeleton, SkeletonAnimation},
+  ui::{Length, Skeleton, SkeletonAnimation, SkeletonPart},
 };
 
 use crate::{
@@ -38,22 +38,36 @@ fn indexed(names: &[&'static str]) -> Vec<(&'static str, usize)> {
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
-  Column::new().spacing(9.0).child(shown).child(quiet(caption, 12.0))
+  Column::new()
+    .max_width(FILL)
+    .spacing(9.0)
+    .child(shown)
+    .child(quiet(caption, 12.0))
+}
+
+/// A line `width` wide, and no wider than what holds it.
+fn line_of(width: f32) -> Skeleton {
+  Skeleton::line()
+    .width(width)
+    .style(SkeletonPart::Root, |s| s.max_width(Length::Fill))
+    .style(SkeletonPart::Bone, |s| s.max_width(Length::Fill))
 }
 
 /// The design's media row: a circle of 40, and two lines beside it.
 fn media_row(animation: SkeletonAnimation) -> Row {
   Row::new()
     .width(300.0)
+    .max_width(FILL)
     .spacing(12.0)
     .align_items(Alignment::Center)
     .child(Skeleton::circle(40.0).animation(animation))
     .child(
       Column::new()
         .flex(1.0)
+        .min_width(0.0)
         .spacing(8.0)
-        .child(Skeleton::line().width(220.0).animation(animation))
-        .child(Skeleton::line().width(140.0).height(10.0).animation(animation)),
+        .child(line_of(220.0).animation(animation))
+        .child(line_of(140.0).height(10.0).animation(animation)),
     )
 }
 
@@ -61,6 +75,7 @@ fn media_row(animation: SkeletonAnimation) -> Row {
 fn card(animation: SkeletonAnimation) -> Column {
   Column::new()
     .width(280.0)
+    .max_width(FILL)
     .padding(16.0)
     .spacing(14.0)
     .rounded(RadiusSize::Xl)
@@ -225,18 +240,18 @@ impl Component for SkeletonPage {
           .child(Skeleton::line().animation(SkeletonAnimation::Shimmer)),
         "shimmer",
       ));
-    let paragraph = Column::new().width(300.0).child(Skeleton::paragraph(4));
+    let paragraph = Column::new().width(300.0).max_width(FILL).child(Skeleton::paragraph(4));
     let composed = Row::new()
       .width(FILL)
       .spacing(28.0)
       .wrap()
       .align_items(Alignment::Start)
       .child(item(
-        Skeleton::status("Loading people", media_row(SkeletonAnimation::Pulse)),
+        Skeleton::status("Loading people", media_row(SkeletonAnimation::Pulse)).max_width(FILL),
         "media row",
       ))
       .child(item(
-        Skeleton::status("Loading the article", card(SkeletonAnimation::Shimmer)),
+        Skeleton::status("Loading the article", card(SkeletonAnimation::Shimmer)).max_width(FILL),
         "card",
       ));
     let rows = [

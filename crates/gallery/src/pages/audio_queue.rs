@@ -87,6 +87,7 @@ fn held(queue: impl Into<Element>) -> Column {
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
     .child(shown)
@@ -180,14 +181,32 @@ impl AudioQueuePage {
         .into_iter()
         .filter(|changed| *changed)
         .count();
+    self.playground.window_shows({
+      // Behind a lock: the artwork of a row is an element, which threads do not share.
+      let queue = std::sync::Mutex::new(queue.clone().force(None));
+      move |ctx| {
+        let queue = queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        held(queue.mount(ctx)).into()
+      }
+    });
     let playground = &self.playground;
     self.playground.card(
       ctx,
       Spec {
         title: "Audio Queue",
-        make: Arc::new(move || held(plain()).into()),
-        shown: Shown::built(move |ctx| held(playground.measure(queue.mount(ctx)).width(FILL)).into()).measured(),
-        fill: false,
+        make: Arc::new(move || held(plain().build(&lurq::ui::current_theme())).into()),
+        // In a column of the holder's width: a row lays the queue out as wide as its words, and the board's
+        // queue is as wide as what holds it.
+        shown: Shown::built(move |ctx| {
+          held(
+            playground
+              .measure(Column::new().width(FILL).child(queue.mount(ctx)))
+              .width(FILL),
+          )
+          .into()
+        })
+        .measured(),
+        fill: true,
         forceable: true,
         facts: match current {
           Some(index) => format!("on track {}", index + 1),
@@ -242,19 +261,25 @@ impl Component for AudioQueuePage {
       .child(item(
         held(
           AudioQueue::controlled(None, tracks(true, false, None).into_iter().take(2), |_| {})
-            .force(Some(Interaction::Hovered)),
+            .force(Some(Interaction::Hovered))
+            .mount(ctx),
         ),
         "hover on the first",
       ))
       .child(item(
         held(
           AudioQueue::controlled(None, tracks(true, false, None).into_iter().take(2), |_| {})
-            .force(Some(Interaction::FocusVisible)),
+            .force(Some(Interaction::FocusVisible))
+            .mount(ctx),
         ),
         "focus on the first",
       ))
       .child(item(
-        held(AudioQueue::controlled(Some(0), tracks(false, false, None).into_iter().take(2), |_| {}).playing(false)),
+        held(
+          AudioQueue::controlled(Some(0), tracks(false, false, None).into_iter().take(2), |_| {})
+            .playing(false)
+            .mount(ctx),
+        ),
         "current, paused; no artwork",
       ));
     let rows = [
@@ -300,7 +325,7 @@ impl Component for AudioQueuePage {
         "mount",
         "&mut Ctx",
         "",
-        "The tooltips of the more buttons. Converted into an element, the buttons have none.",
+        "Puts it where it goes, the only way: it keeps the tooltips of the more buttons.",
       ),
     ];
     let playground = self.play(ctx);
@@ -312,8 +337,8 @@ impl Component for AudioQueuePage {
         description: "The tracks a player plays one after another, the one it is on marked. The arrow keys move \
                       between the rows, Enter plays one.",
         import: Some("use lurq::ui::{AudioQueue, AudioQueueItem};"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

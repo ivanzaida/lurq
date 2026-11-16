@@ -21,9 +21,10 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -454,8 +455,8 @@ impl Component for PlayButtonPage {
         description: "The round control that starts and pauses what a player plays, and plays it again once it has \
                       ended.",
         import: Some("use lurq::ui::{PlayButton, PlayButtonSize, PlayButtonVariant};"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

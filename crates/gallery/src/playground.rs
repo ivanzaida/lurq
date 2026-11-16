@@ -19,14 +19,19 @@ use lurq::{
     theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Appearance,
   },
-  components::{Column, Rect, Row, ScrollBoth, TextInput, TextOverflow},
+  components::{Column, Rect, Row, ScrollBoth, ScrollHorizontal, TextInput, TextOverflow},
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, border::Border},
-  ui::{Button, ButtonSize, ButtonVariant, Interaction, Switch, Tab, Tabs, TabsVariant, Toggle, icons},
+  ui::{
+    Button, ButtonSize, ButtonVariant, Interaction, SegmentedControlPart, Switch, Tab, Tabs, TabsVariant, Toggle, icons,
+  },
 };
 
-use crate::kit::{FILL, code_block, icon, line, mono, name, plain_block, quiet, segmented, select, text, tool};
+use crate::kit::{
+  FILL, PANEL_ROOM, PHONE, code_block, icon, icon_tool, line, mono, name, plain_block, quiet, segmented, select,
+  set_panel_room, stage_padding, text, tool,
+};
 
 /// The least width of the card with the panel beside the stage: the panel, and a stage whose bar holds the
 /// switch of states and its tools.
@@ -46,17 +51,27 @@ const KEPT: usize = 50;
 const OUTPUT: f32 = 150.0;
 /// How high the bar over the stage is, and the bar of the tabs under it.
 const TOOLBAR: f32 = 52.0;
+/// Under this width a card is as narrow as a phone's page.
+const NARROW: f32 = 480.0;
 const TABS: f32 = 40.0;
 /// How high the stage is, with the row of facts under the canvas.
 const STAGE: f32 = 418.0;
 /// How high the row of facts under the canvas is.
 const FACTS: f32 = 36.0;
-/// The room at each side of what is on the canvas.
-const STAGE_PADDING: f32 = 32.0;
 /// How wide the panel of props is beside the stage.
 const PANEL: f32 = 320.0;
 /// How wide the card of the last playground laid out was, as the bits of an `f32`: 0 until one was.
 static LAST_ROOM: AtomicU32 = AtomicU32::new(0);
+
+/// The room a control of the panel has in a card `room` wide: the panel's beside the stage, and the card's less
+/// its edges and the panel's padding under it.
+fn panel_room(room: f32) -> f32 {
+  if room <= 0.0 || room >= BESIDE {
+    PANEL_ROOM
+  } else {
+    (room - 2.0 - 32.0).max(0.0)
+  }
+}
 
 /// What a page keeps between renders for its playground.
 pub struct Playground {
@@ -81,21 +96,34 @@ pub struct Playground {
   other: Signal<bool>,
   /// The theme of the stage while it is: the design's, in the other appearance.
   opposite: Theme,
+  /// What the window of its own shows in place of `Spec::make`, for a component that is mounted.
+  mounted: Arc<std::sync::Mutex<Option<MakeMounted>>>,
 }
 
 /// What builds the component of a playground again, as its props were: for a window of its own.
 pub type Make = Arc<dyn Fn() -> Element + Send + Sync>;
+
+/// What builds the component of a playground in a window of its own with the window's context: for a component
+/// that is mounted, and keeps there what it keeps on the stage.
+pub type MakeMounted = Arc<dyn Fn(&mut Ctx) -> Element + Send + Sync>;
 
 /// The props of the window a playground opens: what builds what it shows.
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct DetachedProps {
   #[devtools_ignore]
   make: Make,
+  #[devtools_ignore]
+  mounted: Option<MakeMounted>,
 }
 
 impl PartialEq for DetachedProps {
   fn eq(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.make, &other.make)
+      && match (&self.mounted, &other.mounted) {
+        (Some(one), Some(another)) => Arc::ptr_eq(one, another),
+        (None, None) => true,
+        _ => false,
+      }
   }
 }
 
@@ -110,7 +138,12 @@ impl Component for Detached {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let make = ctx.props::<DetachedProps>().make.clone();
+    let props = ctx.props::<DetachedProps>();
+    let (make, mounted) = (props.make.clone(), props.mounted.clone());
+    let shown = match mounted {
+      Some(mounted) => mounted(ctx),
+      None => make(),
+    };
     Column::new()
       .size(FILL, FILL)
       .padding(32.0)
@@ -118,7 +151,7 @@ impl Component for Detached {
       .justify(Justify::Center)
       .background(PaletteColor::Canvas)
       .foreground(PaletteColor::Foreground)
-      .child(make())
+      .child(shown)
   }
 }
 
@@ -198,6 +231,16 @@ pub struct Spec<'a> {
 impl Playground {
   /// A playground whose panel has `selects` selects: call it where the page is created.
   pub fn new(ctx: &mut Ctx, selects: usize) -> Self {
+    // In a window as narrow as a phone the card is the window less the page's edges, 16 at each side: known
+    // before anything is laid out, so the first frame of the first page is the narrow form and not the wide
+    // one cut off.
+    if f32::from_bits(LAST_ROOM.load(Ordering::Relaxed)) <= 0.0 {
+      let window = ctx.window().info().resolved_width;
+      if window > 0.0 && window < PHONE {
+        LAST_ROOM.store((window - 32.0).to_bits(), Ordering::Relaxed);
+        set_panel_room(panel_room(window - 32.0));
+      }
+    }
     Self {
       forced: ctx.signal(0),
       tab: ctx.signal(0),
@@ -213,7 +256,31 @@ impl Playground {
       panel_height: ctx.signal(0.0),
       other: ctx.signal(false),
       opposite: Theme::new(),
+      mounted: Arc::default(),
     }
+  }
+
+  /// What the window of its own shows: `build`, given the window's context, for a component that is mounted and
+  /// would be without what it keeps (its timers, its measured width, its menus) if it were only built. Said by
+  /// the page each time it renders, before [`Playground::card`].
+  pub fn window_shows(&self, build: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) {
+    *self.mounted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(build));
+  }
+
+  /// How wide what is on the stage may be before the stage scrolls to it: the stage less the room around what
+  /// it shows. Nothing until the card was laid out once. A component that is as wide as it is told, and that an
+  /// app would make no wider than its window (a player), asks.
+  pub fn stage_room(&self) -> f32 {
+    let room = self.room.get();
+    if room <= 0.0 {
+      return 0.0;
+    }
+    let stage = if room >= BESIDE {
+      room - 2.0 - PANEL - 1.0
+    } else {
+      room - 2.0
+    };
+    (stage - 2.0 * stage_padding()).max(1.0)
   }
 
   /// The state the switch over the stage asks for: what the page gives its component's `force`.
@@ -286,26 +353,37 @@ impl Playground {
 
   /// The bar over the stage: the state the component is drawn in, the appearance of the stage, and the
   /// component in a window of its own.
-  fn toolbar(&self, ctx: &mut Ctx, spec: &Spec<'_>) -> Row {
+  fn toolbar(&self, ctx: &mut Ctx, spec: &Spec<'_>) -> Element {
     let forceable = spec.forceable;
+    // A card as narrow as a phone has no room for the states beside the buttons: they go on a row of their own
+    // under the bar, as wide as the card.
+    let room = self.room.get();
+    let narrow = forceable && room > 0.0 && room < NARROW;
     let mut bar = Row::new()
       .width(FILL)
       .height(TOOLBAR)
       .padding_left(16.0)
       .padding_right(12.0)
       .align_items(Alignment::Center)
-      .justify(Justify::SpaceBetween)
-      .border_bottom(line());
-    if forceable {
+      .justify(Justify::SpaceBetween);
+    if !narrow {
+      bar = bar.border_bottom(line());
+    }
+    let states = || {
       let forced = self.forced.clone();
+      segmented(&FORCED, &self.forced(), move |interaction| {
+        forced.set(FORCED.iter().position(|(_, held)| *held == interaction).unwrap_or(0))
+      })
+    };
+    if narrow {
+      bar = bar.child(quiet("state", 12.0));
+    } else if forceable {
       bar = bar.child(
         Row::new()
           .spacing(10.0)
           .align_items(Alignment::Center)
           .child(quiet("state", 12.0))
-          .child(segmented(&FORCED, &self.forced(), move |interaction| {
-            forced.set(FORCED.iter().position(|(_, held)| *held == interaction).unwrap_or(0))
-          })),
+          .child(states()),
       );
     } else {
       // A component with no event that is counted: one that is read, or one that answers the pointer and tells
@@ -326,7 +404,8 @@ impl Playground {
     }
     let other = self.other.clone();
     let (opener, make, title) = (ctx.window_opener(), spec.make.clone(), spec.title);
-    bar.child(
+    let mounted = self.mounted.clone();
+    let bar = bar.child(
       Row::new()
         .spacing(4.0)
         .flex_shrink(0.0)
@@ -347,12 +426,35 @@ impl Playground {
             .icon_only(true)
             .on_click(move |_| {
               let make = make.clone();
+              let mounted = mounted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
               opener.open(format!("{title} · lurq gallery"), 520, 360, move |app, tree| {
-                tree.mount_root::<Detached>(app, DetachedProps { make });
+                tree.mount_root::<Detached>(app, DetachedProps { make, mounted });
               });
             }),
         ),
-    )
+    );
+    if narrow {
+      Column::new()
+        .width(FILL)
+        .border_bottom(line())
+        .child(bar)
+        .child(
+          Row::new()
+            .width(FILL)
+            .padding_horizontal(12.0)
+            .padding_bottom(12.0)
+            // As high as it is over a wide stage, so that a state is as easy to press: the names have less
+            // room beside them, and share the card's width.
+            .child(
+              states()
+                .full_width(true)
+                .style(SegmentedControlPart::Segment, |s| s.padding_x(4.0)),
+            ),
+        )
+        .into()
+    } else {
+      bar.into()
+    }
   }
 
   /// The stage: the component on the canvas, with its measured size and the count of what it did under it.
@@ -371,7 +473,7 @@ impl Playground {
     let held: Element = if spec.fill {
       let lane = Column::new().align_items(Alignment::Center).child(held);
       if room > 0.0 {
-        lane.width((room - 2.0 * STAGE_PADDING).max(0.0)).into()
+        lane.width((room - 2.0 * stage_padding()).max(0.0)).into()
       } else {
         lane.width(FILL).into()
       }
@@ -381,7 +483,7 @@ impl Playground {
     // The canvas is at least the stage, so what fits is in its middle, and as large as what is on it, so
     // what does not fit is reached by scrolling and nothing of it is cut.
     let canvas = Row::new()
-      .padding_horizontal(STAGE_PADDING)
+      .padding_horizontal(stage_padding())
       .align_items(Alignment::Center)
       .justify(Justify::Center)
       .child(held);
@@ -401,41 +503,66 @@ impl Playground {
     } else {
       format!("{} · {}", self.measured(), spec.facts)
     };
-    Column::new()
+    // The names of the handlers give way to the size, which is what the line is for: they end in an ellipsis
+    // where there is no room for all of them.
+    let counted = || {
+      Row::new()
+        .spacing(6.0)
+        .min_width(0.0)
+        .flex_shrink(1.0)
+        .align_items(Alignment::Center)
+        .child(icon(icons::HAND_POINTER, 14.0))
+        .child(
+          Row::new()
+            .min_width(0.0)
+            .flex_shrink(1.0)
+            .child(mono(spec.event, 12.0).nowrap().text_overflow(TextOverflow::Elipsis)),
+        )
+        .child(mono(&format!("× {}", self.count.get()), 12.0).nowrap().flex_shrink(0.0))
+    };
+    let stage = Column::new()
       .width(FILL)
-      .height(STAGE)
       .background(PaletteColor::Canvas)
       .foreground(PaletteColor::Foreground)
-      .child(canvas)
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(FACTS)
-          .padding_horizontal(16.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::SpaceBetween)
-          .foreground(PaletteColor::MutedForeground)
-          .spacing(16.0)
-          .child(mono(&measured, 12.0).nowrap().flex_shrink(0.0))
-          .child(if spec.event.is_empty() {
-            // A component that is read and not operated has nothing to count.
-            Row::new()
-          } else {
-            // The names of the handlers give way to the size, which is what the line is for.
-            Row::new()
-              .spacing(6.0)
-              .min_width(0.0)
-              .flex_shrink(1.0)
-              .align_items(Alignment::Center)
-              .child(icon(icons::HAND_POINTER, 14.0))
-              .child(mono(spec.event, 12.0).nowrap().flex_shrink(1.0))
-              .child(mono(&format!("× {}", self.count.get()), 12.0).nowrap().flex_shrink(0.0))
-          }),
-      )
+      .child(canvas);
+    // A card as narrow as a phone has no room for the size and the count on one line: the size is on lines of
+    // its own, as many as it takes, and the count under it; the stage is as much higher.
+    if room > 0.0 && room < NARROW {
+      let mut facts = Column::new()
+        .width(FILL)
+        .min_height(FACTS)
+        .padding_horizontal(16.0)
+        .padding_vertical(8.0)
+        .spacing(4.0)
+        .justify(Justify::Center)
+        .foreground(PaletteColor::MutedForeground)
+        .child(mono(&measured, 12.0).width(FILL));
+      if !spec.event.is_empty() {
+        facts = facts.child(counted().width(FILL));
+      }
+      return stage.min_height(STAGE).child(facts);
+    }
+    stage.height(STAGE).child(
+      Row::new()
+        .width(FILL)
+        .height(FACTS)
+        .padding_horizontal(16.0)
+        .align_items(Alignment::Center)
+        .justify(Justify::SpaceBetween)
+        .foreground(PaletteColor::MutedForeground)
+        .spacing(16.0)
+        .child(mono(&measured, 12.0).nowrap().flex_shrink(0.0))
+        .child(if spec.event.is_empty() {
+          // A component that is read and not operated has nothing to count.
+          Row::new()
+        } else {
+          counted()
+        }),
+    )
   }
 
   /// The tabs under the stage, and what the chosen one shows, `height` high.
-  fn output(&self, spec: &Spec<'_>, height: f32) -> Column {
+  fn output(&self, spec: &Spec<'_>, height: f32, narrow: bool) -> Column {
     let events = self.events.get();
     let shown = self.tab.get();
     let tab = self.tab.clone();
@@ -455,6 +582,13 @@ impl Playground {
     )
     .variant(TabsVariant::Line)
     .label("What the stage shows");
+    // In a card as narrow as a phone Copy is its icon alone, which leaves the tabs their room; a count of
+    // what the component did can still make them wider than it, and then they scroll sideways in it.
+    let tabs: Element = if narrow {
+      ScrollHorizontal::new(tabs).key("output-tabs").width(FILL).into()
+    } else {
+      tabs.into()
+    };
     let copied = match shown {
       0 => spec.code.join("\n"),
       1 => events.clone(),
@@ -487,9 +621,16 @@ impl Playground {
           // The tabs take the room there is and Copy keeps its own: tabs are as wide as what holds them, and
           // beside them in a row they pushed Copy out of the bar.
           .child(Row::new().flex(1.0).min_width(0.0).child(tabs))
-          .child(Row::new().flex_shrink(0.0).child(tool("Copy", icons::COPY, move || {
-            lurq::clipboard::copy_to_clipboard(&copied);
-          }))),
+          .child(Row::new().flex_shrink(0.0).child({
+            let copy = move || {
+              lurq::clipboard::copy_to_clipboard(&copied);
+            };
+            if narrow {
+              icon_tool("Copy", icons::COPY, copy)
+            } else {
+              tool("Copy", icons::COPY, copy)
+            }
+          })),
       )
       .child(body)
   }
@@ -543,6 +684,9 @@ impl Playground {
     let room = self.room.clone();
     self.card.observe_rect(move |rect| {
       if (room.get() - rect.width).abs() >= 0.5 {
+        // The page builds the controls of the panel before the card: the render this change asks for has the
+        // panel's room when it does.
+        set_panel_room(panel_room(rect.width));
         room.set(rect.width);
         LAST_ROOM.store(rect.width.to_bits(), Ordering::Relaxed);
       }
@@ -555,6 +699,7 @@ impl Playground {
     } else {
       ctx.breakpoint() >= Some(Breakpoint::Lg)
     };
+    set_panel_room(panel_room(room));
     let toolbar = self.toolbar(ctx, &spec);
     // The stage is the card less its edges, and less the panel and the line before it where that is beside it.
     let stage_room = match (room > 0.0, wide) {
@@ -590,10 +735,11 @@ impl Playground {
     } else {
       OUTPUT
     };
-    let preview = Column::new()
-      .child(toolbar)
-      .child(stage)
-      .child(self.output(&spec, output));
+    let preview =
+      Column::new()
+        .child(toolbar)
+        .child(stage)
+        .child(self.output(&spec, output, room > 0.0 && room < NARROW));
     // The panel's own height is measured inside the column the row stretches: the stretched one is as high as
     // the stage's side, which would only ever grow.
     let panel = Column::new().child(self.panel(&mut spec).width(FILL).ref_element(self.panel.clone()));
@@ -632,10 +778,18 @@ pub fn prop(label: &str, kind: &str, control: impl Into<Element>) -> Element {
     .child(
       Row::new()
         .width(FILL)
+        .spacing(8.0)
         .align_items(Alignment::Center)
-        .justify(Justify::SpaceBetween)
-        .child(name(label, 12.0))
-        .child(quiet(kind, 11.0)),
+        .child(name(label, 12.0).nowrap().flex_shrink(0.0))
+        // The type stands at the panel's end, and one longer than the room beside the name goes on to a
+        // second line there.
+        .child(
+          Column::new()
+            .flex(1.0)
+            .min_width(0.0)
+            .align_items(Alignment::End)
+            .child(quiet(kind, 11.0)),
+        ),
     )
     .child(control)
     .into()

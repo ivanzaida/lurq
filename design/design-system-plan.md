@@ -344,7 +344,7 @@ Phase 0 and the tokens half of Phase 1 can be reviewed and released on their own
 3. Settled (D11): a renderer builds the parts lurq names for the component and may declare parts of its own, which recipes address by name.
 4. Does lurq ship a native-looking iOS theme itself, after the proof in step 2, or leave it to apps and the community?
 5. Should the new components be configured through builders like the existing `components`, or through props structs like the `form` compound controls?
-6. Settled on 2026-11-13: the default theme is the design's from the release that brings its tokens, before the components. `ThemeDefinition::legacy()` keeps the look of 0.61, and the migration guide (`docs/…/migration-v0-62.md`) says what changes.
+6. Settled on 2026-11-13: the default theme is the design's from the release that brings its tokens, before the components. `ThemeDefinition::legacy()` keeps the look of 0.61, and the migration guide (`docs/…/migration-v0-63.md`) says what changes.
 7. Settled: the glyphs reach the screen as a hinted icon font, built by `scripts/build-icon-font.py` from `design/icons/svg` (icon notes, D5). Vector paths would have needed the `svg` or `canvas` machinery, or a new path primitive.
 8. Does DevTools move to the new glyphs at once, so `lucide.ttf` can be removed, or keep Lucide with a notice file for now?
 9. Settled on 2026-11-13: the gallery is an app of its own, drawn in `pencil/lurq-design-system-demo.pen`, and takes the place of the demo (section 15).
@@ -447,7 +447,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Item of section 6 | Status |
 | --- | --- |
 | Palette roles, light and dark | built: 42 roles, `ThemePalette::light()` and `dark()` |
-| Deprecated roles and the migration guide | built: 15 roles deprecated, `docs/…/migration-v0-62.md` |
+| Deprecated roles and the migration guide | built: 15 roles deprecated, `docs/…/migration-v0-63.md` |
 | Schemes | built, on what the iOS work had added (14.2) |
 | The default theme is the design's | built: `Theme::new()` is `ThemeDefinition::neutral()` |
 | `Theme::legacy()` | built: `ThemeDefinition::legacy()`, the theme of 0.61 |
@@ -740,6 +740,17 @@ Ivan chose it on 2026-11-15 after the dock layout. The board had more than the p
 - **What Ivan found using the pages while the batch ran, each sent to its owner**: the dock's explorer jumping as its page opened (a splitter measured its room after the layout, and the engine took a percentage twice for a stretched child of a row: the first painted frame is the settled one now); the command bar's groups drawn over each other after its menu was opened and closed (a dropped child that changed was laid out in place and lost its mark); keys in a Markdown sentence stuck to the words round them; the eyedropper's loupe flickering (painted onto its window piece by piece); a property grid's categories opening with no motion; the playground's flags leaving their panel under a long label.
 - **Started from it**: the data grid for real data (windowing proven at a million rows by two hundred columns, rows on demand, search, filters, sorting by several columns, export, a row's detail and rows in a tree, the bar over the grid), in eight parts.
 
+### 14.25 The media batch
+
+Ivan asked for it on 2026-11-15 and drew it with a session of his own on the board (the section `Media`, the Video Player and the Audio Player with their parts and thirteen glyphs), then had it built on `claude/ds-media` and merged on 2026-11-16.
+
+- **The components with their props and their events only.** `VideoPlayer` (three forms by its width, the controls on and off, the app's own layer over the picture, every state of the board, the keys, the bar that fades and hides the pointer), `AudioPlayer` in four forms (full, compact, voice, mini), `AudioQueue`, and the parts they are built of: `SeekBar`, `MediaTime`, `Waveform`, `PlayButton`, `MediaVolume`, `MediaSpeedMenu`. Every value is the app's, bound or held, and what a person does is told back; nothing is decoded. Real playback is a later piece of work, with what was decided for it so far: a frame never goes through the CPU, the platforms' decoders, a source that is a file, bytes or a URL.
+- **A media component is mounted, and is not an element by itself** (Ivan, 2026-11-16): the two players, the queue, the seek bar and the volume have `.mount(ctx)` and no `From<X> for Element`, as each keeps a drag, a measure or a menu between renders; `build(theme)` is a still picture for a test.
+- **What the engine and the other components got for it**: `ui::Menu` has pages (`MenuItem::page`, `Menu::page`, `Menu::back_label`), for the player's settings; `CursorIcon::None`, which the shells draw by hiding the pointer.
+- **Each component's handoff is kept** in `design/handoff/`: what was decided where the board is silent, and where it differs from the board.
+- **Left open, by the handoffs**: the touch forms of the board's Mobile frames, which wait for phase 7; the phone's slider thumb takes no shadow (`SliderPartStyle` has none); two defects of the engine the seek bar works around (an ancestor given a new `ElementRef` each render loses the focus and the drag of a slider in it; a layer declared in a `Stack` is hit at the point where it is declared).
+- **The gallery** has a group `Media` of nine pages, each with a playground driven by a clock of the page's own.
+
 ## 15. The gallery
 
 Asked for on 2026-11-13: `pencil/lurq-design-system-demo.pen` is the demo app, in place of the one there is. It is built from the moment work on components starts, a page at a time, so that each component can be looked at as it lands.
@@ -785,6 +796,8 @@ Said on 2026-11-13: the board shows the shape of the app, and was drawn without 
 ### 15.4 Order
 
 The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, then a page with each component as it lands. The Tokens and Icons pages under Getting started need no component.
+
+Its pages open in tabs, as a browser's do (Ivan, 2026-11-16: with the tabs made for iOS). The set is the engine's `Tabs`, a router with its own history for each tab, shown by a `TabOutlet` with no bar; the strip is `ui::WindowTabs` in the title bar, which is now a `ui::WindowChrome` in place of the title bar the shell drew by hand. The header, the side bar and the search are outside the outlet and go where the tab that is shown is. `crates/gallery/src/tabs.rs`. In a browser there is the one tab, whose router follows the address: the browser has tabs of its own.
 
 ### 15.5 What is built
 

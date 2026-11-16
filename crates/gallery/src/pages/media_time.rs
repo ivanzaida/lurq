@@ -25,8 +25,9 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -363,7 +364,7 @@ impl Component for MediaTimePage {
         description: "The time a player reads out: how far it is, and how long the whole is.",
         import: Some("use lurq::ui::MediaTime;"),
         status: Some("Preview"),
-        since: None,
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

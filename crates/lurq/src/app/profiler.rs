@@ -78,6 +78,10 @@ pub use {
   recording_file::{RECORDING_FILE_FORMAT, RECORDING_FILE_VERSION, RecordingFileError},
 };
 
+/// The named sections of the frames on this thread since it was last called: where a pass spends its time.
+#[cfg(feature = "perf_profile")]
+pub use crate::app::profile_support::take_frame_sections;
+
 /// A thread's allocation counts since it started, and live bytes then.
 #[cfg(feature = "perf_profile")]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

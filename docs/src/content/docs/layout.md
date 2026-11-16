@@ -841,8 +841,9 @@ ScrollVertical::new(Column::new().child(section)).size(240.0, 320.0)
   scrolls: the bar down starts under what sticks at the top (a table's header) and ends above what sticks at the
   bottom, the bar across runs from what sticks at the start (its first column) to what sticks at the end (a column
   pinned there), each as far in as that reaches (its inset and its size), and the thumb is the share of what scrolls
-  that shows. The bar down stands before what sticks at the right, beside the rows, as a native grid's does beside a
-  frozen column, and the bar across above what sticks at the bottom. Painting, the pointer on the bar and a drag of
+  that shows. Each keeps clear along its own axis only: the bar down stands at the container's end edge, over the
+  edge of what sticks at the right (a column pinned there) and never over what scrolls, and the bar across at its
+  bottom edge, over what sticks at the bottom, or in a lane of its own. Painting, the pointer on the bar and a drag of
   its thumb go by that track, so a thumb at the track's end is the end of the scroll. `ui::Table` asks for it.
 - An overlay bar across lies over the bottom of what scrolls, a table's last row in view. `.reserve_bar_across(true)`
   on `ScrollHorizontal` or `ScrollBoth` gives it a lane of its own under the content, as wide as a `Reserved` gutter
@@ -915,6 +916,36 @@ VirtualizedList::new(ctx, tasks)
   .reveal_key(selected.get().map(|id| id.to_string()))
   .mount_keyed::<TaskRow, _, _, _>(|task| task.id, |task| task.clone())
 ```
+
+## What a Frame Walks
+
+A frame costs what changed and what is in view, not what the tree holds. A frame that only scrolls a document of
+3,000 blocks (some 22,000 nodes) lays out the scroll container and draws what is in view, about the same as one of
+300 blocks does.
+
+- **Each subtree knows what is in it** that a frame's walks look for: an element ref, a layer (an overlay, a modal)
+  or a dropdown's anchor, a text input, a select, a scroll container, a child its line may drop
+  (`ShrinkLimit::Drop`, `shrink_drop_below`, a drop marker), a transition, an animation that plays. The walks that
+  index the tree's layers and refs, tell the refs where their elements are, list the dropped nodes and check scroll
+  offsets pass by a subtree that holds none. This knowledge is made again whenever the node, or anything under it,
+  changes or is built again, so a ref added deep in a subtree nothing else touched is found in the frame it appears.
+- **A cached subtree served as it was** is not prepared again: a long content scrolled in its container is the tree
+  laid out last frame, with no walk through its texts or its own scroll containers, while no text's layout changed.
+- **The paint culls a subtree that does not clip** (`overflow_visible`) where all it may paint is out of view: the
+  layout knows where each subtree paints (its box with its own shadows and outline, and its children's where it does
+  not clip them), and leaves 32 px of room for what states and text draw past it. A subtree that may move without a
+  layout (a transform, a transition or an animation of where it is, a canvas, a border outside its box) is never
+  culled for being out of view.
+- **Transitions tick what may have changed**: a subtree in which nothing runs is ticked clean, and not ticked again
+  until it changes, a state of interaction (a hover, a press, the focus) or a theme changes anywhere, or a
+  transition starts in it. Animations tick only where one plays.
+- **A component built again on its own costs itself and its way to the root**: its output is looked for only down
+  the subtrees that hold a component's output, the nodes it brought are numbered and take the disabled state of what
+  they are in, and the rest of the tree is not numbered again; the column it is in is patched where it changed, the
+  rest of the column not walked again. A component built again beside a document of 3,000 blocks takes 0.4 ms
+  where it took 0.9.
+
+`perf_profile` names these steps as [frame sections](../profiling/#frame-sections), to see where a frame goes.
 
 ## Text
 

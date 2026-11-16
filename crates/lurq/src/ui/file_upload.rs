@@ -1104,7 +1104,7 @@ impl Themed for FileUpload {
       )
     };
     Recipe::new()
-      .base(Root, |s| s.width(300.0).gap(8.0))
+      .base(Root, |s| s.width(300.0).max_width(super::Length::Fill).gap(8.0))
       .base(List, |s| s.gap(8.0))
       .base(Item, |s| {
         s.border(edge(BorderColor))

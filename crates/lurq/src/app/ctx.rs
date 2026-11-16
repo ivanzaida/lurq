@@ -1784,8 +1784,7 @@ impl Ctx {
 
   #[cfg(feature = "router")]
   pub fn router(&mut self, routes: crate::router::Routes) -> crate::router::RouterHandle {
-    let current_path = Signal::new(String::new());
-    crate::router::RouterHandle::new_with_signal(routes, current_path)
+    crate::router::RouterHandle::new(routes)
   }
 
   #[cfg(feature = "router")]

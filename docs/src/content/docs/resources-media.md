@@ -12,7 +12,7 @@ Media APIs are feature-gated. Enable only what the app needs.
 | `raster` | `Image`, `ImageData`, `StreamingImage`, `Video`, and raw RGBA/native image transport. |
 | `image` | Enables `raster` plus image decoding and image-backed style helpers. |
 | `svg` | `Svg`, `SvgData`. |
-| `http` | Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of the app are loaded by every build. Until 0.62 it was `resources`, which still turns it on. |
+| `http` | Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of the app are loaded by every build. Until 0.63 it was `resources`, which still turns it on. |
 | `markdown` | Markdown parsing and `Markdown::mount`. |
 
 ## Fonts
@@ -78,9 +78,9 @@ Text::styled(
 ## Images
 
 :::note
-`lurq::components::Image`, which this section and the next two describe, is deprecated in 0.62 in favor of
+`lurq::components::Image`, which this section and the next two describe, is deprecated in 0.63 in favor of
 `lurq::ui::Picture`: the same sources, in a box of the design system, with a load of its own. It is the engine's image
-node and stays what a picture draws with. See the [migration guide](../migration-v0-62/).
+node and stays what a picture draws with. See the [migration guide](../migration-v0-63/).
 :::
 
 With `image`, load from bytes, files, or raw RGBA.

@@ -28,6 +28,7 @@ use super::{
   theme::{Themed, current_theme},
 };
 mod columns;
+mod export;
 mod filtering;
 mod filters;
 mod groups;
@@ -41,6 +42,7 @@ mod text;
 
 pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
+pub use export::{ExportFormat, ExportLabels, ExportScope, GridBarLabels, GridExport, to_csv, to_delimited, to_tsv};
 pub use filtering::FilterLabels;
 use filtering::{FilterLink, FilterShape, FilterState, MOST_VALUES};
 pub use filters::{ColumnFilter, GridQuery, TableFilters, TextMatch};
@@ -121,6 +123,10 @@ pub enum TablePart {
   GroupCount,
   /// A summary row: at the bottom of the grid, where it stays, and at the end of each group open.
   Summary,
+  /// What a row shows under it while it is open, as wide as the view.
+  Detail,
+  /// What opens and closes a row of a tree, or its detail, at the start of its first cell: the chevron's room.
+  TreeToggle,
   /// The cell of a row's number, in the column of numbers at the start that stays, and the header's: pressed to
   /// select the row, or all of them.
   RowNumber,
@@ -164,6 +170,8 @@ names!(TablePart {
   GroupLabel => "group_label",
   GroupCount => "group_count",
   Summary => "summary",
+  Detail => "detail",
+  TreeToggle => "tree_toggle",
   RowNumber => "row_number",
   SummaryLabel => "summary_label",
   SummaryValue => "summary_value",
@@ -761,6 +769,8 @@ struct Words {
   numbers: Arc<str>,
   filter: Arc<FilterLabels>,
   source: Arc<SourceLabels>,
+  export: Arc<ExportLabels>,
+  bar: Arc<GridBarLabels>,
 }
 
 /// The words of a grid over rows the app gives on demand: what a row whose range failed says, and its button.
@@ -796,10 +806,17 @@ impl Default for Words {
       numbers: Arc::from("#"),
       filter: Arc::default(),
       source: Arc::default(),
+      export: Arc::default(),
+      bar: Arc::default(),
     }
   }
 }
 type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
+/// The key of the row a row is under in a tree, or `None` for a row at the top.
+type ParentFn<R, K> = Arc<dyn Fn(&R) -> Option<K> + Send + Sync>;
+type KeysWrite<K> = Arc<dyn Fn(Vec<K>) + Send + Sync>;
+type KeyOpenHeard<K> = Arc<dyn Fn(&K, bool) + Send + Sync>;
+type DetailFn<R> = Arc<dyn Fn(&R) -> Element + Send + Sync>;
 
 /// Rows of the same things in columns: crates and their status, files and their sizes, people and their
 /// roles. The columns of the header and of every row are the same widths whatever is in a cell.
@@ -868,6 +885,11 @@ pub struct Table<R, K = usize> {
   on_matches_change: Vec<Arc<dyn Fn(SearchMatches) + Send + Sync>>,
   find_bar: bool,
   find_bar_with: Option<Arc<dyn Fn(super::find_bar::FindBar) -> super::find_bar::FindBar + Send + Sync>>,
+  /// Whether a grid's column menus write its rows out, and who is told the text.
+  export: bool,
+  on_export: Vec<Arc<dyn Fn(&GridExport) + Send + Sync>>,
+  /// Whether a grid has the bar of its tools over it.
+  toolbar: bool,
   source: Option<Arc<dyn RowSource<R>>>,
   on_query_change: Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>,
   /// Over a source, as a render finds them: where each row's range is, and what asks for a failed one again.
@@ -905,6 +927,16 @@ pub struct Table<R, K = usize> {
   write_open: Option<OpenWrite>,
   on_open_change: Vec<OpenHeard>,
   grouping: Vec<TableColumn<R>>,
+  /// Where the rows are a tree: the row each is under, the rows open, what asks for others and who is told.
+  tree_parent: Option<ParentFn<R, K>>,
+  expanded: Vec<K>,
+  write_expanded: Option<KeysWrite<K>>,
+  on_expanded_change: Vec<KeyOpenHeard<K>>,
+  /// What a row shows under it while it is open, the rows open, what asks for others and who is told.
+  detail: Option<DetailFn<R>>,
+  details_open: Vec<K>,
+  write_details: Option<KeysWrite<K>>,
+  on_detail_change: Vec<KeyOpenHeard<K>>,
   /// Whether a grid has a column of the rows' numbers at its start.
   row_numbers: bool,
   checkboxes: bool,
@@ -948,6 +980,9 @@ impl<R, K: Clone> Clone for Table<R, K> {
       on_matches_change: self.on_matches_change.clone(),
       find_bar: self.find_bar,
       find_bar_with: self.find_bar_with.clone(),
+      export: self.export,
+      on_export: self.on_export.clone(),
+      toolbar: self.toolbar,
       source: self.source.clone(),
       on_query_change: self.on_query_change.clone(),
       slots: self.slots.clone(),
@@ -974,6 +1009,14 @@ impl<R, K: Clone> Clone for Table<R, K> {
       open_groups: self.open_groups.clone(),
       write_open: self.write_open.clone(),
       on_open_change: self.on_open_change.clone(),
+      tree_parent: self.tree_parent.clone(),
+      expanded: self.expanded.clone(),
+      write_expanded: self.write_expanded.clone(),
+      on_expanded_change: self.on_expanded_change.clone(),
+      detail: self.detail.clone(),
+      details_open: self.details_open.clone(),
+      write_details: self.write_details.clone(),
+      on_detail_change: self.on_detail_change.clone(),
       grouping: self.grouping.clone(),
       row_numbers: self.row_numbers,
       checkboxes: self.checkboxes,
@@ -1027,6 +1070,9 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_matches_change: Vec::new(),
       find_bar: false,
       find_bar_with: None,
+      export: true,
+      on_export: Vec::new(),
+      toolbar: false,
       source: None,
       on_query_change: Vec::new(),
       slots: None,
@@ -1053,6 +1099,14 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       open_groups: Vec::new(),
       write_open: None,
       on_open_change: Vec::new(),
+      tree_parent: None,
+      expanded: Vec::new(),
+      write_expanded: None,
+      on_expanded_change: Vec::new(),
+      detail: None,
+      details_open: Vec::new(),
+      write_details: None,
+      on_detail_change: Vec::new(),
       grouping: Vec::new(),
       row_numbers: false,
       checkboxes: true,
@@ -1101,6 +1155,9 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_matches_change: self.on_matches_change,
       find_bar: self.find_bar,
       find_bar_with: self.find_bar_with,
+      export: self.export,
+      on_export: self.on_export,
+      toolbar: self.toolbar,
       source: self.source,
       on_query_change: self.on_query_change,
       slots: self.slots,
@@ -1127,6 +1184,15 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       open_groups: self.open_groups,
       write_open: self.write_open,
       on_open_change: self.on_open_change,
+      // What names rows by their keys starts again with the keys.
+      tree_parent: None,
+      expanded: Vec::new(),
+      write_expanded: None,
+      on_expanded_change: Vec::new(),
+      detail: self.detail,
+      details_open: Vec::new(),
+      write_details: None,
+      on_detail_change: Vec::new(),
       grouping: self.grouping,
       row_numbers: self.row_numbers,
       checkboxes: self.checkboxes,
@@ -1291,6 +1357,36 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// The words of rows the app gives on demand: what a range that failed says, and its button.
   pub fn source_labels(mut self, labels: SourceLabels) -> Self {
     self.words.source = Arc::new(labels);
+    self
+  }
+
+  /// Whether a grid's column menus have Export, which writes the rows shown or selected out as comma-separated or
+  /// tab-separated text: on unless told.
+  pub fn export(mut self, export: bool) -> Self {
+    self.export = export;
+    self
+  }
+
+  /// Told the text of each export from a grid's menu ([`GridExport`]): the app saves it, or sends it. Without a
+  /// handler the text goes on the clipboard.
+  pub fn on_export(mut self, handler: impl Fn(&GridExport) + Send + Sync + 'static) -> Self {
+    self.on_export.push(Arc::new(handler));
+    self
+  }
+
+  /// The words of the export in a grid's menu.
+  pub fn export_labels(mut self, labels: ExportLabels) -> Self {
+    self.words.export = Arc::new(labels);
+    self
+  }
+
+  pub(super) fn set_toolbar(mut self, toolbar: bool) -> Self {
+    self.toolbar = toolbar;
+    self
+  }
+
+  pub(super) fn set_toolbar_labels(mut self, labels: GridBarLabels) -> Self {
+    self.words.bar = Arc::new(labels);
     self
   }
 
@@ -1641,6 +1737,134 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
+  pub(super) fn set_tree(mut self, parent: impl Fn(&R) -> Option<K> + Send + Sync + 'static) -> Self {
+    self.tree_parent = Some(Arc::new(parent));
+    self
+  }
+
+  pub(super) fn set_expanded(mut self, open: Vec<K>, write: KeysWrite<K>) -> Self {
+    self.expanded = open;
+    self.write_expanded = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_expanded_change(mut self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.on_expanded_change.push(Arc::new(handler));
+    self
+  }
+
+  pub(super) fn set_detail(mut self, detail: impl Fn(&R) -> Element + Send + Sync + 'static) -> Self {
+    self.detail = Some(Arc::new(detail));
+    self
+  }
+
+  pub(super) fn set_details_open(mut self, open: Vec<K>, write: KeysWrite<K>) -> Self {
+    self.details_open = open;
+    self.write_details = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_detail_change(mut self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.on_detail_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Opens or closes the row `key`'s children, or its detail: asks for the keys open with it in or out, and tells
+  /// every handler.
+  fn key_toggle(
+    now: &[K],
+    write: &Option<KeysWrite<K>>,
+    heard: &[KeyOpenHeard<K>],
+  ) -> Arc<dyn Fn(&K, bool) + Send + Sync> {
+    let (now, write, heard) = (now.to_vec(), write.clone(), heard.to_vec());
+    Arc::new(move |key: &K, open: bool| {
+      if now.contains(key) == open {
+        return;
+      }
+      let mut next: Vec<K> = now.iter().filter(|held| *held != key).cloned().collect();
+      if open {
+        next.push(key.clone());
+      }
+      if let Some(write) = &write {
+        write(next);
+      }
+      for handler in &heard {
+        handler(key, open);
+      }
+    })
+  }
+
+  /// The rows at `filtered`, or every row, as a tree: each row after the row it is under, the rows under one in
+  /// their order, those of a closed row out. A row a filter keeps keeps the rows it is under; a row whose parent is
+  /// not among the rows is at the top.
+  fn tree_lines(&self, parent_of: &ParentFn<R, K>, filtered: Option<Vec<usize>>) -> Lines {
+    let count = self.rows.len();
+    let keys: Vec<K> = self
+      .rows
+      .iter()
+      .enumerate()
+      .map(|(index, row)| (self.key_of)(index, row))
+      .collect();
+    let index_of: HashMap<&K, usize> = keys.iter().enumerate().map(|(index, key)| (key, index)).collect();
+    let parent: Vec<Option<usize>> = self
+      .rows
+      .iter()
+      .enumerate()
+      .map(|(index, row)| {
+        parent_of(row)
+          .and_then(|key| index_of.get(&key).copied())
+          .filter(|at| *at != index)
+      })
+      .collect();
+    // The rows shown: those the filters keep, and every row above one of them.
+    let mut shown = vec![filtered.is_none(); count];
+    if let Some(kept) = &filtered {
+      for &index in kept {
+        let mut at = Some(index);
+        while let Some(index) = at.filter(|index| !shown[*index]) {
+          shown[index] = true;
+          at = parent[index];
+        }
+      }
+    }
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); count];
+    let mut tops = Vec::new();
+    for index in (0..count).filter(|index| shown[*index]) {
+      match parent[index] {
+        Some(above) if shown[above] => children[above].push(index),
+        _ => tops.push(index),
+      }
+    }
+    let open: HashSet<&K> = self.expanded.iter().collect();
+    let mut order = Vec::new();
+    let mut tree = groups::Tree::default();
+    let mut seen = vec![false; count];
+    // Depth first, from the last of the tops: a row is followed by those under it while it is open.
+    let mut stack: Vec<(usize, u32, Option<usize>)> = tops.iter().rev().map(|index| (*index, 0, None)).collect();
+    while let Some((index, level, above)) = stack.pop() {
+      if std::mem::replace(&mut seen[index], true) {
+        continue;
+      }
+      let rank = order.len();
+      order.push(index);
+      let branch = !children[index].is_empty();
+      let is_open = branch && open.contains(&keys[index]);
+      tree.level.push(level);
+      tree.parent.push(above);
+      tree.branch.push(branch);
+      tree.open.push(is_open);
+      if is_open {
+        stack.extend(
+          children[index]
+            .iter()
+            .rev()
+            .map(|child| (*child, level + 1, Some(rank))),
+        );
+      }
+    }
+    Lines::tree(order, tree)
+  }
+
   /// The columns the rows are grouped by, found among all of them: before a grid's arrangement hides any.
   fn find_grouping(&mut self) {
     self.grouping = self
@@ -1654,7 +1878,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// rows of the closed groups out.
   /// Whether its rows grow with what they hold: where a column wraps its text.
   fn tall(&self) -> bool {
-    self.columns.iter().any(|column| column.wrap)
+    self.detail.is_some() || self.columns.iter().any(|column| column.wrap)
   }
 
   /// The places of the rows every filter lets through, in their order: `None` where no filter is on a column that
@@ -1694,11 +1918,26 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let passed = self.filtered().map(Arc::new);
     let mut lines = self.laid_out(passed.as_deref().cloned());
     lines.passed = passed;
+    // The detail of each row open, under it.
+    if self.detail.is_some() && !self.details_open.is_empty() {
+      let open: HashSet<&K> = self.details_open.iter().collect();
+      let opened: Vec<bool> = (0..lines.ranks())
+        .map(|rank| {
+          lines
+            .row_of_rank(rank)
+            .is_some_and(|index| open.contains(&(self.key_of)(index, &self.rows[index])))
+        })
+        .collect();
+      lines = lines.with_details(|rank| opened[rank]);
+    }
     lines
   }
 
   /// The lines of the rows at `filtered`, or of every row.
   fn laid_out(&self, filtered: Option<Vec<usize>>) -> Lines {
+    if let Some(parent) = self.tree_parent.as_ref().filter(|_| self.grouping.is_empty()) {
+      return self.tree_lines(parent, filtered);
+    }
     if self.grouping.is_empty() {
       return match filtered {
         Some(order) => Lines::rows(Arc::new(order)),
@@ -2000,7 +2239,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         key_index,
       )
     };
-    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty();
+    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty() || lines.tree.is_some();
     let ranked = keys.clone();
     let model = Arc::new(Model {
       keys: keys.clone(),
@@ -2078,6 +2317,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             })
             .collect(),
         ),
+        titles: Arc::new(self.columns.iter().map(|column| column.title.clone()).collect()),
         rows: self.rows.clone(),
         keys: ranked.clone(),
         lines: lines.clone(),
@@ -2311,6 +2551,48 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .fills_in(theme),
       )
     };
+    // A row of a tree opens and closes the rows under it, a row with a detail its detail: by its rank, through the
+    // app's keys open.
+    let by_rank = |toggle: Arc<dyn Fn(&K, bool) + Send + Sync>| {
+      let keys = keys.clone();
+      Arc::new(move |rank: usize, open: bool| {
+        if let Some(key) = keys.get(rank) {
+          toggle(&key, open);
+        }
+      }) as Arc<dyn Fn(usize, bool) + Send + Sync>
+    };
+    let tree_toggle = lines.tree.as_ref().map(|_| {
+      by_rank(Self::key_toggle(
+        &self.expanded,
+        &self.write_expanded,
+        &self.on_expanded_change,
+      ))
+    });
+    let detail_toggle = self.detail.as_ref().map(|_| {
+      by_rank(Self::key_toggle(
+        &self.details_open,
+        &self.write_details,
+        &self.on_detail_change,
+      ))
+    });
+    if let Some(host) = window.as_ref().and_then(|window| window.host.as_ref()) {
+      *host.state.tree_toggle.lock() = tree_toggle.clone();
+      *host.state.detail_toggle.lock() = detail_toggle.clone();
+    }
+    let details_now: HashSet<&K> = self.details_open.iter().collect();
+    // What opens a row in its first cell: the tree's, or the detail's where the rows are no tree.
+    let opener = |rank: usize, index: usize| -> Option<(u32, Option<bool>, Arc<dyn Fn(usize, bool) + Send + Sync>)> {
+      match (&lines.tree, &tree_toggle, &detail_toggle) {
+        (Some(tree), Some(toggle), _) => Some((
+          tree.level.get(rank).copied().unwrap_or(0),
+          tree.branch.get(rank).copied().unwrap_or(false).then(|| tree.open[rank]),
+          toggle.clone(),
+        )),
+        (None, _, Some(toggle)) => Some((0, Some(details_now.contains(&keys.at(index))), toggle.clone())),
+        _ => None,
+      }
+    };
+    let toggle_part = recipe.part(TablePart::TreeToggle).forced(self.forced);
     let rows = shown
       .iter()
       .filter_map(|&position| {
@@ -2385,6 +2667,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               }
               Some(Slot::Failed) => Row::new().into(),
               _ => content,
+            };
+            // The first column's cell of a row of a tree: its level's indent, and the chevron that opens and closes
+            // the rows under it (room for one where there are none); of a row with a detail, the detail's chevron.
+            let content = match opener(rank, index).filter(|_| column_index == 0) {
+              Some((level, open, toggle)) => tree_cell(&toggle_part, level, open, rank, toggle, content, column.wrap),
+              None => content,
             };
             let grid = grid_model.as_ref().map(|grid| {
               let editable = !self.read_only && !self.disabled && column.editor.is_some();
@@ -2480,6 +2768,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         TableRow {
           index,
           position,
+          tree: lines.tree.as_ref().map(|tree| {
+            (
+              tree.level.get(rank).copied().unwrap_or(0) + 1,
+              tree.branch.get(rank).copied().unwrap_or(false).then(|| tree.open[rank]),
+            )
+          }),
           number: numbered.then_some(rank + 1),
           number_lead,
           selected,
@@ -2509,6 +2803,43 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         }
       })
       .collect();
+
+    // The details of the rows open, built where their lines are: as wide as the view and staying in it while the
+    // columns scroll sideways, measured as they are laid out.
+    let view_width = window
+      .as_ref()
+      .and_then(|window| window.host.as_ref())
+      .map_or(0.0, |host| host.state.scroll.viewport_width());
+    let detail_part = recipe.part(TablePart::Detail).forced(self.forced);
+    let details: Vec<(usize, Element)> = match &self.detail {
+      Some(detail) => shown
+        .iter()
+        .filter_map(|&position| {
+          let Some(Shown::Detail(rank)) = lines.line(position) else {
+            return None;
+          };
+          let index = lines.row_of_rank(rank)?;
+          let mut line = Row::new()
+            .part(&detail_part)
+            .align_items(Alignment::Start)
+            // What is in it is reached with Tab; the arrows go from row to row past it.
+            .focus_group(FocusGroup::none())
+            .key(format!("detail-{index}"))
+            .child(detail(&self.rows[index]));
+          if let Some(element) = window.as_ref().and_then(|window| window.refs.get(&position)) {
+            line = line.ref_element(element.clone());
+          }
+          if view_width > 0.0 {
+            line = line.width(Dimension::Px(view_width)).sticky(Sticky::left(0.0));
+          }
+          if let Some(id) = id_of(&format!("detail-{index}")) {
+            line = line.id(id);
+          }
+          Some((position, line.into()))
+        })
+        .collect(),
+      None => Vec::new(),
+    };
 
     // A mounted grid's headers have a menu, are dragged to another place, and are found by where they are.
     let menu_host = grid_host.as_ref().filter(|_| self.column_menu && !self.disabled);
@@ -2583,6 +2914,40 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               labels: self.words.filter.clone(),
             }))
           });
+        // What a grid's menus write out, and where the text goes: the app's handlers, or the clipboard.
+        let export_now: Option<Arc<dyn Fn(ExportScope, ExportFormat) + Send + Sync>> =
+          grid_model.as_ref().filter(|_| self.export).map(|grid| {
+            let (grid, handlers, window) = (grid.clone(), self.on_export.clone(), super::theme::current_window());
+            Arc::new(move |scope: ExportScope, format: ExportFormat| {
+              let (text, rows) = grid.export(scope, format);
+              if handlers.is_empty() {
+                if let Some(window) = &window {
+                  window.request_copy(text);
+                }
+                return;
+              }
+              let export = GridExport {
+                format,
+                scope,
+                text,
+                rows,
+              };
+              for handler in &handlers {
+                handler(&export);
+              }
+            }) as Arc<dyn Fn(ExportScope, ExportFormat) + Send + Sync>
+          });
+        let export_link = export_now
+          .as_ref()
+          .zip(grid_model.as_ref())
+          .map(|(_, grid)| export::ExportLink {
+            selected: grid.has_selection(),
+            labels: self.words.export.clone(),
+          });
+        if let Some(host) = &grid_host {
+          *host.export_now.lock() = export_now.clone();
+          *host.export_selected.lock() = export_link.as_ref().is_some_and(|link| link.selected);
+        }
         let menu = menu_host.zip(change_layout.clone()).map(|(host, change)| {
           let element = ElementRef::new();
           header_refs.insert(column_index, element);
@@ -2597,6 +2962,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               (self.write_sort.clone(), self.on_sort_change.clone(), self.sort.clone());
             let (filter_host, filter_change, filters_now) =
               (host.clone(), change_filters.clone(), self.filters.clone());
+            let export = export_now.clone();
             Arc::new(move |choice: MenuChoice| match choice {
               MenuChoice::Sort(direction) => {
                 // A direction sorts by the column alone; "clear" takes it out of the sort, the rest as it is.
@@ -2635,6 +3001,11 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               MenuChoice::ClearAllFilters => {
                 if let Some(change) = &filter_change {
                   change(TableFilters::new());
+                }
+              }
+              MenuChoice::Export(scope, format) => {
+                if let Some(export) = &export {
+                  export(scope, format);
                 }
               }
             })
@@ -2700,6 +3071,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             filtering: (column.filter.is_some() && change_filters.is_some())
               .then(|| (self.filters.get(&column.id).is_some(), !self.filters.is_empty())),
             filter_labels: self.words.filter.clone(),
+            export: export_link.clone(),
             trigger_label: self
               .words
               .menu_trigger
@@ -2851,6 +3223,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       rows,
       groups,
       grouped,
+      details,
       summaries,
       summary,
       numbered,
@@ -3146,6 +3519,8 @@ pub struct TableView {
   pub groups: Vec<TableGroup>,
   /// Whether the rows are grouped: the body is a nested list, Right opening a group and Left closing it.
   pub grouped: bool,
+  /// The details of the rows open that are built, each with its line.
+  details: Vec<(usize, Element)>,
   /// The summary rows at the end of the groups open that are built, each with its line.
   pub summaries: Vec<TableSummary>,
   /// The grid's summary row, which stays at its bottom.
@@ -3360,6 +3735,7 @@ impl TableView {
           .into_iter()
           .map(|summary| (summary.position.unwrap_or(0), summary.render())),
       )
+      .chain(std::mem::take(&mut self.details))
       .collect();
     lines.sort_by_key(|(position, _)| *position);
     let group = FocusGroup::vertical().one_stop(true).wrap(false).nested(self.grouped);
@@ -3760,41 +4136,67 @@ impl TableHeader {
           .disabled(!hidden)
           .on_select(choose(MenuChoice::ShowAll)),
       );
-    Some(
-      menu
+    // The rows written out: those shown, and those selected where there are.
+    let export = link.export.as_ref().map(|export| {
+      let words = &export.labels;
+      Menu::new(link.host.export_open.clone(), link.host.export_anchor.clone())
+        .label(&words.export)
         .item(
-          MenuItem::new(&link.labels.pin_start)
-            .icon(icons::PIN)
-            .checked(link.pin == ColumnPin::Start)
-            .on_select(choose(MenuChoice::Pin(ColumnPin::Start))),
+          MenuItem::new(&words.shown_csv).on_select(choose(MenuChoice::Export(ExportScope::Shown, ExportFormat::Csv))),
         )
         .item(
-          MenuItem::new(&link.labels.pin_end)
-            .icon(icons::PIN)
-            .checked(link.pin == ColumnPin::End)
-            .on_select(choose(MenuChoice::Pin(ColumnPin::End))),
+          MenuItem::new(&words.shown_tsv).on_select(choose(MenuChoice::Export(ExportScope::Shown, ExportFormat::Tsv))),
         )
         .item(
-          MenuItem::new(&link.labels.unpin)
-            .icon(icons::CLOSE)
-            .disabled(link.pin == ColumnPin::None)
-            .on_select(choose(MenuChoice::Pin(ColumnPin::None))),
+          MenuItem::new(&words.selected_csv)
+            .disabled(!export.selected)
+            .on_select(choose(MenuChoice::Export(ExportScope::Selected, ExportFormat::Csv))),
         )
+        .item(
+          MenuItem::new(&words.selected_tsv)
+            .disabled(!export.selected)
+            .on_select(choose(MenuChoice::Export(ExportScope::Selected, ExportFormat::Tsv))),
+        )
+    });
+    let mut menu = menu
+      .item(
+        MenuItem::new(&link.labels.pin_start)
+          .icon(icons::PIN)
+          .checked(link.pin == ColumnPin::Start)
+          .on_select(choose(MenuChoice::Pin(ColumnPin::Start))),
+      )
+      .item(
+        MenuItem::new(&link.labels.pin_end)
+          .icon(icons::PIN)
+          .checked(link.pin == ColumnPin::End)
+          .on_select(choose(MenuChoice::Pin(ColumnPin::End))),
+      )
+      .item(
+        MenuItem::new(&link.labels.unpin)
+          .icon(icons::CLOSE)
+          .disabled(link.pin == ColumnPin::None)
+          .on_select(choose(MenuChoice::Pin(ColumnPin::None))),
+      )
+      .separator()
+      .item(
+        MenuItem::new(&link.labels.size_to_fit)
+          .icon(icons::RESIZE_HORIZONTAL)
+          .on_select(choose(MenuChoice::Fit)),
+      )
+      .item(
+        MenuItem::new(&link.labels.hide)
+          .icon(icons::EYE_OFF)
+          .disabled(!link.can_hide)
+          .on_select(choose(MenuChoice::Hide)),
+      )
+      .item(MenuItem::new(&link.labels.columns).icon(icons::EYE).submenu(columns));
+    if let Some(export) = export {
+      let label = link.export.as_ref().map_or("", |export| export.labels.export.as_str());
+      menu = menu
         .separator()
-        .item(
-          MenuItem::new(&link.labels.size_to_fit)
-            .icon(icons::RESIZE_HORIZONTAL)
-            .on_select(choose(MenuChoice::Fit)),
-        )
-        .item(
-          MenuItem::new(&link.labels.hide)
-            .icon(icons::EYE_OFF)
-            .disabled(!link.can_hide)
-            .on_select(choose(MenuChoice::Hide)),
-        )
-        .item(MenuItem::new(&link.labels.columns).icon(icons::EYE).submenu(columns))
-        .build(self.recipe.theme()),
-    )
+        .item(MenuItem::new(label).icon(icons::DOWNLOAD).submenu(export));
+    }
+    Some(menu.build(self.recipe.theme()))
   }
 
   /// The arrow of a column the rows are sorted by, up or down, and the mark of one that sorts.
@@ -4190,11 +4592,59 @@ impl TableCell {
   }
 }
 
+/// The content of a row's first cell in a tree, or of a row with a detail: indented 18 a level, after the chevron
+/// that opens and closes it (right closed, down open), or the chevron's room where it does not open; 6 between.
+fn tree_cell(
+  part: &ResolvedPart,
+  level: u32,
+  open: Option<bool>,
+  rank: usize,
+  toggle: Arc<dyn Fn(usize, bool) + Send + Sync>,
+  content: Element,
+  wraps: bool,
+) -> Element {
+  let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
+  let chevron: Element = match open {
+    Some(open) => Row::new()
+      .part(part)
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .child(
+        super::Icon::new(Name::new(if open {
+          icons::CHEVRON_DOWN
+        } else {
+          icons::CHEVRON_RIGHT
+        }))
+        .size(side)
+        .build(part.theme()),
+      )
+      .on_click(move |event: MouseEvent| {
+        // A press of it is its own: it does not select or activate the row.
+        event.stop_propagation();
+        toggle(rank, !open);
+      })
+      .into(),
+    None => Row::new().part(part).into(),
+  };
+  let mut cell = Row::new()
+    .align_items(Alignment::Center)
+    .spacing(6.0)
+    .padding_left(18.0 * level as f32)
+    .child(chevron)
+    .child(content);
+  if wraps {
+    cell = cell.flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0));
+  }
+  cell.into()
+}
+
 /// One row as a renderer sees it: where it is, whether it is selected, its cells, the style of its parts,
 /// and its behavior ready to be dressed.
 pub struct TableRow {
   /// Its place among the rows, from 0.
   pub index: usize,
+  /// Where the rows are a tree: its level, from 1, and whether it is open where rows are under it.
+  pub tree: Option<(u32, Option<bool>)>,
   /// Its line among the lines shown, the groups' rows counted: its place where the rows are not grouped.
   pub position: usize,
   /// Its number, from 1 among the rows shown, where the grid shows them, and how wide their track is.
@@ -4258,6 +4708,12 @@ impl TableRow {
       .describe("a11y_rowindex", (self.position + 2).to_string())
       // A row is the same element wherever the rows built around it start.
       .key(format!("row-{}", self.index));
+    if let Some((level, open)) = self.tree {
+      row = row.describe("a11y_level", level.to_string());
+      if let Some(open) = open {
+        row = row.describe("a11y_expanded", if open { "true" } else { "false" });
+      }
+    }
     if self.grows {
       let least = px(self.part(TablePart::Row).rest().height, self.recipe.theme()).unwrap_or(0.0);
       row = row.height(Dimension::Auto).min_height(least);
@@ -4608,6 +5064,15 @@ trait GridCells: Send + Sync {
   fn drag_to(&self, x: f32, y: f32);
   /// How many rows a page is.
   fn page(&self) -> usize;
+  /// The rows of `scope` written in `format`, and how many there are.
+  fn export(&self, scope: ExportScope, format: ExportFormat) -> (String, usize);
+  /// Whether there is anything selected to write out: rows, or a range of cells.
+  fn has_selection(&self) -> bool;
+  /// What opens the row: whether it is open where it opens (a row of a tree with rows under it, or a row with a
+  /// detail), and the row it is under in a tree. `None` where the rows are no tree and have no detail.
+  fn opener(&self, row: usize) -> Option<(Option<bool>, Option<usize>)>;
+  /// Opens or closes the row: the rows under it in a tree, or its detail.
+  fn open_row(&self, row: usize, open: bool);
 }
 
 /// The cells of a grid as its host works them.
@@ -4621,6 +5086,8 @@ struct GridModel<R, K> {
   on_range: Vec<RangeHeard<K>>,
   /// The text of each column, where it is a text: what a copy takes of a cell that is not edited.
   texts: Arc<Vec<Option<TextFn<R>>>>,
+  /// The title of each column shown: the first line of an export.
+  titles: Arc<Vec<Arc<str>>>,
   rows: Arc<Vec<R>>,
   /// The keys of the rows shown, by their ranks, and the lines they are on.
   keys: RowKeys<K>,
@@ -4866,6 +5333,35 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     self.copy_cells(at, cut)
   }
 
+  fn export(&self, scope: ExportScope, format: ExportFormat) -> (String, usize) {
+    self.export_rows(scope, format)
+  }
+
+  fn opener(&self, row: usize) -> Option<(Option<bool>, Option<usize>)> {
+    if let Some(tree) = &self.lines.tree {
+      let open = tree.branch.get(row).copied().unwrap_or(false).then(|| tree.open[row]);
+      return Some((open, tree.parent.get(row).copied().flatten()));
+    }
+    self.host.detail_toggle.lock().as_ref()?;
+    let position = self.lines.position_of(row)?;
+    Some((Some(self.lines.line(position + 1) == Some(Shown::Detail(row))), None))
+  }
+
+  fn open_row(&self, row: usize, open: bool) {
+    let toggle = if self.lines.tree.is_some() {
+      self.host.tree_toggle.lock().clone()
+    } else {
+      self.host.detail_toggle.lock().clone()
+    };
+    if let Some(toggle) = toggle {
+      toggle(row, open);
+    }
+  }
+
+  fn has_selection(&self) -> bool {
+    self.span.is_some() || self.model.selected.iter().any(|key| self.keys.rank_of(key).is_some())
+  }
+
   fn paste(&self, at: (usize, usize), text: &str) {
     self.paste_cells(at, text);
   }
@@ -5075,6 +5571,32 @@ impl GridCell {
         grid.extend(Some((row, column)), to);
         return;
       }
+      // In the first column Right opens a row of a tree, or its detail, and Left closes it, or goes to the row it is
+      // under.
+      if column == 0
+        && !command
+        && !event.shift
+        && let Some((open, parent)) = grid.opener(row)
+      {
+        match (event.key.as_str(), open, parent) {
+          ("ArrowRight", Some(false), _) => {
+            event.prevent_default();
+            grid.open_row(row, true);
+            return;
+          }
+          ("ArrowLeft", Some(true), _) => {
+            event.prevent_default();
+            grid.open_row(row, false);
+            return;
+          }
+          ("ArrowLeft", _, Some(parent)) => {
+            event.prevent_default();
+            grid.move_to(parent, 0);
+            return;
+          }
+          _ => {}
+        }
+      }
       match event.key.as_str() {
         "Enter" | "F2" if !command && editable && !checkbox => {
           event.prevent_default();
@@ -5224,7 +5746,7 @@ impl FocusRows for HostState {
   }
 
   fn enabled(&self, row: usize) -> bool {
-    !self.metrics.lock().disabled && !matches!(self.lines.lock().line(row), Some(Shown::Summary(_)))
+    !self.metrics.lock().disabled && !matches!(self.lines.lock().line(row), Some(Shown::Summary(_) | Shown::Detail(_)))
   }
 
   fn level(&self, row: usize) -> u32 {
@@ -5235,13 +5757,25 @@ impl FocusRows for HostState {
     let lines = self.lines.lock();
     match lines.line(row)? {
       Shown::Group(group) => Some(lines.groups[group].open),
-      Shown::Row(_) | Shown::Summary(_) => None,
+      // A row of a tree that has rows under it.
+      Shown::Row(rank) => {
+        let tree = lines.tree.as_ref()?;
+        tree.branch.get(rank).copied().unwrap_or(false).then(|| tree.open[rank])
+      }
+      Shown::Summary(_) | Shown::Detail(_) => None,
     }
   }
 
   fn set_expanded(&self, row: usize, open: bool) {
     let group = match self.lines.lock().line(row) {
       Some(Shown::Group(group)) => group,
+      Some(Shown::Row(rank)) => {
+        let toggle = self.tree_toggle.lock().clone();
+        if let Some(toggle) = toggle {
+          toggle(rank, open);
+        }
+        return;
+      }
       _ => return,
     };
     let toggle = self.group_toggle.lock().clone();
@@ -5306,7 +5840,7 @@ struct Metrics {
 /// The lines a mounted table laid out, and what they were laid out for.
 type KeptLines = (
   Arc<dyn std::any::Any + Send + Sync>,
-  (Vec<Arc<str>>, Vec<GroupKey>, bool, TableFilters),
+  (Vec<Arc<str>>, Vec<GroupKey>, bool, TableFilters, u64),
   Arc<Lines>,
 );
 
@@ -5351,6 +5885,21 @@ struct HostState {
   menu_anchor: ElementRef,
   submenu_open: Signal<bool>,
   submenu_anchor: ElementRef,
+  /// The export's menu in a column's menu.
+  export_open: Signal<bool>,
+  export_anchor: ElementRef,
+  /// The grid's bar: its query, the density it chose (0 for the app's), its menus of the columns that filter, of
+  /// the columns and of the export, what writes the rows out and whether anything is selected to; and the search
+  /// of a grid whose app holds none.
+  bar_query: Signal<String>,
+  bar_density: Signal<u8>,
+  bar_filter: (Signal<bool>, ElementRef),
+  bar_columns: (Signal<bool>, ElementRef),
+  bar_export: (Signal<bool>, ElementRef),
+  export_now: Mutex<Option<Arc<dyn Fn(ExportScope, ExportFormat) + Send + Sync>>>,
+  export_selected: Mutex<bool>,
+  own_search: Mutex<String>,
+  bar_chose: Mutex<bool>,
   /// Where each header built is, by its column, and a column dragged by its header: from where to before which.
   header_refs: Mutex<HashMap<usize, ElementRef>>,
   /// What each summary row said, by what it was computed from: kept while that is the same.
@@ -5383,6 +5932,9 @@ struct HostState {
   source: Mutex<Option<Box<dyn std::any::Any + Send>>>,
   source_query: Mutex<Option<(GridQuery, Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>)>>,
   group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
+  /// Opens or closes the rows under the row of a rank, in a tree; and its detail.
+  tree_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
+  detail_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -5552,6 +6104,9 @@ struct TableHost<R, K> {
   own_layout: Arc<Mutex<Option<ColumnLayout>>>,
   /// The groups open of a table whose app holds none.
   own_open: Arc<Mutex<Vec<GroupKey>>>,
+  /// The rows of a tree open, and the rows whose detail is open, where the app holds none.
+  own_expanded: Arc<Mutex<Vec<K>>>,
+  own_details: Arc<Mutex<Vec<K>>>,
   _marker: PhantomData<fn() -> R>,
 }
 
@@ -5567,6 +6122,223 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
   /// The find bar over the grid: its query the grid's search, its count the matches, its arrows the next match
   /// and the one before.
+  /// The bar over a grid, as the board's Table Toolbar draws it, built from a `Toolbar`: a search field of 220 that
+  /// is the grid's search, a tag for each filter set (its × takes it off), Filter (a menu of the columns that
+  /// filter, each opening its filter's panel), and at the end the density, the columns to show and Export.
+  fn grid_bar(&self, ctx: &mut Ctx, table: &Table<R, K>) -> Element {
+    use super::{
+      Choice, InputSize, SearchField, SearchFieldPart, Tag, TagPart, TagVariant, ToggleGroup, ToggleGroupPart, Toolbar,
+      ToolbarItem, ToolbarPart,
+      button::{Button, ButtonPart, ButtonSize, ButtonVariant},
+    };
+    let state = &self.state;
+    let words = table.words.bar.clone();
+    // The query the grid searches is the field's: one the app clears elsewhere is cleared in the field.
+    if state.bar_query.get_untracked() != *table.search {
+      state.bar_query.set(table.search.to_string());
+    }
+    let (write, heard) = (table.write_search.clone(), table.on_search_change.clone());
+    let id_of = |what: &str| table.id.as_ref().map(|id| format!("{id}-{what}"));
+    let mut search = SearchField::new(state.bar_query.clone())
+      .placeholder(&words.search)
+      .label(&words.search)
+      .size(InputSize::Sm)
+      .clearable(false)
+      .style(SearchFieldPart::Root, |s| s.width(220.0))
+      .on_input(move |event| {
+        if let Some(write) = &write {
+          write(event.new_value.clone());
+        }
+        for handler in &heard {
+          handler(&event.new_value);
+        }
+      });
+    if let Some(id) = id_of("bar-search") {
+      search = search.id(id);
+    }
+    let mut bar = Toolbar::new()
+      .label(&words.bar)
+      .overflow(true)
+      // The board's: 52 high, padded 12 across, 8 between, the large radius.
+      .style(ToolbarPart::Root, |s| {
+        s.width(Length::Fill)
+          .height(52.0)
+          .padding_x(12.0)
+          .gap(8.0)
+          .radius(RadiusSize::Lg)
+      })
+      .item(ToolbarItem::element(search).stays(true));
+    // A tag for each filter set, its × taking it off.
+    let change_filters = table.filter_changer();
+    let titles: HashMap<Arc<str>, Arc<str>> = table
+      .arranged
+      .as_ref()
+      .map(|arranged| arranged.1.iter().cloned().collect())
+      .unwrap_or_default();
+    for (id, filter) in table.filters.iter() {
+      let title = titles.get(id).cloned().unwrap_or_else(|| Arc::from(id));
+      let (change, now, id) = (change_filters.clone(), table.filters.clone(), id.to_owned());
+      let tag_id = id_of(&format!("bar-filter-{id}"));
+      let mut tag = Tag::new(&format!("{title}: {}", export::filter_said(filter)))
+        .variant(TagVariant::Info)
+        .on_remove(move || {
+          if let Some(change) = &change {
+            change(now.clone().without(&id));
+          }
+        })
+        .style(TagPart::Root, |s| s.height(26.0))
+        .style(TagPart::Label, |s| s.font_size(12.0));
+      if let Some(tag_id) = tag_id {
+        tag = tag.id(tag_id);
+      }
+      bar = bar.item(ToolbarItem::element(tag));
+    }
+    // Filter: a menu of the columns that filter, each opening the panel of its filter under its header.
+    let filtering: Vec<(Arc<str>, Arc<str>)> = table
+      .columns
+      .iter()
+      .filter(|column| column.filter.is_some())
+      .map(|column| (column.id.clone(), column.title.clone()))
+      .collect();
+    if !filtering.is_empty() && change_filters.is_some() {
+      let (open, anchor) = state.bar_filter.clone();
+      let menu = Menu::new(open.clone(), anchor.clone())
+        .label(&words.filter)
+        .items(filtering.into_iter().map(|(id, title)| {
+          let host = state.clone();
+          MenuItem::new(&title).on_select(move || {
+            *host.filters.column.lock() = Some(id.clone());
+            host.filter_open.set(true);
+            host.rebuild();
+          })
+        }))
+        .build(&current_theme());
+      let mut button = Button::new(&words.filter)
+        .icon(icons::PLUS)
+        .variant(ButtonVariant::Outline)
+        .size(ButtonSize::Xs)
+        // The board's is 26 high, its icon and its text 12, padded 8.
+        .style(ButtonPart::Root, |s| s.height(26.0).padding_x(8.0).gap(4.0))
+        .style(ButtonPart::Icon, |s| s.square(12.0))
+        .style(ButtonPart::Label, |s| s.font_size(12.0))
+        .on_click(move |_| open.update(|open| *open = !*open));
+      if let Some(id) = id_of("bar-filter") {
+        button = button.id(id);
+      }
+      bar = bar.item(ToolbarItem::element(
+        Row::new()
+          .overflow_visible()
+          .ref_element(anchor)
+          .child(button.build(&current_theme()))
+          .child(menu),
+      ));
+    }
+    bar = bar.item(Toolbar::spacer());
+    // The density, which the grid takes.
+    let rebuild = state.clone();
+    bar = bar.item(
+      ToggleGroup::new(
+        state.bar_density.clone(),
+        [
+          Choice::new(2u8, &words.comfortable).icon(icons::ROWS_2).icon_only(true),
+          Choice::new(3u8, &words.default).icon(icons::ROWS_3).icon_only(true),
+          Choice::new(4u8, &words.compact).icon(icons::ROWS_4).icon_only(true),
+        ],
+      )
+      .on_change(move |_| {
+        *rebuild.bar_chose.lock() = true;
+        rebuild.rebuild();
+      })
+      // The board's cells are 30 with icons of 14.
+      .style(ToggleGroupPart::Item, |s| s.square(30.0))
+      .label(&words.density)
+      .id(id_of("bar-density").unwrap_or_else(|| "bar-density".to_owned())),
+    );
+    // The columns to show, as a column's menu lists them.
+    if let (Some(arranged), Some(change)) = (table.arranged.clone(), table.layout_changer()) {
+      let (open, anchor) = state.bar_columns.clone();
+      let (layout, titles) = &*arranged;
+      let shown = layout.columns.iter().filter(|place| !place.hidden).count();
+      let menu = Menu::new(open.clone(), anchor.clone())
+        .label(&words.columns)
+        .items(titles.iter().map(|(id, title)| {
+          let hidden = layout.place(id).is_some_and(|place| place.hidden);
+          let (change, layout, id) = (change.clone(), layout.clone(), id.clone());
+          MenuItem::new(title)
+            .checked(!hidden)
+            // The last column shown stays.
+            .disabled(!hidden && shown == 1)
+            .on_select(move || change(layout.clone().with_hidden(&id, !hidden)))
+        }))
+        .build(&current_theme());
+      let mut button = Button::new(&words.columns)
+        .trailing_icon(icons::CHEVRON_DOWN)
+        .variant(ButtonVariant::Outline)
+        // The board's is 30 high, padded 14 before its label and 10 after its chevron.
+        .style(ButtonPart::Root, |s| s.height(30.0).padding_start(14.0).padding_end(10.0))
+        .on_click(move |_| open.update(|open| *open = !*open));
+      if let Some(id) = id_of("bar-columns") {
+        button = button.id(id);
+      }
+      bar = bar.item(ToolbarItem::element(
+        Row::new()
+          .overflow_visible()
+          .ref_element(anchor)
+          .child(button.build(&current_theme()))
+          .child(menu),
+      ));
+    }
+    // Export: the rows shown or selected, as the column's menus write them.
+    if table.export {
+      let (open, anchor) = state.bar_export.clone();
+      let selected = *state.export_selected.lock();
+      let export = |scope: ExportScope, format: ExportFormat| {
+        let host = state.clone();
+        move || {
+          let now = host.export_now.lock().clone();
+          if let Some(now) = now {
+            now(scope, format);
+          }
+        }
+      };
+      let labels = table.words.export.clone();
+      let menu = Menu::new(open.clone(), anchor.clone())
+        .label(&words.export)
+        .item(MenuItem::new(&labels.shown_csv).on_select(export(ExportScope::Shown, ExportFormat::Csv)))
+        .item(MenuItem::new(&labels.shown_tsv).on_select(export(ExportScope::Shown, ExportFormat::Tsv)))
+        .item(
+          MenuItem::new(&labels.selected_csv)
+            .disabled(!selected)
+            .on_select(export(ExportScope::Selected, ExportFormat::Csv)),
+        )
+        .item(
+          MenuItem::new(&labels.selected_tsv)
+            .disabled(!selected)
+            .on_select(export(ExportScope::Selected, ExportFormat::Tsv)),
+        )
+        .build(&current_theme());
+      let mut button = Button::new(&words.export)
+        .icon(icons::DOWNLOAD)
+        .variant(ButtonVariant::Outline)
+        .style(ButtonPart::Root, |s| s.height(30.0).padding_x(10.0))
+        .on_click(move |_| open.update(|open| *open = !*open));
+      if let Some(id) = id_of("bar-export") {
+        button = button.id(id);
+      }
+      bar = bar.item(ToolbarItem::element(
+        Row::new()
+          .overflow_visible()
+          .ref_element(anchor)
+          .child(button.build(&current_theme()))
+          .child(menu),
+      ));
+    }
+    if let Some(id) = id_of("bar") {
+      bar = bar.id(id);
+    }
+    bar.key("grid-bar").mount(ctx)
+  }
+
   fn find_bar(&self, ctx: &mut Ctx, table: &Table<R, K>) -> Element {
     let state = &self.state;
     // The query the app gives is the bar's: one it clears elsewhere is cleared in the bar.
@@ -5629,6 +6401,17 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         menu_anchor: ElementRef::new(),
         submenu_open: ctx.signal(false),
         submenu_anchor: ElementRef::new(),
+        export_open: ctx.signal(false),
+        export_anchor: ElementRef::new(),
+        bar_query: ctx.signal(String::new()),
+        bar_density: ctx.signal(0_u8),
+        bar_filter: (ctx.signal(false), ElementRef::new()),
+        bar_columns: (ctx.signal(false), ElementRef::new()),
+        bar_export: (ctx.signal(false), ElementRef::new()),
+        export_now: Mutex::new(None),
+        export_selected: Mutex::new(false),
+        own_search: Mutex::new(String::new()),
+        bar_chose: Mutex::new(false),
         header_refs: Mutex::new(HashMap::new()),
         summaries: Mutex::new(HashMap::new()),
         header_drop: Mutex::new(None),
@@ -5655,6 +6438,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         source: Mutex::new(None),
         source_query: Mutex::new(None),
         group_toggle: Mutex::new(None),
+        tree_toggle: Mutex::new(None),
+        detail_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
@@ -5662,6 +6447,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       own_range: Arc::new(Mutex::new(None)),
       own_layout: Arc::new(Mutex::new(None)),
       own_open: Arc::new(Mutex::new(Vec::new())),
+      own_expanded: Arc::new(Mutex::new(Vec::new())),
+      own_details: Arc::new(Mutex::new(Vec::new())),
       _marker: PhantomData,
     }
     .started(ctx)
@@ -5704,6 +6491,45 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       table.open_groups = self.own_open.lock().clone();
       let (own, state) = (self.own_open.clone(), self.state.clone());
       table.write_open = Some(Arc::new(move |next| {
+        *own.lock() = next;
+        state.rebuild();
+      }));
+    }
+    // A grid with its bar searches what the bar's field says: the app's search, or its own where the app holds none.
+    // The bar's density is the grid's once a person chose one.
+    if table.grid && table.toolbar {
+      if table.write_search.is_none() {
+        table.search = Arc::from(self.state.own_search.lock().as_str());
+        let (own, state) = (self.state.clone(), self.state.clone());
+        table.write_search = Some(Arc::new(move |next| {
+          *own.own_search.lock() = next;
+          state.rebuild();
+        }));
+      }
+      let chosen = self.state.bar_density.get();
+      if *self.state.bar_chose.lock() {
+        table.density = Some(density_of(chosen));
+      } else {
+        // Until a person chooses, the bar shows the density the grid has: the app's, or the theme's.
+        let now = density_code(table.density.unwrap_or_else(|| current_theme().density()));
+        if chosen != now {
+          self.state.bar_density.set(now);
+        }
+      }
+    }
+    // The rows of a tree open, and the details, that a table whose app holds none keeps itself.
+    if table.tree_parent.is_some() && table.write_expanded.is_none() {
+      table.expanded = self.own_expanded.lock().clone();
+      let (own, state) = (self.own_expanded.clone(), self.state.clone());
+      table.write_expanded = Some(Arc::new(move |next| {
+        *own.lock() = next;
+        state.rebuild();
+      }));
+    }
+    if table.detail.is_some() && table.write_details.is_none() {
+      table.details_open = self.own_details.lock().clone();
+      let (own, state) = (self.own_details.clone(), self.state.clone());
+      table.write_details = Some(Arc::new(move |next| {
         *own.lock() = next;
         state.rebuild();
       }));
@@ -5768,6 +6594,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         table.open_groups.clone(),
         table.summarized(),
         table.filters.clone(),
+        {
+          // The tree's rows open and the details open, as one number.
+          use std::hash::Hasher;
+          let mut hasher = std::collections::hash_map::DefaultHasher::new();
+          (table.tree_parent.is_some(), &table.expanded).hash(&mut hasher);
+          (table.detail.is_some(), &table.details_open).hash(&mut hasher);
+          hasher.finish()
+        },
       );
       match &*kept {
         Some((rows, held, lines))
@@ -5966,10 +6800,20 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     table.slots = slots;
     let find = table.find_bar.then(|| self.find_bar(ctx, &table));
     let view = table.view(&theme, tracks, window);
-    let element = match theme.renderer::<Table<R, K>>() {
+    let mut element = match theme.renderer::<Table<R, K>>() {
       Some(renderer) => renderer(view),
       None => view.render(),
     };
+    // The bar of the grid's tools over it.
+    if table.grid && table.toolbar {
+      let bar = self.grid_bar(ctx, &table);
+      element = Column::new()
+        .spacing(8.0)
+        .width(Dimension::Pct(100.0))
+        .child(bar)
+        .child(element)
+        .into();
+    }
     if !table.find_bar && table.search.is_empty() {
       return element;
     }
@@ -6194,6 +7038,23 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .pressed(TablePart::GroupRow, |s| s.veil(StatePressed))
       .focus_visible(TablePart::GroupRow, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .base(TablePart::Chevron, |s| s.square(IconSize::Sm).foreground(MutedForeground))
+      // A row's detail: on the muted fill under its row, 12 down and 16 across, the line under it a row's.
+      .base(TablePart::Detail, |s| {
+        s.padding_x(16.0)
+          .padding_y(12.0)
+          .background(Muted)
+          .underline(line())
+      })
+      // The chevron of a row of a tree or of a row with a detail, 6 before the cell's content, pressed.
+      .base(TablePart::TreeToggle, |s| {
+        fading(
+          s.square(IconSize::Sm)
+            .radius(RadiusSize::Sm)
+            .cursor(CursorIcon::Pointer)
+            .foreground(MutedForeground),
+        )
+      })
+      .hovered(TablePart::TreeToggle, |s| s.foreground(Foreground))
       .base(TablePart::GroupLabel, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)
@@ -6247,5 +7108,23 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .density(Density::Touch, Header, |s| s.height(48.0))
       .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(Disabled, Row, |s| s.cursor(CursorIcon::Default))
+  }
+}
+
+/// A density as the grid's bar holds it: 2 comfortable, 3 the default, 4 compact.
+fn density_code(density: Density) -> u8 {
+  match density {
+    Density::Comfortable | Density::Touch => 2,
+    Density::Compact => 4,
+    _ => 3,
+  }
+}
+
+/// The density of the grid's bar's choice.
+fn density_of(code: u8) -> Density {
+  match code {
+    2 => Density::Comfortable,
+    4 => Density::Compact,
+    _ => Density::Default,
   }
 }

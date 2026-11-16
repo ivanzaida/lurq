@@ -56,7 +56,7 @@ fn said(log: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
 fn a_row_is_the_boards() {
   let log = Arc::new(Mutex::new(Vec::new()));
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).into());
+  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).build(&lurq::ui::current_theme()));
   let (x, _, width, height) = stage.bounds("q-1");
   assert_eq!(height, 48.0);
   let (_, _, list_width, _) = stage.bounds("q");
@@ -82,7 +82,7 @@ fn a_row_is_the_boards() {
 fn the_row_that_plays_has_the_accent_fill_and_the_equalizer() {
   let log = Arc::new(Mutex::new(Vec::new()));
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| queue(&shown, Some(1)).into());
+  let mut stage = Stage::new(move |_| queue(&shown, Some(1)).build(&lurq::ui::current_theme()));
   assert_eq!(stage.fill_color("q-1"), Some(light(PaletteColor::Highlight)));
   assert_ne!(stage.fill_color("q-0"), Some(light(PaletteColor::Highlight)));
   assert!(!stage.paints("2"), "the equalizer stands for its number");
@@ -93,7 +93,7 @@ fn the_row_that_plays_has_the_accent_fill_and_the_equalizer() {
 fn a_press_tells_the_track_and_changes_nothing() {
   let log = Arc::new(Mutex::new(Vec::new()));
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).into());
+  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).build(&lurq::ui::current_theme()));
   stage.click("q-3");
   stage.click("q-0");
   stage.click("q-2");
@@ -113,7 +113,9 @@ fn a_press_tells_the_track_and_changes_nothing() {
 fn a_bound_queue_sets_the_signal() {
   let current = Signal::new(Some(0_usize));
   let shown = current.clone();
-  let mut stage = Stage::new(move |_| AudioQueue::new(shown.clone(), tracks(&Arc::new(Mutex::new(Vec::new())))).into());
+  let mut stage = Stage::new(move |_| {
+    AudioQueue::new(shown.clone(), tracks(&Arc::new(Mutex::new(Vec::new())))).build(&lurq::ui::current_theme())
+  });
   stage.click("q-1");
   assert_eq!(current.get_untracked(), Some(1));
   assert_eq!(stage.fill_color("q-1"), Some(light(PaletteColor::Highlight)));
@@ -123,7 +125,7 @@ fn a_bound_queue_sets_the_signal() {
 fn the_arrows_move_between_the_rows() {
   let log = Arc::new(Mutex::new(Vec::new()));
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| queue(&shown, Some(1)).into());
+  let mut stage = Stage::new(move |_| queue(&shown, Some(1)).build(&lurq::ui::current_theme()));
   // Tab enters at the current row; the arrow moves down, past the unavailable one, and Enter plays it.
   stage.key("Tab");
   assert!(stage.has_ring(light(PaletteColor::Ring)));
@@ -136,7 +138,7 @@ fn the_arrows_move_between_the_rows() {
 fn more_is_its_own_press() {
   let log = Arc::new(Mutex::new(Vec::new()));
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).into());
+  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).build(&lurq::ui::current_theme()));
   stage.hover("q-1");
   let (_, _, width, height) = stage.bounds("q-1-more");
   assert_eq!((width, height), (28.0, 28.0));
@@ -150,11 +152,10 @@ fn a_long_title_is_cut_and_the_length_keeps_its_room() {
   let mut stage = Stage::new(move |_| {
     lurq::components::Column::new()
       .width(360.0)
-      .child(AudioQueue::controlled(
-        None,
-        [AudioQueueItem::new(long).duration(198.0).id("r")],
-        |_| {},
-      ))
+      .child(
+        AudioQueue::controlled(None, [AudioQueueItem::new(long).duration(198.0).id("r")], |_| {})
+          .build(&lurq::ui::current_theme()),
+      )
       .into()
   });
   let (x, _, width, _) = stage.bounds("r");
@@ -169,7 +170,7 @@ fn a_long_title_is_cut_and_the_length_keeps_its_room() {
 fn a_disabled_queue_takes_nothing() {
   let log = Arc::new(Mutex::new(Vec::new()));
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).disabled(true).into());
+  let mut stage = Stage::new(move |_| queue(&shown, Some(0)).disabled(true).build(&lurq::ui::current_theme()));
   stage.click("q-1");
   stage.key("Tab");
   stage.key("Enter");

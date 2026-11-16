@@ -12,13 +12,13 @@ use lurq::{
   components::{Column, Row, Stack},
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
-  node::Element,
+  node::{Element, dimension::Dimension},
   ui::{FloatingPanel, FloatingPanels, MenuItem, PanelHeader, PanelPosition, PanelSize, icons},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, icon, line, props_table, quiet, text},
+  kit::{FILL, fit, icon, line, phone, props_table, quiet, text},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -46,6 +46,15 @@ fn layers() -> Column {
     rows = rows.child(row);
   }
   rows
+}
+
+/// How wide the board's canvas is.
+const CANVAS: f32 = 560.0;
+
+/// How wide the playground's canvas is: the stage's, and in a window as narrow as a phone the board's, which the
+/// stage scrolls to: a stage that narrow is little wider than a panel.
+fn canvas_width() -> Dimension {
+  if phone() { CANVAS.into() } else { FILL }
 }
 
 /// A canvas the panels float over: the content of the app's window, 560 by 340.
@@ -146,7 +155,7 @@ impl FloatingPanelPage {
       let (plain, again) = (plain.clone(), self.shown.clone());
       Shown::built(move |ctx| {
         let record: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record);
-        let mut stage = Stack::new().width(FILL).overflow_visible().child(canvas());
+        let mut stage = Stack::new().width(canvas_width()).overflow_visible().child(canvas());
         if shown_panel {
           stage = stage.child(plain(Some(record)).mount(ctx));
         } else {
@@ -223,7 +232,7 @@ impl FloatingPanelPage {
         title: "Floating Panel",
         make: Arc::new(move || Stack::new().width(FILL).child(canvas()).child(make(None)).into()),
         shown,
-        fill: true,
+        fill: !phone(),
         forceable: false,
         facts: format!(
           "at {x}, {y} · {}",
@@ -441,7 +450,9 @@ impl Component for FloatingPanelPage {
            none active, and the one in front stays in front.",
           self.frame.demo(
             0,
-            several,
+            // The panels stand where the board has them, on a canvas of its width: a narrower card scrolls it
+            // sideways.
+            fit("several", self.frame.stage_room(), CANVAS, several),
             "FloatingPanels::new().panel(layers).panel(properties).mount(ctx)",
             &[
               "Stack::new()",

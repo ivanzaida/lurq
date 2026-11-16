@@ -40,14 +40,18 @@ fn person(title: &str, description: &str, media: bool) -> HoverCard {
   card
 }
 
-/// A line of text with `link` in it: what the pointer rests on.
+/// A line of text with `link` in it: what the pointer rests on. In less room than the line needs, what does
+/// not fit beside the rest goes on to the next line, and words longer than the room wrap in it.
 fn sentence(before: &str, link: impl Into<Element>, after: &str) -> Row {
+  let words = |words: &str| Column::new().max_width(FILL).child(quiet(words, 14.0));
   Row::new()
+    .max_width(FILL)
+    .wrap()
     .align_items(Alignment::Center)
     .spacing(4.0)
-    .child(quiet(before, 14.0))
+    .child(words(before))
     .child(link)
-    .child(quiet(after, 14.0))
+    .child(words(after))
 }
 
 /// Room around what is on a stage, for the card under it.

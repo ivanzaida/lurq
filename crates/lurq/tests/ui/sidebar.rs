@@ -16,6 +16,7 @@ use lurq::{
   app::{
     App,
     ctx::Ctx,
+    events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
   components::{Column, Row, Text},
@@ -224,6 +225,109 @@ fn the_item_under_the_pointer_is_veiled_and_a_press_chooses_it() {
   assert_eq!(stage.fill_color("overview"), Some(light(PaletteColor::StateHover)));
   stage.click("overview");
   assert_eq!(chosen.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn an_item_asked_for_aside_is_not_chosen_and_a_plain_press_still_chooses_it() {
+  let (chosen, choose) = counter();
+  let (aside, open_aside) = counter();
+  let mut stage = stage(move |ctx| {
+    let (choose, open_aside) = (choose.clone(), open_aside.clone());
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(
+          SidebarItem::new("Overview")
+            .id("overview")
+            .on_select(move || choose())
+            .on_open_aside(move || open_aside()),
+        )
+        // One that says nothing of it: the middle button and the key do nothing more than they did.
+        .item(SidebarItem::new("Inbox").id("inbox")),
+    )
+  });
+  let (x, y) = stage.center("overview");
+  let counts =
+    |chosen: &AtomicUsize, aside: &AtomicUsize| (chosen.load(Ordering::SeqCst), aside.load(Ordering::SeqCst));
+
+  // The middle button.
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Middle);
+  stage.tree.mouse_up(x, y, MouseButton::Middle);
+  stage.pass();
+  assert_eq!(counts(&chosen, &aside), (0, 1), "the middle button asks for it aside");
+
+  // A press with the platform's key held: Ctrl, or Cmd on macOS.
+  let mac = cfg!(any(target_os = "macos", target_os = "ios"));
+  stage
+    .tree
+    .mouse_down_with_meta(x, y, MouseButton::Left, false, !mac, false, mac);
+  stage
+    .tree
+    .mouse_up_with_meta(x, y, MouseButton::Left, false, !mac, false, mac);
+  stage.pass();
+  assert_eq!(
+    counts(&chosen, &aside),
+    (0, 2),
+    "a press with the key held asks for it aside"
+  );
+
+  stage.click("overview");
+  assert_eq!(counts(&chosen, &aside), (1, 2), "a plain press chooses it");
+
+  let (x, y) = stage.center("inbox");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Middle);
+  stage.tree.mouse_up(x, y, MouseButton::Middle);
+  stage.pass();
+  assert_eq!(counts(&chosen, &aside), (1, 2));
+}
+
+/// Three pages, the one `open` names selected, and a press of another opens it: a window's own side bar.
+fn window_pages(ctx: &mut Ctx, open: &Signal<&'static str>) -> Element {
+  let items = ["Inbox", "Drafts", "Sent"].map(|name| {
+    let choose = open.clone();
+    SidebarItem::new(name)
+      .id(name.to_lowercase())
+      .key(name)
+      .selected(open.get() == name)
+      .on_select(move || choose.set(name))
+  });
+  layout(ctx, Sidebar::new().id("sidebar").narrow(false).items(items))
+}
+
+#[test]
+fn the_item_of_the_page_before_is_not_left_veiled_by_a_pointer_that_crossed_it() {
+  let open = Signal::new("Inbox");
+  let mut stage = stage({
+    let open = open.clone();
+    move |ctx| window_pages(ctx, &open)
+  });
+  assert_eq!(stage.fill_color("inbox"), Some(light(PaletteColor::Background)));
+  stage.click("drafts");
+  assert_eq!(open.get_untracked(), "Drafts");
+  let (x, y) = stage.center("page");
+  stage.tree.mouse_move(x, y);
+  stage.pass();
+  assert_eq!(stage.fill_color("inbox"), None, "no longer the open page: no fill");
+  assert_eq!(stage.fill_color("drafts"), Some(light(PaletteColor::Background)));
+
+  // The pointer comes onto the side bar across the item of the page before, a frame on it, and stops in the
+  // side bar's own padding beside it, on no item.
+  let (x, y) = stage.center("inbox");
+  stage.tree.mouse_move(x, y);
+  stage.frame();
+  assert!(stage.fill_color("inbox").is_some(), "veiled under the pointer");
+  let (left, ..) = stage.bounds("sidebar");
+  stage.tree.mouse_move(left + 2.0, y);
+  stage.frame();
+
+  assert_eq!(stage.fill_color("inbox"), None, "no veil in the frame the pointer left");
+  assert!(!stage.tree.has_active_timeline(), "and no fade left on its way to one");
+  stage.pass();
+  assert_eq!(stage.fill_color("inbox"), None, "nor once everything has settled");
+  assert_eq!(stage.fill_color("drafts"), Some(light(PaletteColor::Background)));
 }
 
 #[test]

@@ -554,7 +554,7 @@ impl Themed for Input {
     use InputPart::{Control, Icon, Placeholder, Root};
     use PaletteColor::{Foreground, MutedForeground, Success};
     let recipe = Recipe::new()
-      .base(Root, |s| s.width(260.0).gap(8.0))
+      .base(Root, |s| s.width(260.0).max_width(Length::Fill).gap(8.0))
       .base(Control, |s| {
         text_box::box_style(s)
           .height(ControlSize::Md)

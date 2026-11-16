@@ -19,8 +19,12 @@ pub struct HitRect {
 }
 
 impl HitRect {
+  /// Whether the point is in the box: from its left and top edges up to, and not on, its right and bottom ones.
+  /// A pointer is on the device pixel its position names, and the first row of pixels under a box is not the
+  /// box's: counted as its own, a row lit under a pointer that was a pixel below it, in the room between two
+  /// rows, and of two rows that touch the upper one took the pointer on the lower one's first pixels.
   pub fn contains(&self, px: f32, py: f32) -> bool {
-    px >= self.x && px <= self.x + self.width && py >= self.y && py <= self.y + self.height
+    px >= self.x && px < self.x + self.width && py >= self.y && py < self.y + self.height
   }
 }
 

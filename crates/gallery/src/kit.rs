@@ -4,11 +4,14 @@
 //! Everything here takes its colors, sizes and type from the theme, so the
 //! gallery is light or dark with it.
 
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicU32, Ordering},
+};
 
 use lurq::{
-  app::theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, TypographyStyle},
-  components::{Column, Popup, Rect, Row, ScrollHorizontal, Text},
+  app::theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, ShadowStyle, TypographyStyle},
+  components::{Column, Popup, Rect, Row, ScrollHorizontal, Text, TextOverflow},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
@@ -20,6 +23,21 @@ use lurq::{
 };
 
 pub const FILL: Dimension = Dimension::Pct(100.0);
+
+/// The width under which a window is as narrow as a phone: the theme's first breakpoint.
+pub const PHONE: f32 = 640.0;
+
+/// Whether the window is as narrow as a phone: under the theme's first breakpoint. The gallery is the desktop
+/// system there too, with less room around what it shows.
+pub fn phone() -> bool {
+  !lurq::ui::current_breakpoint().is_some_and(|breakpoint| breakpoint >= Breakpoint::Sm)
+}
+
+/// The room around what a card shows: 32 as the design draws it, and half of it in a window as narrow as a
+/// phone, where the card has little more than that to show it in.
+pub fn stage_padding() -> f32 {
+  if phone() { 16.0 } else { 32.0 }
+}
 
 /// A text in a typography style of the theme with something of it changed: a size, a weight. It names no color,
 /// so it takes the foreground of what it is in.
@@ -184,8 +202,22 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   )
 }
 
-/// The room a control of a playground's panel has: the panel's width less its padding.
-const PANEL_ROOM: f32 = 288.0;
+/// The room a control of a playground's panel has beside the stage: the panel's width less its padding.
+pub const PANEL_ROOM: f32 = 288.0;
+/// The room a control of the panel has as the playground last laid it out, as the bits of an `f32`: under the
+/// stage in a narrow window it is the card's, which is less than it has beside the stage.
+static PANEL_ROOM_NOW: AtomicU32 = AtomicU32::new(0);
+
+/// Says how much room a control of the panel has: the playground does, each time it is laid out.
+pub fn set_panel_room(room: f32) {
+  PANEL_ROOM_NOW.store(room.to_bits(), Ordering::Relaxed);
+}
+
+/// The room a control of the panel has: what the playground said last, and the panel's own until it has.
+fn panel_room() -> f32 {
+  let room = f32::from_bits(PANEL_ROOM_NOW.load(Ordering::Relaxed));
+  if room > 0.0 { room } else { PANEL_ROOM }
+}
 
 /// A few choices that share the width they are given, named as the code names them: a size, a shape. Where
 /// their names do not fit one row of the panel they are on as many rows as they need, each choice as wide as
@@ -209,7 +241,7 @@ pub fn segmented_fill<T: Clone + PartialEq + Send + Sync + 'static>(
     .max()
     .unwrap_or(0);
   let segment = longest as f32 * 7.2 + 24.0;
-  let fit = ((PANEL_ROOM - 8.0) / segment).floor().max(1.0) as usize;
+  let fit = ((panel_room() - 8.0) / segment).floor().max(1.0) as usize;
   let choose: Arc<dyn Fn(T) + Send + Sync> = Arc::new(choose);
   if options.len() <= fit {
     return row(options, choose).into();
@@ -440,7 +472,18 @@ pub fn card() -> Column {
 /// The stage of a demo card: where the live components stand. It is the card's own surface: the page
 /// around the card is the canvas, and the card stands out from it whole.
 pub fn stage(content: impl Into<Element>) -> Column {
-  Column::new().width(FILL).padding(32.0).child(content)
+  Column::new().width(FILL).padding(stage_padding()).child(content)
+}
+
+/// The call under a demo card, on one line: where the card is narrower than the call, it ends in an ellipsis
+/// before the tools beside it, which keep their room.
+pub fn call_line(call: &str) -> Row {
+  Row::new().flex(1.0).min_width(0.0).child(
+    mono(call, 12.0)
+      .nowrap()
+      .text_overflow(TextOverflow::Elipsis)
+      .color(PaletteColor::MutedForeground),
+  )
 }
 
 /// The footer of a demo card: the builder call that makes what the stage shows, and a button that copies it.
@@ -454,7 +497,8 @@ pub fn card_footer(call: &str) -> Row {
     .align_items(Alignment::Center)
     .justify(Justify::SpaceBetween)
     .border_top(Border::inside(BorderSize::Sm, PaletteColor::Border))
-    .child(mono(call, 12.0).color(PaletteColor::MutedForeground))
+    .spacing(12.0)
+    .child(call_line(call))
     .child(icon_tool("Copy", "copy", move || {
       lurq::clipboard::copy_to_clipboard(&copied);
     }))

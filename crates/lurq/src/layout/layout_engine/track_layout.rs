@@ -56,6 +56,7 @@ fn empty_result() -> Arc<LayoutResult> {
     holds: SubtreeHolds::UNKNOWN,
     generation: 0,
     sticky_shifts: None,
+    reach: crate::layout::layout_result::Reach::UNKNOWN,
   })
 }
 
@@ -219,6 +220,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 }

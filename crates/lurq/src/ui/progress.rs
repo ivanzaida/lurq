@@ -645,7 +645,12 @@ impl Themed for Progress {
     use PaletteColor::*;
     use ProgressPart::{Description, Fill, Header, Label, Root, Track, Value};
     Recipe::new()
-      .base(Root, |s| s.width(240.0).gap(8.0).foreground(Foreground))
+      .base(Root, |s| {
+        s.width(240.0)
+          .max_width(Length::Fill)
+          .gap(8.0)
+          .foreground(Foreground)
+      })
       // The line under the rail, as a meter's: 12 in the muted color, 8 under the rail.
       .base(Description, |s| {
         s.typography(TypographyStyle::Body)

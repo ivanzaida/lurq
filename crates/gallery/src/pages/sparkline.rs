@@ -13,7 +13,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, segmented_fill},
+  kit::{FILL, props_table, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -203,8 +203,11 @@ impl Component for SparklinePage {
           .label("Frames per second, the last minute"),
       )
       .style(StatCardPart::Root, |s| s.width(200.0));
+    // What does not fit beside the others goes on to the next line.
     let shapes = Row::new()
+      .width(FILL)
       .spacing(24.0)
+      .wrap()
       .child(caption(
         Sparkline::new([12.0, 4.0, -6.0, -2.0, 8.0, -9.0, 3.0, 10.0]),
         "about 0",

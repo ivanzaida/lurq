@@ -488,6 +488,7 @@ fn on_input_hears_an_edit_before_it_is_made_and_may_refuse_it() {
   assert_eq!(value.get(), "ab");
 }
 
+#[cfg(feature = "form")]
 #[test]
 fn a_named_textarea_gives_its_text_to_the_form_and_full_width_is_a_state() {
   use lurq::components::{Form, FormHandle, FormOptions, FormProps, FormValues};

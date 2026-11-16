@@ -16,7 +16,7 @@ use super::stage::Stage;
 
 const STATUSES: [&str; 3] = ["Building", "Passing", "Failed"];
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
 struct File {
   name: String,
   status: usize,
@@ -329,5 +329,118 @@ fn a_double_press_in_a_grid_of_a_page_of_grids_moves_no_scroll_and_edits_that_gr
   assert!(
     editor.starts_with("grid-") && editor.ends_with("-editor"),
     "a grid given no id makes one of its own for what it names: {editor}"
+  );
+}
+
+#[test]
+fn a_double_press_in_a_grid_under_the_pages_board_grid_moves_no_scroll() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let (held, told) = (rows.clone(), edits.clone());
+  let selected = Signal::new(vec!["blur.rs".to_owned()]);
+  let sort = Signal::new(vec![lurq::ui::TableSort::ascending("name")]);
+  let page = lurq::layout::layout_kind::ScrollState::new();
+  let scroll = page.clone();
+  // The page's arrangement: a grid with a selection, a sort, a total and a pager, then the grid that is edited,
+  // their rows keyed by the same names.
+  let mut stage = Stage::new(move |ctx| {
+    let board = DataGrid::new(columns(140.0), held.get())
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .sort(sort.clone())
+      .selected(selected.clone())
+      .total(24)
+      .count(true)
+      .key("board")
+      .mount(ctx);
+    let editing = grid(&held, &told, 140.0, None).key("editing").mount(ctx);
+    let page = Column::new()
+      .width(1100.0)
+      .child(Column::new().height(700.0).child(board))
+      .child(Column::new().height(900.0).child(editing))
+      .child(Column::new().height(900.0));
+    ScrollVertical::new(page)
+      .with_scroll_state(scroll.clone())
+      .size(1100.0, 600.0)
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(1200.0, 700.0))));
+  stage.pass();
+  page.set_scroll(0.0, 680.0);
+  stage.pass();
+  let before = page.scroll_y();
+  let building: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == "Building"))
+    .filter(|quad| quad.y > 40.0 && quad.y < 560.0)
+    .collect();
+  let cell = building.first().expect("the edited grid's status in view");
+  let at = (cell.x + 4.0, cell.y + cell.height / 2.0);
+  press_at(&mut stage, at);
+  assert_eq!(page.scroll_y(), before, "a press moves no scroll");
+  press_at(&mut stage, at);
+  assert_eq!(page.scroll_y(), before, "nor does the second");
+}
+
+#[test]
+fn a_press_in_a_grid_beside_a_list_that_sticks_to_the_top_of_the_page_moves_no_scroll() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let (held, told) = (rows.clone(), edits.clone());
+  let page = lurq::layout::layout_kind::ScrollState::new();
+  let scroll = page.clone();
+  // The gallery's page: its sections in a column, and beside them the list of its sections, which sticks to the
+  // top and is taller than the band a grid's row is in.
+  let mut stage = Stage::new(move |ctx| {
+    let sections = Column::new()
+      .width(800.0)
+      .child(
+        Column::new()
+          .height(700.0)
+          .child(grid(&held, &told, 140.0, None).key("first").mount(ctx)),
+      )
+      .child(
+        Column::new()
+          .height(700.0)
+          .child(grid(&held, &told, 140.0, None).key("second").mount(ctx)),
+      )
+      .child(Column::new().height(900.0));
+    let contents = Column::new()
+      .width(200.0)
+      .height(520.0)
+      .sticky(lurq::layout::layout_kind::Sticky::top(0.0));
+    let page = lurq::components::Row::new()
+      .align_items(lurq::layout::Alignment::Start)
+      .child(sections)
+      .child(contents);
+    ScrollVertical::new(page)
+      .with_scroll_state(scroll.clone())
+      .size(1000.0, 600.0)
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(1200.0, 700.0))));
+  stage.pass();
+  // The second grid's first rows near the top of the window, under the band the list covers at its side.
+  page.set_scroll(0.0, 650.0);
+  stage.pass();
+  let before = page.scroll_y();
+  let cell = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == "Building"))
+    .find(|quad| quad.y > 40.0 && quad.y < 300.0)
+    .expect("the second grid's status near the top");
+  let at = (cell.x + 4.0, cell.y + cell.height / 2.0);
+  press_at(&mut stage, at);
+  assert_eq!(page.scroll_y(), before, "a press of a cell in view moves no scroll");
+  press_at(&mut stage, at);
+  assert_eq!(page.scroll_y(), before, "nor does the second of a double press");
+  assert!(
+    focused(&stage).is_some_and(|id| id.ends_with("-editor")),
+    "the double press edits the cell pressed: {:?}",
+    focused(&stage)
   );
 }

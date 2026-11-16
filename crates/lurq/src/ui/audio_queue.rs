@@ -352,8 +352,8 @@ impl AudioQueue {
     Self::render_view(self.view(&theme, Some(ctx)))
   }
 
-  /// Builds the queue in `theme`, its buttons with no tooltips. Converting a queue into an element does this in the
-  /// theme of what is being rendered.
+  /// Builds a still picture of the queue in `theme`, for a test or a screenshot: its buttons with no tooltips. An
+  /// app mounts the queue ([`AudioQueue::mount`]): it is not an element by itself.
   pub fn build(self, theme: &Theme) -> Element {
     Self::render_view(self.view(theme, None))
   }
@@ -461,12 +461,6 @@ impl AudioQueue {
   }
 }
 
-impl From<AudioQueue> for Element {
-  fn from(queue: AudioQueue) -> Self {
-    queue.build(&current_theme())
-  }
-}
-
 /// A row of a queue as a renderer sees it.
 pub struct AudioQueueRow {
   pub index: usize,
@@ -565,6 +559,7 @@ impl AudioQueueView {
       Column::new()
         .width(Dimension::Pct(100.0))
         .min_width(Dimension::Px(0.0))
+        .part(&part)
         .child(
           part
             .text(text)
@@ -642,7 +637,7 @@ impl AudioQueueView {
     let rows = std::mem::take(&mut self.rows);
     let mut root = Column::new()
       .part(&self.part(AudioQueuePart::Root))
-      .focus_group(FocusGroup::vertical().wrap(false))
+      .focus_group(FocusGroup::vertical().wrap(false).one_stop(true))
       .describe("a11y_role", "listbox")
       .describe("a11y_name", self.label.clone());
     for row in rows {

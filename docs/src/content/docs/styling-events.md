@@ -421,6 +421,8 @@ Text::new("Save")
   .focus_visible(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
 
+`CursorIcon::None` draws no pointer while it is over the element, as a video player hides it while its controls have faded; any other cursor shows it again.
+
 The focused style (`.focused(...)`) shows whenever the node has focus, whether a click, Tab, or a focus request put it there. The focus-visible style (`.focus_visible(...)`) shows only for keyboard focus, like CSS `:focus-visible`: Tab or a key press shows it, a click does not, and a text input shows it for any focus. Use it for focus rings. Checkboxes, sliders and selects also have part-level focus styles, which follow focus-visible; see [Focus-Visible](../focus-navigation/#focus-visible) and [Focused Styles](../focus-navigation/#focused-styles).
 
 A fifth state style, `.drag_over(...)` (`drag_over_style`), applies while files from the OS are dragged over the node; see [File Drag And Drop](#file-drag-and-drop).
@@ -587,6 +589,8 @@ Rect::new(100.0, 40.0)
 ```
 
 Hover follows the content under a pointer that holds still: after a layout that moved anything (a wheel scroll, a list that grew, a stick-to-bottom chat taking a new message), lurq hit-tests the hover again at the pointer's last position, as a browser does. The node that moved away gets `on_mouse_leave` and loses its `hovered` style, the node now under the pointer gets `on_mouse_enter`, and the frame that shows the new layout already shows the result, so a hover tooltip never stays behind its row. Nothing is hovered again while the pointer is outside the window or a drag holds it. The handlers run with the source of the input that last moved the pointer (see [Synthetic Input](../ctx/#synthetic-input)), so an agent's pointer stays synthetic. A hover style that moves its own node off a still pointer (a `hovered` size, offset or transform) unhovers it, which moves it back, which hovers it again: like CSS `:hover`, such a node flickers, so keep hover styles from moving the node away from the pointer.
+
+An element is under the pointer on the device pixels it covers: from its left and top edges up to, and not on, its right and bottom ones. The row of pixels under a row is the next row's, or the gap's between them, and of two rows that touch each has the pointer on its own pixels. `HitRect::contains` tells the same of a point.
 
 The hover moves whenever the pointer comes onto another node, from a row onto the text inside it for one, and most nodes look the same under the pointer. Every such move updates the hover and the cursor and runs the handlers, but it asks for a frame only when it shows, that is, when a node that gained or lost the hover:
 
@@ -795,7 +799,7 @@ ScrollVertical::new(content)
 
 `thumb_inset` is the gap between the lane of the bar (`width` across) and its thumb, on every side: the thumb is `width` less twice the inset across, and it moves along the track less twice the inset; where it is, what takes the pointer and how far a drag takes the content all measure by it. `thumb_radius` rounds the thumb, `track_radius` the lane where it has a `track_color`. `thumb_hovered_color` is the thumb of the bar under the pointer and `thumb_pressed_color` the thumb that is dragged (the hovered color where it has none), each a `BackgroundColor`: a color, or a role of the palette that follows light and dark (`BackgroundColor::Palette(PaletteColor::MutedForeground)`). Each bar of a container that scrolls both ways has its own: the one under the pointer changes, not the other. Where both of its bars are there, each track ends before the other's lane (its `width` and edge inset), so the two thumbs keep out of the corner where they meet. `style.thumb_when(&palette, hovered, pressed)` says what a thumb is drawn in, and `ScrollState::hovered_bar()` and `dragged_bar()` which bar is under the pointer and which is dragged.
 
-The design system's theme (`ThemeDefinition::neutral()`, what an app has when it sets none) has the design's bar: a lane of 8 with a thumb of 6 in it (`thumb_inset` 1), round (`thumb_radius` 3), in `Ring`, `MutedForeground` under the pointer and while it is dragged, 2 from the edge and from the ends. `ScrollBarStyle::default()` is the engine's bar, which `ThemeDefinition::legacy()` keeps: its thumb is as wide as its lane, 8, and has no color of its own under the pointer. On iOS both are the platform's indicator.
+The design system's theme (`ThemeDefinition::neutral()`, what an app has when it sets none) has the design's bar: a lane of 8 with a thumb of 6 in it (`thumb_inset` 1), round (`thumb_radius` 3), in `Ring`, `MutedForeground` under the pointer and while it is dragged, 2 from the edge and from the ends. `ScrollBarStyle::default()` is the engine's bar: its thumb is as wide as its lane, 8, and has no color of its own under the pointer. `ThemeDefinition::legacy()` keeps it with 0.62's thumb, black at a third of its opacity, where a style that sets no color is drawn in `Ring`. On iOS both are the platform's indicator.
 
 `.scrollbar_hovered(...)` receives the effective style, so it applies to either the theme default or the component override. It applies while the pointer is over the area where the scrollbar takes the pointer, described below.
 

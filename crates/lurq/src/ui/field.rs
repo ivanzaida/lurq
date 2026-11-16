@@ -558,9 +558,10 @@ impl FieldView {
         if self.orientation == Orientation::Horizontal {
           label
         } else {
-          label.width(Dimension::Px(width))
+          // As wide as the field, which is no wider than the room it has.
+          label.width(Dimension::Px(width)).max_width(Dimension::Pct(100.0))
         },
-        description.map(|description| description.width(Dimension::Px(width))),
+        description.map(|description| description.width(Dimension::Px(width)).max_width(Dimension::Pct(100.0))),
       ),
       None => (label, description),
     };
@@ -647,7 +648,7 @@ impl Themed for Field {
     use FieldPart::{Body, Description, Label, Optional, Required, Root};
     use PaletteColor::{Destructive, Foreground, MutedForeground, Success, Warning};
     Recipe::new()
-      .base(Root, |s| s.width(260.0).gap(6.0))
+      .base(Root, |s| s.width(260.0).max_width(Length::Fill).gap(6.0))
       .base(Label, |s| {
         s.gap(4.0)
           .typography(TypographyStyle::FieldLabel)

@@ -44,7 +44,7 @@ winit = ["dep:winit"]
 # Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of
 # the app are loaded by every build.
 http = ["dep:ureq"]
-# The name `http` had before 0.62: it means nothing else. To be removed.
+# The name `http` had before 0.63: it means nothing else. To be removed.
 resources = ["http"]
 screenshot = ["dep:image"]
 # `serde_json` writes and reads the Profiler tab's recording files.

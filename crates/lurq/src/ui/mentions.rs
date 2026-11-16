@@ -885,7 +885,7 @@ impl Themed for Mentions {
     use MentionsPart::{Control, Item, ItemAvatar, ItemIcon, ItemLabel, Panel, Root};
     use PaletteColor::{Foreground, Highlight, MutedForeground, Popover, PopoverForeground};
     Recipe::new()
-      .base(Root, |s| s.width(280.0))
+      .base(Root, |s| s.width(280.0).max_width(Length::Fill))
       .base(Control, |s| {
         s.padding_x(12.0).padding_y(8.0).min_height(64.0).line_height(1.5)
       })

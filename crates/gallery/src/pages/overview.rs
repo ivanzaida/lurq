@@ -9,7 +9,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, card, code, muted, styled},
+  kit::{FILL, card, code, fit, muted, phone, styled},
   pages::{Group, PAGES},
 };
 
@@ -27,6 +27,9 @@ fn fact(name: &str, number: usize, about: &str) -> Column {
     .child(muted(about, TypographyStyle::Description).width(FILL))
 }
 
+/// How wide the longest line of the first example is.
+const START: f32 = 480.0;
+
 impl Component for Overview {
   type Props = ();
 
@@ -36,7 +39,8 @@ impl Component for Overview {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let components = PAGES.iter().filter(|page| page.group != Group::GettingStarted).count();
-    let here = Grid::with_columns(3)
+    // Side by side where each has room for its words, one under another in a window as narrow as a phone.
+    let here = Grid::with_columns(if phone() { 1 } else { 3 })
       .gap(16.0)
       .width(FILL)
       .child(fact(
@@ -55,7 +59,7 @@ impl Component for Overview {
         "In a light and a dark set. Switch the theme in the header: every page follows.",
       ));
 
-    let mut start = card().padding(20.0).spacing(2.0);
+    let mut lines = Column::new().spacing(2.0);
     for line in [
       "use lurq::ui::{Button, ButtonVariant};",
       "",
@@ -64,8 +68,12 @@ impl Component for Overview {
       "  .child(Button::new(\"Cancel\").variant(ButtonVariant::Outline))",
       "  .child(Button::new(\"Save\").on_click(|_| save()))",
     ] {
-      start = start.child(code(line).height(18.0));
+      lines = lines.child(code(line).nowrap().height(18.0));
     }
+    // A line of code is not broken: in a card narrower than the longest the code scrolls sideways.
+    let start = card()
+      .padding(20.0)
+      .child(fit("start", (self.frame.room() - 42.0).max(0.0), START, lines));
 
     let mut layers = Column::new().width(FILL).spacing(12.0);
     for (name, what) in [

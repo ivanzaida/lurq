@@ -8,7 +8,7 @@ use lurq::{
   components::{Column, Row},
   core::Signal,
   node::Element,
-  ui::{Accordion, AccordionItem, AccordionPart, Collapsible, CollapsiblePart, Interaction},
+  ui::{Accordion, AccordionItem, AccordionPart, Collapsible, CollapsiblePart, Interaction, Length},
 };
 
 use crate::{
@@ -224,13 +224,15 @@ impl Component for AccordionPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let single = Accordion::optional(self.one.clone(), questions(false)).style(AccordionPart::Root, |s| s.width(WIDE));
-    let several =
-      Accordion::multiple(self.many.clone(), questions(false)).style(AccordionPart::Root, |s| s.width(WIDE));
-    let disabled = Accordion::optional(self.one.clone(), questions(true)).style(AccordionPart::Root, |s| s.width(WIDE));
+    let single = Accordion::optional(self.one.clone(), questions(false))
+      .style(AccordionPart::Root, |s| s.width(WIDE).max_width(Length::Fill));
+    let several = Accordion::multiple(self.many.clone(), questions(false))
+      .style(AccordionPart::Root, |s| s.width(WIDE).max_width(Length::Fill));
+    let disabled = Accordion::optional(self.one.clone(), questions(true))
+      .style(AccordionPart::Root, |s| s.width(WIDE).max_width(Length::Fill));
     let collapsible = Collapsible::new("3 crates in this workspace", crates())
       .bind(self.crates_open.clone())
-      .style(CollapsiblePart::Root, |s| s.width(280.0));
+      .style(CollapsiblePart::Root, |s| s.width(280.0).max_width(Length::Fill));
     let collapsible_states = Row::new()
       .spacing(28.0)
       .wrap()

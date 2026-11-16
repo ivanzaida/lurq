@@ -21,7 +21,7 @@ use crate::{
       FlexWrap, FrameConstraints, Justify, LayoutKind, Overflow, Position, ScrollAxis, ScrollDirection, ScrollState,
       ShrinkLimit,
     },
-    layout_result::{ChildLayout, LayoutResult, SubtreeHolds},
+    layout_result::{ChildLayout, LayoutResult, Reach, SubtreeHolds},
     quad::{ClipRect, Quad, QuadContent},
     scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
     text_style::TextStyle,
@@ -657,6 +657,7 @@ impl LayoutEngine {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       }),
       paint_scale: Cell::new(1.0),
       #[cfg(feature = "perf_profile")]
@@ -758,8 +759,14 @@ impl LayoutEngine {
     constraints: Constraints,
     force_dirty: bool,
   ) -> (Arc<LayoutResult>, OverlayLayoutIndex) {
-    let result = self.compute_inner(glyph_engine, node, constraints, force_dirty);
-    let index = Self::collect_overlay_index(node, &result);
+    let result = {
+      crate::app::profile_support::frame_section!("compute:inner");
+      self.compute_inner(glyph_engine, node, constraints, force_dirty)
+    };
+    let index = {
+      crate::app::profile_support::frame_section!("compute:overlay_index_walk");
+      Self::collect_overlay_index(node, &result)
+    };
     (result, index)
   }
 
@@ -773,9 +780,18 @@ impl LayoutEngine {
     self.last_recalculated.set(false);
     #[cfg(feature = "perf_profile")]
     self.trace.begin_pass();
-    Self::mark_layout_dirty(node, force_dirty);
-    let result = self.layout_node(glyph_engine, node, constraints);
-    node.clear_guards();
+    {
+      crate::app::profile_support::frame_section!("compute:mark_dirty_walk");
+      Self::mark_layout_dirty(node, force_dirty);
+    }
+    let result = {
+      crate::app::profile_support::frame_section!("compute:layout_node");
+      self.layout_node(glyph_engine, node, constraints)
+    };
+    {
+      crate::app::profile_support::frame_section!("compute:clear_guards_walk");
+      node.clear_guards();
+    }
     #[cfg(feature = "perf_profile")]
     self.trace.end_pass(node);
     result
@@ -817,6 +833,10 @@ impl LayoutEngine {
     let child_clip = intersect_clip(clip, children_clip(node, rect));
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
+      // A subtree with no ref, no layer, no input and no select has nothing to index.
+      if !child.layout_cache.subtree().indexed() {
+        continue;
+      }
       if child.modal_declaration().is_some() {
         Self::index_child_modal(child, rect, child.theme_scope.as_deref().or(scope), index);
       }
@@ -2413,6 +2433,11 @@ impl LayoutEngine {
     if !Self::cached_result_matches_node_tree(node, &cached) {
       return None;
     }
+    // The entry as it was last prepared, with no text's layout written anywhere since: what did not change in it
+    // holds what it was prepared with, and is not prepared again (see below).
+    let unchanged_hold = node
+      .layout_cache
+      .prepared_from(&cached, crate::node::node_kind::text_state_writes());
 
     let mut cached = cached.as_ref().clone();
     let mut child_overrides = vec![None; cached.children.len()];
@@ -2480,7 +2505,20 @@ impl LayoutEngine {
       cached.children[index].result = repaired;
     }
 
-    let prepared = self.prepare_cached_result(node, Arc::new(cached));
+    let prepared = if unchanged_hold {
+      // Patched where it changed: each child laid out again comes prepared from `layout_node`, and the others hold
+      // what they held. It is prepared as a parent laid out fresh is, its own scroll state and what sticks in it,
+      // not walked again through what did not change: a column of 3,000 blocks costs the block that changed.
+      self.prepare_layout_result_tree(node, &mut cached, false, None);
+      let result = Arc::new(cached);
+      node
+        .layout_cache
+        .prepared_now(&result, crate::node::node_kind::text_state_writes());
+      result
+    } else {
+      cached.reach = self.reach_of(node, &cached);
+      self.prepare_cached_result(node, Arc::new(cached))
+    };
     node.layout_cache.store_shared(constraints, prepared.clone());
     #[cfg(feature = "perf_profile")]
     self.trace.repaired();
@@ -2773,6 +2811,7 @@ impl LayoutEngine {
       }
     }
     result.sticky_shifts = shifts.filter(|shifts| !shifts.is_empty());
+    result.reach = self.reach_of(node, result);
     result.holds = result.children.iter().fold(
       SubtreeHolds {
         scroll: matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. }),
@@ -2785,6 +2824,51 @@ impl LayoutEngine {
         sticky: holds.sticky || child.result.holds.sticky,
       },
     );
+  }
+
+  /// Where `node`, laid out as `result`, may paint: see [`Reach`]. A node that clips its children paints in its own
+  /// box; one that does not, in its children's too.
+  fn reach_of(&self, node: &Node, result: &LayoutResult) -> Reach {
+    // A border outside its box is a width of the theme's: it is not known here how far it reaches.
+    if may_move_without_layout(node) || base_border_can_paint_outside(node) {
+      return Reach::UNKNOWN;
+    }
+    let own = Reach::of_box(result.size.width, result.size.height, self.base_paint_outset(node));
+    if node.overflow == Overflow::Hidden || matches!(node.layout_kind(), LayoutKind::ScrollModifier { .. }) {
+      return own;
+    }
+    let mut reach = own;
+    for (child_layout, child) in result.children.iter().zip(node.children()) {
+      // A dropped child is not painted, and a layer is painted over the tree, not here.
+      if child_layout.result.dropped || child.is_overlay_declaration() {
+        continue;
+      }
+      reach = reach.union_at(child_layout.result.reach, child_layout.offset);
+      if !reach.known {
+        break;
+      }
+    }
+    reach
+  }
+
+  /// How far `node` paints past its box as its own style says, its shadows and its outline: not a state's
+  /// (a hover's shadow, a focus ring), which layout does not read and culling leaves room for.
+  fn base_paint_outset(&self, node: &Node) -> f32 {
+    let shadow = node.rare_style.box_shadow.as_ref().map_or(0.0, |value| {
+      let palette = self.palette.borrow();
+      value
+        .shadows(&self.shadows.borrow())
+        .iter()
+        .filter_map(|shadow| shadow.resolve(&palette))
+        .map(|shadow| shadow.outset())
+        .fold(0.0, f32::max)
+    });
+    let outline = node.rare_style.outline.as_ref().map_or(0.0, |outline| {
+      outline
+        .resolve(&self.palette.borrow(), &self.border_sizes.borrow())
+        .map_or(0.0, |outline| outline.outset())
+    });
+    shadow.max(outline)
   }
 
   /// The box of `node` inside its padding, as `[x, y, width, height]` from its own corner.
@@ -3045,6 +3129,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       NodeKind::Slider { .. } => {
@@ -3068,6 +3153,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       NodeKind::Select { state } => {
@@ -3090,6 +3176,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       #[cfg(feature = "canvas")]
@@ -3102,6 +3189,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       #[cfg(feature = "raster")]
@@ -3117,6 +3205,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       #[cfg(feature = "raster")]
@@ -3132,6 +3221,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       #[cfg(feature = "image")]
@@ -3147,6 +3237,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       #[cfg(feature = "svg")]
@@ -3162,6 +3253,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       #[cfg(all(feature = "svg", feature = "http"))]
@@ -3177,6 +3269,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
       // Its paragraph places it (`inline_links`); on its own it has no box.
@@ -3198,6 +3291,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -3231,6 +3325,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -3385,6 +3480,7 @@ impl LayoutEngine {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       };
     }
 
@@ -3426,6 +3522,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         })
       } else {
         let flex_params = child.state_flex();
@@ -3730,6 +3827,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -4102,6 +4200,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -4241,6 +4340,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -4254,6 +4354,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     })
   }
 
@@ -4620,6 +4721,7 @@ impl LayoutEngine {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       };
     }
 
@@ -4675,6 +4777,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -4694,6 +4797,7 @@ impl LayoutEngine {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       };
     };
     let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, constraints);
@@ -4710,6 +4814,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 
@@ -4805,7 +4910,7 @@ fn clear_bars_of_sticky(node: &Node, content: &Node, content_layout: &LayoutResu
     state.set_bar_clearance(0.0, 0.0, 0.0, 0.0);
     return;
   }
-  let reach = crate::layout::sticky_reach::sticky_reach(content, content_layout, None);
+  let reach = crate::layout::sticky_reach::sticky_reach(content, content_layout, None, None);
   state.set_bar_clearance(reach.left, reach.top, reach.right, reach.bottom);
 }
 
@@ -5035,13 +5140,21 @@ fn clipped_subtree_is_hidden(
   clip: ClipRect,
   shadow_outset: f32,
 ) -> bool {
-  if !clip.active
-    || !inherited_transform.is_identity()
-    || !node.effective_transform().is_identity()
-    || node.overflow == Overflow::Visible
-    || border_can_paint_outside(node)
-  {
+  if !clip.active || !inherited_transform.is_identity() || !node.effective_transform().is_identity() {
     return false;
+  }
+  // A subtree that does not clip what is in it is hidden where all it may paint is: with room for what draws past
+  // the boxes the layout knows (a focus ring, a mark's padding, a glyph that leans out of its line).
+  if node.overflow == Overflow::Visible || border_can_paint_outside(node) {
+    let reach = result.reach;
+    return reach.known
+      && !rect_intersects_clip(
+        abs_x + reach.left - REACH_ROOM,
+        abs_y + reach.top - REACH_ROOM,
+        reach.right - reach.left + 2.0 * REACH_ROOM,
+        reach.bottom - reach.top + 2.0 * REACH_ROOM,
+        clip,
+      );
   }
 
   !rect_intersects_clip(
@@ -5051,6 +5164,35 @@ fn clipped_subtree_is_hidden(
     result.size.height + 2.0 * shadow_outset,
     clip,
   )
+}
+
+/// What a subtree may paint past the boxes its layout knows, which culling leaves it: a focus ring, the padding of a
+/// text's mark, a glyph that leans out of its line, a shadow that grows on hover.
+const REACH_ROOM: f32 = 32.0;
+
+/// Whether `node` may be painted elsewhere than its layout put it, with no layout in between: a transform, a
+/// transition or an animation of where it is, a canvas, which draws what it likes.
+fn may_move_without_layout(node: &Node) -> bool {
+  use crate::animation::{AnimatableProperty, TransitionProperty};
+  if !node.effective_transform().is_identity()
+    || node.playing_animation().is_some()
+    || !node.animation_overrides.is_empty()
+  {
+    return true;
+  }
+  #[cfg(feature = "canvas")]
+  if matches!(node.node_kind(), NodeKind::Canvas { .. }) {
+    return true;
+  }
+  node.transitions.iter().any(|transition| {
+    matches!(
+      transition.property,
+      TransitionProperty::All
+        | TransitionProperty::Single(
+          AnimatableProperty::Transform | AnimatableProperty::OffsetX | AnimatableProperty::OffsetY
+        )
+    )
+  })
 }
 
 fn node_is_plain_logical_wrapper(node: &Node) -> bool {
@@ -5115,6 +5257,21 @@ fn content_clip(
   transform: Transform2D,
 ) -> ClipRect {
   intersect_clip(parent, inset_clip_for_border(bounds, border).transformed(transform))
+}
+
+/// As [`border_can_paint_outside`], of the node's own border alone: not a state's, which layout does not read.
+fn base_border_can_paint_outside(node: &Node) -> bool {
+  node.border.as_deref().is_some_and(|borders| {
+    [&borders.top, &borders.right, &borders.bottom, &borders.left]
+      .into_iter()
+      .flatten()
+      .any(|border| {
+        matches!(
+          border.placement,
+          crate::node::border::BorderPlacement::Outside | crate::node::border::BorderPlacement::Center
+        )
+      })
+  })
 }
 
 fn border_can_paint_outside(node: &Node) -> bool {
@@ -5265,6 +5422,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
     child.layout_cache.mark_local_dirty();

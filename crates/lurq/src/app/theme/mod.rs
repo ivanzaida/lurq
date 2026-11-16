@@ -947,6 +947,7 @@ impl Theme {
   }
 
   fn mutate_inner(&self, f: impl FnOnce(&mut ThemeInner)) {
+    THEME_MUTATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let version = {
       let mut inner = self.inner.write().unwrap();
       f(&mut inner);
@@ -955,6 +956,14 @@ impl Theme {
     };
     self.version_signal.set(version);
   }
+}
+
+/// How many times any theme changed, so far: what a transition engine's clean subtree was ticked against.
+static THEME_MUTATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many times any theme changed, so far.
+pub(crate) fn theme_mutations() -> u64 {
+  THEME_MUTATIONS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 pub struct ThemeLens<T> {

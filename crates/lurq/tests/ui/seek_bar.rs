@@ -117,7 +117,14 @@ fn assert_spans(spans: &[(f32, f32, Color)], expected: &[(f32, f32, Color)]) {
 
 #[test]
 fn a_seek_bar_is_played_then_loaded_then_the_rest_with_the_sliders_thumb_at_the_position() {
-  let mut stage = Stage::new(|_| scene(SeekBar::new(Signal::new(100.0), 250.0).buffered(150.0).id("bar")));
+  let mut stage = Stage::new(|_| {
+    scene(
+      SeekBar::new(Signal::new(100.0), 250.0)
+        .buffered(150.0)
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
+    )
+  });
   let (_, _, width, height) = stage.bounds("bar");
   assert_eq!((width, height), (320.0, 16.0), "as wide as it is given, 16 high");
   // The thumb's middle runs from 8 in to 8 from the end: 304 along. Played up to its middle, at 0.4 of the way;
@@ -162,7 +169,8 @@ fn over_a_picture_it_is_white_with_a_solid_thumb_of_12() {
       SeekBar::new(Signal::new(100.0), 250.0)
         .buffered(150.0)
         .on_media(true)
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   // The thumb is 12: its middle runs from 6 in, 308 along.
@@ -194,7 +202,8 @@ fn chapters_cut_the_track_2_apart_where_each_starts() {
     scene(
       SeekBar::new(Signal::new(100.0), 250.0)
         .chapters(&[0.0, 50.0, 150.0])
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   let (first, second) = (8.0 + 304.0 * 0.2, 8.0 + 304.0 * 0.6);
@@ -222,7 +231,8 @@ fn the_keys_move_it_by_its_step_and_tell_the_change_and_its_end() {
       SeekBar::new(read.clone(), 250.0)
         .on_change(move |to| told.tell(format!("change {to}")))
         .on_change_end(move |to| ended.tell(format!("end {to}")))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   stage.key("Tab");
@@ -263,7 +273,8 @@ fn a_press_on_the_track_seeks_there_and_a_drag_follows_the_pointer_to_where_it_i
       SeekBar::new(read.clone(), 250.0)
         .on_change(move |to| told.tell(format!("change {to}")))
         .on_change_end(move |to| ended.tell(format!("end {to}")))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   let (x, y, ..) = stage.bounds("bar");
@@ -302,13 +313,16 @@ fn a_disabled_bar_is_dimmed_shows_nothing_loaded_and_takes_nothing() {
             .disabled(true)
             .on_change(move |to| told.tell(format!("change {to}")))
             .on_hover(|_| panic!("a disabled bar hears no pointer"))
-            .id("disabled"),
+            .id("disabled")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .child(
-        Column::new()
-          .width(320.0)
-          .child(SeekBar::new(read_after.clone(), 250.0).id("after")),
+        Column::new().width(320.0).child(
+          SeekBar::new(read_after.clone(), 250.0)
+            .id("after")
+            .build(&lurq::ui::current_theme()),
+        ),
       )
       .into()
   });
@@ -384,6 +398,32 @@ fn mounted_it_shows_the_time_under_the_pointer_in_a_chip_4_above_the_bar() {
 }
 
 #[test]
+fn the_time_shows_wherever_the_pointer_comes_onto_the_bar_its_middle_too() {
+  for share in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+    let mut stage = Stage::new(move |ctx| {
+      scene(
+        SeekBar::new(Signal::new(20.0), 200.0)
+          .preview(|_| Column::new().id("frame").size(128.0, 72.0).into())
+          .id("bar")
+          .mount(ctx),
+      )
+    });
+    let (x, y, ..) = stage.bounds("bar");
+    stage.tree.mouse_move(x + 8.0 + 304.0 * share, y + 8.0);
+    stage.pass();
+    let time = lurq::ui::media_time_text(f64::from(200.0 * share), false);
+    assert!(
+      stage.paints(&time),
+      "the chip reads {time} with the pointer at {share} of the bar"
+    );
+    assert!(
+      stage.tree.get_element_by_id_mut("frame").is_some(),
+      "and the frame is over it at {share}"
+    );
+  }
+}
+
+#[test]
 fn the_preview_is_a_frame_of_128_by_72_over_the_chip() {
   let mut stage = Stage::new(move |ctx| {
     scene(
@@ -430,22 +470,73 @@ fn the_preview_is_a_frame_of_128_by_72_over_the_chip() {
 }
 
 #[test]
-fn the_still_form_tells_the_time_under_the_pointer_and_shows_no_chip() {
+fn the_still_form_is_moved_and_reads_nothing_of_a_pointer_that_does_not_press_it() {
   let heard = Heard::default();
   let told = heard.clone();
+  let position = Signal::new(20.0_f32);
+  let read = position.clone();
   let mut stage = Stage::new(move |_| {
     let told = told.clone();
     scene(
-      SeekBar::new(Signal::new(20.0), 250.0)
+      SeekBar::new(read.clone(), 250.0)
         .on_hover(move |time| told.tell(format!("{time:?}")))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   let (x, y, ..) = stage.bounds("bar");
   stage.tree.mouse_move(x + 8.0 + 304.0 * 0.4, y + 8.0);
   stage.pass();
-  assert_eq!(heard.take(), ["Some(100.0)"]);
+  assert!(heard.take().is_empty(), "the time under the pointer is a mounted bar's");
   assert!(!stage.paints("1:40"));
+  // It is still dragged and moved by the keys.
+  stage.click("bar");
+  assert_eq!(position.get(), 125.0);
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  stage.key("ArrowRight");
+  assert_eq!(
+    position.get(),
+    135.0,
+    "the focus stays on it over the renders its changes make"
+  );
+}
+
+#[test]
+fn the_chip_goes_with_a_drag_to_the_time_it_is_dragged_to() {
+  let heard = Heard::default();
+  let told = heard.clone();
+  let position = Signal::new(20.0_f32);
+  let bound = position.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let told = told.clone();
+    scene(
+      SeekBar::new(bound.clone(), 250.0)
+        .on_hover(move |time| told.tell(format!("{time:?}")))
+        .id("bar")
+        .mount(ctx),
+    )
+  });
+  let (x, y, ..) = stage.bounds("bar");
+  let at = |share: f32| x + 8.0 + 304.0 * share;
+  stage.tree.mouse_move(at(0.4), y + 8.0);
+  stage.tree.mouse_down(at(0.4), y + 8.0, MouseButton::Left);
+  stage.pass();
+  assert!(stage.paints("1:40"), "under the pointer where it is pressed");
+  // The runtime gives the moves of a drag to the slider alone: the bar hears of them as changes.
+  stage.tree.mouse_move(at(0.8), y + 8.0);
+  stage.pass();
+  assert_eq!(position.get(), 200.0);
+  assert!(stage.paints("3:20"), "the chip is over the time it is dragged to");
+  assert!(!stage.paints("1:40"), "and not left where it was pressed");
+  stage.tree.mouse_up(at(0.8), y + 8.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(heard.take(), ["Some(100.0)", "Some(200.0)"]);
+  // Let go, the keys move the position and not the chip: the pointer has not moved.
+  stage.key("ArrowRight");
+  assert_eq!(position.get(), 205.0);
+  assert!(stage.paints("3:20"));
+  assert!(heard.take().is_empty());
 }
 
 #[test]
@@ -470,7 +561,8 @@ fn mounted_and_drawn_hovered_it_shows_its_position_in_the_chip_over_it() {
     scene(
       SeekBar::new(Signal::new(100.0), 250.0)
         .force(Some(Interaction::Hovered))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   still.pass();
@@ -492,7 +584,8 @@ fn a_controlled_bar_tells_where_it_is_moved_and_shows_what_the_app_answers() {
           value.set(to as f32);
         }
       })
-      .id("bar"),
+      .id("bar")
+      .build(&lurq::ui::current_theme()),
     )
   });
   stage.click("bar");
@@ -520,7 +613,8 @@ fn on_a_phone_it_is_28_high_with_a_thumb_of_28_and_16_over_a_picture() {
         Column::new().width(320.0).child(
           SeekBar::new(Signal::new(100.0), 250.0)
             .size(SeekBarSize::Lg)
-            .id("surface"),
+            .id("surface")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .child(
@@ -528,7 +622,8 @@ fn on_a_phone_it_is_28_high_with_a_thumb_of_28_and_16_over_a_picture() {
           SeekBar::new(Signal::new(100.0), 250.0)
             .size(SeekBarSize::Lg)
             .on_media(true)
-            .id("media"),
+            .id("media")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .into()
@@ -550,8 +645,16 @@ fn a_theme_restyles_its_parts_and_gives_it_another_anatomy_that_still_seeks() {
     let time = view.time_text(view.position);
     Row::new()
       .width(Dimension::Pct(100.0))
-      .child(view.dressed(view.control()))
-      .child(view.part(SeekBarPart::Tip).text(&time))
+      .spacing(8.0)
+      .align_items(lurq::layout::Alignment::Center)
+      .child(
+        Row::new()
+          .flex(1.0)
+          .min_width(0.0)
+          .height(16.0)
+          .child(view.dressed(view.control())),
+      )
+      .child(view.part(SeekBarPart::Tip).text(&time).nowrap())
       .into()
   });
   app.theme().set_renderer::<SeekBar>(renderer);
@@ -559,7 +662,8 @@ fn a_theme_restyles_its_parts_and_gives_it_another_anatomy_that_still_seeks() {
     scene(
       SeekBar::new(read.clone(), 250.0)
         .style(SeekBarPart::Thumb, |s| s.background(PaletteColor::Destructive))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   assert!(stage.paints("1:40"));
@@ -571,4 +675,169 @@ fn a_theme_restyles_its_parts_and_gives_it_another_anatomy_that_still_seeks() {
   stage.key("ArrowRight");
   assert_eq!(position.get(), 105.0);
   assert!(stage.paints("1:45"));
+}
+
+#[test]
+fn it_grows_to_the_room_of_a_row_beside_what_is_in_it_and_fills_a_column() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(480.0, 320.0)
+      .padding(40.0)
+      .spacing(24.0)
+      .child(
+        Row::new()
+          .width(320.0)
+          .spacing(10.0)
+          .align_items(lurq::layout::Alignment::Center)
+          .child(Row::new().size(32.0, 32.0).id("before"))
+          .child(
+            SeekBar::new(Signal::new(100.0), 250.0)
+              .id("in-row")
+              .build(&lurq::ui::current_theme()),
+          )
+          .child(lurq::ui::MediaTime::new(100.0, Some(250.0)).id("after")),
+      )
+      .child(
+        Column::new().width(300.0).child(
+          SeekBar::new(Signal::new(100.0), 250.0)
+            .id("in-column")
+            .build(&lurq::ui::current_theme()),
+        ),
+      )
+      .into()
+  });
+  let (row_x, _, row_width, _) = stage.bounds("in-row");
+  let (after_x, _, after_width, _) = stage.bounds("after");
+  assert!(near(row_x, 40.0 + 32.0 + 10.0), "after what stands before it");
+  assert!(
+    near(after_x, row_x + row_width + 10.0),
+    "the time keeps its place after it"
+  );
+  assert!(
+    near(after_x + after_width, 40.0 + 320.0),
+    "together they fill the row: {row_width}"
+  );
+  assert!(stage.text_quad("1:40").is_some(), "the time keeps its room");
+  assert_eq!(stage.bounds("in-column").2, 300.0);
+}
+
+#[test]
+fn empty_it_is_the_track_alone_and_takes_nothing() {
+  let (position, after) = (Signal::new(100.0_f32), Signal::new(0.0_f32));
+  let heard = Heard::default();
+  let (read, read_after, told) = (position.clone(), after.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .size(480.0, 320.0)
+      .padding(40.0)
+      .spacing(24.0)
+      .child(
+        Column::new().width(320.0).child(
+          SeekBar::new(read.clone(), 250.0)
+            .buffered(150.0)
+            .empty(true)
+            .on_change(move |to| told.tell(format!("change {to}")))
+            .id("empty")
+            .build(&lurq::ui::current_theme()),
+        ),
+      )
+      .child(
+        Column::new().width(320.0).child(
+          SeekBar::new(read_after.clone(), 250.0)
+            .id("after")
+            .build(&lurq::ui::current_theme()),
+        ),
+      )
+      .into()
+  });
+  assert_spans(
+    &track(&mut stage, "empty"),
+    &[(0.0, 320.0, light(PaletteColor::Secondary))],
+  );
+  let (x, y, width, height) = stage.bounds("empty");
+  let thumbs = stage.quads().into_iter().any(|quad| {
+    matches!(&quad.content, QuadContent::Rect { color, .. } if color.a() > 0)
+      && quad.height > 4.0
+      && quad.x >= x - 0.5
+      && quad.x + quad.width <= x + width + 0.5
+      && quad.y >= y - 0.5
+      && quad.y + quad.height <= y + height + 0.5
+  });
+  assert!(!thumbs, "no thumb");
+  stage.click("empty");
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(
+    (position.get(), after.get()),
+    (100.0, 5.0),
+    "not a stop of Tab: the next is"
+  );
+  assert!(heard.take().is_empty());
+  // It is not dimmed: nothing is loaded, it is not disabled.
+  let theme = stage.app.theme().clone();
+  let root = theme
+    .resolve::<SeekBar>(&Case::new().state(SeekBarState::Empty, true), None)
+    .part(SeekBarPart::Root)
+    .rest();
+  assert_eq!(root.opacity, None);
+}
+
+#[test]
+fn live_it_is_full_with_the_thumb_at_its_end_and_tells_nothing() {
+  let heard = Heard::default();
+  let (told, ended) = (heard.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (told, ended) = (told.clone(), ended.clone());
+    Column::new()
+      .size(480.0, 320.0)
+      .padding(40.0)
+      .spacing(24.0)
+      .child(
+        Column::new().width(320.0).child(
+          SeekBar::controlled(0.0, 0.0, move |to| told.tell(format!("change {to}")))
+            .on_change_end(move |to| ended.tell(format!("end {to}")))
+            .on_media(true)
+            .live(true)
+            .id("live")
+            .build(&lurq::ui::current_theme()),
+        ),
+      )
+      .child(
+        Column::new().width(320.0).child(
+          SeekBar::new(Signal::new(100.0), 250.0)
+            .live(true)
+            .id("themed")
+            .build(&lurq::ui::current_theme()),
+        ),
+      )
+      .into()
+  });
+  assert_spans(&track(&mut stage, "live"), &[(0.0, 320.0, Color::from_hex("#FFFFFF"))]);
+  let (x, ..) = stage.bounds("live");
+  assert!(
+    near(thumb(&mut stage, "live", 12.0).x - x, 308.0),
+    "the thumb at the end"
+  );
+  assert_spans(
+    &track(&mut stage, "themed"),
+    &[(0.0, 320.0, light(PaletteColor::Primary))],
+  );
+  let (x, ..) = stage.bounds("themed");
+  assert!(near(thumb(&mut stage, "themed", 16.0).x - x, 304.0));
+
+  stage.click("live");
+  let (x, y, ..) = stage.bounds("live");
+  stage.tree.mouse_move(x + 20.0, y + 8.0);
+  stage.tree.mouse_down(x + 20.0, y + 8.0, MouseButton::Left);
+  stage.tree.mouse_move(x + 100.0, y + 8.0);
+  stage.tree.mouse_up(x + 100.0, y + 8.0, MouseButton::Left);
+  stage.pass();
+  stage.key("Tab");
+  stage.key("Home");
+  assert!(heard.take().is_empty(), "a press, a drag and the keys tell nothing");
+  assert!(
+    near(thumb(&mut stage, "live", 12.0).x - x, 308.0),
+    "and it stays at the end"
+  );
 }

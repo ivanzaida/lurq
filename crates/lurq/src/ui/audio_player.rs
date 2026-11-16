@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::{
   Button, ButtonPart, ButtonShape, ButtonSize, ButtonVariant, Link, MediaSpeedMenu, MediaTime, MediaVolume, PlayButton,
-  PlayButtonSize, SeekBar, Skeleton, Toggle, Tooltip, Waveform, icons,
+  PlayButtonPart, PlayButtonSize, SeekBar, Skeleton, Toggle, Tooltip, Waveform, icons,
   link::LinkPart,
   media_time_text, names,
   part_style::{FontFamily, Length, PartStyle},
@@ -121,6 +121,8 @@ pub enum AudioPlayerPart {
   Root,
   /// The mini player's row under its progress line.
   Bar,
+  /// What the mini player's progress line lies over: the line of the border along its top edge.
+  Edge,
   /// The artwork, the title and who it is by, and the "more" button of the full card; the track of the mini player.
   Header,
   /// The artwork's box: the app's picture, or the `music` glyph on `Muted` where there is none.
@@ -180,6 +182,7 @@ pub enum AudioPlayerPart {
 names!(AudioPlayerPart {
   Root => "root",
   Bar => "bar",
+  Edge => "edge",
   Header => "header",
   Media => "media",
   MediaIcon => "media_icon",
@@ -246,6 +249,25 @@ names!(AudioPlayerState {
 
 /// How wide a mini player is at least to show more than the track, play and next.
 pub const AUDIO_MINI_NARROW: f32 = 480.0;
+
+/// How wide a mini player is at least to read the time out: narrower, the queue and the expand buttons and the
+/// volume's button are all that stands at its end.
+pub const AUDIO_MINI_TIME_FROM: f32 = 560.0;
+
+/// How wide a mini player is at least to show the volume's slider beside its button: with the time, the slider
+/// and the two buttons its end is 264 wide, as its start is, around a transport of 108.
+pub const AUDIO_MINI_VOLUME_FROM: f32 = 690.0;
+
+/// What a mini player's width folds away: nothing, the volume's slider, or the time too.
+fn mini_fold(width: f32) -> u8 {
+  if width < AUDIO_MINI_TIME_FROM {
+    2
+  } else if width < AUDIO_MINI_VOLUME_FROM {
+    1
+  } else {
+    0
+  }
+}
 
 /// What builds an audio player's nodes: a theme's in place of the default one.
 pub type AudioPlayerRenderer = Arc<dyn Fn(AudioPlayerView) -> Element + Send + Sync>;
@@ -366,8 +388,9 @@ impl Default for Words {
 /// `on_repeat_change`. Previous, next, more, the queue, expand and "try again" are commands. A focused player plays and
 /// pauses on Space, and its seek bar and volume move on the arrow keys.
 ///
-/// Converted into an element it is the still form of itself: no tooltips, no speed menu, and a mini player as wide
-/// as it is given. [`AudioPlayer::mount`] keeps what the player needs between renders.
+/// [`AudioPlayer::mount`] keeps what the player needs between renders (its tooltips, its speed menu, a mini
+/// player's own width), and is the only way a player is put where it goes: it is not an element by itself.
+/// [`AudioPlayer::build`] is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct AudioPlayer {
   variant: Name,
@@ -828,8 +851,8 @@ impl AudioPlayer {
     element
   }
 
-  /// Builds the still player in `theme`. Converting a player into an element does this in the theme of what is
-  /// being rendered.
+  /// Builds a still picture of the player in `theme`, for a test or a screenshot: no tooltips, no speed menu, a
+  /// mini player as wide as it is given. An app mounts the player ([`AudioPlayer::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     Self::render_view(self.view(theme, None, &Kept::default()))
   }
@@ -866,7 +889,10 @@ impl AudioPlayer {
     .state(AudioPlayerState::Unheard, self.unheard)
     .state(AudioPlayerState::Shuffle, self.shuffle.value)
     .state(AudioPlayerState::Narrow, narrow)
-    .state(AudioPlayerState::Scrubbing, kept.scrub.is_some());
+    .state(
+      AudioPlayerState::Scrubbing,
+      kept.scrub.as_ref().is_some_and(|scrub| scrub.get() >= 0.0),
+    );
     let recipe = theme.resolve::<AudioPlayer>(&case, Some(&self.rules));
     let words = self.words.clone();
     let mut tip = |label: &str, element: Element| match ctx.as_deref_mut() {
@@ -884,10 +910,14 @@ impl AudioPlayer {
       }
     };
     // Space plays and pauses while the focus is on the bar or the volume; a button takes its own Space.
-    let spaced = |element: Element| -> Element {
+    // The bar fills the room it is given; the volume is as wide as it is.
+    let spaced = |element: Element, fill: bool| -> Element {
       let toggle = toggle.clone();
-      Row::new()
-        .min_width(Dimension::Px(0.0))
+      let mut row = Row::new().min_width(Dimension::Px(0.0));
+      if fill {
+        row = row.width(Dimension::Pct(100.0));
+      }
+      row
         .on_key_down(move |event: KeyboardEvent| {
           if event.focus_within && event.key == " " && !event.text_input_focused {
             event.prevent_default();
@@ -939,6 +969,10 @@ impl AudioPlayer {
         let tell = self.playing.teller();
         play = play.on_change(move |next| tell(next));
       }
+      if matches!(variant, AudioPlayerVariant::Voice | AudioPlayerVariant::Mini) {
+        // The board's 36, on the size whose glyph is 16.
+        play = play.style(PlayButtonPart::Root, |s| s.square(36.0));
+      }
       if let Some(id) = self.child_id("play") {
         play = play.id(id);
       }
@@ -967,7 +1001,8 @@ impl AudioPlayer {
         };
         let mut wave = Waveform::controlled(progress, &self.peaks, move |fraction| tell(fraction * duration))
           .on_change_end(end)
-          .unheard(self.unheard)
+          // Loading and after an error nothing of it is played: every bar in the color of what is not.
+          .unheard(self.unheard || still)
           .label(&words.seek)
           .disabled(still);
         if let Some(id) = self.child_id("seek") {
@@ -982,7 +1017,8 @@ impl AudioPlayer {
             }
           })
           .label(&words.seek)
-          .disabled(still)
+          // Loading and after an error nothing is loaded: the track alone, with no thumb.
+          .empty(still)
           .force(None);
         if let (Some(buffered), false) = (self.buffered, still) {
           bar = bar.buffered(buffered);
@@ -992,7 +1028,7 @@ impl AudioPlayer {
         }
         bar.build(theme)
       };
-      controls.seek = Some(spaced(element));
+      controls.seek = Some(spaced(element, true));
     }
 
     // Previous and next.
@@ -1155,14 +1191,18 @@ impl AudioPlayer {
       if variant == AudioPlayerVariant::Full {
         volume = volume.length(96.0);
       }
+      // A mini player with no room for the slider keeps the button that mutes.
+      if variant == AudioPlayerVariant::Mini && kept.fold >= 1 {
+        volume = volume.collapsed(true);
+      }
       if let Some(id) = self.child_id("volume") {
         volume = volume.id(id);
       }
-      controls.volume = Some(spaced(volume.build(theme)));
+      controls.volume = Some(spaced(volume.build(theme), false));
     }
 
     // The time of the mini player, which a press turns between what is gone and what is left.
-    if variant == AudioPlayerVariant::Mini && !narrow {
+    if variant == AudioPlayerVariant::Mini && !narrow && kept.fold < 2 {
       let duration = (!still && self.duration > 0.0).then_some(self.duration);
       let mut time =
         MediaTime::new(position, duration).remaining(kept.remaining.as_ref().is_some_and(|left| left.get()));
@@ -1236,12 +1276,6 @@ impl AudioPlayer {
   }
 }
 
-impl From<AudioPlayer> for Element {
-  fn from(player: AudioPlayer) -> Self {
-    player.build(&current_theme())
-  }
-}
-
 /// What a mounted player keeps: none of it in the still form.
 #[derive(Default)]
 struct Kept {
@@ -1251,6 +1285,8 @@ struct Kept {
   root: Option<ElementRef>,
   /// Whether a mini player is under 480 wide.
   narrow: bool,
+  /// What the width of a mini player folds away at its end: see [`mini_fold`].
+  fold: u8,
   /// Where the pointer is on the mini player's line, from its start, in pixels: below nothing where it is not.
   scrub: Option<Signal<f32>>,
   /// Whether the mini player's time reads what is left.
@@ -1389,9 +1425,12 @@ impl AudioPlayerView {
       };
       for (width, height) in lines {
         column = column.child(
+          // A line is as long as the board draws it, and no longer than the room beside the artwork.
           Row::new()
             .part(&skeleton)
-            .child(Skeleton::line().width(width).height(height).build(theme)),
+            .width(width)
+            .max_width(Dimension::Pct(100.0))
+            .child(Skeleton::line().width(Length::Fill).height(height).build(theme)),
         );
       }
       return column;
@@ -1691,6 +1730,7 @@ impl AudioPlayerView {
       .child(
         Column::new()
           .width(Dimension::Pct(100.0))
+          .part(&self.part(AudioPlayerPart::Edge))
           .child(Row::new().height(2.0))
           .child(bar),
       )
@@ -1724,6 +1764,7 @@ struct AudioPlayerHost {
   speed_anchor: ElementRef,
   root: ElementRef,
   narrow: Signal<bool>,
+  fold: Signal<u8>,
   scrub: Signal<f32>,
   remaining: Signal<bool>,
 }
@@ -1739,17 +1780,24 @@ impl Component for AudioPlayerHost {
   type Props = AudioPlayerProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let (root, narrow) = (ElementRef::new(), ctx.signal(false));
+    let (root, narrow, fold) = (ElementRef::new(), ctx.signal(false), ctx.signal(0_u8));
     // The form of a mini player follows its own width, from its first frame.
     root.observe_rect_before_paint({
-      let narrow = narrow.clone();
-      move |rect| put(&narrow, rect.width < AUDIO_MINI_NARROW)
+      let (narrow, fold) = (narrow.clone(), fold.clone());
+      move |rect| {
+        put(&narrow, rect.width < AUDIO_MINI_NARROW);
+        let now = mini_fold(rect.width);
+        if fold.get_untracked() != now {
+          fold.set(now);
+        }
+      }
     });
     Self {
       speed_open: ctx.signal(false),
       speed_anchor: ElementRef::new(),
       root,
       narrow,
+      fold,
       scrub: ctx.signal(-1.0),
       remaining: ctx.signal(false),
     }
@@ -1762,6 +1810,7 @@ impl Component for AudioPlayerHost {
       speed: Some((self.speed_open.clone(), self.speed_anchor.clone())),
       root: Some(self.root.clone()),
       narrow: mini && self.narrow.get(),
+      fold: if mini { self.fold.get() } else { 0 },
       scrub: mini.then(|| self.scrub.clone()),
       remaining: Some(self.remaining.clone()),
     };
@@ -1813,6 +1862,7 @@ impl Themed for AudioPlayer {
       .base(Root, |s| s.foreground(Foreground))
       .variant(Full, Root, |s| {
         s.width(360.0)
+          .max_width(Length::Fill)
           .padding_x(20.0)
           .padding_y(20.0)
           .gap(16.0)
@@ -1822,6 +1872,7 @@ impl Themed for AudioPlayer {
       })
       .variant(Compact, Root, |s| {
         s.width(320.0)
+          .max_width(Length::Fill)
           .height(48.0)
           .padding_start(8.0)
           .padding_end(12.0)
@@ -1831,7 +1882,8 @@ impl Themed for AudioPlayer {
           .radius(RadiusSize::Lg)
       })
       .variant(Voice, Root, |s| {
-        s.padding_start(8.0)
+        s.max_width(Length::Fill)
+          .padding_start(8.0)
           .padding_end(12.0)
           .padding_y(8.0)
           .gap(10.0)
@@ -1840,10 +1892,10 @@ impl Themed for AudioPlayer {
           .radius(RadiusSize::Xl)
       })
       .variant(Mini, Root, |s| {
-        s.width(Length::Fill)
-          .background(Background)
-          .top_line(Border::inside(BorderSize::Sm, Line))
+        s.width(Length::Fill).background(Background)
       })
+      // The border's line is under the progress line, which lies over it.
+      .base(Edge, |s| s.top_line(Border::inside(BorderSize::Sm, Line)))
       .state(AudioPlayerState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .base(Bar, |s| s.height(54.0).padding_x(12.0).gap(12.0))
       .base(Header, |s| s.gap(12.0))

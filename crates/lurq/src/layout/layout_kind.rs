@@ -385,20 +385,6 @@ fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle)
   Some((start, track, thumb))
 }
 
-/// How far in from the far edge of its container the bar of `axis` stands: before what sticks at the right (for
-/// the bar down) or the bottom (for the bar across), where its container keeps its bars clear of that. A bar in a
-/// lane of its own stands in it, past the viewport and what sticks in it.
-fn bar_end_shift(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle) -> f32 {
-  let reserved = style.placement == crate::layout::scrollbar::ScrollBarPlacement::Reserved;
-  match axis {
-    ScrollAxis::Vertical if !reserved && inner.bar_clear_end_x < inner.viewport_width => inner.bar_clear_end_x,
-    ScrollAxis::Horizontal if !reserved && !inner.reserved_across && inner.bar_clear_end_y < inner.viewport_height => {
-      inner.bar_clear_end_y
-    }
-    _ => 0.0,
-  }
-}
-
 /// How far along a track of `track` its thumb may go: the track less the thumb's inset at each end. The thumb's
 /// place, its drag and what takes the pointer all measure by it.
 fn thumb_travel(track: f32, style: &ScrollBarStyle) -> f32 {
@@ -1058,10 +1044,7 @@ impl ScrollState {
 
   pub fn thumb_rect(&self, style: &crate::layout::scrollbar::ScrollBarStyle) -> (f32, f32, f32, f32) {
     let inner = self.inner.lock().unwrap();
-    let track_x = inner.viewport_abs_x + inner.viewport_width
-      - style.width
-      - style.resolved_edge_inset()
-      - bar_end_shift(&inner, ScrollAxis::Vertical, style);
+    let track_x = inner.viewport_abs_x + inner.viewport_width - style.width - style.resolved_edge_inset();
     let (start, track_height, thumb_height) =
       bar_track(&inner, ScrollAxis::Vertical, style).unwrap_or((style.resolved_end_inset(), 0.0, 0.0));
     let track_y = inner.viewport_abs_y + start;
@@ -1112,10 +1095,7 @@ impl ScrollState {
       ScrollAxis::Horizontal => {
         let (start, track_width, thumb_width) = bar_track(&inner, ScrollAxis::Horizontal, style)?;
         let track_x = inner.viewport_abs_x + start;
-        let track_y = inner.viewport_abs_y + inner.container_height
-          - style.width
-          - style.resolved_edge_inset()
-          - bar_end_shift(&inner, ScrollAxis::Horizontal, style);
+        let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.resolved_edge_inset();
         let track_height = style.width;
         if track_height <= 0.0 {
           return None;
@@ -1144,10 +1124,7 @@ impl ScrollState {
       }
       ScrollAxis::Vertical => {
         let (start, track_height, thumb_height) = bar_track(&inner, ScrollAxis::Vertical, style)?;
-        let track_x = inner.viewport_abs_x + inner.container_width
-          - style.width
-          - style.resolved_edge_inset()
-          - bar_end_shift(&inner, ScrollAxis::Vertical, style);
+        let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.resolved_edge_inset();
         let track_y = inner.viewport_abs_y + start;
         let track_width = style.width;
         if track_width <= 0.0 {

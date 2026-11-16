@@ -916,7 +916,7 @@ impl Component for PicturePage {
                       and the app's own layer over it.",
         import: Some("use lurq::ui::Picture;"),
         status: Some("Stable"),
-        since: Some("0.62"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

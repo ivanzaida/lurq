@@ -9,7 +9,7 @@ use std::sync::{
 
 use lurq::{
   app::theme::{OpacityLevel, PaletteColor, ThemePalette},
-  components::{Column, FormData, FormHandle, FormOptions, Row, ValidationResult},
+  components::{Column, Row},
   core::{ElementRef, Signal},
   layout::quad::{Quad, QuadContent},
   node::color::Color,
@@ -209,9 +209,9 @@ fn a_press_or_the_keyboard_on_a_line_focuses_its_field() {
 
 #[test]
 fn a_summary_with_no_errors_draws_nothing_and_one_error_is_one_field() {
+  // With no room around them: a summary is 400 wide where it has 400, and the stage is 400.
   let mut stage = Stage::new(|_| {
     Column::new()
-      .padding(8.0)
       .child(ErrorSummary::new([]))
       .child(ErrorSummary::new([FieldError::new("Email", "Email must include a domain")]).id("one"))
       .child(
@@ -228,8 +228,11 @@ fn a_summary_with_no_errors_draws_nothing_and_one_error_is_one_field() {
   assert_eq!(width, 400.0);
 }
 
+#[cfg(feature = "form")]
 #[test]
 fn a_summary_of_a_form_lists_its_errors_once_a_submit_was_attempted() {
+  use lurq::components::{FormData, FormHandle, FormOptions, ValidationResult};
+
   let form = FormHandle::new(
     FormOptions::new()
       .field("name", "")

@@ -47,6 +47,7 @@ const EDGES: [(&str, Option<bool>); 3] = [("by size", None), ("edge", Some(true)
 /// Something on a stage with what it is under it.
 fn item(width: f32, shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .width(width)
     .spacing(9.0)
     .child(shown)

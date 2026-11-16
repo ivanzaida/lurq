@@ -49,6 +49,7 @@ Waveform::at(0.0, &peaks).unheard(true);
 
 ## Decided
 
+- **In less room than its bars take, a waveform keeps its bars and closes its gaps.** Its width (the bars and the recipe's gap between them) is the most it takes, not the least: in a row narrower than that (a voice message in a window as narrow as a phone) every bar is still drawn at its width, spread from the start of the room to its end, and what is pressed is as wide as the bars, so a press still seeks to the share of the whole under it. At its own width nothing changes. It does not drop or merge peaks: how many bars there are is the app's (`tests/ui/narrow_room.rs`).
 - The arrow keys move a twentieth (`step`, from 0 to 1): a waveform knows no seconds, and a player that wants 5 seconds gives `step(5.0 / length)`.
 - A bar no taller than its peak would make it is no lower than it is wide (3), as the board's least bar is a dot and never nothing; the board's lowest is 6.
 - The ring of the focus is around the whole waveform (the board draws none): the waveform is one control.
