@@ -18,7 +18,7 @@ use crate::{
     quad::{ClipRect, Quad, QuadContent},
   },
   node::{
-    border::BorderRadius,
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     node::Node,
     node_kind::{NodeKind, TextInputState},
     transform::Transform2D,
@@ -28,6 +28,9 @@ use crate::{
 /// How round the veil over a selected object is, and how much of what is under it it hides.
 const OBJECT_VEIL_RADIUS: f32 = 2.0;
 const OBJECT_VEIL_OPACITY: f32 = 0.4;
+/// The handle on the corner of an object that is resized: a disc this wide with an edge this wide.
+const OBJECT_HANDLE_SIZE: f32 = 12.0;
+const OBJECT_HANDLE_EDGE: f32 = 2.0;
 
 impl LayoutEngine {
   /// The size of each object the input shows, in the order of its text: what its child node takes in `room`,
@@ -202,5 +205,53 @@ impl LayoutEngine {
         clip,
       });
     }
+    // An object selected alone, in an input whose objects are resized, has its handle on its lower corner at
+    // the end: a disc of the primary color with an edge of the background's.
+    let Some((room, _)) = state.resized_object() else {
+      return;
+    };
+    let (fill, edge) = {
+      let palette = self.palette.borrow();
+      (
+        palette.try_get(&PaletteColor::Primary),
+        palette.try_get(&PaletteColor::Background),
+      )
+    };
+    let (Some(fill), Some(edge)) = (fill, edge) else {
+      return;
+    };
+    let half = OBJECT_HANDLE_SIZE * 0.5;
+    let (x, y, transform, transform_origin) = super::transformed_quad_frame(
+      text.0 + room.x + room.width - half,
+      text.1 + room.y + room.height - half,
+      transform,
+    );
+    let side = Some(ResolvedBorder {
+      width: OBJECT_HANDLE_EDGE,
+      color: edge,
+      placement: BorderPlacement::Inside,
+      dash: [0.0, 0.0],
+    });
+    quads.push(Quad {
+      x,
+      y,
+      width: OBJECT_HANDLE_SIZE,
+      height: OBJECT_HANDLE_SIZE,
+      opacity: 1.0,
+      transform,
+      transform_origin,
+      content: QuadContent::Rect {
+        color: fill,
+        gradient: None,
+      },
+      border_radius: Some(BorderRadius::all(half)),
+      border: Some(ResolvedBorders {
+        top: side,
+        right: side,
+        bottom: side,
+        left: side,
+      }),
+      clip,
+    });
   }
 }

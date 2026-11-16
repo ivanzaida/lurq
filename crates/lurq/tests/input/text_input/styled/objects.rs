@@ -37,10 +37,12 @@ fn swatch(at: usize, width: u32, height: u32, green: bool) -> InlineObject {
     .width(width)
 }
 
+/// The box an object is drawn as: of the size its source says, or as wide as the document has it.
 fn drawn(object: &InlineObject) -> Element {
   let (width, height) = object.source.split_once('x').expect("a size");
   let color = if object.label.as_ref() == "green" { GREEN } else { RED };
-  Rect::new(width.parse::<f32>().unwrap(), height.parse::<f32>().unwrap())
+  let width = object.width.map_or(width.parse::<f32>().unwrap(), |width| width as f32);
+  Rect::new(width, height.parse::<f32>().unwrap())
     .background(color)
     .into()
 }
@@ -89,6 +91,7 @@ impl Component for Scene {
     .spans(props.spans.clone())
     .paragraphs(props.kinds.clone(), styles)
     .objects(props.objects.clone(), drawn)
+    .resizable_objects(true)
     .rich_clipboard(true)
     .controller(props.controller.clone())
     .caret_color(CARET)
@@ -286,9 +289,16 @@ fn styled_an_object_wider_than_its_row_is_as_wide_as_the_row_and_keeps_its_shape
   let mut document = Document::new(&format!("a\n{O}\nz"), vec![swatch(2, 1000, 500, false)]);
   // What is drawn in the box is the element's own business; the box is the room it is cut to.
   let room = document.the_box(RED).clip;
-  assert!(close(room.width, 400.0) && close(room.height, 200.0), "{room:?}");
+  // The row keeps the room of a caret after it: the caret there is inside the input.
+  assert!(close(room.width, 398.0) && close(room.height, 199.0), "{room:?}");
   let (above, below) = (document.caret_at(0), document.caret_at(6));
-  assert!(below.y - above.y > 200.0 && below.y - above.y < 200.0 + 2.0 * LINE);
+  assert!(below.y - above.y > 199.0 && below.y - above.y < 199.0 + 2.0 * LINE);
+  let after = document.caret_at(5);
+  let left = document.left();
+  assert!(
+    after.x >= room.x + room.width - 0.6 && after.x + after.width <= left + 400.0 + 0.6,
+    "{after:?}"
+  );
   // In a paragraph that keeps room before its text, the row is what is left.
   let mut quoted = Document::with(
     &format!("a\n{O}"),
@@ -298,10 +308,10 @@ fn styled_an_object_wider_than_its_row_is_as_wide_as_the_row_and_keeps_its_shape
   let left = quoted.left();
   let room = quoted.the_box(RED).clip;
   assert!(
-    close(room.x, left + INDENT) && close(room.width, 400.0 - INDENT),
+    close(room.x, left + INDENT) && close(room.width, 398.0 - INDENT),
     "{room:?}"
   );
-  assert!(close(room.height, (400.0 - INDENT) / 2.0), "{room:?}");
+  assert!(close(room.height, (398.0 - INDENT) / 2.0), "{room:?}");
 }
 
 #[test]
@@ -525,6 +535,86 @@ fn styled_a_change_reports_the_objects_and_the_app_loads_them_with_the_text() {
   document.shortcut("z", "KeyZ", false);
   assert_eq!(document.text(), format!("ab{O}"));
   assert_eq!(document.objects(), [swatch(2, 40, 30, false)]);
+}
+
+#[test]
+fn styled_the_handle_of_a_selected_object_makes_it_wider_and_narrower_as_one_undo_step() {
+  let mut document = Document::new(&format!("ab{O}cd"), vec![swatch(2, 40, 30, false)]);
+  let room = document.the_box(RED);
+  // No handle until the object is selected: a press on its corner is a press in the text.
+  // The handle is a disc of 12 centred on the lower corner at the end of the box.
+  let handle = |document: &mut Document, room: &RectSnapshot| {
+    let (x, y) = (room.x + room.width - 6.0, room.y + room.height - 6.0);
+    document.render().rects.into_iter().any(|rect| {
+      close(rect.width, 12.0) && close(rect.height, 12.0) && close(rect.x, x) && close(rect.y, y) && rect.radii[0] > 5.0
+    })
+  };
+  assert!(!handle(&mut document, &room));
+  pointer_click(&mut document.tree, room.x + 20.0, room.y + 10.0, MouseButton::Left);
+  assert_eq!(document.selection(), 2..5);
+  assert!(
+    handle(&mut document, &room),
+    "a handle on the corner of the selected object"
+  );
+  // The handle is dragged 30 to the right: the object is 30 wider as it goes, and stays selected.
+  let (x, y) = (room.x + room.width, room.y + room.height);
+  document.tree.mouse_move(x, y);
+  document.tree.mouse_down(x, y, MouseButton::Left);
+  document.tree.mouse_move(x + 12.0, y + 3.0);
+  assert_eq!(document.objects()[0].width, Some(52), "it follows the pointer");
+  assert!(close(document.the_box(RED).width, 52.0));
+  document.tree.mouse_move(x + 30.0, y - 5.0);
+  document.tree.mouse_up(x + 30.0, y - 5.0, MouseButton::Left);
+  assert_eq!(document.objects(), [swatch(2, 40, 30, false).width(70)]);
+  assert!(close(document.the_box(RED).width, 70.0));
+  assert_eq!(document.selection(), 2..5);
+  assert_eq!(document.text(), format!("ab{O}cd"));
+  // Narrower than the least it is not made.
+  let room = document.the_box(RED);
+  let (x, y) = (room.x + room.width, room.y + room.height);
+  document.tree.mouse_move(x, y);
+  document.tree.mouse_down(x, y, MouseButton::Left);
+  document.tree.mouse_move(x - 500.0, y);
+  document.tree.mouse_up(x - 500.0, y, MouseButton::Left);
+  assert_eq!(document.objects()[0].width, Some(16));
+  // Each drag is one step of the undo.
+  document.shortcut("z", "KeyZ", false);
+  assert_eq!(document.objects()[0].width, Some(70));
+  document.shortcut("z", "KeyZ", false);
+  assert_eq!(document.objects()[0].width, Some(40));
+  document.shortcut("z", "KeyZ", true);
+  assert_eq!(document.objects()[0].width, Some(70));
+}
+
+#[test]
+fn styled_an_input_whose_objects_are_not_resized_has_no_handle() {
+  let value = Signal::new(format!("a{O}b"));
+  let objects = Signal::new(vec![swatch(1, 40, 30, false)]);
+  let controller = TextInputController::new();
+  let mut tree = Tree::new();
+  tree.resize(800, 600);
+  tree.set_root(
+    Column::new().size(800.0, 600.0).child(
+      TextInput::new(value)
+        .id(ID)
+        .spans(Signal::new(Vec::new()))
+        .objects(objects.clone(), drawn)
+        .controller(controller.clone())
+        .multiline()
+        .width(400.0),
+    ),
+  );
+  let mut app = App::new();
+  let snapshot = render_pass_with_app(&mut tree, &mut app);
+  let room = snapshot.rects.iter().find(|rect| rect.color == RED).unwrap().clone();
+  pointer_click(&mut tree, room.x + 20.0, room.y + 10.0, MouseButton::Left);
+  assert_eq!(controller.selection().unwrap().range(), 1..4);
+  let (x, y) = (room.x + room.width - 2.0, room.y + room.height - 2.0);
+  tree.mouse_move(x, y);
+  tree.mouse_down(x, y, MouseButton::Left);
+  tree.mouse_move(x + 40.0, y);
+  tree.mouse_up(x + 40.0, y, MouseButton::Left);
+  assert_eq!(objects.get(), [swatch(1, 40, 30, false)], "as wide as it was");
 }
 
 /// A clipboard of the test's.

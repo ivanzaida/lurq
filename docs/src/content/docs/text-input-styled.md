@@ -197,13 +197,20 @@ picture's path and its alternative text), and `width`, in whole pixels, where th
   baseline, the row is as high as its tallest box needs, and the text keeps its line at the foot of the row. A box
   that does not fit the rest of a row goes to the next, as a word does. One wider than its row (less its
   paragraph's indent) is as wide as the row: an element that fits itself to its room (a picture keeps its shape)
-  is as high as it then says, and any other is cut to a box of the shape it had.
+  is as high as it then says, and any other is cut to a box of the shape it had. The row keeps 2 after such a
+  box, the room of the caret that stands there.
 - To the caret it is one character. The arrows go past it, a press on it selects it, Backspace after it (and Delete
   before it) selects it and the next press deletes it, and a selection takes it whole. The caret beside it is as
   high as the text's line, not as the box. While the input has the focus, a selected object is under a veil of the
   selection's color.
 - It scrolls with the text and is cut by the input's box. The pointer and the focus do not reach what it holds: a
   press on it is a press on the text.
+- With `resizable_objects(true)` an object selected alone has a handle on its lower corner at the end: a disc of
+  the `Primary` role with an edge of `Background`, under the resizing cursor. A drag of it sets the object's
+  `width` as it goes, from 16 to the width of the text, so the element built for it follows; the drag is one undo
+  step and is reported once, as a `StyledEdit::Style` of the object's range, when the handle is let go. The
+  element of an object keeps its place through it: what tells one object's element from another's is its source
+  and its label, not its width.
 - An element declared as a component (`ui::Picture`, `Element::component::<C>(props)`) is mounted by the component
   that builds the input and kept across its renders, by what it shows: a picture loads once, whatever is typed
   before it.

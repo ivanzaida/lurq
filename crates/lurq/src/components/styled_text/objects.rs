@@ -65,9 +65,10 @@ impl InlineObject {
     self.at..self.at + OBJECT_CHARACTER.len_utf8()
   }
 
-  /// Whether it is the same thing as `other`, wherever each is.
+  /// Whether it shows the same thing as `other`, wherever each is and however wide: what tells the element
+  /// built for one from the element built for another, and stays the same while one is made wider.
   pub(crate) fn same_thing(&self, other: &Self) -> bool {
-    self.source == other.source && self.label == other.label && self.width == other.width
+    self.source == other.source && self.label == other.label
   }
 }
 

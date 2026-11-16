@@ -291,13 +291,28 @@ impl TextInput {
         // Two objects that show the same thing are told apart by which of them comes first.
         let nth = built[..index].iter().filter(|before| before.same_thing(object)).count();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(&(&object.source, &object.label, object.width, nth), &mut hasher);
+        // Its width is not part of what it is: the element of an object made wider is the same one.
+        std::hash::Hash::hash(&(&object.source, &object.label, nth), &mut hasher);
         let key = format!("object-{:016x}", std::hash::Hasher::finish(&hasher));
         // What the element holds takes neither the pointer nor the focus: a press on it is a press on the text.
         let child = super::Stack::new().child(element(object)).inert(true).key(key);
         node.push_child_element(child.into());
       }
       state.set_objects(objects, built);
+    });
+    self
+  }
+
+  /// Whether an object selected alone ([`Self::objects`]) has a handle on its lower corner at the end, which a
+  /// drag makes it wider or narrower by. The drag sets the object's `width`, from 16 to the width of the text,
+  /// as it goes, so the element built for it follows; it is one undo step, reported once, when the handle is
+  /// let go. Off unless told: an object that is not a picture has no width to give.
+  #[cfg(feature = "markdown")]
+  pub fn resizable_objects(mut self, resizable: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_resizable_objects(resizable);
+      }
     });
     self
   }

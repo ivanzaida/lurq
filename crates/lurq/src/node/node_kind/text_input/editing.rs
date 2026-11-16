@@ -381,6 +381,10 @@ impl TextInputState {
   }
 
   pub(crate) fn begin_selection_at_point(&self, x: f32, y: f32) {
+    // A press on the handle of a selected object starts a drag of it, and leaves the selection as it is.
+    if self.begin_object_resize(x, y) {
+      return;
+    }
     // A press on a token's removing icon selects nothing: a release that leaves a selection is the end of a drag,
     // and makes no click, which is what takes the token away.
     if !self.on_removing_icon(x, y) && self.select_atomic_at_point(x, y) {
@@ -395,6 +399,9 @@ impl TextInputState {
   }
 
   pub(crate) fn update_selection_to_point(&self, x: f32, y: f32) {
+    if self.drag_object_resize(x) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     self.inner.lock().caret = caret;
     self.keep_out_of_tokens(tokens::Toward::AwayFromAnchor);

@@ -46,6 +46,12 @@ pub(super) struct StyledState {
   /// The style the next typed text takes, set by the app, while the caret
   /// stays at the offset it was set at with nothing selected.
   pending: Option<(usize, SpanStyle)>,
+  /// Whether an object selected alone has a handle that a drag makes it wider or narrower by.
+  resizable_objects: bool,
+  /// The drag of that handle in progress.
+  resize: Option<ObjectResize>,
+  /// Whether the pointer is on the handle.
+  handle_hovered: bool,
   on_change: Vec<ChangeHandler>,
   copy_format: Option<CopyFormat>,
   /// A copy keeps the Markdown of the selection beside its text, and a paste that has Markdown is inserted with
@@ -77,7 +83,25 @@ impl StyledState {
       self.objects_synced = old.objects_synced;
     }
     self.pending = old.pending.clone();
+    // A drag of an object's handle goes on over the renders its own changes ask for.
+    self.resize = old.resize.clone();
+    self.handle_hovered = old.handle_hovered;
   }
+}
+
+/// How near the corner of an object the pointer takes its handle, and the least an object is made.
+const OBJECT_HANDLE_REACH: f32 = 8.0;
+const OBJECT_LEAST_WIDTH: f32 = 16.0;
+
+/// A drag of the handle of an object: the byte of the object, where the drag began in the text and how wide the
+/// object was then, the most it can be, and whether the drag changed it yet.
+#[derive(Clone)]
+struct ObjectResize {
+  at: usize,
+  from_x: f32,
+  from_width: f32,
+  most: f32,
+  changed: bool,
 }
 
 /// The spans and the typing style captured before an edit changes the text.
@@ -245,6 +269,129 @@ impl TextInputState {
       .iter()
       .find(|object| object.at == room.byte)
       .map(InlineObject::range)
+  }
+
+  pub(crate) fn set_resizable_objects(&self, resizable: bool) {
+    self.inner.lock().styled.resizable_objects = resizable;
+  }
+
+  /// The object that has a handle: the one the selection is, where it is one object and nothing else, in an
+  /// input whose objects are resized. Its box, in the coordinates the glyphs have, and its record.
+  pub(crate) fn resized_object(
+    &self,
+  ) -> Option<(crate::app::glyph_engine::input_tokens::InputObjectBox, InlineObject)> {
+    if !self.inner.lock().styled.resizable_objects {
+      return None;
+    }
+    let (start, end) = self.selection_bounds()?;
+    let objects = self.current_objects()?;
+    let object = objects
+      .iter()
+      .find(|object| object.at == start && object.range().end == end)?
+      .clone();
+    let layout = self.token_layout()?;
+    let room = *layout.objects.iter().find(|room| room.byte == object.at)?;
+    Some((room, object))
+  }
+
+  /// The object whose handle is at `(x, y)`, in the coordinates the caret is placed by.
+  fn object_handle_at(
+    &self,
+    x: f32,
+    y: f32,
+  ) -> Option<(crate::app::glyph_engine::input_tokens::InputObjectBox, InlineObject)> {
+    let (room, object) = self.resized_object()?;
+    let (x, y) = {
+      let inner = self.inner.lock();
+      (x + inner.scroll_x, y + inner.scroll_y())
+    };
+    let near = |point: f32, corner: f32| (point - corner).abs() <= OBJECT_HANDLE_REACH;
+    (near(x, room.x + room.width) && near(y, room.y + room.height)).then_some((room, object))
+  }
+
+  /// Starts a drag of the handle at `(x, y)`: `false` where there is none there.
+  pub(super) fn begin_object_resize(&self, x: f32, y: f32) -> bool {
+    self.inner.lock().styled.resize = None;
+    let Some((room, object)) = self.object_handle_at(x, y) else {
+      return false;
+    };
+    let most = self
+      .token_layout()
+      .map(|layout| layout.config.width)
+      .filter(|width| width.is_finite() && *width < 100_000.0)
+      .unwrap_or(f32::MAX);
+    let mut inner = self.inner.lock();
+    inner.styled.resize = Some(ObjectResize {
+      at: object.at,
+      from_x: x + inner.scroll_x,
+      from_width: room.width,
+      most,
+      changed: false,
+    });
+    true
+  }
+
+  /// Moves a drag of a handle to `x`: the object is as much wider as the pointer went. `false` where no drag
+  /// is in progress.
+  pub(super) fn drag_object_resize(&self, x: f32) -> bool {
+    let (resize, scroll_x) = {
+      let inner = self.inner.lock();
+      let Some(resize) = inner.styled.resize.clone() else {
+        return false;
+      };
+      (resize, inner.scroll_x)
+    };
+    let least = OBJECT_LEAST_WIDTH.min(resize.most);
+    let width = (resize.from_width + x + scroll_x - resize.from_x).clamp(least, resize.most.max(least));
+    let width = width.round() as u32;
+    let Some(objects) = self.current_objects() else {
+      return true;
+    };
+    let Some(index) = objects.iter().position(|object| object.at == resize.at) else {
+      return true;
+    };
+    // An object with no width of its own is as wide as it was laid out until the drag moves it.
+    let held = objects[index].width.unwrap_or(resize.from_width.round() as u32);
+    if held == width {
+      return true;
+    }
+    if !resize.changed {
+      self.push_undo_snapshot();
+      if let Some(resize) = self.inner.lock().styled.resize.as_mut() {
+        resize.changed = true;
+      }
+    }
+    let mut changed = objects.to_vec();
+    changed[index].width = Some(width);
+    self.write_objects(changed);
+    self.mark_layout_dirty_keeping_scroll();
+    true
+  }
+
+  /// Ends a drag of a handle: what it changed is reported, once.
+  pub(crate) fn end_object_resize(&self) {
+    let Some(resize) = self.inner.lock().styled.resize.take() else {
+      return;
+    };
+    if !resize.changed {
+      return;
+    }
+    if let Some(spans) = self.current_spans() {
+      let range = resize.at..resize.at + crate::components::OBJECT_CHARACTER.len_utf8();
+      self.commit_spans(spans.to_vec(), StyledEdit::Style { range });
+    }
+  }
+
+  /// Notes whether the pointer, at `point` in the coordinates the caret is placed by, is on a handle.
+  pub(super) fn hover_object_handle(&self, point: Option<(f32, f32)>) {
+    let on = point.is_some_and(|(x, y)| self.object_handle_at(x, y).is_some());
+    self.inner.lock().styled.handle_hovered = on;
+  }
+
+  /// Whether the pointer is on the handle of an object, or drags it: what the cursor says.
+  pub(crate) fn object_handle_hovered(&self) -> bool {
+    let inner = self.inner.lock();
+    inner.styled.handle_hovered || inner.styled.resize.is_some()
   }
 
   /// Writes the objects, without a report.
