@@ -26,7 +26,12 @@ fn renders_caret_after_text_input_is_focused() {
   pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
 
-  assert!(snapshot.rects.iter().any(|rect| rect.width == 1.0 && rect.height > 0.0));
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
+  );
 }
 
 #[test]
@@ -111,7 +116,7 @@ fn caret_uses_text_line_height_in_tall_text_input() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert!(
@@ -156,11 +161,13 @@ fn multiline_caret_uses_glyph_height_inside_relaxed_line_pitch() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.color == caret_color)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.color == caret_color)
     .expect("focused multiline input should render its caret");
 
-  assert!((caret.height - 10.0).abs() < 0.01);
-  assert!((caret.y - 7.5).abs() < 0.01);
+  // As high as the theme says for type of 10, centred in a line of 25.
+  let high = crate::support::caret_height(10.0);
+  assert!((caret.height - high).abs() < 0.01);
+  assert!((caret.y - (25.0 - high) * 0.5).abs() < 0.01);
 }
 
 #[test]
@@ -243,7 +250,7 @@ fn padded_scroll_overflow_keeps_end_caret_inside_content_clip() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert!(caret.clip.active, "overflowing text input caret should be clipped");
@@ -277,7 +284,7 @@ fn caret_color_sets_rendered_caret_color() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert_eq!(caret.color, expected);
@@ -308,7 +315,7 @@ fn text_style_caret_color_sets_rendered_caret_color() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert_eq!(caret.color, expected);
@@ -343,7 +350,7 @@ fn caret_defaults_to_text_color_for_empty_input() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused empty text input should render a caret");
 
   assert_eq!(caret.color, expected);
@@ -443,7 +450,9 @@ fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
   quads
     .iter()
     .find_map(|quad| match quad.content {
-      QuadContent::Rect { color, .. } if quad.width == 1.0 && quad.height > 0.0 => Some(color),
+      QuadContent::Rect { color, .. } if quad.width == crate::support::caret_width() && quad.height > 0.0 => {
+        Some(color)
+      }
       _ => None,
     })
     .expect("focused text input should render a caret")
@@ -453,7 +462,7 @@ fn focused_caret_y(runtime: &mut Tree) -> f32 {
   render_pass(runtime)
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret")
     .y
 }
@@ -471,7 +480,9 @@ fn has_caret_quad(runtime: &mut Tree, app: &mut App, color: Color) -> bool {
     .resolve_quads(runtime.last_layout().unwrap())
     .iter()
     .any(|quad| match quad.content {
-      QuadContent::Rect { color: rect_color, .. } => quad.width == 1.0 && quad.height > 0.0 && rect_color == color,
+      QuadContent::Rect { color: rect_color, .. } => {
+        quad.width == crate::support::caret_width() && quad.height > 0.0 && rect_color == color
+      }
       _ => false,
     })
 }
@@ -480,5 +491,5 @@ fn has_caret(snapshot: &crate::support::RenderSnapshot, color: Color) -> bool {
   snapshot
     .rects
     .iter()
-    .any(|rect| rect.width == 1.0 && rect.height > 0.0 && rect.color == color)
+    .any(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0 && rect.color == color)
 }

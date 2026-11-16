@@ -108,6 +108,8 @@ mod paste;
 mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
 mod profiler_screenshot_tests;
+#[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+pub(crate) use paste::copied_rich;
 pub use paste::{ClipboardReader, ClipboardWriter};
 pub use touch::TouchMomentum;
 pub use touch_pointer::TouchRoute;
@@ -6190,13 +6192,13 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            return self.write_clipboard_text(&selected);
+            return self.write_input_copy(&state, &selected);
           }
           ("x" | "X", _) | (_, "KeyX") if shortcut => {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            if !self.write_clipboard_text(&selected) {
+            if !self.write_input_copy(&state, &selected) {
               return false;
             }
             let _ = state.cut_selection(evt);
@@ -6210,7 +6212,7 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            return self.write_clipboard_text(&selected);
+            return self.write_input_copy(&state, &selected);
           }
           ("Insert", _) | (_, "Insert") if shift => {
             if !self.paste_from_clipboard_shortcut(evt) {
@@ -6221,7 +6223,7 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            if !self.write_clipboard_text(&selected) {
+            if !self.write_input_copy(&state, &selected) {
               return false;
             }
             let _ = state.cut_selection(evt);

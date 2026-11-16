@@ -10,10 +10,10 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, ColumnView, Combobox, DateField, DatePicker,
-    DateRangePicker, DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions,
-    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress,
-    ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea,
-    TimeField, TimePicker, Toast, TokenInput, TreeItem, TreeSelect, Waveform,
+    DateRangePicker, DropZone, Editable, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup,
+    Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput,
+    Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder,
+    Textarea, TimeField, TimePicker, Toast, TokenInput, TreeItem, TreeSelect, Waveform,
   },
 };
 
@@ -69,6 +69,16 @@ fn text() -> Signal<String> {
 #[test]
 fn an_input_is_no_wider_than_a_narrow_room() {
   fits(|| Input::new(text()).id("it").into());
+}
+
+#[test]
+fn an_editable_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    Editable::new(Signal::new("A project with a name longer than the room".to_owned()))
+      .id("it")
+      .into()
+  });
+  fits(|| Editable::new(text()).full_width(true).id("it").into());
 }
 
 #[test]

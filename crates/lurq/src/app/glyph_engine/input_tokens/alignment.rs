@@ -9,8 +9,9 @@ impl DecoratedInputLayout {
       .rows
       .iter()
       .map(|row| {
+        // A row is aligned in the room its paragraph's indent leaves.
         let width = if self.viewport_width.is_finite() {
-          self.viewport_width
+          (self.viewport_width - row.indent).max(0.0)
         } else {
           row.width
         };
@@ -30,7 +31,7 @@ impl DecoratedInputLayout {
             (TextAlign::Center, true) => width - row.width - extra * 0.5,
           }
         };
-        left - row.left
+        left + row.indent - row.left
       })
       .collect();
     for glyph in &mut self.glyphs {

@@ -336,6 +336,7 @@ Button::new("Saving…").loading(saving.get());
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
 | `id(id)`, `key(key)`, `submit(bool)` | Its id and key; with the `form` feature, the button that submits the form it is in |
+| `ref_element(element)`, `focuses(&ElementRef)` | The ref of its element, which an app focuses or measures; and what a press of it gives the focus to, in place of taking it itself: the text a button of an editor's bar works on |
 
 | Size | Height | Padding | Label | Icon |
 | --- | --- | --- | --- | --- |
@@ -385,6 +386,7 @@ Toggle::new("Bold")
 | `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
 | `leading(element)` | An element before the label, where an icon by name is not enough: the dot of a recording. It stands before an icon that is given too |
 | `size(size)` | A `ToggleSize` (a `ButtonSize`): a toggle is as high as a button of that size |
+| `focuses(&ElementRef)` | What a press of it gives the focus to, in place of taking it itself: the text a toggle of an editor's bar works on. It is still a stop of Tab |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
 Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
@@ -579,6 +581,7 @@ Input::new(email.clone()).invalid(!email_ok);
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent`; `prevent_default()` refuses it |
 | `on_submit(Fn(&str))` | Called with what it holds when Enter is pressed in it, with no modifier and outside a composition. A second handler is called after the first |
+| `completion(&str)`, `squiggles(ranges)` | What would complete what is typed, drawn after it and taken by Tab; and wavy lines under ranges of its text, what the app's spelling checker marks. See [text editing](#text-editing) |
 | `name(..)` | The name of its value in a form (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, the box that is typed in |
 
@@ -717,6 +720,7 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: the edge in the destructive, warning or success color. One is shown, in that order |
 | `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent` (`new_value` is what it will hold); `prevent_default()` refuses it. A read-only one makes no edit |
+| `squiggles(ranges)` | Wavy lines in `Destructive` under ranges of its text, bytes of it: what the app's spelling checker marks. See [text editing](#text-editing) |
 | `full_width(bool)` | As wide as what holds it, in place of 260: in a form, as wide as its field. The state `FullWidth` |
 | `name(..)` | The name of its text in a form (feature `form`) |
 | `label(&str)` | What it is called, to what reads the tree. It draws nothing: a [field](#field) gives it its own label |
@@ -1021,13 +1025,14 @@ Select::controlled(rows, [(10, "10"), (20, "20"), (50, "50")], move |rows| set_r
 | `read_only(bool)` | What is chosen is read and not changed: the list does not open. It keeps the focus; the trigger is on `Muted` in an edge of `Border`, as a read only input is |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what is chosen: the edge and the ring in the destructive, warning or success color. One is shown, in that order, as an input shows them |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `fit_options(bool)` | Whether its list is as wide as its longest option, with the room of the check, in place of as wide as the trigger: for a trigger as wide as the one value it shows, as a bar's control is. The panel's `min_width` still holds |
 | `label(&str)` | What it is called, to what reads the tree. The field it is in shows its label |
 | `name(..)` | The name of its value in a form, the chosen option's label (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the select's node. `state(SelectState::Open, true)` draws the trigger as it is while open, for a gallery |
 
 - It is the engine's [`Select`](../styling-events/#select) dressed by the recipe, not a second one: a press, or Enter, Space and the arrows from the keyboard, open the list under it (over it where there is no room); the arrows, Home, End and the first letters move through it, skipping disabled options and the groups' labels; Enter or a press chooses, and Escape closes. Tab closes it too and goes on to the next stop, as from a closed select. Tab reaches it wherever it is (`tab_index(0)`); a disabled one does not open and Tab passes it by.
 - It stands beside an [input](#input): the same box, sizes, edge, ring and judgments. The ring is a line of 2 inside the box in `Ring`, shown from the keyboard and while the list is open.
-- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Panel` (the panel of the list: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts (`Item`, `Check`). Sizes: `SelectSize::Sm`, `Md`, `Lg`.
+- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Panel` (the panel of the list: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls, and its least width how wide it is where its trigger is narrower), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts (`Item`, `Check`). Sizes: `SelectSize::Sm`, `Md`, `Lg`.
 - In the design the trigger is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder and a chevron of 16 in `MutedForeground`, 8 apart; `Ring` under the pointer; `Destructive`, `Warning` or `Success` for a judgment, under the pointer, in the focus and open too; disabled is half opaque on `Muted`. The list is 4 under it and as wide, on `Popover` in an edge of `Border`, `radius-lg`, with the theme's middle shadow and 4 of padding. An item is 32 high, its text 8 in, `radius-sm`, in the body's type, on `Highlight` under the pointer or the keys; the chosen one has a check of 16 in `Foreground` at its end, 8 after the label; a disabled one is at 0.45. A hint is 11 in the mono type in `MutedForeground`. A group's label is 11, semibold, in `MutedForeground`, in line with the items' text; a line of 1 in `Border` is between groups, 4 from each.
 - Its options follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch, the steps of a row of 36 (28, 36, 44, 48). The trigger is a control and keeps its size.
 - The engine paints the trigger, the panel and the rows itself, from its `SelectStyle`, not from nodes the recipe styles: of the trigger it takes the fill, the edge, the corners, the shadow, the ring and the padding, at rest, `hovered`, `focus_visible` and in the state `Open`; of an item, the fill, edge, corners, padding, height (at least), type, color and opacity, at rest, `hovered` and in the states `Selected` and `Disabled`; of a group's label, its padding, fill, type and color; of the separator, its fill, height and padding. A transition is not painted.
@@ -2893,6 +2898,117 @@ Mentions::new(comment.clone(), &mentions)
   before its label in the body's type; the active one, and the one under the pointer, are on `Highlight`. A mention is
   in the text's type on `InfoMuted`, its text in `Info`, 20 high and padded 4.
 
+## Rich Text Editor
+
+Formatted text typed into a box, under a bar of the tools that format it: a comment, release notes, the body of an
+article. It comes with the `markdown` feature.
+
+```rust
+use lurq::{components::RichText, ui::{RichTextEditor, RichTextTool}};
+
+// notes: Signal<RichText>, kept by the app. The document reads from Markdown and writes it.
+let notes = ctx.signal(RichText::from_markdown("## Release notes\n\nBackdrop blur **follows clips**.\n\n- Faster shaping"));
+RichTextEditor::new(notes.clone())
+  .placeholder("Write the release notes")
+  .on_change(|document| println!("{}", document.to_markdown()))
+  .mount(ctx);
+
+// A comment box: a few tools, no footer.
+RichTextEditor::new(comment.clone())
+  .tools([RichTextTool::Bold, RichTextTool::Italic, RichTextTool::Bullet, RichTextTool::Link])
+  .footer(false)
+  .rows(3, 8)
+  .mount(ctx);
+
+// Held by the app: it is told each change, and the editor shows what the app answers with.
+RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.clone())).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<RichText>)` | The document. Each change is written into the signal, and what the app writes there shows |
+| `controlled(value, on_change)` | A document the app holds: each change is told to `on_change`, and a change the app does not take is taken back |
+| `on_change(handler)` | Called with the `&RichText` after each change a person makes: typing, a tool, a key, undo. The signal is set first. Not when the app sets it |
+| `placeholder(&str)` | What the box shows while it holds nothing |
+| `rows(min, max)` | The rows of body text the box shows at least, and at most before its text scrolls inside it: 6 and 16 unless told (`RICH_TEXT_MIN_ROWS`, `RICH_TEXT_MAX_ROWS`) |
+| `tools(tools)` | The `RichTextTool`s of the bar, in order: `Style`, `Bold`, `Italic`, `Underline`, `Strikethrough`, `Bullet`, `Ordered`, `Quote`, `Code`, `Link`, `Image`, `Undo`, `Redo`. A line stands between two groups and the history is at the bar's end. All but `Image` unless told (`RichTextTool::DEFAULT`) |
+| `toolbar(bool)`, `footer(bool)` | Whether it has its bar, and the row under the box that says Markdown shortcuts are on and counts the words: both unless told |
+| `markdown_shortcuts(bool)` | Whether Markdown typed becomes what it says: on unless told |
+| `on_link_click(handler)` | Called with a link's target when it is clicked with Ctrl held (Cmd on a Mac): the app opens it |
+| `on_image(handler)` | What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to place outside it, and the editor draws none in its text |
+| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: its edge in the destructive, warning or success color |
+| `read_only(bool)` | It is focused, selected and copied, and not changed: its tools take no input |
+| `full_width(bool)` | As wide as what holds it, in place of 560 |
+| `label(&str)` | What it is called, to what reads the tree |
+| `name(..)` | The name of its document in a form (feature `form`): its value there is the document as Markdown, as it is at each change |
+| `toolbar_label`, `style_label`, `bold_label`, `italic_label`, `underline_label`, `strikethrough_label`, `bullet_label`, `ordered_label`, `quote_label`, `code_label`, `link_label`, `image_label`, `undo_label`, `redo_label`, `more_label`, `apply_label`, `remove_link_label` | What each control is called |
+| `paragraph_text`, `heading_text(Fn(level))`, `code_block_text`, `link_placeholder`, `shortcuts_text`, `count_text(Fn(words))` | The words it draws: the styles of its style control, the field of a link, and the footer's two texts |
+| `mount(ctx)` | Puts it in the tree: it keeps the text being edited, what its bar shows and the panel of a link |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. Its parts have the id with `-content`, `-toolbar`, `-style`, `-bold` and each tool's name, `-count` and `-link-field` after it |
+
+- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s) and what each paragraph is (`ParagraphKind`). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- It is the engine's [styled text input](../text-input-styled/) with kinds of paragraphs: the caret, the selection, the clipboard and the undo history are a text input's own, and a selection runs over paragraphs of any kind. A copy keeps the formatting: the clipboard of the system is given the selection as Markdown where it has marks or a paragraph that is not body text (the plain text where it has neither), so another app or another lurq process pastes the Markdown, and an input of the same app the plain text while the clipboard still holds what was written. A paste of Markdown, or of a text that reads as it (a line with a block mark, or a mark Markdown reads), comes with its marks and kinds as one undo step; any other text, and anything pasted into a block of code, is plain text in the style at the caret.
+- A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is selected; a list, a quote or a style over every paragraph the selection touches, and a second press of a list or a quote makes them paragraphs again. The bar shows what the selection is: a mark's tool is on while all of the selection has it, the style control says what its paragraphs are. A press of a tool leaves the focus in the text.
+- The style control makes a paragraph body text, a heading of a level from 1 to 3, or a line of a block of code. The link tool opens a panel at the selection with a field for the target: Enter or Apply links the selection, an empty target or Remove link takes the link away, Escape changes nothing, and the focus goes back to the text.
+- The keys, with Ctrl (Cmd on a Mac): B, I and U for bold, italic and underline, Shift+X to strike, E for code, K for a link, Alt+0 to Alt+3 for a paragraph and the headings, Shift+7, Shift+8 and Shift+9 for a numbered list, a bulleted one and a quote, Z and Y to undo and redo. Enter in an empty item or quote ends the list, Enter at the end of a heading starts a paragraph, and Backspace at the start of anything but a paragraph makes it one.
+- Markdown shortcuts: `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three backticks at the start of a paragraph make it what they say and are taken away; `**bold**`, `*italic*`, `_italic_`, `` `code` `` and `~~struck~~` become the mark as their last character is typed.
+- Parts: `RichTextEditorPart::Root`, `Toolbar` (laid over a [toolbar](#toolbar)'s root), `Tool`, `ToolOn` and `ToolIcon` (over its buttons and toggles, and a toggle that is on), `Style`, `StyleChevron` and `StyleList` (over a [select](#select)'s trigger, chevron and panel), `Content` (the box: its padding, the type of body text, and its gap, the room between two paragraphs), `Placeholder`, `Heading1`, `Heading2`, `Heading3` (levels 4 to 6 are drawn as the third), `Bullet` and `BulletMark`, `Ordered` and `OrderedMark`, `Quote` and `QuoteMark`, `CodeBlock`, `Footer`, `FooterText`, `LinkPanel` (over a [popover](#popover)'s panel). A paragraph's part gives its type over the content's, its start padding is the room before its text, and a mark's part its width, its gap to the text and its color. States: `RichTextEditorState::Focused`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the box is 560 wide in `Background` with an edge of 1 in `Border` and the large radius. The bar is 40 high on `Muted` over a line of 1, padded 6, its tools 28 square with the small radius and icons of 15, 2 apart, one that is on filled with `Background` (the board's `accent` is the bar's own fill, and would not show); the style control is 28 high and as wide as the name it shows (padded 10 before it and 6 after its chevron of 12, 6 from the name), its text 12, and its list as wide as its longest style with the check beside it. The box is padded 18 across and 16 down, its text the body's 14 in rows of 18, its paragraphs 10 apart. A heading of the second level is 22 semibold in rows of 26 (the first 28 bold in rows of 34, the third 18 semibold in rows of 22). An item's text starts 21 in after a dot of 5 in `MutedForeground`; a numbered item's 24 in, 6 after its number; a quote's 14 in, in `MutedForeground`, after a bar of 3 in `Border`; a block of code is the mono family at 13 in rows of 21 on `Muted`, 12 in. A row is as high as its kind says, whatever the font's own line is. The footer is 28 high over a line of 1, padded 12, its texts the mono family at 11 in `MutedForeground`; the count is of the runs of what is not white space. An empty editor draws its placeholder in the kind of its first paragraph, after its mark.
+- In a room narrower than its bar the tools that do not fit go into the menu of a More button at the bar's end, as a toolbar's do; the style control stays.
+- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`.
+- Built without `mount` (converted into an element) it is the still form of itself: the document as it is drawn, with nothing kept between two renders. A [field](#field) the app mounts (`Field::new("Notes", editor).mount(ctx)`) mounts it, calls it by its label, judges it and disables it.
+- A renderer that draws another editor has `view.bar()` (the toolbar, to add to), `view.toolbar` (it built), `view.content()`, `view.footer()`, `view.link_panel()`, `view.root()`, `view.paragraph_styles()` and `view.format`, what the selection is.
+
+## Editable
+
+A text that is read where it stands and edited in place: a title, a name, a cell.
+
+```rust
+use lurq::ui::Editable;
+
+// title: Signal<String>, set when an edit is kept.
+Editable::new(title.clone())
+  .label("Project name")
+  .placeholder("Untitled")
+  .on_change(|name| println!("renamed to {name}"))
+  .mount(ctx);
+
+// A list of names: no buttons, as wide as the row.
+Editable::new(file.clone()).actions(false).full_width(true).mount(ctx);
+
+// Held by the app, which starts the edit itself.
+Editable::controlled(&name, move |typed| rename(typed)).editing(renaming.clone()).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>)` | The text. An edit that is kept is written into the signal |
+| `controlled(value, on_change)` | A text the app holds: an edit that is kept is told to `on_change`, and the text shown is what the app answers with |
+| `on_change(handler)` | Called with the new `&str` when an edit that changed it is kept: by Enter, the button, or leaving the field. The signal is set first. Not for an edit that changed nothing |
+| `on_cancel(handler)` | Called when an edit is dropped: by Escape or the button |
+| `editing(Signal<bool>)` | Whether it is being edited, in the app's signal: the app starts an edit by setting it. Without it a mounted editable keeps this itself |
+| `default_editing(bool)` | Whether one that keeps this itself is being edited as it is first shown: a name just made |
+| `on_editing_change(handler)` | Called with `true` when a person starts an edit and with `false` when one ends, after `on_change` or `on_cancel`. Not when the app sets the signal |
+| `placeholder(&str)` | What the reading form shows while the text is empty, and the field while nothing is typed |
+| `actions(bool)` | Whether the editing form has the buttons that keep the edit and drop it: it has unless told |
+| `submit_on_blur(bool)` | Whether leaving the field keeps what was typed: it does unless told, and then leaving drops it |
+| `invalid(bool)` | What is typed is wrong: the field's edge says so |
+| `read_only(bool)` | The text is read and cannot be edited: no pencil, and a press does nothing |
+| `full_width(bool)` | As wide as what holds it: the text is cut where it is longer, and the field fills the room its buttons leave |
+| `label(&str)` | What the text is, to what reads the tree |
+| `confirm_label(&str)`, `cancel_label(&str)` | What its two buttons are called: "Save" and "Cancel" |
+| `mount(ctx)` | Puts it in the tree: it keeps whether it is being edited and what is typed, and moves the focus as an edit starts and ends |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. The field has the id with `-field` after it, the buttons `-confirm` and `-cancel` |
+
+- The reading form is one stop of Tab. A press of it, Enter, Space or F2 puts a field where the text was, with the text selected and the focus in it. Enter keeps what was typed and Escape drops it, as the two buttons do; leaving the field keeps it.
+- When an edit ends by a key or a button the focus goes back to the reading form. When it ends because the focus went elsewhere, the focus stays where it went: Tab in the field keeps the edit and goes on to the control after the editable. The two buttons are pressed by the pointer and are no stops of Tab.
+- Parts: `EditablePart::Root` (the reading form), `Label`, `Placeholder`, `Icon` (the pencil), `Editing` (the row of the field and its buttons), `Field` (laid over an [input](#input)'s root and control), `Confirm` and `Cancel` (over a [button](#button)'s root). States: `EditableState::Editing`, `Empty`, `Invalid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the reading form is a row 32 high: the text 16 semibold in `Foreground`, and 8 after it a pencil of 14 in `MutedForeground`. Edited, a field 160 wide and 32 high with text of 14, and 6 after it two buttons 32 square with icons of 16: the outline one keeps the edit, the ghost one drops it. A text longer than its room is cut with an ellipsis, and the pencil keeps its place.
+- To what reads the tree the reading form is a button called by its label, with the text as its description; the field is a `textbox` of the same name.
+- Built without `mount` it is the still form of itself: the reading form, or the editing one where the app's signal says so.
+- A renderer that draws another editable has `view.reading()` and `view.editor()`.
+
 ## Alert
 
 A message in the flow of a page about what is on it: a file that could not be saved, a disk that is nearly full, a shortcut to know.
@@ -4739,6 +4855,40 @@ view.on_key_down(move |event: KeyboardEvent| {
 they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
 and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it. The board draws the bar at 440 with the options in its field and no narrower form: the one button is lurq's.
 
+## Text Editing
+
+What every field of the design system draws while it is typed in. It is the engine's text input, so nothing is
+asked for but the two marks an app gives a field: the ranges its spelling checker found, and what would complete
+what is typed.
+
+```rust
+use lurq::ui::{ContextMenu, Input, MenuItem, Textarea};
+
+// The app's own checker says which bytes of the text are wrong.
+Input::new(text.clone()).squiggles(misspelled(&text.get()));
+Textarea::new(note.clone()).squiggles(misspelled(&note.get()));
+
+// What would complete what is typed, for what the field holds now. Tab takes it.
+Input::new(command.clone()).completion("n --release");
+
+// The commands of an edit in one row over the field.
+ContextMenu::new(open.clone(), Input::new(text.clone()))
+  .bar(true)
+  .items(["Cut", "Copy", "Paste", "Select All"].map(|name| MenuItem::new(name)));
+```
+
+| Mark | What draws it | |
+| --- | --- | --- |
+| Selection | The engine, in `PaletteColor::Selection` | Behind the band of the selected text (the font's ascent and descent), while the field has the focus. `TextInput::selection_color` for one field |
+| Caret | The engine, in the color of the text | A line where the next character goes, as wide and as high as [the theme's caret](../theme/#caret) says: the board's 1.5 by 18 in type of 14. It blinks unless the theme's `CaretMode` is `Persistent`. `TextInput::caret_color` for one field |
+| Composition | The engine, in the color of the text | A line under what an input method is composing, until it is committed, as thick as the theme's caret says: the board's 1.5 |
+| Spell check | `Input::squiggles(ranges)`, `Textarea::squiggles(ranges)` | A wavy line in `Destructive` under each range, bytes of the text, on every row the range is on. lurq has no checker: the app finds the ranges, and again after an edit. The part `Squiggle` (`InputPart`, `TextareaPart`) gives them another color |
+| Ghost completion | `Input::completion(&str)` | What would complete what is typed, drawn after it in `MutedForeground` at 0.7 while the field has the focus, holds text, and has the caret at its end with nothing selected. Tab puts it in the field as an edit (through `on_input`, one step of the undo) and the focus stays; anywhere else Tab goes on. The part `InputPart::Completion` gives it another color and opacity |
+| Edit menu | [`ContextMenu::bar(true)`](#context-menu) | The commands of selected text in one row over a field |
+
+- On the engine's input the two marks are `TextInput::squiggles(InputSquiggles::new(ranges).color(..))` and `TextInput::ghost(InputGhost::new(text).color(..).opacity(..))`. A masked input draws no squiggle, and an input with tokens or styled spans no ghost.
+- The key that takes a completion is not drawn by the input: put a [`Kbd`](#kbd) beside the field where it should be said.
+- The board fills a selection with `info-muted`; the engine's is the theme's `Selection` role, which the board has as a variable of its own.
 ## Tray Popover
 
 The small panel a press of an app's icon in the system tray or the menu bar opens: who the app is and how it is doing, a few switches, a few commands.

@@ -26,9 +26,6 @@ pub(crate) struct TextInputFrame {
   pub(crate) line_height: f32,
 }
 
-/// Thickness of the line under a composition, in logical pixels.
-const COMPOSITION_UNDERLINE_WIDTH: f32 = 1.0;
-
 impl LayoutEngine {
   /// Records the focused input's caret as the IME cursor area and underlines
   /// its composition, if any, in the text colour at the bottom of the glyph
@@ -62,10 +59,11 @@ impl LayoutEngine {
       abs_x + padding.left + state.caret_x(),
       abs_y + vertical_offset + state.caret_y() + band_top,
     );
+    let theme_caret = *self.caret.borrow();
     self.ime_cursor_area.set(Some(ImeCursorArea {
       x: caret.0,
       y: caret.1,
-      width: TEXT_INPUT_CARET_WIDTH,
+      width: theme_caret.width().max(TEXT_INPUT_CARET_WIDTH),
       height: band_height.max(1.0),
     }));
     let corner = painted(abs_x, abs_y);
@@ -85,7 +83,12 @@ impl LayoutEngine {
         .text_input_viewport(node, state, result, (abs_x, abs_y), padding)
         .transformed(transform),
     );
-    let underline_top = band_top + band_height.min(content_height) - COMPOSITION_UNDERLINE_WIDTH;
+    // As thick as the theme's caret says a composition's line is.
+    let line = theme_caret.composition_line();
+    if line <= 0.0 {
+      return;
+    }
+    let underline_top = band_top + band_height.min(content_height) - line;
     for range in ranges {
       let x = abs_x + padding.left + range.x;
       let y = abs_y + vertical_offset + range.y + underline_top;
@@ -94,7 +97,7 @@ impl LayoutEngine {
         x,
         y,
         width: range.width,
-        height: COMPOSITION_UNDERLINE_WIDTH,
+        height: line,
         opacity: DEFAULT_QUAD_OPACITY,
         transform: quad_transform,
         transform_origin,

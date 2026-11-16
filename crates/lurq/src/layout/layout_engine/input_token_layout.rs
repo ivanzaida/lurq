@@ -6,7 +6,7 @@ pub(crate) use crate::app::glyph_engine::input_tokens::DecoratedInputLayout as T
 use crate::{
   app::glyph_engine::{
     GlyphEngine,
-    input_tokens::{InputConfig, TextLines, TokenChip, TokenIcon, TokenStyle},
+    input_tokens::{InputConfig, ParagraphFormat, TextLines, TokenChip, TokenIcon, TokenStyle},
   },
   components::{InputTokenStyle, InputTokens},
   layout::{
@@ -50,7 +50,14 @@ impl LayoutEngine {
         style
       })
       .collect();
-    self.layout_decorated_input(glyphs, state, base, constraints, (tokens.source, styles), padding)
+    self.layout_decorated_input(
+      glyphs,
+      state,
+      base,
+      constraints,
+      (tokens.source, styles, Vec::new()),
+      padding,
+    )
   }
 
   /// The glyph engine's style of a token drawn with `look`, its roles resolved in this engine's theme.
@@ -134,7 +141,7 @@ impl LayoutEngine {
     state: &TextInputState,
     base: &TextStyle,
     constraints: Constraints,
-    (source, styles): (Arc<str>, Vec<TokenStyle>),
+    (source, styles, paragraphs): (Arc<str>, Vec<TokenStyle>, Vec<ParagraphFormat>),
     padding: ResolvedPadding,
   ) -> crate::layout::layout_result::LayoutResult {
     let multiline = state.overflow() == TextInputOverflow::Multiline;
@@ -153,12 +160,15 @@ impl LayoutEngine {
       width,
       min_width: constraints.min_width.max(DEFAULT_TEXT_INPUT_WIDTH).min(width),
       wrap: multiline,
+      // Kinds of paragraphs are laid out where the text wraps, a paragraph at a time.
+      paragraphs: if wrap { paragraphs } else { Vec::new() },
+      exact_rows: false,
     });
     let preferred = Size::new(
       if wrap {
         layout.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
       } else if multiline {
-        layout.size.width + super::TEXT_INPUT_CARET_WIDTH
+        layout.size.width + self.caret.borrow().width().max(super::TEXT_INPUT_CARET_WIDTH)
       } else {
         DEFAULT_TEXT_INPUT_WIDTH
       },
@@ -175,6 +185,7 @@ impl LayoutEngine {
       text_height: layout.size.height,
       line_height: layout.line_height,
       text_band: Some(layout.selection_band(0.0)),
+      caret_width: self.caret.borrow().width().max(super::TEXT_INPUT_CARET_WIDTH),
       token_layout: Some(layout),
       padding,
     };

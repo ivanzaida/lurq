@@ -31,7 +31,7 @@ mod typography;
 
 pub use border::{BorderSize, ThemeBorderSizes};
 pub use breakpoints::{Breakpoint, ThemeBreakpoints};
-pub use caret::{CaretMode, ThemeCaret};
+pub use caret::{CaretHeight, CaretMode, ThemeCaret};
 pub use definition::ThemeDefinition;
 #[cfg(feature = "form")]
 pub use form::{

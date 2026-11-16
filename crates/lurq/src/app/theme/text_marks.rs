@@ -37,14 +37,15 @@ impl TextMarkStyle {
 
 /// The look of each mark of styled text inputs
 /// ([`TextInput::spans`](crate::components::TextInput::spans)). A run with
-/// several marks takes them in the order code, bold, italic, strikethrough,
-/// link: a later mark's value wins where two set the same one.
+/// several marks takes them in the order code, bold, italic, underline,
+/// strikethrough, link: a later mark's value wins where two set the same one.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ThemeTextMarks {
   pub bold: TextMarkStyle,
   pub italic: TextMarkStyle,
   pub code: TextMarkStyle,
   pub strikethrough: TextMarkStyle,
+  pub underline: TextMarkStyle,
   pub link: TextMarkStyle,
 }
 
@@ -65,6 +66,7 @@ impl ThemeTextMarks {
       (style.code, &self.code),
       (style.bold, &self.bold),
       (style.italic, &self.italic),
+      (style.underline, &self.underline),
       (style.strikethrough, &self.strikethrough),
       (style.link.is_some(), &self.link),
     ];
@@ -98,6 +100,10 @@ impl Default for ThemeTextMarks {
       },
       strikethrough: TextMarkStyle {
         strikethrough: true,
+        ..TextMarkStyle::default()
+      },
+      underline: TextMarkStyle {
+        underline: true,
         ..TextMarkStyle::default()
       },
       link: TextMarkStyle {

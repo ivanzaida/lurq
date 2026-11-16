@@ -14,14 +14,9 @@ mod audio_queue;
 mod avatar;
 mod back_to_top;
 mod badge;
-mod bar_list;
-mod gauge;
-mod heatmap;
-mod meter;
-mod sparkline;
-mod stat_card;
 mod banner;
 mod bar_chart;
+mod bar_list;
 mod blockquote;
 mod breadcrumb;
 mod button;
@@ -49,6 +44,7 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
 mod family;
 mod family_play;
@@ -57,6 +53,8 @@ mod file_upload;
 mod find_bar;
 mod floating_panel;
 mod gallery;
+mod gauge;
+mod heatmap;
 mod hover_card;
 mod icons;
 mod info_label;
@@ -69,13 +67,14 @@ mod line_chart;
 mod list;
 mod listbox;
 mod markdown;
-mod media_time;
-mod mentions;
 mod media_speed_menu;
+mod media_time;
 mod media_volume;
+mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod meter;
 mod month_picker;
 mod multi_select;
 mod navbar;
@@ -100,6 +99,7 @@ mod radar_chart;
 mod radio;
 mod radio_card;
 mod rating;
+mod rich_text_editor;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
@@ -113,8 +113,10 @@ mod sidebar;
 mod skeleton;
 mod slider;
 mod sortable_list;
+mod sparkline;
 mod spinner;
 mod splitter;
+mod stat_card;
 mod status_bar;
 mod steps;
 mod swatch_picker;
@@ -123,6 +125,7 @@ mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
+mod text_editing;
 mod textarea;
 mod time_field;
 mod time_picker;
@@ -447,6 +450,22 @@ pub const PAGES: &[Page] = &[
     about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag value controller ention on_mention tokens rows placeholder size invalid warning valid read_only disabled full_width label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
+  },
+  Page {
+    path: "/rich-text-editor",
+    name: "Rich Text Editor",
+    icon: Some("pencil"),
+    about: "rich text editor wysiwyg formatted text markdown bold italic underline strikethrough code link heading list bullet numbered ordered quote toolbar undo redo document notes comment richtext value controlled on_change on_link_click on_image controller tools toolbar footer markdown_shortcuts placeholder rows invalid warning valid read_only disabled full_width label count_text",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<rich_text_editor::RichTextEditorPage>(()),
+  },
+  Page {
+    path: "/editable",
+    name: "Editable",
+    icon: Some("pencil"),
+    about: "editable inline edit in place rename title name text field enter f2 escape commit cancel blur pencil save value controlled on_change on_cancel editing default_editing on_editing_change placeholder actions submit_on_blur invalid read_only disabled full_width label confirm_label cancel_label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<editable::EditablePage>(()),
   },
   Page {
     path: "/info-label",
@@ -1242,6 +1261,14 @@ pub const PAGES: &[Page] = &[
     about: "find bar findbar search find in page replace replace all match case whole word regex regular expression count matches next previous f3 enter escape ctrl+f query on_query on_next on_previous on_replace on_replace_all on_dismiss return_focus open count_text",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<find_bar::FindBarPage>(()),
+  },
+  Page {
+    path: "/text-editing",
+    name: "Text Editing",
+    icon: Some("text-cursor"),
+    about: "text editing selection caret cursor ime composition input method spell check spelling squiggle wavy underline misspelled ghost completion autocomplete suggestion tab edit menu cut copy paste select all squiggles completion InputSquiggles InputGhost",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<text_editing::TextEditingPage>(()),
   },
   Page {
     path: "/floating-panel",

@@ -10,8 +10,8 @@ use crate::{
     ctx::{ModalSpec, OverlaySpec},
     glyph_engine::GlyphEngine,
     theme::{
-      CaretMode, PaletteColor, Theme, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeShadows,
-      ThemeSpacing, ThemeTypography,
+      CaretHeight, CaretMode, PaletteColor, Theme, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii,
+      ThemeShadows, ThemeSpacing, ThemeTypography,
     },
   },
   core::{ElementRect, ElementRef, NodeId},
@@ -51,6 +51,7 @@ pub(crate) mod inline_links;
 pub(crate) mod inline_links;
 mod input_gutter;
 mod input_layout;
+mod input_marks;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
 #[cfg(feature = "perf_profile")]
@@ -117,7 +118,9 @@ fn layout_kind_profile_name(kind: &LayoutKind) -> &'static str {
 
 const DEFAULT_TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 const DEFAULT_TEXT_SELECTION_COLOR: Color = Color::new(191, 219, 254, 255);
-/// Width of a text input's caret, in logical pixels.
+/// The room a text input keeps for its caret where it is as wide as its text, and the width of what stands for
+/// the caret to an overlay, in logical pixels. The caret itself is as wide as the theme says
+/// ([`ThemeCaret::width`]).
 const TEXT_INPUT_CARET_WIDTH: f32 = 1.0;
 fn text_input_display_style<'a>(
   state: &crate::node::node_kind::TextInputState,
@@ -1941,6 +1944,25 @@ impl LayoutEngine {
     {
       self.push_focused_text_input_ime_quads(node, state, style, result, (abs_x, abs_y), transform, clip, quads);
     }
+    if let NodeKind::TextInput {
+      state,
+      style,
+      placeholder_style,
+    } = node.node_kind()
+    {
+      self.push_text_input_marks(
+        node,
+        state,
+        style,
+        placeholder_style.as_deref(),
+        result,
+        (abs_x, abs_y),
+        transform,
+        clip,
+        opacity,
+        quads,
+      );
+    }
 
     match node.node_kind() {
       NodeKind::TextInput { state, style, .. } if state.is_focused() && self.should_render_text_input_caret(node) => {
@@ -1948,15 +1970,37 @@ impl LayoutEngine {
         let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
         let viewport = self.text_input_viewport(node, state, result, (abs_x, abs_y), padding);
         let caret_line_height = state.caret_height();
-        // Line height controls row pitch, but the insertion caret should track
-        // the glyph/em height. Otherwise readable multiline leading produces
-        // a visually oversized caret.
-        let caret_height = state
-          .caret_font_size(style.font_size)
-          .min(caret_line_height)
-          .min(content_height)
-          .max(1.0);
-        let caret_leading = ((caret_line_height - caret_height) * 0.5).max(0.0);
+        let theme_caret = *self.caret.borrow();
+        let caret_width = theme_caret.width();
+        // Line height controls row pitch, but the insertion caret tracks the type: a share of the font size where
+        // the caret stands, or the band of the text in its line, as the theme says. Otherwise readable multiline
+        // leading produces a visually oversized caret. It is centred in its line. Among the rows of a multiline
+        // input it is never higher than its row; in a single line it may be, up to the box the text is in.
+        let caret_room = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
+          caret_line_height.min(content_height)
+        } else {
+          content_height
+        };
+        let (caret_height, caret_leading) = match theme_caret.height() {
+          CaretHeight::FontSize(share) => {
+            let share = if share.is_finite() && share > 0.0 { share } else { 1.0 };
+            let height = (state.caret_font_size(style.font_size) * share)
+              .min(caret_room)
+              .max(1.0);
+            (height, (caret_line_height - height) * 0.5)
+          }
+          CaretHeight::TextBand => {
+            let (band_top, band_height) = state.selection_band_for_row(state.caret_y(), state.text_band());
+            let height = band_height.min(caret_room).max(1.0);
+            // A row with no text in it has no band of its own: the caret is centred in it.
+            let top = if band_top + height > caret_line_height + 0.01 || band_height >= caret_line_height {
+              ((caret_line_height - height) * 0.5).max(0.0)
+            } else {
+              band_top.max(0.0)
+            };
+            (height, top)
+          }
+        };
         let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
         // The caret starts at its insertion point, after the glyph before it.
         // At the start of a line nothing precedes it, so it ends there
@@ -1965,7 +2009,7 @@ impl LayoutEngine {
         // about zero. Where an ancestor clips right at that edge it stays at
         // the edge rather than disappear.
         let insertion_x = abs_x + padding.left + state.caret_x();
-        let before_x = insertion_x - TEXT_INPUT_CARET_WIDTH;
+        let before_x = insertion_x - caret_width;
         let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
         let caret_x = if state.caret_at_line_start() && room_before {
           before_x
@@ -1984,7 +2028,7 @@ impl LayoutEngine {
         quads.push(Quad {
           x: caret_x,
           y: caret_y,
-          width: TEXT_INPUT_CARET_WIDTH,
+          width: caret_width,
           height: caret_height,
           opacity,
           transform: caret_transform,
@@ -1999,8 +2043,8 @@ impl LayoutEngine {
             clip,
             ClipRect {
               // Room for a caret at the start of a line.
-              x: viewport.x - TEXT_INPUT_CARET_WIDTH,
-              width: viewport.width + TEXT_INPUT_CARET_WIDTH,
+              x: viewport.x - caret_width,
+              width: viewport.width + caret_width,
               ..viewport
             }
             .transformed(transform),

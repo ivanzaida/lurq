@@ -50,8 +50,19 @@ pub(super) fn build_select_menu(
       }
     }
     positions.push(rows.len());
-    rows.push(option_row(state, &style, index, label, labels.len(), measure));
+    rows.push(option_row(state, &style, index, label, labels.len(), false, measure));
   }
+  // A list as wide as its longest option: each option as wide as what it holds, with the room of a mark, in the
+  // menu's own padding and border.
+  let fitted = style.menu_fits_options.then(|| {
+    let options = labels
+      .iter()
+      .enumerate()
+      .map(|(index, label)| option_row(state, &style, index, label, labels.len(), true, measure))
+      .collect();
+    let probe = Node::column(0.0, Alignment::Start, options).apply_select_part(&style.menu);
+    measure(&probe).size.width.ceil()
+  });
   // What the list says of itself, after its options: that it has none, or that more are loading.
   if let Some(status) = state.status() {
     let mut row = Node::row(0.0, Alignment::Center, vec![status.into_node()]).width(Dimension::Pct(100.0));
@@ -66,7 +77,10 @@ pub(super) fn build_select_menu(
   if let Some(padding) = menu_part.padding.take() {
     list = list.padding_custom(padding);
   }
-  let width = bounds.width.max(style.min_menu_width).min(viewport.width.max(0.0));
+  let width = fitted
+    .unwrap_or(bounds.width)
+    .max(style.min_menu_width)
+    .min(viewport.width.max(0.0));
   let mut menu = crate::node::dsl::scroll_vertical(list)
     .with_scroll_state(state.menu_scroll())
     .apply_select_part(&menu_part)
@@ -156,6 +170,8 @@ fn option_row(
   index: usize,
   label: &str,
   count: usize,
+  // The row as wide as what it holds and with the room of a mark, to be measured: not one of the menu's rows.
+  probe: bool,
   measure: &mut dyn FnMut(&Node) -> LayoutResult,
 ) -> Node {
   let option = SelectOptionState {
@@ -190,11 +206,12 @@ fn option_row(
     (element, hint) => element.or(hint),
   };
   let slots = [leading, trailing];
-  let content = option_content(&part, style, label, state.detail(index), slots, measure);
+  let content = option_content(&part, style, label, state.detail(index), slots, !probe, measure);
   let multiple = state.multiple();
   // A slot keeps the labels in line where the mark is before them. After them, in a single-select, only the chosen
   // row needs it: the others' labels may run to the row's end.
-  let slot_kept = !matches!(style.checkmark_position, SelectCheckmarkPosition::Trailing) || multiple || option.selected;
+  let slot_kept =
+    probe || !matches!(style.checkmark_position, SelectCheckmarkPosition::Trailing) || multiple || option.selected;
   let (gap, children) = if style.shows_checkmark(multiple) && slot_kept {
     let slot = checkmark_slot(style, &part, option.selected);
     let children = match style.checkmark_position {
@@ -206,9 +223,11 @@ fn option_row(
     (SpacingValue::from(0.0), vec![content])
   };
 
-  let mut row = Node::row(gap, Alignment::Center, children)
-    .width(Dimension::Pct(100.0))
-    .apply_select_part(&part);
+  let mut row = Node::row(gap, Alignment::Center, children).apply_select_part(&part);
+  if probe {
+    return row;
+  }
+  row = row.width(Dimension::Pct(100.0));
   if part.min_height.is_none() {
     row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
   }
@@ -251,8 +270,12 @@ fn option_content(
   label: &str,
   detail: Option<Arc<str>>,
   [leading, trailing]: [Option<Node>; 2],
+  // Whether the text takes the room of its row; a row measured for its natural width does not grow.
+  grows: bool,
   measure: &mut dyn FnMut(&Node) -> LayoutResult,
 ) -> Node {
+  let grow = |node: Node| if grows { node.flex(1.0) } else { node };
+  let full = |node: Node| if grows { node.width(Dimension::Pct(100.0)) } else { node };
   let line = |node: Node| {
     node
       .text_wrap(false)
@@ -268,22 +291,14 @@ fn option_content(
   let adorned = leading.is_some() || trailing.is_some();
   let gap = style.option_adornment_gap;
   let around = |before: Option<Node>, text: Node, after: Option<Node>, align: Alignment| {
-    let children = before.into_iter().chain([text.flex(1.0)]).chain(after).collect();
+    let children = before.into_iter().chain([grow(text)]).chain(after).collect();
     Node::row(gap, align, children)
   };
 
   match (detail, adorned) {
-    (None, false) => label.flex(1.0),
-    (None, true) => around(leading, label, trailing, Alignment::Center)
-      .min_width(0.0)
-      .flex(1.0),
-    (Some(detail), false) => Node::column(
-      0.0,
-      Alignment::Start,
-      vec![label.width(Dimension::Pct(100.0)), detail.width(Dimension::Pct(100.0))],
-    )
-    .min_width(0.0)
-    .flex(1.0),
+    (None, false) => grow(label),
+    (None, true) => grow(around(leading, label, trailing, Alignment::Center).min_width(0.0)),
+    (Some(detail), false) => grow(Node::column(0.0, Alignment::Start, vec![full(label), full(detail)]).min_width(0.0)),
     (Some(detail), true) => {
       let mut spacer = |slot: &Option<Node>| {
         slot.as_ref().map(|element| {
@@ -293,17 +308,17 @@ fn option_content(
         })
       };
       let (before, after) = (spacer(&leading), spacer(&trailing));
-      let full = |row: Node| row.width(Dimension::Pct(100.0));
-      Node::column(
-        0.0,
-        Alignment::Start,
-        vec![
-          full(around(leading, label, trailing, Alignment::Center)),
-          full(around(before, detail, after, Alignment::Start)),
-        ],
+      grow(
+        Node::column(
+          0.0,
+          Alignment::Start,
+          vec![
+            full(around(leading, label, trailing, Alignment::Center)),
+            full(around(before, detail, after, Alignment::Start)),
+          ],
+        )
+        .min_width(0.0),
       )
-      .min_width(0.0)
-      .flex(1.0)
     }
   }
 }

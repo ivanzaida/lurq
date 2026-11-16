@@ -439,7 +439,7 @@ fn after_escape_the_editor_paints_no_caret() {
     stage
       .quads()
       .into_iter()
-      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .filter(|quad| quad.width == crate::support::caret_width() && quad.height > 8.0 && quad.border.is_none())
       .count()
   };
   let unfocused = carets(&stage);
@@ -465,7 +465,7 @@ fn two_grids_of_the_same_values_paint_one_caret_and_none_after_escape() {
     stage
       .quads()
       .into_iter()
-      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .filter(|quad| quad.width == crate::support::caret_width() && quad.height > 8.0 && quad.border.is_none())
       .count()
   };
   let unfocused = carets(&stage);
@@ -484,7 +484,7 @@ fn a_press_of_a_name_then_escape_leaves_no_caret() {
     stage
       .quads()
       .into_iter()
-      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .filter(|quad| quad.width == crate::support::caret_width() && quad.height > 8.0 && quad.border.is_none())
       .count()
   };
   let unfocused = carets(&stage);

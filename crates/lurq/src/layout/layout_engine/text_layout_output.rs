@@ -166,6 +166,9 @@ pub(crate) struct TextInputOutput {
   pub(super) text_height: f32,
   pub(super) line_height: f32,
   pub(super) text_band: Option<(f32, f32)>,
+  /// The room the caret takes after the text, which a single-line input scrolls into view with it: the theme's
+  /// caret's width.
+  pub(super) caret_width: f32,
   /// The input's padding around `size`, with a reserved scrollbar's lane
   /// ([`LayoutEngine::text_input_scrollbar_lane`]) in its right side. A
   /// multiline input scrolls it with the text.
@@ -209,7 +212,7 @@ impl TextInputOutput {
   /// shows its configured end.
   fn horizontal_scroll(&self, state: &TextInputState) -> f32 {
     let caret_x = state.caret_x() + state.scroll_x();
-    let caret_width = 1.0;
+    let caret_width = self.caret_width;
     let max_scroll = (self.text_width + caret_width - self.size.width).max(0.0);
     if !state.is_focused() {
       return match state.unfocused_overflow_anchor() {

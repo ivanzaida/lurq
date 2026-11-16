@@ -34,7 +34,7 @@ impl LayoutEngine {
     let preferred_width = if wraps {
       text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
     } else if multiline {
-      text_result.size.width + TEXT_INPUT_CARET_WIDTH
+      text_result.size.width + self.caret.borrow().width().max(TEXT_INPUT_CARET_WIDTH)
     } else {
       DEFAULT_TEXT_INPUT_WIDTH
     };
@@ -79,6 +79,7 @@ impl LayoutEngine {
       text_height,
       line_height,
       text_band: glyph_engine.line_content_band(style),
+      caret_width: self.caret.borrow().width().max(TEXT_INPUT_CARET_WIDTH),
       padding,
     };
     Self::text_input_result(state, output)
