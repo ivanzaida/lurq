@@ -12,7 +12,14 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use super::{DateLocale, MediaWords, Signal};
+use super::{
+  CommonWords, DataWords, DateLocale, EditingWords, FieldWords, KeyWords, MediaWords, NavigationWords, Plural,
+  PluralRule, Signal,
+};
+
+/// The languages lurq has words for.
+#[cfg(test)]
+pub(crate) const LANGUAGES: [&str; 6] = ["en", "uk", "de", "fr", "es", "pl"];
 
 /// Every word lurq writes by itself, in one language. Every field is the app's to replace.
 ///
@@ -39,6 +46,20 @@ pub struct Locale {
   pub dates: DateLocale,
   /// What a media and its players say: the names of their controls, and why a media cannot play.
   pub media: MediaWords,
+  /// What many components say alike: "Close", "Clear", "More", "No results", a count of things chosen.
+  pub common: CommonWords,
+  /// What fields, pickers and forms say: their buttons, a password's strength, a color's channels, a file's size.
+  pub fields: FieldWords,
+  /// What the ways about an app say: windows, panels, tabs, sidebars, pages, slides, steps, notifications.
+  pub navigation: NavigationWords,
+  /// What tables, lists and charts say: counts of rows, a column's menus, filters, sums, a chart's names.
+  pub data: DataWords,
+  /// What the tools of writing say: find and replace, a rich text editor, a block of code, a command palette.
+  pub editing: EditingWords,
+  /// What keys are called where they are written in words.
+  pub keys: KeyWords,
+  /// Which form of a word the language puts after a number: what [`Locale::count`] says a [`Plural`] with.
+  pub plural: PluralRule,
 }
 
 impl Locale {
@@ -47,6 +68,13 @@ impl Locale {
       tag: Arc::from("en"),
       dates: DateLocale::english(),
       media: MediaWords::english(),
+      common: CommonWords::english(),
+      fields: FieldWords::english(),
+      navigation: NavigationWords::english(),
+      data: DataWords::english(),
+      editing: EditingWords::english(),
+      keys: KeyWords::english(),
+      plural: PluralRule::OneOther,
     }
   }
 
@@ -60,6 +88,13 @@ impl Locale {
       tag: Arc::from(tag.trim()),
       dates,
       media: MediaWords::for_language(language),
+      common: CommonWords::for_language(language),
+      fields: FieldWords::for_language(language),
+      navigation: NavigationWords::for_language(language),
+      data: DataWords::for_language(language),
+      editing: EditingWords::for_language(language),
+      keys: KeyWords::for_language(language),
+      plural: PluralRule::for_language(language),
     }
   }
 
@@ -73,6 +108,26 @@ impl Locale {
   pub fn with_media(mut self, media: MediaWords) -> Self {
     self.media = media;
     self
+  }
+
+  /// `word` said after `count`, in the form this locale's language gives it there: "3 rows", "3 рядки".
+  ///
+  /// ```
+  /// use lurq::core::Locale;
+  ///
+  /// let locale = Locale::for_tag("pl");
+  /// assert_eq!(locale.count(&locale.data.rows, 1), "1 wiersz");
+  /// assert_eq!(locale.count(&locale.data.rows, 4), "4 wiersze");
+  /// assert_eq!(locale.count(&locale.data.rows, 5), "5 wierszy");
+  /// ```
+  pub fn count(&self, word: &Plural, count: usize) -> String {
+    word.say(self.plural, count as u64)
+  }
+
+  /// The form of `word` this locale's language gives it after `count`, its places not filled: for a sentence
+  /// with other places than the count.
+  pub fn form<'a>(&self, word: &'a Plural, count: usize) -> &'a Arc<str> {
+    word.form(self.plural, count as u64)
   }
 }
 
