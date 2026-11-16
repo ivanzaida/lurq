@@ -209,6 +209,7 @@ pub struct TeachingTip {
   collision: CollisionStrategy,
   arrow: bool,
   takes_focus: bool,
+  traps_tab: bool,
   width: Option<Length>,
   states: Vec<Name>,
   rules: Recipe,
@@ -247,6 +248,7 @@ impl TeachingTip {
       collision: CollisionStrategy::FlipThenClamp,
       arrow: true,
       takes_focus: false,
+      traps_tab: false,
       width: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -393,6 +395,14 @@ impl TeachingTip {
   /// default, when Tab goes from what it points at into its buttons.
   pub fn takes_focus(mut self, takes: bool) -> Self {
     self.takes_focus = takes;
+    self
+  }
+
+  /// Whether Tab stays in it while the focus is in it, going round from its last button to its first: for a tip
+  /// a person is to finish before going on. Off by default, when Tab goes on from its last button to what
+  /// follows what it points at; a [`Tour`] turns it on for its card.
+  pub fn traps_tab(mut self, traps: bool) -> Self {
+    self.traps_tab = traps;
     self
   }
 
@@ -712,7 +722,14 @@ impl TeachingTipView {
       actions = actions.child(self.action(secondary, TeachingTipPart::SecondaryAction, back));
     }
     if let Some(primary) = primary {
-      actions = actions.child(self.action(primary, TeachingTipPart::PrimaryAction, go));
+      let button = self.action(primary, TeachingTipPart::PrimaryAction, go);
+      actions = if self.grouped {
+        // A tour's card takes the focus on the button that goes on, whatever stands before it: Enter on a tour
+        // that has just started goes on, and does not skip it or go back.
+        actions.child(super::message_box::autofocus(button.build(self.theme())))
+      } else {
+        actions.child(button)
+      };
     }
     Some(footer.child(actions))
   }
@@ -1012,7 +1029,8 @@ impl Component for TeachingTipHost {
       .collision(tip.collision)
       .takes_focus(tip.takes_focus)
       // Without taking the focus, Tab goes from what it points at into its buttons.
-      .tab_after_anchor(!tip.takes_focus);
+      .tab_after_anchor(!tip.takes_focus)
+      .traps_tab(tip.traps_tab);
     let popup = match layer {
       Some(open) => popup
         .open(open)
@@ -1121,9 +1139,12 @@ type StepHandler = Arc<dyn Fn(Option<usize>) + Send + Sync>;
 /// control, under what it points at and centered on it unless the tour or the
 /// step says otherwise.
 ///
-/// The focus goes into the step's card as the tour starts, stays on the
+/// The focus goes into the step's card as the tour starts, on the button
+/// that goes on whatever stands before it, stays on the
 /// button that was pressed from step to step, and goes back to what had it as
-/// the tour ends ([`takes_focus`](Self::takes_focus) says otherwise). While
+/// the tour ends ([`takes_focus`](Self::takes_focus) says otherwise). Tab is
+/// held in the card: from its last button it goes round to its first
+/// ([`traps_tab`](Self::traps_tab) says otherwise). While
 /// the focus is in the card the Right arrow goes on a step and the Left one
 /// back, Home and End go to the first and the last, and Escape leaves.
 ///
@@ -1145,6 +1166,7 @@ pub struct Tour {
   collision: CollisionStrategy,
   arrow: bool,
   takes_focus: bool,
+  traps_tab: bool,
   dismiss_on_escape: bool,
   dismiss_on_outside_press: bool,
   on_change: Vec<StepHandler>,
@@ -1184,6 +1206,7 @@ impl Tour {
       collision: CollisionStrategy::FlipThenClamp,
       arrow: true,
       takes_focus: true,
+      traps_tab: true,
       dismiss_on_escape: true,
       dismiss_on_outside_press: false,
       on_change: Vec::new(),
@@ -1278,6 +1301,15 @@ impl Tour {
   /// it points at.
   pub fn takes_focus(mut self, takes: bool) -> Self {
     self.takes_focus = takes;
+    self
+  }
+
+  /// Whether Tab stays in the step's card while the focus is in it: from its last button Tab goes to its first,
+  /// and Shift+Tab from its first to its last. It does by default; without, Tab goes on from the card's last
+  /// button to what follows what the step points at. The card closes nothing behind it either way: the page
+  /// answers the pointer, and Escape leaves the tour.
+  pub fn traps_tab(mut self, traps: bool) -> Self {
+    self.traps_tab = traps;
     self
   }
 
@@ -1405,6 +1437,7 @@ impl Tour {
       .collision(self.collision)
       .arrow(self.arrow)
       .takes_focus(self.takes_focus)
+      .traps_tab(self.traps_tab)
       .dismiss_on_escape(self.dismiss_on_escape)
       .dismiss_on_outside_press(self.dismiss_on_outside_press)
       .rules(&self.rules);

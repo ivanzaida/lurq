@@ -105,6 +105,7 @@ pub struct TourPage {
   skip: Signal<bool>,
   arrow: Signal<bool>,
   takes_focus: Signal<bool>,
+  traps_tab: Signal<bool>,
   outside: Signal<bool>,
   /// The tour with Skip, and the one whose step the page holds.
   skipped: ([ElementRef; 4], Signal<Option<usize>>, Signal<String>),
@@ -132,6 +133,7 @@ impl TourPage {
       self.takes_focus.get(),
       self.outside.get(),
     );
+    let traps_tab = self.traps_tab.get();
     let step = self.step.get();
     let plain = move |step: Signal<Option<usize>>, anchors: &[ElementRef; 4]| {
       steps(Tour::new(step), anchors)
@@ -140,6 +142,7 @@ impl TourPage {
         .skip_button(skip)
         .arrow(arrow)
         .takes_focus(takes_focus)
+        .traps_tab(traps_tab)
         .dismiss_on_outside_press(outside)
     };
     let record = self.playground.recorder();
@@ -166,7 +169,7 @@ impl TourPage {
     let shown = stage(
       start,
       &self.anchors,
-      "Right and Left step while the focus is in the card · Escape leaves",
+      "Right and Left step while the focus is in the card · Tab goes round it · Escape leaves",
       tour.mount(ctx),
     );
 
@@ -192,6 +195,9 @@ impl TourPage {
     }
     if !takes_focus {
       code.push("    .takes_focus(false)".to_owned());
+    }
+    if !traps_tab {
+      code.push("    .traps_tab(false)".to_owned());
     }
     if outside {
       code.push("    .dismiss_on_outside_press(true)".to_owned());
@@ -229,6 +235,7 @@ impl TourPage {
       self.arrow.clone(),
       self.takes_focus.clone(),
       self.outside.clone(),
+      self.traps_tab.clone(),
     ];
     let (set_variant, set_placement) = (self.variant.clone(), self.placement.clone());
     let variants: Vec<(&str, usize)> = VARIANTS
@@ -276,6 +283,7 @@ impl TourPage {
           flag("skip_button", &self.skip),
           flag("arrow", &self.arrow),
           flag("takes_focus", &self.takes_focus),
+          flag("traps_tab", &self.traps_tab),
           flag("dismiss_on_outside_press", &self.outside),
         ],
         changed: [
@@ -284,6 +292,7 @@ impl TourPage {
           skip,
           !arrow,
           !takes_focus,
+          !traps_tab,
           outside,
         ]
         .into_iter()
@@ -297,6 +306,7 @@ impl TourPage {
           flags[1].set(true);
           flags[2].set(true);
           flags[3].set(false);
+          flags[4].set(true);
         }),
       },
     )
@@ -317,6 +327,7 @@ impl Component for TourPage {
       skip: ctx.signal(false),
       arrow: ctx.signal(true),
       takes_focus: ctx.signal(true),
+      traps_tab: ctx.signal(true),
       outside: ctx.signal(false),
       skipped: (four(), ctx.signal(None), ctx.signal(String::new())),
       held: (four(), ctx.signal(None)),
@@ -466,6 +477,12 @@ impl Component for TourPage {
         "Whether the focus goes into the card as the tour starts and back to what had it as it ends. The arrows \
          step while the focus is in the card.",
       ),
+      (
+        "traps_tab",
+        "bool",
+        "true",
+        "Whether Tab stays in the card while the focus is in it, going round from its last button to its first.          The page behind still answers the pointer.",
+      ),
       ("dismiss_on_escape", "bool", "true", "Whether Escape leaves the tour."),
       (
         "dismiss_on_outside_press",
@@ -493,8 +510,8 @@ impl Component for TourPage {
         breadcrumb: &["Components", "Surfaces & overlays", "Tour"],
         title: "Tour",
         description: "The steps of a walk over an app: a card at one thing after another, each with its count and a \
-                      button back and on. Every step is a teaching tip; the tour holds the focus in its card, steps \
-                      on the arrow keys, and gives the focus back when it ends.",
+                      button back and on. Every step is a teaching tip; the tour holds the focus and Tab in its card, \
+                      steps on the arrow keys, and gives the focus back when it ends.",
         import: Some("use lurq::ui::{Tour, TourStep};"),
         status: Some("Stable"),
         since: Some("0.62"),

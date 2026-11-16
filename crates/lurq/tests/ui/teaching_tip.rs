@@ -1042,3 +1042,135 @@ fn a_tours_step_is_the_boards_card() {
     Some(BoxShadowValue::Theme(ShadowStyle::Md))
   ));
 }
+
+// --- Tab in the tour's card ---
+
+fn shift_tab(stage: &mut Stage) {
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage
+    .tree
+    .key_up("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+}
+
+/// A tour started from its button and taken to its second step, which has Back and Next: the focus is on Next.
+fn at_the_second_step(make: impl Fn(Tour) -> Tour + Send + Sync + 'static) -> (Stage, Signal<Option<usize>>) {
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, make);
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.pass();
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(1));
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  (stage, step)
+}
+
+#[test]
+fn a_tour_that_starts_takes_the_focus_on_the_button_that_goes_on_whatever_stands_before_it() {
+  // With Skip before it, and started at a step that has Back before it.
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, |tour| tour.skip_button(true));
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(0));
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"), "not on Skip");
+  stage.key("Escape");
+  stage.pass();
+  step.set(Some(1));
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"), "not on Back");
+}
+
+#[test]
+fn tab_is_held_in_a_tours_card_and_goes_round_it_both_ways() {
+  let (mut stage, step) = at_the_second_step(|tour| tour.skip_button(true));
+  // Skip, Back, Next: from the last Tab goes to the first, and Shift+Tab from the first to the last.
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-tertiary"), "round to the first");
+  assert_eq!(step.get(), Some(1), "Tab steps nothing");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-secondary"));
+  assert_eq!(step.get(), Some(1));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  assert_eq!(step.get(), Some(1));
+  shift_tab(&mut stage);
+  assert_eq!(step.get(), Some(1), "nor does Shift+Tab");
+  shift_tab(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("tour-tertiary"));
+  assert_eq!(step.get(), Some(1));
+  shift_tab(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"), "round the other way");
+  assert_eq!(step.get(), Some(1));
+
+  // Held at the next step too, the card being the same overlay at another element; and Escape leaves as it did.
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(2));
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("tour-secondary"),
+    "the last step has no Skip"
+  );
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(step.get(), None);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("start"),
+    "the focus goes back to what had it"
+  );
+}
+
+#[test]
+fn a_tour_told_not_to_hold_tab_lets_it_leave_the_card() {
+  let (mut stage, step) = at_the_second_step(|tour| tour.traps_tab(false));
+  stage.key("Tab");
+  let now = focused(&stage);
+  assert!(
+    !now.as_deref().is_some_and(|id| id.starts_with("tour-")),
+    "Tab went on from the card's last button: {now:?}"
+  );
+  assert_eq!(step.get(), Some(1), "the tour is still on");
+}
+
+#[test]
+fn a_teaching_tip_alone_does_not_hold_tab_unless_it_is_told_to() {
+  let tip = |traps: bool| {
+    let open = Signal::new(false);
+    let mut stage = {
+      let open = open.clone();
+      stage(&open.clone(), move |anchor, open| {
+        TeachingTip::new(open, anchor)
+          .title(TITLE)
+          .secondary("Not now", || ())
+          .primary("Got it", || ())
+          .close_button(false)
+          .takes_focus(true)
+          .traps_tab(traps)
+          .id("tip")
+      })
+    };
+    open.set(true);
+    stage.pass();
+    assert_eq!(focused(&stage).as_deref(), Some("tip-secondary"), "it takes the focus");
+    stage.key("Tab");
+    assert_eq!(focused(&stage).as_deref(), Some("tip-primary"));
+    stage.key("Tab");
+    focused(&stage)
+  };
+  let left = tip(false);
+  assert!(
+    !left.as_deref().is_some_and(|id| id.starts_with("tip-")),
+    "Tab goes on from its last button: {left:?}"
+  );
+  assert_eq!(tip(true).as_deref(), Some("tip-secondary"), "held, it goes round");
+}
