@@ -4473,6 +4473,59 @@ view.on_key_down(move |event: KeyboardEvent| {
 - The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
 
+## Tray Popover
+
+The small panel a press of an app's icon in the system tray or the menu bar opens: who the app is and how it is doing, a few switches, a few commands.
+
+```rust
+use lurq::ui::{TrayAction, TrayPopover, TrayStatusVariant, TrayToggle, icons};
+
+// sync, paused: Signal<bool>, kept by the app.
+TrayPopover::new("lurq")
+  .icon(icons::BOX)
+  .status("Synced just now")
+  .item(TrayToggle::new("Sync in background").bind(sync.clone()))
+  .item(TrayToggle::new("Pause notifications").bind(paused.clone()))
+  .separator()
+  .item(TrayAction::new("Open lurq").on_select(move || show_window()))
+  .item(TrayAction::new("Preferences…").on_select(move || preferences()))
+  .item(TrayAction::new("Quit").on_select(move || quit()));
+
+// Over the app's own window, beside an element of its own: open: Signal<bool>, anchor: ElementRef.
+TrayPopover::new("lurq")
+  .status("Offline")
+  .status_variant(TrayStatusVariant::Warning)
+  .item(TrayAction::new("Retry now").on_select(move || retry()))
+  .anchored(open.clone(), anchor.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `TrayPopover::new(&str)` | What the app is called: the title, and what the panel is called |
+| `icon(impl Into<Name>)`, `media(element)` | The app's mark before its title: an icon of 16 on a tile of 28 in the primary color, or the app's own picture in place of the tile |
+| `status(&str)`, `status_variant(impl Into<Name>)` | How the app is doing, under its title after a dot, and the tone that colors the dot: a `TrayStatusVariant`, `Neutral`, `Info`, `Success` (the default), `Warning`, `Destructive` |
+| `item(impl Into<TrayItem>)`, `items(..)` | A row: a `TrayAction` or a `TrayToggle` |
+| `separator()` | A line between two groups of rows. The line under the header is there by itself |
+| `child(element)`, `children(..)` | Something of the app's own among the rows: a progress, an account |
+| `anchored(open, anchor)` | Shows the panel over the window beside `anchor` while the `Signal<bool>` is `true`, in place of where it is declared |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Where an anchored one stands: under its anchor with its end at the anchor's end (`BottomEnd`; `TopEnd` over a taskbar), 6 from it, to the other side then into the window where there is no room |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | What is told after Escape or a press outside closed an anchored one, and whether each closes it: both by default. A command is no dismissal |
+| `width(..)`, `label(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [popover](#popover) has them. `force` draws its first command's states |
+
+| Row | |
+| --- | --- |
+| `TrayAction::new(&str)` | A row that runs a command: `on_select(Fn())`, `disabled(bool)`, `id`, `key` |
+| `TrayToggle::new(&str)` | A row with a switch at its end: `bind(Signal<bool>)`, or `on(bool)` with `on_change(Fn(bool))` told what a press asks for; `disabled(bool)`, `id` (the switch's), `key` |
+
+- Declared plainly it is the panel in the flow, 280 wide at most. **lurq has no tray icon**: the icon and its press are the platform's, or a crate's for it (`tray-icon`). An app that has one opens a window with no frame on the press, `ctx.window_opener().open_with(WindowOptions::new("lurq", 280, 272).undecorated(), ..)`, mounts a root that renders the panel, and closes the window (`WindowHandle::close`) from its commands. What lurq does not have yet for that window is a place on the screen, a level over other windows and a way out of the taskbar: until then the window opens where the system puts it.
+- `anchored` shows it as a [popover](#popover) is shown, for a status item of the app's own title bar or status bar: Escape and a press outside close it, the focus goes into it as it opens and back as it closes, and a command closes it first and then runs, so what the command opens keeps the focus it takes.
+- A press of a toggle's row turns its switch as a press of the switch does. Bound, the signal is set and then `on_change` is told; not bound, `on_change` is told the value a press asks for and the row stays as the app holds it. Nothing is told when the app sets the signal.
+- Every command and every switch is a stop of Tab, and the arrow keys move through them, past the lines. A command is pressed by Enter and Space and has the ring inside it; a row that is `disabled` is faded, takes no press and is passed by.
+- A title, a status and a row's words longer than their room are cut with an ellipsis; a switch keeps its room. Rows follow the theme's density: a command is 28 at the default, 20 compact, 36 comfortable and 40 under a finger, and a toggle's row 2 more.
+- To what reads the tree it is a `group` (a `dialog` where it is anchored) called by its label or its title; its status is a `status`, a command a `menuitem`, and a toggle its switch.
+- Parts: `TrayPopoverPart::Panel`, `Header`, `Media` (the tile), `Icon`, `Text`, `Title`, `Status`, `StatusDot`, `Description` (the status's words), `Separator` and `Line`, `Toggle` and `ToggleLabel`, `Item` (a command), `Body` (what the app puts among the rows). Variants by `TrayStatusVariant`. States: `TrayPopoverState::Disabled`, resolved on a row's parts.
+- In the design the panel is 280 wide on `Popover` in an edge of 1 in `Border`, 12 round, with the `Lg` shadow, padded 10, what it holds 8 apart. The header is 4 from the sides: the mark of 16 in `PrimaryForeground` on a tile of 28 in `Primary`, `Md` round, 10 before the title (13, semibold) over the status 1 under it, a dot of 6 in `Success` 5 before words of 11 in `MutedForeground`. A line of 1 in `Border` has 4 over and under it. A toggle's row is 30 and a command 28, both 4 from their sides with words of 13; the command under the pointer is in `Highlight`, `Sm` round. The board draws the tray the popover hangs from, which is the platform's, and no focused or disabled row.
+
 ## Highlight
 
 A text with marks on ranges of it: the matches of a search, one of them the current one.

@@ -157,6 +157,7 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod tray_popover;
 mod tree_view;
 mod video_player;
 mod waveform;
@@ -519,6 +520,10 @@ pub use toolbar::{
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tray_popover::{
+  TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
+  TrayStatusVariant, TrayToggle,
 };
 pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,

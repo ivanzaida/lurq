@@ -131,6 +131,7 @@ mod toggletip;
 mod token_input;
 mod toolbar;
 mod tooltip;
+mod tray_popover;
 mod tree_view;
 mod video_player;
 mod waveform;
