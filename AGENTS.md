@@ -24,7 +24,8 @@ dates before it, and now is a part of it (`Locale::dates`).
 - **A sentence with a number in it** has a place for the number in the locale's word (`{status}`), or is a
   function of the locale, as a date's format is.
 
-Not there yet, and to be moved when a component is touched: every component outside the media ones still has its
+Not there yet, and to be moved when a component is touched: every component outside the media ones and the signature pad, angle slider,
+QR code, transfer and cascader (`Locale::input`, `Locale::display`) still has its
 English words as literals in its constructor, behind its single-word methods (about 180 words in about 46 files
 of `crates/lurq/src/ui` and `crates/lurq/src/components`), and reads only how dates are written from the app
 (`ui::current_date_locale()`).
