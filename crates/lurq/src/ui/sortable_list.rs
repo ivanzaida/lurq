@@ -830,14 +830,21 @@ impl SortableListView {
     if drag.rows.len() > 1 {
       let count = self.part(SortableListPart::Count);
       let side = super::select::px(count.rest().height, self.theme()).unwrap_or(20.0);
-      // On the corner at the row's end: 4 past it, 8 over it, as the board has it.
+      // On the corner at the row's end: 4 past it, 8 over it, as the board has it. Its end stays there however
+      // many figures the count has, so it is laid out from the end of a room 4 wider than the row. The number is
+      // the part's text alone: the box is the badge's.
+      let badge = Row::new()
+        .justify(Justify::Center)
+        .align_items(Alignment::Center)
+        .flex_shrink(0.0)
+        .part(&count)
+        .child(count.text(&drag.rows.len().to_string()).nowrap());
       lifted = lifted.child(
         Row::new()
-          .justify(Justify::Center)
-          .align_items(Alignment::Center)
-          .absolute_position(width - side + 4.0, -8.0)
-          .part(&count)
-          .child(count.text(&drag.rows.len().to_string()).part(&count)),
+          .justify(Justify::End)
+          .overflow_visible()
+          .absolute(0.0, -8.0, width + 4.0, side)
+          .child(badge),
       );
     }
     Some(lifted.into())

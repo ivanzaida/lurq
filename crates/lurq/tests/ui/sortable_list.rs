@@ -423,6 +423,28 @@ fn a_selection_is_pressed_as_a_list_of_files_and_dragged_together() {
     "on the corner at the row's end: {}",
     count.x
   );
+  // The badge is the board's round 20 with its number in the middle of it: the number has no box of its own.
+  let info = light(PaletteColor::Info);
+  let badges: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == info) && quad.height == 20.0)
+    .collect();
+  assert_eq!(badges.len(), 1, "one fill of the badge");
+  let badge = &badges[0];
+  assert_eq!(badge.width, 20.0, "a count of one figure is round");
+  let middle = count.x + count.width / 2.0;
+  assert!(
+    (middle - (badge.x + 10.0)).abs() <= 1.0,
+    "the number is in the middle of the badge: its middle at {middle}, the badge from {}",
+    badge.x
+  );
+  // The row is tilted by two degrees about its middle, which takes a pixel off where its corner is drawn.
+  assert!(
+    (badge.x + 20.0 - (8.0 + 20.0 + 260.0 + 4.0)).abs() <= 1.5,
+    "the badge ends 4 past the row's end: {}",
+    badge.x + 20.0
+  );
   assert!(
     !stage.paints("Buttons"),
     "a ghost stands in the place of the other row dragged"
