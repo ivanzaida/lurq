@@ -120,9 +120,9 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 #[cfg(feature = "canvas")]
 mod sparkline;
-mod sortable_list;
 mod spinner;
 mod splitter;
 mod stage;
