@@ -1,17 +1,19 @@
 //! The page of the rich text editor: its playground, the board's document bound to a signal with the Markdown
-//! it writes, a comment box with a few tools, its states, and a controller that works it from outside.
+//! it writes, a comment box with a few tools, a document with pictures in it, its states, and a controller that
+//! works it from outside.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, ParagraphKind, RichText, Row, TextMark},
+  components::{Column, InlineObject, ParagraphKind, RichText, Row, TextMark},
   core::Signal,
+  images::ImageData,
   layout::Alignment,
   node::Element,
   ui::{
-    Button, ButtonSize, ButtonVariant, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor,
-    RichTextTool, icons,
+    Button, ButtonSize, ButtonVariant, Picture, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController,
+    RichTextEditor, RichTextTool, icons,
   },
 };
 
@@ -24,6 +26,24 @@ use crate::{
 /// The board's document.
 const NOTES: &str = "## Release notes\n\nBackdrop blur now **follows rounded clips** and transforms.\n\n- Faster text \
                      shaping\n- Fixes for window teardown";
+
+/// A document with a picture in a paragraph of its own and one among the words of a line.
+const FIELD_NOTES: &str = "## Field notes\n\nThe lake at dusk, from the north shore:\n\n<img src=\"lake\" alt=\"The \
+                           lake at dusk\" width=\"320\">\n\nA small one <img src=\"lake\" alt=\"the lake, small\" \
+                           width=\"28\"> stands among the words of its line, and the row makes room for it.";
+
+/// What the page's editors draw for a picture. The gallery has no files, so its documents name the page's lake,
+/// and its pixels are painted: an app whose pictures are files or addresses draws nothing itself.
+fn painted(lake: &ImageData) -> impl Fn(&InlineObject) -> Element + Send + Sync + 'static {
+  let lake = lake.clone();
+  move |picture| {
+    let mut drawn = Picture::new(lake.clone()).label(&picture.label);
+    if let Some(width) = picture.width {
+      drawn = drawn.width(width as f32);
+    }
+    drawn.into()
+  }
+}
 
 /// The rows an editor can be told to show at least, and at most: the selects of the playground.
 const LEAST: [(&str, usize); 4] = [("2", 2), ("4", 4), ("6", 6), ("10", 10)];
@@ -55,6 +75,12 @@ pub struct RichTextEditorPage {
   /// The documents of the states: one empty, one the three other editors share.
   empty: Signal<RichText>,
   terms: Signal<RichText>,
+  /// The document with pictures, what works its editor from outside, and the playground's.
+  pictured: Signal<RichText>,
+  picturing: RichTextController,
+  playing: RichTextController,
+  /// The page's picture, drawn once: the same pixels each render.
+  lake: ImageData,
 }
 
 impl RichTextEditorPage {
@@ -72,8 +98,16 @@ impl RichTextEditorPage {
     let plain = {
       let (value, placeholder) = (self.value.clone(), placeholder.clone());
       let set: Vec<bool> = flags.iter().map(|(_, set)| *set).collect();
+      let (playing, lake) = (self.playing.clone(), self.lake.clone());
       move || {
+        let insert = playing.clone();
         RichTextEditor::new(value.clone())
+          // The image tool of the playground puts the page's lake in at the caret.
+          .controller(&playing)
+          .picture(painted(&lake))
+          .on_image(move || {
+            insert.insert_object(&InlineObject::new(0, "lake").label("The lake at dusk").width(240));
+          })
           .placeholder(&placeholder)
           .rows(min_rows, max_rows)
           .toolbar(toolbar)
@@ -96,6 +130,8 @@ impl RichTextEditorPage {
     let mut code = vec![
       "// value: Signal<RichText>".to_owned(),
       "RichTextEditor::new(value.clone())".to_owned(),
+      "    .controller(&controller)".to_owned(),
+      "    .on_image(move || { controller.insert_picture(\"photos/lake.jpg\", \"The lake at dusk\"); })".to_owned(),
       format!("    .placeholder({placeholder:?})"),
     ];
     if (min_rows, max_rows) != (RICH_TEXT_MIN_ROWS, RICH_TEXT_MAX_ROWS) {
@@ -234,6 +270,10 @@ impl Component for RichTextEditorPage {
       terms: ctx.signal(RichText::from_markdown(
         "### Terms\n\nBy using lurq you agree to *build something*.",
       )),
+      pictured: ctx.signal(RichText::from_markdown(FIELD_NOTES)),
+      picturing: RichTextController::new(),
+      playing: RichTextController::new(),
+      lake: super::picture::lake(640, 480),
     }
   }
 
@@ -277,6 +317,31 @@ impl Component for RichTextEditorPage {
         &format!("{} words, {} marked runs", comment.word_count(), comment.spans.len()),
         12.0,
       ));
+
+    // Pictures in the document: one alone in its paragraph, one among words, and a tool that puts another in.
+    let pictured: Vec<String> = self.pictured.get().to_markdown().lines().map(str::to_owned).collect();
+    let insert = self.picturing.clone();
+    let pictures = stack()
+      .child(
+        RichTextEditor::new(self.pictured.clone())
+          .label("Field notes")
+          .controller(&self.picturing)
+          .picture(painted(&self.lake))
+          .on_image(move || {
+            insert.insert_object(&InlineObject::new(0, "lake").label("The lake at dusk").width(160));
+          })
+          .rows(6, 20)
+          .key("pictured")
+          .mount(ctx),
+      )
+      .child(
+        Column::new()
+          .width(560.0)
+          .max_width(FILL)
+          .spacing(8.0)
+          .child(quiet("document.to_markdown()", 12.0))
+          .child(plain_block(&pictured)),
+      );
 
     let fixed = || self.terms.clone();
     let states = stack()
@@ -411,8 +476,15 @@ impl Component for RichTextEditorPage {
         "on_image",
         "impl Fn()",
         "",
-        "What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to \
-         place outside it.",
+        "What the image tool does; with it the bar has the tool. The app asks for a picture and puts it in with \
+         the controller's `insert_picture(source, label)`.",
+      ),
+      (
+        "picture",
+        "impl Fn(&InlineObject) -> Element",
+        "a Picture of the source",
+        "What is drawn for a picture of the document: given its source, its label and its width. Unless told, a \
+         `Picture` of the file or the address the source names.",
       ),
       (
         "controller",
@@ -522,6 +594,34 @@ impl Component for RichTextEditorPage {
               "    .footer(false)",
               "    .rows(3, 8)",
               "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Pictures",
+          "A picture is a character of the document: the caret goes past it, a press selects it, Backspace after \
+           it selects it and the next deletes it, and it is copied and pasted with the words around it. One alone \
+           in its paragraph and one among words are both in rows of the text, each row as high as it needs. The \
+           image tool runs the app's handler, which puts a picture in at the caret; undo takes it back. Markdown \
+           writes a picture as an image, and as a tag where it has a width.",
+          self.frame.demo(
+            4,
+            pictures,
+            "controller.insert_picture(source, label)",
+            &[
+              "// controller: RichTextController, kept by the page",
+              "RichTextEditor::new(notes.clone())",
+              "    .controller(&controller)",
+              "    // The app asks for a file, and puts the one chosen in at the caret.",
+              "    .on_image(move || { controller.insert_picture(\"photos/lake.jpg\", \"The lake at dusk\"); })",
+              "    .mount(ctx)",
+              "",
+              "// A picture that is no file and no address is drawn by the app.",
+              "RichTextEditor::new(notes.clone())",
+              "    .picture(|picture| Picture::from_resource(&picture.source).label(&picture.label).into())",
+              "",
+              "// What the app stores.",
+              "notes.get().to_markdown()",
             ],
           ),
         ),

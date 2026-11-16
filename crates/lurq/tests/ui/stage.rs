@@ -45,6 +45,13 @@ impl Component for Page {
   }
 }
 
+/// A stage's caret stands still: its passes move the runtime's clock by whole seconds, which the caret's blink
+/// follows, so a blinking caret would be shown or not by how many passes a test made. A test of the blink sets the
+/// theme's caret mode back.
+fn still_caret(app: &App) {
+  app.theme().set_caret_mode(lurq::app::theme::CaretMode::Persistent);
+}
+
 pub struct Stage {
   pub app: App,
   pub tree: Tree,
@@ -85,6 +92,7 @@ impl Stage {
   }
 
   fn with_tree(mut app: App, mut tree: Tree, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
+    still_caret(&app);
     tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 300.0))));
     tree.mount_root::<Page>(&mut app, Props { scene: Arc::new(scene) });
     let mut stage = Self {
@@ -111,6 +119,7 @@ impl Stage {
     height: f32,
     scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static,
   ) -> Self {
+    still_caret(&app);
     let mut tree = Tree::new();
     tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(width, height))));
     tree.resize(width as u32, height as u32);

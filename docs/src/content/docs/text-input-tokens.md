@@ -110,6 +110,10 @@ or past it, room for an icon at its end included, never in it. A token with a se
 (`InputTokenStyle::selected`) is drawn in that look over the selection's highlight while the selection covers
 all of it; one without keeps the highlight over it.
 
+A token decorates text that is there. What is one thing to the caret and is not text at all, a picture among the
+words, is an object of a [styled input](../text-input-styled/#objects): a character of the value that the input
+draws as an element of the app's, with the same rules at the caret.
+
 The default single-line Scroll mode presents each CR or LF as one space, preserving every raw UTF-8
 byte offset, token range and source-backed edit. CRLF presents two spaces; clipboard/history still
 contain the original CRLF. Multiline uses the ordinary input's canonical hard paragraphs: CRLF and

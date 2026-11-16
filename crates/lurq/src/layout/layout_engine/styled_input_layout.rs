@@ -1,16 +1,17 @@
 //! A styled text input's spans as the per-range text styles of a decorated
-//! input layout, each mark's look taken from the theme's text marks, and the
-//! kinds of its paragraphs as the format each paragraph is laid out in.
+//! input layout, each mark's look taken from the theme's text marks, the
+//! kinds of its paragraphs as the format each paragraph is laid out in, and
+//! its objects as boxes in its rows.
 use std::{ops::Range, sync::Arc};
 
 use super::LayoutEngine;
 use crate::{
-  app::glyph_engine::input_tokens::{ParagraphFormat, ParagraphMark, TextLines, TokenStyle},
+  app::glyph_engine::input_tokens::{ParagraphFormat, ParagraphMark, TextLines, TokenChip, TokenStyle},
   components::{
-    ParagraphKind, ParagraphMarker, ParagraphStyles, StyledSpan,
+    InlineObject, ParagraphKind, ParagraphMarker, ParagraphStyles, StyledSpan,
     styled_text::{paragraph_of, paragraph_ranges},
   },
-  layout::text_style::TextStyle,
+  layout::{Size, text_style::TextStyle},
   node::node_kind::TextInputState,
 };
 
@@ -19,11 +20,17 @@ impl LayoutEngine {
   /// a style per span, and a format per paragraph where it has kinds of
   /// paragraphs. `None` for a plain input, a masked one, and an empty one
   /// showing its placeholder.
+  ///
+  /// The character of each object the input shows has a style of its own,
+  /// a box of the size `sizes` gives for it, in the order of the text: one
+  /// with no size yet is a square of its line.
   pub(super) fn styled_input_styles(
     &self,
     state: &TextInputState,
     base: &TextStyle,
+    sizes: &[Option<Size>],
   ) -> Option<(Arc<str>, Vec<TokenStyle>, Vec<ParagraphFormat>)> {
+    let objects = state.shown_objects().unwrap_or_default();
     // Kinds of paragraphs are drawn where the lines wrap and are not justified: there an empty input is laid out
     // as its first paragraph too, for its placeholder to stand in it.
     let kinds_drawn = state.wraps_lines() && base.text_align != crate::layout::text_style::TextAlign::Justified;
@@ -46,7 +53,7 @@ impl LayoutEngine {
     };
     let Some((kinds, looks)) = state.paragraph_display().filter(|_| kinds_drawn) else {
       let styles = spans.iter().map(|span| token(span.range.clone(), span, base)).collect();
-      return Some((text, styles, Vec::new()));
+      return Some((text, with_objects(styles, &objects, sizes, |_| base), Vec::new()));
     };
     let ranges = paragraph_ranges(&text);
     let formats = self.paragraph_formats(&kinds, &looks, base, ranges.len());
@@ -65,6 +72,8 @@ impl LayoutEngine {
         }
       }
     }
+    // A box stands in the type of the paragraph it is in.
+    let styles = with_objects(styles, &objects, sizes, |at| &formats[paragraph_of(&ranges, at)].base);
     Some((text, styles, formats))
   }
 
@@ -130,4 +139,56 @@ impl LayoutEngine {
     }
     formats
   }
+}
+
+/// `styles`, in the order of the text, with the character of each of `objects` given a style of its own: a box
+/// of the size `sizes` has for it, in the type `base` gives for its byte, which the caret goes past as one thing.
+/// A style that covered the character is cut around it.
+fn with_objects<'a>(
+  styles: Vec<TokenStyle>,
+  objects: &[InlineObject],
+  sizes: &[Option<Size>],
+  base: impl Fn(usize) -> &'a TextStyle,
+) -> Vec<TokenStyle> {
+  if objects.is_empty() {
+    return styles;
+  }
+  let boxed = |index: usize, object: &InlineObject| {
+    let text = base(object.at).clone();
+    let line = (text.font_size * text.line_height).max(1.0);
+    let size = sizes.get(index).copied().flatten().unwrap_or(Size::new(line, line));
+    TokenStyle {
+      range: object.range(),
+      text,
+      padding: 0.0,
+      fill: None,
+      lines: TextLines::default(),
+      chip: TokenChip {
+        atomic: true,
+        object: Some((size.width, size.height)),
+        ..TokenChip::default()
+      },
+    }
+  };
+  let mut out = Vec::with_capacity(styles.len() + objects.len() * 2);
+  let mut objects = objects.iter().enumerate().peekable();
+  for mut style in styles {
+    // Every object that starts before this style ends is before it or in it: a span never splits a character.
+    while let Some((index, object)) = objects.next_if(|(_, object)| object.at < style.range.end) {
+      let range = object.range();
+      if range.start > style.range.start {
+        out.push(TokenStyle {
+          range: style.range.start..range.start,
+          ..style.clone()
+        });
+      }
+      out.push(boxed(index, object));
+      style.range.start = style.range.start.max(range.end);
+    }
+    if style.range.start < style.range.end {
+      out.push(style);
+    }
+  }
+  out.extend(objects.map(|(index, object)| boxed(index, object)));
+  out
 }

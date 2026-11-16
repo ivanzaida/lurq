@@ -184,14 +184,32 @@ impl TextInputState {
     }
   }
 
-  /// The atomic token that `byte` is strictly inside of.
+  /// What is one thing to the caret, as bytes of the value: the objects of a styled input, the atomic tokens of
+  /// an input with tokens.
+  fn atomic_ranges(&self) -> Vec<Range<usize>> {
+    let objects = self.object_ranges();
+    if !objects.is_empty() {
+      return objects;
+    }
+    self
+      .tokens()
+      .map(|tokens| {
+        tokens
+          .tokens
+          .iter()
+          .filter(|token| token.atomic)
+          .map(|token| token.range.clone())
+          .collect()
+      })
+      .unwrap_or_default()
+  }
+
+  /// The atomic token or the object that `byte` is strictly inside of.
   fn atomic_around(&self, byte: usize) -> Option<Range<usize>> {
-    let tokens = self.tokens()?;
-    tokens
-      .tokens
-      .iter()
-      .find(|token| token.atomic && token.range.start < byte && byte < token.range.end)
-      .map(|token| token.range.clone())
+    self
+      .atomic_ranges()
+      .into_iter()
+      .find(|range| range.start < byte && byte < range.end)
   }
 
   /// Moves the caret, and the anchor of a selection, out of the atomic tokens they are inside of: the
@@ -233,14 +251,19 @@ impl TextInputState {
     self.token_at_point(x, y).is_some_and(|token| token.on_removing_icon)
   }
 
-  /// Selects all of the token at `(x, y)` where it is atomic; `false` where there is none.
+  /// Selects all of the token at `(x, y)` where it is atomic, or all of the object whose box is there; `false`
+  /// where there is neither.
   pub(super) fn select_atomic_at_point(&self, x: f32, y: f32) -> bool {
-    let Some(token) = self.token_at_point(x, y).filter(|token| token.atomic) else {
+    let token = self
+      .token_at_point(x, y)
+      .filter(|token| token.atomic)
+      .map(|token| token.range);
+    let Some(range) = token.or_else(|| self.object_at_point(x, y)) else {
       return false;
     };
     let mut inner = self.inner.lock();
-    inner.selection_anchor = Some(token.range.start);
-    inner.caret = token.range.end;
+    inner.selection_anchor = Some(range.start);
+    inner.caret = range.end;
     drop(inner);
     self.mark_layout_dirty();
     true
@@ -280,23 +303,14 @@ impl TextInputState {
     if self.has_selection() {
       return false;
     }
-    let Some(tokens) = self.tokens() else {
-      return false;
-    };
     let caret = self.inner.lock().caret;
-    let Some(range) = tokens
-      .tokens
-      .iter()
-      .find(|token| {
-        token.atomic
-          && if backward {
-            token.range.end == caret
-          } else {
-            token.range.start == caret
-          }
-      })
-      .map(|token| token.range.clone())
-    else {
+    let Some(range) = self.atomic_ranges().into_iter().find(|range| {
+      if backward {
+        range.end == caret
+      } else {
+        range.start == caret
+      }
+    }) else {
       return false;
     };
     let mut inner = self.inner.lock();

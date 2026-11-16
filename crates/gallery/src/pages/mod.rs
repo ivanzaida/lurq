@@ -6,6 +6,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
 mod action_bar;
+mod action_sheet;
 mod ai_label;
 mod alert;
 mod area_chart;
@@ -1227,6 +1228,14 @@ pub const PAGES: &[Page] = &[
     about: "carousel slides slider slideshow swipe pages dots arrows previous next turn wrap loop autoplay per view several Carousel new slide slides index index_controlled on_index_change per_view gap wrap arrows dots autoplay width label previous_label next_label slide_label disabled",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<carousel::CarouselPage>(()),
+  },
+  Page {
+    path: "/action-sheet",
+    name: "Action Sheet",
+    icon: Some("list"),
+    about: "action sheet actions phone mobile long press options cancel scrim bottom destructive menu ActionSheet new item title cancel_label on_dismiss inline",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<action_sheet::ActionSheetPage>(()),
   },
   Page {
     path: "/video-player",

@@ -274,6 +274,14 @@ impl DecoratedInputLayout {
       ..*caret
     }));
     self
+      .objects
+      .extend(piece.objects.iter().map(|object| super::InputObjectBox {
+        byte: object.byte + offset,
+        y: object.y + top,
+        row: object.row + first_row,
+        ..*object
+      }));
+    self
       .intervals
       .extend(piece.intervals.iter().map(|part| super::ClusterInterval {
         range: part.range.start + offset..part.range.end + offset,

@@ -285,6 +285,23 @@ names!(PicturePart {
   Caption => "caption",
 });
 
+/// The forms of a picture as a whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum PictureVariant {
+  /// For a pointer: the bar comes in under it, with its buttons.
+  #[default]
+  Desktop,
+  /// For a finger, on a phone (the board's Mobile/Picture): a large picture runs edge to edge with no corners and
+  /// no line, its bar is always there and has no buttons, and a long press brings its actions in an
+  /// [`ActionSheet`](super::ActionSheet).
+  Phone,
+}
+
+names!(PictureVariant {
+  Desktop => "desktop",
+  Phone => "phone",
+});
+
 /// The states of a picture a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PictureState {
@@ -444,6 +461,7 @@ pub struct Picture {
   shape: PictureShape,
   bare: bool,
   size: Option<Name>,
+  variant: Option<Name>,
   placeholder: PicturePlaceholder,
   loading: bool,
   progress: Option<f64>,
@@ -493,6 +511,7 @@ impl Picture {
       shape: PictureShape::default(),
       bare: false,
       size: None,
+      variant: None,
       placeholder: PicturePlaceholder::default(),
       loading: false,
       progress: None,
@@ -860,6 +879,13 @@ impl Picture {
     self
   }
 
+  /// The form as a whole ([`PictureVariant`]): the phone's where the theme is at the density of an app for a
+  /// finger ([`Density::Touch`](crate::app::theme::Density::Touch)), unless told.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = Some(variant.into());
+    self
+  }
+
   /// A press of the picture, or Enter or Space while it has the focus, opens it in a [`Lightbox`] over the
   /// window: the picture alone, whole, to bring closer. The lightbox shows its [`title`](Self::title) and its
   /// [`description`](Self::description). The bar of a large picture has a button that opens it too, the
@@ -1146,7 +1172,14 @@ struct Plain<'a> {
   texts: [&'a Option<Arc<str>>; 7],
   words: &'a Words,
   lengths: (&'a Option<Length>, &'a Option<Length>, Option<f32>),
-  shown: (PictureFit, StackAlignment, PictureShape, &'a Option<Name>, &'a [Name]),
+  shown: (
+    PictureFit,
+    StackAlignment,
+    PictureShape,
+    &'a Option<Name>,
+    &'a Option<Name>,
+    &'a [Name],
+  ),
   flags: [bool; 8],
   /// The signal that says whether its lightbox is open, by its id.
   open: Option<usize>,
@@ -1169,6 +1202,7 @@ impl Picture {
       shape,
       bare,
       size,
+      variant,
       placeholder,
       loading,
       progress,
@@ -1230,7 +1264,7 @@ impl Picture {
       texts: [label, caption, title, description, count, id, key],
       words,
       lengths: (width, height, *aspect_ratio),
-      shown: (*fit, *anchor, *shape, size, states),
+      shown: (*fit, *anchor, *shape, size, variant, states),
       flags: [
         *decorative,
         *bare,
@@ -1259,6 +1293,8 @@ struct Live {
   more: ElementRef,
   /// Whether its lightbox is open, where the app names no signal for it.
   viewer: Signal<bool>,
+  /// Whether the sheet of its actions is open, on a phone.
+  sheet: Signal<bool>,
   /// Counts on when a load or a decode of the picture's comes further or ends, and when it is asked for again:
   /// the picture renders again and looks.
   tick: Signal<u64>,
@@ -1322,6 +1358,7 @@ impl Component for PictureHost {
         menu: ctx.signal(false),
         more: ElementRef::new(),
         viewer: ctx.signal(false),
+        sheet: ctx.signal(false),
         tick,
         wake,
         held: Arc::default(),
@@ -1610,16 +1647,23 @@ fn view(
   mut ctx: Option<&mut Ctx>,
 ) -> PictureView {
   let pressable = picture.pressable();
+  let phone = match picture.variant {
+    Some(variant) => variant == Name::from(PictureVariant::Phone),
+    // An app for a finger has no pointer to bring a bar in by hovering: the theme says so by its density.
+    None => theme.density() == crate::app::theme::Density::Touch,
+  };
+  // On a phone the bar says what the picture is and holds no buttons: its actions are a long press's.
   let bar_has = picture.title.is_some()
     || picture.description.is_some()
-    || !picture.actions.is_empty()
-    || !picture.on_download.is_empty()
-    || !picture.menu_items.is_empty()
-    || picture.lightbox;
+    || (!phone
+      && (!picture.actions.is_empty()
+        || !picture.on_download.is_empty()
+        || !picture.menu_items.is_empty()
+        || picture.lightbox));
   let menu_open = live.menu.get();
   let case = |size: PictureSize, on: bool| {
     Case {
-      variant: None,
+      variant: Some(if phone { PictureVariant::Phone } else { PictureVariant::Desktop }.into()),
       size: Some(size.into()),
       density: None,
       breakpoint: super::current_breakpoint(),
@@ -1631,9 +1675,10 @@ fn view(
     .state(PictureState::Selectable, picture.selectable)
     .state(PictureState::Selected, picture.selected)
     .state(PictureState::Disabled, picture.disabled)
+    // There is no pointer to bring the bar in on a phone: it is there.
     .state(
       PictureState::Shown,
-      picture.force_bar_shown.unwrap_or(menu_open) && picture.force_bar_shown != Some(false),
+      picture.force_bar_shown.unwrap_or(menu_open || phone) && picture.force_bar_shown != Some(false),
     )
     .state(PictureState::On, on)
   };
@@ -1659,7 +1704,7 @@ fn view(
     }
     let large = form.size == PictureSize::Lg;
     let mut buttons: Vec<Element> = Vec::new();
-    if large {
+    if large && !phone {
       buttons.extend(picture.actions.iter().cloned());
       if !picture.on_download.is_empty() {
         let handlers = picture.on_download.clone();
@@ -1677,7 +1722,7 @@ fn view(
     }
     // A compact picture keeps the menu's button alone: what its other buttons do is in the menu.
     let mut menu = None;
-    if !picture.menu_items.is_empty() {
+    if !picture.menu_items.is_empty() && !phone {
       let open = live.menu.clone();
       let press: Action = Arc::new(move || open.set(!open.get_untracked()));
       let button = control(
@@ -1701,7 +1746,7 @@ fn view(
       );
     }
     // Open larger is the last, where a video has fullscreen.
-    if large && picture.lightbox {
+    if large && picture.lightbox && !phone {
       let open = picture.open.clone().unwrap_or_else(|| live.viewer.clone());
       let told = picture.on_open_change.clone();
       let press: Action = Arc::new(move || {
@@ -1748,6 +1793,8 @@ fn view(
     phase,
     retry,
     viewer: picture.open.clone().unwrap_or_else(|| live.viewer.clone()),
+    phone,
+    sheet: live.sheet.clone(),
     #[cfg(feature = "raster")]
     small: None,
     known: Known {
@@ -1830,6 +1877,9 @@ pub struct PictureView {
   small: Option<crate::images::ImageData>,
   /// Asks for the picture again.
   retry: Action,
+  /// Whether it is the phone's form, and whether the sheet of its actions is open there.
+  pub phone: bool,
+  sheet: Signal<bool>,
   /// The box as it is laid out.
   frame: ElementRef,
 }
@@ -2227,9 +2277,31 @@ impl PictureView {
     bars
   }
 
+  /// On a phone, what a long press of the picture offers in a sheet: Download, where it is given, and the app's
+  /// items of the menu. Nothing elsewhere: a pointer has the bar's buttons.
+  pub fn actions(&self) -> Vec<MenuItem> {
+    let picture = &self.picture;
+    if !self.phone || picture.disabled {
+      return Vec::new();
+    }
+    let mut items = Vec::new();
+    if !picture.on_download.is_empty() {
+      let handlers = picture.on_download.clone();
+      items.push(
+        MenuItem::new(&picture.words.download)
+          .icon(icons::DOWNLOAD)
+          .on_select(move || handlers.iter().for_each(|handler| handler())),
+      );
+    }
+    items.extend(picture.menu_items.iter().cloned());
+    items
+  }
+
   /// The line around the box, over what is in it. A bare picture has none.
   pub fn edge(&self) -> Option<Element> {
-    (!self.picture.bare).then(|| {
+    // A large picture on a phone runs edge to edge: nothing marks where it ends.
+    let edge_to_edge = self.phone && self.base().size == PictureSize::Lg;
+    (!self.picture.bare && !edge_to_edge).then(|| {
       layer()
         .part(&self.part(PicturePart::Edge))
         .drop_outside(SizeBounds::new())
@@ -2327,6 +2399,19 @@ impl PictureView {
     if let Some(edge) = self.edge() {
       inner = inner.child(edge);
     }
+    // On a phone, its actions, which a long press brings.
+    let actions = self.actions();
+    let actions_empty = actions.is_empty();
+    if !actions.is_empty() {
+      let mut sheet = super::ActionSheet::new(self.sheet.clone(), actions).key("actions");
+      if let Some(title) = picture.title.clone().or_else(|| self.label()) {
+        sheet = sheet.title(&title);
+      }
+      if let Some(id) = self.id("actions") {
+        sheet = sheet.id(id);
+      }
+      inner = inner.child(sheet);
+    }
     // Its lightbox, which takes no room: the picture as the app gave it, alone.
     if picture.lightbox {
       let told = picture.on_open_change.clone();
@@ -2366,6 +2451,12 @@ impl PictureView {
         .into()
     };
     NodeUpdate::ref_element(&mut *root.node, self.frame.clone());
+    if !actions_empty {
+      let sheet = self.sheet.clone();
+      NodeUpdate::on_long_press(&mut *root.node, move |_: crate::app::events::LongPressEvent| {
+        sheet.set(true)
+      });
+    }
     let node = &mut *root.node;
     let width = picture.width.and_then(|width| width.resolve(theme));
     let height = picture.height.and_then(|height| height.resolve(theme));
@@ -2658,6 +2749,19 @@ impl Themed for Picture {
       .focus_visible(Control, |s| s.outline(Outline::new(2.0, white)))
       .state(On, Control, |s| s.background(white_20))
       .base(ControlIcon, |s| s.square(20.0))
+      // The phone's picture (`pencil/lurq-design-system.pen`, Mobile/Picture): a large one runs edge to edge with
+      // no corners and no line; its badge 16 in; its bar 32 over, 16 beside and 12 under its title of 15.
+      .when(Selector::new().variant(PictureVariant::Phone).size(PictureSize::Lg), Root, |s| s.radius(0.0))
+      .when(Selector::new().variant(PictureVariant::Phone).size(PictureSize::Lg), Top, |s| {
+        s.padding_x(16.0).padding_y(16.0)
+      })
+      .when(Selector::new().variant(PictureVariant::Phone).size(PictureSize::Lg), Controls, |s| {
+        s.padding_top(32.0).padding_x(16.0).padding_bottom(12.0)
+      })
+      .when(Selector::new().variant(PictureVariant::Phone).size(PictureSize::Lg), Text, |s| {
+        s.padding_start(0.0).padding_bottom(0.0)
+      })
+      .when(Selector::new().variant(PictureVariant::Phone).size(PictureSize::Lg), Title, |s| s.font_size(15.0))
       .size(Md, ControlIcon, |s| s.square(16.0))
       .base(MoreMenu, |s| s.width(216.0))
       .base(Caption, |s| {

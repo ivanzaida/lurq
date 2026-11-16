@@ -3062,7 +3062,7 @@ Mentions::new(comment.clone(), &mentions)
 ## Rich Text Editor
 
 Formatted text typed into a box, under a bar of the tools that format it: a comment, release notes, the body of an
-article. It comes with the `markdown` feature.
+article, with pictures among its words. It comes with the `markdown` feature.
 
 ```rust
 use lurq::{components::RichText, ui::{RichTextEditor, RichTextTool}};
@@ -3083,7 +3083,26 @@ RichTextEditor::new(comment.clone())
 
 // Held by the app: it is told each change, and the editor shows what the app answers with.
 RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.clone())).mount(ctx);
+
+// Pictures. In `create`: the app's handle on the editor, and the system's dialog for a file.
+let editor = RichTextController::new();
+let window = ctx.window();
+let choose = ctx.future_action(move |()| {
+  FileDialog::new().title("Insert a picture").filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"]).pick_result(&window)
+});
+// In `render`: the image tool opens the dialog, and the file a person chose goes in at the caret.
+if let Some(path) = chosen_path(&choose.state().get()) {
+  editor.insert_picture(&path, "A picture");
+}
+let open = choose.clone();
+RichTextEditor::new(notes.clone())
+  .controller(&editor)
+  .on_image(move || open.run(()))
+  .mount(ctx);
 ```
+
+`chosen_path` is the app's: the path of the first file of a fulfilled state, taken once (see
+[Files a person gives](../styling-events/#files-a-person-gives)).
 
 | Builder | |
 | --- | --- |
@@ -3096,8 +3115,9 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 | `toolbar(bool)`, `footer(bool)` | Whether it has its bar, and the row under the box that says Markdown shortcuts are on and counts the words: both unless told |
 | `markdown_shortcuts(bool)` | Whether Markdown typed becomes what it says: on unless told |
 | `on_link_click(handler)` | Called with a link's target when it is clicked with Ctrl held (Cmd on a Mac): the app opens it |
-| `on_image(handler)` | What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to place outside it, and the editor draws none in its text |
-| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
+| `on_image(handler)` | What the image tool does; with it the bar has the tool. The app asks for a picture, with the system's dialog for a file or a panel of its own, and puts it in with the controller's `insert_picture` |
+| `picture(Fn(&InlineObject) -> Element)` | What is drawn for a picture of the document, in place of a [`Picture`](#picture) of its source: for pictures that are no files and no addresses (bytes the app holds, a resource, a key of its own store) |
+| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `insert_picture(source, label)`, `insert_object(&InlineObject)` for a picture with a width, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: its edge in the destructive, warning or success color |
 | `read_only(bool)` | It is focused, selected and copied, and not changed: its tools take no input |
 | `full_width(bool)` | As wide as what holds it, in place of 560 |
@@ -3108,7 +3128,9 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 | `mount(ctx)` | Puts it in the tree: it keeps the text being edited, what its bar shows and the panel of a link |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. Its parts have the id with `-content`, `-toolbar`, `-style`, `-bold` and each tool's name, `-count` and `-link-field` after it |
 
-- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s) and what each paragraph is (`ParagraphKind`). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s), what each paragraph is (`ParagraphKind`) and the pictures in it (`InlineObject`s). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- A picture is a character of the document, alone in a paragraph or among words: an [object](../text-input-styled/#objects) of the engine's input. It is as large as it is, or as wide as the document says (`InlineObject::width`), and never wider than its line; its row is as high as it needs, and it stands on the baseline of the words beside it. The caret goes past it as past one character, a press selects it, Backspace after it selects it and the next deletes it, a selection takes it whole, and undo brings it back as it was. While the editor has the focus, a selected picture is under a veil of the selection's color. It is no word to the count of the footer. Markdown writes it as an image, `![label](source)`, or as `<img src alt width>` where it has a width, and a copy and a paste carry it so. `insert_picture` is `false` in a line of a block of code, which holds no picture, and in an editor that takes no change.
+- A picture is drawn by a [`Picture`](#picture) of its source, an address where the source starts as one (`http://`, `https://`) and the path of a file otherwise, called by its label: it shows a skeleton while it loads and says so when it did not come. The pointer and the focus do not reach it, so it has no bar and opens no lightbox. `picture(..)` draws it another way.
 - It is the engine's [styled text input](../text-input-styled/) with kinds of paragraphs: the caret, the selection, the clipboard and the undo history are a text input's own, and a selection runs over paragraphs of any kind. A copy keeps the formatting: the clipboard of the system is given the selection as Markdown where it has marks or a paragraph that is not body text (the plain text where it has neither), so another app or another lurq process pastes the Markdown, and an input of the same app the plain text while the clipboard still holds what was written. A paste of Markdown, or of a text that reads as it (a line with a block mark, or a mark Markdown reads), comes with its marks and kinds as one undo step; any other text, and anything pasted into a block of code, is plain text in the style at the caret.
 - A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is selected; a list, a quote or a style over every paragraph the selection touches, and a second press of a list or a quote makes them paragraphs again. The bar shows what the selection is: a mark's tool is on while all of the selection has it, the style control says what its paragraphs are. A press of a tool leaves the focus in the text.
 - The style control makes a paragraph body text, a heading of a level from 1 to 3, or a line of a block of code. The link tool opens a panel at the selection with a field for the target: Enter or Apply links the selection, an empty target or Remove link takes the link away, Escape changes nothing, and the focus goes back to the text.
@@ -3116,8 +3138,9 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 - Markdown shortcuts: `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three backticks at the start of a paragraph make it what they say and are taken away; `**bold**`, `*italic*`, `_italic_`, `` `code` `` and `~~struck~~` become the mark as their last character is typed.
 - Parts: `RichTextEditorPart::Root`, `Toolbar` (laid over a [toolbar](#toolbar)'s root), `Tool`, `ToolOn` and `ToolIcon` (over its buttons and toggles, and a toggle that is on), `Style`, `StyleChevron` and `StyleList` (over a [select](#select)'s trigger, chevron and panel), `Content` (the box: its padding, the type of body text, and its gap, the room between two paragraphs), `Placeholder`, `Heading1`, `Heading2`, `Heading3` (levels 4 to 6 are drawn as the third), `Bullet` and `BulletMark`, `Ordered` and `OrderedMark`, `Quote` and `QuoteMark`, `CodeBlock`, `Footer`, `FooterText`, `LinkPanel` (over a [popover](#popover)'s panel). A paragraph's part gives its type over the content's, its start padding is the room before its text, and a mark's part its width, its gap to the text and its color. States: `RichTextEditorState::Focused`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
 - In the design the box is 560 wide in `Background` with an edge of 1 in `Border` and the large radius. The bar is 40 high on `Muted` over a line of 1, padded 6, its tools 28 square with the small radius and icons of 15, 2 apart, one that is on filled with `Background` (the board's `accent` is the bar's own fill, and would not show); the style control is 28 high and as wide as the name it shows (padded 10 before it and 6 after its chevron of 12, 6 from the name), its text 12, and its list as wide as its longest style with the check beside it. The box is padded 18 across and 16 down, its text the body's 14 in rows of 18, its paragraphs 10 apart. A heading of the second level is 22 semibold in rows of 26 (the first 28 bold in rows of 34, the third 18 semibold in rows of 22). An item's text starts 21 in after a dot of 5 in `MutedForeground`; a numbered item's 24 in, 6 after its number; a quote's 14 in, in `MutedForeground`, after a bar of 3 in `Border`; a block of code is the mono family at 13 in rows of 21 on `Muted`, 12 in. A row is as high as its kind says, whatever the font's own line is. The footer is 28 high over a line of 1, padded 12, its texts the mono family at 11 in `MutedForeground`; the count is of the runs of what is not white space. An empty editor draws its placeholder in the kind of its first paragraph, after its mark.
+- The board draws no picture in a document, only the tool: how one stands in its row, the veil of a selected one and its size are lurq's, and it has no handles, no caption and no bar of its own.
 - In a room narrower than its bar the tools that do not fit go into the menu of a More button at the bar's end, as a toolbar's do; the style control stays.
-- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`.
+- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`, in which each picture is an `img` called by its label.
 - Built without `mount` (converted into an element) it is the still form of itself: the document as it is drawn, with nothing kept between two renders. A [field](#field) the app mounts (`Field::new("Notes", editor).mount(ctx)`) mounts it, calls it by its label, judges it and disables it.
 - A renderer that draws another editor has `view.bar()` (the toolbar, to add to), `view.toolbar` (it built), `view.content()`, `view.footer()`, `view.link_panel()`, `view.root()`, `view.paragraph_styles()` and `view.format`, what the selection is.
 
@@ -7517,6 +7540,7 @@ Picture::from_resource("images/lake.jpg")
 | `on_click(handler)` | A press of the picture as a whole |
 | `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
 | `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
+| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's where the theme is at `Density::Touch`, an app for a finger, unless told |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
@@ -7566,6 +7590,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
 | `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
 | `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
+| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox over a window narrower than the theme's `Sm` is unless told. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
 | `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
 | `wrap(bool)` | Whether the first picture comes after the last |
 | `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
@@ -7696,6 +7721,41 @@ Carousel::new(cards)
   called by its label, the dots a `tablist` of `tab`s.
 - A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
   what turns them) and `view.dots()`.
+
+## Action Sheet
+
+On a phone, the actions on something, risen from the bottom of the screen over a scrim, and Cancel under them.
+
+```rust
+use lurq::ui::{ActionSheet, MenuItem};
+
+// open: Signal<bool>. An option does what it does and closes the sheet.
+ActionSheet::new(open.clone(), [
+  MenuItem::new("Save to library").on_select(save),
+  MenuItem::new("Duplicate").on_select(duplicate),
+  MenuItem::new("Delete photo").destructive(true).on_select(delete),
+])
+.title("Photo options");
+```
+
+| Builder | |
+| --- | --- |
+| `new(open, items)`, `item(MenuItem)` | Open while the signal says so, with its options: what an item says, whether it destroys something or is disabled, and what choosing it does. An icon, a shortcut and a submenu of an item are not shown |
+| `title(&str)` | What the sheet is about, over its options |
+| `cancel_label(&str)` | What Cancel says: "Cancel" |
+| `on_dismiss(Fn())` | Told when it is closed with no option: Cancel, a press on the scrim, Escape |
+| `inline(bool)` | The sheet where it is declared, open or not, without the scrim: for a gallery, a screenshot, a test |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Its options are `<id>-option-<n>`, Cancel `<id>-cancel` |
+
+- It rises from the bottom as the scrim fades in, and goes down as it fades out. It takes the focus as it opens and
+  gives it back as it closes; the arrow keys move among the options, and Enter and Space choose.
+- Parts: `ActionSheetPart::Scrim`, `Root`, `Options`, `Title`, `Option`, `Label`, `Cancel`, `CancelLabel`. States:
+  `ActionSheetState::Destructive`, `Disabled`.
+- In the design the options are a card in `Card` with a line of `Border` and the large corners, 8 in from the
+  screen's sides and bottom: the title 13 in `MutedForeground`, 12 over and under; options of 56 with a line over
+  each and their words 17 in the middle, in `Foreground` or `Destructive`; Cancel 8 under them, a card of its own,
+  17 semibold. The scrim is `Scrim`.
+- To what reads the tree it is a `dialog` called by its title, its options and Cancel `button`s.
 
 ## Tab And The Design System's Controls
 

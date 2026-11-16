@@ -10,7 +10,7 @@ use lurq::{
   images::ImageData,
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonVariant, Lightbox, Picture},
+  ui::{Button, ButtonVariant, Lightbox, LightboxVariant, Picture},
 };
 
 use super::picture::lake;
@@ -59,6 +59,8 @@ pub struct LightboxPage {
   close: Signal<bool>,
   /// Whether the lightbox over the window is open.
   open: Signal<bool>,
+  /// Which picture the phone's viewer shows.
+  phone_at: Signal<usize>,
   /// The page's pictures, drawn once: the lake as it is, standing and lying.
   shots: [ImageData; 3],
 }
@@ -255,6 +257,7 @@ impl Component for LightboxPage {
       download: ctx.signal(true),
       close: ctx.signal(true),
       open: ctx.signal(false),
+      phone_at: ctx.signal(2),
       shots: [lake(640, 480), lake(360, 540), lake(900, 400)],
     }
   }
@@ -282,6 +285,19 @@ impl Component for LightboxPage {
           .height(290.0),
         "one picture · no counter, no strip, no round buttons",
       ));
+
+    let on_a_phone = Row::new().width(FILL).id("lightbox-phone").child(item(
+      Lightbox::new(shown.clone(), self.pictures(12))
+        .inline(true)
+        .variant(LightboxVariant::Phone)
+        .width(360.0)
+        .height(640.0)
+        .index(self.phone_at.clone())
+        .on_share(|_| {})
+        .on_download(|_| {})
+        .id("lightbox-phone-viewer"),
+      "the phone's viewer · 360 × 640, at the third of twelve",
+    ));
 
     let open = self.open.clone();
     let over = Row::new()
@@ -318,6 +334,18 @@ impl Component for LightboxPage {
         "Signal<f32> / Fn(f64) / f32",
         "1 / 4",
         "How close the picture is, 1 where it fits, and the closest it is brought.",
+      ),
+      (
+        "variant",
+        "LightboxVariant",
+        "by the window",
+        "Desktop, Phone: the phone's viewer over a window narrower than the theme's Sm, unless told.",
+      ),
+      (
+        "on_share / menu_item / menu_items",
+        "Fn(usize) / MenuItem",
+        "",
+        "On a phone: the Share button, and the menu behind More, which holds Download first where it is given.",
       ),
       (
         "preload",
@@ -411,6 +439,21 @@ impl Component for LightboxPage {
               "let open = ctx.signal(false);",
               "Button::new(\"Open the lightbox\").on_click(move |_| open.set(true));",
               "Lightbox::new(open, pictures).wrap(true).on_download(save)",
+            ],
+          ),
+        ),
+        Section::new(
+          "On a phone",
+          "Over a window narrower than the theme's Sm the lightbox is the phone's viewer: black, the whole screen,            a swipe to the next picture, a pinch or a double tap closer, a drag down to close. Close, Share and More            are at the top, the caption and the dots under the picture. Shown here in a page, as a phone would show            it.",
+          self.frame.demo(
+            2,
+            on_a_phone,
+            ".variant(LightboxVariant::Phone)",
+            &[
+              "// Over a window narrower than Sm it is the phone's on its own.",
+              "Lightbox::new(open, pictures).on_share(share).on_download(save)",
+              "",
+              "Lightbox::new(open, pictures).variant(LightboxVariant::Phone)",
             ],
           ),
         ),

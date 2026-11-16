@@ -236,8 +236,9 @@ impl Tree {
   }
 
   /// Writes `text` where copies go, with its Markdown beside it: whether it was written. The OS clipboard, which
-  /// holds one text, is given the Markdown where the text has formatting (marks, or a paragraph that is not body
-  /// text), so that another app or another lurq process has it; this process keeps the plain text beside it.
+  /// holds one text, is given the Markdown where the text has formatting (marks, a picture, or a paragraph that is
+  /// not body text), so that another app or another lurq process has it; this process keeps the plain text beside
+  /// it.
   #[cfg(feature = "markdown")]
   pub(super) fn write_clipboard_rich(&self, text: &str, markdown: &str) -> bool {
     match &self.clipboard_writer {
@@ -245,6 +246,7 @@ impl Tree {
       None => {
         let rich = crate::components::RichText::from_markdown(markdown);
         let formatted = !rich.spans.is_empty()
+          || !rich.objects.is_empty()
           || rich
             .paragraphs
             .iter()

@@ -28,7 +28,17 @@ impl Paragraph {
   /// The paragraph's glyph styles and metrics; `with_clusters`, also the
   /// clusters that padded rows are broken and filled by. Rows without
   /// padding are laid out by cosmic-text and need none.
-  pub(super) fn new(original: &ShapeLine, config: &InputConfig, with_clusters: bool) -> Self {
+  ///
+  /// A range that is a box ([`InputConfig::object_size`]) has the glyphs of
+  /// its character made as wide as the box, with the ascent and the descent
+  /// `object_band` gives, the input's own: the rows are then broken and laid
+  /// out with the box in them, whatever font the character fell to.
+  pub(super) fn new(
+    original: &ShapeLine,
+    config: &InputConfig,
+    with_clusters: bool,
+    object_band: Option<(f32, f32)>,
+  ) -> Self {
     let mut shape = original.clone();
     let mut styles = Vec::new();
     let mut metrics = Vec::new();
@@ -36,6 +46,8 @@ impl Paragraph {
     let mut word_id = 0;
     let mut ends = BTreeSet::new();
     let mut clusters: BTreeMap<(usize, usize), Cluster> = BTreeMap::new();
+    // The clusters of boxes that have their width already: a cluster of several glyphs has it on its first.
+    let mut boxed = BTreeSet::new();
     for (span_index, span) in shape.spans.iter_mut().enumerate() {
       for (word_index, word) in span.words.iter_mut().enumerate() {
         word_id += 1;
@@ -50,6 +62,14 @@ impl Paragraph {
           let em = glyph
             .metrics_opt
             .map_or(config.base.font_size, |metrics| metrics.font_size);
+          if let Some((width, _)) = style.checked_sub(1).and_then(|token| config.object_size(token)) {
+            let first = boxed.insert((glyph.start, glyph.end));
+            glyph.x_advance = if first { width / em.max(1.0) } else { 0.0 };
+            (glyph.x_offset, glyph.y_offset) = (0.0, 0.0);
+            if let Some((ascent, descent)) = object_band {
+              (glyph.ascent, glyph.descent) = (ascent / em.max(1.0), descent / em.max(1.0));
+            }
+          }
           metrics.push((glyph.ascent * em, glyph.descent * em));
           if !with_clusters {
             continue;
