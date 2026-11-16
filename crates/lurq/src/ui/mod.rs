@@ -67,6 +67,7 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
 #[cfg(feature = "canvas")]
 mod gauge;
 #[cfg(feature = "canvas")]
@@ -330,6 +331,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};

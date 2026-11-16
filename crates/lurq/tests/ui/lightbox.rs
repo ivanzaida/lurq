@@ -375,3 +375,58 @@ fn its_keys_are_its_own_only_while_the_focus_is_in_it() {
   assert_eq!(stage.text("1"), (WHITE, 12.0));
   assert!(stage.paints("100%"));
 }
+
+#[test]
+fn in_a_page_it_is_no_wider_than_a_room_narrower_than_it() {
+  let open = Signal::new(true);
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    Column::new()
+      .size(600.0, 400.0)
+      .child(
+        Row::new().id("room").width(280.0).child(
+          Lightbox::new(open.clone(), pictures())
+            .inline(true)
+            .width(420.0)
+            .height(290.0)
+            .id("viewer"),
+        ),
+      )
+      .into()
+  });
+  settled(&mut stage);
+  assert_eq!(stage.bounds("viewer"), (0.0, 0.0, 280.0, 290.0));
+  for id in ["viewer-close", "viewer-next", "viewer-zoom-in", "viewer-level"] {
+    let (x, _, width, _) = stage.bounds(id);
+    assert!(x >= 0.0 && x + width <= 280.5, "{id} is in the panel: {width} at {x}");
+  }
+}
+
+#[test]
+fn the_level_gives_way_where_the_top_row_has_no_room_for_it() {
+  let open = Signal::new(true);
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    Column::new()
+      .size(600.0, 400.0)
+      .child(
+        Row::new().id("room").width(240.0).child(
+          Lightbox::new(open.clone(), pictures())
+            .inline(true)
+            .width(420.0)
+            .height(290.0)
+            .on_download(|_| {})
+            .id("viewer"),
+        ),
+      )
+      .into()
+  });
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-level").is_none());
+  for id in ["viewer-zoom-out", "viewer-zoom-in", "viewer-download", "viewer-close"] {
+    let (x, _, width, _) = stage.bounds(id);
+    assert!(x >= 0.0 && x + width <= 240.5, "{id} is in the panel: {width} at {x}");
+  }
+  // The buttons about it still bring the picture closer.
+  stage.click("viewer-zoom-in");
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-zoom-out").is_some());
+}

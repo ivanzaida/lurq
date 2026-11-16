@@ -55,6 +55,7 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
 mod hover_card;
 mod icons;
 mod info_label;
@@ -1124,6 +1125,14 @@ pub const PAGES: &[Page] = &[
     about: "lightbox viewer gallery picture photo image zoom pan wheel pinch drag fit counter filmstrip thumbnails previous next arrows download close escape overlay modal inline Lightbox index zoom zoom_max wrap filmstrip counter on_index_change on_zoom_change on_download on_dismiss",
     group: Group::Media,
     mount: |ctx| ctx.mount::<lightbox::LightboxPage>(()),
+  },
+  Page {
+    path: "/gallery",
+    name: "Gallery",
+    icon: Some("image"),
+    about: "gallery grid pictures photos thumbnails rows columns gap aspect ratio select selected choose keys lightbox open more count max_shown veil Gallery keyed columns gap aspect_ratio size max_shown more_text selectable selected on_selection_change lightbox open on_open_change on_select",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<gallery::GalleryPage>(()),
   },
   Page {
     path: "/video-player",
