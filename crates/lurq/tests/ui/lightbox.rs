@@ -364,3 +364,14 @@ fn it_is_over_the_window_while_its_signal_says_so_and_escape_closes_it() {
   assert!(!open.get());
   assert_eq!(dismissed.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn its_keys_are_its_own_only_while_the_focus_is_in_it() {
+  let mut stage = in_page(|lightbox| lightbox);
+  settled(&mut stage);
+  // Nothing in it was pressed: the focus is elsewhere, and a key pressed there is not the lightbox's.
+  stage.key("ArrowRight");
+  stage.key("+");
+  assert_eq!(stage.text("1"), (WHITE, 12.0));
+  assert!(stage.paints("100%"));
+}
