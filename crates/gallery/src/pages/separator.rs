@@ -211,6 +211,7 @@ impl Component for SeparatorPage {
       .child(tool("Italic", icons::ITALIC));
     let or = Column::new()
       .width(320.0)
+      .max_width(FILL)
       .spacing(16.0)
       .child(
         Button::new("Continue with GitHub")

@@ -1019,7 +1019,14 @@ pub(crate) struct RareStyle {
 /// has a disabled state to keep.
 static DISABLED_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn disabled_in_use() -> bool {
+/// Whether any node of the process was ever built to take every key: until one is, no window looks for one.
+static KEY_CAPTURE_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn key_capture_in_use() -> bool {
+  KEY_CAPTURE_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn disabled_in_use() -> bool {
   DISABLED_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -1030,6 +1037,26 @@ empty_default!(StateStyles);
 empty_default!(RareStyle);
 empty_default!(AnimationOverrides);
 empty_default!(Vec<Transition>);
+
+/// What DevTools and MCP show of a node: the component it is the root of, and what it says of itself.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[derive(Clone, Default)]
+pub(crate) struct NodeDebug {
+  #[cfg(feature = "devtools")]
+  pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_memos_debug: Vec<ComponentMemoDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+empty_default!(NodeDebug);
 
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
@@ -1051,18 +1078,10 @@ pub(crate) struct Node {
   pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
   pub(crate) layout_neutral: bool,
   pub(crate) synthetic_role: Option<SyntheticNodeRole>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_memos_debug: Vec<ComponentMemoDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  /// What DevTools and MCP show of the node: boxed, as an app built with neither has none and one built with them
+  /// has it on few of its nodes.
   #[cfg(any(feature = "devtools", feature = "mcp"))]
-  pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
+  pub(crate) debug: LazyBox<NodeDebug>,
   /// The theme the element and what is in it are laid out and painted with, in place of the window's
   /// (`Ctx::in_theme`). Boxed: almost no node has one.
   pub(crate) theme_scope: Option<Box<crate::app::theme::Theme>>,
@@ -1163,6 +1182,9 @@ impl NodeUpdate for Node {
     if self.rare_style.captures_keys != captures {
       self.rare_style.captures_keys = captures;
     }
+    if captures {
+      KEY_CAPTURE_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
   }
 
   fn form_value(&mut self, value: Option<Arc<str>>) {
@@ -1173,7 +1195,7 @@ impl NodeUpdate for Node {
 
   fn describe(&mut self, name: Arc<str>, value: Arc<str>) {
     #[cfg(any(feature = "devtools", feature = "mcp"))]
-    self.debug_attrs.push((name, value));
+    self.debug.debug_attrs.push((name, value));
     #[cfg(not(any(feature = "devtools", feature = "mcp")))]
     let _ = (name, value);
   }
@@ -2609,18 +2631,8 @@ impl Node {
       modal_declaration: None,
       layout_neutral: false,
       synthetic_role: None,
-      #[cfg(feature = "devtools")]
-      component_props_debug: None,
-      #[cfg(feature = "devtools")]
-      component_signals_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
-      component_memos_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
-      component_effects_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
-      component_contexts_debug: Vec::new(),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
-      debug_attrs: Vec::new(),
+      debug: LazyBox::new(),
       theme_scope: None,
       text_content: Guard::new(None),
       text_wrap: DEFAULT_TEXT_WRAP,
@@ -4729,7 +4741,7 @@ impl Node {
     }
   }
 
-  fn assign_ids_and_disabled(&mut self, id_gen: &IdGenerator, inherited: bool) {
+  pub(crate) fn assign_ids_and_disabled(&mut self, id_gen: &IdGenerator, inherited: bool) {
     if !self.node_id.is_assigned() {
       self.node_id = id_gen.next();
     }
@@ -4905,64 +4917,84 @@ impl Node {
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_props_debug(&mut self, props: Option<DevtoolsInspectableDebug>) {
-    self.component_props_debug = props;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if props.is_none() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_props_debug = props;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_signals_debug(&mut self, signals: Vec<ComponentSignalDebug>) {
-    self.component_signals_debug = signals;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if signals.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_signals_debug = signals;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_memos_debug(&mut self, memos: Vec<ComponentMemoDebug>) {
-    self.component_memos_debug = memos;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if memos.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_memos_debug = memos;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_effects_debug(&mut self, effects: Vec<ComponentEffectDebug>) {
-    self.component_effects_debug = effects;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if effects.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_effects_debug = effects;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_contexts_debug(&mut self, contexts: Vec<ComponentContextDebug>) {
-    self.component_contexts_debug = contexts;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if contexts.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_contexts_debug = contexts;
   }
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[cfg_attr(not(feature = "router"), allow(dead_code))]
   pub(crate) fn debug_attr(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
-    self.debug_attrs.push((name.into(), value.into()));
+    self.debug.debug_attrs.push((name.into(), value.into()));
     self
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
-    self.component_props_debug.as_ref()
+    self.debug.component_props_debug.as_ref()
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_signals_debug(&self) -> &[ComponentSignalDebug] {
-    &self.component_signals_debug
+    &self.debug.component_signals_debug
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_memos_debug(&self) -> &[ComponentMemoDebug] {
-    &self.component_memos_debug
+    &self.debug.component_memos_debug
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_effects_debug(&self) -> &[ComponentEffectDebug] {
-    &self.component_effects_debug
+    &self.debug.component_effects_debug
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
-    &self.component_contexts_debug
+    &self.debug.component_contexts_debug
   }
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]
@@ -4976,10 +5008,10 @@ impl Node {
       .map(CoreElementRef::descriptions)
       .unwrap_or_default();
     if described.is_empty() {
-      return std::borrow::Cow::Borrowed(&self.debug_attrs);
+      return std::borrow::Cow::Borrowed(&self.debug.debug_attrs);
     }
     let mut attrs: Vec<(Arc<str>, Arc<str>)> = self
-      .debug_attrs
+      .debug.debug_attrs
       .iter()
       .filter(|(name, _)| !described.iter().any(|(said, _)| said == name))
       .cloned()
@@ -6325,18 +6357,8 @@ impl Node {
       modal_declaration,
       layout_neutral: self.layout_neutral,
       synthetic_role: self.synthetic_role,
-      #[cfg(feature = "devtools")]
-      component_props_debug: self.component_props_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_signals_debug: self.component_signals_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_memos_debug: self.component_memos_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_effects_debug: self.component_effects_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_contexts_debug: self.component_contexts_debug.clone(),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
-      debug_attrs: self.debug_attrs.clone(),
+      debug: self.debug.clone(),
       theme_scope: self.theme_scope.clone(),
       layout_kind: self.layout_kind.clone(),
       frame: self.frame,
@@ -6449,7 +6471,7 @@ impl Node {
   #[cfg(feature = "devtools")]
   fn estimated_debug_memory_bytes(&self) -> usize {
     self
-      .component_props_debug
+      .debug.component_props_debug
       .as_ref()
       .map(|props| {
         props.type_name.len()
@@ -6462,27 +6484,27 @@ impl Node {
       })
       .unwrap_or(0)
       + self
-        .component_signals_debug
+        .debug.component_signals_debug
         .iter()
         .map(|signal| signal.type_name.len() + signal.estimated_memory_bytes())
         .sum::<usize>()
       + self
-        .component_memos_debug
+        .debug.component_memos_debug
         .iter()
         .map(|memo| memo.type_name.len() + memo.estimated_memory_bytes())
         .sum::<usize>()
-      + self.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
+      + self.debug.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
       + self
-        .component_contexts_debug
+        .debug.component_contexts_debug
         .iter()
         .map(|context| context.type_name.len())
         .sum::<usize>()
       + self
-        .debug_attrs
+        .debug.debug_attrs
         .iter()
         .map(|(name, value)| name.len() + value.len())
         .sum::<usize>()
-      + self.debug_attrs.capacity() * std::mem::size_of::<(Arc<str>, Arc<str>)>()
+      + self.debug.debug_attrs.capacity() * std::mem::size_of::<(Arc<str>, Arc<str>)>()
   }
 
   #[cfg(not(feature = "devtools"))]
@@ -6729,6 +6751,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           },
         );
       }
@@ -6986,6 +7009,7 @@ mod tests {
               holds: SubtreeHolds::UNKNOWN,
               generation: 0,
               sticky_shifts: None,
+              reach: crate::layout::layout_result::Reach::UNKNOWN,
             }
             .into(),
           },
@@ -6999,6 +7023,7 @@ mod tests {
               holds: SubtreeHolds::UNKNOWN,
               generation: 0,
               sticky_shifts: None,
+              reach: crate::layout::layout_result::Reach::UNKNOWN,
             }
             .into(),
           },
@@ -7008,6 +7033,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
     let mut new = Node::row(
@@ -7047,6 +7073,7 @@ mod tests {
                 holds: SubtreeHolds::UNKNOWN,
                 generation: 0,
                 sticky_shifts: None,
+                reach: crate::layout::layout_result::Reach::UNKNOWN,
               }
               .into(),
             }],
@@ -7055,6 +7082,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           }
           .into(),
         }],
@@ -7063,6 +7091,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
 
@@ -7098,6 +7127,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           }
           .into(),
         }],
@@ -7106,6 +7136,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
 

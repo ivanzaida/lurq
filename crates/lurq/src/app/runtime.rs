@@ -2382,7 +2382,10 @@ impl Tree {
     self.active_path.clear();
     self.clear_focus();
     self.focus_start = None;
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
   }
 
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
@@ -2442,12 +2445,18 @@ impl Tree {
         detach_canvases_not_carried(old_canvases, Some(root));
         root.assign_tree_ids(&self.id_gen);
       }
-      self.begin_leaving_children();
+      {
+        crate::app::profile_support::frame_section!("ul:begin_leaving");
+        self.begin_leaving_children();
+      }
       self.tree_rebuilt_since_layout = true;
       self.cached_render_list = None;
       self.refresh_interaction_state();
     }
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
   }
 
   pub fn set_root(&mut self, element: impl Into<Element>) {
@@ -2474,7 +2483,10 @@ impl Tree {
     detach_canvases_not_carried(old_canvases, Some(&node));
     node.assign_tree_ids(&self.id_gen);
     self.root = Some(node);
-    self.begin_leaving_children();
+    {
+      crate::app::profile_support::frame_section!("ul:begin_leaving");
+      self.begin_leaving_children();
+    }
     self.root_component = None;
     self.root_ctx = None;
     self.last_layout = None;
@@ -2602,7 +2614,10 @@ impl Tree {
     if let Some(engine) = &mut self.render_engine {
       engine.set_profile_context(self.profiling.context.clone());
     }
-    let report = self.pass_inner(app, surface);
+    let report = {
+      crate::app::profile_support::frame_section!("pass");
+      self.pass_inner(app, surface)
+    };
     #[cfg(feature = "mcp")]
     {
       #[cfg(feature = "perf_profile")]
@@ -2638,6 +2653,15 @@ impl Tree {
           .unwrap_or("none"),
         report.rendered.then_some(&self.last_profile),
       );
+      // Drawn frames only: a pass that draws nothing tells nothing of what a frame costs.
+      if report.rendered {
+        crate::app::profile_support::log_frame_sections(|| {
+          fn count(node: &Node) -> usize {
+            1 + node.children().iter().map(count).sum::<usize>()
+          }
+          self.root.as_ref().map_or(0, count)
+        });
+      }
     }
     report
   }
@@ -2695,8 +2719,14 @@ impl Tree {
     self.set_app_ref(app);
     self.write_requested_copies();
     let pass_started_at = Instant::now();
-    self.tick_scheduled_redraw(Instant::now());
-    self.tick_scrollbar_change();
+    {
+      crate::app::profile_support::frame_section!("setup:scheduled_redraw");
+      self.tick_scheduled_redraw(Instant::now());
+    }
+    {
+      crate::app::profile_support::frame_section!("setup:scrollbar_change");
+      self.tick_scrollbar_change();
+    }
     #[cfg(feature = "canvas")]
     self.advance_canvas_motion();
     let theme_version = self
@@ -2710,9 +2740,18 @@ impl Tree {
       .map(|ctx| ctx.theme().caret_mode())
       .unwrap_or_else(|| app.theme().caret_mode());
     let mut reasons = self.pending_pass_reasons;
-    reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
-    let needs_redraw = self.needs_redraw();
-    let has_active_tick_sources = self.has_active_tick_sources();
+    {
+      crate::app::profile_support::frame_section!("setup:pass_reasons");
+      reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
+    }
+    let needs_redraw = {
+      crate::app::profile_support::frame_section!("setup:needs_redraw");
+      self.needs_redraw()
+    };
+    let has_active_tick_sources = {
+      crate::app::profile_support::frame_section!("setup:tick_sources");
+      self.has_active_tick_sources()
+    };
     let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
     let required = needs_redraw || has_active_tick_sources || theme_changed;
     let mut report = PassReport {
@@ -2757,8 +2796,14 @@ impl Tree {
     self.update_perf_overlay_stats();
 
     let now = Instant::now();
-    self.flush_due_pending_click(now);
-    self.refresh_interaction_groups();
+    {
+      crate::app::profile_support::frame_section!("setup:pending_click");
+      self.flush_due_pending_click(now);
+    }
+    {
+      crate::app::profile_support::frame_section!("interaction_groups");
+      self.refresh_interaction_groups();
+    }
 
     let initial_cache_start = Instant::now();
     let initial_cache_result = if self.root.is_some()
@@ -2811,9 +2856,15 @@ impl Tree {
     let _layout_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _layout_phase = self.profiling.context.phase(crate::app::profiler::Phase::LayoutUpdate);
-    self.tick_wheel_scrolls(app.theme());
+    {
+      crate::app::profile_support::frame_section!("wheel_scrolls");
+      self.tick_wheel_scrolls(app.theme());
+    }
     crate::core::element_ref::take_observed_before_paint();
-    let mut layout_updated = self.update_layout(app);
+    let mut layout_updated = {
+      crate::app::profile_support::frame_section!("update_layout");
+      self.update_layout(app)
+    };
     // An element's size changed what a component that watches it before paint renders (a timeline that folds its
     // sides to one in a narrow room), or the sizes it gives its parts through their refs (a splitter that keeps a
     // pane at its least size): render and lay out again, so this frame already shows the form that fits. What is
@@ -2838,8 +2889,14 @@ impl Tree {
       self.update_layout(app);
     }
     // The tree may have been built again, and the pointer may be on something else now.
-    self.refresh_interaction_groups();
-    self.update_text_input_caret_blink(now, caret_mode);
+    {
+      crate::app::profile_support::frame_section!("interaction_groups");
+      self.refresh_interaction_groups();
+    }
+    {
+      crate::app::profile_support::frame_section!("caret_blink");
+      self.update_text_input_caret_blink(now, caret_mode);
+    }
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
     #[cfg(feature = "perf_profile")]
@@ -2931,9 +2988,12 @@ impl Tree {
     let mut quads = std::mem::take(&mut self.quad_scratch);
     quads.clear();
     self.layout_engine.begin_scrollbar_frame(self.now());
-    self
-      .layout_engine
-      .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
+    {
+      crate::app::profile_support::frame_section!("paint:resolve_quads");
+      self
+        .layout_engine
+        .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
+    }
     let scrollbar_change_at = self.layout_engine.take_scrollbar_change();
     let mut opacity_groups = std::mem::take(&mut self.opacity_groups);
     self.layout_engine.take_opacity_groups(&mut opacity_groups);
@@ -2957,6 +3017,7 @@ impl Tree {
 
     let mut glyph_engine = app.shared.glyph_engine.lock();
     let glyph_wall_start = Instant::now();
+    crate::app::profile_support::frame_section!("paint:glyphs_and_render");
     let _glyph_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _glyph_phase = self
@@ -4240,7 +4301,10 @@ impl Tree {
   }
 
   fn dispatch_key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     if self.dispatch_captured_key(true, &key, &code, shift, ctrl, alt, meta) {
       return;
     }
@@ -4254,7 +4318,10 @@ impl Tree {
     self.note_key_press_modality(&key, ctrl, alt, meta);
     self.note_alt_press(&key, ctrl, meta);
     // Keys never reach a node that was dropped since it took focus.
-    self.blur_focus_in_dropped_child();
+    {
+      crate::app::profile_support::frame_section!("ul:blur_dropped");
+      self.blur_focus_in_dropped_child();
+    }
     // The input method takes the keys it reports as `Process` (on Windows,
     // the Enter that confirms a composition included): no handler or default
     // sees them. Other presses arrive as usual, marked while composing.
@@ -4368,7 +4435,10 @@ impl Tree {
   }
 
   fn dispatch_key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     if self.dispatch_captured_key(false, &key, &code, shift, ctrl, alt, meta) {
       return;
     }
@@ -4880,7 +4950,10 @@ impl Tree {
   }
 
   fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     let Some(root) = self.root.as_ref() else {
       return false;
     };
@@ -4940,7 +5013,10 @@ impl Tree {
     let lx = x / scale;
     let ly = y / scale;
 
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
 
     let root = match &self.root {
       Some(r) => r,
@@ -5089,7 +5165,10 @@ impl Tree {
       }
     }
 
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
 
     if let Some(mut drag) = self.dragging_slider.clone() {
       if let Some(state) = self.current_slider_state(drag.target_id) {
@@ -6973,7 +7052,10 @@ impl Tree {
   #[cfg(feature = "devtools")]
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn debug_overlay_node_at(&mut self, x: f32, y: f32) -> Option<Vec<usize>> {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let scale = self.scale_factor();
@@ -7050,7 +7132,10 @@ impl Tree {
   /// has no layout yet. The layout is the one the next frame would run (with
   /// a reveal and the hover it moves), which then has nothing left to lay out.
   fn lay_out_rebuilt_for_input(&mut self) {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     if !self.tree_rebuilt_since_layout || self.root.is_none() || self.last_layout.is_none() {
       return;
     }
@@ -7070,13 +7155,22 @@ impl Tree {
     self.write_requested_copies();
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       self.needs_redraw = true;
-      self.rebuild_if_dirty();
+      {
+        crate::app::profile_support::frame_section!("ul:rebuild");
+        self.rebuild_if_dirty();
+      }
     }
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
     if let Some((group, key)) = self.pressed_focus_key.take() {
       self.focus_keyed_in_group(group, &key, false);
     }
-    self.refresh_interaction_groups();
+    {
+      crate::app::profile_support::frame_section!("interaction_groups");
+      self.refresh_interaction_groups();
+    }
   }
 
   /// Writes what the app asked to be put on the clipboard (`WindowHandle::copy_to_clipboard`), in order.
@@ -7220,7 +7314,10 @@ impl Tree {
       .update(crate::app::profiler::UiUpdateKind::SubtreeRefresh);
     let (replacements, dirty_after_refresh) = match &mut self.root_ctx {
       Some(ctx) => {
-        let replacements = ctx.refresh_dirty_subtrees();
+        let replacements = {
+          crate::app::profile_support::frame_section!("refresh:components");
+          ctx.refresh_dirty_subtrees()
+        };
         let dirty_after_refresh = ctx.any_dirty();
         (replacements, dirty_after_refresh)
       }
@@ -7249,20 +7346,27 @@ impl Tree {
     }
 
     if let Some(root) = &mut self.root {
+      crate::app::profile_support::frame_section!("refresh:replace_slots");
       for (slot_id, replacement) in replacements {
         replace_live_component_slot_everywhere(root, slot_id, replacement, &self.id_gen);
       }
     }
 
-    if let Some(root) = &mut self.root {
-      root.assign_tree_ids(&self.id_gen);
+    {
+      crate::app::profile_support::frame_section!("ul:begin_leaving");
+      self.begin_leaving_children();
     }
-    self.begin_leaving_children();
     self.tree_rebuilt_since_layout = true;
     self.cached_render_list = None;
     self.needs_redraw = true;
-    self.reapply_interaction_state();
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("refresh:interaction");
+      self.reapply_interaction_state();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
     true
   }
 
@@ -7337,12 +7441,30 @@ impl Tree {
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();
     self.animation_engine.begin_frame();
-    self.step_autoscroll();
-    self.rebuild_if_dirty();
-    self.apply_focus_request();
-    self.rebuild_if_dirty();
-    self.drop_leaving_children(self.now());
-    self.sync_dynamic_content();
+    {
+      crate::app::profile_support::frame_section!("ul:autoscroll");
+      self.step_autoscroll();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:leaving");
+      self.drop_leaving_children(self.now());
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:dynamic_content");
+      self.sync_dynamic_content();
+    }
     #[cfg(all(feature = "image", feature = "resources"))]
     let image_resources_changed = self.resolve_resource_images(app);
     #[cfg(not(all(feature = "image", feature = "resources")))]
@@ -7374,8 +7496,14 @@ impl Tree {
         animation_layout_changed |= self.animation_engine.tick(base, now);
       }
     } else if !had_overlay_host && let Some(root) = self.root.as_mut() {
-      animation_layout_changed |= self.transition_engine.tick(root, now);
-      animation_layout_changed |= self.animation_engine.tick(root, now);
+      {
+        crate::app::profile_support::frame_section!("ul:transition_tick");
+        animation_layout_changed |= self.transition_engine.tick(root, now);
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:animation_tick");
+        animation_layout_changed |= self.animation_engine.tick(root, now);
+      }
     }
 
     if let Some(root) = self.root.as_ref() {
@@ -7389,13 +7517,31 @@ impl Tree {
         .unwrap_or_else(|| app.theme().version());
       let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
       let has_active_overlays = root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && root.children.len() > 1;
-      root.prepare_layout_tracking();
-      let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
-      let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
-      let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
-      let has_active_timeline = self.has_active_timeline();
+      {
+        crate::app::profile_support::frame_section!("ul:layout_tracking");
+        root.prepare_layout_tracking();
+      }
+      let has_dirty_element_ref = {
+        crate::app::profile_support::frame_section!("ul:dirty_element_ref_walk");
+        has_dirty_element_ref_recursive(root)
+      };
+      let has_pending_layout_dirty = {
+        crate::app::profile_support::frame_section!("ul:pending_layout_dirty_walk");
+        has_pending_layout_dirty_recursive(root)
+      };
+      let has_runtime_layout_state = {
+        crate::app::profile_support::frame_section!("ul:runtime_layout_state_walk");
+        has_runtime_layout_state_recursive(root)
+      };
+      let has_active_timeline = {
+        crate::app::profile_support::frame_section!("ul:active_timeline");
+        self.has_active_timeline()
+      };
       let tree_rebuilt_since_layout = self.tree_rebuilt_since_layout;
-      let has_render_dirty_timeline_target = self.cached_render_list.is_none() && has_timeline_target_recursive(root);
+      let has_render_dirty_timeline_target = {
+        crate::app::profile_support::frame_section!("ul:timeline_target_walk");
+        self.cached_render_list.is_none() && has_timeline_target_recursive(root)
+      };
       let has_last_layout = self.last_layout.is_some();
       let root_cache_contains = root.layout_cache.contains(constraints);
       let root_render_dirty = root.has_render_dirty();
@@ -7431,7 +7577,10 @@ impl Tree {
             crate::node::transform::Transform2D::IDENTITY,
           );
         }
-        self.apply_focus_request_inner(true);
+        {
+          crate::app::profile_support::frame_section!("ul:focus_request_inner");
+          self.apply_focus_request_inner(true);
+        }
         return false;
       }
       if self.has_active_timeline() || component_dirty || has_pending_layout_dirty {
@@ -7453,7 +7602,10 @@ impl Tree {
       }
     }
 
-    let overlay_parts = self.detach_overlay_host();
+    let overlay_parts = {
+      crate::app::profile_support::frame_section!("ul:detach_overlay_host");
+      self.detach_overlay_host()
+    };
 
     if had_overlay_host && let Some(root) = self.root.as_mut() {
       self.transition_engine.tick(root, now);
@@ -7502,8 +7654,14 @@ impl Tree {
         theme_changed,
         now,
       );
-      self.begin_leaving_children();
-      self.release_input_in_leaving_layers();
+      {
+        crate::app::profile_support::frame_section!("ul:begin_leaving");
+        self.begin_leaving_children();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:release_leaving");
+        self.release_input_in_leaving_layers();
+      }
       // Focus/blur callbacks may mutate App services; the glyph lock used to
       // construct the overlay host must be released before dispatching them.
       if had_overlay_host
@@ -7526,9 +7684,18 @@ impl Tree {
       if let Some(target) = self.overlay_focus_back.take() {
         self.focus_node(target);
       }
-      self.sync_modal_focus();
-      self.apply_focus_request_inner(true);
-      self.tick_overlay_subtrees(now);
+      {
+        crate::app::profile_support::frame_section!("ul:modal_focus");
+        self.sync_modal_focus();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:focus_request_inner");
+        self.apply_focus_request_inner(true);
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:overlay_subtrees");
+        self.tick_overlay_subtrees(now);
+      }
       if let Some(root) = self.root.as_ref()
         && root.has_synthetic_role(SyntheticNodeRole::OverlayHost)
       {
@@ -7583,8 +7750,14 @@ impl Tree {
         self.profiling.canvas_recording(profile_elapsed!(_canvas_start));
       }
       if let Some(root) = self.root.as_mut() {
-        update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
-        verify_scroll_offsets(root, &layout);
+        {
+          crate::app::profile_support::frame_section!("ul:element_refs_walk");
+          update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
+        }
+        {
+          crate::app::profile_support::frame_section!("ul:verify_scroll_walk");
+          verify_scroll_offsets(root, &layout);
+        }
       }
       if let (Some(component), Some(ctx)) = (&self.root_component, &self.root_ctx) {
         let _after_layout_start = profile_scope!();
@@ -7617,19 +7790,34 @@ impl Tree {
         }
       }
       if let Some(root) = &self.root {
-        self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
+        {
+          crate::app::profile_support::frame_section!("ul:dropped_nodes_walk");
+          self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
+        }
       }
       self.last_layout = Some(layout);
       self.leave_window_controls();
-      self.blur_focus_in_dropped_child();
-      self.apply_pending_row_focus();
+      {
+        crate::app::profile_support::frame_section!("ul:blur_dropped");
+        self.blur_focus_in_dropped_child();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:row_focus");
+        self.apply_pending_row_focus();
+      }
       self.tree_rebuilt_since_layout = false;
       // All tick walks for this frame ran (base tree + overlay subtrees), so
       // the engines can now drop runs whose nodes left the tree; otherwise an
       // unmounted spinner keeps the timeline "active" and forces this full
       // layout pass every frame forever.
-      self.transition_engine.finish_frame();
-      self.animation_engine.finish_frame();
+      {
+        crate::app::profile_support::frame_section!("ul:transition_finish");
+        self.transition_engine.finish_frame();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:animation_finish");
+        self.animation_engine.finish_frame();
+      }
       return true;
     }
     false
@@ -8190,7 +8378,10 @@ impl Tree {
     if let (Some(root), Some(path)) = (&self.root, &self.focused_path)
       && tab_navigation::path_is_inert(root, path)
     {
-      self.blur_focus_in_dropped_child();
+      {
+        crate::app::profile_support::frame_section!("ul:blur_dropped");
+        self.blur_focus_in_dropped_child();
+      }
     }
   }
 
@@ -10413,8 +10604,11 @@ fn verify_scroll_offsets(node: &Node, result: &crate::layout::layout_result::Lay
       node.layout_cache.has_cached_result(),
     );
   }
+  // What it checks is in scroll containers: a virtualized list's spacer, an offset kept stale.
   for (child_layout, child) in result.children.iter().zip(node.children()) {
-    verify_scroll_offsets(child, &child_layout.result);
+    if child.layout_cache.subtree().scroll {
+      verify_scroll_offsets(child, &child_layout.result);
+    }
   }
 }
 
@@ -12046,7 +12240,13 @@ fn replace_live_component_slot_everywhere(
   id_gen: &IdGenerator,
 ) -> bool {
   let mut places = Vec::new();
-  find_live_component_slot(root, slot_id, &mut Vec::new(), &mut places);
+  // Only down the subtrees that hold a component's output: its way from the root, not the tree. Where that finds
+  // nothing, the whole tree is looked through: what a subtree knows of itself holds where its tracking is fresh,
+  // and this is the check of it.
+  find_live_component_slot(root, slot_id, true, &mut Vec::new(), &mut places);
+  if places.is_empty() {
+    find_live_component_slot(root, slot_id, false, &mut Vec::new(), &mut places);
+  }
   let mut replacement = Some(replacement);
   let count = places.len();
   for (index, path) in places.iter().enumerate() {
@@ -12059,8 +12259,30 @@ fn replace_live_component_slot_everywhere(
         .clone_boxed()
     };
     replace_live_component_root(live_node_at(root, path), fresh, id_gen);
+    // Numbered as it came in; disabled as what it is in is. The rest of the tree did not change: it is not
+    // numbered or synced again.
+    if crate::node::node::disabled_in_use()
+      && let Some(inherited) = disabled_above(root, path)
+    {
+      live_node_at(root, path).assign_ids_and_disabled(id_gen, inherited);
+    }
   }
   count > 0
+}
+
+/// Whether a node at `path` from `root` is in a disabled element: one of the nodes above it is. None where the way
+/// goes into a layer's node, which takes nothing from the node that declares it.
+fn disabled_above(root: &Node, path: &[LiveStep]) -> Option<bool> {
+  let mut node = root;
+  let mut disabled = false;
+  for step in path {
+    disabled |= node.is_disabled();
+    match step {
+      LiveStep::Child(index) => node = &node.children[*index],
+      LiveStep::Modal | LiveStep::Overlay => return None,
+    }
+  }
+  Some(disabled)
 }
 
 /// A step from a live node towards a component's root: into a child, or
@@ -12072,25 +12294,35 @@ enum LiveStep {
   Overlay,
 }
 
-/// The paths of the roots of component `slot_id` in the live tree.
-fn find_live_component_slot(node: &Node, slot_id: u64, path: &mut Vec<LiveStep>, places: &mut Vec<Vec<LiveStep>>) {
+/// The paths of the roots of component `slot_id` in the live tree. `pruned` passes by a subtree that holds no
+/// component's output (see [`Node::holds_no_component`]).
+fn find_live_component_slot(
+  node: &Node,
+  slot_id: u64,
+  pruned: bool,
+  path: &mut Vec<LiveStep>,
+  places: &mut Vec<Vec<LiveStep>>,
+) {
   if node.component_slot_id() == Some(slot_id) {
     places.push(path.clone());
     return;
   }
   for (index, child) in node.children.iter().enumerate() {
+    if pruned && child.holds_no_component() {
+      continue;
+    }
     path.push(LiveStep::Child(index));
-    find_live_component_slot(child, slot_id, path, places);
+    find_live_component_slot(child, slot_id, pruned, path, places);
     path.pop();
   }
   if let Some(spec) = node.modal_declaration.as_ref() {
     path.push(LiveStep::Modal);
-    find_live_component_slot(&spec.node, slot_id, path, places);
+    find_live_component_slot(&spec.node, slot_id, pruned, path, places);
     path.pop();
   }
   if let Some(spec) = node.overlay_declaration.as_ref() {
     path.push(LiveStep::Overlay);
-    find_live_component_slot(&spec.node, slot_id, path, places);
+    find_live_component_slot(&spec.node, slot_id, pruned, path, places);
     path.pop();
   }
 }
@@ -12593,6 +12825,11 @@ fn update_element_refs_recursive(
   }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
+    // A subtree with no ref and no scroll container has nothing to be told.
+    let subtree = child_node.layout_cache.subtree();
+    if !subtree.refs && !subtree.scroll {
+      continue;
+    }
     update_element_refs_recursive(
       child_node,
       &child_layout.result,
@@ -13826,6 +14063,13 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
 /// past the box. Where that pixel falls follows the text's place, so a page
 /// scrolled by fractions of a pixel showed it on some frames and not others.
 ///
+/// Where the clip cuts the text, it cuts on whole pixels inside its edge. An
+/// edge at a fraction of a pixel (a grid's rows under its header, at 150%)
+/// falls inside a row of pixels that the scissor, rounding out, draws whole:
+/// the rows' words showed in that row of the header's top edge, in and out as
+/// they scrolled under it, though the header painted over them covered the
+/// rest of it.
+///
 /// A glyph drawn through a transform is not its rect: a run with one keeps
 /// the clip let out on every side.
 fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> ClipRect {
@@ -13845,13 +14089,34 @@ fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> C
     right = right.max(glyph.x + glyph.width - inset);
     bottom = bottom.max(glyph.y + glyph.height - inset);
   }
+  let cut = [
+    left < clip.x - RASTERIZATION_SLOP_PX,
+    top < clip.y - RASTERIZATION_SLOP_PX,
+    right > clip.x + clip.width + RASTERIZATION_SLOP_PX,
+    bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX,
+  ];
   let slop = |cut: bool| if cut { 0.0 } else { RASTERIZATION_SLOP_PX };
-  clip.outset(
-    slop(left < clip.x - RASTERIZATION_SLOP_PX),
-    slop(top < clip.y - RASTERIZATION_SLOP_PX),
-    slop(right > clip.x + clip.width + RASTERIZATION_SLOP_PX),
-    slop(bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX),
-  )
+  let mut clip = clip.outset(slop(cut[0]), slop(cut[1]), slop(cut[2]), slop(cut[3]));
+  // A side that cuts goes in to the next whole pixel; its rounded clips stay where they are, cutting in the shaders.
+  let (mut x0, mut y0) = (clip.x, clip.y);
+  let (mut x1, mut y1) = (clip.x + clip.width, clip.y + clip.height);
+  if cut[0] {
+    x0 = x0.ceil();
+  }
+  if cut[1] {
+    y0 = y0.ceil();
+  }
+  if cut[2] {
+    x1 = x1.floor();
+  }
+  if cut[3] {
+    y1 = y1.floor();
+  }
+  clip.x = x0;
+  clip.y = y0;
+  clip.width = (x1 - x0).max(0.0);
+  clip.height = (y1 - y0).max(0.0);
+  clip
 }
 
 /// Draws the glyphs of one text under [`text_glyph_clip`].
@@ -13958,6 +14223,19 @@ mod tests {
       "cut where the text goes on"
     );
     assert_eq!((clip.x, clip.y + clip.height), (9.0, 61.0), "let out where it does not");
+  }
+
+  #[test]
+  fn a_text_the_clip_cuts_at_a_fraction_of_a_pixel_is_cut_on_the_whole_pixel_inside() {
+    // A row's words scrolled under the top edge of a grid's rows at 271.25: the row of pixels from 271 is the
+    // header's top edge, its border's and its fill's, and holds none of them. The words run past the right edge at
+    // 110.75 too, and end at 110. The sides the words do not reach past are let out.
+    let edge = ClipRect::rect(10.5, 271.25, 100.25, 40.0);
+    let glyphs = [glyph(12.0, 264.0), glyph(104.0, 280.0)];
+
+    let clip = text_glyph_clip(edge, [20.0, 262.0, 60.0, 290.0], &glyphs);
+
+    assert_eq!(edges(clip), (9.5, 272.0, 110.0, 312.25));
   }
 
   #[test]

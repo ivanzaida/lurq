@@ -298,7 +298,7 @@ impl Component for PieChartPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let card = |chart: Element| Column::new().width(280.0).child(chart);
+    let card = |chart: Element| Column::new().width(280.0).max_width(crate::kit::FILL).child(chart);
     let pie = PieChart::new(CRATES, sizes())
       .title("Crates by size")
       .description("Share of compiled code")

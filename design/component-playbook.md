@@ -369,6 +369,11 @@ an alias.
 - **What moves, moves in every form of the component.** A category that opens with a motion in an accordion
   opens with it in a property grid and a tree; a chart whose bars move to new values has lines and slices
   that do. One of a family animated and the others not reads as a fault.
+- **A break of what was released is written in the migration guide in the same commit**, with what to write
+  instead (`docs/src/content/docs/migration-v0-63.md`), and listed under `Breaking:` in the changelog. A change
+  to something that only ever lived on this branch is neither: `Breaking:` is for a program written against the
+  last release, checked against `master`. The guide had stood two days and thirty-five breaks behind, under the
+  name of a release that went out without any of it.
 - **A session stopped in the middle of its work is told to read `git status` first.** The limit of the model
   cut four turns with work uncommitted, one inside a merge; nothing was lost, since each began again from
   what its worktree held and not from its memory of it.
@@ -421,6 +426,36 @@ an alias.
   `.interaction_group(true)` with `.within_style(..)`; a row's drop marker; a held drag; `ui::Sidebar`,
   `ui::Menubar`, `ui::Toolbar`, `ui::ActionBar`, `ui::TreeView`, `ui::Splitter`, and `TokenInput::list`.
 
+## A narrow window
+
+The gallery's window goes down to 320 wide, and the desktop system holds together there: nothing is cut, runs past
+its card or lies over something else. It is not the phone's design (touch controls, sheets, a tab bar), which has
+components of its own.
+
+- **`cargo test -p gallery narrow` is run after a page or a shared piece of the gallery is added or changed.** It
+  lays every page out with no window at 1440, 390 and 320 and fails when something runs past the box that holds it
+  at a narrow width and not at 1440 (`crates/gallery/src/narrow.rs`). `NARROW_PAGES=/button,/table` lays those
+  pages out alone; in Git Bash put `MSYS_NO_PATHCONV=1` before it, or the routes become paths and nothing is
+  checked. `python scripts/gallery-narrow.py` walks the running gallery for the same and for more (what lies over
+  what, a control squeezed under 28), with pictures of what it finds (`--shots <folder>`): it is run at the merge of
+  a batch, with a look at the pictures.
+- **The width of a recipe is the most a component takes**: `s.width(260.0).max_width(Length::Fill)`. A component
+  with a width has a test in `crates/lurq/tests/ui/narrow_room.rs`, which lays it out in a row of 200.
+- **A greatest width is a share of something.** `max_width(FILL)` holds a box in what holds it only where every box
+  between the two has a width or a greatest width of its own: a row or a column with no width is as wide as what
+  is in it, and a share of that is nothing. A root that only holds the control and its panel has one too.
+- **A scene of a page**: a wrapper of a fixed width gets `.max_width(FILL)`; a row of examples `.width(FILL).wrap()`;
+  a text beside a key or a button stands in `Column::new().flex(1.0).min_width(0.0)`, where it wraps; what cannot
+  be narrower (a table's bar, a window's frame, a wizard's steps) scrolls sideways in its card,
+  `kit::fit(key, self.frame.stage_room(), least, scene)`. `kit::phone()` says the window is under 640, for a scene
+  that stacks there. A table's flexible column has a `min_width`, so that a narrow table scrolls and no cell is cut.
+- **What is mounted keeps what it measured.** A splitter, a dock layout or a grid first laid out in a narrow card
+  and then given its width by `fit` keeps the sizes of the first layout: its `key` says whether it scrolls, so the
+  one in the scroll is mounted anew.
+- **Nothing is hidden and no text is made smaller to fit**, and the wide form stays as it is: a change for a narrow
+  window is a greatest width, a wrap that a wide window never reaches, or a branch on `phone()` or on a measured
+  room.
+
 ## What the engine does that surprises
 
 - A container clips what is in it (`Overflow::Hidden` is the default): a shadow or a ring outside a part
@@ -432,6 +467,11 @@ an alias.
   focused. Choose which part is the focusable one by where the board draws the ring.
 - A transition runs from one value to another, not from none: a part that slides has an offset in both
   states (`SwitchView::thumb`).
+- So a fill a part has only under the pointer is there at once and gone at once, and a fade on its way
+  ends when the fill goes: for a fade both ways the part has a fill at rest too, `clear()`.
+- A part is under the pointer from its first pixels to its last, not on its right and bottom edges: a
+  test presses inside (`bottom - 1.0`), and a part of no height is under no pointer at all. A layer over
+  the rows of a part whose height is its rows' is `.absolute(x, 0.0, width, Dimension::Pct(100.0))`.
 - `Length::Fill` as a height in a parent whose height is its content's is nothing: use
   `align_items(Stretch)`.
 - A key event reaches every node, focused or not, so a component does not handle the arrow keys itself:

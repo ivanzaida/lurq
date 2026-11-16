@@ -7,7 +7,7 @@ use lurq::{
   app::{component::Component, ctx::Ctx},
   core::Signal,
   node::Element,
-  ui::{Badge, DataList, DataListPart, Link, Orientation, Tag},
+  ui::{Badge, DataList, DataListPart, Length, Link, Orientation, Tag},
 };
 
 use crate::{
@@ -30,7 +30,7 @@ fn board() -> DataList {
     .text("Renderer", "wgpu")
     .text("License", "MIT")
     .item("Status", Badge::new("Stable").variant("success"))
-    .style(DataListPart::Root, |s| s.width(300.0))
+    .style(DataListPart::Root, |s| s.width(300.0).max_width(Length::Fill))
 }
 
 pub struct DataListPage {
@@ -165,7 +165,7 @@ impl Component for DataListPage {
           .child(Tag::new("layout")),
       )
       .item("Status", Badge::new("Preview").variant("warning"))
-      .style(DataListPart::Root, |s| s.width(360.0));
+      .style(DataListPart::Root, |s| s.width(360.0).max_width(Length::Fill));
 
     let rows = [
       (

@@ -31,6 +31,7 @@ pub(crate) const VARIANTS: [(AlertVariant, &str, &str); 5] = [
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
     .width(360.0)
+    .max_width(FILL)
     .spacing(10.0)
     .child(shown)
     .child(quiet(caption, 12.0))

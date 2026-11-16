@@ -29,8 +29,9 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -498,7 +499,8 @@ impl Component for NumberInputPage {
             .width(FILL)
             .align_items(Alignment::Center)
             .child(Row::new().width(140.0).child(Kbd::new(key)))
-            .child(quiet(does, 13.0)),
+            // What the key does wraps in the room beside the key.
+            .child(Column::new().flex(1.0).min_width(0.0).child(quiet(does, 13.0))),
         )
       });
     let rows = [

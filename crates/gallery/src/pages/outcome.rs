@@ -82,7 +82,11 @@ fn of(index: usize) -> Outcome {
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
-  Column::new().spacing(9.0).child(shown).child(quiet(caption, 12.0))
+  Column::new()
+    .max_width(FILL)
+    .spacing(9.0)
+    .child(shown)
+    .child(quiet(caption, 12.0))
 }
 
 /// A line of a summary: what, and how much.

@@ -21,8 +21,9 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -252,8 +253,11 @@ impl Component for BreadcrumbPage {
     });
     let again = self.depth.clone();
     let live = items().child(item(
+      // Where the link has no room beside the breadcrumb it goes under it.
       Row::new()
+        .max_width(FILL)
         .spacing(16.0)
+        .wrap()
         .align_items(Alignment::Center)
         .child(board)
         .child(lurq::ui::Link::new("Back to Theme").on_click(move |_| again.set(SETTINGS.len()))),

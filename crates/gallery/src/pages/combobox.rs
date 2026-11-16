@@ -69,8 +69,9 @@ fn showing(value: &str) -> Combobox<String> {
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -397,6 +398,7 @@ impl Component for ComboboxPage {
     ));
     let form = Column::new()
       .width(420.0)
+      .max_width(FILL)
       .spacing(16.0)
       .child(
         Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),

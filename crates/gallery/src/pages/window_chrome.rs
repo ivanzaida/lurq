@@ -17,7 +17,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -332,6 +332,7 @@ impl WindowChromePage {
           .wrap()
           .child(
             Column::new()
+              .max_width(FILL)
               .spacing(8.0)
               .child(quiet(&format!("{name} · not in front"), 12.0))
               .child(window(
@@ -343,6 +344,7 @@ impl WindowChromePage {
           )
           .child(
             Column::new()
+              .max_width(FILL)
               .spacing(8.0)
               .child(quiet(&format!("{name} · maximized"), 12.0))
               .child(window(
@@ -516,7 +518,8 @@ impl Component for WindowChromePage {
            its titles open their menus, and a press on them is theirs, not a drag of the window.",
           self.frame.demo(
             1,
-            app,
+            // The menus, the title and the controls need this much of a bar: a narrower card scrolls it sideways.
+            fit("menus", self.frame.stage_room(), 440.0, app),
             "WindowChrome::new().leading(Menubar::new(open)..)",
             &[
               "WindowChrome::new()",

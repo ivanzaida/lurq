@@ -5,14 +5,15 @@ use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx, theme::PaletteColor},
+  components::Column,
   core::Signal,
   node::Element,
-  ui::{BarList, BarListItem, BarListPart, Card},
+  ui::{BarList, BarListItem, BarListPart, Card, Length},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, segmented_fill},
+  kit::{FILL, props_table, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -45,7 +46,7 @@ fn board() -> BarList {
   BarList::new(TESTS.iter().take(4).copied())
     .title("Slowest tests")
     .description("Seconds")
-    .style(BarListPart::Root, |s| s.width(300.0))
+    .style(BarListPart::Root, |s| s.width(300.0).max_width(Length::Fill))
 }
 
 /// What the playground's panel says of the list.
@@ -286,21 +287,24 @@ impl Component for BarListPage {
     .value_text(|gigabytes| format!("{gigabytes:.1} GB"))
     .color(PaletteColor::Chart2)
     .on_select(|_| {})
-    .style(BarListPart::Root, |s| s.width(320.0));
-    let in_card = Card::new()
-      .title("Pages")
-      .description("Visits this week")
-      .child(
-        BarList::new([
-          ("/timeline", 1840),
-          ("/table", 1325),
-          ("/button", 960),
-          ("/bar-list", 412),
-        ])
-        .label("Pages visited most")
-        .framed(false),
-      )
-      .width(340.0);
+    .style(BarListPart::Root, |s| s.width(320.0).max_width(Length::Fill));
+    // The card is as wide as the design draws it, and no wider than the stage.
+    let in_card = Column::new().width(340.0).max_width(FILL).child(
+      Card::new()
+        .title("Pages")
+        .description("Visits this week")
+        .child(
+          BarList::new([
+            ("/timeline", 1840),
+            ("/table", 1325),
+            ("/button", 960),
+            ("/bar-list", 412),
+          ])
+          .label("Pages visited most")
+          .framed(false),
+        )
+        .width(Length::Fill),
+    );
 
     let rows = [
       (

@@ -13,7 +13,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, quiet, segmented_fill},
+  kit::{FILL, props_table, quiet, segmented_fill},
   pages::alert::VARIANTS,
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
@@ -21,6 +21,7 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str, width: f32) -> Column {
   Column::new()
+    .max_width(FILL)
     .width(width)
     .spacing(10.0)
     .child(shown)

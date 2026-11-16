@@ -706,7 +706,12 @@ impl Themed for ProgressDialog {
     use ProgressDialogPart::*;
     let recipe = Recipe::new()
       // Of the 20 the panel is padded, 4 are the dialog's body's, which is room for the ring of a focused button.
-      .base(Panel, |s| s.width(420.0).padding_x(16.0).padding_y(16.0))
+      .base(Panel, |s| {
+        s.width(420.0)
+          .max_width(Length::Fill)
+          .padding_x(16.0)
+          .padding_y(16.0)
+      })
       .base(Content, |s| s.gap(12.0))
       .base(Header, |s| s.gap(12.0))
       .base(Icon, |s| s.square(20.0).foreground(Foreground))

@@ -596,6 +596,7 @@ fn card_recipe() -> Recipe {
     .base(Root, |s| {
       fading(
         s.width(220.0)
+          .max_width(Length::Fill)
           .padding_x(16.0)
           .padding_y(16.0)
           .gap(12.0)

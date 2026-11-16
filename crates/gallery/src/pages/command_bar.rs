@@ -17,7 +17,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -533,7 +533,8 @@ impl Component for CommandBarPage {
            chevron opens a menu of them under their labels, a toggle checked.",
           self.frame.demo(
             1,
-            narrow,
+            // The bars are as wide as they say: a card narrower than the wider one scrolls them sideways.
+            fit("narrow", self.frame.stage_room(), 600.0, narrow),
             "a group whole, under its label",
             &["CommandBar::new(tab, tabs).mount(ctx)"],
           ),

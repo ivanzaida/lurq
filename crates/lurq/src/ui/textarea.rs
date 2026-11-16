@@ -403,7 +403,7 @@ impl Themed for Textarea {
   fn recipe() -> Recipe {
     use TextareaPart::{Control, Placeholder, Root};
     let recipe = Recipe::new()
-      .base(Root, |s| s.width(260.0))
+      .base(Root, |s| s.width(260.0).max_width(Length::Fill))
       .state(TextareaState::FullWidth, Root, |s| s.width(Length::Fill))
       .base(Control, |s| {
         text_box::box_style(s)

@@ -546,6 +546,7 @@ impl Themed for InputGroup {
     let recipe = Recipe::new()
       .base(Root, |s| {
         s.width(280.0)
+          .max_width(Length::Fill)
           .radius(RadiusSize::Md)
           .background(Background)
           .border(text_box::edge(PaletteColor::Input))

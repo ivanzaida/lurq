@@ -1394,6 +1394,9 @@ pub(crate) fn finish(select: Element, trigger: &PartStyle, theme: &Theme, finish
   if let Some(width) = trigger.width.and_then(|width| width.resolve(theme)) {
     NodeUpdate::width(&mut node, width);
   }
+  if let Some(width) = trigger.max_width.and_then(|width| width.resolve(theme)) {
+    NodeUpdate::max_width(&mut node, width);
+  }
   if let Some(height) = trigger.height.and_then(|height| height.resolve(theme)) {
     if finish.fixed_height {
       NodeUpdate::height(&mut node, height);

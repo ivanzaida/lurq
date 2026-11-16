@@ -7,7 +7,7 @@ impl Node {
   pub(crate) fn prepare_layout_tracking(&self) -> LayoutSubtree {
     let cache = &self.layout_cache;
     if cache.tracking_generation.get() == cache.watch().generation() {
-      return cache.subtree.get();
+      return cache.subtree();
     }
     #[cfg(test)]
     crate::core::layout_dirty::visit();
@@ -25,10 +25,20 @@ impl Node {
     if let Some(reference) = &self.element_ref {
       reference.track_layout(watch);
     }
+    let shrink = self.shrink_rule();
     let mut subtree = LayoutSubtree {
       timeline: !self.transitions.is_empty()
         || self.playing_animation().is_some()
         || !self.animation_overrides.is_empty(),
+      refs: self.element_ref.is_some(),
+      layers: self.overlay_declaration().is_some()
+        || self.modal_declaration().is_some()
+        || self.dropdown_anchor().is_some(),
+      droppable: shrink.limit == crate::layout::layout_kind::ShrinkLimit::Drop
+        || shrink.drop_below.is_some()
+        || shrink.marker,
+      animations: self.playing_animation().is_some(),
+      slots: self.component_slot_id().is_some(),
       ..LayoutSubtree::default()
     };
     match self.node_kind() {
@@ -74,6 +84,11 @@ impl Node {
       subtree.resource_images |= child.resource_images;
       subtree.resource_svgs |= child.resource_svgs;
       subtree.loading_images |= child.loading_images;
+      subtree.refs |= child.refs;
+      subtree.layers |= child.layers;
+      subtree.droppable |= child.droppable;
+      subtree.animations |= child.animations;
+      subtree.slots |= child.slots;
     }
     // A newly attached subtree must be inspected even if its old parent has
     // already consumed its dirty marks (the overlay host lays its base first).
@@ -82,8 +97,22 @@ impl Node {
     if attached {
       watch.mark_descendant();
     }
-    cache.subtree.set(subtree);
+    cache.set_subtree(subtree);
     cache.tracking_generation.set(watch.generation());
     subtree
+  }
+}
+
+impl Node {
+  /// Whether nothing under this node is the root of a component's output, as its tracking knows while it is fresh:
+  /// a component built again on its own is not looked for here. A node its tracking has not seen as it is now, or
+  /// that declares a layer (whose node is not among its children), may hold one.
+  pub(crate) fn holds_no_component(&self) -> bool {
+    let cache = &self.layout_cache;
+    if cache.tracking_generation.get() != cache.watch().generation() {
+      return false;
+    }
+    let subtree = cache.subtree();
+    !subtree.slots && !subtree.layers
   }
 }
