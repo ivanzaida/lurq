@@ -1404,7 +1404,12 @@ impl NavigationMenuView {
     let panel = panel.clone();
     let first_at = panel.links.iter().position(|link| !link.disabled);
     let first = self.shared.kept(index).map(|kept| kept.first);
+    // What has no room beside the column before it goes under it: in a window narrower than its columns the
+    // panel is one column, no wider than the window lets it be.
+    let fill = Dimension::Pct(100.0);
     let mut row = Row::new()
+      .wrap()
+      .max_width(fill)
       .align_items(Alignment::Stretch)
       .part(&self.part(NavigationMenuPart::Panel))
       .focus_group(FocusGroup::vertical())
@@ -1415,6 +1420,7 @@ impl NavigationMenuView {
         Column::new()
           .align_items(Alignment::Stretch)
           .part(&self.part(NavigationMenuPart::Featured))
+          .max_width(fill)
           .focus_group(FocusGroup::none())
           .child(featured),
       );
@@ -1424,7 +1430,8 @@ impl NavigationMenuView {
       let mut column = Column::new()
         .align_items(Alignment::Stretch)
         .overflow_visible()
-        .part(&self.part(NavigationMenuPart::Column));
+        .part(&self.part(NavigationMenuPart::Column))
+        .max_width(fill);
       for (in_column, link) in links.iter().enumerate() {
         let at = column_at * per + in_column;
         let first = first.as_ref().filter(|_| Some(at) == first_at);

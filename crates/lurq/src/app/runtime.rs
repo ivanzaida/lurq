@@ -7487,6 +7487,15 @@ impl Tree {
     self.press_clock.unwrap_or_else(Instant::now)
   }
 
+  /// Has every `Timeout` and `Interval` started or restarted on this thread from now on count its delay from
+  /// `now`, until set back to `None`. With [`Self::tick_timers_at`] a test then fires timers at moments counted
+  /// from its own clock: which of two timers has run out does not depend on how long the machine took between
+  /// starting them and the tick. For tests that drive time explicitly; a shell's timers run on the wall clock.
+  #[doc(hidden)]
+  pub fn set_timer_clock(&mut self, now: Option<Instant>) {
+    crate::app::ctx::set_timer_clock(now);
+  }
+
   /// The runtime's clock: the one [`Self::set_animation_clock`] set, or the wall clock.
   fn now(&self) -> Instant {
     self.animation_clock.unwrap_or_else(Instant::now)

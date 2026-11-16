@@ -58,6 +58,8 @@ mod find_bar;
 mod floating_panel;
 mod follows_room;
 mod forced_on_one_item;
+// Pictures decoded in the test: the feature that has `lurq::images`.
+#[cfg(feature = "raster")]
 mod gallery;
 #[cfg(feature = "canvas")]
 mod heatmap;
@@ -69,6 +71,8 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+// Pictures decoded in the test: the feature that has `lurq::images`.
+#[cfg(feature = "raster")]
 mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
