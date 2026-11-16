@@ -44,6 +44,10 @@ enum Shape {
   Down,
 }
 
+/// A signal's value is something DevTools can inspect: this one has nothing to show.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Shape {}
+
 /// The parts of steps a recipe styles. Each step's parts are styled in the
 /// states of that step: done, current or to come, in error, pressable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

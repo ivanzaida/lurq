@@ -3767,7 +3767,7 @@ a toggle (checked), a group of toggles, a labelled group (under its label), a st
 was given `in_menu`. What is kept in the bar is a control that `stays`, and a select, a field or any element with
 no `in_menu`. What is kept never runs past the bar: a bar narrower than what stays in it (and a bar without
 `overflow` narrower than its controls) scrolls sideways to it, by the wheel, a drag, and the keys, which bring the
-focused control into view. A bar that is only built cuts off what does not fit.
+focused control into view. A bar that is only built has no menu, and scrolls to all of its controls.
 
 ## Action Bar
 

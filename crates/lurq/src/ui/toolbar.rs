@@ -463,7 +463,12 @@ impl ToolbarGroup {
 /// at the end of the bar, behind a More button, the last first: each as an
 /// item of the menu with its label, its icon, its shortcut, checked for a
 /// toggle, and its press; a control that [`stays`](ToolbarItem::stays) never
-/// does.
+/// does, nor a select, a field or any element that was given nothing to
+/// stand for it ([`in_menu`](ToolbarItem::in_menu)). What is kept is never
+/// past the bar: a bar narrower than what stays in it, and one that puts
+/// nothing in a menu and is narrower than its controls, scrolls sideways to
+/// it, by the wheel, a drag, and the keys, which bring the control the focus
+/// goes to into view.
 pub struct Toolbar {
   items: Vec<ToolbarItem>,
   variant: Name,
@@ -657,7 +662,7 @@ impl Toolbar {
 
   /// Builds the bar in `theme` once, with nothing kept: its controls without
   /// their tooltips, the focus entering at the first, and no menu, so that a
-  /// bar narrower than its controls cuts them off. For a gallery, a test, a
+  /// bar narrower than its controls scrolls sideways to them. For a gallery, a test, a
   /// window of its own; converting a toolbar into an element does this in the
   /// theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {

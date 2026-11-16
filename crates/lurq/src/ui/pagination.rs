@@ -161,6 +161,10 @@ enum Fit {
   Summary,
 }
 
+/// A signal's value is something DevTools can inspect: this one has nothing to show.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Fit {}
+
 /// What a mounted pagination's host gives the pagination it builds: what holds the summary and the buttons, what
 /// they are in, and the width the first is held at.
 #[derive(Clone)]
