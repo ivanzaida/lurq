@@ -6321,6 +6321,14 @@ impl Tree {
     if self.root_ctx.as_ref().is_some_and(Ctx::take_scroll_to_top_request) {
       self.touch_scroll_to_top(Instant::now());
     }
+    for state in self
+      .root_ctx
+      .as_ref()
+      .map(Ctx::take_scroll_states_to_top)
+      .unwrap_or_default()
+    {
+      self.scroll_state_to_top(&state);
+    }
     let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
       return;
     };

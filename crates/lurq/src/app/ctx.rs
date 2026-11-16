@@ -826,6 +826,8 @@ struct ElementRequests {
   scroll_range_into_view: Option<(ElementRef, std::ops::Range<usize>)>,
   blur: bool,
   scroll_to_top: bool,
+  /// The scroll containers to take to their tops, by their states.
+  scroll_states_to_top: Vec<crate::layout::layout_kind::ScrollState>,
 }
 
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
@@ -2400,6 +2402,25 @@ impl Ctx {
 
   pub(crate) fn take_scroll_to_top_request(&self) -> bool {
     std::mem::take(&mut self.element_requests.lock().scroll_to_top)
+  }
+
+  /// Scrolls the container `state` is the state of to its top, after the current render: over the frames that
+  /// follow, as a tap on a phone's status bar scrolls the page ([`Ctx::scroll_to_top`]), and at once while
+  /// motion is reduced or the theme's smooth scroll is off. A wheel or a finger that scrolls the container
+  /// meanwhile stops it where it is. A state that scrolls nothing in the tree, or is at its top already, asks
+  /// for nothing. What a button that takes a page back to its top calls
+  /// ([`BackToTop`](crate::ui::BackToTop)).
+  pub fn scroll_to_top_of(&self, state: &crate::layout::layout_kind::ScrollState) {
+    let mut requests = self.element_requests.lock();
+    if !requests.scroll_states_to_top.iter().any(|asked| asked.same(state)) {
+      requests.scroll_states_to_top.push(state.clone());
+    }
+    drop(requests);
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_states_to_top(&self) -> Vec<crate::layout::layout_kind::ScrollState> {
+    std::mem::take(&mut self.element_requests.lock().scroll_states_to_top)
   }
 
   /// How far in from each edge of the window this component's content stays clear of what is over it there:
