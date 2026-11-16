@@ -59,6 +59,7 @@ mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
+mod event_calendar;
 mod expandable_tile;
 mod fab;
 mod field;
@@ -282,6 +283,10 @@ pub use drop_zone::{
 };
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
+};
+pub use event_calendar::{
+  CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarPart, EventCalendarPeriod, EventCalendarRenderer,
+  EventCalendarState, EventCalendarView, ShownEvent,
 };
 pub use expandable_tile::{
   ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,

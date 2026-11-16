@@ -77,6 +77,7 @@ app.set_date_locale(Arc::new(Catalog::load()));
 | `week()` | the seven days from `first_day` |
 | `month_name(month)`, `month_title(year_month)` | none; `month_title` is the name and the year: `November 2026` |
 | `weekday_name(day)`, `weekday_short(day)` | none: `Thursday`, and the head of its column, `Th` |
+| `weekday_medium(day)` | the first three letters of `weekday_name`: what a day of an event calendar says before its number, `Thu` |
 | `format(date)`, `format_range(range)` | none; a range is two dates with an en dash between |
 | `day_label(date)` | the weekday's name and the date: `Thursday, Nov 12, 2026`, what a day is called to tooling |
 | `parse(text)`, `parse_range(text)` | ISO 8601; a range is two dates with a dash or `to` between |
@@ -88,6 +89,7 @@ app.set_date_locale(Arc::new(Catalog::load()));
 | `segment_label(segment)`, `segment_placeholder(segment)` | what a segment of a field is called to tooling (`Day`, `Hour`) and what an empty one shows (`dd`, `mm`, `yyyy`, `hh`, `mm`, `ss`, `--`) |
 | `previous_year_label()`, `next_year_label()`, `previous_years_label()`, `next_years_label()`, `choose_time_label()` | English: `Previous year`, `Next year`, `Previous years`, `Next years`, `Choose time` |
 | `year_range_title(first, last)` | a year picker's heading: `2020 – 2031` |
+| `previous_week_label()`, `next_week_label()`, `previous_day_label()`, `next_day_label()`, `today_label()` | English: `Previous week`, `Next week`, `Previous day`, `Next day`, `Today`: the buttons of an event calendar's header |
 
 The names of the controls are words lurq writes itself, not dates, and are in `DateText` so that one thing gives all of a calendar's text; a component's `previous_label`, `next_label`, `trigger_label`, `clear_label` and `panel_label` are above them. `DateLocale` gives them in its language.
 
@@ -222,6 +224,6 @@ Plain `en` starts its weeks on Monday, as lurq's design draws its calendar. Each
 - `parse(text)` reads the short form, numbers in the locale's order with any separator, and ISO 8601. A month may be written by name or by the start of its name, in the locale's words or in English. The year must have four digits, so what is still being typed (`12.11.20`) is no date yet. `parse_range(text)` reads two dates with a dash or `to` between them, and the first may leave out its year.
 - `month_name(month)` and `month_title(year_month)` give what a calendar's heading says, starting with a capital. `day_label(date)` gives what a day is called to what reads the tree. `week()` gives the seven days from the first.
 
-Every field is public, so a locale lurq does not know can be written out: `tag`, `first_day`, `months`, `months_short`, `weekdays`, `weekdays_short`, `order` (a `DateOrder`), `style` (a `DateStyle`), `separator` (the `char` between numbers), `formatter` and `parser` (the closures of `with_format` and `with_parse`) and `labels` (a `DateLabels`).
+Every field is public, so a locale lurq does not know can be written out: `tag`, `first_day`, `months`, `months_short`, `weekdays`, `weekdays_short`, `weekdays_medium` (the days as an event calendar's day has them: `Mon`), `order` (a `DateOrder`), `style` (a `DateStyle`), `separator` (the `char` between numbers), `formatter` and `parser` (the closures of `with_format` and `with_parse`) and `labels` (a `DateLabels`).
 
 `DateLocale` is lurq's `DateText`: `ui::Calendar`, `ui::DatePicker` and `ui::DateRangePicker` take it, or the app's own, with `.locale(..)`, and the app takes it with `set_date_locale`. See [the design system](../design-system/#calendar).

@@ -47,6 +47,7 @@ mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
+mod event_calendar;
 mod expandable_tile;
 mod family;
 mod family_play;
@@ -917,6 +918,14 @@ pub const PAGES: &[Page] = &[
     about: "data list description list term definition value key details properties metadata dl text item vertical label style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
+  },
+  Page {
+    path: "C:/Program Files/Git/event-calendar",
+    name: "Event Calendar",
+    icon: Some("calendar-days"),
+    about: "event calendar events schedule scheduler agenda week month day planner meeting appointment today more weekdays weekends timetable new controlled event events period shown weekends header max_shown first_day locale today on_change on_select on_more more_text today_label previous_label next_label mount disabled variant",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<event_calendar::EventCalendarPage>(()),
   },
   Page {
     path: "/code-block",

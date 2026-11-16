@@ -5348,6 +5348,76 @@ DateRangePicker::new(period.clone())
 - The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
 - A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
 
+## Event Calendar
+
+A calendar that shows events in its days: the days of a week side by side, the weeks of a month, or one day, each day with what is on it. The meetings of a team, the releases of a project, what is due.
+
+```rust
+use lurq::{
+  core::{Date, Signal},
+  ui::{CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarPeriod},
+};
+
+let chosen = Signal::new(None::<Date>);
+let events = vec![
+  CalendarEvent::new("standup", monday, "Standup"),
+  CalendarEvent::new("release", tuesday, "Release 0.60").variant(CalendarEventVariant::Success),
+  CalendarEvent::new("freeze", friday, "Deploy freeze").variant(CalendarEventVariant::Destructive),
+];
+
+// The design's week: five days, no header. Mounted, it keeps the week it shows.
+EventCalendar::new(chosen.clone(), events.clone())
+  .weekends(false)
+  .header(false)
+  .on_select(|event: &&str| open(event))
+  .mount(ctx);
+
+// A month, of which a day shows three events at most and "+2 more".
+EventCalendar::new(chosen.clone(), events)
+  .period(EventCalendarPeriod::Month)
+  .on_more(|date| show_day(date))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `EventCalendar::new(Signal<Option<Date>>, events)` | Bound to the chosen day, which a press of a day sets, with its events |
+| `EventCalendar::controlled(value, events, on_change)` | It shows `value` chosen and tells of a press, which it does not set |
+| `event(..)`, `events(..)` | Adds to its events |
+| `period(EventCalendarPeriod)` | What it shows at once: `Week` (the default, the design's), `Month`, or one `Day` |
+| `shown(Signal<Date>)` | The date whose week, month or day is shown, the app's: the buttons and the keys that leave the period set it. Without it a mounted calendar keeps it, starting at the chosen day, or today |
+| `weekends(bool)` | Whether Saturdays and Sundays are shown: they are unless told. Without them a week is the five days the design draws, and the keys pass a weekend by |
+| `header(bool)` | The row at its top: the buttons that show the period before and after, what the period is, and the button that shows today. It has it unless told |
+| `max_shown(usize)` | How many events of a day are shown at most: 4 in a week and 3 in a month unless told, all in a day. With more, one fewer are shown and "+N more" in the place of the last |
+| `on_change(Fn(Date))` | A person chose another day: a press or Enter on it, or a press of its "+N more". Not for the day chosen already, nor when the app sets the value |
+| `on_select(Fn(&T))` | An event was pressed, with what the event is to the app (the first argument of `CalendarEvent::new`), after the event's own handlers. A press of an event does not choose its day |
+| `on_more(Fn(Date))` | The "+N more" of a day was pressed, after the day is chosen: an app shows the day alone, or a list of what is on it |
+| `first_day(Weekday)`, `locale(..)`, `today(Date)` | The day weeks start on, the words of its dates and the day it marks as today, in place of the app's locale and the system's day |
+| `previous_label(&str)`, `next_label(&str)`, `today_label(&str)`, `more_text(Fn(usize) -> String)` | The names of its buttons, in place of the locale's, and what stands for the events not shown, in place of "+N more" |
+| `disabled(bool)` | It takes no input |
+| `label(&str)` | What its box is called to tooling, which is then a `group` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the calendar's id with its date after it (`team-2026-11-12`), the buttons with `-previous`, `-next` and `-today`, a day's "+N more" with `-more-` and the date |
+| `mount(ctx)` | The calendar where it is declared: it keeps the period it shows, and follows the chosen day to its period when the app sets it to a day that is not shown. Converted (`.into()`) it keeps nothing, and its buttons show no other period unless the app gives it `shown` |
+
+| Event | |
+| --- | --- |
+| `CalendarEvent::new(value, Date, &str)` | What it is to the app (its id, the record it is of), the day it is on, and its title |
+| `CalendarEvent::on(Date, &str)` | An event that is no value to the app: its own `on_select` hears its press |
+| `variant(impl Into<Name>)` | Its kind: `CalendarEventVariant::Neutral`, `Info` (the default), `Success`, `Warning`, `Destructive` |
+| `on_select(Fn())` | This event was pressed, before the calendar's `on_select` |
+| `disabled(bool)`, `id`, `key` | It takes no input; the id and the key of its element |
+
+- Its days are a [calendar](#calendar)'s: the weeks of a month are the same grid (`YearMonth::weeks`), filled with the days of the months beside it, and the keys are the same, from one function. The days are one stop of Tab, at the chosen day where it is shown, else today, else the first day shown. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and, with Shift, a year, into a period that is then shown. Enter and Space choose the focused day.
+- Tab goes on from the focused day into its events, each a stop, and then out of the days: an event is pressed with Enter or Space, and its press is its own. The arrows on an event move between the days.
+- A press anywhere on a day chooses it. A day of the month beside, in a month, is pressed to choose it and show its month, and is no stop of the keys.
+- An event's title is on one line, cut with an ellipsis where its day is narrower. The days share the calendar's width, however narrow: in a room narrower than their names read at, an app shows fewer of them (`weekends(false)`, `EventCalendarPeriod::Day`) or lets the calendar scroll sideways.
+- An event is on one day. The events of a day are in the order the app gave them.
+- The names of the days and the months, the title of the header and the names of the buttons are the app's date locale's (`App::set_date_locale`, see [dates](../dates/)): a day of a week says `weekday_medium` and its number ("Thu 12"), the header a month's `month_title`, a week's `format_range` of its first and last day shown, or a day's `day_label`; the buttons say `previous_week_label`, `next_week_label`, `previous_day_label`, `next_day_label`, `today_label` and a month's `previous_month_label` and `next_month_label`.
+- To tooling the days are a `grid` called by the period shown, of `row`s of `gridcell`s called by their dates, which say whether they are chosen (`a11y_selected`) and today (`a11y_current`); a month's names of the days are `columnheader`s; an event and a "+N more" are `button`s.
+- Parts: `EventCalendarPart::Root`, `Header`, `Title`, `Nav` and `NavIcon` (rules over the buttons' root and icon), `Grid`, `Weekdays`, `Weekday`, `Week`, `Day` (what is pressed and focused), `Label` (the row at the top of a day), `Events`, `Event` (a pill, in its variant's fill and ink), `More`. States: `EventCalendarState::Month`, `Week`, `Day` (the period), `Header`, `Disabled`; a day's `Selected`, `Current`, `Outside`, `Last` (the last of its row, and a week the last of the calendar: no line after it); an event's `Unavailable`.
+- In the design (`eh5zV`) it is a box on `Background` in an edge of 1 in `Border` with the large radius, 150 high, its days side by side with a line of 1 after each but the last. A day's label is a row of 32 with a line under it, padded 10, its text 12 at medium weight in `MutedForeground`; today's is on `Highlight` (the board's accent) in `Foreground` at 600. The events are 6 from the day's sides and 4 apart, each a pill with the small radius padded 4 and 6, its title 11 at medium weight in the color of its kind on that kind's muted fill. The board draws a week of five days, and nothing else: the header (44 high, a calendar's buttons, the title at medium weight, an outline "Today"), the month (days at least 115 high under a row of the days' names, a day of the month beside at half its opacity), the chosen day (its label on `Primary`), "+N more" (an event's box in `MutedForeground`), the focus (a line of 2 in the ring's color inside a day or an event) and the event of no kind (`Muted`, `Foreground`) are lurq's.
+- A renderer that draws another calendar has `view.root()`, `view.header()`, `view.nav(by)`, `view.today_button()`, `view.title_text()`, `view.grid()`, `view.weekdays()`, `view.weeks()`, `view.week(days, last)`, `view.day(date, last)`, `view.day_text(date)`, `view.day_states(date, last)`, `view.events(date)`, `view.event(event)`, `view.more(date, count)`, `view.entry()`, `view.bounds()`, `view.within(date)`, `view.recipe_in(variant, states)` and `view.render()`.
+
 ## Color Picker
 
 A color chosen in an area of saturation and brightness, on a rail of hue and one of alpha, from swatches, or typed as hex, RGB or HSL: the color of a label, of a brush, of a theme's accent.

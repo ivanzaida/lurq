@@ -45,6 +45,7 @@ mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
+mod event_calendar;
 mod expandable_tile;
 mod family;
 mod field_mount;
