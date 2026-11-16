@@ -63,6 +63,9 @@ pub enum InputState {
   FullWidth,
   /// It has an icon at its start.
   Icon,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(InputState {
@@ -73,6 +76,7 @@ names!(InputState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Icon => "icon",
+  Fluid => "fluid",
 });
 
 /// What builds an input's nodes: a theme's in place of the default one.
@@ -314,6 +318,10 @@ impl FieldControl for Input {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl From<Input> for Element {
@@ -455,9 +463,19 @@ impl InputView {
     let part = self.part(InputPart::Icon);
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
     let padding = self.padding(Side::Start);
+    // In a fluid field the icon stands on the line of the value, under the field's label.
+    let under = if self.boxed.fluid {
+      let [_, _, bottom, _] = self.part(InputPart::Control).rest().paddings();
+      bottom
+        .map(|padding| padding.resolve(&self.theme().spacing(), 0.0))
+        .unwrap_or(0.0)
+    } else {
+      0.0
+    };
     Some(
       Row::new()
         .padding_left(padding)
+        .padding_bottom(under)
         .align_items(Alignment::Center)
         .pointer_events_none()
         .child(
@@ -520,7 +538,11 @@ impl InputView {
   pub fn render(self) -> Element {
     // The control is the box, so that the ring of its focus is its own edge; the icon lies over it.
     let mut root = Stack::new()
-      .stack_align(StackAlignment::CenterStart)
+      .stack_align(if self.boxed.fluid {
+        StackAlignment::BottomStart
+      } else {
+        StackAlignment::CenterStart
+      })
       .part(&self.part(InputPart::Root))
       .child(self.control());
     if let Some(icon) = self.icon() {
@@ -565,7 +587,8 @@ impl Themed for Input {
       .state(InputState::FullWidth, Root, |s| s.width(Length::Fill))
       .state(InputState::Valid, Icon, |s| s.foreground(Success));
     let recipe = text_box::box_sizes(recipe, Control, true);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    text_box::fluid_rules(recipe, Root, Control)
   }
 }
 

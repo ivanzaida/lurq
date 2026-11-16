@@ -262,7 +262,7 @@ pub const PAGES: &[Page] = &[
     path: "/input",
     name: "Input",
     icon: Some("text-cursor"),
-    about: "input field text entry label description error hint required optional placeholder icon invalid read only form value size warning valid read_only disabled full_width on_input name control horizontal",
+    about: "input field text entry label description error hint required optional placeholder icon invalid read only form value size warning valid read_only disabled full_width on_input name control horizontal fluid fluid field label inside floating label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input::InputPage>(()),
   },

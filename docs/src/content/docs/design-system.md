@@ -628,6 +628,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 | `optional(bool)`, `optional_text(&str)` | "Optional" after the label, or the app's own words. A required field shows none |
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `fluid(bool)` | The label inside the box of the control, over what it holds: a [fluid field](#fluid-field) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 | `mount(ctx)` | The field built where it is declared, its control mounted: see below. Converting it (`.into()`) builds it with its control as it is |
 
@@ -647,8 +648,32 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - The field's description, or its error while it has one, is the control's description to what reads the tree (`a11y_description`), whatever the control: the field puts it on each outermost node in the control that says what it is (`a11y_role`) or takes the focus, so a radio group is described and not each radio in it. `lurq_inspect` reports it as `description`.
 - A press of the label focuses the control: the first node under what holds it that takes the focus (`.focuses(&ElementRef)` on the label, the ref on the row that holds the control). A control that is disabled is not focused, and a disabled field's label focuses nothing. A renderer that holds the control another way puts `view.focus` on what holds it.
 - An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
-- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
+- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Fluid`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
+
+### Fluid Field
+
+A field whose label is inside the box of its control, over the value: the design's Fluid Field (`imRnW`), for a form whose fields stand edge to edge. It is a form of the field, `Field::fluid(true)`, for the controls that have a fluid form: an [input](#input), a [textarea](#textarea) and a [select](#select).
+
+```rust
+use lurq::ui::{Field, Input, Select, Textarea};
+
+Field::new("Workspace name", Input::new(name.clone())).fluid(true);
+
+Field::new("Notes", Textarea::new(notes.clone()).rows(2, 5))
+  .fluid(true)
+  .description("Shown to everyone in the workspace.");
+
+Field::new("Theme", Select::new(theme.clone(), [("system", "System"), ("dark", "Dark")]))
+  .fluid(true)
+  .required(true);
+```
+
+- The control is the box, as wide as the field: on `Muted`, round at its top (6) and square at its bottom, with a line of 1 in `Foreground` along its bottom and no edge on its other sides. The label lies over its top, 12 from its sides and 10 from its top, in a caption's type (12) and `MutedForeground`, on one line, cut with an ellipsis where the box is narrower; the mark of a required or an optional field is after it. What the control holds is 4 under the label's line and 10 over the bottom: an input and a select are 56 high, a textarea as high as its rows and the 39 around them. The field is 240 wide, or as wide as what holds it (`full_width`).
+- The line says what the edge of a box says, where the board is silent: the ring's color under the pointer, `Destructive`, `Warning` or `Success` for the field's judgment (an error makes it destructive, as in any field), `Border` when the control is read only. The focus is a line of 2 inside the box, as an input's is. A disabled one is at half its opacity.
+- The description, or the error, is 6 under the box, as any field's. A press of the label goes to the control under it: an input takes the caret, a select opens. An input's icon stands on the line of the value, under the label.
+- A control says that it has the form with `FieldControl::has_fluid_form`, and takes it when the field tells it `InField::fluid`: a control of an app's own that wraps an input passes both on. A fluid field of a control that has none (a switch, a slider) is drawn as any field, its label above the control. The label is always over the value: a fluid field's `orientation` is not read.
+- States: `FieldState::Fluid` on the field (its `Label` and its `Root`), and `InputState::Fluid`, `TextareaState::Fluid`, `SelectState::Fluid` on the control (its `Control`, a select's `Trigger`). A renderer of a field has `view.fluid` and `view.fluid_label()`.
 
 ## Textarea
 

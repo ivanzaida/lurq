@@ -62,6 +62,9 @@ pub enum TextareaState {
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(TextareaState {
@@ -71,6 +74,7 @@ names!(TextareaState {
   ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Fluid => "fluid",
 });
 
 /// What builds a textarea's nodes: a theme's in place of the default one.
@@ -296,6 +300,10 @@ impl FieldControl for Textarea {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 /// A textarea as a renderer sees it: what it was given, the style of its
@@ -413,6 +421,7 @@ impl Themed for Textarea {
           .foreground(PaletteColor::Foreground)
       });
     let recipe = text_box::box_sizes(recipe, Control, false);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    text_box::fluid_rules(recipe, Root, Control)
   }
 }

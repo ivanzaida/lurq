@@ -11,7 +11,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Input, InputSize, Interaction, Orientation, Switch, icons},
+  ui::{Field, Input, InputSize, Interaction, Orientation, Select, Switch, Textarea, icons},
 };
 
 use crate::{
@@ -75,6 +75,10 @@ pub struct InputPage {
   name: Signal<String>,
   email: Signal<String>,
   workspace: Signal<String>,
+  /// What the fluid fields hold.
+  fluid_name: Signal<String>,
+  fluid_notes: Signal<String>,
+  fluid_theme: Signal<&'static str>,
 }
 
 impl InputPage {
@@ -257,6 +261,9 @@ impl Component for InputPage {
       name: ctx.signal(String::new()),
       email: ctx.signal("ivan@".to_owned()),
       workspace: ctx.signal(String::new()),
+      fluid_name: ctx.signal("lurq-demo".to_owned()),
+      fluid_notes: ctx.signal("Opens with the theme of the system.".to_owned()),
+      fluid_theme: ctx.signal("system"),
     }
   }
 
@@ -351,6 +358,63 @@ impl Component for InputPage {
     // A field with its label beside is 360: the label's column, and a control that keeps its own width. In a
     // narrower card the two scroll sideways.
     let beside = fit("beside", self.frame.stage_room(), 360.0, beside);
+    // The fluid field: the label inside the box of an input, a textarea and a select.
+    let fluid = items()
+      .child(item(
+        Field::new("Workspace name", Input::new(self.fluid_name.clone())).fluid(true),
+        "the board's fluid field",
+      ))
+      .child(item(
+        Field::new("Notes", Textarea::new(self.fluid_notes.clone()).rows(2, 5)).fluid(true),
+        "a textarea",
+      ))
+      .child(item(
+        Field::new(
+          "Theme",
+          Select::new(
+            self.fluid_theme.clone(),
+            [("system", "System"), ("light", "Light"), ("dark", "Dark")],
+          ),
+        )
+        .fluid(true),
+        "a select",
+      ));
+    let fluid_states = items()
+      .child(item(
+        Field::new("Workspace name", showing("lurq-demo").force(Some(Interaction::Hovered))).fluid(true),
+        "hover",
+      ))
+      .child(item(
+        Field::new(
+          "Workspace name",
+          showing("lurq-demo").force(Some(Interaction::FocusVisible)),
+        )
+        .fluid(true),
+        "focus",
+      ))
+      .child(item(
+        Field::new("Workspace name", showing("lurq demo"))
+          .fluid(true)
+          .required(true)
+          .error("A name has no spaces."),
+        "required · error",
+      ))
+      .child(item(
+        Field::new("Workspace name", showing("lurq-demo").read_only(true))
+          .fluid(true)
+          .description("Set by your organization."),
+        "read only · description",
+      ))
+      .child(item(
+        Field::new("Workspace name", showing("lurq-demo"))
+          .fluid(true)
+          .disabled(true),
+        "disabled",
+      ))
+      .child(item(
+        Field::new("Search", showing("").placeholder("Components").icon(icons::SEARCH)).fluid(true),
+        "with icon · placeholder",
+      ));
 
     let input_rows = [
       (
@@ -484,6 +548,12 @@ impl Component for InputPage {
         "bool",
         "false",
         "As wide as what holds it, in place of 260.",
+      ),
+      (
+        "fluid",
+        "bool",
+        "false",
+        "The label inside the box of the control, over what it holds, and the box as wide as the field (240): for          an input, a textarea and a select. A field of another control is drawn as it is without it.",
       ),
     ];
     let playground = self.play(ctx);
@@ -642,6 +712,54 @@ impl Component for InputPage {
             &[
               "Field::new(\"Time zone\", Input::new(zone).full_width(true)).orientation(Orientation::Horizontal)",
               "Field::new(\"Notifications\", Switch::new(\"Pause notifications\")).orientation(Orientation::Horizontal)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Fluid field",
+          "The board's Fluid Field: the label is inside the box, over the value, on the muted fill with a line \
+           along its bottom. An input, a textarea and a select have the form; a press of the label goes to the \
+           control under it.",
+          self.frame.demo(
+            7,
+            fluid,
+            ".fluid(true)",
+            &[
+              "// name, notes: Signal<String>; theme: Signal<&'static str>",
+              "Field::new(\"Workspace name\", Input::new(name.clone())).fluid(true)",
+              "",
+              "Field::new(\"Notes\", Textarea::new(notes.clone()).rows(2, 5)).fluid(true)",
+              "",
+              "Field::new(",
+              "  \"Theme\",",
+              "  Select::new(theme.clone(), [(\"system\", \"System\"), (\"light\", \"Light\"), (\"dark\", \"Dark\")]),",
+              ")",
+              ".fluid(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Fluid field: states",
+          "The line along the bottom says what an input's edge says: the ring's color under the pointer, the \
+           judgment's color, the border's when it is read only; the focus is a line of 2 inside the box. The \
+           description and the error are under the box, and the mark of a required field after the label.",
+          self.frame.demo(
+            8,
+            fluid_states,
+            ".fluid(true).error(..)",
+            &[
+              "Field::new(\"Workspace name\", Input::new(name.clone()))",
+              "    .fluid(true)",
+              "    .required(true)",
+              "    .error(\"A name has no spaces.\")",
+              "",
+              "Field::new(\"Workspace name\", Input::new(name.clone()).read_only(true))",
+              "    .fluid(true)",
+              "    .description(\"Set by your organization.\")",
+              "",
+              "Field::new(\"Workspace name\", Input::new(name.clone())).fluid(true).disabled(true)",
+              "",
+              "Field::new(\"Search\", Input::new(query).placeholder(\"Components\").icon(icons::SEARCH)).fluid(true)",
             ],
           ),
         ),

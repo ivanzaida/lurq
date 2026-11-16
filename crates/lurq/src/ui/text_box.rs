@@ -94,6 +94,8 @@ pub enum TextBoxState {
   ReadOnly,
   /// It takes no input.
   Disabled,
+  /// It is in a fluid field: the field's label is inside it, over what it holds.
+  Fluid,
 }
 
 names!(TextBoxState {
@@ -102,6 +104,7 @@ names!(TextBoxState {
   Valid => "valid",
   ReadOnly => "read_only",
   Disabled => "disabled",
+  Fluid => "fluid",
 });
 
 impl From<Judgment> for TextBoxState {
@@ -123,6 +126,8 @@ pub(crate) struct BoxStates {
   pub valid: bool,
   pub read_only: bool,
   pub disabled: bool,
+  /// Whether it is in a fluid field, which draws its label inside the box.
+  pub fluid: bool,
   /// What the box is called to what reads the tree. A field gives it its label.
   pub label: Option<Arc<str>>,
   /// What the box is to what reads the tree, in place of a `textbox`: a search field's `searchbox`.
@@ -138,6 +143,7 @@ impl Default for BoxStates {
       valid: false,
       read_only: false,
       disabled: false,
+      fluid: false,
       label: None,
       role: None,
     }
@@ -165,6 +171,7 @@ impl BoxStates {
     .state(TextBoxState::Valid, judgment == Some(Judgment::Valid))
     .state(TextBoxState::ReadOnly, self.read_only)
     .state(TextBoxState::Disabled, self.disabled)
+    .state(TextBoxState::Fluid, self.fluid)
   }
 
   /// Takes what the field it is in says: the field's label where the box has no name of its own, the field's
@@ -179,6 +186,7 @@ impl BoxStates {
       self.valid = field.judgment == Some(Judgment::Valid);
     }
     self.disabled |= field.disabled;
+    self.fluid |= field.fluid;
   }
 }
 
@@ -243,6 +251,61 @@ pub(crate) fn box_rules(
         .when(Selector::new().state(state).focus_visible(), control, |s| {
           s.outline(ring(color))
         })
+    })
+}
+
+/// How far the top of a fluid box is from what it holds: the 10 over the field's label, the label's line of 15 and
+/// the 4 under it.
+pub(crate) const FLUID_TOP: f32 = 29.0;
+/// The padding of a fluid box under what it holds, and over the field's label.
+pub(crate) const FLUID_PAD: f32 = 10.0;
+/// How high a fluid box of one line is: the board's 56.
+pub(crate) const FLUID_HEIGHT: f32 = 56.0;
+
+/// A line of 1 along the bottom of a fluid box, and no edge on its other sides.
+pub(crate) fn fluid_line(style: PartStyle, color: PaletteColor) -> PartStyle {
+  style
+    .border(Border::inside(0.0, color.clone()))
+    .underline(Border::inside(BorderSize::Sm, color))
+}
+
+/// The box of a fluid field (`pencil/lurq-design-system.pen`, Fluid Field `imRnW`), over the box at rest: on the
+/// muted fill, round at its top and square at its bottom, with a line of 1 in the foreground along its bottom and no
+/// edge, what it holds 29 under its top, where the field's label stands, and 10 over its bottom.
+pub(crate) fn fluid_box(style: PartStyle) -> PartStyle {
+  fluid_line(style, PaletteColor::Foreground)
+    .padding_top(FLUID_TOP)
+    .padding_bottom(FLUID_PAD)
+    .corners(RadiusSize::Md, RadiusSize::Md, 0.0, 0.0)
+    .background(PaletteColor::Muted)
+}
+
+/// The rules of a box in a fluid field, laid over [`box_rules`]: `whole` as wide as the field, and `control`, the
+/// box, the fluid one ([`fluid_box`]), as high as what it holds and at least 56. Where the board is silent the line
+/// says what the edge of a box says: the ring's color under the pointer, the border's when it is read only, the
+/// judgment's color; the focus is the box's line of 2 inside it.
+pub(crate) fn fluid_rules(recipe: Recipe, whole: impl Into<Name>, control: impl Into<Name>) -> Recipe {
+  let (whole, control) = (whole.into(), control.into());
+  let fluid = || Selector::new().state(TextBoxState::Fluid);
+  let recipe = recipe
+    .state(TextBoxState::Fluid, whole, |s| s.width(Length::Fill))
+    .state(TextBoxState::Fluid, control, |s| {
+      fluid_box(s).height(Length::Auto).min_height(FLUID_HEIGHT)
+    })
+    .when(fluid().hovered(), control, |s| fluid_line(s, PaletteColor::Ring))
+    .when(fluid().state(TextBoxState::ReadOnly), control, |s| {
+      fluid_line(s, PaletteColor::Border)
+    })
+    .when(fluid().state(TextBoxState::ReadOnly).hovered(), control, |s| {
+      fluid_line(s, PaletteColor::Border)
+    });
+  [Judgment::Invalid, Judgment::Warning, Judgment::Valid]
+    .into_iter()
+    .fold(recipe, |recipe, judgment| {
+      let (state, color) = (TextBoxState::from(judgment), judgment.color());
+      recipe
+        .when(fluid().state(state), control, |s| fluid_line(s, color.clone()))
+        .when(fluid().state(state).hovered(), control, |s| fluid_line(s, color))
     })
 }
 
