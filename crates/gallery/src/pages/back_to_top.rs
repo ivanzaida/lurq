@@ -203,12 +203,9 @@ impl BackToTopPage {
         fill: false,
         forceable: false,
         facts: if forced {
-          "the list, the button shown".to_owned()
+          "the button shown".to_owned()
         } else {
-          format!(
-            "the list: scroll it past {} for the button, 40 × 40",
-            THRESHOLDS[threshold].0
-          )
+          format!("the button shows past {}", THRESHOLDS[threshold].0)
         },
         event: "on_click",
         code,
