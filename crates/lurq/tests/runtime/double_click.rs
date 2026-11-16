@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use lurq::{
   app::{Tree, events::MouseButton},
   components::{Column, Rect},
@@ -6,11 +8,20 @@ use lurq::{
 
 use crate::support::{pointer_click, run_pass};
 
-const DOUBLE_CLICK_SETTLE_MS: u64 = 550;
+/// Longer than the double-click interval, after which a held click is delivered.
+const DOUBLE_CLICK_SETTLE: Duration = Duration::from_millis(550);
 
-fn runtime_with_click_log() -> (Tree, Signal<Vec<&'static str>>) {
-  let events = Signal::new(Vec::new());
+/// A tree whose presses are given at `at`, on its clock of presses and not the wall clock's: two presses in a row
+/// are at one time however slow the machine, and the test moves the clock on where a person would wait.
+fn pressed_at(at: Instant) -> Tree {
   let mut runtime = Tree::new();
+  runtime.set_press_clock(Some(at));
+  runtime
+}
+
+fn runtime_with_click_log(at: Instant) -> (Tree, Signal<Vec<&'static str>>) {
+  let events = Signal::new(Vec::new());
+  let mut runtime = pressed_at(at);
 
   runtime.set_root(
     Rect::new(100.0, 40.0)
@@ -30,21 +41,23 @@ fn runtime_with_click_log() -> (Tree, Signal<Vec<&'static str>>) {
 
 #[test]
 fn single_click_dispatches_click_after_dblclick_threshold() {
-  let (mut runtime, events) = runtime_with_click_log();
+  let start = Instant::now();
+  let (mut runtime, events) = runtime_with_click_log(start);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
   pointer_click(&mut runtime, x, y, MouseButton::Left);
   assert_eq!(events.get(), Vec::<&'static str>::new());
 
-  std::thread::sleep(std::time::Duration::from_millis(DOUBLE_CLICK_SETTLE_MS));
+  runtime.set_press_clock(Some(start + DOUBLE_CLICK_SETTLE));
   run_pass(&mut runtime);
   assert_eq!(events.get(), vec!["click"]);
 }
 
 #[test]
 fn second_nearby_click_dispatches_only_dblclick_handler() {
-  let (mut runtime, events) = runtime_with_click_log();
+  let start = Instant::now();
+  let (mut runtime, events) = runtime_with_click_log(start);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -57,7 +70,7 @@ fn second_nearby_click_dispatches_only_dblclick_handler() {
 #[test]
 fn child_click_uses_ancestor_dblclick_handler() {
   let events = Signal::new(Vec::new());
-  let mut runtime = Tree::new();
+  let mut runtime = pressed_at(Instant::now());
 
   runtime.set_root(
     Column::new()
@@ -83,7 +96,8 @@ fn child_click_uses_ancestor_dblclick_handler() {
 
 #[test]
 fn distant_click_does_not_dispatch_dblclick_handler() {
-  let (mut runtime, events) = runtime_with_click_log();
+  let start = Instant::now();
+  let (mut runtime, events) = runtime_with_click_log(start);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
   let (x, y) = rect.center();
 
@@ -92,7 +106,7 @@ fn distant_click_does_not_dispatch_dblclick_handler() {
 
   assert_eq!(events.get(), vec!["click"]);
 
-  std::thread::sleep(std::time::Duration::from_millis(DOUBLE_CLICK_SETTLE_MS));
+  runtime.set_press_clock(Some(start + DOUBLE_CLICK_SETTLE));
   run_pass(&mut runtime);
   assert_eq!(events.get(), vec!["click", "click"]);
 }

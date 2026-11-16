@@ -58,6 +58,7 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
 mod hover_card;
 mod icons;
 mod info_label;
@@ -81,6 +82,8 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
+mod notification_center;
 mod number_input;
 mod outcome;
 mod overview;
@@ -129,6 +132,8 @@ mod time_picker;
 mod timeline;
 mod toast;
 mod toggletip;
+mod tour;
+mod tray_popover;
 mod token_input;
 mod tokens;
 mod toolbar;
@@ -671,6 +676,30 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
   },
   Page {
+    path: "/tour",
+    name: "Tour",
+    icon: Some("route"),
+    about: "tour walkthrough onboarding steps step guide coach marks product tour next back skip done 2 of 4 count arrow keys focus escape Tour TourStep new controlled on_change on_finish on_dismiss skip_button skip_label back_label next_label done_label takes_focus placement variant mount",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<tour::TourPage>(()),
+  },
+  Page {
+    path: "/notification",
+    name: "Notification",
+    icon: Some("bell"),
+    about: "notification card row inbox message event review requested from avatar title description time unread read dot dismiss actions button action media icon on_click on_close close_label unread_label variant NotificationVariant",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<notification::NotificationPage>(()),
+  },
+  Page {
+    path: "/notification-center",
+    name: "Notification Center",
+    icon: Some("inbox"),
+    about: "notification center notifications panel inbox bell count badge list mark all read clear all view all empty scroll popover trigger item items on_mark_all_read on_clear on_view_all on_dismiss empty_text max_height inline placement",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<notification_center::NotificationCenterPage>(()),
+  },
+  Page {
     path: "/ai-label",
     name: "AI Label",
     icon: Some("sparkles"),
@@ -1162,6 +1191,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<lightbox::LightboxPage>(()),
   },
   Page {
+    path: "/gallery",
+    name: "Gallery",
+    icon: Some("image"),
+    about: "gallery grid pictures photos thumbnails rows columns gap aspect ratio select selected choose keys lightbox open more count max_shown veil Gallery keyed columns gap aspect_ratio size max_shown more_text selectable selected on_selection_change lightbox open on_open_change on_select",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<gallery::GalleryPage>(()),
+  },
+  Page {
     path: "/video-player",
     name: "Video Player",
     icon: Some("play-circle"),
@@ -1248,6 +1285,14 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/tray-popover",
+    name: "Tray Popover",
+    icon: Some("panel-bottom"),
+    about: "tray popover system tray menu bar status item taskbar notification area icon panel background app status synced switches toggles commands open preferences quit TrayPopover TrayAction TrayToggle TrayItem TrayStatusVariant anchored status status_variant item separator on_select on_change bind",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<tray_popover::TrayPopoverPage>(()),
   },
   Page {
     path: "/column-view",

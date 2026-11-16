@@ -407,6 +407,8 @@ fn a_double_press_of_a_cell_edits_it() {
     let quad = texts(&stage, "canvas.rs").pop().unwrap();
     (quad.x + 4.0, quad.y + quad.height / 2.0)
   };
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   for _ in 0..2 {
     stage.tree.mouse_move(x, y);
     stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);

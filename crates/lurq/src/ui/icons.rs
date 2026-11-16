@@ -192,6 +192,10 @@ pub const SHUFFLE: &str = "shuffle";
 pub const VOLUME_LOW: &str = "volume-low";
 pub const VOLUME_OFF: &str = "volume-off";
 pub const MARQUEE: &str = "marquee";
+pub const PANEL_BOTTOM: &str = "panel-bottom";
+pub const PANEL_TOP_OPEN: &str = "panel-top-open";
+pub const ROUTE: &str = "route";
+pub const TABLE_OF_CONTENTS: &str = "table-of-contents";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -380,4 +384,8 @@ pub const ALL: &[(&str, char)] = &[
   (VOLUME_LOW, '\u{E0B6}'),
   (VOLUME_OFF, '\u{E0B7}'),
   (MARQUEE, '\u{E0B8}'),
+  (PANEL_BOTTOM, '\u{E0B9}'),
+  (PANEL_TOP_OPEN, '\u{E0BA}'),
+  (ROUTE, '\u{E0BB}'),
+  (TABLE_OF_CONTENTS, '\u{E0BC}'),
 ];

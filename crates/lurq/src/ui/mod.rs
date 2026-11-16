@@ -70,6 +70,7 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
 #[cfg(feature = "canvas")]
 mod gauge;
 #[cfg(feature = "canvas")]
@@ -101,6 +102,8 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
+mod notification_center;
 mod number_input;
 mod opening_rows;
 mod outcome;
@@ -168,6 +171,7 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
@@ -345,6 +349,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
@@ -388,6 +393,13 @@ pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, N
 pub use navigation_menu::{
   NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
   NavigationMenuVariant, NavigationMenuView,
+};
+pub use notification::{
+  Notification, NotificationPart, NotificationRenderer, NotificationState, NotificationVariant, NotificationView,
+};
+pub use notification_center::{
+  NotificationCenter, NotificationCenterPart, NotificationCenterRenderer, NotificationCenterState,
+  NotificationCenterView,
 };
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
@@ -563,6 +575,10 @@ pub use toolbar::{
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tray_popover::{
+  TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
+  TrayStatusVariant, TrayToggle,
 };
 pub use tree_select::{
   TreeSelect, TreeSelectPart, TreeSelectRenderer, TreeSelectSize, TreeSelectState, TreeSelectView,

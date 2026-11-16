@@ -31,6 +31,14 @@ use crate::{
 const ZOOM_STEP: f32 = 1.5;
 /// How far an arrow key moves a picture that is zoomed in.
 const PAN_STEP: f32 = 48.0;
+/// The top row's padding at its two ends, the room a button of it takes with the gap after it, the level's, the
+/// gap alone, and the width of a letter of the counter: what tells whether the row has room for its level.
+const TOP_SIDES: f32 = 24.0;
+const CONTROL_ROOM: f32 = 40.0;
+const LEVEL_ROOM: f32 = 60.0;
+const CONTROL_GAP: f32 = 4.0;
+const COUNTER_LETTER: f32 = 8.0;
+
 /// The room between the strip's small pictures, as the design has it, and the least there is at its ends:
 /// what tells how many of them the strip has room for.
 const STRIP_GAP: f32 = 6.0;
@@ -731,8 +739,15 @@ impl LightboxView {
       .part(&self.part(LightboxPart::Top))
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center);
+    // How wide the counter is, about: its letters are of one width.
+    let mut said = 0.0;
     if lightbox.counter.unwrap_or(count > 1) {
       let part = self.part(LightboxPart::Counter);
+      let letters = match &lightbox.counter_text {
+        Some(text) => text(self.index + 1, count).chars().count(),
+        None => format!("{} / {count}", self.index + 1).chars().count(),
+      };
+      said = letters as f32 * COUNTER_LETTER + CONTROL_GAP;
       let counter = match &lightbox.counter_text {
         Some(text) => Row::new().child(part.text(&text(self.index + 1, count)).nowrap().part(&part)),
         None => Row::new()
@@ -758,6 +773,12 @@ impl LightboxView {
     };
     let fit: Action = Arc::new(move || go(1.0));
     top = top.child(self.control(icons::ZOOM_OUT, &lightbox.words.zoom_out, "zoom-out", further));
+    // In a room too narrow for the whole row the level gives way: the buttons about it bring the picture closer
+    // and further still, and a double click and `0` fit it.
+    let buttons =
+      2 + lightbox.actions.len() + usize::from(!lightbox.on_download.is_empty()) + usize::from(lightbox.close_button);
+    let needed = TOP_SIDES + said + buttons as f32 * CONTROL_ROOM + LEVEL_ROOM;
+    let room = self.stage.width();
     let level = self.part(LightboxPart::Level);
     let mut fitter = pressable(&level, false)
       .describe("a11y_role", "button")
@@ -770,8 +791,10 @@ impl LightboxView {
     if let Some(id) = self.id("level") {
       fitter = fitter.id(id);
     }
+    if room <= 0.0 || room >= needed {
+      top = top.child(fitter);
+    }
     top = top
-      .child(fitter)
       .child(self.control(icons::ZOOM_IN, &lightbox.words.zoom_in, "zoom-in", closer))
       .with_children(lightbox.actions.iter().cloned());
     if !lightbox.on_download.is_empty() {
@@ -1003,7 +1026,8 @@ impl LightboxView {
       ),
       false => (full, full),
     };
-    panel = panel.size(width, height);
+    // The width said is the most the panel takes: in a narrower room it is as wide as the room.
+    panel = panel.size(width, height).max_width(full);
     if let Some(id) = &lightbox.id {
       panel = panel.id(id.clone());
     }

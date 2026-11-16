@@ -127,6 +127,9 @@ fn a_double_click_selects_a_word_and_a_triple_click_its_line() {
   let mut page = page(Text::new(PARAGRAPHS).selectable(true), 1.0);
   let (from, to) = page.inks_of("longer", 0);
   let (x, y) = page.before(from + 1);
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  page.tree.set_press_clock(Some(std::time::Instant::now()));
   page.click(x, y);
   page.click(x, y);
   assert_eq!(page.selected().as_deref(), Some("longer"));

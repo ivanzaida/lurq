@@ -4,7 +4,9 @@
 //! ends. Only nodes with an explicit `tab_index >= 0` are stops, except inside forms, where controls are stops without
 //! one. A form is part of its scope's order like in a browser: Tab from its last control moves on to the next stop.
 //!
-//! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
+//! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops. An
+//! overlay that holds Tab (`Overlay::traps_tab`) is the scope in the same way while the focus is in it, and only
+//! then: it closes nothing behind it.
 //!
 //! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop. Nor
 //! is anything inside an inert element (`.inert(true)`).
@@ -89,16 +91,25 @@ struct Walk<'a> {
 /// `dropped` holds the nodes the last layout dropped from their Row/Column
 /// (see [`dropped_node_ids`]); nothing inside them is a stop. `moved` holds
 /// the layers of the overlays that move the focus, with their anchors
-/// ([`super::Tree::focus_moving_layers`]). `start` is where Tab goes on from
-/// when nothing has the focus.
+/// ([`super::Tree::focus_moving_layers`]). `trap` is the layer of the overlay
+/// that holds Tab and has the focus in it, with no modal over it
+/// ([`super::Tree::tab_trap`]): the scope, as a modal is. `start` is where Tab
+/// goes on from when nothing has the focus.
 pub(super) fn tab_move(
   root: &Node,
   dropped: &[NodeId],
   moved: &[(OwnedElementRef, &Node)],
+  trap: Option<&Node>,
   focused: Option<(NodeId, &[usize])>,
   start: Option<StartPoint>,
   reverse: bool,
 ) -> TabMove {
+  if let Some(trap) = trap {
+    return match next_stop(trap, dropped, moved, focused.map(|(id, _)| id), None, reverse) {
+      Some(target) => TabMove::Focus(target),
+      None => TabMove::Stay,
+    };
+  }
   let modal = top_modal_path(root);
   let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
 
@@ -224,7 +235,14 @@ fn next_stop<'a>(
     start: if focused.is_none() { start } else { None },
     start_bounds: None,
   };
-  collect_stops(scope, dropped, None, false, &mut walk);
+  if moved.iter().any(|(_, layer)| std::ptr::eq(*layer, scope)) {
+    // The scope is itself a layer that moves the focus, one that holds Tab: walked where it is, and not after
+    // its anchor, which is outside it.
+    walk.walked.push(scope.node_id());
+    collect_node(scope, dropped, None, false, &mut walk);
+  } else {
+    collect_stops(scope, dropped, None, false, &mut walk);
+  }
   // A layer whose anchor the walk did not reach (in a disabled element) is where the host has it: after the
   // page. Only a layer of this scope: a modal's holds none.
   for (_, layer) in moved {

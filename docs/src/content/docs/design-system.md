@@ -3742,6 +3742,7 @@ let tour = Tour::new(step.clone())
 | `child(element)`, `children(..)` | What it holds under the description |
 | `step(n, of)` | That it is a step of several: "2 of 4" in its footer, in the tour's look |
 | `primary(&str, Fn())`, `secondary(&str, Fn())` | The button that goes on, and the one before it, and what a press of each does |
+| `tertiary(&str, Fn())` | A quiet button before them, "Skip", "Remind me later", and what a press of it does |
 | `on_dismiss(Fn())` | Told after its close control, Escape or a press outside it closed it: the signal is `false` already. A second handler is called after the first |
 | `dismiss_on_escape(bool)` | Whether Escape closes it, as its close control does: on by default |
 | `dismiss_on_outside_press(bool)` | Whether a press outside it closes it: off by default, since a press elsewhere is the person going on with what they do beside it |
@@ -3751,17 +3752,113 @@ let tour = Tour::new(step.clone())
 | `offset(..)`, `collision(CollisionStrategy)` | How far it stands from what it points at in place of the theme's 4, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle with the panel's edge pointing at what it is about: on by default |
 | `takes_focus(bool)` | The focus goes into it as it opens and back as it closes. Off by default |
+| `traps_tab(bool)` | Tab stays in it while the focus is in it, going round from its last button to its first. Off by default; a tour turns it on |
 | `force(Option<Interaction>)` | Draws its close control hovered, pressed or focused with nothing on it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
-| `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary` and `<id>-secondary` |
+| `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary`, `<id>-secondary` and `<id>-tertiary` |
 
 - It does not keep whether it is open: the app's signal does. Its close control and Escape close it: they set the signal to `false` and then tell `on_dismiss`, so that a handler that opens something else does not have it closed under it. A press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
 - It does not take the focus unless the app says so: Tab goes from what it points at into its buttons and on (`Overlay::tab_after_anchor`). With `takes_focus(true)` the focus goes into it as it opens and back to what had it as it closes.
 - To what reads the tree it is a `dialog` called by its label or else its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
-- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on; `dismiss_on_outside_press(true)` leaves it on a press outside the tip, as Escape does). `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on; `dismiss_on_outside_press(true)` leaves it on a press outside the tip, as Escape does). `skip_button(true)` gives every step but the last a quiet "Skip" before the others (`skip_label`), which leaves as Escape does; the design draws none, so it is off by default. `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- `Tour::controlled(Option<usize>, on_change)` is given the step as a value the app holds: a press of its buttons, its keys and Escape tell `on_change` the step it is asked to be at, and it stays where the app holds it. Bound, `on_change(Fn(Option<usize>))` is told the step after the signal is set, `None` as the tour ends or is left, before `on_finish` and `on_dismiss`; it is not told when the app sets the signal.
+- A tour takes the focus (`takes_focus(false)` leaves it where it is, as a teaching tip does): into its card as it starts, on the button that goes on whatever stands before it, on the button that was pressed from step to step, on "Next" where "Back" is gone with the first step, and back to what had it before the tour as it ends. Tab is held in the card (`traps_tab(false)` lets it go on to what follows what the step points at): from its last button it goes round to its first, and Shift+Tab the other way; the page behind still answers the pointer. While the focus is in the card the Right arrow goes on a step and the Left one back, Home and End go to the first and the last step, and none of them ends the tour: Done and Escape do. The card of all its steps is one overlay that goes from one element to the next (see [Popups And Outside Presses](../modals/#popups-and-outside-presses)).
 - Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows, and a `Tour` the panel of the step its signal says, or of its first step while it says none.
-- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
-- In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
+- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction`, `SecondaryAction` and `TertiaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
+- In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide with the `Md` shadow, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
+
+## Notification
+
+Something that happened which a person may act on now or later: who or what it is from, a title and a line, when, what can be done about it, whether it was read. A card on its own, and a row of a list of them.
+
+```rust
+use lurq::ui::{Avatar, Notification, NotificationVariant};
+
+// The design's card: the bell, a title over a line, a button, and what dismisses it.
+Notification::new("Review requested")
+  .description("Ivy asked you to review feat/node-blur.")
+  .button("Review", move || open_review())
+  .on_close(move || dismiss(id));
+
+// A row of a list: who it is from, when, and that it was not read.
+Notification::new("Ivy Chen requested a review")
+  .description("feat/node-blur")
+  .media(Avatar::new("Ivy Chen"))
+  .time("2m")
+  .unread(true)
+  .variant(NotificationVariant::Row)
+  .on_click(move |_| open(id));
+```
+
+| Builder | |
+| --- | --- |
+| `Notification::new(&str)` | The title: what happened. It is what the notification is called |
+| `description(&str)` | More of it, under the title |
+| `media(element)` | Who or what it is from, before the text in place of the icon: an `Avatar`, an app's mark |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the bell, or none (`icon(None)`) |
+| `time(&str)` | When it happened, as the app words it: "2m" |
+| `unread(bool)` | Whether it was not read: it has the dot, and a row's title is medium |
+| `button(&str, Fn())` | Adds a button under the text: the first is the primary one, the others ghosts |
+| `action(element)` | Adds something of the app's own to the actions: a link, a menu's button. It adds, since a notification has several |
+| `child(element)`, `children(..)` | Elements under the description, for more than text |
+| `variant(impl Into<Name>)` | A `NotificationVariant`: `Card` (the default), with an edge and a shadow, or `Row`, as a list draws each |
+| `on_click(handler)` | A press of the whole notification: it opens what it is about. A second handler is called after the first |
+| `on_close(Fn())` | Called on a press of what dismisses it, which it has once it is given `on_close`: a "Dismiss" button after a card's own, a close control at the end of a row. The app takes the notification out of what it lists |
+| `close_label(&str)`, `unread_label(&str)` | What dismisses it says and is called ("Dismiss"), and what its dot is called to tooling ("Unread") |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the notification's states where it is pressed, and else those of a row's close control; `id` is the id of the box, with `<id>-close` and `<id>-action-0`, `<id>-action-1` for what is in it |
+
+- A notification stays: it is there until the app takes it out of what it lists. A [toast](#toast) leaves by itself and is shown over the window from anywhere; an [alert](#alert), a [banner](#banner) and a [callout](#callout) are part of the page they stand in and say something about it. It keeps nothing: whether it was read and whether it is listed are the app's, and it tells what a person did.
+- Given `on_click` it is pressed as a whole: a button to what reads the tree, a stop of Tab with the ring inside it, pressed by Enter and Space. Its own buttons and what dismisses it are pressed apart from it, each a stop of Tab after it. Without `on_click` it is an `article` that takes no focus and answers no pointer.
+- A title and a description longer than their room wrap; the time stays whole on one line; buttons that do not fit side by side go on to the next line. A card is 340 wide at most and as wide as a narrower room.
+- A row follows the theme's density: 56 high at the default, 48 compact, 64 comfortable and 68 under a finger. A row that was read keeps the room of the dot, so what stands after it lines up down a list.
+- Parts: `NotificationPart::Root`, `Unread` (the dot), `Media`, `Icon`, `Content` (the text over the body and the actions), `Text`, `Header` (the title, and on a card the time and the dot), `Title`, `Time`, `Description`, `Body`, `Actions`, `Action` (what it gives the theme's buttons), `Close` (a row's close control). Variants: `NotificationVariant::Card`, `Row`. States: `NotificationState::Unread`, `Pressable`.
+- In the design the card is 340 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow, padded 16: the bell of 16 in `Foreground`, 12 from the title (14, medium) over the description (13, `MutedForeground`, lines of 1.4) 4 under it, and 10 under them the buttons, 28 high, 10 from their sides and 8 apart. The row is 12 from its top, its bottom and its start and 16 from its end, with 10 between the dot of 7 in `Info`, the avatar of 32, the text (the title 13 over the description of 12 in `MutedForeground`, 1 apart) and the time in mono 11 in `MutedForeground`; under the pointer it is in `Highlight`, as the board draws its first row. The board draws no time and no dot on a card: they stand after its title. It draws no pressed card and no focus: a pressed card has the veils of those states.
+- A renderer that draws another notification starts from `view.media()`, `view.text()`, `view.content()`, `view.actions()`, `view.close()`, `view.unread_dot()`, `view.time()` and `view.root(children)` (the behavior), with `view.row`, `view.unread` and `view.close_button`.
+
+## Notification Center
+
+The panel that lists an app's notifications, opened from its bell: a header with what marks all read or clears, the notifications as rows, and a footer that leads to all of them.
+
+```rust
+use lurq::ui::{Avatar, Badge, Button, ButtonVariant, Notification, NotificationCenter, icons};
+
+// open: Signal<bool> and bell: ElementRef, kept by the app; listed: Signal<Vec<(Id, bool)>>, its list.
+let unread = listed.get().iter().filter(|(_, read)| !read).count();
+NotificationCenter::new(open.clone(), bell.clone())
+  .trigger(Badge::count(unread).label("unread notifications").on(
+    Button::new("Notifications").icon(icons::BELL).icon_only(true).variant(ButtonVariant::Ghost),
+  ))
+  .items(listed.get().into_iter().map(|(id, read)| row(id).unread(!read)))
+  .on_mark_all_read(move || mark.update(|all| all.iter_mut().for_each(|(_, read)| *read = true)))
+  .on_clear(move || clear.set(Vec::new()))
+  .on_view_all(move || go_to_inbox());
+```
+
+| Builder | |
+| --- | --- |
+| `NotificationCenter::new(open, anchor)` | Shown beside `anchor`, the bell, while the `Signal<bool>` is `true` |
+| `trigger(element)` | What opens and closes it: a `Button`, or a `Badge` with its count or its dot on one. It is put before the panel and is its anchor; the first thing in it that takes the focus is what is pressed, and says whether the panel is open |
+| `title(&str)` | What the panel is called, at its top and to tooling: "Notifications" by default |
+| `item(Notification)`, `items(..)` | What it lists. Each is drawn as a row, whatever its own variant |
+| `on_mark_all_read(Fn())` | Draws "Mark all read" in the header and is called on a press of it. The control takes no press while nothing is unread |
+| `on_clear(Fn())` | Draws "Clear all" in the header and is called on a press of it. The control takes no press while the list is empty |
+| `on_view_all(Fn())` | Draws the footer, "View all", and is called on a press of it, after the panel closed |
+| `mark_all_read_label(&str)`, `clear_label(&str)`, `view_all_label(&str)` | What each control says |
+| `empty_text(&str)`, `empty(element)` | What it says under an inbox while it lists nothing ("No notifications"), or the app's own empty state in their place |
+| `on_dismiss(Fn())` | Told after a press outside it or Escape closed it; not when the app sets the signal, and not on "View all" |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether each closes it: both by default |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Under the bell with its end at the bell's end (`BottomEnd`), the theme's smallest spacing from it, and to the other side then into the window where there is no room |
+| `width(..)`, `max_height(..)` | How wide the panel is (360), and how high the list is at most before it scrolls (360) |
+| `inline(bool)` | Draws the panel where it is declared, open or not, with no trigger: a panel of a page, a gallery, a test |
+| `label(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [popover](#popover) has them. `force` draws its first pressed row's states; its controls are `<id>-mark-all-read`, `<id>-clear` and `<id>-view-all` |
+
+- The list and what is read are the app's. The panel tells what a person did (its three handlers, and each notification's own `on_click` and `on_close`) and is given the list as it is then; it keeps nothing but what a popover keeps, and is built anew with each render.
+- As it opens the focus goes into it, to the first thing in it that takes the focus, and back to the bell as it closes. Tab stops in the rows once and the arrow keys move between those that are pressed; a row's close control is a stop of Tab after it. "View all" closes the panel first and then tells, so what the handler opens keeps the focus it takes.
+- The list is as high as its rows up to its greatest height and scrolls past it, under the header and over the footer, and gives way where the window has less room. A title longer than the header's room is cut with an ellipsis; the controls keep their room.
+- To what reads the tree it is a `dialog` called by its label or its title, holding a `list` of the same name; its bell says `a11y_haspopup` and whether it is expanded.
+- Parts: `NotificationCenterPart::Panel`, `Header`, `Title`, `Actions`, `Action` and `ActionLabel` (what they give the theme's [link](#link)), `List`, `Item` (what holds a row that has another under it: the line between the two), `Empty`, `EmptyIcon`, `EmptyText`, `Footer`. States: `NotificationCenterState::Footer`, `Empty`. The rows are styled by [`Notification`](#notification)'s recipe.
+- In the design the panel is 360 wide on `Popover` in an edge of 1 in `Border`, `Xl` round, with the `Lg` shadow. The header is 48 high and 16 from its sides over a line in `Border`: the title at 15, semibold, and "Mark all read" at 13, medium, in `Info`. A row is 56 with a line in `Border` along its bottom, and the footer 40 with "View all" at 13, medium, in its middle. The board draws three rows and no end of the list, no empty panel and nothing under the pointer: the list scrolls past 360, an empty panel has an inbox of 24 over its words at 13, both `MutedForeground`, 32 over and under them, the header's controls are underlined under the pointer as a link is, and the footer is in `Highlight`. It fades in and out as the popover does.
 
 ## AI Label
 
@@ -4818,6 +4915,59 @@ view.on_key_down(move |event: KeyboardEvent| {
 **In a narrow room.** A mounted bar measures its field: where the field has no room for the options in it,
 they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
 and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it.
+
+## Tray Popover
+
+The small panel a press of an app's icon in the system tray or the menu bar opens: who the app is and how it is doing, a few switches, a few commands.
+
+```rust
+use lurq::ui::{TrayAction, TrayPopover, TrayStatusVariant, TrayToggle, icons};
+
+// sync, paused: Signal<bool>, kept by the app.
+TrayPopover::new("lurq")
+  .icon(icons::BOX)
+  .status("Synced just now")
+  .item(TrayToggle::new("Sync in background").bind(sync.clone()))
+  .item(TrayToggle::new("Pause notifications").bind(paused.clone()))
+  .separator()
+  .item(TrayAction::new("Open lurq").on_select(move || show_window()))
+  .item(TrayAction::new("Preferences…").on_select(move || preferences()))
+  .item(TrayAction::new("Quit").on_select(move || quit()));
+
+// Over the app's own window, beside an element of its own: open: Signal<bool>, anchor: ElementRef.
+TrayPopover::new("lurq")
+  .status("Offline")
+  .status_variant(TrayStatusVariant::Warning)
+  .item(TrayAction::new("Retry now").on_select(move || retry()))
+  .anchored(open.clone(), anchor.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `TrayPopover::new(&str)` | What the app is called: the title, and what the panel is called |
+| `icon(impl Into<Name>)`, `media(element)` | The app's mark before its title: an icon of 16 on a tile of 28 in the primary color, or the app's own picture in place of the tile |
+| `status(&str)`, `status_variant(impl Into<Name>)` | How the app is doing, under its title after a dot, and the tone that colors the dot: a `TrayStatusVariant`, `Neutral`, `Info`, `Success` (the default), `Warning`, `Destructive` |
+| `item(impl Into<TrayItem>)`, `items(..)` | A row: a `TrayAction` or a `TrayToggle` |
+| `separator()` | A line between two groups of rows. The line under the header is there by itself |
+| `child(element)`, `children(..)` | Something of the app's own among the rows: a progress, an account |
+| `anchored(open, anchor)` | Shows the panel over the window beside `anchor` while the `Signal<bool>` is `true`, in place of where it is declared |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Where an anchored one stands: under its anchor with its end at the anchor's end (`BottomEnd`; `TopEnd` over a taskbar), 6 from it, to the other side then into the window where there is no room |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | What is told after Escape or a press outside closed an anchored one, and whether each closes it: both by default. A command is no dismissal |
+| `width(..)`, `label(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [popover](#popover) has them. `force` draws its first command's states |
+
+| Row | |
+| --- | --- |
+| `TrayAction::new(&str)` | A row that runs a command: `on_select(Fn())`, `disabled(bool)`, `id`, `key` |
+| `TrayToggle::new(&str)` | A row with a switch at its end: `bind(Signal<bool>)`, or `on(bool)` with `on_change(Fn(bool))` told what a press asks for; `disabled(bool)`, `id` (the switch's), `key` |
+
+- Declared plainly it is the panel in the flow, 280 wide at most. **lurq has no tray icon**: the icon and its press are the platform's, or a crate's for it (`tray-icon`). An app that has one opens a window with no frame on the press, `ctx.window_opener().open_with(WindowOptions::new("lurq", 280, 272).undecorated(), ..)`, mounts a root that renders the panel, and closes the window (`WindowHandle::close`) from its commands. What lurq does not have yet for that window is a place on the screen, a level over other windows and a way out of the taskbar: until then the window opens where the system puts it.
+- `anchored` shows it as a [popover](#popover) is shown, for a status item of the app's own title bar or status bar: Escape and a press outside close it, the focus goes into it as it opens and back as it closes, and a command closes it first and then runs, so what the command opens keeps the focus it takes.
+- A press of a toggle's row turns its switch as a press of the switch does. Bound, the signal is set and then `on_change` is told; not bound, `on_change` is told the value a press asks for and the row stays as the app holds it. Nothing is told when the app sets the signal.
+- Every command and every switch is a stop of Tab, and the arrow keys move through them, past the lines. A command is pressed by Enter and Space and has the ring inside it; a row that is `disabled` is faded, takes no press and is passed by.
+- A title, a status and a row's words longer than their room are cut with an ellipsis; a switch keeps its room. Rows follow the theme's density: a command is 28 at the default, 20 compact, 36 comfortable and 40 under a finger, and a toggle's row 2 more.
+- To what reads the tree it is a `group` (a `dialog` where it is anchored) called by its label or its title; its status is a `status`, a command a `menuitem`, and a toggle its switch.
+- Parts: `TrayPopoverPart::Panel`, `Header`, `Media` (the tile), `Icon`, `Text`, `Title`, `Status`, `StatusDot`, `Description` (the status's words), `Separator` and `Line`, `Toggle` and `ToggleLabel`, `Item` (a command), `Body` (what the app puts among the rows). Variants by `TrayStatusVariant`. States: `TrayPopoverState::Disabled`, resolved on a row's parts.
+- In the design the panel is 280 wide on `Popover` in an edge of 1 in `Border`, 12 round, with the `Lg` shadow, padded 10, what it holds 8 apart. The header is 4 from the sides: the mark of 16 in `PrimaryForeground` on a tile of 28 in `Primary`, `Md` round, 10 before the title (13, semibold) over the status 1 under it, a dot of 6 in `Success` 5 before words of 11 in `MutedForeground`. A line of 1 in `Border` has 4 over and under it. A toggle's row is 30 and a command 28, both 4 from their sides with words of 13; the command under the pointer is in `Highlight`, `Sm` round. The board draws the tray the popover hangs from, which is the platform's, and no focused or disabled row.
 
 ## Column View
 

@@ -401,15 +401,25 @@ fn markdown_link_click_held_back_for_a_double_click_keeps_its_input_source() {
     ..Activation::pointer(destination, MouseButton::Left)
   };
 
+  // The clicks at times of the test's, on the tree's clock of presses: a held click is run once the clock is moved on
+  // past the double-click interval, however slow or fast the machine.
+  let start = std::time::Instant::now();
+  let mut settled = 0;
+  let mut settle = |tree: &mut Tree| {
+    settled += 1;
+    tree.set_press_clock(Some(start + DOUBLE_CLICK_SETTLE * settled));
+  };
+  tree.set_press_clock(Some(start));
+
   // Run by the pass after the double-click interval.
   apply(&mut tree, &SyntheticInput::click(first.x + 3.0, first.y + 3.0));
   assert!(taken(&activations).is_empty(), "the click waits for a second one");
-  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  settle(&mut tree);
   pass(&mut app, &mut tree);
   assert_eq!(taken(&activations), [synthetic("/first")]);
 
   pointer_click(&mut tree, first.x + 3.0, first.y + 3.0, MouseButton::Left);
-  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  settle(&mut tree);
   pass(&mut app, &mut tree);
   assert_eq!(taken(&activations), [Activation::pointer("/first", MouseButton::Left)]);
 
@@ -417,7 +427,7 @@ fn markdown_link_click_held_back_for_a_double_click_keeps_its_input_source() {
   apply(&mut tree, &SyntheticInput::click(first.x + 3.0, first.y + 3.0));
   pointer_click(&mut tree, second.x + 3.0, second.y + 3.0, MouseButton::Left);
   apply(&mut tree, &SyntheticInput::click(first.x + 3.0, first.y + 3.0));
-  std::thread::sleep(DOUBLE_CLICK_SETTLE);
+  settle(&mut tree);
   pass(&mut app, &mut tree);
   assert_eq!(
     taken(&activations),

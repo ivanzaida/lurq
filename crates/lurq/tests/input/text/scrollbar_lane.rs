@@ -291,6 +291,9 @@ fn vertical_thumb_press_arms_no_selection() {
 fn vertical_track_press_pages_toward_the_press() {
   let (mut runtime, state) = vertical_text_scroller(thin_tracked_bar());
   let (x, _, width, _) = thumb(&state, ScrollAxis::Vertical);
+  // Every press at one time, on the tree's clock of presses: the second at the same place is the second of a
+  // double press however slow the machine, and still pages.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
 
   drag(&mut runtime, (x + width / 2.0, 95.0), (x + width / 2.0, 95.0));
   assert_eq!(

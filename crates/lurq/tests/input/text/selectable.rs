@@ -311,6 +311,9 @@ fn double_click_selectable_text_selects_clicked_word() {
   let y = rect.y + rect.height / 2.0;
   let x = rect.x + 46.0;
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
 
@@ -335,6 +338,9 @@ fn triple_click_selectable_text_selects_clicked_line() {
   let y = rect.y + line_height + 1.0;
   let x = rect.x + 46.0;
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
@@ -359,6 +365,9 @@ fn transformed_multiline_selectable_text_click_uses_visual_line() {
   let local_y = rect.y + line_height * 0.5;
   let point = transform_point_around_rect(local_x, local_y, rect, transform);
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, point.0, point.1);
   pointer_click(&mut runtime, point.0, point.1);
   pointer_click(&mut runtime, point.0, point.1);
@@ -406,6 +415,9 @@ fn transformed_parent_selectable_text_click_uses_visual_line() {
   let local_y = text_rect.y + line_height * 0.5;
   let point = transform_point_around_rect(local_x, local_y, parent_rect, transform);
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, point.0, point.1);
   pointer_click(&mut runtime, point.0, point.1);
   pointer_click(&mut runtime, point.0, point.1);
