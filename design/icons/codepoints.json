@@ -183,5 +183,9 @@
   "shuffle": "E0B5",
   "volume-low": "E0B6",
   "volume-off": "E0B7",
-  "marquee": "E0B8"
+  "marquee": "E0B8",
+  "panel-bottom": "E0B9",
+  "panel-top-open": "E0BA",
+  "route": "E0BB",
+  "table-of-contents": "E0BC"
 }
