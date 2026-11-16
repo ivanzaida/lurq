@@ -286,7 +286,7 @@ fn a_theme_restyles_it_or_gives_it_another_anatomy() {
   let app = App::new();
   app.theme().patch_recipe::<BackToTop>(|rules| {
     rules
-      .base(BackToTopPart::Root, |s| {
+      .base(BackToTopPart::Button, |s| {
         s.square(48.0).background(PaletteColor::Primary)
       })
       .base(BackToTopPart::Icon, |s| s.square(20.0))
@@ -323,4 +323,81 @@ fn a_theme_restyles_it_or_gives_it_another_anatomy() {
   stage.click("top");
   stage.pass();
   assert_eq!(scroll.scroll_y(), 0.0);
+}
+
+/// Whether the button goes at once or fades out, as the frames after the content came back above the threshold
+/// show: still drawn a frame after it was taken out, and gone once its fade has run.
+fn fades_out(stage: &mut Stage, scroll: &ScrollState, drawn: impl Fn(&mut Stage) -> bool) {
+  scroll.set_scroll(0.0, 900.0);
+  stage.pass();
+  assert!(drawn(stage), "shown past the threshold");
+  scroll.set_scroll(0.0, 0.0);
+  // The frame that lays the content out at its top, the frame that takes the button out, and one a sixtieth of a
+  // second into its fade.
+  stage.frame();
+  stage.frame();
+  stage.frame();
+  assert!(drawn(stage), "it is still drawn while it fades out");
+  stage.pass();
+  stage.pass();
+  assert!(!drawn(stage), "and gone once it has faded");
+}
+
+#[test]
+fn it_fades_out_as_it_goes_whoever_draws_it() {
+  // The default one: the button in the root that fades.
+  let scroll = ScrollState::new();
+  let mut stage = mounted(App::new(), &scroll, BackToTop::new);
+  fades_out(&mut stage, &scroll, |stage| stage.paints(&glyph(icons::ARROW_UP)));
+
+  // A theme's renderer whose root is not the button, and one that draws no button at all: the fade is the
+  // component's, in the root it puts what they return in.
+  let app = App::new();
+  let renderer: BackToTopRenderer = Arc::new(|view: BackToTopView| {
+    Column::new()
+      .overflow_visible()
+      .child(lurq::components::Text::new("To the top"))
+      .child(view.button().build(view.theme()))
+      .into()
+  });
+  app.theme().set_renderer::<BackToTop>(renderer);
+  let scroll = ScrollState::new();
+  let mut stage = mounted(app, &scroll, BackToTop::new);
+  fades_out(&mut stage, &scroll, |stage| stage.paints("To the top"));
+
+  let app = App::new();
+  let renderer: BackToTopRenderer = Arc::new(|_: BackToTopView| lurq::components::Text::new("Scrolled").into());
+  app.theme().set_renderer::<BackToTop>(renderer);
+  let scroll = ScrollState::new();
+  let mut stage = mounted(app, &scroll, BackToTop::new);
+  fades_out(&mut stage, &scroll, |stage| stage.paints("Scrolled"));
+}
+
+#[test]
+fn a_rule_of_the_root_changes_how_it_comes_and_goes() {
+  use lurq::{
+    app::theme::MotionEasing,
+    ui::{FADE_OUT, PartAnimation, TransitionDuration, TransitionEasing},
+  };
+  // With a fade of a millisecond the button is gone by the frame after the one that takes it out.
+  let app = App::new();
+  app.theme().patch_recipe::<BackToTop>(|rules| {
+    rules.base(BackToTopPart::Root, |s| {
+      s.exit(PartAnimation {
+        keyframes: FADE_OUT,
+        duration: TransitionDuration::Set(std::time::Duration::from_millis(1)),
+        easing: TransitionEasing::Role(MotionEasing::Exit),
+      })
+    })
+  });
+  let scroll = ScrollState::new();
+  let mut stage = mounted(app, &scroll, BackToTop::new);
+  scroll.set_scroll(0.0, 900.0);
+  stage.pass();
+  assert!(there(&mut stage));
+  scroll.set_scroll(0.0, 0.0);
+  stage.frame();
+  stage.frame();
+  stage.frame();
+  assert!(!there(&mut stage), "no fade: the theme's rule for the root");
 }

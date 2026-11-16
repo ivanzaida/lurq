@@ -3551,9 +3551,9 @@ Stack::new()
 - A press takes the content to its top with `ctx.scroll_to_top_of(&scroll)` (see [layout](../layout/#scroll)): over the frames that follow, as a wheel's scroll goes, and at once while motion is reduced or the theme's smooth scroll is off. A notch of the wheel that comes meanwhile adds to where the content is going, as with any wheel's scroll.
 - Where it floats is the app's to say, as a [fab](#fab)'s is: it is an element, put in a corner of a `Stack` over the scroll, in something that gives its shadow room or does not clip (`.overflow_visible()`). While it is gone it takes no room.
 - It is a [button](#button) to tooling, called "Back to top" or by its label, and a stop of Tab while it shows. Once the content is at its top the button is gone and the keyboard's focus with it: the next Tab goes on from where it stood.
-- Parts: `BackToTopPart::Root` and `Icon`, each laid over the theme's recipe for the same part of an outlined, round button that is an icon alone; the root's `enter` and `exit` are how it comes and goes. State: `BackToTopState::Disabled`.
+- Parts: `BackToTopPart::Root` (what holds the button, whoever draws it: its `enter` and `exit` are how it comes and goes), `Button` and `Icon`, the last two laid over the theme's recipe for the root and the icon of an outlined, round button that is an icon alone. State: `BackToTopState::Disabled`.
 - In the design it is a circle of 40 on `Background` in an edge of 1 in `Border`, with the medium shadow and an arrow of 16 in `Foreground`. Under the pointer, pressed and focused it is the outlined button it is made of.
-- A renderer that draws another has `view.button()`, the button with its press attached, to build or to put in what it likes; when it shows stays the component's. It fades out only where the renderer's root is that button.
+- A renderer that draws another has `view.button()`, the button with its press attached, to build or to put in what it likes. When it shows, and how it comes and goes, stay the component's: what a renderer returns is put in the root, which fades, so a renderer of any root fades out as the default one does.
 
 ## Command Palette
 

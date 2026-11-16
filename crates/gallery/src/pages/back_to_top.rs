@@ -132,11 +132,20 @@ impl BackToTopPage {
 
     let tree = vec![
       format!(
-        "host      shows past {} of scroll, fades in and out",
-        THRESHOLDS[threshold].0
+        "scene        {}   the list that scrolls, the button over its corner",
+        self.playground.measured()
       ),
-      format!("└─ root   {}   button {label:?}", self.playground.measured()),
-      "   └─ icon   arrow up, 16".to_owned(),
+      format!(
+        "host         {}",
+        if forced {
+          "shown wherever the list is scrolled to".to_owned()
+        } else {
+          format!("shows past {} of scroll", THRESHOLDS[threshold].0)
+        }
+      ),
+      "└─ root      fades in and out".to_owned(),
+      format!("   └─ button 40 × 40 px   button {label:?}"),
+      "      └─ icon arrow up, 16".to_owned(),
     ];
     let set_threshold = self.threshold.clone();
     let choices: Vec<(&str, usize)> = THRESHOLDS
@@ -177,8 +186,10 @@ impl BackToTopPage {
         .window_shows(move |ctx| reader(&scroll, make().mount(ctx)).into());
     }
     let shown = {
-      let (make, scroll, playground) = (make.clone(), scroll.clone(), &self.playground);
-      Shown::built(move |ctx| reader(&scroll, playground.measure(make().mount(ctx))).into()).measured()
+      let (make, scroll) = (make.clone(), scroll.clone());
+      // The size under the stage is the scene's: the button is gone while the list is at its top, and what is
+      // gone has no size to say.
+      Shown::built(move |ctx| reader(&scroll, make().mount(ctx)).into())
     };
     self.playground.card(
       ctx,
@@ -191,7 +202,14 @@ impl BackToTopPage {
         shown,
         fill: false,
         forceable: false,
-        facts: "scroll the list".to_owned(),
+        facts: if forced {
+          "the list, the button shown".to_owned()
+        } else {
+          format!(
+            "the list: scroll it past {} for the button, 40 × 40",
+            THRESHOLDS[threshold].0
+          )
+        },
         event: "on_click",
         code,
         tree,
@@ -292,7 +310,8 @@ impl Component for BackToTopPage {
         "style, rules, state, force",
         "",
         "",
-        "Over the theme's recipe: BackToTopPart::Root and Icon, each laid over the same part of a button.",
+        "Over the theme's recipe: BackToTopPart::Root (what fades in and out), Button and Icon, the last two laid \
+         over a button's root and icon.",
       ),
     ];
     let playground = self.play(ctx);

@@ -34,18 +34,21 @@ use crate::{
 /// [`BackToTop::threshold`] says another distance.
 pub const BACK_TO_TOP_THRESHOLD: f32 = 300.0;
 
-/// The parts of a back to top button a recipe styles. Each is laid over the
-/// theme's recipe for the same part of a button.
+/// The parts of a back to top button a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackToTopPart {
-  /// The button itself: its side, its edge, its shadow, and how it comes and goes.
+  /// What holds the button, whoever draws it: how it comes as it shows and goes as it is taken out. It clips
+  /// nothing of the button's shadow.
   Root,
-  /// Its arrow.
+  /// The button itself, laid over the theme's recipe for a button's root: its side, its edge, its shadow.
+  Button,
+  /// Its arrow, laid over the theme's recipe for a button's icon.
   Icon,
 }
 
 names!(BackToTopPart {
   Root => "root",
+  Button => "button",
   Icon => "icon",
 });
 
@@ -62,7 +65,8 @@ names!(BackToTopState {
 });
 
 /// What builds a back to top button's nodes: a theme's in place of the
-/// default one. When it shows, and what a press does, stay the button's.
+/// default one. When it shows, how it comes and goes, and what a press does
+/// stay the button's: what a renderer returns is put in the root, which fades.
 pub type BackToTopRenderer = Arc<dyn Fn(BackToTopView) -> Element + Send + Sync>;
 
 /// What the button is called to tooling when the app gives it no name.
@@ -249,12 +253,19 @@ impl BackToTop {
     }
   }
 
-  /// Builds what `view` shows: the theme's renderer, or the default one.
-  fn render_view(view: BackToTopView) -> Element {
-    match view.theme().renderer::<BackToTop>() {
+  /// Builds what `view` shows: the theme's renderer's, or the default one's, in the root that fades in as it
+  /// shows and out as it is taken from what holds it. The root has a key, the app's or one of its own, so that
+  /// what holds it keeps it while it goes; a renderer has no part in that.
+  fn render_view(mut view: BackToTopView) -> Element {
+    let root = Row::new()
+      .key(view.key.take().unwrap_or_else(|| Arc::from("back-to-top")))
+      .part(&view.part(BackToTopPart::Root))
+      .overflow_visible();
+    let drawn = match view.theme().renderer::<BackToTop>() {
       Some(renderer) => renderer(view),
       None => view.render(),
-    }
+    };
+    root.child(drawn).into()
   }
 
   /// Builds the button's still form in `theme`: always shown, its press takes the content to its top at once.
@@ -304,7 +315,7 @@ impl BackToTopView {
   pub fn button(&self) -> Button {
     let rules = self
       .recipe
-      .rules_for(BackToTopPart::Root, ButtonPart::Root)
+      .rules_for(BackToTopPart::Button, ButtonPart::Root)
       .extend(&self.recipe.rules_for(BackToTopPart::Icon, ButtonPart::Icon));
     let mut button = Button::new(&self.label)
       .variant(ButtonVariant::Outline)
@@ -327,13 +338,10 @@ impl BackToTopView {
     if let Some(id) = &self.id {
       button = button.id(id.clone());
     }
-    if let Some(key) = &self.key {
-      button = button.key(key.clone());
-    }
     button
   }
 
-  /// How the default renderer builds a back to top button: the button.
+  /// How the default renderer builds a back to top button: the button. The component puts it in the root.
   pub fn render(self) -> Element {
     self.button().build(self.theme())
   }
@@ -346,17 +354,19 @@ impl Themed for BackToTop {
   /// The design's back to top button (`pencil/lurq-design-system.pen`, Back
   /// To Top): a circle of 40 on `Background` in an edge of 1 in `Border`,
   /// with the medium shadow and an arrow of 16 in `Foreground`. Under the
-  /// pointer, pressed and focused it is the outlined button it is made of. It
-  /// fades in as it shows and out as it goes.
+  /// pointer, pressed and focused it is the outlined button it is made of.
+  /// Its root fades in as it shows and out as it goes.
   fn recipe() -> Recipe {
-    use BackToTopPart::{Icon, Root};
+    use BackToTopPart::{Button, Icon, Root};
     Recipe::new()
       .base(Root, |s| {
+        s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+          .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))
+      })
+      .base(Button, |s| {
         s.square(40.0)
           .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
           .shadow(ShadowStyle::Md)
-          .enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
-          .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))
       })
       .base(Icon, |s| s.square(IconSize::Md))
   }
@@ -425,21 +435,16 @@ impl Component for BackToTopHost {
     // Where the content is when this is first built: the button of a page opened scrolled shows at once.
     let past = self.past.get() || button.scroll.scroll_y() > button.threshold;
     let shown = button.force_shown.unwrap_or(past);
-    // The root keeps the button while it fades out, and clips nothing of its shadow.
-    let root = Row::new().presence().overflow_visible();
+    // What holds the button keeps its root while it fades out, and clips nothing of its shadow.
+    let holder = Row::new().presence().overflow_visible();
     if !shown {
-      return root;
+      return holder;
     }
     let go = {
       let asked = self.asked.clone();
       Arc::new(move || asked.update(|asked| *asked = asked.wrapping_add(1)))
     };
-    let mut view = button.view(&current_theme(), go);
-    // Keyed, so that the root knows it for the same button from one render to the next, and keeps it as it goes.
-    if view.key.is_none() {
-      view.key = Some(Arc::from("back-to-top"));
-    }
-    root.child(BackToTop::render_view(view))
+    holder.child(BackToTop::render_view(button.view(&current_theme(), go)))
   }
 
   fn after_layout(&self) {
