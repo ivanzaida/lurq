@@ -10,9 +10,9 @@ use lurq::{
     ctx::Ctx,
     theme::{PaletteColor, RadiusSize},
   },
-  components::{Column, Image, Row},
+  components::{Column, Row},
   core::Signal,
-  images::{ImageData, ImageKey},
+  images::ImageData,
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
   ui::{Avatar, AvatarGroup, AvatarGroupPart, AvatarPresence, AvatarShape, AvatarSize, icons},
@@ -118,8 +118,8 @@ fn portrait(top: [f32; 3], bottom: [f32; 3]) -> ImageData {
 const BROKEN: &[u8] = b"not a picture";
 
 /// The broken picture, under a key of its own: the decoder's cache keeps that it failed.
-fn broken() -> Image {
-  Image::from_bytes(BROKEN).cache_key(ImageKey::new(0x6A11_E4E7))
+fn broken() -> lurq::ui::Picture {
+  lurq::ui::Picture::from_bytes(BROKEN).cache_key(0x6A11_E4E7)
 }
 
 pub struct AvatarPage {
@@ -148,8 +148,8 @@ impl AvatarPage {
         let avatar = Avatar::new(&name).size(size).shape(shape).presence(presence);
         match picture {
           Picture::None => avatar,
-          Picture::Portrait => avatar.image(Image::new(portrait.clone())),
-          Picture::Broken => avatar.image(broken()),
+          Picture::Portrait => avatar.picture(portrait.clone()),
+          Picture::Broken => avatar.picture(broken()),
         }
       }
     };
@@ -178,8 +178,8 @@ impl AvatarPage {
     let mut code = vec![format!("Avatar::new({name:?})")];
     match picture {
       Picture::None => {}
-      Picture::Portrait => code.push("    .image(Image::from_file(\"ivan.png\"))".to_owned()),
-      Picture::Broken => code.push("    .image(Image::from_bytes(broken_bytes))".to_owned()),
+      Picture::Portrait => code.push("    .picture(Picture::from_file(\"ivan.png\"))".to_owned()),
+      Picture::Broken => code.push("    .picture(Picture::from_bytes(broken_bytes))".to_owned()),
     }
     if size != AvatarSize::Md {
       code.push(format!("    .size(AvatarSize::{size:?})"));
@@ -263,8 +263,8 @@ impl AvatarPage {
         controls: vec![
           prop("name", "&str", field(&self.name)),
           prop(
-            "image",
-            "Image",
+            "picture",
+            "Picture",
             self
               .playground
               .select(0, &PICTURES, &picture, move |which| pick_picture.set(which)),
@@ -371,26 +371,26 @@ impl Component for AvatarPage {
       .child(item(Avatar::new(""), "no name: a person"));
     let [blue, orange, green] = self.portraits.clone();
     let pictures = items()
-      .child(item(Avatar::new("Ivan Zaida").image(Image::new(blue.clone())), "round"))
+      .id("avatar-pictures")
+      .child(item(Avatar::new("Ivan Zaida").picture(blue.clone()), "round"))
       .child(item(
-        Avatar::new("Anna K.")
-          .image(Image::new(orange.clone()))
-          .size(AvatarSize::Xl),
+        Avatar::new("Anna K.").picture(orange.clone()).size(AvatarSize::Xl),
         "56",
       ))
       .child(item(
         Avatar::new("Lurq Team")
-          .image(Image::new(green.clone()))
+          .picture(green.clone())
           .shape(AvatarShape::Square)
           .size(AvatarSize::Lg),
         "square",
       ))
-      .child(item(Avatar::new("Mark R.").image(broken()), "fails: the initials stay"));
+      .child(item(
+        Avatar::new("Mark R.").picture(broken()),
+        "fails: the initials stay",
+      ));
     let presences = PRESENCES[1..].iter().fold(items(), |row, (label, presence)| {
       row.child(item(
-        Avatar::new("Ivan Zaida")
-          .image(Image::new(blue.clone()))
-          .presence(*presence),
+        Avatar::new("Ivan Zaida").picture(blue.clone()).presence(*presence),
         &label.to_lowercase(),
       ))
     });
@@ -404,9 +404,9 @@ impl Component for AvatarPage {
       ))
       .child(item(
         AvatarGroup::new([
-          Avatar::new("Ivan Zaida").image(Image::new(blue.clone())),
-          Avatar::new("Anna K.").image(Image::new(orange.clone())),
-          Avatar::new("Ivy Chen").image(Image::new(green.clone())),
+          Avatar::new("Ivan Zaida").picture(blue.clone()),
+          Avatar::new("Anna K.").picture(orange.clone()),
+          Avatar::new("Ivy Chen").picture(green.clone()),
           Avatar::new("Mark R."),
         ])
         .size(AvatarSize::Lg)
@@ -452,11 +452,11 @@ impl Component for AvatarPage {
          calls the avatar. A name with no letters shows the icon of a person.",
       ),
       (
-        "image",
-        "Image",
+        "picture",
+        "impl Into<Picture>",
         "",
-        "A picture in place of the initials, filling the face and clipped to its shape. While it decodes and \
-         when it fails, the initials or the icon show.",
+        "A picture in place of the initials, filling the face and clipped to its shape. While it is on its way and \
+         when it does not come, the initials or the icon show.",
       ),
       (
         "icon",
@@ -537,18 +537,18 @@ impl Component for AvatarPage {
           self.frame.demo(
             1,
             pictures,
-            ".image(Image::from_file(path))",
+            ".picture(Picture::from_file(path))",
             &[
-              "Avatar::new(\"Ivan Zaida\").image(Image::from_file(\"ivan.png\"))",
+              "Avatar::new(\"Ivan Zaida\").picture(Picture::from_file(\"ivan.png\"))",
               "Avatar::new(\"Anna K.\")",
-              "    .image(Image::from_file(\"anna.png\").downscale_to(112, 112))",
+              "    .picture(Picture::from_file(\"anna.png\").downscale_to(112, 112))",
               "    .size(AvatarSize::Xl)",
               "Avatar::new(\"Lurq Team\")",
-              "    .image(Image::new(pixels))",
+              "    .picture(pixels)",
               "    .shape(AvatarShape::Square)",
               "    .size(AvatarSize::Lg)",
               "// Bytes that are no picture: the decode fails, and the initials stay.",
-              "Avatar::new(\"Mark R.\").image(Image::from_bytes(broken_bytes))",
+              "Avatar::new(\"Mark R.\").picture(Picture::from_bytes(broken_bytes))",
             ],
           ),
         ),
@@ -561,10 +561,10 @@ impl Component for AvatarPage {
             presences,
             ".presence(AvatarPresence::Online)",
             &[
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Online)",
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Away)",
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Busy)",
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Offline)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Online)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Away)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Busy)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Offline)",
             ],
           ),
         ),
@@ -581,9 +581,9 @@ impl Component for AvatarPage {
               "AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label(\"Reviewers\")",
               "",
               "AvatarGroup::new([",
-              "    Avatar::new(\"Ivan Zaida\").image(ivan),",
-              "    Avatar::new(\"Anna K.\").image(anna),",
-              "    Avatar::new(\"Ivy Chen\").image(ivy),",
+              "    Avatar::new(\"Ivan Zaida\").picture(ivan),",
+              "    Avatar::new(\"Anna K.\").picture(anna),",
+              "    Avatar::new(\"Ivy Chen\").picture(ivy),",
               "    Avatar::new(\"Mark R.\"),",
               "])",
               ".size(AvatarSize::Lg)",

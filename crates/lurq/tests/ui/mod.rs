@@ -62,6 +62,7 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod list_item;
@@ -81,6 +82,7 @@ mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;

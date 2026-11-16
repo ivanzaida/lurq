@@ -942,6 +942,9 @@ pub struct Ctx {
   click_outside_cursor: usize,
   click_outside_active_cursors: Vec<usize>,
   rendering: bool,
+  /// A mount gives a node that stands for an unchanged component in place of a copy of its output: set while a
+  /// declared component is mounted ([`Self::mount_holding`]).
+  holding: bool,
 }
 
 #[derive(Clone)]
@@ -1444,7 +1447,10 @@ struct ComponentWrapper<C: Component> {
 
 impl<C: Component> AnyComponent for ComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx).into()
+    let mut element: Element = self.component.render(ctx).into();
+    // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
+    element.node.mount_declared_components(ctx);
+    element
   }
 
   fn after_layout(&self) {
@@ -1535,6 +1541,7 @@ impl Ctx {
       click_outside_cursor: 0,
       click_outside_active_cursors: Vec::new(),
       rendering: false,
+      holding: false,
     }
   }
 
@@ -2738,6 +2745,22 @@ impl Ctx {
     self.mount_inner::<C>(Some(key), props, Some(slot_children), true)
   }
 
+  /// Runs `mount` with unchanged components held back: where the component it mounts is unchanged, the
+  /// element is a node that stands for it (`Node::held_component`), for the tree to put the component's live
+  /// nodes in. For a mount whose element nothing touches before the tree has it.
+  pub(crate) fn mount_holding(&mut self, mount: impl FnOnce(&mut Ctx) -> Element) -> Element {
+    let was = std::mem::replace(&mut self.holding, true);
+    let element = mount(self);
+    self.holding = was;
+    element
+  }
+
+  /// A copy of the last output of the component in slot `slot`, anywhere below this one, put together from
+  /// its slot and those of the components in it.
+  pub(crate) fn cached_output_of(&self, slot: u64) -> Option<Box<Node>> {
+    self.descendant_slot(slot)?.assembled_output()
+  }
+
   fn mount_inner<C: Component>(
     &mut self,
     key: Option<&str>,
@@ -2745,6 +2768,7 @@ impl Ctx {
     slot_children: Option<Vec<Element>>,
     active: bool,
   ) -> Element {
+    let holding = self.holding;
     let cursor = self.child_cursor;
     self.child_cursor += 1;
 
@@ -2854,6 +2878,9 @@ impl Ctx {
         }
         slot.keep_rendered(&element.node);
         return element;
+      }
+      if holding {
+        return Element::from_node(Node::held_component(slot.id, slot.key.as_deref()));
       }
       let output = slot
         .assembled_output()

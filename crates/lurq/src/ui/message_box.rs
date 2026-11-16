@@ -819,7 +819,7 @@ pub(crate) fn enter(event: &KeyboardEvent) -> bool {
 }
 
 /// `element` with the first node in it that takes the focus marked to take it as its dialog opens.
-pub(crate) fn autofocus(mut element: Element) -> Element {
+pub(crate) fn autofocus(element: Element) -> Element {
   fn mark(node: &mut Node) -> bool {
     if node.is_focusable() {
       NodeUpdate::autofocus(node, true);
@@ -827,8 +827,12 @@ pub(crate) fn autofocus(mut element: Element) -> Element {
     }
     node.children.iter_mut().any(mark)
   }
-  mark(&mut element.node);
-  element
+  // A decoration, so that an element that is a component is searched where it has its nodes: on the root it
+  // renders, whenever it renders.
+  element.decorate_root(|mut node| {
+    mark(&mut node);
+    node
+  })
 }
 
 /// The parts of a component that draw what opens a detail and the detail.

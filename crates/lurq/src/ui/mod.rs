@@ -76,6 +76,7 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod link;
@@ -99,6 +100,7 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -312,6 +314,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
@@ -368,6 +371,11 @@ pub use part_style::{
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
+};
+pub use picture::{
+  PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
+  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
+  PictureState, PictureView,
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};

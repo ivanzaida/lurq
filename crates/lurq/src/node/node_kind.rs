@@ -119,6 +119,9 @@ pub(crate) struct LoadingImage {
   pub(crate) source: crate::images::ImageSource,
   pub(crate) fit: crate::node::BackgroundSize,
   pub(crate) error_view: Option<crate::node::node_kind::ErrorViewCallback>,
+  /// What builds the placeholder again, for an image asked for anew after it failed: the node's children were
+  /// the error view meanwhile.
+  pub(crate) placeholder_view: Option<crate::node::node_kind::PlaceholderViewCallback>,
   /// The error view was built: the decode failed and the children show it.
   pub(crate) failed: bool,
 }
@@ -136,6 +139,7 @@ impl Clone for LoadingImage {
       source: self.source.clone(),
       fit: self.fit,
       error_view: self.error_view.clone(),
+      placeholder_view: self.placeholder_view.clone(),
       failed: self.failed,
     }
   }
@@ -144,6 +148,10 @@ impl Clone for LoadingImage {
 /// Builds what an image node shows once its decode failed.
 #[cfg(feature = "image")]
 pub(crate) type ErrorViewCallback = Arc<dyn Fn(&crate::images::ImageDecodeError) -> crate::node::Element + Send + Sync>;
+
+/// Builds what an image node shows while its decode runs.
+#[cfg(feature = "image")]
+pub(crate) type PlaceholderViewCallback = Arc<dyn Fn() -> crate::node::Element + Send + Sync>;
 
 #[derive(Clone)]
 pub(crate) enum NodeKind {
@@ -213,12 +221,14 @@ pub(crate) enum NodeKind {
   #[cfg(feature = "image")]
   ResourceImage {
     path: Arc<str>,
+    /// How the pixels fill the node's box once they are loaded.
+    fit: crate::node::BackgroundSize,
   },
   #[cfg(feature = "svg")]
   Svg {
     data: crate::svg::SvgData,
   },
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   ResourceSvg {
     path: Arc<str>,
   },
@@ -243,7 +253,7 @@ impl NodeKind {
       Self::LoadingImage { .. } | Self::ResourceImage { .. } => false,
       #[cfg(feature = "svg")]
       Self::Svg { .. } => false,
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       Self::ResourceSvg { .. } => false,
     }
   }

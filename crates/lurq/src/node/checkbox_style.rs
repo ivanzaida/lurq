@@ -1,4 +1,4 @@
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 use std::sync::Arc;
 
 #[cfg(feature = "raster")]
@@ -22,7 +22,7 @@ pub struct CheckboxStyle {
   pub(crate) indicator_height: Option<f32>,
   #[cfg(feature = "raster")]
   pub(crate) indicator_image: Option<crate::images::ImageData>,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) indicator_resource_image: Option<Arc<str>>,
   #[cfg(feature = "raster")]
   pub(crate) indicator_size: BackgroundSize,
@@ -119,7 +119,7 @@ impl CheckboxStyle {
       crate::images::ImageKind::Native(data) => {
         self.indicator_image = Some(data.image_data());
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
         self.indicator_resource_image = Some(path);
       }
@@ -170,7 +170,7 @@ impl CheckboxStyle {
       if other.indicator_image.is_some() {
         self.indicator_image = other.indicator_image.clone();
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       if other.indicator_resource_image.is_some() {
         self.indicator_resource_image = other.indicator_resource_image.clone();
       }

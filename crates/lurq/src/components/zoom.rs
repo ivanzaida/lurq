@@ -16,7 +16,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{GesturePhase, MouseEvent, PinchEvent},
+    events::{DragEvent, GesturePhase, MouseEvent, PinchEvent, ScrollEvent},
   },
   components::{ScrollBoth, Stack},
   core::{ElementRef, Signal},
@@ -33,6 +33,8 @@ pub struct ZoomScrollProps {
   min: f32,
   max: f32,
   double_tap: Option<f32>,
+  wheel: Option<f32>,
+  drag: bool,
   zoom: Option<Signal<f32>>,
   scroll: Option<ScrollState>,
 }
@@ -58,6 +60,8 @@ impl ZoomScrollProps {
       min: 1.0,
       max: 4.0,
       double_tap: Some(2.0),
+      wheel: None,
+      drag: false,
       zoom: None,
       scroll: None,
     }
@@ -78,7 +82,23 @@ impl ZoomScrollProps {
     self
   }
 
-  /// The scale the content is shown at, to read and to set.
+  /// The wheel brings the content closer and further about the pointer, by `step` at a notch (1.5: half as
+  /// large again), in place of scrolling it: how a photo or a map is looked at with a mouse. Without it the
+  /// wheel scrolls the content, as in any list.
+  pub fn wheel_zoom(mut self, step: f32) -> Self {
+    self.wheel = Some(step.max(1.0 + f32::EPSILON));
+    self
+  }
+
+  /// A press held and moved carries the content with it, as a finger does: for a mouse, which scrolls no
+  /// list by dragging it.
+  pub fn drag_pan(mut self, drag: bool) -> Self {
+    self.drag = drag;
+    self
+  }
+
+  /// The scale the content is shown at, to read and to set. A scale set from outside (a button, a key) keeps
+  /// the middle of the view where it is.
   pub fn zoom(mut self, zoom: Signal<f32>) -> Self {
     self.zoom = Some(zoom);
     self
@@ -120,6 +140,10 @@ pub struct ZoomScroll {
   /// The viewport's size the content was last placed for.
   viewport: Signal<(f32, f32)>,
   held: Arc<Mutex<Option<Held>>>,
+  /// The scale the content was last placed at.
+  placed: Arc<Mutex<Option<f32>>>,
+  /// The scale was just set by a gesture here, which has placed the content for it.
+  moved: Arc<Mutex<bool>>,
 }
 
 impl ZoomScroll {
@@ -139,6 +163,8 @@ impl Component for ZoomScroll {
       view: ElementRef::default(),
       viewport: Signal::new((0.0, 0.0)),
       held: Arc::default(),
+      placed: Arc::default(),
+      moved: Arc::default(),
     }
   }
 
@@ -151,6 +177,31 @@ impl Component for ZoomScroll {
     let zoom = zoom_signal.get().clamp(min, max);
     let viewport = self.viewport.get();
     let (shown, margin) = placed(size, zoom, viewport);
+
+    // A scale set from outside, by a button or a key, keeps the middle of the view where it is. One a gesture
+    // here set has placed the content already, about where the gesture was.
+    {
+      let mut last = self.placed.lock();
+      let by_gesture = std::mem::take(&mut *self.moved.lock());
+      if let Some(was) = *last
+        && (was - zoom).abs() > f32::EPSILON
+        && !by_gesture
+        && viewport.0 > 0.0
+        && viewport.1 > 0.0
+      {
+        let (_, was_margin) = placed(size, was, viewport);
+        let middle = (viewport.0 / 2.0, viewport.1 / 2.0);
+        let point = (
+          (middle.0 + scroll.scroll_x() - was_margin.0) / was,
+          (middle.1 + scroll.scroll_y() - was_margin.1) / was,
+        );
+        scroll.set_scroll_pending(
+          point.0 * zoom + margin.0 - middle.0,
+          point.1 * zoom + margin.1 - middle.1,
+        );
+      }
+      *last = Some(zoom);
+    }
 
     // A node is scaled about its middle: moved by half of what it grew, its corner stays where it is laid
     // out, and from there it is moved into the middle of a viewport larger than it.
@@ -173,10 +224,12 @@ impl Component for ZoomScroll {
     // Brings the content to a scale with one of its points at a place in the viewport.
     let go = {
       let (zoom_signal, scroll, view) = (zoom_signal.clone(), scroll.clone(), self.view.clone());
+      let moved = self.moved.clone();
       move |zoom: f32, point: (f32, f32), at: (f32, f32)| {
         let zoom = zoom.clamp(min, max);
         let (_, margin) = placed(size, zoom, (view.width(), view.height()));
         if zoom_signal.get_untracked() != zoom {
+          *moved.lock() = true;
           zoom_signal.set(zoom);
         }
         // The list lays the content out at its new size before it takes the offset.
@@ -227,6 +280,24 @@ impl Component for ZoomScroll {
           }
         }
       });
+    if let Some(step) = props.wheel {
+      let (go, point_at) = (go.clone(), point_at.clone());
+      list = list.on_wheel(move |event: ScrollEvent| {
+        if event.delta_y == 0.0 {
+          return;
+        }
+        // The wheel is the content's here, not the list's: nothing is scrolled by it.
+        event.prevent_default();
+        event.stop_propagation();
+        let (zoom, point, at) = point_at(event.x, event.y);
+        // Away from the hand brings it closer, about the point under the pointer, which stays there.
+        go(if event.delta_y < 0.0 { zoom * step } else { zoom / step }, point, at);
+      });
+    }
+    if props.drag {
+      let scroll = scroll.clone();
+      list = list.on_drag_move(move |event: DragEvent| scroll.scroll_by(-event.delta_x, -event.delta_y));
+    }
     if let Some(double_tap) = props.double_tap {
       list = list.on_dblclick(move |event: MouseEvent| {
         if event.from_keyboard {
