@@ -20,7 +20,7 @@ use crate::{
   components::{Column, Row, Stack, TextOverflow},
   core::{ElementRef, ElementRefMut},
   layout::{Alignment, StackAlignment, text_style::FontWeight},
-  node::{Element, dimension::Dimension},
+  node::{Element, HitTestBehavior, dimension::Dimension},
 };
 
 /// What a field tells the control it holds.
@@ -597,18 +597,19 @@ impl FieldView {
   }
 
   /// The label of a fluid field, laid over the top of the control's box: on one line, cut with an ellipsis where
-  /// the box is narrower than it, with the field's mark after it. The pointer passes through it to the control,
-  /// which a press there focuses.
+  /// the box is narrower than it, with the field's mark after it and the mark that explains it ([`Field::info`]).
+  /// The pointer passes through the label and the field's mark to the control, which a press there focuses; the
+  /// mark that explains it takes the pointer, for its tooltip.
   pub fn fluid_label(&self) -> Row {
     let part = self.part(FieldPart::Label);
     let mut label = Row::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
-      .pointer_events_none()
+      .hit_test(HitTestBehavior::ContentOnly)
       .part(&part)
-      // On one line, which gives way first and is cut with an ellipsis: the mark keeps its room.
+      // On one line, which gives way first and is cut with an ellipsis: the marks keep their room.
       .child(
-        Row::new().flex_shrink(1.0).min_width(0.0).child(
+        Row::new().flex_shrink(1.0).min_width(0.0).pointer_events_none().child(
           part
             .text(&self.label)
             .nowrap()
@@ -616,9 +617,20 @@ impl FieldView {
         ),
       );
     if self.required {
-      label = label.child(self.text(FieldPart::Required, "*"));
+      label = label.child(self.text(FieldPart::Required, "*").pointer_events_none());
     } else if let Some(optional) = &self.optional {
-      label = label.child(self.text(FieldPart::Optional, optional));
+      label = label.child(self.text(FieldPart::Optional, optional).pointer_events_none());
+    }
+    if let Some(info) = &self.info {
+      // 6 after what is before it, as in a field's label above its control.
+      label = label.overflow_visible().child(
+        Row::new()
+          .padding_left(2.0)
+          .flex_shrink(0.0)
+          .overflow_visible()
+          .hit_test(HitTestBehavior::ContentOnly)
+          .child(info.clone()),
+      );
     }
     label
   }

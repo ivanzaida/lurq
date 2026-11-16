@@ -13,9 +13,9 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::{Element, color::Color},
   ui::{
-    ColorField, Combobox, DateField, DatePicker, DateRangePicker, Field, Input, Interaction, Mention, Mentions,
-    MentionsController, MonthPicker, MultiSelect, NumberInput, NumberInputLayout, PasswordInput, SearchField, Select,
-    Switch, Textarea, TimeField, TimePicker, Token, TokenInput, YearPicker, icons,
+    ColorField, Combobox, DateField, DatePicker, DateRangePicker, Field, FieldControl, Input, Interaction, Mention,
+    Mentions, MentionsController, MonthPicker, MultiSelect, NumberInput, NumberInputLayout, PasswordInput, SearchField,
+    Select, Switch, Textarea, TimeField, TimePicker, Token, TokenInput, YearPicker, icons,
   },
 };
 
@@ -201,6 +201,63 @@ fn an_error_is_under_the_box_and_a_required_field_has_its_mark_after_the_label()
   let (_, y, _, height) = stage.bounds("box");
   assert!(mark.y >= y && mark.y + mark.height <= y + height, "inside the box");
   assert_eq!(stage.text("*").0, light(PaletteColor::Destructive));
+}
+
+#[test]
+fn the_mark_that_explains_a_fluid_label_is_after_it_and_takes_the_pointer_for_its_tooltip() {
+  const WORDS: &str = "Shown in the title bar";
+  let name = workspace();
+  let app = App::new();
+  app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Light));
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(100.0)
+      .child(
+        Field::new(LABEL, Input::new(name.clone()).id("box"))
+          .fluid(true)
+          .required(true)
+          .info(WORDS)
+          .mount(ctx),
+      )
+      .into()
+  });
+  // Low enough on the stage for the tooltip over it.
+  let boxed = stage.bounds("box");
+  let label = rect(&stage.text_quad(LABEL).expect("the label"));
+  assert!(
+    label.1 > boxed.1 && label.1 + label.3 < boxed.1 + boxed.3,
+    "the label is in the box"
+  );
+  let star = rect(&stage.text_quad("*").expect("the mark of a required field"));
+  let mark = rect(&glyph(&stage, icons::INFO));
+  assert!(
+    (mark.0 - (star.0 + star.2) - 6.0).abs() < 0.51,
+    "6 after the field's mark: {}",
+    mark.0 - (star.0 + star.2)
+  );
+  assert!(
+    (middle(mark) - middle(label)).abs() < 1.0,
+    "on the label's line: {mark:?} by {label:?}"
+  );
+  assert!(mark.0 + mark.2 <= boxed.0 + boxed.2, "in the box");
+  // The pointer resting on the mark shows what it explains; on the label it goes through to the input.
+  assert!(!stage.paints(WORDS));
+  stage.tree.mouse_move(mark.0 + mark.2 / 2.0, middle(mark));
+  stage.pass();
+  stage
+    .tree
+    .tick_timers_at(std::time::Instant::now() + std::time::Duration::from_millis(600));
+  stage.pass();
+  assert!(stage.paints(WORDS), "the mark takes the pointer");
+  press(&mut stage, label.0 + 10.0, middle(label));
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("box"),
+    "a press of the label focuses the input"
+  );
 }
 
 #[test]
@@ -845,70 +902,32 @@ fn a_fluid_time_picker_is_as_wide_as_the_field_with_its_button_on_the_line_of_th
 }
 
 #[test]
-fn a_fluid_month_picker_is_the_box_with_the_label_over_its_heading() {
-  let mut stage = mounted(|ctx| {
-    Field::new(
-      "Billing month",
-      MonthPicker::new(Signal::new(YearMonth::new(2026, 11).unwrap()))
-        .today(YearMonth::new(2026, 3).unwrap())
-        .id("box"),
-    )
-    .fluid(true)
-    .mount(ctx)
-  });
-  // It has no field of one line: its panel is the box, as high as its heading and its grid with 29 over them and
-  // 10 under, and so more than 56.
-  let (boxed, label) = the_fluid_box(&mut stage, "Billing month");
-  assert!(
-    (boxed.3 - (29.0 + 28.0 + 8.0 + 3.0 * 34.0 + 2.0 * 8.0 + 10.0)).abs() < 0.51,
-    "the heading and three rows under the label: {}",
-    boxed.3
-  );
-  let title = rect(&stage.text_quad("2026").expect("the year in the heading"));
-  assert!(title.1 >= label.1 + label.3, "the heading is under the label");
-  let (first, last) = (stage.bounds("box-2026-01"), stage.bounds("box-2026-12"));
-  assert_eq!(first.0, boxed.0 + 12.0, "the grid starts where the label does");
-  assert!((first.1 - (boxed.1 + 29.0 + 28.0 + 8.0)).abs() < 0.51);
-  assert!(
-    (last.1 + last.3 - (boxed.1 + boxed.3 - 10.0)).abs() < 0.51,
-    "10 over the bottom"
-  );
-  assert_eq!(stage.fill_color("box-2026-11"), Some(light(PaletteColor::Primary)));
-  // An error of the field is the color of its line.
-  let mut stage = mounted(|ctx| {
-    Field::new(
-      "Billing month",
-      MonthPicker::new(Signal::new(YearMonth::new(2026, 11).unwrap())).id("box"),
-    )
-    .fluid(true)
-    .error("Closed.")
-    .mount(ctx)
-  });
-  assert_eq!(
-    sides(&mut stage, "box"),
-    ([0.0, 0.0, 1.0, 0.0], light(PaletteColor::Destructive))
-  );
-}
-
-#[test]
-fn a_fluid_year_picker_is_the_box_with_the_label_over_its_heading() {
-  let year = Signal::new(2026);
-  let bound = year.clone();
-  let mut stage = mounted(move |ctx| {
-    Field::new("Founded", YearPicker::new(bound.clone()).today(2024).id("box"))
+fn a_month_picker_and_a_year_picker_have_no_fluid_form() {
+  // A panel of a grid is not a box that holds a value: a fluid field draws it as any field, its label above it.
+  assert!(!MonthPicker::new(Signal::new(YearMonth::new(2026, 11).unwrap())).has_fluid_form());
+  assert!(!YearPicker::new(Signal::new(2026)).has_fluid_form());
+  let scenes: [(&str, fn(&mut Ctx) -> Element); 2] = [
+    ("a month picker", |ctx| {
+      Field::new(
+        "Billing month",
+        MonthPicker::new(Signal::new(YearMonth::new(2026, 11).unwrap())).id("box"),
+      )
       .fluid(true)
       .mount(ctx)
-  });
-  let (boxed, label) = the_fluid_box(&mut stage, "Founded");
-  assert!(
-    (boxed.3 - (29.0 + 28.0 + 8.0 + 3.0 * 34.0 + 2.0 * 8.0 + 10.0)).abs() < 0.51,
-    "the heading and three rows under the label: {}",
-    boxed.3
-  );
-  let title = rect(&stage.text_quad("2020 – 2031").expect("the years in the heading"));
-  assert!(title.1 >= label.1 + label.3, "the heading is under the label");
-  stage.click("box-2029");
-  assert_eq!(year.get(), 2029);
+    }),
+    ("a year picker", |ctx| {
+      Field::new("Billing month", YearPicker::new(Signal::new(2026)).id("box"))
+        .fluid(true)
+        .mount(ctx)
+    }),
+  ];
+  for (name, scene) in scenes {
+    let mut stage = mounted(scene);
+    let label = stage.text_quad("Billing month").expect("the label");
+    let (_, top, ..) = stage.bounds("box");
+    assert!(label.y + label.height <= top, "{name}: the label is above the panel");
+    assert_eq!(stage.text("Billing month").1, 13.0, "{name}: in a field label's type");
+  }
 }
 
 /// The fills of the tokens painted in `color`, left to right.
@@ -970,6 +989,44 @@ fn a_fluid_token_input_is_56_on_one_line_and_as_high_as_its_rows() {
     assert!(
       token.1 >= label.1 + label.3 && token.1 + token.3 <= boxed.1 + boxed.3,
       "a token is under the label, in the box: {token:?}"
+    );
+  }
+}
+
+#[test]
+fn a_fluid_token_input_whose_tokens_wrap_grows_and_cuts_none_of_them() {
+  let words = "rust wgpu taffy winit cosmic glyphon serde tokio rayon ";
+  let mut stage = staged(move || {
+    Field::new(
+      "Tags",
+      TokenInput::new(Signal::new(words.to_owned()))
+        .find_tokens(|text| Token::separated(text, ' '))
+        .rows(1, 8)
+        .id("box"),
+    )
+    .fluid(true)
+  });
+  let (boxed, label) = the_fluid_box(&mut stage, "Tags");
+  let fills = tokens(&stage, light(PaletteColor::Secondary));
+  assert_eq!(fills.len(), 9, "every token is painted");
+  let lines = {
+    let mut tops: Vec<f32> = fills.iter().map(|token| token.1.round()).collect();
+    tops.dedup();
+    tops.len()
+  };
+  assert!(lines >= 3, "the tokens wrap onto {lines} lines");
+  assert!(
+    boxed.3 >= 29.0 + lines as f32 * 28.0 + 10.0 - 1.5,
+    "the box grows by its lines: {} for {lines}",
+    boxed.3
+  );
+  for token in &fills {
+    assert!(
+      token.0 >= boxed.0
+        && token.0 + token.2 <= boxed.0 + boxed.2
+        && token.1 >= label.1 + label.3
+        && token.1 + token.3 <= boxed.1 + boxed.3,
+      "a token is whole in the box, under the label: {token:?} in {boxed:?}"
     );
   }
 }
@@ -1049,7 +1106,7 @@ fn a_control_the_field_mounts_is_the_box_it_is_when_it_is_converted() {
       None => field.into(),
     }
   }
-  let scenes: [(&str, fn(Option<&mut Ctx>) -> Element); 8] = [
+  let scenes: [(&str, fn(Option<&mut Ctx>) -> Element); 6] = [
     ("a password input", |ctx| {
       built(
         Field::new("It", PasswordInput::new(Signal::new(String::new())).id("box")),
@@ -1089,18 +1146,6 @@ fn a_control_the_field_mounts_is_the_box_it_is_when_it_is_converted() {
         ctx,
       )
     }),
-    ("a month picker", |ctx| {
-      built(
-        Field::new(
-          "It",
-          MonthPicker::new(Signal::new(YearMonth::new(2026, 11).unwrap())).id("box"),
-        ),
-        ctx,
-      )
-    }),
-    ("a year picker", |ctx| {
-      built(Field::new("It", YearPicker::new(Signal::new(2026)).id("box")), ctx)
-    }),
   ];
   for (name, scene) in scenes {
     let (still, kept) = boxes(scene);
@@ -1111,7 +1156,7 @@ fn a_control_the_field_mounts_is_the_box_it_is_when_it_is_converted() {
 
 #[test]
 fn every_fluid_box_fills_a_wide_field_and_is_no_wider_than_a_narrow_room() {
-  let scenes: [(&str, fn() -> Field); 15] = [
+  let scenes: [(&str, fn() -> Field); 13] = [
     ("a password input", || {
       Field::new("It", PasswordInput::new(Signal::new(String::new())).id("box"))
     }),
@@ -1150,15 +1195,6 @@ fn every_fluid_box_fills_a_wide_field_and_is_no_wider_than_a_narrow_room() {
         "It",
         TimePicker::new(Signal::new(Time::new(9, 30, 0).unwrap())).id("box"),
       )
-    }),
-    ("a month picker", || {
-      Field::new(
-        "It",
-        MonthPicker::new(Signal::new(YearMonth::new(2026, 11).unwrap())).id("box"),
-      )
-    }),
-    ("a year picker", || {
-      Field::new("It", YearPicker::new(Signal::new(2026)).id("box"))
     }),
     ("a token input", || {
       Field::new("It", TokenInput::new(Signal::new(String::new())).id("box"))

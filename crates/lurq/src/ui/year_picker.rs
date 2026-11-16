@@ -125,10 +125,6 @@ impl<V: FieldValue<i32>> FieldControl for YearPicker<V> {
     self.core.in_field(field);
     self.mount(ctx)
   }
-
-  fn has_fluid_form(&self) -> bool {
-    true
-  }
 }
 
 impl<V: FieldValue<i32>> PeriodMountable for YearPicker<V> {

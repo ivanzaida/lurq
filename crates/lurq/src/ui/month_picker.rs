@@ -11,7 +11,7 @@ use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, pressable},
-  text_box::{self, Judgment, TextBoxState},
+  text_box::{Judgment, TextBoxState},
   theme::{Themed, current_date_locale, current_theme},
 };
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
   components::{Column, Row},
   core::{DateText, Signal, YearMonth},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{BoxShadowValue, CursorIcon, Element, FocusGroup, border::Border, color::Color},
+  node::{CursorIcon, Element, FocusGroup, border::Border, color::Color},
 };
 
 /// The parts of a month picker and of a year picker a recipe styles.
@@ -73,9 +73,6 @@ pub enum MonthPickerState {
   Current,
   /// The cell cannot be chosen: out of the range.
   Unavailable,
-  /// The picker is in a fluid field ([`Field::fluid`](super::Field::fluid)): its panel is the field's box, with the
-  /// field's label inside it, over the heading.
-  Fluid,
 }
 
 names!(MonthPickerState {
@@ -83,7 +80,6 @@ names!(MonthPickerState {
   Selected => "selected",
   Current => "current",
   Unavailable => "unavailable",
-  Fluid => "fluid",
 });
 
 /// What a grid of a picker shows a page of: a month of a year, or a year.
@@ -203,8 +199,6 @@ pub(crate) struct Periods<U: Unit, V: FieldValue<U>> {
   pub locale: Option<Arc<dyn DateText>>,
   pub disabled: bool,
   pub invalid: bool,
-  /// Whether it is in a fluid field, which draws its label inside the panel.
-  pub fluid: bool,
   pub label: Option<Arc<str>>,
   pub previous_label: Option<Arc<str>>,
   pub next_label: Option<Arc<str>>,
@@ -228,7 +222,6 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
       locale: None,
       disabled: false,
       invalid: false,
-      fluid: false,
       label: None,
       previous_label: None,
       next_label: None,
@@ -243,14 +236,13 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
   }
 
   /// Takes what the field it is in says: the field's label where the picker has no name of its own, invalid where
-  /// the field is, disabled where it is, and the fluid form where the field is fluid.
+  /// the field is, and disabled where it is. A panel of a grid has no fluid form: a fluid field draws it plain.
   pub fn in_field(&mut self, field: &InField) {
     if self.label.is_none() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(Judgment::Invalid);
     self.disabled |= field.disabled;
-    self.fluid |= field.fluid;
   }
 
   /// The view of the picker in `theme`, as the themed component `C` is drawn; `now` is this month or this year.
@@ -283,8 +275,7 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
       states: self.states.clone(),
     }
     .state(MonthPickerState::Disabled, self.disabled)
-    .state(TextBoxState::Invalid, self.invalid)
-    .state(MonthPickerState::Fluid, self.fluid);
+    .state(TextBoxState::Invalid, self.invalid);
     let recipe = theme.resolve::<C>(&case, Some(&self.rules));
     let resolve: Resolve = {
       let (theme, rules) = (theme.clone(), self.rules.clone());
@@ -630,9 +621,7 @@ impl PeriodsView {
   }
 }
 
-/// The recipe of a month picker and of a year picker. In a fluid field, which the board does not draw for them, the
-/// panel is the field's box: the fluid one, as wide as the field, with no shadow, the heading 29 under its top, where
-/// the field's label stands, and the grid 10 over its line.
+/// The recipe of a month picker and of a year picker.
 pub(crate) fn periods_recipe() -> Recipe {
   use MonthPickerPart::{Cell, Grid, Header, Nav, NavIcon, Root, Row as Line, Title};
   use MonthPickerState::{Current, Disabled, Selected, Unavailable};
@@ -641,7 +630,7 @@ pub(crate) fn periods_recipe() -> Recipe {
     PopoverForeground, Primary, PrimaryForeground,
   };
   let none = Color::new(0, 0, 0, 0);
-  let recipe = Recipe::new()
+  Recipe::new()
     .base(Root, |s| {
       s.width(252.0)
         .padding_x(12.0)
@@ -702,9 +691,7 @@ pub(crate) fn periods_recipe() -> Recipe {
     .state(Disabled, Cell, |s| s.cursor(CursorIcon::Default))
     .state(TextBoxState::Invalid, Root, |s| {
       s.border(Border::inside(BorderSize::Sm, Destructive))
-    });
-  // The panel is the box, as high as its heading and its grid under the label.
-  text_box::fluid_rules(recipe, Root, Root).state(MonthPickerState::Fluid, Root, |s| s.shadow(BoxShadowValue::none()))
+    })
 }
 
 /// The builder methods a month picker and a year picker share.
@@ -935,10 +922,6 @@ impl<V: FieldValue<YearMonth>> FieldControl for MonthPicker<V> {
   fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
     self.core.in_field(field);
     self.mount(ctx)
-  }
-
-  fn has_fluid_form(&self) -> bool {
-    true
   }
 }
 

@@ -8,13 +8,13 @@ use std::sync::Arc;
 use lurq::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
-  core::{Date, DateRange, Signal, Time, YearMonth},
+  core::{Date, DateRange, Signal, Time},
   layout::Alignment,
   node::{Element, color::Color},
   ui::{
     ColorField, Combobox, DateField, DatePicker, DateRangePicker, Field, Input, InputSize, Interaction, Mention,
-    Mentions, MentionsController, MonthPicker, MultiSelect, NumberInput, Orientation, PasswordInput, SearchField,
-    Select, Switch, Textarea, TimeField, TimePicker, Token, TokenInput, YearPicker, icons,
+    Mentions, MentionsController, MultiSelect, NumberInput, Orientation, PasswordInput, SearchField, Select, Switch,
+    Textarea, TimeField, TimePicker, Token, TokenInput, icons,
   },
 };
 
@@ -94,8 +94,6 @@ pub struct InputPage {
   fluid_due: Signal<Option<Date>>,
   fluid_sprint: Signal<Option<DateRange>>,
   fluid_alarm: Signal<Time>,
-  fluid_month: Signal<YearMonth>,
-  fluid_year: Signal<i32>,
   fluid_tags: Signal<String>,
   fluid_comment: Signal<String>,
   /// What the fluid mentions field keeps: its list, and where its caret is.
@@ -300,8 +298,6 @@ impl Component for InputPage {
           .map(|(first, last)| DateRange::new(first, last)),
       ),
       fluid_alarm: ctx.signal(Time::new(7, 15, 0).expect("a time")),
-      fluid_month: ctx.signal(YearMonth::new(2026, 11).expect("a month")),
-      fluid_year: ctx.signal(2026),
       fluid_tags: ctx.signal("rust wgpu ".to_owned()),
       fluid_comment: ctx.signal("Ship it on Friday.".to_owned()),
       fluid_mentions: MentionsController::new(),
@@ -555,18 +551,6 @@ impl Component for InputPage {
       .child(item(
         Field::new("Accent", ColorField::new(self.fluid_accent.clone())).fluid(true),
         "a color field",
-      ))
-      .child(item(
-        Field::new("Billing month", MonthPicker::new(self.fluid_month.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a month picker · its panel is the box",
-      ))
-      .child(item(
-        Field::new("Founded", YearPicker::new(self.fluid_year.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a year picker",
       ));
 
     let input_rows = [
@@ -921,9 +905,8 @@ impl Component for InputPage {
           "Every text control a field holds has the form. What stands in the box beside the value (a password's eye, \
            a search's clear button, a number's buttons, a picker's button, a color's swatch) is on the line of the \
            value, under the label. A control of more than one line is as high as what it holds: a multi select by \
-           its lines of tags, a token input and a mentions field by their rows, and a month picker and a year \
-           picker, which have no field of their own, with the label over their heading. The field mounts the ones \
-           that keep something between renders.",
+           its lines of tags, a token input and a mentions field by their rows. The field mounts the ones that \
+           keep something between renders.",
           self.frame.demo(
             9,
             fluid_every,
@@ -955,10 +938,8 @@ impl Component for InputPage {
               ".fluid(true)",
               "Field::new(\"Comment\", Mentions::new(comment.clone(), &mentions).trigger('@', people)).fluid(true)",
               "",
-              "// accent: Signal<Color>; month: Signal<YearMonth>; year: Signal<i32>",
+              "// accent: Signal<Color>",
               "Field::new(\"Accent\", ColorField::new(accent.clone())).fluid(true)",
-              "Field::new(\"Billing month\", MonthPicker::new(month.clone())).fluid(true).mount(ctx)",
-              "Field::new(\"Founded\", YearPicker::new(year.clone())).fluid(true).mount(ctx)",
             ],
           ),
         ),
