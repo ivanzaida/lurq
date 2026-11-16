@@ -53,6 +53,56 @@ fn image_quad(stage: &Stage) -> Option<((f32, f32, f32, f32), [f32; 2], [f32; 2]
   })
 }
 
+#[test]
+fn a_picture_made_of_the_same_plain_things_is_not_rendered_again_with_what_holds_it() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use lurq::ui::{PictureRenderer, PictureView};
+
+  // The theme's renderer counts how often a picture is built.
+  let built = Arc::new(AtomicUsize::new(0));
+  let count = built.clone();
+  let app = lurq::app::App::new();
+  let renderer: PictureRenderer = Arc::new(move |view: PictureView| {
+    count.fetch_add(1, Ordering::SeqCst);
+    view.render()
+  });
+  app.theme().set_renderer::<Picture>(renderer);
+
+  let step = lurq::core::Signal::new(0u32);
+  let turn = step.clone();
+  let data = ImageData::from_rgba(vec![200; 4 * 4 * 4], 4, 4);
+  let mut stage = Stage::in_app(app, move |_| {
+    let step = turn.get();
+    let picture = || Picture::new(data.clone()).size_px(64.0, 64.0);
+    Row::new()
+      .padding(8.0)
+      .child(picture().label("The lake at dusk").id("same"))
+      .child(picture().label(&format!("Step {step}")).id("renamed"))
+      .child(picture().on_click(|_| {}).id("pressed"))
+      .into()
+  });
+  let images = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(quad.content, QuadContent::Image { .. }))
+      .count()
+  };
+  assert_eq!(images(&stage), 3);
+  let at_first = built.load(Ordering::SeqCst);
+
+  step.set(1);
+  stage.pass();
+  assert_eq!(
+    built.load(Ordering::SeqCst) - at_first,
+    2,
+    "the one called something else and the one with a handler, which nothing compares; not the one that is the same"
+  );
+  assert_eq!(images(&stage), 3, "and the one passed by is drawn as it was");
+  assert_eq!(stage.bounds("same"), (8.0, 8.0, 64.0, 64.0));
+}
+
 fn corner(quad: &Quad) -> f32 {
   quad.border_radius.map_or(0.0, |radius| radius.top_left)
 }

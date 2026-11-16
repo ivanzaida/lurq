@@ -380,7 +380,7 @@ impl PictureLoad {
 const NO_CODECS: &str = "this build has no `image` feature: it decodes no picture";
 
 /// The words a picture writes itself.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Words {
   error_description: Arc<str>,
   retry: Arc<str>,
@@ -949,10 +949,132 @@ impl From<Picture> for Element {
 #[derive(Clone)]
 struct PictureProps(Picture);
 
-/// A picture is built anew by every render of what holds it, so props are never the same as before.
+/// A picture is built anew by every render of what holds it, and is the picture it was where all it is made
+/// of can be told to be the same: then its component is not rendered again, and what it rendered last stands.
+/// A closure and an element are made anew by each render and nothing compares them: a picture with a handler,
+/// a badge, a button, a layer, a menu or rules of its own is another picture each time, as it was.
 impl PartialEq for PictureProps {
-  fn eq(&self, _: &Self) -> bool {
-    false
+  fn eq(&self, other: &Self) -> bool {
+    match (self.0.plain(), other.0.plain()) {
+      (Some(this), Some(that)) => this == that,
+      _ => false,
+    }
+  }
+}
+
+/// Which pixels a source is: what tells two sources apart without reading them.
+#[derive(PartialEq)]
+enum SourceId {
+  None,
+  /// Pixels the app has, by the buffer's id.
+  #[cfg(feature = "raster")]
+  Data(u64),
+  /// What is read and decoded, by the source's key and the size it is decoded to.
+  Encoded(u64, Option<(u32, u32)>),
+}
+
+impl Source {
+  fn id(&self) -> SourceId {
+    match self {
+      Source::None => SourceId::None,
+      #[cfg(feature = "raster")]
+      Source::Data(data) => SourceId::Data(data.id()),
+      Source::Encoded { source, cap } => SourceId::Encoded(source.cache_key(), *cap),
+    }
+  }
+}
+
+/// All a picture is made of that can be compared, where it is made of nothing else.
+#[derive(PartialEq)]
+struct Plain<'a> {
+  source: SourceId,
+  /// What stands in for it: 0 for the sheen, 1 for the box alone, 2 for a small version, and which.
+  placeholder: (u8, SourceId),
+  texts: [&'a Option<Arc<str>>; 7],
+  words: &'a Words,
+  lengths: (&'a Option<Length>, &'a Option<Length>, Option<f32>),
+  shown: (PictureFit, StackAlignment, PictureShape, &'a Option<Name>, &'a [Name]),
+  flags: [bool; 7],
+  load: (Option<f64>, Option<bool>, Option<Interaction>),
+}
+
+impl Picture {
+  /// The picture as what can be compared, or `None` where it holds a closure, an element or rules.
+  fn plain(&self) -> Option<Plain<'_>> {
+    // Every field is named, so that a new one is put on one side or the other here.
+    let Picture {
+      source,
+      label,
+      decorative,
+      width,
+      height,
+      aspect_ratio,
+      fit,
+      anchor,
+      shape,
+      bare,
+      size,
+      placeholder,
+      loading,
+      progress,
+      progress_text,
+      words,
+      on_retry,
+      on_load,
+      on_error,
+      fallback,
+      caption,
+      title,
+      description,
+      badge,
+      on_download,
+      menu_items,
+      actions,
+      bar,
+      force_bar_shown,
+      children,
+      count,
+      on_click,
+      selectable,
+      selected,
+      on_change,
+      disabled,
+      states,
+      rules,
+      forced,
+      id,
+      key,
+    } = self;
+    let made_anew = progress_text.is_some()
+      || fallback.is_some()
+      || badge.is_some()
+      || !(on_retry.is_empty()
+        && on_load.is_empty()
+        && on_error.is_empty()
+        && on_download.is_empty()
+        && menu_items.is_empty()
+        && actions.is_empty()
+        && children.is_empty()
+        && on_click.is_empty()
+        && on_change.is_empty()
+        && rules.is_empty());
+    if made_anew {
+      return None;
+    }
+    Some(Plain {
+      source: source.id(),
+      placeholder: match placeholder {
+        PicturePlaceholder::Skeleton => (0, SourceId::None),
+        PicturePlaceholder::None => (1, SourceId::None),
+        PicturePlaceholder::Blur(PictureSmall(small)) => (2, small.id()),
+      },
+      texts: [label, caption, title, description, count, id, key],
+      words,
+      lengths: (width, height, *aspect_ratio),
+      shown: (*fit, *anchor, *shape, size, states),
+      flags: [*decorative, *bare, *loading, *bar, *selectable, *selected, *disabled],
+      load: (*progress, *force_bar_shown, *forced),
+    })
   }
 }
 
