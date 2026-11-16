@@ -140,6 +140,11 @@ pub struct ColumnView<T: 'static = ()> {
   write: Option<Arc<dyn Fn(Vec<T>) + Send + Sync>>,
   on_change: Vec<ToldPath<T>>,
   on_activate: Vec<Told<T>>,
+  press_activates: bool,
+  activate_branches: bool,
+  open_on_hover: bool,
+  /// Whether the item Tab would stop on takes the focus as it is first built: in a panel that opens, a cascader's.
+  pub(crate) autofocus: bool,
   disabled: bool,
   label: Option<Arc<str>>,
   loading_label: Arc<str>,
@@ -183,6 +188,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
       write: None,
       on_change: Vec::new(),
       on_activate: Vec::new(),
+      press_activates: false,
+      activate_branches: true,
+      open_on_hover: false,
+      autofocus: false,
       disabled: false,
       label: None,
       loading_label: Arc::from("Loading"),
@@ -205,6 +214,27 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
   /// Called with the item a double press or Enter activates: open the file.
   pub fn on_activate(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
     self.on_activate.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether a single press of an item activates it as well as choosing it, in place of a double press: a menu of
+  /// columns, a [cascader](super::Cascader)'s.
+  pub fn press_activates(mut self, activates: bool) -> Self {
+    self.press_activates = activates;
+    self
+  }
+
+  /// Whether an item that holds others is activated by Enter and by the press that activates. It is unless told
+  /// otherwise; without it Enter goes into what the item holds, as Right does, and only an item that holds nothing
+  /// is activated: a cascader of which only the leaves are chosen.
+  pub fn activate_branches(mut self, activate: bool) -> Self {
+    self.activate_branches = activate;
+    self
+  }
+
+  /// Whether the pointer on an item that holds others chooses it, opening its column, as a menu's submenu opens.
+  pub fn open_on_hover(mut self, on_hover: bool) -> Self {
+    self.open_on_hover = on_hover;
     self
   }
 
@@ -431,12 +461,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
             let current = selected && end == Some(column);
             let disabled = self.disabled || item.disabled;
             let recipe = cases[(usize::from(selected) + usize::from(current)) * 2 + usize::from(disabled)].clone();
+            let opens = item.lazy || !item.items.is_empty();
             let actions = (!disabled).then(|| {
               let (choose, go, activate) = (model.clone(), model.clone(), model.clone());
               Arc::new(ItemActions {
                 choose: Arc::new(move || choose.choose(column, index)),
                 go: Arc::new(move |way| go.go(column, index, way)),
                 activate: Arc::new(move || activate.activate(column, index)),
+                press_activates: self.press_activates && (self.activate_branches || !opens),
+                enter_goes_in: !self.activate_branches && opens,
+                hover_chooses: self.open_on_hover && opens,
               })
             });
             ColumnViewItem {
@@ -446,7 +480,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
               } else {
                 item.icon
               },
-              opens: item.lazy || !item.items.is_empty(),
+              opens,
               selected,
               current,
               disabled,
@@ -455,6 +489,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
               level: column as u32 + 1,
               position: (index + 1, siblings),
               entry: entry == Some((column, index)),
+              autofocus: self.autofocus && entry == Some((column, index)),
               index,
               recipe,
               forced: self.forced.filter(|_| entry == Some((column, index))),
@@ -611,6 +646,12 @@ struct ItemActions {
   choose: Arc<dyn Fn() + Send + Sync>,
   go: Arc<dyn Fn(Way) -> Option<Arc<str>> + Send + Sync>,
   activate: Arc<dyn Fn() + Send + Sync>,
+  /// Whether a single press activates the item after it chooses it.
+  press_activates: bool,
+  /// Whether Enter goes into what the item holds, in place of activating it.
+  enter_goes_in: bool,
+  /// Whether the pointer coming onto the item chooses it.
+  hover_chooses: bool,
 }
 
 /// What a mounted column view keeps from one render to the next.
@@ -816,6 +857,7 @@ pub struct ColumnViewItem {
   pub position: (usize, usize),
   /// Whether Tab enters the view at it.
   pub entry: bool,
+  autofocus: bool,
   index: usize,
   /// The style of each part of this item, in its case.
   pub recipe: ResolvedRecipe,
@@ -853,6 +895,9 @@ impl ColumnViewItem {
       .focus_label(self.label.clone())
       .focus_entry(self.entry)
       .interaction_group(true);
+    if self.autofocus {
+      item = item.autofocus(true);
+    }
     if self.opens {
       item = item.describe("a11y_expanded", flag(self.selected));
     }
@@ -862,18 +907,26 @@ impl ColumnViewItem {
         if !event.from_keyboard && event.button != MouseButton::Left {
           return;
         }
+        if press.press_activates && !event.from_keyboard {
+          (press.choose)();
+          (press.activate)();
         // A second press of the item soon after at the same place activates it: it was chosen by the first.
-        if !event.from_keyboard && second_press(index, &event) {
+        } else if !event.from_keyboard && second_press(index, &event) {
           (press.activate)();
         } else {
           (press.choose)();
         }
       });
+      if actions.hover_chooses {
+        let hover = actions.clone();
+        item = item.on_mouse_enter(move || (hover.choose)());
+      }
       item = item.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.composing || event.alt || event.ctrl || event.meta || event.shift {
           return;
         }
         let way = match event.key.as_str() {
+          "Enter" if actions.enter_goes_in => Way::In,
           "Enter" => {
             event.prevent_default();
             (actions.activate)();

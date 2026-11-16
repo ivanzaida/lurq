@@ -2850,6 +2850,62 @@ MultiSelect::new(languages.clone(), [
 - It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
+## Cascader
+
+A select whose options are a tree shown as columns that open one after the other, as a menu of submenus does: a place by its continent, its country and its city, a category of a catalogue, a setting by its section.
+
+```rust
+use lurq::ui::{Cascader, TreeItem};
+
+// city: Signal<Option<&str>>: one or none, of the cities alone.
+Cascader::optional(city, [
+  TreeItem::new("asia", "Asia").items([TreeItem::new("japan", "Japan").item(TreeItem::new("tokyo", "Tokyo"))]),
+  TreeItem::new("europe", "Europe").items([
+    TreeItem::new("ukraine", "Ukraine").items([TreeItem::new("kyiv", "Kyiv"), TreeItem::new("lviv", "Lviv")]),
+    TreeItem::new("poland", "Poland").item(TreeItem::new("warsaw", "Warsaw")),
+  ]),
+])
+.label("Place")
+.placeholder("Select a city")
+.clearable(true)
+.mount(ctx);
+
+// A continent or a country may be chosen too, and the columns open under the pointer.
+Cascader::optional(region, items).leaves_only(false).open_on_hover(true).mount(ctx);
+
+// Held by the app, which is told each choice.
+Cascader::controlled(app.city(), items, |city| app.set_city(*city));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)`, `optional(value, items)` | The tree's items (`TreeItem<T>`, a [tree view](#tree-view)'s) and what is chosen of them, bound to a `Signal<T>` or a `Signal<Option<T>>`. A value is one item's: the trigger says the path down to it |
+| `controlled(value, items, on_change)`, `controlled_optional(..)` | The same held by the app, which is told `on_change(&T)` or `on_change(&Option<T>)` and shows what it gives back |
+| `on_change(handler)` | Told what is chosen after a choice a person makes, after the signal is set; not for the option chosen already, nor when the app sets the signal. The cascader is `Cascader<T, T>` or `Cascader<T, Option<T>>`, so a handler of another type does not compile |
+| `leaves_only(bool)` | Whether only an option that holds nothing is chosen, as the board's cascader has it (it is unless told otherwise). Without it a press or Enter chooses any option, and a choice of one that holds others leaves the panel open on its column |
+| `open_on_hover(bool)` | The pointer on an option that holds others opens its column, as a submenu opens, in place of a press. A press opens it either way |
+| `on_load(handler)` | Told an item marked `lazy` that holds nothing yet as its column opens: where the app brings its children. The column has a spinner until they come |
+| `open(Signal<bool>)` | Whether the panel is open, where the app keeps it. `on_open_change(bool)` hears each change a person makes, a choice too; `on_dismiss()` Escape and a press outside, before it |
+| `path(bool)`, `separator_text(&str)` | The trigger says the whole path to what is chosen, `Europe / Ukraine / Kyiv` (it does unless told otherwise), or its label alone; and what stands between the steps, `" / "` |
+| `placeholder(&str)`, `size(CascaderSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open |
+| `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a cascader that may hold none; and what it is called, "Clear" |
+| `empty_text(&str)`, `loading_label(&str)` | What the panel says where there are no items, "No options"; what the spinner of a column on its way is called, "Loading" |
+| `label(&str)`, `panel_label(&str)` | What the cascader is called to what reads the tree, and its panel and its columns in place of that |
+| `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the columns with `-columns` (each column that, `-column-` and its place), the cross with `-clear` |
+| `mount(ctx)` | In place of converting it: the cascader keeps whether it is open, the trigger the focus goes back to and the columns open in it |
+
+- It is built of what is there already: its trigger is a [select](#select)'s box (the same recipe, sizes, ring, judgments and fluid form in a [field](#field)), the one a [tree select](#tree-select) has, its panel a [popover](#popover) and what the panel holds a [column view](#column-view), with a column view's columns, options, chevrons and keys. What a `TreeItem` has, it has here: `icon`, `disabled`, `lazy`, `trailing`. A tree select is its sibling for a tree shown in one column, of which any number may be chosen.
+- A press, Enter, Space, Down or Up on the trigger opens the panel with the columns of the path to what is chosen open, and the focus on it, or on the first option. A press of an option that holds others opens its column; a press of one that holds nothing chooses it and closes the panel, and the panel closes first and the handler is told after, so a handler that opens a dialog keeps its focus. Up and Down go through a column and open the column of the option they reach, Home and End go to its ends, Right goes into what an option holds and Left back to the option the column is of, a letter to the next option that starts with it; Enter on an option that holds nothing chooses it, on one that holds others goes into it. Moving chooses nothing.
+- The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Opened again, the panel is on what is chosen, not on where it was left.
+- The panel is as wide as the columns open in it, each 124, and as high as the longest of them, up to 280, past which a column scrolls; where the window is narrower than the columns they scroll sideways.
+- A cascader that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and the path open in its columns.
+- The board draws a cascader of one: there is no cascader of any number, and no search over the paths, which the board does not draw.
+- To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `listbox`, `a11y_expanded`, `a11y_value` (the path it says), `a11y_invalid` and `a11y_readonly` where they hold; the panel a `dialog`, each column a `listbox` called by the option it is of, and each option an `option` that says `a11y_selected` while it is on the path open, `a11y_expanded` where it holds others, `a11y_level`, `a11y_posinset` and `a11y_setsize`.
+- Parts: `CascaderPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon` (a select's and a tree select's), `Panel` (laid over the popover's panel), `Columns` (laid over the column view's box: its greatest height), `Column`, `Option`, `OptionIcon`, `OptionLabel` and `OptionChevron` (laid over the column view's column, item, icon, label and chevron), and `Empty`. States: a select's, `CascaderState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Fluid`, and `Selected`, resolved on the parts of an option on the path open.
+- In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its path 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow, and holds the columns with no room around them: each 124 wide, padded 4, with a line of 1 in `Border` at its end but the last's. An option is 30 high (22, 38 and 42 at the compact, comfortable and touch densities), 8 in, `radius-sm`, its label at 13 in `Foreground`, and where it holds others a chevron of 14 in `MutedForeground` 4 after it. The options on the path are on `Highlight` with their labels at 500, the last as the others; under the pointer and held down an option has the veils of those states, and the focus from the keyboard is a ring of 2 in `Ring` inside it.
+- A theme's renderer is given `CascaderView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.content()`, `view.panel()` and `view.render()`. It is set for `Cascader<T>` of any `T`.
+
 ## Tree Select
 
 A select whose options are a tree: a file of a project, a category of a catalogue, the folders a search looks in.
@@ -2903,6 +2959,7 @@ TreeSelect::controlled(app.file(), items, |file| app.open(file));
 - The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Tab in the panel leaves the tree, which is one stop.
 - A select that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and which branches are open. As the panel opens, the branches the chosen rows are in open, so it opens on what is chosen; while it is open nothing opens or closes but by a person, so a row taken out of what is chosen stays under the focus.
 - A select of any number has no checkboxes: the board draws none, and its rows are a tree's, in the highlight while they are chosen.
+- A [cascader](#cascader) is its sibling for a tree shown as columns that open one after the other, of which one is chosen. Its trigger is the same.
 - To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `tree`, `a11y_expanded`, `a11y_value` (what it says), `a11y_invalid`, `a11y_readonly` and `a11y_multiselectable` where they hold; the panel a `dialog` and what it holds a `tree` of `treeitem`s, called by the select's label.
 - Parts: `TreeSelectPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon`, `Panel` (laid over the popover's panel), `Tree` (its greatest height, past which the tree scrolls), `Row`, `RowIcon` and `RowLabel` (laid over the tree view's row, icon and label) and `Empty`. States: a select's, `TreeSelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
 - In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
@@ -5354,6 +5411,7 @@ ColumnView::controlled(app.path(), items, |path| app.go(path));
 | `controlled(path, items, on_change)` | The path held by the app, which is told `on_change(&[T])` and shows what it gives back |
 | `on_change(handler)` | Told the whole new path after a press or a key changes it, after the signal is set; not for the path chosen already, nor when the app sets it |
 | `on_activate(handler)` | Told of the item a double press or Enter activates: open the file |
+| `press_activates(bool)`, `activate_branches(bool)`, `open_on_hover(bool)` | For a menu of columns, a [cascader](#cascader)'s: a single press activates the item it chooses; an item that holds others is not activated, and Enter goes into it as Right does (`activate_branches(false)`); the pointer on an item that holds others chooses it, opening its column |
 | `label(&str)`, `loading_label(&str)` | What the view is called to what reads the tree, and the spinner of a column whose items are on their way, "Loading" |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and each column has it with `-column-` and its place; `force` draws the item Tab stops on so |
 | `mount(ctx)` | In place of converting it: the view keeps where its columns are scrolled to, starts at the end of its path and brings the last column into sight as the path grows |

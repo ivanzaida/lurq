@@ -38,6 +38,7 @@ mod calendar;
 mod callout;
 mod card;
 mod carousel;
+mod cascader;
 #[cfg(feature = "canvas")]
 mod chart;
 mod checkbox;
@@ -139,6 +140,7 @@ mod search_field;
 mod seek_bar;
 mod segmented;
 mod select;
+mod select_trigger;
 mod selection;
 mod selection_marquee;
 mod separator;
@@ -235,6 +237,7 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
+pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use chart::ChartLabel;

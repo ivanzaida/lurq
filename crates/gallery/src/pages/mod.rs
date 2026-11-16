@@ -26,6 +26,7 @@ mod calendar;
 mod callout;
 mod card;
 mod carousel;
+mod cascader;
 mod checkbox;
 mod checkbox_card;
 mod code_block;
@@ -610,6 +611,14 @@ pub const PAGES: &[Page] = &[
     about: "tree select treeselect cascader hierarchy nested options folder file category dropdown combobox panel branches leaves path new optional multiple controlled controlled_optional controlled_multiple on_change open branches branches_controlled on_branch_change leaves_only path separator_text max_shown placeholder size clearable clear_label empty_text invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<tree_select::TreeSelectPage>(()),
+  },
+  Page {
+    path: "/cascader",
+    name: "Cascader",
+    icon: Some("columns"),
+    about: "cascader cascade cascading select columns miller hierarchy nested tree path region country city place category menu submenu new optional controlled controlled_optional on_change leaves_only any level open_on_hover hover on_load lazy open path separator_text placeholder size clearable clear_label empty_text loading_label invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem fluid field",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<cascader::CascaderPage>(()),
   },
   Page {
     path: "/transfer",

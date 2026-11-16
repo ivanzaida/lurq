@@ -22,6 +22,7 @@ mod card;
 mod carousel;
 #[cfg(feature = "canvas")]
 mod chart_motion;
+mod cascader;
 mod checkbox;
 mod choice_card;
 mod code_block;
