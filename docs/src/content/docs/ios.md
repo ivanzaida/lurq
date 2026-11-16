@@ -194,7 +194,11 @@ ZoomScroll::mount(
 - The list fills what it is put in. `range` is the smallest and the largest scale, 1 and 4 unless set;
   content shown smaller than the list lies in its middle.
 - `zoom(signal)` is the scale, to read and to set; `scroll(state)` is the list's `ScrollState`.
-  `double_tap(None)` leaves a double tap to the content.
+  `double_tap(None)` leaves a double tap to the content. A scale set from outside, by a button or a key, keeps the
+  middle of the view where it is.
+- With a mouse: `wheel_zoom(step)` makes the wheel bring the content closer and further about the pointer, by
+  `step` at a notch, in place of scrolling it, and `drag_pan(true)` lets a press held and moved carry the content
+  as a finger does. Neither is on unless asked for: without them the wheel scrolls the content as in any list.
 - The content is laid out once, at its own size, and drawn scaled: text in it is not laid out anew for the
   size it is shown at.
 - A pinch stops at the smallest and the largest scale, where the platform's gives and springs back, and a

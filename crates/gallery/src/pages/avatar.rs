@@ -1,6 +1,6 @@
 //! The page of the avatar: its playground, the board's sizes and shapes, a
-//! picture and one that fails, the dot of presence, groups, and a person's
-//! name beside an avatar.
+//! picture and one that fails, the dot of presence on an avatar and on its
+//! own, groups, and a person's name beside an avatar.
 
 use std::sync::Arc;
 
@@ -10,12 +10,12 @@ use lurq::{
     ctx::Ctx,
     theme::{PaletteColor, RadiusSize},
   },
-  components::{Column, Image, Row},
+  components::{Column, Row},
   core::Signal,
-  images::{ImageData, ImageKey},
+  images::ImageData,
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
-  ui::{Avatar, AvatarGroup, AvatarGroupPart, AvatarPresence, AvatarShape, AvatarSize, icons},
+  ui::{Avatar, AvatarGroup, AvatarGroupPart, AvatarPresence, AvatarShape, AvatarSize, Persona, Presence, icons},
 };
 
 use crate::{
@@ -118,8 +118,8 @@ fn portrait(top: [f32; 3], bottom: [f32; 3]) -> ImageData {
 const BROKEN: &[u8] = b"not a picture";
 
 /// The broken picture, under a key of its own: the decoder's cache keeps that it failed.
-fn broken() -> Image {
-  Image::from_bytes(BROKEN).cache_key(ImageKey::new(0x6A11_E4E7))
+fn broken() -> lurq::ui::Picture {
+  lurq::ui::Picture::from_bytes(BROKEN).cache_key(0x6A11_E4E7)
 }
 
 pub struct AvatarPage {
@@ -148,8 +148,8 @@ impl AvatarPage {
         let avatar = Avatar::new(&name).size(size).shape(shape).presence(presence);
         match picture {
           Picture::None => avatar,
-          Picture::Portrait => avatar.image(Image::new(portrait.clone())),
-          Picture::Broken => avatar.image(broken()),
+          Picture::Portrait => avatar.picture(portrait.clone()),
+          Picture::Broken => avatar.picture(broken()),
         }
       }
     };
@@ -178,8 +178,8 @@ impl AvatarPage {
     let mut code = vec![format!("Avatar::new({name:?})")];
     match picture {
       Picture::None => {}
-      Picture::Portrait => code.push("    .image(Image::from_file(\"ivan.png\"))".to_owned()),
-      Picture::Broken => code.push("    .image(Image::from_bytes(broken_bytes))".to_owned()),
+      Picture::Portrait => code.push("    .picture(Picture::from_file(\"ivan.png\"))".to_owned()),
+      Picture::Broken => code.push("    .picture(Picture::from_bytes(broken_bytes))".to_owned()),
     }
     if size != AvatarSize::Md {
       code.push(format!("    .size(AvatarSize::{size:?})"));
@@ -263,8 +263,8 @@ impl AvatarPage {
         controls: vec![
           prop("name", "&str", field(&self.name)),
           prop(
-            "image",
-            "Image",
+            "picture",
+            "Picture",
             self
               .playground
               .select(0, &PICTURES, &picture, move |which| pick_picture.set(which)),
@@ -323,19 +323,14 @@ impl AvatarPage {
     )
   }
 
-  /// The board's persona: an avatar with its presence, and a name over a line under it.
-  fn persona(name: &str, line_under: &str, presence: AvatarPresence) -> Row {
+  /// A presence on its own before the word that says it: a row of a list of who is there.
+  fn status(presence: AvatarPresence, words: &str) -> Row {
     Row::new()
-      .spacing(10.0)
+      .spacing(8.0)
       .align_items(Alignment::Center)
       .overflow_visible()
-      .child(Avatar::new(name).presence(presence))
-      .child(
-        Column::new()
-          .spacing(1.0)
-          .child(text(name, 14.0, FontWeight::Medium))
-          .child(text(line_under, 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
-      )
+      .child(Presence::new(presence))
+      .child(text(words, 13.0, FontWeight::Normal))
   }
 }
 
@@ -371,26 +366,26 @@ impl Component for AvatarPage {
       .child(item(Avatar::new(""), "no name: a person"));
     let [blue, orange, green] = self.portraits.clone();
     let pictures = items()
-      .child(item(Avatar::new("Ivan Zaida").image(Image::new(blue.clone())), "round"))
+      .id("avatar-pictures")
+      .child(item(Avatar::new("Ivan Zaida").picture(blue.clone()), "round"))
       .child(item(
-        Avatar::new("Anna K.")
-          .image(Image::new(orange.clone()))
-          .size(AvatarSize::Xl),
+        Avatar::new("Anna K.").picture(orange.clone()).size(AvatarSize::Xl),
         "56",
       ))
       .child(item(
         Avatar::new("Lurq Team")
-          .image(Image::new(green.clone()))
+          .picture(green.clone())
           .shape(AvatarShape::Square)
           .size(AvatarSize::Lg),
         "square",
       ))
-      .child(item(Avatar::new("Mark R.").image(broken()), "fails: the initials stay"));
+      .child(item(
+        Avatar::new("Mark R.").picture(broken()),
+        "fails: the initials stay",
+      ));
     let presences = PRESENCES[1..].iter().fold(items(), |row, (label, presence)| {
       row.child(item(
-        Avatar::new("Ivan Zaida")
-          .image(Image::new(blue.clone()))
-          .presence(*presence),
+        Avatar::new("Ivan Zaida").picture(blue.clone()).presence(*presence),
         &label.to_lowercase(),
       ))
     });
@@ -404,9 +399,9 @@ impl Component for AvatarPage {
       ))
       .child(item(
         AvatarGroup::new([
-          Avatar::new("Ivan Zaida").image(Image::new(blue.clone())),
-          Avatar::new("Anna K.").image(Image::new(orange.clone())),
-          Avatar::new("Ivy Chen").image(Image::new(green.clone())),
+          Avatar::new("Ivan Zaida").picture(blue.clone()),
+          Avatar::new("Anna K.").picture(orange.clone()),
+          Avatar::new("Ivy Chen").picture(green.clone()),
           Avatar::new("Mark R."),
         ])
         .size(AvatarSize::Lg)
@@ -436,12 +431,33 @@ impl Component for AvatarPage {
       );
     let people = items()
       .child(item(
-        Self::persona("Ivan Zaida", "Available · Kyiv", AvatarPresence::Online),
+        Persona::new("Ivan Zaida")
+          .description("Available · Kyiv")
+          .presence(AvatarPresence::Online),
         "persona",
       ))
       .child(item(
-        Self::persona("Ivy Chen", "Away · back at 15:00", AvatarPresence::Away),
+        Persona::new("Ivy Chen")
+          .description("Away · back at 15:00")
+          .presence(AvatarPresence::Away),
         "persona · away",
+      ));
+    let alone = items()
+      .child(item(Self::status(AvatarPresence::Online, "Online"), "online"))
+      .child(item(Self::status(AvatarPresence::Away, "Away"), "away"))
+      .child(item(Self::status(AvatarPresence::Busy, "Do not disturb"), "busy"))
+      .child(item(Self::status(AvatarPresence::Offline, "Offline"), "offline"))
+      .child(item(
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .overflow_visible()
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xs))
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Sm))
+          .child(Presence::new(AvatarPresence::Online))
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Lg))
+          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xl)),
+        "6, 8, 10, 12, 14",
       ));
     let rows = [
       (
@@ -452,11 +468,11 @@ impl Component for AvatarPage {
          calls the avatar. A name with no letters shows the icon of a person.",
       ),
       (
-        "image",
-        "Image",
+        "picture",
+        "impl Into<Picture>",
         "",
-        "A picture in place of the initials, filling the face and clipped to its shape. While it decodes and \
-         when it fails, the initials or the icon show.",
+        "A picture in place of the initials, filling the face and clipped to its shape. While it is on its way and \
+         when it does not come, the initials or the icon show.",
       ),
       (
         "icon",
@@ -476,6 +492,12 @@ impl Component for AvatarPage {
         "Option<AvatarPresence>",
         "None",
         "The dot at the bottom end: online, away, busy or offline.",
+      ),
+      (
+        "presence_label",
+        "&str",
+        "",
+        "What the dot says to tooling after the name, in place of the presence's own word.",
       ),
       (
         "AvatarGroup::max_shown",
@@ -537,18 +559,18 @@ impl Component for AvatarPage {
           self.frame.demo(
             1,
             pictures,
-            ".image(Image::from_file(path))",
+            ".picture(Picture::from_file(path))",
             &[
-              "Avatar::new(\"Ivan Zaida\").image(Image::from_file(\"ivan.png\"))",
+              "Avatar::new(\"Ivan Zaida\").picture(Picture::from_file(\"ivan.png\"))",
               "Avatar::new(\"Anna K.\")",
-              "    .image(Image::from_file(\"anna.png\").downscale_to(112, 112))",
+              "    .picture(Picture::from_file(\"anna.png\").downscale_to(112, 112))",
               "    .size(AvatarSize::Xl)",
               "Avatar::new(\"Lurq Team\")",
-              "    .image(Image::new(pixels))",
+              "    .picture(pixels)",
               "    .shape(AvatarShape::Square)",
               "    .size(AvatarSize::Lg)",
               "// Bytes that are no picture: the decode fails, and the initials stay.",
-              "Avatar::new(\"Mark R.\").image(Image::from_bytes(broken_bytes))",
+              "Avatar::new(\"Mark R.\").picture(Picture::from_bytes(broken_bytes))",
             ],
           ),
         ),
@@ -561,10 +583,26 @@ impl Component for AvatarPage {
             presences,
             ".presence(AvatarPresence::Online)",
             &[
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Online)",
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Away)",
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Busy)",
-              "Avatar::new(\"Ivan Zaida\").image(portrait).presence(AvatarPresence::Offline)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Online)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Away)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Busy)",
+              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Offline)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Presence on its own",
+          "The same dot with no avatar under it, before a word in a list of who is there. It is the dot of the \
+           avatar's recipe, as large as on an avatar of its size, with no ring; tooling hears the presence's word, \
+           or its label.",
+          self.frame.demo(
+            6,
+            alone,
+            "Presence::new(AvatarPresence::Online)",
+            &[
+              "Presence::new(AvatarPresence::Online)",
+              "Presence::new(AvatarPresence::Away).label(\"Away until 15:00\")",
+              "Presence::new(AvatarPresence::Online).size(AvatarSize::Lg)",
             ],
           ),
         ),
@@ -581,9 +619,9 @@ impl Component for AvatarPage {
               "AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label(\"Reviewers\")",
               "",
               "AvatarGroup::new([",
-              "    Avatar::new(\"Ivan Zaida\").image(ivan),",
-              "    Avatar::new(\"Anna K.\").image(anna),",
-              "    Avatar::new(\"Ivy Chen\").image(ivy),",
+              "    Avatar::new(\"Ivan Zaida\").picture(ivan),",
+              "    Avatar::new(\"Anna K.\").picture(anna),",
+              "    Avatar::new(\"Ivy Chen\").picture(ivy),",
               "    Avatar::new(\"Mark R.\"),",
               "])",
               ".size(AvatarSize::Lg)",
@@ -610,23 +648,19 @@ impl Component for AvatarPage {
         ),
         Section::new(
           "Beside a name",
-          "A person in a list or a menu: the avatar with its presence, the name and a line under it. It is an \
-           avatar beside two texts, built where it is used.",
+          "A person in a list or a menu: the avatar with its presence, the name and a line under it. That is a \
+           Persona, which has a page of its own.",
           self.frame.demo(
             5,
             people,
-            "Row::new().child(Avatar::new(name))",
+            "Persona::new(name).description(..).presence(..)",
             &[
-              "Row::new()",
-              "    .spacing(10.0)",
-              "    .align_items(Alignment::Center)",
-              "    .child(Avatar::new(\"Ivan Zaida\").presence(AvatarPresence::Online))",
-              "    .child(",
-              "        Column::new()",
-              "            .spacing(1.0)",
-              "            .child(Text::new(\"Ivan Zaida\"))",
-              "            .child(Text::new(\"Available · Kyiv\").color(PaletteColor::MutedForeground)),",
-              "    )",
+              "Persona::new(\"Ivan Zaida\")",
+              "    .description(\"Available · Kyiv\")",
+              "    .presence(AvatarPresence::Online)",
+              "Persona::new(\"Ivy Chen\")",
+              "    .description(\"Away · back at 15:00\")",
+              "    .presence(AvatarPresence::Away)",
             ],
           ),
         ),

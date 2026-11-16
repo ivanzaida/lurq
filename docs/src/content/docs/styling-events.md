@@ -748,6 +748,21 @@ ScrollVertical::new(
 .on_scroll(|event: ScrollEvent| println!("delta: {}, {}", event.delta_x, event.delta_y))
 ```
 
+`on_scroll` is for what a scroll does to a list: it is not called over a list that is at its end or has nothing to
+scroll. An element the wheel is for something else to (a picture it brings closer, a value it turns) listens with
+`on_wheel`, which is called first, whatever is under the pointer and whether it can scroll, and takes the wheel with
+`prevent_default`: then nothing is scrolled.
+
+```rust
+Stack::new().on_wheel(move |event: ScrollEvent| {
+  event.prevent_default();
+  zoom.set(if event.delta_y < 0.0 { zoom.get() * 1.5 } else { zoom.get() / 1.5 });
+})
+```
+
+A handler that only listens leaves the list to scroll and its `on_scroll` to be called as before. A finger's scroll
+is not a wheel, and `on_wheel` does not hear it.
+
 Set the default scrollbar style on the theme:
 
 ```rust
@@ -1457,6 +1472,31 @@ Row::new()
 ```
 
 `ui::Splitter` is such a divider between panes, with the keys, panes that close and a layout the app saves.
+
+### A Drag That Scrolls Its Container
+
+`.drag_autoscroll(true)` on an element with `on_drag_*` handlers makes its drag scroll the scroll container it is in: the nearest one around it that has content beyond its viewport. While the pointer of the drag is within about 12 logical pixels of an edge of that container, or past the edge, the content scrolls toward the pointer on the axes the container scrolls, faster the further the pointer goes, a step each frame for as long as the pointer is held there; it stops at the end of the content and when the drag ends. It is off by default.
+
+After each step the drag's `on_drag_move` handlers are called with the pointer where it is, though it has not moved: what follows the drag reckons again with what scrolled under it. The container's `on_scroll` handlers hear each step, as they hear the wheel.
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::{Column, ScrollVertical},
+};
+
+// A rectangle dragged down a long list: at the list's bottom edge the list scrolls, and each step moves the
+// rectangle's end with it.
+ScrollVertical::new(
+  Column::new()
+    .start_drag_buttons(MouseButtonMask::LEFT)
+    .drag_autoscroll(true)
+    .on_drag_move(move |event: DragEvent| extend_to(event.x, event.y + state.scroll_y())),
+)
+.with_scroll_state(state.clone());
+```
+
+`ui::SelectionMarquee` is such a drag over a surface.
 
 ## File Drag And Drop
 

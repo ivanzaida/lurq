@@ -379,11 +379,6 @@ fn million() -> Arc<Vec<Job>> {
 /// The least a grid with a column pinned at each end is wide: the two, and room for a column between them.
 const PINNED: f32 = 480.0;
 
-/// The least a grid with its bar over it is wide: the search, a filter that is set, and the bar's buttons.
-const BAR: f32 = 700.0;
-/// The least a grid with a count and a pagination in its footer is wide.
-const FOOTER: f32 = 300.0;
-
 /// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
 fn million_columns() -> Vec<TableColumn<Job>> {
   let mut columns = vec![
@@ -951,8 +946,6 @@ impl Component for DataGridPage {
       })
       .key("board")
       .mount(ctx);
-    // The footer's count and its pagination need this much: in a narrower card the grid scrolls sideways.
-    let board = crate::kit::fit("board", self.frame.stage_room(), FOOTER, board);
 
     // Editing in place, each commit written under the grid.
     let (rows, log) = (self.edited.clone(), self.log.clone());
@@ -1396,21 +1389,14 @@ impl Component for DataGridPage {
       });
 
     // The board's bar over a grid: the search, a tag for each filter set, Filter, the density, the columns, Export.
-    let bar_room = self.frame.stage_room();
-    let bar_scrolls = bar_room > 0.0 && bar_room < BAR;
     let bar_grid = DataGrid::new(filtered_columns(columns(false)), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .toolbar(true)
       .filters(self.bar_filters.clone())
       .height(320.0)
-      // A grid keeps the widths its columns were first laid out with: the one that scrolls in its card is
-      // another grid than the one that had the card's width.
-      .key(if bar_scrolls { "bar-scrolled" } else { "bar" })
+      .key("bar")
       .mount(ctx);
-    // The bar keeps its search, its filters and its buttons in it: in a card narrower than those the grid and
-    // its bar scroll sideways.
-    let bar_grid = crate::kit::fit("bar", bar_room, BAR, bar_grid);
 
     // A tree of folders and files, and files whose rows open on their details.
     let tree_grid = Column::new()
@@ -1483,15 +1469,12 @@ impl Component for DataGridPage {
       .pin(ColumnPin::End),
     );
     let pinned_room = self.frame.stage_room();
-    let pinned_scrolls = pinned_room > 0.0 && pinned_room < PINNED;
     let pinned = DataGrid::new(pinned_columns, pinned_rows.get())
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .height(280.0)
       .on_edit(move |edit| take(&pinned_rows, edit.row, edit.column, &edit.value))
-      // A grid keeps the widths its columns were first laid out with: the one that scrolls in its card is
-      // another grid than the one that had the card's width.
-      .key(if pinned_scrolls { "pinned-scrolled" } else { "pinned" })
+      .key("pinned")
       .mount(ctx);
     // A column pinned at each end leaves the others no room in a card as narrow as a phone: the grid keeps a
     // width with room for them, and scrolls sideways in the card.

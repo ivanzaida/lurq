@@ -2,10 +2,12 @@
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 #[cfg(feature = "canvas")]
 mod bar_chart;
@@ -24,6 +26,7 @@ mod collapsible;
 mod color_field;
 mod color_picker;
 mod color_swatch;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
@@ -52,16 +55,19 @@ mod gauge;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod follows_room;
 mod forced_on_one_item;
 #[cfg(feature = "canvas")]
 mod heatmap;
 mod highlight;
 mod hover_card;
 mod icon;
+mod info_label;
 mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod list_item;
@@ -83,6 +89,8 @@ mod notification_center;
 mod number_input;
 mod outcome;
 mod pagination;
+mod picture;
+mod persona;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -101,6 +109,7 @@ mod scatter_chart;
 mod scroll_area;
 mod seek_bar;
 mod select;
+mod selection_marquee;
 mod separator;
 #[cfg(feature = "canvas")]
 mod sparkline;
@@ -109,6 +118,7 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 mod spinner;
 mod stat_card;
 mod splitter;
@@ -132,6 +142,7 @@ mod token_input;
 mod toolbar;
 mod tooltip;
 mod tray_popover;
+mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;

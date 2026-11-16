@@ -776,6 +776,8 @@ fn legend() -> Row {
 
 /// `shot`'s pixels filling the box, aspect kept; an empty box in a build
 /// without the `raster` feature, which draws no image.
+// The engine's image node, which `ui::Picture` draws with: a frame of the recording is pixels at hand.
+#[allow(deprecated)]
 pub(super) fn screenshot_image(shot: &CaptureScreenshot) -> Element {
   #[cfg(feature = "raster")]
   {

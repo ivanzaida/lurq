@@ -236,6 +236,29 @@ impl DecodedImages {
     }
   }
 
+  /// Forgets the image under `key` and `cap` that is ready or failed, so that the next request for it decodes
+  /// again: a way to try a failed one again, once what made it fail may have passed. `true` where there was
+  /// one to forget. A decode still running is left to end. Every tree walks for its loading images in its next
+  /// pass, so a node that showed the error asks again without being built again.
+  pub fn forget(&self, key: ImageKey, cap: Option<ImageSizeCap>) -> bool {
+    let forgotten = {
+      let mut inner = self.shared.inner.lock();
+      match inner.entries.get(&(key, cap)) {
+        Some(entry) if !entry.state.is_loading() => {
+          let bytes = entry.bytes;
+          inner.entries.remove(&(key, cap));
+          inner.used -= bytes;
+          true
+        }
+        _ => false,
+      }
+    };
+    if forgotten {
+      crate::app::runtime::note_loading_image_built();
+    }
+    forgotten
+  }
+
   /// Decodes still running.
   pub fn pending(&self) -> usize {
     self.shared.inner.lock().pending

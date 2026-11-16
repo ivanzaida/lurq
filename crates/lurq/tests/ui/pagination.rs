@@ -448,3 +448,151 @@ fn a_forced_state_draws_the_first_button_that_takes_input() {
   assert!(hovered.is_some(), "page 2 is drawn as it is under the pointer");
   assert_eq!(stage.fill_color("p-page-3"), None);
 }
+
+/// A mounted pagination of twelve pages bound to `page`, in a room `width` wide which the signal changes.
+fn roomed(width: &Signal<f32>, page: &Signal<usize>) -> Stage {
+  let (width, page) = (width.clone(), page.clone());
+  let mut stage = Stage::first_frame(700.0, 300.0, move |ctx| {
+    Column::new()
+      .size(700.0, 300.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(width.get())
+          .child(Pagination::new(page.clone(), 12).id("p").mount(ctx)),
+      )
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+/// The pages whose buttons are laid out, by their number.
+fn drawn(stage: &mut Stage) -> Vec<usize> {
+  (1..=12)
+    .filter(|page| stage.tree.get_element_by_id(&format!("p-page-{page}")).is_some())
+    .collect()
+}
+
+/// Says that previous, next and every page drawn are in the room, and that nothing said is past its end.
+#[track_caller]
+fn in_the_room(stage: &mut Stage) {
+  let (room, _, room_width, _) = stage.bounds("room");
+  let mut ids = vec!["p-previous".to_owned(), "p-next".to_owned()];
+  ids.extend(drawn(stage).into_iter().map(|page| format!("p-page-{page}")));
+  for id in ids {
+    let (x, _, width, _) = stage.bounds(&id);
+    assert!(
+      x >= room - 0.5 && x + width <= room + room_width + 0.5,
+      "{id} is in the room of {room_width}: {x} to {}",
+      x + width
+    );
+  }
+  for quad in stage.quads() {
+    if let lurq::layout::quad::QuadContent::Text { text, .. } = &quad.content {
+      assert!(
+        quad.x + quad.width <= room + room_width + 0.5,
+        "{text:?} ends at {}, past the room's end",
+        quad.x + quad.width
+      );
+    }
+  }
+}
+
+#[test]
+fn a_mounted_pagination_draws_fewer_pages_and_then_says_where_it_is_as_its_room_narrows() {
+  let (width, page) = (Signal::new(500.0), Signal::new(6));
+  let mut stage = roomed(&width, &page);
+  // With room for it, the first, the last and the current one with a sibling on each side.
+  assert_eq!(drawn(&mut stage), [1, 5, 6, 7, 12]);
+  in_the_room(&mut stage);
+  let (_, _, wide, _) = stage.bounds("p");
+  assert_eq!(
+    wide, 356.0,
+    "nine things of 36, 4 apart: as wide as its buttons, not as its room"
+  );
+
+  // Narrower than those, the siblings go: the first, the current and the last, between ellipses.
+  width.set(300.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(drawn(&mut stage), [1, 6, 12]);
+  in_the_room(&mut stage);
+  stage.click("p-next");
+  assert_eq!(page.get_untracked(), 7, "next still goes on");
+  page.set(6);
+  stage.pass();
+
+  // Narrower than those too, it says where it is between previous and next.
+  width.set(200.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(drawn(&mut stage), [] as [usize; 0]);
+  assert!(stage.paints("Page 6 of 12"));
+  in_the_room(&mut stage);
+  stage.click("p-next");
+  assert_eq!(page.get_untracked(), 7, "next still goes on");
+  page.set(6);
+  stage.pass();
+
+  // Wide again, as it was.
+  width.set(500.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(drawn(&mut stage), [1, 5, 6, 7, 12]);
+  assert!(!stage.paints("Page 6 of 12"));
+  assert_eq!(stage.bounds("p").2, 356.0);
+}
+
+#[test]
+fn the_first_frame_of_a_mounted_pagination_in_a_narrow_room_is_the_settled_one() {
+  for room in [300.0, 200.0] {
+    let mut stage = Stage::first_frame(700.0, 300.0, move |ctx| {
+      Column::new()
+        .size(700.0, 300.0)
+        .child(
+          Column::new()
+            .id("room")
+            .width(room)
+            .child(Pagination::new(Signal::new(6), 12).id("p").mount(ctx)),
+        )
+        .into()
+    });
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(
+      first,
+      stage.picture(),
+      "in a room of {room} nothing moves in the second frame"
+    );
+    in_the_room(&mut stage);
+  }
+}
+
+#[test]
+fn a_pagination_with_a_select_puts_what_has_no_room_beside_it_on_a_line_under_it() {
+  let (page, size) = (Signal::new(1), Signal::new(20));
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Column::new().id("room").width(240.0).child(
+          Pagination::for_items(page.clone(), 284, 20)
+            .compact(true)
+            .page_size(
+              "Rows per page",
+              Select::new(size.clone(), [(10, "10"), (20, "20"), (50, "50")]).id("size"),
+            )
+            .id("p"),
+        ),
+      )
+      .into()
+  });
+  in_the_room(&mut stage);
+  let (_, select_y, _, select_height) = stage.bounds("size");
+  let (_, next_y, ..) = stage.bounds("p-next");
+  assert!(
+    next_y >= select_y + select_height - 0.5,
+    "the buttons are on a line under the select"
+  );
+}

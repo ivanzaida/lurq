@@ -661,8 +661,9 @@ impl Component for ToggletipHost {
     // The button's own node is the anchor, so the engine knows it for the popup's trigger: a press of it is not
     // a press outside the panel.
     let (anchor, expanded) = (self.anchor.clone(), if open { "true" } else { "false" });
-    let trigger = Element::from(trigger).map_node(move |mut node| {
-      NodeUpdate::ref_element(&mut node, anchor);
+    // A decoration, so that a button that is a component has it on the root it renders, whenever it renders.
+    let trigger = Element::from(trigger).decorate_root(move |mut node| {
+      NodeUpdate::ref_element(&mut node, anchor.clone());
       NodeUpdate::describe(&mut node, Arc::from("a11y_expanded"), Arc::from(expanded));
       node
     });

@@ -792,7 +792,7 @@ impl SliderState {
     (track_width.max(thumb_width), track_height.max(thumb_height))
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) fn resolve_resource_images(
     &self,
     mut resolve: impl FnMut(&std::sync::Arc<str>) -> Option<crate::images::ImageData>,

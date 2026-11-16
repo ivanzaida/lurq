@@ -742,6 +742,7 @@ impl WindowChromeView {
   }
 
   /// The app's icon, where it has one.
+  #[allow(deprecated)]
   pub fn icon(&self) -> Option<Element> {
     let part = self.part(WindowChromePart::Icon);
     let drawn = match self.icon.clone()? {

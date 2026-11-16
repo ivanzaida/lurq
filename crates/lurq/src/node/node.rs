@@ -528,6 +528,7 @@ pub(crate) trait NodeUpdate {
   fn width(&mut self, width: impl Into<Dimension>);
   fn height(&mut self, height: impl Into<Dimension>);
   fn min_width(&mut self, width: impl Into<Dimension>);
+  fn aspect_ratio(&mut self, ratio: f32);
   fn max_width(&mut self, width: impl Into<Dimension>);
   fn min_height(&mut self, height: impl Into<Dimension>);
   fn max_height(&mut self, height: impl Into<Dimension>);
@@ -548,9 +549,12 @@ pub(crate) trait NodeUpdate {
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
+  fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds);
+  fn image_anchor(&mut self, x: f32, y: f32);
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn fills_viewport_width(&mut self, fills: bool);
+  fn fits_viewport_width(&mut self, fits: bool);
   fn scrollbars_clear_of_sticky(&mut self, clear: bool);
   fn reserve_bar_across(&mut self, reserve: bool);
   fn wheel_across(&mut self, across: bool);
@@ -648,6 +652,7 @@ pub(crate) trait NodeUpdate {
   fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask);
+  fn drag_autoscroll(&mut self, enabled: bool);
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn on_drag_move(&mut self, f: impl IntoDragEventHandler);
@@ -682,6 +687,8 @@ pub(crate) trait NodeUpdate {
   fn off_blur(&mut self, f: impl IntoVoidEventHandler);
   fn on_scroll(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll(&mut self, f: impl IntoScrollEventHandler);
+  fn on_wheel(&mut self, f: impl IntoScrollEventHandler);
+  fn off_wheel(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_end(&mut self, f: impl IntoScrollEventHandler);
@@ -855,10 +862,16 @@ pub enum ButtonKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum BackgroundSize {
+  /// Stretched to the box, whatever its own ratio.
   #[default]
   Stretch,
+  /// As small as fills the box, at its own ratio: what does not fit is cut.
   Cover,
+  /// As large as fits the box whole, at its own ratio: the box shows beside it.
   Contain,
+  /// At its own size, one pixel of it to one of the box's: what does not fit is cut, and the box shows beside
+  /// what is smaller. CSS `object-fit: none`.
+  Natural,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -908,6 +921,9 @@ pub(crate) enum SyntheticNodeRole {
   /// A closed layer the overlay host keeps while its exit animations play
   /// (`node/presence.rs`): painted, and nothing else.
   LeavingLayer,
+  /// Stands, in the output of a render, for a component that is unchanged and whose nodes are in the live
+  /// tree: the tree puts those nodes in its place (`node/component_output.rs`). Never in the live tree.
+  HeldComponent,
 }
 
 #[derive(Default, Clone)]
@@ -919,6 +935,9 @@ pub struct EventHandlers {
   pub on_mouse_up: Vec<Callback<MouseEvent>>,
   pub on_mouse_move: Vec<Callback<MouseEvent>>,
   pub start_drag_buttons: MouseButtonMask,
+  /// A drag of the node scrolls the scroll container around it while the pointer is at the container's edge; see
+  /// `Node::drag_autoscroll`.
+  pub drag_autoscroll: bool,
   pub on_drag_start: Vec<Callback<DragEvent>>,
   pub on_drag_move: Vec<Callback<DragEvent>>,
   pub on_drag_end: Vec<Callback<DragEvent>>,
@@ -938,6 +957,9 @@ pub struct EventHandlers {
   #[cfg(feature = "form")]
   pub on_submit: Option<FormSubmitCallback>,
   pub on_scroll: Vec<Callback<ScrollEvent>>,
+  /// A wheel or a trackpad turned over the element, before anything is scrolled by it and whether or not
+  /// anything can be: see `Node::on_wheel`.
+  pub on_wheel: Vec<Callback<ScrollEvent>>,
   pub on_scroll_start: Vec<Callback<ScrollEvent>>,
   pub on_scroll_end: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
@@ -997,6 +1019,9 @@ pub(crate) struct RareStyle {
   pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
   /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
   pub(crate) fills_viewport_width: bool,
+  /// A scroll container that scrolls sideways lays content wider than its viewport out in the viewport's width
+  /// first, and is scrolled only to what still has no room there.
+  pub(crate) fits_viewport_width: bool,
   /// A scroll container whose bars run beside what scrolls, clear of what sticks at its start.
   pub(crate) scrollbars_clear_of_sticky: bool,
   /// A scroll container whose bar across has a lane of its own under the content while it is wider than the view.
@@ -1008,6 +1033,11 @@ pub(crate) struct RareStyle {
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
+  /// The sizes of the `Stack` the node is a child of at which it is laid out; see `NodeUpdate::drop_outside`.
+  pub(crate) drop_outside: Option<crate::layout::layout_kind::SizeBounds>,
+  /// Where the image the node draws is held in its box, as shares of the room left over or cut; see
+  /// `NodeUpdate::image_anchor`.
+  pub(crate) image_anchor: Option<(f32, f32)>,
   /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
   /// see [`NodeUpdate::interaction_group`].
   pub(crate) interaction_group: bool,
@@ -1119,7 +1149,7 @@ pub(crate) struct Node {
   pub(crate) background_image: Guard<Option<Box<crate::images::ImageData>>>,
   #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) background_resource_image: Option<Arc<str>>,
   /// Boxed: most nodes do not scroll, and `Node` size is budgeted (lurq#25).
   pub(crate) scrollbar_style: Guard<Option<Box<ScrollBarStyle>>>,
@@ -1301,6 +1331,16 @@ impl NodeUpdate for Node {
     );
   }
 
+  fn aspect_ratio(&mut self, ratio: f32) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        aspect_ratio: Some(ratio),
+        ..Default::default()
+      },
+    );
+  }
+
   fn max_width(&mut self, width: impl Into<Dimension>) {
     NodeUpdate::frame(
       self,
@@ -1430,6 +1470,18 @@ impl NodeUpdate for Node {
     self.rare_style.sticky = Some(sticky);
   }
 
+  fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds) {
+    if self.rare_style.drop_outside != Some(bounds) {
+      self.rare_style.drop_outside = Some(bounds);
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn image_anchor(&mut self, x: f32, y: f32) {
+    let share = |value: f32| if value.is_nan() { 0.5 } else { value.clamp(0.0, 1.0) };
+    self.rare_style.image_anchor = Some((share(x), share(y)));
+  }
+
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
     self.rare_style.column_tracks = Some(tracks);
     self.layout_cache.invalidate();
@@ -1443,6 +1495,13 @@ impl NodeUpdate for Node {
   fn fills_viewport_width(&mut self, fills: bool) {
     if self.rare_style.fills_viewport_width != fills {
       self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn fits_viewport_width(&mut self, fits: bool) {
+    if self.rare_style.fits_viewport_width != fits {
+      self.rare_style.fits_viewport_width = fits;
       self.layout_cache.invalidate();
     }
   }
@@ -1654,7 +1713,7 @@ impl NodeUpdate for Node {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => self.background_image.set(Some(Box::new(data))),
       crate::images::ImageKind::Native(data) => self.background_image.set(Some(Box::new(data.image_data()))),
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => self.background_resource_image = Some(path),
     }
   }
@@ -1829,6 +1888,10 @@ impl NodeUpdate for Node {
 
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask) {
     self.events.start_drag_buttons = buttons;
+  }
+
+  fn drag_autoscroll(&mut self, enabled: bool) {
+    self.events.drag_autoscroll = enabled;
   }
 
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler) {
@@ -2010,6 +2073,15 @@ impl NodeUpdate for Node {
 
   fn on_scroll(&mut self, f: impl IntoScrollEventHandler) {
     self.events.on_scroll.push(f.into_event_handler());
+  }
+
+  fn on_wheel(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_wheel.push(f.into_event_handler());
+  }
+
+  fn off_wheel(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_wheel.retain(|existing| !existing.same_handler(&handler));
   }
 
   fn off_scroll(&mut self, f: impl IntoScrollEventHandler) {
@@ -2653,7 +2725,7 @@ impl Node {
       background_image: Guard::new(None),
       #[cfg(feature = "raster")]
       background_size: BackgroundSize::default(),
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       background_resource_image: None,
       scrollbar_style: Guard::new(None),
       scrollbar_hovered_style: None,
@@ -3173,6 +3245,8 @@ impl Node {
       NodeKind::Image { fit, .. } => *fit = next_fit,
       #[cfg(feature = "image")]
       NodeKind::LoadingImage { request } => request.fit = next_fit,
+      #[cfg(feature = "image")]
+      NodeKind::ResourceImage { fit, .. } => *fit = next_fit,
       _ => {}
     }
   }
@@ -3208,7 +3282,14 @@ impl Node {
 
   #[cfg(feature = "image")]
   pub fn resource_image(path: &str) -> Self {
-    Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceImage { path: path.into() }, vec![])
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::ResourceImage {
+        path: path.into(),
+        fit: BackgroundSize::Stretch,
+      },
+      vec![],
+    )
   }
 
   #[cfg(feature = "svg")]
@@ -3218,7 +3299,7 @@ impl Node {
     node
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   pub fn resource_svg(path: &str) -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
   }
@@ -3344,6 +3425,12 @@ impl Node {
   /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
   pub(crate) fn fills_viewport_width(&self) -> bool {
     self.rare_style.fills_viewport_width
+  }
+
+  /// Whether the node, a scroll container, lays content wider than its viewport out in the viewport's width
+  /// first.
+  pub(crate) fn fits_viewport_width(&self) -> bool {
+    self.rare_style.fits_viewport_width
   }
 
   /// Whether the node, a scroll container, keeps its bars clear of what sticks at its start.
@@ -3569,7 +3656,7 @@ impl Node {
       crate::images::ImageKind::Native(data) => {
         self.background_image.set(Some(Box::new(data.image_data())));
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);
       }
@@ -3763,6 +3850,18 @@ impl Node {
 
   pub fn start_drag_buttons(mut self, buttons: MouseButtonMask) -> Self {
     self.events.start_drag_buttons = buttons;
+    self
+  }
+
+  /// Whether a drag that starts on this node scrolls the scroll container around it while the pointer is at the
+  /// container's edge or past it, off by default: the nearest container the node is in that has content beyond
+  /// its viewport scrolls toward the pointer, on the axes it scrolls, faster the farther the pointer is past the
+  /// edge, a step each frame while the pointer is held there, until the drag ends. After each step the drag's
+  /// `on_drag_move` handlers are called with the pointer where it is, so that what follows the drag (a rectangle
+  /// dragged over a list, a row carried along it) reckons with what scrolled under it. For a node with drag
+  /// handlers; it does nothing on any other.
+  pub fn drag_autoscroll(mut self, enabled: bool) -> Self {
+    self.events.drag_autoscroll = enabled;
     self
   }
 
@@ -4062,6 +4161,16 @@ impl Node {
 
   pub fn on_scroll(mut self, f: impl IntoScrollEventHandler) -> Self {
     self.events.on_scroll.push(f.into_event_handler());
+    self
+  }
+
+  /// A wheel or a trackpad turned over the element: called before anything is scrolled by it, and whether or
+  /// not anything under the pointer can scroll. `on_scroll` is for what a scroll does to a list, and is not
+  /// called over a list that is at its end; this is for an element the wheel is for something else to, which
+  /// takes it with `prevent_default` (a picture it brings closer, a value it turns). Then nothing is
+  /// scrolled. A finger's scroll is not a wheel, and does not come here.
+  pub fn on_wheel(mut self, f: impl IntoScrollEventHandler) -> Self {
+    NodeUpdate::on_wheel(&mut self, f);
     self
   }
 
@@ -5707,6 +5816,24 @@ impl Node {
       })
   }
 
+  /// The sizes of the `Stack` this node is a child of at which it is laid out (`.drop_outside(...)`). A logical
+  /// wrapper without bounds of its own passes its child's on, as [`Self::shrink_rule`] does.
+  pub(crate) fn drop_outside_bounds(&self) -> Option<crate::layout::layout_kind::SizeBounds> {
+    if let Some(bounds) = self.rare_style.drop_outside {
+      return Some(bounds);
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self.children.first().and_then(Node::drop_outside_bounds),
+      _ => None,
+    }
+  }
+
+  /// Where the image the node draws is held in its box: the middle unless `.image_anchor(...)` says.
+  #[cfg(feature = "raster")]
+  pub(crate) fn image_anchor(&self) -> (f32, f32) {
+    self.rare_style.image_anchor.unwrap_or((0.5, 0.5))
+  }
+
   /// The give-way order and limit of this node as a shrinking flex child.
   /// A logical wrapper without its own rule passes its child's on, the way
   /// [`Self::state_flex`] passes the child's flex factors on.
@@ -5862,6 +5989,11 @@ impl Node {
     if old.is_component_slot_placeholder() {
       return true;
     }
+    // The live nodes of an unchanged component take this node's place: where `old` is that component, nothing
+    // of it changed, its layout included.
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     self.layout_cache.adopt_watch_from(&old.layout_cache);
     self.layout_cache.mark_watch();
     #[cfg(feature = "canvas")]
@@ -5971,7 +6103,7 @@ impl Node {
   }
 
   fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
-    if old.is_component_slot_placeholder() {
+    if old.is_component_slot_placeholder() || self.is_held_component() {
       return self.component_slot_id == old.component_slot_id;
     }
     // A canvas can keep its backing surface when its lookup id or ref binding
@@ -6045,12 +6177,14 @@ impl Node {
       && self.rare_style.column_tracks == old.rare_style.column_tracks
       && self.rare_style.measured_tracks == old.rare_style.measured_tracks
       && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      && self.rare_style.fits_viewport_width == old.rare_style.fits_viewport_width
       && self.rare_style.scrollbars_clear_of_sticky == old.rare_style.scrollbars_clear_of_sticky
       && self.rare_style.track_span == old.rare_style.track_span
       && self.rare_style.reserves_bar_across == old.rare_style.reserves_bar_across
       && self.rare_style.wheels_across == old.rare_style.wheels_across
       // A node that sticks is placed again by the scroll container above it, which its layout says.
       && self.rare_style.sticky == old.rare_style.sticky
+      && self.rare_style.drop_outside == old.rare_style.drop_outside
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }
@@ -6206,16 +6340,27 @@ impl Node {
         },
       ) => data.id() == old_data.id() && fit == old_fit,
       #[cfg(feature = "image")]
-      (NodeKind::ResourceImage { path }, NodeKind::ResourceImage { path: old_path }) => path == old_path,
+      (
+        NodeKind::ResourceImage { path, fit },
+        NodeKind::ResourceImage {
+          path: old_path,
+          fit: old_fit,
+        },
+      ) => path == old_path && fit == old_fit,
       #[cfg(feature = "svg")]
       (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       (NodeKind::ResourceSvg { path }, NodeKind::ResourceSvg { path: old_path }) => path == old_path,
       _ => false,
     }
   }
 
   pub(crate) fn preserve_ids_from(&mut self, old: &mut Node) {
+    // What stands for an unchanged component takes nothing from `old`: `old` itself, ids and all, is put in
+    // its place once the rest is matched (`Node::take_held_components_from`).
+    if self.is_held_component() {
+      return;
+    }
     // The element `old` was goes on as this node, or this node only stands where it stood.
     let continues = self.can_reuse_id_from(old);
     if continues && old.node_id.is_assigned() {
@@ -6275,6 +6420,9 @@ impl Node {
   /// Whether this node and `old` are the same thing to someone looking at the tree: the same kinds of node in
   /// the same shape, with the same names and the same text. Not how they are styled, which a state changes.
   fn looks_like(&self, old: &Node) -> bool {
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     if self.component_slot_id != old.component_slot_id
       || self.component_key != old.component_key
       || self.element_id != old.element_id
@@ -6295,6 +6443,10 @@ impl Node {
   }
 
   fn can_reuse_id_from(&self, old: &Node) -> bool {
+    // What stands for an unchanged component is that component: it is matched with it, and takes its place.
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     self.component_slot_id == old.component_slot_id
       && self.component_key == old.component_key
       && self.element_id == old.element_id
@@ -6421,7 +6573,7 @@ impl Node {
       background_image: self.background_image.clone(),
       #[cfg(feature = "raster")]
       background_size: self.background_size,
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       background_resource_image: self.background_resource_image.clone(),
       scrollbar_style: self.scrollbar_style.clone(),
       scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
@@ -6626,6 +6778,9 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
   }
   if overlay.max_height.is_some() {
     base.max_height = overlay.max_height;
+  }
+  if overlay.aspect_ratio.is_some() {
+    base.aspect_ratio = overlay.aspect_ratio;
   }
   base
 }

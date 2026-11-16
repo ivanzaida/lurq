@@ -1,6 +1,7 @@
 //! The page of the spinner: its playground, the ring, the dots and the bars,
-//! its sizes, a spinner beside the text that says what is being done, and the
-//! overlay that lays one over a part of the page while it loads.
+//! its sizes, a spinner beside the text that says what is being done, the
+//! overlay that lays one over a part of the page while it loads, and the
+//! loader that stands for a whole page.
 
 use std::sync::Arc;
 
@@ -10,7 +11,9 @@ use lurq::{
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
-  ui::{Button, ButtonVariant, LoadingOverlay, Skeleton, Spinner, SpinnerKind, SpinnerSize, SpinnerVariant},
+  ui::{
+    Button, ButtonVariant, LoadingOverlay, PageLoader, Skeleton, Spinner, SpinnerKind, SpinnerSize, SpinnerVariant,
+  },
 };
 
 use crate::{
@@ -351,6 +354,20 @@ impl Component for SpinnerPage {
           .on_click(move |_| refreshing.update(|on| *on = !*on)),
         ),
       );
+    // The board's page: a surface of 280 by 180 that the loader fills.
+    let surface = || card().width(280.0).max_width(FILL).height(180.0);
+    let pages = items()
+      .child(item(
+        surface().child(PageLoader::new("Starting lurq").description("Loading your workspace…")),
+        "page loader",
+      ))
+      .child(item(
+        surface().child(
+          PageLoader::new("Opening the project")
+            .spinner(Spinner::new().kind(SpinnerKind::Dots).variant(SpinnerVariant::Muted)),
+        ),
+        "with a spinner of its own",
+      ));
     let rows = [
       (
         "kind",
@@ -396,8 +413,9 @@ impl Component for SpinnerPage {
         breadcrumb: &["Components", "Data", "Spinner"],
         title: "Spinner",
         description: "Something is being done, and how far it is is not known: a ring that turns, dots or bars. \
-                      A LoadingOverlay lays one over a part of the page while that part loads.",
-        import: Some("use lurq::ui::{LoadingOverlay, Spinner};"),
+                      A LoadingOverlay lays one over a part of the page while that part loads, and a PageLoader \
+                      stands for a whole page while it starts.",
+        import: Some("use lurq::ui::{LoadingOverlay, PageLoader, Spinner};"),
         status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
@@ -489,9 +507,26 @@ impl Component for SpinnerPage {
           ),
         ),
         Section::new(
+          "Page loader",
+          "What stands in the place of a whole page, a window or a pane while it starts: a ring of 28 over a title \
+           and a line that says what is being done, in the middle of the room it is given. It paints no surface of \
+           its own; here it fills a card of 280 by 180. To tooling it is one status, called by its title.",
+          self.frame.demo(
+            5,
+            pages,
+            "PageLoader::new(\"Starting lurq\")",
+            &[
+              "PageLoader::new(\"Starting lurq\").description(\"Loading your workspace…\")",
+              "PageLoader::new(\"Opening the project\")",
+              "    .spinner(Spinner::new().kind(SpinnerKind::Dots).variant(SpinnerVariant::Muted))",
+            ],
+          ),
+        ),
+        Section::new(
           "Props",
           "What a spinner is given. A LoadingOverlay is given whether it is loading, its content, and a spinner of \
-           its own if the plain one will not do.",
+           its own if the plain one will not do. A PageLoader is given its title, a description, and a spinner of \
+           its own in place of the ring of 28.",
           props_table(&rows, &[], self.frame.room()),
         ),
       ],

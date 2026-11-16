@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet, segmented_fill},
+  kit::{FILL, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -115,29 +115,15 @@ fn menu(props: Props, record: impl Fn(String) + Clone + Send + Sync + 'static) -
     .on_open_change(move |open| told(format!("on_open_change({open:?})")))
 }
 
-/// How wide the menu's four items are in their row, as a menu and as links: the row neither wraps nor gets
-/// narrower.
-const LIST: f32 = 340.0;
-const LIST_OF_LINKS: f32 = 292.0;
-
-/// A scene as wide as what it is shown in and `height` high, the menu at its top.
+/// A scene as wide as what it is shown in and `height` high, the menu at its top: in a room narrower than its
+/// items, the menu puts those it has no room for behind More.
 fn scene(menu: Element, height: f32) -> Element {
   Column::new()
     .width(FILL)
     .height(height)
     .align_items(Alignment::Start)
-    .child(Row::new().overflow_visible().child(menu))
+    .child(Row::new().width(FILL).overflow_visible().child(menu))
     .into()
-}
-
-/// A scene on a stage with `room`: where that is less than the menu's items take, the scene is as wide as they
-/// are and scrolls sideways.
-fn staged(key: &str, room: f32, variant: NavigationMenuVariant, scene: Element) -> Element {
-  let least = match variant {
-    NavigationMenuVariant::Links => LIST_OF_LINKS,
-    NavigationMenuVariant::Menu => LIST,
-  };
-  fit(key, room, least, scene)
 }
 
 pub struct NavigationMenuPage {
@@ -174,7 +160,6 @@ impl NavigationMenuPage {
     let record = self.playground.recorder();
     let height = if props.columns == 1 { TALL } else { SCENE };
     let shown = scene(menu(props, record).open(self.play_open.clone()).mount(ctx), height);
-    let shown = staged("played", self.frame.stage_room(), props.variant, shown);
 
     let mut code = vec!["NavigationMenu::new()".to_owned(), "    .label(\"Site\")".to_owned()];
     if props.variant == NavigationMenuVariant::Links {
@@ -317,9 +302,7 @@ impl Component for NavigationMenuPage {
       featured: false,
       disabled: false,
     };
-    let room = self.frame.stage_room();
     let site = scene(menu(board, quiet_record).open(self.site_open.clone()).mount(ctx), SCENE);
-    let site = staged("site", room, board.variant, site);
     let rich = scene(
       menu(
         Props {
@@ -334,7 +317,6 @@ impl Component for NavigationMenuPage {
       .mount(ctx),
       TALL,
     );
-    let rich = staged("rich", room, board.variant, rich);
     let links = scene(
       menu(
         Props {
@@ -347,7 +329,6 @@ impl Component for NavigationMenuPage {
       .mount(ctx),
       SCENE,
     );
-    let links = staged("links", room, NavigationMenuVariant::Links, links);
     let state = |open: &Signal<Option<usize>>| {
       quiet(
         &match open.get() {

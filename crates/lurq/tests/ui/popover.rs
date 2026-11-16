@@ -513,3 +513,56 @@ fn its_label_is_what_tooling_calls_it_in_place_of_its_title() {
   }));
   assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Size of the layer"));
 }
+
+/// A button that is a component of its own, with how often it was pressed in what it says.
+struct Pressed {
+  times: Signal<u32>,
+}
+
+impl lurq::app::component::Component for Pressed {
+  type Props = ();
+
+  fn create(ctx: &mut lurq::app::ctx::Ctx) -> Self {
+    Self { times: ctx.signal(0) }
+  }
+
+  fn render(&self, _: &mut lurq::app::ctx::Ctx) -> impl Into<lurq::node::Element> {
+    let times = self.times.clone();
+    Button::new(&format!("Pressed {}", self.times.get()))
+      .id("own")
+      .on_click(move |_| times.set(times.get_untracked() + 1))
+  }
+}
+
+#[test]
+fn a_trigger_that_is_a_component_opens_it_too_and_still_after_it_renders_again_by_itself() {
+  let open = Signal::new(false);
+  let (shown, anchor) = (open.clone(), ElementRef::new());
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Popover::new(shown.clone(), anchor.clone())
+          .id("panel")
+          .trigger(lurq::node::Element::component::<Pressed>(()))
+          .title("Options"),
+      )
+      .into()
+  });
+  // The press is the trigger's own and the popover's: the button counts it, and the popover opens.
+  stage.click("own");
+  assert!(
+    open.get(),
+    "what the popover puts on its trigger is on the root the component rendered"
+  );
+  assert!(stage.paints("Pressed 1"));
+  let (tx, ty, _, theight) = stage.bounds("own");
+  let (px, py, ..) = stage.bounds("panel");
+  assert_eq!((px, py), (tx, ty + theight + 4.0), "and that root is its anchor");
+
+  // The button rendered again by itself, for its count: its new root has it still.
+  stage.click("own");
+  assert!(!open.get());
+  assert!(stage.paints("Pressed 2"));
+}

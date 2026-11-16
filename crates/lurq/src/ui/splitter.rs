@@ -860,13 +860,32 @@ impl Panes {
       return;
     }
     let model = self.sizes.get_untracked();
-    let mut sizes = self.expected(&model, room);
+    // What a narrower room took from the panes comes back with the room: while the sizes are still the ones the
+    // last fit wrote, the panes are fitted from what they had before it, and not from what it left them.
+    let before = self.host.as_ref().and_then(|host| {
+      host
+        .fitted
+        .lock()
+        .as_ref()
+        .filter(|fitted| same(&fitted.to, &model))
+        .map(|fitted| fitted.from.clone())
+    });
+    let from = before.unwrap_or_else(|| model.clone());
+    let mut sizes = self.expected(&from, room);
     let changed = self.fit(&mut sizes, room);
+    if let Some(host) = &self.host {
+      *host.fitted.lock() = changed.then(|| Fitted {
+        from: from.clone(),
+        to: sizes.clone(),
+      });
+    }
     let first = model.len() != self.specs.len();
-    if changed {
-      self.put(&sizes);
-    } else if first {
+    // As the panes are laid out by the sizes last set: what the room makes of them now is put where it differs.
+    let shown = self.expected(&model, room);
+    if first && same(&sizes, &shown) {
       self.keep(sizes);
+    } else if first || !same(&sizes, &shown) {
+      self.put(&sizes);
     }
   }
 
@@ -1323,10 +1342,25 @@ impl Themed for Splitter {
   }
 }
 
+/// Whether two lists of sizes are the same to half a pixel.
+fn same(a: &[f32], b: &[f32]) -> bool {
+  a.len() == b.len() && a.iter().zip(b).all(|(a, b)| (a - b).abs() <= 0.5)
+}
+
+/// What a room too narrow for the panes made of their sizes.
+struct Fitted {
+  /// The sizes before the fit: as the app or a person set them, or none for the ones the panes begin with.
+  from: Vec<f32>,
+  /// The sizes the fit wrote.
+  to: Vec<f32>,
+}
+
 /// What a mounted splitter's host and the splitter it builds share.
 struct HostLink {
   /// The sizes the splitter wrote last: a write of other sizes is the app's.
   written: Mutex<Option<Vec<f32>>>,
+  /// The last fit of the panes to a room that changed their sizes, while the sizes are still its own.
+  fitted: Mutex<Option<Fitted>>,
   /// Renders the host again: the app set the sizes from outside.
   revision: Signal<u64>,
 }
@@ -1389,6 +1423,7 @@ impl Component for SplitterHost {
       own: Signal::new(Vec::new()),
       link: Arc::new(HostLink {
         written: Mutex::new(None),
+        fitted: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
       watched: Mutex::new(None),

@@ -800,19 +800,9 @@ impl Component for DockLayoutPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let playground = self.play(ctx);
-    // A layout keeps the width its panels need: a card narrower than that scrolls it sideways. The layout that
-    // scrolls is another than the one as wide as the stage, by its key: a layout keeps the sizes its panes
-    // were first laid out at, and those of a stage too narrow for them are not the ones the state says.
+    // A layout keeps the width its panels need: a card narrower than that scrolls it sideways.
     let stage_room = self.frame.stage_room();
-    let scrolls = stage_room > 0.0 && stage_room < LEAST_WIDTH;
     let wide = |key: &str, layout: Column| fit(key, stage_room, LEAST_WIDTH, layout);
-    let keyed = |key: &str| {
-      if scrolls {
-        format!("{key}-scrolled")
-      } else {
-        key.to_owned()
-      }
-    };
 
     let window = room(
       DockLayout::new(
@@ -820,7 +810,7 @@ impl Component for DockLayoutPage {
         panels(tree(&self.selected, &self.open), PLAIN, None),
       )
       .id("board-dock")
-      .key(keyed("board-dock"))
+      .key("board-dock")
       .mount(ctx),
       BOARD_HEIGHT,
     );
@@ -841,7 +831,7 @@ impl Component for DockLayoutPage {
         room(
           DockLayout::new(self.stored.clone(), panels(file_rows(), PLAIN, None))
             .id("stored-dock")
-            .key(keyed("stored-dock"))
+            .key("stored-dock")
             .mount(ctx),
           SMALL_HEIGHT,
         ),
@@ -898,7 +888,7 @@ impl Component for DockLayoutPage {
     let floated = room(
       DockLayout::new(self.floated.clone(), panels(file_rows(), PLAIN, None))
         .id("floating-dock")
-        .key(keyed("floating-dock"))
+        .key("floating-dock")
         .mount(ctx),
       SMALL_HEIGHT,
     );
@@ -908,7 +898,7 @@ impl Component for DockLayoutPage {
     let emptied = room(
       DockLayout::new(self.emptied.clone(), panels(file_rows(), PLAIN, None))
         .id("empty-dock")
-        .key(keyed("empty-dock"))
+        .key("empty-dock")
         .empty(
           EmptyState::new("No file open")
             .description("Open a file from the explorer, or drag a panel here.")

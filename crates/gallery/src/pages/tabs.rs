@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, phone, props_table, quiet, segmented_fill, text},
+  kit::{FILL, props_table, quiet, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -61,19 +61,6 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .max_width(FILL)
     .spacing(9.0)
     .child(Row::new().max_width(FILL).child(shown))
-    .child(quiet(caption, 12.0))
-}
-
-/// Tabs on a stage with what they are under them. Tabs are as wide as their labels and no narrower: on a stage
-/// with less than the `least` they need, they scroll sideways in it.
-fn fitted(key: &str, room: f32, least: f32, tabs: impl Into<Element>, caption: &str) -> Column {
-  if room <= 0.0 || room >= least {
-    return item(tabs, caption);
-  }
-  Column::new()
-    .width(FILL)
-    .spacing(9.0)
-    .child(fit(key, room, least, tabs))
     .child(quiet(caption, 12.0))
 }
 
@@ -218,10 +205,9 @@ impl TabsPage {
       Spec {
         title: "Tabs",
         make: Arc::new(move || plain(selected).into()),
-        shown: Shown::of(shown),
-        // Four tabs are wider than the stage of a window as narrow as a phone: there they keep their width,
-        // and the stage scrolls to what does not fit.
-        fill: !phone(),
+        // Mounted, they measure the stage: four tabs wider than it scroll between their buttons.
+        shown: Shown::built(move |ctx| shown.key("shown").mount(ctx)),
+        fill: true,
         forceable: true,
         facts: format!("{variant_name} · {orientation_name}"),
         event: "on_change",
@@ -297,7 +283,7 @@ impl Component for TabsPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let says = |value: &str| format!("the signal has: {value:?}");
-    let room = self.frame.stage_room();
+    // Each is mounted: tabs wider than their stage, in a window as narrow as a phone, take their overflowing form.
     let live = item(
       Tabs::new(
         self.section.clone(),
@@ -307,7 +293,9 @@ impl Component for TabsPage {
           Tab::new("shortcuts", "Shortcuts").panel(|| panel("Shortcuts", "What each key does.")),
         ],
       )
-      .label("Settings"),
+      .label("Settings")
+      .key("live")
+      .mount(ctx),
       &says(self.section.get()),
     );
 
@@ -323,13 +311,12 @@ impl Component for TabsPage {
     ];
     let variants = items()
       .child(item(
-        Tabs::controlled(0, [(0, "General"), (1, "Appearance"), (2, "Shortcuts")], |_| {}),
+        Tabs::controlled(0, [(0, "General"), (1, "Appearance"), (2, "Shortcuts")], |_| {})
+          .key("default")
+          .mount(ctx),
         "default",
       ))
-      .child(fitted(
-        "with-counts",
-        room,
-        296.0,
+      .child(item(
         Tabs::controlled(
           0,
           [
@@ -338,22 +325,26 @@ impl Component for TabsPage {
             Tab::new(2, "Shortcuts").count(0),
           ],
           |_| {},
-        ),
+        )
+        .key("with-counts")
+        .mount(ctx),
         "default with counts",
       ))
-      .child(fitted(
-        "line",
-        room,
-        724.0,
+      .child(item(
         Tabs::new(
           self.memory.clone(),
           line_tabs.map(|(value, label, count)| Tab::new(value, label).count(count).separated(value == "archived")),
         )
-        .variant(TabsVariant::Line),
+        .variant(TabsVariant::Line)
+        .key("line")
+        .mount(ctx),
         "line with counts, the archived set apart",
       ))
       .child(item(
-        Tabs::new(self.filter.clone(), [(0, "Overview"), (1, "Activity"), (2, "Settings")]).variant(TabsVariant::Pill),
+        Tabs::new(self.filter.clone(), [(0, "Overview"), (1, "Activity"), (2, "Settings")])
+          .variant(TabsVariant::Pill)
+          .key("pill")
+          .mount(ctx),
         "pill",
       ));
 
@@ -371,12 +362,16 @@ impl Component for TabsPage {
     let states = items()
       .child(item(
         Tabs::controlled(0, [(0, "General"), (1, "Appearance"), (2, "Shortcuts")], |_| {})
-          .force(Some(Interaction::Hovered)),
+          .force(Some(Interaction::Hovered))
+          .key("hover")
+          .mount(ctx),
         "hover: the label in the foreground",
       ))
       .child(item(
         Tabs::controlled(0, [(0, "General"), (1, "Appearance"), (2, "Shortcuts")], |_| {})
-          .force(Some(Interaction::FocusVisible)),
+          .force(Some(Interaction::FocusVisible))
+          .key("focus")
+          .mount(ctx),
         "focus-visible",
       ))
       .child(item(
@@ -389,13 +384,12 @@ impl Component for TabsPage {
           ],
           |_| {},
         )
-        .variant(TabsVariant::Line),
+        .variant(TabsVariant::Line)
+        .key("disabled")
+        .mount(ctx),
         "a disabled tab",
       ))
-      .child(fitted(
-        "icons",
-        room,
-        276.0,
+      .child(item(
         Tabs::controlled(
           0,
           [
@@ -405,7 +399,9 @@ impl Component for TabsPage {
           ],
           |_| {},
         )
-        .variant(TabsVariant::Pill),
+        .variant(TabsVariant::Pill)
+        .key("icons")
+        .mount(ctx),
         "icons and a count",
       ));
 
@@ -464,8 +460,9 @@ impl Component for TabsPage {
         "overflow",
         "bool",
         "false",
-        "The list scrolls between two scroll buttons, with a menu of every tab at its end. Mounted tabs \
-         (`mount(ctx)`) keep where it is scrolled and whether the menu is open.",
+        "The list scrolls between two scroll buttons, with a menu of every tab at its end, whether or not it \
+         fits. Mounted tabs (`mount(ctx)`) keep where it is scrolled and whether the menu is open, and take this \
+         form themselves while their list is wider than its room.",
       ),
       (
         "more_label",

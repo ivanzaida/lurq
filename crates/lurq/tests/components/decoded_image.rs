@@ -1,6 +1,8 @@
 //! Images decoded at runtime: off the UI thread, downscaled to a cap, cached
 //! by content, with a placeholder while loading and an error view for a
 //! broken file.
+// `components::Image` is deprecated for apps; this is the engine's image node, which `ui::Picture` draws with.
+#![allow(deprecated)]
 
 use std::{
   sync::{
