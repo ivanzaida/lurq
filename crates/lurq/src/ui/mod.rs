@@ -43,6 +43,7 @@ mod collapsible;
 mod color_field;
 mod color_picker;
 mod color_swatch;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
@@ -236,6 +237,9 @@ pub use color_picker::{
 pub use color_swatch::{
   ColorSwatch, ColorSwatchPart, ColorSwatchRenderer, ColorSwatchShape, ColorSwatchSize, ColorSwatchState,
   ColorSwatchView,
+};
+pub use column_view::{
+  ColumnView, ColumnViewColumn, ColumnViewItem, ColumnViewPart, ColumnViewRenderer, ColumnViewState, ColumnViewView,
 };
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use command_bar::{

@@ -31,6 +31,7 @@ mod checkbox_card;
 mod code_block;
 mod color_field;
 mod color_picker;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
@@ -1146,6 +1147,14 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/column-view",
+    name: "Column View",
+    icon: Some("columns"),
+    about: "column view columns miller finder file browser hierarchy folders path drill down side by side lazy spinner new controlled path items on_change on_activate disabled label loading_label mount TreeItem ColumnView",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<column_view::ColumnViewPage>(()),
   },
   Page {
     path: "/play-button",

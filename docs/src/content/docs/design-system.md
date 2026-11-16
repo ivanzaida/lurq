@@ -4378,6 +4378,52 @@ view.on_key_down(move |event: KeyboardEvent| {
 - The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
 
+## Column View
+
+A hierarchy as columns side by side: choosing an item of one shows what it holds in the next, as a file browser's columns do.
+
+```rust
+use lurq::ui::{ColumnView, TreeItem};
+
+// path: Signal<Vec<&str>>, the values from the top down to the item chosen last.
+ColumnView::new(path, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
+      TreeItem::folder("src", "src"),
+      TreeItem::file("Cargo.toml", "Cargo.toml"),
+    ]),
+  ]),
+  TreeItem::folder("docs", "docs"),
+])
+.label("Files")
+.on_activate(|file| open_file(file))
+.mount(ctx);
+
+// The path held by the app, which is told each new one.
+ColumnView::controlled(app.path(), items, |path| app.go(path));
+```
+
+| Builder | |
+| --- | --- |
+| `new(path, items)` | What is at the top, each a `TreeItem<T>` with what it holds (a [tree view](#tree-view)'s items), and the path chosen, bound to a `Signal<Vec<T>>`: the values from an item at the top down to the item chosen last |
+| `controlled(path, items, on_change)` | The path held by the app, which is told `on_change(&[T])` and shows what it gives back |
+| `on_change(handler)` | Told the whole new path after a press or a key changes it, after the signal is set; not for the path chosen already, nor when the app sets it |
+| `on_activate(handler)` | Told of the item a double press or Enter activates: open the file |
+| `label(&str)`, `loading_label(&str)` | What the view is called to what reads the tree, and the spinner of a column whose items are on their way, "Loading" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and each column has it with `-column-` and its place; `force` draws the item Tab stops on so |
+| `mount(ctx)` | In place of converting it: the view keeps where its columns are scrolled to, starts at the end of its path and brings the last column into sight as the path grows |
+
+- The first column is what is at the top; each one after it is what the item chosen in the one before holds. A press of an item ends the path at it. An item on the path is in the highlight and the one the path ends at on the info fill; a value of the path that is no item ends the path before it.
+- A `TreeItem` marked `lazy` with no items yet has a chevron and, chosen, a column with a spinner: the app hears the path in `on_change` and gives the item its children. `icon` and `open_icon` (while the item is on the path), `trailing`, `trailing_on_hover` and `disabled` are a tree's.
+- The view is one stop of Tab, at the item the path ends at, or the first. The choice follows the focus. Up and Down go through the items of a column, Home and End to its first and its last, without going round and without leaving the column; Right goes into what the item holds, to its first item, and Left back to the item the column is of, where the path then ends. A letter goes to the next item that starts with it, in the column and then in those after it. Enter activates. A disabled item is passed by.
+- The columns share the view's width, none narrower than the `Column` part's least width (160), and scroll sideways where they do not fit. A column scrolls down where its items are more than the view is high. The keys keep the item they go to in sight.
+- The keys are the engine's: the view is a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, `activate`s, with `typeahead` and without `wrap`, and each item takes the arrows to the item they go to by its key (`KeyboardEvent::focus_key`), which may be in a column the choice has only just shown.
+- To what reads the tree it is a `group` called by its label, each column a `listbox` called by the item it is of, each item an `option` with `a11y_selected`, `a11y_level` (its column), `a11y_posinset`, `a11y_setsize` and, where it holds others, `a11y_expanded`.
+- Parts: `ColumnViewPart::Root`, `Column`, `Item`, `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of an item marked to show it on hover), `Chevron`, `Status` and `Spinner` (of a column whose items are on their way). States: `ColumnViewState::Selected` (on the path), `Current` (the end of the path), `Last` (of a column: the last has no line at its end), `Disabled`.
+- In the design the view is 520 by 176 on `Background` in an edge of 1 in `Border`, `radius-lg`. A column is padded 4 with a line of 1 in `Border` at its end, its items 1 apart. An item is 26 high with `radius-sm`, 6 at each side, and holds an icon of 14 and a chevron of 12 in `MutedForeground` and its label in the body's type at 13, 6 apart. On the path it is on `Highlight`; at its end on `Info`, its icon, label and chevron in white. Under the pointer and held down it has the `StateHover` and `StatePressed` veils, the focus is a ring of 2 in `Ring` inside it, and a disabled item is half opaque. An item follows the [density](../theme/#density): 18, 26, 34 and 38 high.
+- A theme's renderer is given `ColumnViewView`: `view.columns` (each a `ColumnViewColumn` with its `items`, each a `ColumnViewItem` with its label, icon, whether it opens, is selected, is current, is disabled), `view.root()`, `column.render()`, and on an item `item.button()`, `item.icon()`, `item.label()`, `item.chevron()` and `item.render()`.
+
+
 ## Highlight
 
 A text with marks on ranges of it: the matches of a search, one of them the current one.

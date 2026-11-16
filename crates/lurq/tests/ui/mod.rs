@@ -24,6 +24,7 @@ mod collapsible;
 mod color_field;
 mod color_picker;
 mod color_swatch;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
