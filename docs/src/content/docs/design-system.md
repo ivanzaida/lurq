@@ -3464,6 +3464,50 @@ Notification::new("Ivy Chen requested a review")
 - In the design the card is 340 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow, padded 16: the bell of 16 in `Foreground`, 12 from the title (14, medium) over the description (13, `MutedForeground`, lines of 1.4) 4 under it, and 10 under them the buttons, 28 high, 10 from their sides and 8 apart. The row is 12 from its top, its bottom and its start and 16 from its end, with 10 between the dot of 7 in `Info`, the avatar of 32, the text (the title 13 over the description of 12 in `MutedForeground`, 1 apart) and the time in mono 11 in `MutedForeground`; under the pointer it is in `Highlight`, as the board draws its first row. The board draws no time and no dot on a card: they stand after its title. It draws no pressed card and no focus: a pressed card has the veils of those states.
 - A renderer that draws another notification starts from `view.media()`, `view.text()`, `view.content()`, `view.actions()`, `view.close()`, `view.unread_dot()`, `view.time()` and `view.root(children)` (the behavior), with `view.row`, `view.unread` and `view.close_button`.
 
+## Notification Center
+
+The panel that lists an app's notifications, opened from its bell: a header with what marks all read or clears, the notifications as rows, and a footer that leads to all of them.
+
+```rust
+use lurq::ui::{Avatar, Badge, Button, ButtonVariant, Notification, NotificationCenter, icons};
+
+// open: Signal<bool> and bell: ElementRef, kept by the app; listed: Signal<Vec<(Id, bool)>>, its list.
+let unread = listed.get().iter().filter(|(_, read)| !read).count();
+NotificationCenter::new(open.clone(), bell.clone())
+  .trigger(Badge::count(unread).label("unread notifications").on(
+    Button::new("Notifications").icon(icons::BELL).icon_only(true).variant(ButtonVariant::Ghost),
+  ))
+  .items(listed.get().into_iter().map(|(id, read)| row(id).unread(!read)))
+  .on_mark_all_read(move || mark.update(|all| all.iter_mut().for_each(|(_, read)| *read = true)))
+  .on_clear(move || clear.set(Vec::new()))
+  .on_view_all(move || go_to_inbox());
+```
+
+| Builder | |
+| --- | --- |
+| `NotificationCenter::new(open, anchor)` | Shown beside `anchor`, the bell, while the `Signal<bool>` is `true` |
+| `trigger(element)` | What opens and closes it: a `Button`, or a `Badge` with its count or its dot on one. It is put before the panel and is its anchor; the first thing in it that takes the focus is what is pressed, and says whether the panel is open |
+| `title(&str)` | What the panel is called, at its top and to tooling: "Notifications" by default |
+| `item(Notification)`, `items(..)` | What it lists. Each is drawn as a row, whatever its own variant |
+| `on_mark_all_read(Fn())` | Draws "Mark all read" in the header and is called on a press of it. The control takes no press while nothing is unread |
+| `on_clear(Fn())` | Draws "Clear all" in the header and is called on a press of it. The control takes no press while the list is empty |
+| `on_view_all(Fn())` | Draws the footer, "View all", and is called on a press of it, after the panel closed |
+| `mark_all_read_label(&str)`, `clear_label(&str)`, `view_all_label(&str)` | What each control says |
+| `empty_text(&str)`, `empty(element)` | What it says under an inbox while it lists nothing ("No notifications"), or the app's own empty state in their place |
+| `on_dismiss(Fn())` | Told after a press outside it or Escape closed it; not when the app sets the signal, and not on "View all" |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether each closes it: both by default |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Under the bell with its end at the bell's end (`BottomEnd`), the theme's smallest spacing from it, and to the other side then into the window where there is no room |
+| `width(..)`, `max_height(..)` | How wide the panel is (360), and how high the list is at most before it scrolls (360) |
+| `inline(bool)` | Draws the panel where it is declared, open or not, with no trigger: a panel of a page, a gallery, a test |
+| `label(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [popover](#popover) has them. `force` draws its first pressed row's states; its controls are `<id>-mark-all-read`, `<id>-clear` and `<id>-view-all` |
+
+- The list and what is read are the app's. The panel tells what a person did (its three handlers, and each notification's own `on_click` and `on_close`) and is given the list as it is then; it keeps nothing but what a popover keeps, and is built anew with each render.
+- As it opens the focus goes into it, to the first thing in it that takes the focus, and back to the bell as it closes. Tab stops in the rows once and the arrow keys move between those that are pressed; a row's close control is a stop of Tab after it. "View all" closes the panel first and then tells, so what the handler opens keeps the focus it takes.
+- The list is as high as its rows up to its greatest height and scrolls past it, under the header and over the footer, and gives way where the window has less room. A title longer than the header's room is cut with an ellipsis; the controls keep their room.
+- To what reads the tree it is a `dialog` called by its label or its title, holding a `list` of the same name; its bell says `a11y_haspopup` and whether it is expanded.
+- Parts: `NotificationCenterPart::Panel`, `Header`, `Title`, `Actions`, `Action` and `ActionLabel` (what they give the theme's [link](#link)), `List`, `Item` (what holds a row that has another under it: the line between the two), `Empty`, `EmptyIcon`, `EmptyText`, `Footer`. States: `NotificationCenterState::Footer`, `Empty`. The rows are styled by [`Notification`](#notification)'s recipe.
+- In the design the panel is 360 wide on `Popover` in an edge of 1 in `Border`, `Xl` round, with the `Lg` shadow. The header is 48 high and 16 from its sides over a line in `Border`: the title at 15, semibold, and "Mark all read" at 13, medium, in `Info`. A row is 56 with a line in `Border` along its bottom, and the footer 40 with "View all" at 13, medium, in its middle. The board draws three rows and no end of the list, no empty panel and nothing under the pointer: the list scrolls past 360, an empty panel has an inbox of 24 over its words at 13, both `MutedForeground`, 32 over and under them, the header's controls are underlined under the pointer as a link is, and the footer is in `Highlight`. It fades in and out as the popover does.
+
 ## Command Palette
 
 A search over the window that finds a command or a place by typing: every command of an editor, the pages of an app, the files of a project.

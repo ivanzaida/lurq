@@ -94,6 +94,7 @@ mod multi_select;
 mod navbar;
 mod navigation_menu;
 mod notification;
+mod notification_center;
 mod number_input;
 mod opening_rows;
 mod outcome;
@@ -358,6 +359,10 @@ pub use navigation_menu::{
 };
 pub use notification::{
   Notification, NotificationPart, NotificationRenderer, NotificationState, NotificationVariant, NotificationView,
+};
+pub use notification_center::{
+  NotificationCenter, NotificationCenterPart, NotificationCenterRenderer, NotificationCenterState,
+  NotificationCenterView,
 };
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,

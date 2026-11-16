@@ -74,6 +74,7 @@ mod multi_select;
 mod navbar;
 mod navigation_menu;
 mod notification;
+mod notification_center;
 mod number_input;
 mod outcome;
 mod overview;
@@ -648,6 +649,14 @@ pub const PAGES: &[Page] = &[
     about: "notification card row inbox message event review requested from avatar title description time unread read dot dismiss actions button action media icon on_click on_close close_label unread_label variant NotificationVariant",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<notification::NotificationPage>(()),
+  },
+  Page {
+    path: "/notification-center",
+    name: "Notification Center",
+    icon: Some("inbox"),
+    about: "notification center notifications panel inbox bell count badge list mark all read clear all view all empty scroll popover trigger item items on_mark_all_read on_clear on_view_all on_dismiss empty_text max_height inline placement",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<notification_center::NotificationCenterPage>(()),
   },
   Page {
     path: "/command-palette",
