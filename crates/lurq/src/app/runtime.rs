@@ -481,6 +481,7 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
   node.set_component_signals_debug(ctx.signals_debug());
   node.set_component_effects_debug(ctx.effects_debug());
   node.set_component_contexts_debug(ctx.contexts_debug());
+  node.set_component_render_debug(Some(ctx.render_debug()));
 }
 
 trait AnyRootComponent: Send + Sync {
@@ -2307,6 +2308,7 @@ impl Tree {
       persistent_storage_revision: self.devtools_persistent_storage_revision(),
       picked_path: self.devtools_state.picked_path.clone(),
       picked_revision: self.devtools_state.picked_revision,
+      system: self.window().info().system,
       on_debug_overlay_path: Some(devtools_debug_overlay_callback(
         self.devtools_state.debug_overlay_path.clone(),
       )),

@@ -231,7 +231,6 @@ fn main() {
     .init();
   let mut app = App::new();
   let mut tree = Tree::new();
-  lurq::app::devtools::load_fonts(&mut app);
   tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
   #[cfg(feature = "mcp")]
   let _mcp = tree.enable_mcp(

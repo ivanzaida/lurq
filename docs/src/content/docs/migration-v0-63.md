@@ -13,6 +13,7 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 
 - The Markdown theme. Its colors are `TextColor`s, eight of its fields are gone, and `MarkdownProps::on_link_click` is `on_link_select`: see [Text And Markdown](#text-and-markdown).
 - A struct written out field by field, or a `match` with no `_` arm, over a type that gained a field or a variant: see [the table](#types-that-gained-a-variant-or-a-field).
+- With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
 
@@ -24,6 +25,7 @@ The palette roles of 0.62 still compile. Each gives a deprecation warning that n
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
 - A notch of a mouse's wheel, which is animated: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
+- The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
 
 **The quickest way to keep the 0.62 look**
 
@@ -467,6 +469,29 @@ A value that changes because the theme does, a color of the other appearance, is
 
 A transition is for what the element does itself: a state, a style set on it. An app that animated a change of theme through transitions animates it another way.
 
+## DevTools
+
+### No Font To Load
+
+`lurq::app::devtools::load_fonts` is gone. DevTools draws its icons with the theme's, so it has no font of its own to load. Take the call out:
+
+```rust
+// 0.62
+lurq::app::devtools::load_fonts(&mut app);
+tree.mount_devtools(&mut app);
+
+// 0.63
+tree.mount_devtools(&mut app);
+```
+
+### A Theme Of Its Own
+
+The DevTools window is drawn in the design system's theme, light or dark with the system, and draws its own title bar. It was drawn in colors of its own on the app's theme. What the app does to its theme (another palette, recipes of its own, another renderer for a component) does not reach it, and an app has nothing to set for it.
+
+### What A Context Holds
+
+`ComponentContextDebug` can no longer be written out: beside `kind` and `type_name` it has `reactive`, and what a provided context holds and how that changed, read with `value()` and `history()`. Code that built one takes it from a snapshot instead: `DevToolsNode::contexts`, of `DevToolsSnapshot::from_tree(&tree)`. See [Inspectable Contexts](../devtools/#inspectable-contexts).
+
 ## Types That Gained A Variant Or A Field
 
 A `match` with no `_` arm must take a new variant. A struct written out field by field must add a new field, or end with the rest from a default.
@@ -495,3 +520,7 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end` | `..Default::default()` |
 | `SelectTriggerState` | `input` | `input: None` |
 | `DragEvent` | `outside_window` | `outside_window: false` |
+| `DevToolsNode` (`devtools`) | `render` | `render: None` |
+| `DevToolsProps` (`devtools`) | `system` | The inspected window's settings, `window.info().system` |
+| `ComponentValueChangeDebug` (`devtools`) | `sequence` | `sequence: 0` |
+| `PersistentStorageSnapshotEntry` | `fields` | `fields: Vec::new()` |

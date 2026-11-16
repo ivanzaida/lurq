@@ -64,6 +64,7 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
   node.set_component_memos_debug(ctx.memos_debug());
   node.set_component_effects_debug(ctx.effects_debug());
   node.set_component_contexts_debug(ctx.contexts_debug());
+  node.set_component_render_debug(Some(ctx.render_debug()));
 }
 
 fn attach_component_metadata(
@@ -835,11 +836,31 @@ pub(crate) enum BottomBarInset {
   Over(f32),
 }
 
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for BottomBarInset {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+crate::register_inspectable!(BottomBarInset);
+
 /// A component keeps its descendants clear of everything at the window's edges itself: for them
 /// [`Ctx::safe_area`] is nothing at every side. A sheet's content is such: the sheet stands clear of the status
 /// bar, and pads its content by the home indicator and the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SafeAreaTaken;
+
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SafeAreaTaken {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+crate::register_inspectable!(SafeAreaTaken);
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
@@ -858,6 +879,11 @@ pub struct Ctx {
   effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   contexts_debug: Vec<ComponentContextDebug>,
+  #[cfg(feature = "devtools")]
+  render_debug: ComponentRenderDebug,
+  /// When the render that is running began: what its time is measured from.
+  #[cfg(feature = "devtools")]
+  render_started: Option<Instant>,
   theme: Option<Theme>,
   window: Option<crate::app::window::Window>,
   breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
@@ -955,15 +981,32 @@ pub struct ComponentMemoDebug {
 #[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComponentValueChangeDebug {
+  /// Which change this is among all the changes of every signal and memo of the process, from 1: a later one has
+  /// a greater number, so what happened after a moment is told from what happened before it.
+  pub sequence: u64,
   pub timestamp: String,
   pub from_value: String,
   pub to_value: String,
 }
 
+/// Numbers the changes DevTools is told of ([`ComponentValueChangeDebug::sequence`]).
+#[cfg(feature = "devtools")]
+static NEXT_VALUE_CHANGE: AtomicU64 = AtomicU64::new(1);
+
 #[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComponentEffectDebug {
   pub id: usize,
+}
+
+/// How a component has rendered, for DevTools: counted where its render is called.
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ComponentRenderDebug {
+  /// How many times it has rendered since it was mounted.
+  pub count: u64,
+  /// How long its last render took, with the renders of what it mounted in it.
+  pub last: Duration,
 }
 
 #[cfg(feature = "devtools")]
@@ -974,10 +1017,90 @@ pub enum ComponentContextKind {
 }
 
 #[cfg(feature = "devtools")]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ComponentContextDebug {
   pub kind: ComponentContextKind,
   pub type_name: Arc<str>,
+  /// Whether it is a reactive context (`create_context`, `consume_context`): one whose value is set, and
+  /// renders what reads it again.
+  pub reactive: bool,
+  /// What a provided context holds, and how that changed. A context that is read here has neither: they are
+  /// its provider's.
+  value: Arc<Mutex<Option<Vec<ComponentInfo>>>>,
+  history: Arc<Mutex<Vec<ComponentContextChangeDebug>>>,
+}
+
+/// One change of what a context holds, as its type wrote the value before and the value after.
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentContextChangeDebug {
+  /// Which change this is among all the changes DevTools is told of, as a signal's is
+  /// ([`ComponentValueChangeDebug::sequence`]): the two count together.
+  pub sequence: u64,
+  pub timestamp: String,
+  pub from_value: Vec<ComponentInfo>,
+  pub to_value: Vec<ComponentInfo>,
+}
+
+#[cfg(feature = "devtools")]
+impl ComponentContextDebug {
+  /// What the context holds, as its type writes itself for DevTools: its fields, or one `value`. Empty for a
+  /// type that writes nothing of itself; `None` for a context that is read here and not provided.
+  pub fn value(&self) -> Option<Vec<ComponentInfo>> {
+    self.value.lock().clone()
+  }
+
+  /// The last 64 changes of what it holds, the oldest first.
+  pub fn history(&self) -> Vec<ComponentContextChangeDebug> {
+    self.history.lock().clone()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl PartialEq for ComponentContextDebug {
+  fn eq(&self, other: &Self) -> bool {
+    self.kind == other.kind
+      && self.type_name == other.type_name
+      && self.reactive == other.reactive
+      && self.value() == other.value()
+      && self.history() == other.history()
+  }
+}
+
+/// Takes the value a provided context holds now: where it is another than the one held before, the change is
+/// recorded.
+#[cfg(feature = "devtools")]
+fn record_context_value(
+  held: &Mutex<Option<Vec<ComponentInfo>>>,
+  history: &Mutex<Vec<ComponentContextChangeDebug>>,
+  next: Vec<ComponentInfo>,
+) {
+  let mut held = held.lock();
+  if held.as_ref() == Some(&next) {
+    return;
+  }
+  if let Some(previous) = held.as_ref() {
+    let mut history = history.lock();
+    history.push(ComponentContextChangeDebug {
+      sequence: NEXT_VALUE_CHANGE.fetch_add(1, Ordering::Relaxed),
+      timestamp: current_compact_timestamp(),
+      from_value: previous.clone(),
+      to_value: next.clone(),
+    });
+    if history.len() > 64 {
+      let overflow = history.len() - 64;
+      history.drain(0..overflow);
+    }
+  }
+  *held = Some(next);
+}
+
+/// What a value writes of itself for DevTools, where its type registered an inspector
+/// (`#[derive(DevtoolsInspectable)]`, `register_inspectable!`): nothing where it did not. No bound asks a
+/// context's type for one.
+#[cfg(feature = "devtools")]
+fn inspected<T: 'static>(value: &T) -> Vec<ComponentInfo> {
+  crate::app::component::inspect_registered(value).unwrap_or_default()
 }
 
 #[cfg(feature = "devtools")]
@@ -1087,6 +1210,7 @@ fn update_debug_value_history(
   if let Some(previous) = current_value.as_ref() {
     let mut history = history.lock();
     history.push(ComponentValueChangeDebug {
+      sequence: NEXT_VALUE_CHANGE.fetch_add(1, Ordering::Relaxed),
       timestamp: current_compact_timestamp(),
       from_value: previous.to_string(),
       to_value: next_value
@@ -1103,15 +1227,56 @@ fn update_debug_value_history(
   *current_value = next_value;
 }
 
+/// The moment a value changed, as DevTools writes it: by the clock and the zone of the system, where the
+/// engine can read the zone (`core::Time::now`), and in UTC where it cannot.
 #[cfg(feature = "devtools")]
 fn current_compact_timestamp() -> String {
   let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-  let millis = duration.subsec_millis();
-  let seconds_of_day = duration.as_secs() % 86_400;
+  compact_timestamp(
+    duration.as_secs(),
+    duration.subsec_millis(),
+    crate::core::Time::now().seconds(),
+  )
+}
+
+/// `utc_seconds` and `millis` since 1970 as a time of day in the zone where it is `local_seconds` after
+/// midnight now. The two clocks are read a moment apart, so the zone is taken to the quarter of an hour every
+/// zone is at, and the seconds and the milliseconds are those of one reading.
+#[cfg(feature = "devtools")]
+fn compact_timestamp(utc_seconds: u64, millis: u32, local_seconds: i64) -> String {
+  const DAY: i64 = 86_400;
+  const QUARTER: i64 = 900;
+  let utc_of_day = (utc_seconds % DAY as u64) as i64;
+  let zone = ((local_seconds - utc_of_day) as f64 / QUARTER as f64).round() as i64 * QUARTER;
+  let seconds_of_day = (utc_of_day + zone).rem_euclid(DAY);
   let hour = seconds_of_day / 3_600;
   let minute = seconds_of_day % 3_600 / 60;
   let second = seconds_of_day % 60;
   format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
+}
+
+#[cfg(all(test, feature = "devtools"))]
+mod timestamp_tests {
+  use super::compact_timestamp;
+
+  #[test]
+  fn a_change_is_timed_by_the_clock_of_the_zone() {
+    // 09:29:40.005 in UTC, read where it is two hours later.
+    let utc = 9 * 3_600 + 29 * 60 + 40;
+    assert_eq!(compact_timestamp(utc, 5, (utc + 2 * 3_600) as i64), "11:29:40.005");
+    // The zone's clock was read a second later: the seconds are still those of the first reading.
+    assert_eq!(compact_timestamp(utc, 5, (utc + 2 * 3_600 + 1) as i64), "11:29:40.005");
+    // A zone behind UTC, across midnight, and one at a quarter of an hour.
+    assert_eq!(compact_timestamp(3_600, 0, 20 * 3_600), "20:00:00.000");
+    assert_eq!(
+      compact_timestamp(utc, 0, (utc + 5 * 3_600 + 45 * 60) as i64),
+      "15:14:40.000"
+    );
+    // Where the zone is not read the clock is UTC's.
+    assert_eq!(compact_timestamp(utc, 250, utc as i64), "09:29:40.250");
+    // Days since 1970 do not matter.
+    assert_eq!(compact_timestamp(20_000 * 86_400 + utc, 0, utc as i64), "09:29:40.000");
+  }
 }
 
 #[cfg(feature = "devtools")]
@@ -1326,6 +1491,10 @@ impl Ctx {
       effects_debug: Vec::new(),
       #[cfg(feature = "devtools")]
       contexts_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      render_debug: ComponentRenderDebug::default(),
+      #[cfg(feature = "devtools")]
+      render_started: None,
       theme: None,
       window: None,
       breakpoint: None,
@@ -1587,6 +1756,11 @@ impl Ctx {
   #[cfg(feature = "devtools")]
   pub(crate) fn props_debug(&self) -> Option<DevtoolsInspectableDebug> {
     self.props_debug.clone()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn render_debug(&self) -> ComponentRenderDebug {
+    self.render_debug
   }
 
   #[cfg(feature = "devtools")]
@@ -1920,7 +2094,7 @@ impl Ctx {
   /// renders nothing again.
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     #[cfg(feature = "router")]
     if self.rendering
       && let Some(navigator) = (&value as &dyn std::any::Any).downcast_ref::<crate::router::Navigator>()
@@ -1938,7 +2112,7 @@ impl Ctx {
   /// handler, with the one provided there.
   pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     let id = TypeId::of::<T>();
     if self.rendering {
       let unchanged = self
@@ -1992,18 +2166,18 @@ impl Ctx {
 
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Consumed, std::any::type_name::<T>());
+    self.note_consumed(std::any::type_name::<T>(), false);
     self.note_context_read(TypeId::of::<T>());
     self.context_map.get::<T>()
   }
 
   pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(
-      ComponentContextKind::Provided,
-      std::any::type_name::<ReactiveContext<T>>(),
-    );
+    let (held, history) = self.note_provided(std::any::type_name::<ReactiveContext<T>>(), true, inspected(&value));
     let ctx = ReactiveContext::new(value);
+    // Each value the context is set to from now on is the same record's next change.
+    #[cfg(feature = "devtools")]
+    ctx.inspect_with(move |value: &T| record_context_value(&held, &history, inspected(value)));
     self.store_context(ctx.clone());
     ctx.subscribe(self.dirty_notifier(
       #[cfg(feature = "perf_profile")]
@@ -2014,10 +2188,7 @@ impl Ctx {
 
   pub fn consume_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self) -> Option<ReactiveContext<T>> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(
-      ComponentContextKind::Consumed,
-      std::any::type_name::<ReactiveContext<T>>(),
-    );
+    self.note_consumed(std::any::type_name::<ReactiveContext<T>>(), true);
     self.note_context_read(TypeId::of::<ReactiveContext<T>>());
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     ctx.subscribe(self.dirty_notifier(
@@ -2110,18 +2281,53 @@ impl Ctx {
   }
 
   #[cfg(feature = "devtools")]
-  fn push_context_debug(&mut self, kind: ComponentContextKind, type_name: &'static str) {
-    if self
+  /// The record of a context of `kind` and `type_name` this component has, made where it has none.
+  fn context_debug(
+    &mut self,
+    kind: ComponentContextKind,
+    type_name: &'static str,
+    reactive: bool,
+  ) -> &ComponentContextDebug {
+    let at = self
       .contexts_debug
       .iter()
-      .any(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name)
-    {
-      return;
-    }
-    self.contexts_debug.push(ComponentContextDebug {
-      kind,
-      type_name: Arc::from(type_name),
+      .position(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name);
+    let at = at.unwrap_or_else(|| {
+      self.contexts_debug.push(ComponentContextDebug {
+        kind,
+        type_name: Arc::from(type_name),
+        reactive,
+        value: Arc::default(),
+        history: Arc::default(),
+      });
+      self.contexts_debug.len() - 1
     });
+    &self.contexts_debug[at]
+  }
+
+  /// Tells DevTools the component provides a context that holds `value` now, and gives back the record of
+  /// what it holds and of its changes: a reactive context goes on writing to it as it is set.
+  #[cfg(feature = "devtools")]
+  #[allow(clippy::type_complexity)]
+  fn note_provided(
+    &mut self,
+    type_name: &'static str,
+    reactive: bool,
+    value: Vec<ComponentInfo>,
+  ) -> (
+    Arc<Mutex<Option<Vec<ComponentInfo>>>>,
+    Arc<Mutex<Vec<ComponentContextChangeDebug>>>,
+  ) {
+    let debug = self.context_debug(ComponentContextKind::Provided, type_name, reactive);
+    let (held, history) = (debug.value.clone(), debug.history.clone());
+    record_context_value(&held, &history, value);
+    (held, history)
+  }
+
+  /// Tells DevTools the component reads a context.
+  #[cfg(feature = "devtools")]
+  fn note_consumed(&mut self, type_name: &'static str, reactive: bool) {
+    self.context_debug(ComponentContextKind::Consumed, type_name, reactive);
   }
 
   // --- Theme ---
@@ -2933,6 +3139,10 @@ impl Ctx {
     }
     self.provided_in_render = false;
     self.clear_dirty();
+    #[cfg(feature = "devtools")]
+    {
+      self.render_started = Some(Instant::now());
+    }
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
     self.click_outside_cursor = 0;
@@ -2989,6 +3199,11 @@ impl Ctx {
   }
 
   pub(crate) fn end_render(&mut self) {
+    #[cfg(feature = "devtools")]
+    if let Some(started) = self.render_started.take() {
+      self.render_debug.count += 1;
+      self.render_debug.last = started.elapsed();
+    }
     self
       .click_outside_registry
       .lock()
