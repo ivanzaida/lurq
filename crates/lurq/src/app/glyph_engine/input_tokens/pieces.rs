@@ -106,6 +106,7 @@ impl GlyphEngine {
         min_width: 0.0,
         wrap: true,
         paragraphs: Vec::new(),
+        exact_rows: format.is_some(),
       };
       let piece = self.paragraph_piece(config);
       let gap = format
@@ -202,6 +203,7 @@ impl GlyphEngine {
           min_width: 0.0,
           wrap: true,
           paragraphs: Vec::new(),
+          exact_rows: true,
         });
         let start = -(gap + piece.size.width);
         output.glyphs.extend(piece.glyphs.iter().map(|glyph| {

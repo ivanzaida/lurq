@@ -24,7 +24,10 @@ impl LayoutEngine {
     state: &TextInputState,
     base: &TextStyle,
   ) -> Option<(Arc<str>, Vec<TokenStyle>, Vec<ParagraphFormat>)> {
-    let (text, spans) = state.styled_display()?;
+    // Kinds of paragraphs are drawn where the lines wrap and are not justified: there an empty input is laid out
+    // as its first paragraph too, for its placeholder to stand in it.
+    let kinds_drawn = state.wraps_lines() && base.text_align != crate::layout::text_style::TextAlign::Justified;
+    let (text, spans) = state.styled_display(kinds_drawn)?;
     let marks = self.text_marks.borrow().clone();
     let palette = self.palette.borrow();
     let token = |range: Range<usize>, span: &StyledSpan, base: &TextStyle| {
@@ -41,7 +44,7 @@ impl LayoutEngine {
         chip: Default::default(),
       }
     };
-    let Some((kinds, looks)) = state.paragraph_display() else {
+    let Some((kinds, looks)) = state.paragraph_display().filter(|_| kinds_drawn) else {
       let styles = spans.iter().map(|span| token(span.range.clone(), span, base)).collect();
       return Some((text, styles, Vec::new()));
     };

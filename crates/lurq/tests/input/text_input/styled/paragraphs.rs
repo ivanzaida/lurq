@@ -385,3 +385,84 @@ fn styled_underline_is_a_mark_toggled_and_drawn_as_a_line_under_its_text() {
   assert!(editor.controller.toggle_mark(TextMark::Underline).unwrap());
   assert!(editor.spans().is_empty());
 }
+
+#[test]
+fn styled_kinds_are_drawn_where_the_lines_wrap_and_are_not_justified() {
+  use lurq::{components::TextInput, layout::text_style::TextAlign};
+  let dots = |snapshot: &RenderSnapshot| snapshot.rects.iter().filter(|rect| rect.color == DOT).count();
+  let build = |configure: fn(TextInput) -> TextInput| {
+    let kinds = Signal::new(vec![Heading(2), Bullet, Bullet]);
+    let bound = kinds.clone();
+    let editor = Editor::with("Title\none\ntwo", vec![], move |input| {
+      configure(input.paragraphs(bound.clone(), looks()))
+    });
+    (editor, kinds)
+  };
+  // Where the lines wrap, each kind is drawn: two dots.
+  let (mut wrapped, _) = build(|input| input);
+  assert_eq!(dots(&wrapped.render()), 2);
+  // A justified input and one whose lines do not wrap draw every paragraph as body text.
+  for configure in [
+    (|input| input.text_align(TextAlign::Justified)) as fn(TextInput) -> TextInput,
+    |input| input.wrap(false),
+  ] {
+    let (mut plain, kinds) = build(configure);
+    let snapshot = plain.render();
+    assert_eq!(dots(&snapshot), 0);
+    assert!(
+      glyphs(&snapshot, HEADING).is_empty(),
+      "the heading is in the input's own type"
+    );
+    // The kinds are still kept, moved by an edit and set from the controller.
+    plain.select(5, 5);
+    plain.key("Enter");
+    assert_eq!(kinds.get(), [Heading(2), Heading(2), Bullet, Bullet]);
+    assert!(plain.controller.set_paragraphs(Quote).unwrap());
+    assert_eq!(kinds.get(), [Heading(2), Quote, Bullet, Bullet]);
+  }
+}
+
+#[test]
+fn styled_a_row_of_a_kind_is_as_high_as_its_line_says_whatever_the_font() {
+  // A line lower than the font's own: 14 on a line of 1, where the font's ascent and descent are more.
+  let kinds = Signal::new(vec![Body, Body, Body]);
+  let bound = kinds.clone();
+  let looks = ParagraphStyles::new().with(Body, ParagraphStyle::new().line_height(1.0));
+  let editor = Editor::with("one\ntwo\nthree", vec![], move |input| {
+    input.paragraphs(bound.clone(), looks.clone())
+  });
+  let rows: Vec<f32> = [0, 4, 8]
+    .into_iter()
+    .map(|byte| editor.controller.caret_point(byte).unwrap().y)
+    .collect();
+  assert!((rows[1] - rows[0] - 14.0).abs() < 0.01, "{rows:?}");
+  assert!((rows[2] - rows[1] - 14.0).abs() < 0.01, "{rows:?}");
+}
+
+#[test]
+fn styled_an_empty_input_with_kinds_draws_its_placeholder_as_its_first_paragraph() {
+  let kinds = Signal::new(vec![Bullet]);
+  let bound = kinds.clone();
+  let mut editor = Editor::with("", vec![], move |input| {
+    input.paragraphs(bound.clone(), looks()).placeholder("An item")
+  });
+  let snapshot = editor.render();
+  // The item's dot is drawn, and the caret stands after its indent.
+  assert_eq!(snapshot.rects.iter().filter(|rect| rect.color == DOT).count(), 1);
+  assert!((editor.controller.caret_point(0).unwrap().x - INDENT).abs() < 0.01);
+  // The placeholder starts where the item's text would: its first glyph where that of the same words typed is (a
+  // glyph's box hangs a little before its pen, so the two are compared with each other, not with the indent).
+  let (x, _) = origin(&mut editor);
+  let first =
+    |snapshot: &crate::support::RenderSnapshot| snapshot.glyphs.iter().map(|glyph| glyph.x).fold(f32::MAX, f32::min);
+  let placeholder = first(&snapshot);
+  let kinds = Signal::new(vec![Bullet]);
+  let mut typed = Editor::with("An item", vec![], move |input| input.paragraphs(kinds.clone(), looks()));
+  let (typed_x, _) = origin(&mut typed);
+  let text = first(&typed.render());
+  assert!(
+    ((placeholder - x) - (text - typed_x)).abs() < 0.5,
+    "the placeholder at {placeholder}, the text at {text}"
+  );
+  assert!(placeholder - x > INDENT - 3.0, "after the indent: {placeholder}");
+}

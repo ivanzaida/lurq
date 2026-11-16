@@ -56,6 +56,7 @@ fn config(text: &str, styled: bool) -> InputConfig {
     min_width: 0.0,
     wrap: true,
     paragraphs: Vec::new(),
+    exact_rows: false,
   }
 }
 

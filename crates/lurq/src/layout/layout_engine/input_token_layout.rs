@@ -162,6 +162,7 @@ impl LayoutEngine {
       wrap: multiline,
       // Kinds of paragraphs are laid out where the text wraps, a paragraph at a time.
       paragraphs: if wrap { paragraphs } else { Vec::new() },
+      exact_rows: false,
     });
     let preferred = Size::new(
       if wrap {

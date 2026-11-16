@@ -16,6 +16,7 @@ fn config(source: &str, wrap: bool) -> InputConfig {
     min_width: 300.0,
     wrap,
     paragraphs: Vec::new(),
+    exact_rows: false,
     styles: vec![TokenStyle {
       range: start..start + 14,
       text: base,

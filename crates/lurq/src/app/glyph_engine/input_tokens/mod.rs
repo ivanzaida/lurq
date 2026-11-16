@@ -104,6 +104,10 @@ pub(crate) struct InputConfig {
   /// a paragraph past the end of it, and every one of an input without kinds, is laid out in `base` from the
   /// start of the input.
   pub(crate) paragraphs: Vec<ParagraphFormat>,
+  /// Rows are as high as the line height of the type says, whatever the font's own line is: a font whose ascent
+  /// and descent are more than the line draws past it, as in CSS. A paragraph with a kind is laid out so, for a
+  /// kind's rows to be the same in every font; any other row is never lower than its font's line.
+  pub(crate) exact_rows: bool,
 }
 
 /// How one hard paragraph is laid out and what is drawn before it.

@@ -42,7 +42,13 @@ impl LayoutEngine {
   ) {
     let squiggles = state.squiggles();
     let ghost = state.shown_ghost();
-    if squiggles.is_none() && ghost.is_none() {
+    // The placeholder of an empty input whose kinds of paragraphs are drawn: the input's layout is its one empty
+    // paragraph, with what stands before it, and the placeholder is drawn in that paragraph's type and place.
+    let kind = state
+      .painted_layout()
+      .filter(|_| state.is_showing_placeholder())
+      .and_then(|layout| layout.config.paragraphs.first().cloned());
+    if squiggles.is_none() && ghost.is_none() && kind.is_none() {
       return;
     }
     let padding = self.resolved_padding_for_size(node, result.size);
@@ -79,6 +85,36 @@ impl LayoutEngine {
             });
           }
         }
+      }
+    }
+    if let Some(format) = kind
+      && let Some(placeholder) = state.placeholder()
+    {
+      let mut text = format.base.clone();
+      text.color = palette.text_color(placeholder_style.unwrap_or(style));
+      let x = abs_x + padding.left + format.indent;
+      let width = (viewport.x + viewport.width - x).max(0.0);
+      if width > 0.0 {
+        let (x, y, transform, transform_origin) = transformed_quad_frame(x, abs_y + padding.top, transform);
+        quads.push(Quad {
+          x,
+          y,
+          width,
+          height: content_height,
+          opacity,
+          transform,
+          transform_origin,
+          content: QuadContent::Text {
+            text: placeholder,
+            style: text,
+            wrap: true,
+            vertical_align: VerticalAlign::LineBox,
+            transform_mode: TextTransformMode::Bitmap,
+          },
+          border_radius: None,
+          border: None,
+          clip: marks_clip,
+        });
       }
     }
     if let Some(ghost) = ghost {

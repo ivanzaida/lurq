@@ -57,11 +57,14 @@ impl DecoratedInputLayout {
     coverage: Range<usize>,
     rtl: bool,
   ) {
-    let height = row
+    let line = row
       .line_height_opt
-      .unwrap_or(self.config.base.font_size * self.config.base.line_height)
-      .max(row.max_ascent + row.max_descent)
-      .max(1.0);
+      .unwrap_or(self.config.base.font_size * self.config.base.line_height);
+    let height = if self.config.exact_rows {
+      line.max(1.0)
+    } else {
+      line.max(row.max_ascent + row.max_descent).max(1.0)
+    };
     let top = self.size.height;
     let band_top = (height - row.max_ascent - row.max_descent) * 0.5;
     let baseline = top + band_top + row.max_ascent;
