@@ -335,10 +335,7 @@ impl TransitionEngine {
     }
     let ticked = node.layout_cache.take_ticked();
     let unchanged = ticked.as_ref().is_some_and(|ticked| {
-      !self.theme_changed
-        && ticked.epoch == self.epoch
-        && ticked.generation == node.layout_cache.watch().generation()
-        && ticked.world == crate::node::layout_cache::world_changes()
+      !self.theme_changed && ticked.epoch == self.epoch && ticked.is_current(node.layout_cache.watch())
     });
     if let (true, Some(ticked)) = (unchanged, ticked) {
       let ids = ticked.ids.clone();
@@ -371,6 +368,7 @@ impl TransitionEngine {
       .layout_cache
       .set_ticked(Some(Box::new(crate::node::layout_cache::TickedClean {
         generation: node.layout_cache.watch().generation(),
+        ticks: node.layout_cache.watch().ticks(),
         epoch: self.epoch,
         world: crate::node::layout_cache::world_changes(),
         ids: ids.clone(),

@@ -112,26 +112,33 @@ mod frame_sections {
 
   thread_local! {
     static SECTIONS: RefCell<Vec<(&'static str, Duration, u32)>> = const { RefCell::new(Vec::new()) };
+    /// Whether anything reads the sections on this thread: from the first [`take_frame_sections`], or while
+    /// `LURQ_FRAME_SECTIONS_LOG` writes them. Until then a section reads no clock and keeps nothing, so a build
+    /// with `perf_profile` costs a tree what one without it does.
+    static COLLECTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   }
 
   /// Times a section until it is dropped, and adds that to its name's total.
   pub(crate) struct FrameSection {
     name: &'static str,
-    started: Instant,
+    started: Option<Instant>,
   }
 
   impl FrameSection {
     pub(crate) fn new(name: &'static str) -> Self {
       Self {
         name,
-        started: Instant::now(),
+        started: COLLECTING.with(std::cell::Cell::get).then(Instant::now),
       }
     }
   }
 
   impl Drop for FrameSection {
     fn drop(&mut self) {
-      let elapsed = self.started.elapsed();
+      let Some(started) = self.started else {
+        return;
+      };
+      let elapsed = started.elapsed();
       SECTIONS.with(|sections| {
         let mut sections = sections.borrow_mut();
         match sections.iter_mut().find(|(name, ..)| *name == self.name) {
@@ -146,7 +153,10 @@ mod frame_sections {
   }
 
   /// Each section's total time and how many times it ran since the last call, in the order they first ran.
+  ///
+  /// The first call turns the sections on for this thread: what ran before it was not timed.
   pub fn take_frame_sections() -> Vec<(&'static str, Duration, u32)> {
+    COLLECTING.with(|collecting| collecting.set(true));
     SECTIONS.with(|sections| std::mem::take(&mut *sections.borrow_mut()))
   }
 
@@ -160,6 +170,7 @@ mod frame_sections {
     let Some(path) = std::env::var_os("LURQ_FRAME_SECTIONS_LOG") else {
       return;
     };
+    COLLECTING.with(|collecting| collecting.set(true));
     let passes = PASSES.with(|passes| {
       passes.set(passes.get() + 1);
       passes.get()

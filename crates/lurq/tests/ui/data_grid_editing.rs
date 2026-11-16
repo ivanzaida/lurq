@@ -16,7 +16,7 @@ use super::stage::Stage;
 
 const STATUSES: [&str; 3] = ["Building", "Passing", "Failed"];
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
 struct File {
   name: String,
   status: usize,

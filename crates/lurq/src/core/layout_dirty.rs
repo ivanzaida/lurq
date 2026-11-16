@@ -12,6 +12,10 @@ static GENERATION: AtomicU64 = AtomicU64::new(1);
 pub(crate) struct LayoutWatch {
   generation: AtomicU64,
   local_generation: AtomicU64,
+  /// The subtree's revision of what its nodes are styled by without a layout: a state of interaction that changed
+  /// in it (its own, by `within` or by an interaction group). What a transition engine's clean mark is held to,
+  /// with [`Self::generation`].
+  ticks: AtomicU64,
   parent: Mutex<Weak<LayoutWatch>>,
 }
 
@@ -21,6 +25,7 @@ impl LayoutWatch {
     Arc::new(Self {
       generation: AtomicU64::new(generation),
       local_generation: AtomicU64::new(generation),
+      ticks: AtomicU64::new(0),
       parent: Mutex::new(Weak::new()),
     })
   }
@@ -37,6 +42,25 @@ impl LayoutWatch {
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
     self.local_generation.fetch_max(generation, Ordering::Relaxed);
     self.mark_generation(generation);
+  }
+
+  /// The subtree's revision of its state styles: see [`Self::mark_tick`].
+  pub(crate) fn ticks(&self) -> u64 {
+    self.ticks.load(Ordering::Relaxed)
+  }
+
+  /// Notes that a state of interaction of this node changed, on it and on its ancestors: not a layout, but what a
+  /// state style heads to. Only the way from the root to the node is then ticked again.
+  pub(crate) fn mark_tick(&self) {
+    self.mark_ticks(GENERATION.fetch_add(1, Ordering::Relaxed));
+  }
+
+  fn mark_ticks(&self, ticks: u64) {
+    self.ticks.fetch_max(ticks, Ordering::Relaxed);
+    let parent = self.parent.lock().upgrade();
+    if let Some(parent) = parent {
+      parent.mark_ticks(ticks);
+    }
   }
 
   pub(crate) fn mark_descendant(&self) {
@@ -97,6 +121,15 @@ impl LayoutSubscribers {
     let watches = self.watches.lock();
     for watch in watches.iter().filter_map(Weak::upgrade) {
       watch.mark();
+    }
+  }
+
+  /// Notes on every node bound to the state, and on their ancestors, that a state of interaction changed: see
+  /// [`LayoutWatch::mark_tick`].
+  pub(crate) fn mark_tick(&self) {
+    let watches = self.watches.lock();
+    for watch in watches.iter().filter_map(Weak::upgrade) {
+      watch.mark_tick();
     }
   }
 }
