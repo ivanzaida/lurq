@@ -121,6 +121,7 @@ mod token_input;
 mod tokens;
 mod toolbar;
 mod tooltip;
+mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
@@ -552,6 +553,14 @@ pub const PAGES: &[Page] = &[
     about: "year picker years decade grid birth new optional controlled controlled_optional min max today locale previous_label next_label memory label invalid disabled on_change",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<year_picker::YearPickerPage>(()),
+  },
+  Page {
+    path: "/tree-select",
+    name: "Tree Select",
+    icon: Some("list-tree"),
+    about: "tree select treeselect cascader hierarchy nested options folder file category dropdown combobox panel branches leaves path new optional multiple controlled controlled_optional controlled_multiple on_change open branches branches_controlled on_branch_change leaves_only path separator_text max_shown placeholder size clearable clear_label empty_text invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<tree_select::TreeSelectPage>(()),
   },
   Page {
     path: "/tooltip",

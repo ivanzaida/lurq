@@ -130,6 +130,7 @@ mod toggletip;
 mod token_input;
 mod toolbar;
 mod tooltip;
+mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;

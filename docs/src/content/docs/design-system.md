@@ -2571,6 +2571,64 @@ MultiSelect::new(languages.clone(), [
 - It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
+## Tree Select
+
+A select whose options are a tree: a file of a project, a category of a catalogue, the folders a search looks in.
+
+```rust
+use lurq::ui::{TreeItem, TreeSelect};
+
+// file: Signal<Option<&str>>: one or none, of the files alone.
+TreeSelect::optional(file, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
+      TreeItem::file("lib.rs", "lib.rs"),
+      TreeItem::file("theme.rs", "theme.rs"),
+    ]),
+  ]),
+  TreeItem::file("Cargo.toml", "Cargo.toml"),
+])
+.label("File")
+.placeholder("Select a file")
+.leaves_only(true)
+.clearable(true)
+.mount(ctx);
+
+// Any number: a press adds a row or takes it out, and the panel stays open.
+TreeSelect::multiple(folders, items).max_shown(2).mount(ctx);
+
+// Held by the app, which is told each choice.
+TreeSelect::controlled(app.file(), items, |file| app.open(file));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)`, `optional(value, items)`, `multiple(values, items)` | The tree's items (`TreeItem<T>`, a [tree view](#tree-view)'s) and what is chosen of them, bound to a `Signal<T>`, a `Signal<Option<T>>` or a `Signal<Vec<T>>` |
+| `controlled(value, items, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same held by the app, which is told `on_change(&T)`, `on_change(&Option<T>)` or `on_change(&[T])` and shows what it gives back |
+| `on_change(handler)` | Told what is chosen after a choice a person makes, after the signal is set; not for the row chosen already, nor when the app sets the signal. The select is `TreeSelect<T, T>`, `TreeSelect<T, Option<T>>` or `TreeSelect<T, [T]>`, so a handler of another type does not compile |
+| `open(Signal<bool>)` | Whether the panel is open, where the app keeps it. `on_open_change(bool)` hears each change a person makes, a choice too; `on_dismiss()` Escape and a press outside, before it |
+| `branches(Signal<Vec<T>>)`, `branches_controlled(open, on_branch_change)` | The branches of the tree that are open, where the app keeps them. `on_branch_change(&value, open)` hears each one a press or a key opens or closes: where a lazy item's children are brought |
+| `leaves_only(bool)` | A press of a row that holds others opens or closes it in place of choosing it: only what holds nothing is chosen |
+| `path(bool)`, `separator_text(&str)` | The trigger of a select of one says the whole path to what is chosen, `crates / lurq / lib.rs` (it does unless told otherwise), or its label alone; and what stands between the steps, `" / "` |
+| `max_shown(n)` | How many labels the trigger of a select of any number says before it counts the rest, `lib.rs, theme.rs +2` |
+| `placeholder(&str)`, `size(TreeSelectSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open; a full width one's panel is as wide as it is |
+| `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a select that may hold none; and what it is called, "Clear" |
+| `empty_text(&str)` | What the panel says where the tree has no items: "No options" |
+| `label(&str)`, `panel_label(&str)` | What the select is called to what reads the tree, and its panel and its tree in place of that |
+| `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the tree with `-tree`, the cross with `-clear` |
+| `mount(ctx)` | In place of converting it: the select keeps whether it is open, the trigger the focus goes back to and which branches are open |
+
+- It is built of what is there already: its trigger is a [select](#select)'s box (the same recipe, sizes, ring and judgments), its panel a [popover](#popover) and what the panel holds a [tree view](#tree-view), with a tree's rows, icons, chevrons and keys. What a `TreeItem` has, it has here: `disabled`, `lazy`, `trailing`.
+- A press, Enter, Space, Down or Up on the trigger opens the panel, and the focus goes to the chosen row, or the first. Up and Down move through the rows, Right and Left open, close and go in and out, a letter goes to the next row that starts with it. Of one, a press of a row or Space chooses it, Enter does on a row that holds nothing (on one that holds others it opens or closes it), and the panel closes first and the handler is told after, so a handler that opens a dialog keeps its focus. Of any number, a press of a row or Space adds it or takes it out, a press with Shift chooses the rows from the last chosen to it, and the panel stays open.
+- The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Tab in the panel leaves the tree, which is one stop.
+- A select that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and which branches are open. As the panel opens, the branches the chosen rows are in open, so it opens on what is chosen; while it is open nothing opens or closes but by a person, so a row taken out of what is chosen stays under the focus.
+- A select of any number has no checkboxes: the board draws none, and its rows are a tree's, in the highlight while they are chosen.
+- To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `tree`, `a11y_expanded`, `a11y_value` (what it says), `a11y_invalid`, `a11y_readonly` and `a11y_multiselectable` where they hold; the panel a `dialog` and what it holds a `tree` of `treeitem`s, called by the select's label.
+- Parts: `TreeSelectPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon`, `Panel` (laid over the popover's panel), `Tree` (its greatest height, past which the tree scrolls), `Row`, `RowIcon` and `RowLabel` (laid over the tree view's row, icon and label) and `Empty`. States: a select's, `TreeSelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
+- A theme's renderer is given `TreeSelectView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.panel()` and `view.render()`. It is set for `TreeSelect<T>` of any `T`.
+
 ## Token Input
 
 A box that holds a list as tokens, with what is being typed after them: tags, recipients. Or a text in which the app
