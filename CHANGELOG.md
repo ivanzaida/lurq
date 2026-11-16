@@ -459,6 +459,7 @@ Fixes:
 - `ui::DatePicker`, `ui::DateRangePicker`, `ui::TimePicker` and `ui::ColorField` are no wider than the room they have: the field and its panel were held in a box as wide as the field made itself, so the field's greatest width was a share of nothing.
 - A `ui::MessageBox` too narrow for its checkbox (or its plain answer) and its other answers on one line puts the answers on a line under it. They ran out of the box.
 - What is left of a `ui::Toast`'s time is a share of its rail and not the recipe's width in pixels: in a toast narrower than its recipe (a narrow window) it ran out from past the toast's end, and stood still for the first of its time.
+- A `ui::Splitter` gives its panes back what a narrower room took from them when the room is wide again: a pane cut down to its least size, or a share that grew as the others were cut, was kept so in the sizes it writes, and a window dragged narrow and wide again had other panes than one opened wide. While the sizes are the ones its own fit wrote, it fits from what they were before; sizes a person or the app sets are taken as they are. A `ui::DockLayout`'s splits are splitters, and follow the same.
 
 ## 0.61.1 — 2026-11-13
 
