@@ -1,5 +1,9 @@
 #[cfg(feature = "canvas")]
 mod canvas;
+#[cfg(all(windows, feature = "raster"))]
+mod card_frames;
+#[cfg(all(test, windows, feature = "raster", feature = "media"))]
+mod card_frames_tests;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
@@ -7,10 +11,6 @@ mod gradients;
 mod layers;
 #[cfg(test)]
 mod quad_tests;
-#[cfg(all(windows, feature = "raster"))]
-mod shared_nv12;
-#[cfg(all(test, windows, feature = "raster", feature = "media"))]
-mod shared_nv12_tests;
 mod surface_proxy;
 mod vertex;
 
@@ -259,15 +259,10 @@ enum CachedImageTexture {
     frame_index: usize,
     version: u64,
   },
-  /// The frames of a video that stay on the card: each of its textures opened once, and the one that is shown
-  /// drawn.
+  /// The frames of a video that stay on the card: each of its surfaces opened once, and the one that holds the
+  /// frame to draw drawn.
   #[cfg(windows)]
-  SharedNv12 {
-    slots: Vec<shared_nv12::Slot>,
-    frames: crate::images::SharedNv12Frames,
-    width: u32,
-    height: u32,
-  },
+  Card(card_frames::Opened),
 }
 
 #[cfg(all(feature = "raster", target_os = "macos"))]
@@ -322,6 +317,21 @@ unsafe extern "C" {
   fn CVMetalTextureGetTexture(image: CVMetalTextureRef) -> *mut c_void;
 }
 
+/// The part of its texture `image` is drawn from: the part it asks for, within the picture's part of the
+/// texture where its frames stay on the card and the picture is not all of it.
+#[cfg(feature = "raster")]
+fn drawn_part(
+  cache: &std::collections::HashMap<u64, CachedImageTexture>,
+  image: &crate::images::ImageCmd,
+) -> ([f32; 2], [f32; 2]) {
+  #[cfg(windows)]
+  if let Some(CachedImageTexture::Card(opened)) = cache.get(&image.image_id) {
+    return opened.part(image.uv_min, image.uv_max);
+  }
+  let _ = cache;
+  (image.uv_min, image.uv_max)
+}
+
 #[cfg(feature = "raster")]
 impl CachedImageTexture {
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
@@ -337,17 +347,18 @@ impl CachedImageTexture {
           && *width == image.image_width
           && *height == image.image_height
           && animation_frames.as_ref().map(Vec::len) == image.animation_frames.as_ref().map(|frames| frames.len())
+          && !is_card_frames(image)
       }
       // Frames of memory are not frames of the card, though both are NV12.
       Self::Nv12 { width, height, .. } => {
         image.image_format == crate::images::ImagePixelFormat::Nv12
           && *width == image.image_width
           && *height == image.image_height
-          && !shared_nv12_of(image)
+          && !is_card_frames(image)
       }
       #[cfg(windows)]
-      Self::SharedNv12 { width, height, .. } => {
-        shared_nv12_of(image) && *width == image.image_width && *height == image.image_height
+      Self::Card(opened) => {
+        card_frames::of(image).is_some_and(|frames| opened.is_of(frames, (image.image_width, image.image_height)))
       }
     }
   }
@@ -355,13 +366,13 @@ impl CachedImageTexture {
 
 /// Whether `image` is frames that stay on the card.
 #[cfg(feature = "raster")]
-fn shared_nv12_of(image: &crate::images::ImageCmd) -> bool {
+fn is_card_frames(image: &crate::images::ImageCmd) -> bool {
   #[cfg(windows)]
   {
     image
       .native
       .as_ref()
-      .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::SharedNv12)
+      .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::CardFrames)
   }
   #[cfg(not(windows))]
   {
@@ -410,6 +421,9 @@ pub struct WgpuRenderEngine {
   image_sampler: Option<wgpu::Sampler>,
   #[cfg(feature = "raster")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
+  /// The leases of the card's frames that are drawn no more, until the card has finished with them.
+  #[cfg(all(feature = "raster", windows))]
+  card_leases: card_frames::Leases,
   #[cfg(feature = "raster")]
   image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
@@ -694,6 +708,8 @@ impl WgpuRenderEngine {
       image_sampler: None,
       #[cfg(feature = "raster")]
       image_texture_cache: std::collections::HashMap::new(),
+      #[cfg(all(feature = "raster", windows))]
+      card_leases: card_frames::Leases::default(),
       #[cfg(feature = "raster")]
       image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
@@ -1079,7 +1095,7 @@ impl WgpuRenderEngine {
     };
     // What decodes a video decodes on the card this draws on, and its frames stay there.
     #[cfg(all(windows, feature = "raster"))]
-    shared_nv12::announce(&device);
+    card_frames::announce(&device);
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
@@ -2056,22 +2072,82 @@ impl RenderEngine for WgpuRenderEngine {
 
     #[cfg(feature = "raster")]
     let _image_upload_start = profile_scope!();
+    // The frames that stay on the card: their surfaces are opened once, and the frame to draw is taken now, for
+    // the part of its texture an image is drawn from is the frame's to say.
+    #[cfg(all(feature = "raster", windows))]
+    if let (Some(image_bgl), Some(nv12_image_bgl), Some(image_sampler)) = (
+      self.image_bgl.as_ref(),
+      self.nv12_image_bgl.as_ref(),
+      self.image_sampler.as_ref(),
+    ) {
+      for img in &list.images {
+        let Some(frames) = card_frames::of(img) else {
+          continue;
+        };
+        let kept = self
+          .image_texture_cache
+          .get(&img.image_id)
+          .is_some_and(|cached| cached.is_compatible(img));
+        if !kept {
+          self.image_texture_cache.remove(&img.image_id);
+          self.image_clip_bind_groups.clear();
+          let bind = |first: &wgpu::TextureView, second: Option<&wgpu::TextureView>| {
+            let globals = wgpu::BindGroupEntry {
+              binding: 0,
+              resource: globals_buffer.as_entire_binding(),
+            };
+            let view = |binding, view| wgpu::BindGroupEntry {
+              binding,
+              resource: wgpu::BindingResource::TextureView(view),
+            };
+            let sampler = |binding| wgpu::BindGroupEntry {
+              binding,
+              resource: wgpu::BindingResource::Sampler(image_sampler),
+            };
+            match second {
+              Some(second) => device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_card_frame_planes_bg"),
+                layout: nv12_image_bgl,
+                entries: &[globals, view(1, first), view(2, second), sampler(3)],
+              }),
+              None => device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lurq_card_frame_bg"),
+                layout: image_bgl,
+                entries: &[globals, view(1, first), sampler(2)],
+              }),
+            }
+          };
+          let size = (img.image_width, img.image_height);
+          if let Some(opened) = card_frames::Opened::open(device, frames, size, &self.card_leases, bind) {
+            self
+              .image_texture_cache
+              .insert(img.image_id, CachedImageTexture::Card(opened));
+          }
+        }
+        if let Some(CachedImageTexture::Card(opened)) = self.image_texture_cache.get_mut(&img.image_id) {
+          opened.pick();
+        }
+      }
+    }
+
     #[cfg(feature = "raster")]
     let image_instance_buf = {
       self.scratch_image_instances.clear();
       self.scratch_image_instances.reserve(list.images.len());
-      self
-        .scratch_image_instances
-        .extend(list.images.iter().map(|img| ImageInstance {
+      let cache = &self.image_texture_cache;
+      self.scratch_image_instances.extend(list.images.iter().map(|img| {
+        let (uv_min, uv_max) = drawn_part(cache, img);
+        ImageInstance {
           pos: [img.x, img.y],
           size: [img.width, img.height],
           opacity: [img.opacity, canvas_image_flag(&img.native), 0.0, 0.0],
           transform: img.transform,
           xf_origin: img.transform_origin,
-          uv_min: img.uv_min,
-          uv_max: img.uv_max,
+          uv_min,
+          uv_max,
           radii: img.radii,
-        }));
+        }
+      }));
       self
         .image_instance_buffer
         .write(device, queue, &self.scratch_image_instances)
@@ -2590,6 +2666,7 @@ impl RenderEngine for WgpuRenderEngine {
 
               if external_wgpu_image.is_none()
                 && canvas_image.is_none()
+                && !is_card_frames(img)
                 && !self.image_texture_cache.contains_key(&img.image_id)
               {
                 let _image_texture_upload_start = profile_scope!();
@@ -2662,15 +2739,33 @@ impl RenderEngine for WgpuRenderEngine {
                 }
                 // Nothing is sent to the card for a frame that is there already.
                 #[cfg(windows)]
-                CachedImageTexture::SharedNv12 { .. } => {}
+                CachedImageTexture::Card(_) => {}
               }
 
               if !set_scissor(&mut pass, space.clip(img.clip), &space) {
                 continue;
               }
 
-              match cached {
-                CachedImageTexture::ExternalRgba { bind_group, view, .. } => {
+              // A card's frame of red, green and blue is drawn as a texture the app gave is: one view, bound.
+              #[cfg(windows)]
+              let card_rgba = match &*cached {
+                CachedImageTexture::Card(opened) if opened.is_rgba() => match opened.drawn() {
+                  Some((surface, slot)) => Some((&slot.bind_group, &slot.first, surface)),
+                  None => continue,
+                },
+                _ => None,
+              };
+              #[cfg(not(windows))]
+              let card_rgba: Option<(&wgpu::BindGroup, &wgpu::TextureView, usize)> = None;
+              let one_view = match (&*cached, card_rgba) {
+                (_, Some(found)) => Some(found),
+                (CachedImageTexture::ExternalRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
+                _ => None,
+              };
+
+              match &*cached {
+                _ if one_view.is_some() => {
+                  let (bind_group, view, frame) = one_view.expect("just found");
                   if active_pipeline != Some(ActivePipeline::Image) {
                     pass.set_pipeline(&image_pipeline);
                     active_pipeline = Some(ActivePipeline::Image);
@@ -2679,7 +2774,7 @@ impl RenderEngine for WgpuRenderEngine {
                     let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
                     let bind_key = ImageClipBindGroupKey {
                       image_id: img.image_id,
-                      frame_index: 0,
+                      frame_index: frame,
                       clip: clip_key,
                       format: ImageClipFormat::Rgba,
                     };
@@ -2767,12 +2862,14 @@ impl RenderEngine for WgpuRenderEngine {
                       ..
                     } => (&*bind_group, &*y_view, &*uv_view, img.frame_index),
                     #[cfg(windows)]
-                    CachedImageTexture::SharedNv12 { slots, frames, .. } => {
-                      let shown = frames.shown().min(slots.len().saturating_sub(1));
-                      let Some(slot) = slots.get(shown) else {
+                    CachedImageTexture::Card(opened) => {
+                      let Some((surface, slot)) = opened.drawn() else {
                         continue;
                       };
-                      (&slot.bind_group, &slot.y_view, &slot.uv_view, shown)
+                      let Some(color) = slot.second.as_ref() else {
+                        continue;
+                      };
+                      (&slot.bind_group, &slot.first, color, surface)
                     }
                     _ => continue,
                   };
@@ -2959,6 +3056,9 @@ impl RenderEngine for WgpuRenderEngine {
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderSubmit));
     queue.submit(std::iter::once(encoder.finish()));
+    // The card's frames that were drawn before this one are let go of once the card has done this far.
+    #[cfg(all(feature = "raster", windows))]
+    self.card_leases.let_go_after(queue);
     // The textures the frame blurred backdrops into hold them from here on.
     if let Some(compositor) = self.layer_compositor.as_mut() {
       compositor.frame_submitted();
@@ -3350,9 +3450,9 @@ fn create_nv12_cached_image_texture(
   ) {
     return create_macos_native_nv12_cached_image_texture(device, nv12_image_bgl, image_sampler, globals_buffer, image);
   }
-  #[cfg(windows)]
-  if shared_nv12_of(image) {
-    return shared_nv12::cached(device, nv12_image_bgl, image_sampler, globals_buffer, image);
+  // The frames of the card are opened before the images are drawn, and are not made here.
+  if is_card_frames(image) {
+    return None;
   }
 
   let y_texture = device.create_texture(&wgpu::TextureDescriptor {

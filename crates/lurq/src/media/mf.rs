@@ -53,7 +53,7 @@ use super::{
   Command, MediaError, Opened, Shared,
   output::{CHANNELS, Output},
 };
-use crate::images::{ImageData, NativeImageData, SharedNv12Frames};
+use crate::images::{CardFrame, CardFrames, CardSurface, ImageData, NativeImageData};
 
 /// The streams that are decoded: the first video and the first sound of what is opened.
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -305,7 +305,7 @@ struct OnCard {
 /// The textures of a video's frames, of one size, and the frames an image draws from.
 struct Held {
   textures: Vec<ID3D11Texture2D>,
-  frames: SharedNv12Frames,
+  frames: CardFrames,
   width: u32,
   height: u32,
 }
@@ -315,7 +315,7 @@ impl OnCard {
   /// device, and a frame goes through memory.
   unsafe fn new() -> Option<Self> {
     unsafe {
-      let (low, high) = crate::images::shared_nv12_adapter()?;
+      let (low, high) = crate::images::card_frames_adapter()?;
       let cards: IDXGIFactory4 = CreateDXGIFactory1().ok()?;
       let card: IDXGIAdapter = cards
         .EnumAdapterByLuid(LUID {
@@ -378,7 +378,7 @@ impl OnCard {
         CPUAccessFlags: 0,
         MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0) as u32,
       };
-      let (mut textures, mut handles) = (Vec::with_capacity(FRAMES), Vec::with_capacity(FRAMES));
+      let (mut textures, mut surfaces) = (Vec::with_capacity(FRAMES), Vec::with_capacity(FRAMES));
       for _ in 0..FRAMES {
         let mut texture = None;
         self.device.CreateTexture2D(&like, None, Some(&mut texture))?;
@@ -387,13 +387,13 @@ impl OnCard {
           texture
             .cast::<IDXGIResource1>()?
             .CreateSharedHandle(None, DXGI_SHARED_RESOURCE_READ.0, PCWSTR::null())?;
-        handles.push(handle.0 as isize);
+        surfaces.push(CardSurface::Nv12(handle.0 as isize));
         textures.push(texture);
       }
       Ok(Held {
         textures,
         // SAFETY: the handles are of shared NV12 textures of one size, made here and given away to be closed.
-        frames: SharedNv12Frames::new(handles),
+        frames: CardFrames::new(surfaces),
         width,
         height,
       })
@@ -425,7 +425,7 @@ impl OnCard {
   /// Copies the frame `sample` holds into the texture after the one that is shown, and shows it. `None` where
   /// the sample is no texture of the card: the decoder gave memory. The frames themselves where they were made
   /// anew (the first frame, another size), and an image is to be made of them.
-  unsafe fn show(&mut self, sample: &IMFSample, shape: &Shape) -> Result<Option<Option<SharedNv12Frames>>> {
+  unsafe fn show(&mut self, sample: &IMFSample, shape: &Shape) -> Result<Option<Option<CardFrames>>> {
     unsafe {
       let Ok(buffer) = sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>() else {
         return Ok(None);
@@ -447,7 +447,7 @@ impl OnCard {
       let slot = if made {
         0
       } else {
-        (held.frames.shown() + 1) % held.textures.len()
+        (held.frames.shown().map_or(0, |shown| shown.surface()) + 1) % held.textures.len()
       };
       // The picture's part of the decoder's frame, which is rounded up to whole blocks.
       let picture = D3D11_BOX {
@@ -463,7 +463,7 @@ impl OnCard {
         .CopySubresourceRegion(&held.textures[slot], 0, 0, 0, 0, &decoded, slice, Some(&picture));
       // Shown once it is all there: what draws never reads a frame half copied.
       self.settle();
-      held.frames.show(slot);
+      held.frames.show(CardFrame::of(slot));
       Ok(Some(made.then(|| held.frames.clone())))
     }
   }
@@ -518,7 +518,7 @@ impl Picture {
       {
         return Ok(match made {
           Some(frames) => {
-            let native = NativeImageData::from_shared_nv12(width, height, frames);
+            let native = NativeImageData::from_card_frames(width, height, frames);
             self.image = native.image_data();
             self.native = Some(native);
             true
