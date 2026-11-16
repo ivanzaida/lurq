@@ -45,6 +45,9 @@ Deprecated:
 
 Added:
 
+- `RouterHandle::new(routes)`: a router made outside a render, for a place that is added while the app runs, such as a tab a person opens. `Ctx::router` makes the same.
+- `Tabs::move_to(key, index)`: moves a tab among the others, as a strip of tabs a person drags along asks for; the tab keeps its history, its screens and whether it is the one shown.
+- `ui::SidebarItem::on_open_aside(handler)`: called when a person asks for an item beside what is open in place of going to it, with the middle button or a press with Ctrl held (Cmd on macOS): an app with tabs opens it in a new one. Such a press does not choose the item.
 - Frame sections (`perf_profile`): a pass's steps timed by name, the walks of `update_layout` and the paint's; `lurq::app::profiler::take_frame_sections()` gives them, and `LURQ_FRAME_SECTIONS_LOG=<file>` writes their means every 120 drawn frames with the tree's size. Nothing is timed on a thread until one of the two asks: the first `take_frame_sections()` starts it. See [Frame sections](docs/src/content/docs/profiling.md#frame-sections).
 - `ui::CodeBlock`'s code is one read-only input: a stop of Tab whose arrows move a caret, Shift selecting, Ctrl+A taking it all and Ctrl+C copying, and a selection across its lines when they wrap too. `framed(false)` draws it without its frame, `header(false)` without its bar, and `row_height(..)` sets how high a line is: the gallery's code views are code blocks now. See [Code Block](docs/src/content/docs/design-system.md#code-block).
 - `lurq::code` tells apart the names of types and modules (`CodeTokenKind::Type`: a name before `::`, or one with a capital), the marks between names (`Punctuation`), block comments and characters, as the gallery's own code had them. Markdown's code blocks and `ui::CodeBlock` draw them in their roles.

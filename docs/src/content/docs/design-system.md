@@ -3570,6 +3570,7 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | `selected(bool)` | It is where the app is: the app's, following its route |
 | `disabled(bool)` | It is dimmed and takes nothing |
 | `on_select(handler)`, `href(path)` | What choosing it does: the handler, and with the `router` feature the path the router goes to. A press, Enter and Space choose |
+| `on_open_aside(handler)` | Called when a person asks for it beside what is open, in place of going to it: a press of the middle button, or a press with Ctrl held (Cmd on macOS). An app with tabs opens it in a new one. Such a press does not choose the item |
 | `child(SidebarItem)`, `children(..)`, `default_open(bool)` | Nested items, which open and close with their height under it; `default_open` is how they start, open where one of them is selected unless told |
 | `force(..)`, `id`, `key` | As a button's. `key` tells two items of one name apart |
 
