@@ -651,6 +651,10 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
 
+**In a narrow room.** A field whose label stands beside its control puts the label over the control where the
+field's own room, not the window's, is narrower than the two need side by side: the label is then as high as its
+text, and the control fills the row under it. With room again they stand side by side.
+
 ## Info Label
 
 What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.
@@ -1363,6 +1367,13 @@ Tabs::new(canvas, [(0, "Canvas"), (1, "Layout"), (2, "Text")])
 - A renderer that draws other tabs has `view.tabs` (each with its label, icon, count, and whether it is selected, disabled, set apart), `view.part(part)`, `view.tab_part(index, part)`, `view.tab(index)` (a tab with its behavior and its name to tooling), `view.list()` (the tabs as one focus group), `view.separator()`, `view.panel()` and `view.bar()` (the overflowing form).
 - `lurq::components::Tabs` is another thing: a set of places of an app, each a router with a history of its own kept while it is not shown, with a bar to move between them across the bottom or the top. Tabs of the design system are a choice within a page.
 
+**In a narrow room.** Tabs put in the tree with `mount` measure their room before a frame is painted: while the
+list along the top is wider than it, they are their overflowing form (the list between two scroll buttons, More at
+its end), scrolled to the selected tab, with no frame of the other form, and the list alone again when it fits.
+`overflow(true)` keeps that form whether or not the list fits. Tabs converted into an element on their own cannot
+measure: in a room too narrow they end their labels in an ellipsis, every tab still in the room. A theme's renderer
+gives the box that is the tabs' room `TabsView::room_ref`.
+
 ## Accordion
 
 Headers one under the other, each of which opens what is under it: questions and their answers, the sections of a long
@@ -1544,6 +1555,12 @@ Pagination::controlled(current, 12, move |to| go(to));
 - In the design the pages are ghost buttons of 36, 4 apart, the current one an outline button; previous and next are ghost buttons of 36 with a chevron of 16. The ellipsis is a box of 36 with `more-horizontal` of 16 in `MutedForeground`. A page button is at least 36 wide and 6 from its sides, so that a number of four digits or more still fits. The compact form has outline buttons of 30 for previous and next, 12 after where the list is, in the body's type at 13 in `Foreground`; its page-size select is 72 by 30 with its text at 13, 12 after its label in `MutedForeground`. A disabled button is dimmed as a button is.
 - A renderer is given a `PaginationView`: where the list is (`current`, `pages`, `shown`, `summary`), and `view.previous()`, `view.next()`, `view.page(n)`, `view.ellipsis(i)`, `view.summary()`, `view.nav()` (the row of buttons) and `view.page_size()` (its label and the select) built in the recipe's style with their behavior.
 
+**In a narrow room.** A pagination put in the tree with `mount` reads its room before a frame is painted. Narrower
+than its buttons, it draws fewer pages on each side of the current one, down to the first, the current and the last
+between two ellipses; narrower than those, it says where the list is between previous and next ("Page 6 of 12").
+With room again it draws what the app says. Its root wraps: beside a select of how many to a page the pages go on
+to a line under it, and a table's footer puts its pagination under its count.
+
 ## Steps
 
 The stages of a process in order, with one current: those before it are done, those after it are to come.
@@ -1588,6 +1605,11 @@ Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 - A pressed step has a veil of `StateHover` under the pointer and of `StatePressed` held down; the ring of the focus is around the step, which is padded 4 for it. Disabled steps are dimmed and take nothing.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
 - A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
+
+**In a narrow room.** Steps across put in the tree with `mount` measure their room: their marks are always whole;
+the titles end in an ellipsis first, then stand under their marks (the `stacked` state), and under the room the
+marks and their lines need the steps run down the page. Steps that are only built keep their marks whole and cut
+their titles.
 
 ## Badge
 
@@ -1907,6 +1929,11 @@ ScrollArea::new()
 - In the design (`Scrollbar`) the bar is a lane of 8 with no fill, padded 1, and a thumb of 6 in it, round, in `Ring`. Under the pointer, and while it is dragged, the thumb is `MutedForeground`. The lane is 2 from the edge it runs along and from the ends of the area. The board has the bar beside a list's rows and in a dialog's padding; it draws no bar across, no corner where two meet, and no bar under the pointer or dragged, which are the engine's with the board's numbers: where both bars are there, each ends before the other's lane, and the corner is no bar's.
 - Parts: `ScrollAreaPart::Root`. States: `ScrollAreaState::Vertical` and `Horizontal` (both on for an area that scrolls both ways), `Gutter`.
 - A renderer that draws another area has `view.content()`, what scrolls laid out its way, `view.bar`, the theme's bar as the area shows it, and `view.render()`.
+
+**Content that gives way first.** `ScrollHorizontal::fit_width(true)` lays content wider than the viewport out
+in the viewport's width first, so that a line gives way there by its own rules (its children shrink, or drop out
+of it), and scrolls only to what still has no room: a toolbar's controls go into its menu as it narrows, and the
+bar scrolls to the ones that stay.
 
 ## Separator
 
@@ -3877,6 +3904,13 @@ A `ToolbarCommand` is an item of the menu: `ToolbarCommand::new(label)` with `ic
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
 - A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.
 
+**In a narrow room.** With `overflow(true)` every control has a form in the menu at the end of the bar: a button,
+a toggle (checked), a group of toggles, a labelled group (under its label), a stack, and a select or a field that
+was given `in_menu`. What is kept in the bar is a control that `stays`, and a select, a field or any element with
+no `in_menu`. What is kept never runs past the bar: a bar narrower than what stays in it (and a bar without
+`overflow` narrower than its controls) scrolls sideways to it, by the wheel, a drag, and the keys, which bring the
+focused control into view. A bar that is only built has no menu, and scrolls to all of its controls.
+
 ## Action Bar
 
 The toolbar of a selection: over the list whose rows are selected, it says how many are, offers what can be done to them, and clears them.
@@ -3917,6 +3951,12 @@ Stack::new()
 - What it says is on one line. Where the room is narrower than the bar, it gives way first and is cut with an ellipsis: the actions and the clear button stay whole, at any text size.
 - Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarSide::Bottom`, `Top`.
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
+
+**In a narrow room.** A mounted bar wider than its room draws each action that has an icon as its icon alone,
+called by its label in a tooltip (`ActionBarView::compact`); an action with no icon keeps its label, and the
+count and the clear button stay. Narrower than its icons too, the actions go, the last first, into the menu of a
+More button before the clear button (`more_label`, "More actions"), and the text ends in an ellipsis only once
+every action is in the menu. A bar that is only built keeps its labels and cuts its text.
 
 ## Floating Panel
 
@@ -4131,6 +4171,10 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 - To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`. `a11y_valuenow` follows the divider as it is dragged and moved by the keys.
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.
 - A renderer that draws another splitter is given the view: `view.part(..)`, `view.thickness()` (the room between two panes), `view.sizes()`, and `view.render()` the default.
+
+**A room that changes.** A splitter follows its room: panes that a narrow room took room from have it back
+when the room grows, as a splitter first laid out at that width has them, until a person drags a handle. A dock
+layout follows through its splitters.
 
 ## Property Grid
 
@@ -4457,6 +4501,10 @@ CommandBar::new(tab.clone(), [
 - To what reads the tree it is a `group` called by its label, which holds a `tablist` and a `toolbar` called by the selected tab; a toggled command says `a11y_pressed`.
 - A renderer that draws another bar gets a `CommandBarView`: its `tabs` and its `bar`, built.
 
+**In a narrow room.** The bar's groups go behind its chevron, the last first, as a toolbar's controls do; its
+tabs, mounted with it, scroll between their buttons when they have no room; and a bar narrower than what stays
+in it scrolls sideways.
+
 ## Find Bar
 
 The search of what a view shows, hung from the top of the view over its content: the field, the count, the next and the previous match, the options of the search, and a row that replaces.
@@ -4521,6 +4569,10 @@ view.on_key_down(move |event: KeyboardEvent| {
 - To what reads the tree it is a `search` called by its label; each option says `a11y_pressed`, the chevron `a11y_expanded`, and the count is `a11y_live` polite.
 - The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
+
+**In a narrow room.** A mounted bar measures its field: where the field has no room for the options in it,
+they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
+and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it.
 
 ## Highlight
 
@@ -4730,6 +4782,12 @@ NavigationMenu::new()
 - To what reads the tree the row is a `navigation` called by its label (in a navbar, a `list` in the navbar's), an item a `link` (with `a11y_current` `page` for the page shown) or a `button` with `a11y_expanded` and `a11y_controls` naming its panel, the panel a `group` called by its item, and its links `link`s with their description.
 - A renderer for `NavigationMenu` gets a `NavigationMenuView`: `view.bar()` is the row with its style, its role and its focus group; `view.item(index)` an item's behavior with its style, `view.item_icon(index)`, `view.label(index)` and `view.chevron(index)` what it holds, and `view.panel(index)` its panel hung from it, to put after it (`view.panel_content(index)` is the panel alone); `view.item_part(index, part)` is the style of a part of one item. `view.render()` builds the menu.
 
+**In a narrow room.** A menu is as wide as its items and no wider than its room: the items it has no room for
+go, the last first, behind a More item at its end (`more_label`), which opens a menu of them, a link as an item
+(the page shown checked) and an item with a panel as its name over its panel's links. More is an item of the row
+to the keys, is drawn as the item of the page shown while that page is behind it, and is gone when every item is
+back. A theme's renderer builds the row of `NavigationMenuView::slot` and `more`.
+
 ## Table
 
 Rows of the same things in columns: crates and their status, files and their sizes, people and their roles. The columns of the header and of every row are the same widths whatever is in a cell.
@@ -4802,6 +4860,11 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 - Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Resizer` and `ResizeLine` (a column's edge), `MenuTrigger` (what opens a grid's column menu), `DropLine` (where a column dragged by its header goes), `GroupRow`, `Chevron`, `GroupLabel` and `GroupCount` (a group's row and what it shows), `Summary`, `SummaryLabel` and `SummaryValue` (a summary row and what its cells say), `RowNumber` (a row's number and the numbers' header), `Row`, `Cell`, `Select` (the checkbox column's cell), `Editor` (what holds a grid's editor), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Pinned`, `Footer`, `Disabled`, and a data grid's range of cells on its cells: `InRange` (the range's fill, on every cell of it but the focused one, the rows of the groups open reckoned as they are shown), `RangeTop`, `RangeBottom`, `RangeStart`, `RangeEnd` (its edge on that side); and on a grid's headers `Open` (its column's menu is open), `DropBefore` and `DropAfter` (a column dragged by its header goes before it, or after the last).
 - In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
 - A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in, with `view.columns_built` (which columns a mounted table built) and `in_tracks(built, cells)` to lay a row's cells out with the room of those not built. A header and a cell say their `column`. It is set for `Table<R, K>` of any `R` and `K`, a data grid's too.
+
+**In a narrow room.** A cell's text wider than its column ends in an ellipsis unless the column wraps; the
+whole text is what tooling reads of the cell. The lines of a loading table are shares of their cells, so they
+end inside a narrow column. A footer too narrow for its count and its pagination puts the pagination under the
+count.
 
 ## Charts
 

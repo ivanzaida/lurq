@@ -54,6 +54,7 @@ mod gauge;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod follows_room;
 mod forced_on_one_item;
 #[cfg(feature = "canvas")]
 mod heatmap;

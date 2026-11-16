@@ -464,14 +464,17 @@ fn a_title_is_cut_only_once_every_description_has_wrapped_as_far_as_it_can() {
   for title in ["Account", "Billing", "Workspace", "Finish"] {
     assert!(stage.paints(title), "{title:?} is whole in 493");
   }
-  // In 400 the titles cannot all be whole: the last step gives way first, and the others keep theirs.
+  // In 400 the titles cannot all be whole: the last step gives way first, down to its mark, which stays whole,
+  // then the one before it; the first ones keep theirs.
   let mut narrow = described_steps(400.0);
   let (x, _, width, _) = narrow.bounds("steps");
   for index in 0..4 {
     let (step_x, _, step_width, _) = narrow.bounds(&format!("steps-{index}"));
     assert!(step_x + step_width <= x + width + 0.5, "step {index} in the room");
+    let (.., mark, _) = narrow.bounds(&format!("steps-{index}-marker"));
+    assert_eq!(mark, 24.0, "the mark of step {index} is whole");
   }
-  for title in ["Account", "Billing", "Workspace"] {
+  for title in ["Account", "Billing"] {
     assert!(narrow.paints(title), "{title:?} is whole in 400");
   }
   assert!(!narrow.paints("Finish"), "the last title is cut");
@@ -568,4 +571,188 @@ fn a_disabled_step_is_not_pressed_and_is_dimmed_and_a_step_has_its_own_id() {
     .state(StepsState::Disabled, true);
   let step = theme.resolve::<Steps>(&case, None).part(StepsPart::Step).rest();
   assert_eq!(step.opacity, Some(Opacity::Level(OpacityLevel::Disabled)));
+}
+
+/// The wizard's four steps, mounted in a room `width` wide which the signal changes, a press setting `at`.
+fn roomed(width: &Signal<f32>, at: &Signal<usize>) -> Stage {
+  let (width, at) = (width.clone(), at.clone());
+  let mut stage = Stage::first_frame(700.0, 400.0, move |ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(width.get())
+          .child(Steps::new(at.clone(), WIZARD).pressable(true).id("steps").mount(ctx)),
+      )
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+/// Says that every mark is whole, 24 by 24, and that nothing the steps say is past the room's end.
+#[track_caller]
+fn whole(stage: &mut Stage) {
+  let (room, _, room_width, _) = stage.bounds("room");
+  for index in 0..WIZARD.len() {
+    let (x, _, width, height) = stage.bounds(&format!("steps-{index}-marker"));
+    assert_eq!((width, height), (24.0, 24.0), "mark {index} is whole");
+    assert!(
+      x >= room - 0.5 && x + width <= room + room_width + 0.5,
+      "mark {index} is in the room: {x}"
+    );
+  }
+  for quad in stage.quads() {
+    if let lurq::layout::quad::QuadContent::Text { text, .. } = &quad.content {
+      assert!(
+        quad.x + quad.width <= room + room_width + 0.5,
+        "{text:?} ends at {}, past the room's end at {}",
+        quad.x + quad.width,
+        room + room_width
+      );
+    }
+  }
+}
+
+/// Where the first two marks and the first title are: the marks' starts and tops, and the title's start and top.
+fn places(stage: &mut Stage) -> ((f32, f32), (f32, f32), (f32, f32)) {
+  let (x0, y0, ..) = stage.bounds("steps-0-marker");
+  let (x1, y1, ..) = stage.bounds("steps-1-marker");
+  let title = stage
+    .cut_text_quad("Account")
+    .expect("the first title is drawn, whole or cut");
+  ((x0, y0), (x1, y1), (title.x, title.y))
+}
+
+#[test]
+fn steps_built_in_a_room_too_narrow_for_their_titles_keep_their_marks_whole() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(256.0)
+          .child(Steps::at(1, WIZARD).id("steps")),
+      )
+      .into()
+  });
+  whole(&mut stage);
+  // The lines between them are never under their least.
+  for index in 0..WIZARD.len() - 1 {
+    let (x, ..) = stage.bounds(&format!("steps-{index}-marker"));
+    let (next, ..) = stage.bounds(&format!("steps-{}-marker", index + 1));
+    assert!(
+      next - (x + 24.0) >= 24.0,
+      "the marks {index} and {} are a line apart: {}",
+      index + 1,
+      next - x - 24.0
+    );
+  }
+}
+
+#[test]
+fn mounted_steps_put_their_titles_under_the_marks_and_then_run_down_the_page_as_the_room_narrows() {
+  let (width, at) = (Signal::new(520.0), Signal::new(1));
+  let mut stage = roomed(&width, &at);
+  // With room for them, a title is beside its mark, on its line.
+  let ((x0, y0), (x1, y1), (title_x, title_y)) = places(&mut stage);
+  assert!(
+    title_x >= x0 + 24.0 && title_y < y0 + 24.0 && title_y + 4.0 > y0,
+    "the title is beside its mark"
+  );
+  assert!(x1 > x0 && (y1 - y0).abs() < 0.5, "the marks are in a row");
+  assert!(stage.paints("Workspace"), "and every title is whole");
+  let wide = places(&mut stage);
+  whole(&mut stage);
+
+  // Narrower than the titles beside the marks need, the titles are under the marks, which are still in a row.
+  width.set(330.0);
+  stage.pass();
+  stage.pass();
+  let ((x0, y0), (x1, y1), (_, title_y)) = places(&mut stage);
+  assert!(
+    title_y >= y0 + 24.0 - 0.5,
+    "the title is under its mark: {title_y} under {y0}"
+  );
+  assert!(x1 > x0 && (y1 - y0).abs() < 0.5, "the marks are in a row");
+  whole(&mut stage);
+  // A press still selects, and the step is still called by its place, its title and its state.
+  stage.click("steps-0");
+  assert_eq!(at.get_untracked(), 0, "a press of a step done goes back to it");
+  at.set(1);
+  stage.pass();
+
+  // Narrower than the marks and their lines need, the steps run down the page.
+  width.set(200.0);
+  stage.pass();
+  stage.pass();
+  let ((x0, y0), (x1, y1), (title_x, _)) = places(&mut stage);
+  assert!(
+    (x1 - x0).abs() < 0.5 && y1 > y0 + 24.0,
+    "the marks are one under another"
+  );
+  assert!(title_x >= x0 + 24.0, "and a title is beside its mark again");
+  assert!(stage.paints("Workspace"), "whole");
+  whole(&mut stage);
+  stage.click("steps-0");
+  assert_eq!(at.get_untracked(), 0, "a press still selects");
+  at.set(1);
+  stage.pass();
+
+  // Wide again, as it was.
+  width.set(520.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(places(&mut stage), wide);
+  assert!(stage.paints("Workspace"));
+}
+
+#[test]
+fn the_first_frame_of_mounted_steps_in_a_narrow_room_is_the_settled_one() {
+  for room in [330.0, 200.0] {
+    let mut stage = Stage::first_frame(700.0, 400.0, move |ctx| {
+      Column::new()
+        .size(700.0, 400.0)
+        .child(
+          Column::new()
+            .id("room")
+            .width(room)
+            .child(Steps::at(1, WIZARD).id("steps").mount(ctx)),
+        )
+        .into()
+    });
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(
+      first,
+      stage.picture(),
+      "in a room of {room} nothing moves in the second frame"
+    );
+    whole(&mut stage);
+  }
+}
+
+#[test]
+fn steps_the_app_runs_down_the_page_stay_so_at_any_width() {
+  let mut stage = Stage::first_frame(700.0, 400.0, |ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        Column::new().id("room").width(600.0).child(
+          Steps::at(1, WIZARD)
+            .orientation(StepsOrientation::Vertical)
+            .id("steps")
+            .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  stage.pass();
+  let ((x0, y0), (x1, y1), _) = places(&mut stage);
+  assert!(
+    (x1 - x0).abs() < 0.5 && y1 > y0 + 24.0,
+    "the marks are one under another, with room to spare"
+  );
 }

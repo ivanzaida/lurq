@@ -578,3 +578,219 @@ fn the_panels_shadow_is_drawn_whole_around_it() {
     );
   }
 }
+
+/// A menu of six items, wider than a narrow room: Home, Docs and Components with a panel each, Blog, Pricing (the
+/// page shown) and Old, which is disabled.
+fn many(log: &Log) -> NavigationMenu {
+  NavigationMenu::new()
+    .id("nav")
+    .label("Site")
+    .item(NavItem::new("Home").on_select(tell(log, "home")))
+    .item(
+      NavItem::new("Docs").panel(NavPanel::new().link(NavLink::new("Getting started").on_select(tell(log, "start")))),
+    )
+    .item(
+      NavItem::new("Components").panel(
+        NavPanel::new()
+          .link(NavLink::new("Button").on_select(tell(log, "button")))
+          .link(NavLink::new("Input").disabled(true).on_select(tell(log, "input"))),
+      ),
+    )
+    .item(NavItem::new("Blog").on_select(tell(log, "blog")))
+    .item(NavItem::new("Pricing").current(true).on_select(tell(log, "pricing")))
+    .item(NavItem::new("Old").disabled(true).on_select(tell(log, "old")))
+}
+
+/// The menu of [`many`], mounted in a room `width` wide whose id is `room`, with one frame painted.
+fn roomed(width: &Signal<f32>) -> (Stage, Signal<Option<usize>>, Log) {
+  let open = Signal::new(None);
+  let log: Log = Arc::new(Mutex::new(Vec::new()));
+  let (width, held, told) = (width.clone(), open.clone(), log.clone());
+  let stage = Stage::first_frame(800.0, 500.0, move |ctx: &mut Ctx| -> Element {
+    Column::new()
+      .size(800.0, 500.0)
+      .child(
+        Row::new()
+          .id("room")
+          .width(width.get())
+          .child(many(&told).open(held.clone()).mount(ctx)),
+      )
+      .into()
+  });
+  (stage, open, log)
+}
+
+/// The box of the element with `id`, if it is laid out with a size: one the row dropped has none.
+fn sized(stage: &mut Stage, id: &str) -> Option<(f32, f32, f32, f32)> {
+  let bounds = stage
+    .tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.bounds())?;
+  (bounds.width > 0.0).then_some((bounds.x, bounds.y, bounds.width, bounds.height))
+}
+
+/// The items of [`many`] that are in the row, by index.
+fn in_the_row(stage: &mut Stage) -> Vec<usize> {
+  (0..6)
+    .filter(|index| sized(stage, &format!("nav-{index}")).is_some())
+    .collect()
+}
+
+/// Says that every item in the row, and More where it stands, is whole in the room.
+#[track_caller]
+fn whole_in_the_room(stage: &mut Stage) {
+  let (room, _, room_width, _) = stage.bounds("room");
+  let mut ids: Vec<String> = in_the_row(stage)
+    .into_iter()
+    .map(|index| format!("nav-{index}"))
+    .collect();
+  ids.push("nav-more".to_owned());
+  for id in ids {
+    if let Some((x, _, width, _)) = sized(stage, &id) {
+      assert!(
+        x >= room - 0.5 && x + width <= room + room_width + 0.5,
+        "{id} at {x}..{} in a room at {room}..{}",
+        x + width,
+        room + room_width
+      );
+    }
+  }
+}
+
+#[test]
+fn a_mounted_menu_puts_the_items_it_has_no_room_for_behind_more_from_its_first_frame() {
+  let width = Signal::new(300.0f32);
+  let (mut stage, ..) = roomed(&width);
+  // Home and Docs fit beside More; the rest are behind it, the last first.
+  assert_eq!(in_the_row(&mut stage), [0, 1]);
+  let (more, y, more_width, height) = sized(&mut stage, "nav-more").expect("More stands in the row");
+  whole_in_the_room(&mut stage);
+  // More is an item as the others are: 36 tall, 4 after the last in the row, its text and a chevron.
+  let (docs, docs_y, docs_width, _) = stage.bounds("nav-1");
+  assert_eq!((y, height), (docs_y, 36.0));
+  assert!(
+    close(more - (docs + docs_width), 4.0),
+    "4 apart: {}",
+    more - (docs + docs_width)
+  );
+  let label = stage.text_quad("More").expect("its text");
+  assert!(close(label.x - more, 12.0) && label.x + label.width < more + more_width);
+  assert!(!stage.paints("Blog"), "what went is not drawn");
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), first, "settled in its first frame");
+}
+
+#[test]
+fn more_opens_a_menu_of_what_went_and_choosing_there_is_choosing_the_item() {
+  let width = Signal::new(300.0f32);
+  let (mut stage, _, log) = roomed(&width);
+  assert!(sized(&mut stage, "nav-3-item").is_none(), "closed");
+  stage.click("nav-more");
+  stage.pass();
+  // Every item that went, in order: a panel's links under its item's name.
+  for id in ["nav-2-0-item", "nav-2-1-item", "nav-3-item", "nav-4-item", "nav-5-item"] {
+    assert!(sized(&mut stage, id).is_some(), "{id} is in the menu");
+  }
+  assert!(sized(&mut stage, "nav-0-item").is_none(), "what is in the row is not");
+  assert!(stage.paints("Components") && stage.paints("Button") && stage.paints("Blog"));
+  let heading = stage.text_quad("Components").unwrap();
+  assert!(heading.y < stage.bounds("nav-2-0-item").1, "the name over its links");
+
+  stage.click("nav-3-item");
+  assert_eq!(*log.lock().unwrap(), vec!["blog"]);
+  stage.pass();
+  assert!(sized(&mut stage, "nav-3-item").is_none(), "choosing closes the menu");
+
+  // A link of a panel is chosen as it is in its panel; a disabled one and a disabled item take nothing.
+  stage.click("nav-more");
+  stage.pass();
+  stage.click("nav-2-1-item");
+  stage.click("nav-5-item");
+  assert_eq!(*log.lock().unwrap(), vec!["blog"]);
+  stage.click("nav-2-0-item");
+  assert_eq!(*log.lock().unwrap(), vec!["blog", "button"]);
+}
+
+#[test]
+fn a_menu_follows_its_room_every_item_back_in_the_row_when_there_is_room() {
+  let width = Signal::new(700.0f32);
+  let (mut stage, open, _) = roomed(&width);
+  // With room for all of it the menu is as it was: every item, and no More.
+  assert_eq!(in_the_row(&mut stage), [0, 1, 2, 3, 4, 5]);
+  assert!(sized(&mut stage, "nav-more").is_none());
+  let wide: Vec<_> = (0..6).map(|index| stage.bounds(&format!("nav-{index}"))).collect();
+  let (nav, _, bar, _) = stage.bounds("nav");
+  assert!(
+    close(nav + bar, wide[5].0 + wide[5].2),
+    "as wide as its items, not as its room"
+  );
+
+  // The panel of an item that goes behind More closes.
+  open.set(Some(2));
+  stage.pass();
+  assert!(stage.paints("Button"));
+  width.set(300.0);
+  stage.frame();
+  assert_eq!(in_the_row(&mut stage), [0, 1], "in the frame the room narrowed in");
+  whole_in_the_room(&mut stage);
+  assert_eq!(open.get_untracked(), None);
+
+  width.set(420.0);
+  stage.frame();
+  assert_eq!(in_the_row(&mut stage), [0, 1, 2, 3], "what a wider room has room for");
+  whole_in_the_room(&mut stage);
+
+  width.set(700.0);
+  stage.frame();
+  assert_eq!(in_the_row(&mut stage), [0, 1, 2, 3, 4, 5]);
+  assert!(
+    sized(&mut stage, "nav-more").is_none(),
+    "More goes with the last of them back"
+  );
+  let again: Vec<_> = (0..6).map(|index| stage.bounds(&format!("nav-{index}"))).collect();
+  assert_eq!(again, wide, "as a menu laid out at 700 first");
+}
+
+#[test]
+fn more_is_a_stop_of_the_row_whose_keys_open_its_menu_and_it_shows_the_page_shown_behind_it() {
+  let width = Signal::new(300.0f32);
+  let (mut stage, _, log) = roomed(&width);
+  // Pricing, the page shown, is behind More: More is drawn as the item of the page shown is.
+  assert_eq!(stage.fill_color("nav-more"), Some(light(PaletteColor::Muted)));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("nav-0"));
+  stage.key("ArrowRight");
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("nav-more"), "Right goes on to More");
+  stage.key("ArrowLeft");
+  assert_eq!(focused(&stage).as_deref(), Some("nav-1"));
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("nav-more"),
+    "what went is no stop of Tab"
+  );
+  stage.key("Enter");
+  stage.pass();
+  assert!(sized(&mut stage, "nav-3-item").is_some(), "Enter opens its menu");
+  stage.key("Escape");
+  stage.pass();
+  assert!(sized(&mut stage, "nav-3-item").is_none(), "Escape closes it");
+  assert!(log.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_built_menu_too_wide_for_its_room_keeps_what_fits_and_more_in_it() {
+  let mut stage = Stage::new(|_| {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let menu: Element = many(&log).into();
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Row::new().id("room").width(300.0).child(menu))
+      .into()
+  });
+  assert_eq!(in_the_row(&mut stage), [0, 1]);
+  assert!(sized(&mut stage, "nav-more").is_some());
+  whole_in_the_room(&mut stage);
+}

@@ -20,7 +20,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, phone, props_table, quiet},
+  kit::{FILL, phone, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -628,21 +628,11 @@ impl TablePage {
               .on_click(move |_| search.set(String::new())),
           ),
       );
-    // The bar keeps its search and the filters that are set in it, whatever its width: in a card narrower than
-    // those the bar and its table scroll sideways.
-    fit(
-      "with-bar",
-      self.frame.stage_room(),
-      BAR,
-      Column::new().spacing(12.0).child(bar).child(table),
-    )
+    // The bar keeps its search and the filters that are set in it, whatever its width: narrower than those, it
+    // scrolls sideways to them.
+    Column::new().width(FILL).spacing(12.0).child(bar).child(table).into()
   }
 }
-
-/// The least the board's bar is wide: its search, the two filters, Filter and the More button.
-const BAR: f32 = 640.0;
-/// The least a table with a count and a pagination in its footer is wide.
-const FOOTER: f32 = 300.0;
 
 fn capitalized(name: &str) -> String {
   let mut chars = name.chars();
@@ -759,8 +749,6 @@ impl Component for TablePage {
       .row_key(|row: &Krate| row.name)
       .loading(true)
       .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill));
-    // The footer's count and its pagination need this much: in a narrower card the table scrolls sideways.
-    let grid = fit("grid", self.frame.stage_room(), FOOTER, grid);
     let forms = Row::new()
       .spacing(28.0)
       .wrap()

@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+
 use super::{
   button::{Button, ButtonPart, ButtonVariant},
   icons, names,
@@ -12,11 +14,15 @@ use super::{
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::{ControlSize, IconSize, PaletteColor, Theme, TypographyStyle},
+  app::{
+    component::Component,
+    ctx::Ctx,
+    theme::{ControlSize, IconSize, PaletteColor, Theme, TypographyStyle},
+  },
   components::Row,
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
-  node::{Element, FocusGroup, NodeUpdate},
+  node::{Element, FocusGroup, NodeUpdate, dimension::Dimension},
 };
 
 /// The parts of a pagination a recipe styles.
@@ -116,6 +122,7 @@ type Go = Arc<dyn Fn(usize) + Send + Sync>;
 /// and Enter or Space goes to the page. To what reads the tree the whole is a
 /// navigation called "Pagination", each page is called "Page 3", and the
 /// current one says it is.
+#[derive(Clone)]
 pub struct Pagination {
   current: usize,
   pages: usize,
@@ -129,12 +136,42 @@ pub struct Pagination {
   previous_label: Arc<str>,
   next_label: Arc<str>,
   page_label: Arc<str>,
-  page_size: Option<(Arc<str>, AnySelect)>,
+  /// The label of the select of how many to a page, and the select, which is built once.
+  page_size: Option<(Arc<str>, Arc<Mutex<Option<AnySelect>>>)>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// What a mounted pagination draws in the room it has: fewer pages than the app says, or where it is.
+  fit: Fit,
+  /// Where a mounted pagination is measured, and how wide it is held while it draws less than it would.
+  held: Option<Held>,
+}
+
+/// What a mounted pagination draws of its pages in the room it has.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Fit {
+  /// What the app says.
+  #[default]
+  All,
+  /// Fewer pages on each side of the current one than the app says: this many.
+  Siblings(usize),
+  /// No pages: where the list is, between previous and next.
+  Summary,
+}
+
+/// A signal's value is something DevTools can inspect: this one has nothing to show.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Fit {}
+
+/// What a mounted pagination's host gives the pagination it builds: what holds the summary and the buttons, what
+/// they are in, and the width the first is held at.
+#[derive(Clone)]
+struct Held {
+  room: ElementRef,
+  content: ElementRef,
+  width: Option<f32>,
 }
 
 impl Pagination {
@@ -158,6 +195,8 @@ impl Pagination {
       forced: None,
       id: None,
       key: None,
+      fit: Fit::All,
+      held: None,
     }
   }
 
@@ -255,7 +294,7 @@ impl Pagination {
   /// and the pages at the other. The select is the app's, bound to its own
   /// signal; the pagination sizes its trigger.
   pub fn page_size(mut self, label: &str, select: impl Into<AnySelect>) -> Self {
-    self.page_size = Some((Arc::from(label), select.into()));
+    self.page_size = Some((Arc::from(label), Arc::new(Mutex::new(Some(select.into())))));
     self
   }
 
@@ -337,9 +376,50 @@ impl Pagination {
     shown
   }
 
+  /// The pagination mounted where it is declared: it reads the room it has, before the frame is painted, and
+  /// draws what that has room for. Narrower than its buttons, it draws fewer pages on each side of the current
+  /// one, down to the first, the current and the last between two ellipses; narrower than those, it says where
+  /// the list is between previous and next, as the compact form does. With room again it draws what the app
+  /// says. A pagination that is only built draws what the app says in any room.
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    let theme = current_theme();
+    // A pagination the app keeps compact, or one a theme builds its own way, is built as it is.
+    if self.compact || theme.renderer::<Pagination>().is_some() {
+      return self.build(&theme);
+    }
+    // The summary and the buttons are the host's, which builds them again as their room changes; the select of
+    // how many to a page is built here, once, with the root that holds both.
+    let mut pages = self.clone();
+    pages.page_size = None;
+    let pages = match self.key.as_ref() {
+      Some(key) => ctx.mount_keyed::<PaginationHost>(&format!("{key}-pages"), PaginationProps { pagination: pages }),
+      None => ctx.mount::<PaginationHost>(PaginationProps { pagination: pages }),
+    };
+    self.view(&theme).root(pages)
+  }
+
+  /// How many things the row of pages has with `siblings` pages on each side of the current one.
+  fn slots(&self, siblings: usize) -> usize {
+    Self::pages_shown(self.current, self.pages, siblings).len()
+  }
+
   /// Builds the pagination in `theme`. Converting a pagination into an
   /// element does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let view = self.view(theme);
+    match theme.renderer::<Pagination>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+
+  /// The pagination as a renderer sees it, in `theme`.
+  fn view(self, theme: &Theme) -> PaginationView {
+    let (siblings, compact) = match self.fit {
+      Fit::All => (self.siblings, self.compact),
+      Fit::Siblings(siblings) => (siblings.min(self.siblings), self.compact),
+      Fit::Summary => (self.siblings, true),
+    };
     let case = Case {
       variant: None,
       size: None,
@@ -347,7 +427,7 @@ impl Pagination {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(PaginationState::Compact, self.compact)
+    .state(PaginationState::Compact, compact)
     .state(PaginationState::PageSize, self.page_size.is_some())
     .state(PaginationState::Disabled, self.disabled);
     let current = if self.pages == 0 {
@@ -365,15 +445,15 @@ impl Pagination {
         None => format!("Page {current} of {}", self.pages),
       })
     });
-    let view = PaginationView {
+    PaginationView {
       current,
       pages: self.pages,
-      shown: Self::pages_shown(current, self.pages, self.siblings),
-      compact: self.compact,
+      shown: Self::pages_shown(current, self.pages, siblings),
+      compact,
       disabled: self.disabled,
       label: self.label,
       summary,
-      summarized: self.compact || self.summary_text.is_some(),
+      summarized: compact || self.summary_text.is_some(),
       recipe: theme.resolve::<Pagination>(&case, Some(&self.rules)),
       current_recipe: theme
         .resolve::<Pagination>(&case.clone().state(PaginationState::Current, true), Some(&self.rules)),
@@ -381,14 +461,13 @@ impl Pagination {
       next_label: self.next_label,
       page_label: self.page_label,
       forced: self.forced,
-      page_size: self.page_size,
+      page_size: self
+        .page_size
+        .and_then(|(label, select)| Some((label, select.lock().take()?))),
       go: self.go,
+      held: self.held,
       id: self.id,
       key: self.key,
-    };
-    match theme.renderer::<Pagination>() {
-      Some(renderer) => renderer(view),
-      None => view.render(),
     }
   }
 }
@@ -396,6 +475,148 @@ impl Pagination {
 impl From<Pagination> for Element {
   fn from(pagination: Pagination) -> Self {
     pagination.build(&current_theme())
+  }
+}
+
+#[derive(Clone)]
+struct PaginationProps {
+  pagination: Pagination,
+}
+
+/// A pagination is made anew by every render of what holds it, so props are never the same as before.
+impl PartialEq for PaginationProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for PaginationProps {}
+
+/// What a mounted pagination has measured, and what it chooses by.
+#[derive(Default)]
+struct Measured {
+  /// How wide the room of the summary and the buttons was last laid out.
+  room: Option<f32>,
+  /// How wide the summary and the buttons are with everything the app says drawn.
+  full: Option<f32>,
+  /// What each thing of the row of pages takes: a button and the room after it.
+  step: f32,
+  /// What it can draw in place of all of it, the widest first: so many siblings, with so many things fewer in
+  /// the row.
+  fewer: Vec<(usize, usize)>,
+}
+
+impl Measured {
+  /// What the room has room for.
+  fn fit(&self) -> Option<Fit> {
+    let (room, full) = (self.room?, self.full?);
+    let fits = |fewer: usize| full - fewer as f32 * self.step <= room + 0.5;
+    Some(if fits(0) {
+      Fit::All
+    } else {
+      self
+        .fewer
+        .iter()
+        .find(|(_, fewer)| fits(*fewer))
+        .map_or(Fit::Summary, |(siblings, _)| Fit::Siblings(*siblings))
+    })
+  }
+}
+
+/// The summary and the buttons of a mounted pagination: it measures the room they have, before the frame is
+/// painted, and builds them with what that has room for.
+struct PaginationHost {
+  room: ElementRef,
+  content: ElementRef,
+  fit: Signal<Fit>,
+  measured: Arc<Mutex<Measured>>,
+}
+
+impl Component for PaginationHost {
+  type Props = PaginationProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let (room, content, fit) = (ElementRef::new(), ElementRef::new(), ctx.signal(Fit::All));
+    let measured = Arc::new(Mutex::new(Measured::default()));
+    // Written only where the room crosses what a form needs: a panel dragged within one renders nothing.
+    let settle = {
+      let watch = fit.clone();
+      move |measured: &Measured| {
+        if let Some(now) = measured.fit()
+          && watch.get_untracked() != now
+        {
+          watch.set(now);
+        }
+      }
+    };
+    {
+      let (held, settle) = (measured.clone(), settle.clone());
+      room.observe_rect_before_paint(move |rect| {
+        let mut measured = held.lock();
+        measured.room = Some(rect.width);
+        settle(&measured);
+      });
+    }
+    {
+      let (held, watch) = (measured.clone(), fit.clone());
+      content.observe_rect_before_paint(move |rect| {
+        let mut measured = held.lock();
+        // With all of it drawn, what is in the room says how wide all of it is.
+        if watch.get_untracked() == Fit::All {
+          measured.full = Some(rect.width);
+        }
+        settle(&measured);
+      });
+    }
+    Self {
+      room,
+      content,
+      fit,
+      measured,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let mut pagination = ctx.props::<PaginationProps>().pagination.clone();
+    let theme = current_theme();
+    let fit = self.fit.get();
+    let full = {
+      let mut measured = self.measured.lock();
+      let recipe = theme.resolve::<Pagination>(&Case::new(), Some(&pagination.rules));
+      let side = match recipe
+        .part(PaginationPart::Ellipsis)
+        .rest()
+        .width
+        .and_then(|width| width.resolve(&theme))
+      {
+        Some(Dimension::Px(px)) => px,
+        _ => 0.0,
+      };
+      let gap = recipe
+        .part(PaginationPart::Nav)
+        .rest()
+        .gap
+        .map(|gap| gap.resolve(&theme.spacing(), 0.0))
+        .unwrap_or(0.0);
+      measured.step = side + gap;
+      let all = pagination.slots(pagination.siblings);
+      measured.fewer = (0..pagination.siblings)
+        .rev()
+        .map(|siblings| (siblings, all - pagination.slots(siblings)))
+        .filter(|(_, fewer)| *fewer > 0)
+        .collect();
+      measured.full
+    };
+    pagination.fit = fit;
+    pagination.held = Some(Held {
+      room: self.room.clone(),
+      content: self.content.clone(),
+      // Drawing less than all of it, it is held as wide as all of it where there is room, so that the room says
+      // when all of it fits again.
+      width: full.filter(|_| fit != Fit::All),
+    });
+    pagination.view(&theme).pages()
   }
 }
 
@@ -426,6 +647,7 @@ pub struct PaginationView {
   forced: Option<Interaction>,
   page_size: Option<(Arc<str>, AnySelect)>,
   go: Vec<Go>,
+  held: Option<Held>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -604,23 +826,74 @@ impl PaginationView {
     ])
   }
 
+  /// Where the list is, if the pagination says so, and the row of buttons, the root's gap apart: one thing of the
+  /// root, no wider than the root has room for. A mounted pagination measures its room.
+  pub fn pages(&self) -> Row {
+    let gap = self
+      .part(PaginationPart::Root)
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+      .unwrap_or(0.0);
+    let mut content = Row::new()
+      .spacing(gap)
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .flex_shrink(0.0);
+    if self.summarized {
+      content = content.child(self.summary());
+    }
+    content = content.child(self.nav());
+    let mut room = Row::new().overflow_visible().max_width(Dimension::Pct(100.0));
+    if let Some(held) = &self.held {
+      content = content.ref_element(held.content.clone());
+      room = room
+        .ref_element(held.room.clone())
+        .flex_shrink(1.0)
+        .min_width(Dimension::Px(0.0));
+      if let Some(width) = held.width {
+        room = room.width(Dimension::Px(width));
+      }
+    }
+    room.child(content)
+  }
+
   /// How the default renderer builds a pagination: the select of how many to a page, if it has one, and then at
   /// the other end where the list is, if it says so, and the row of buttons.
-  pub fn render(mut self) -> Element {
+  pub fn render(self) -> Element {
+    let pages = self.pages().into();
+    self.root(pages)
+  }
+
+  /// The root with `pages` in it, after the select of how many to a page if the pagination has one. What has no
+  /// room beside the select goes on to a line under it, and the whole is no wider than its room.
+  fn root(mut self, pages: Element) -> Element {
     let mut root = Row::new()
       .part(&self.part(PaginationPart::Root))
+      .wrap()
+      .max_width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
       .overflow_visible()
       .describe("a11y_role", "navigation")
       .describe("a11y_name", self.label.clone());
     if let Some([label, select]) = self.page_size() {
       // What is left of the width is between the select and the rest.
-      root = root.child(label).child(select).child(Row::new().flex(1.0));
+      let gap = self
+        .part(PaginationPart::Root)
+        .rest()
+        .gap
+        .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+        .unwrap_or(0.0);
+      root = root.justify(Justify::SpaceBetween).child(
+        Row::new()
+          .spacing(gap)
+          .align_items(Alignment::Center)
+          .overflow_visible()
+          .child(label)
+          .child(select),
+      );
     }
-    if self.summarized {
-      root = root.child(self.summary());
-    }
-    root = root.child(self.nav());
+    root = root.child(pages);
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
