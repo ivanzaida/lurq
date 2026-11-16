@@ -150,6 +150,48 @@ fn the_round_buttons_and_the_strip_turn_to_another_picture() {
 }
 
 #[test]
+fn the_strip_shows_as_many_as_it_has_room_for_about_the_one_shown() {
+  let open = Signal::new(true);
+  let index = Signal::new(0usize);
+  let which = index.clone();
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    let pixels = || ImageData::from_rgba(vec![180; 8 * 6 * 4], 8, 6);
+    Row::new()
+      .padding(8.0)
+      .child(
+        Lightbox::new(open.clone(), (0..12).map(|_| Picture::new(pixels())))
+          .index(which.clone())
+          .inline(true)
+          .width(420.0)
+          .height(290.0)
+          .id("viewer"),
+      )
+      .into()
+  });
+  settled(&mut stage);
+  let shown = |stage: &mut Stage| {
+    (0..12)
+      .filter(|at| stage.tree.get_element_by_id(&format!("viewer-thumb-{at}")).is_some())
+      .collect::<Vec<_>>()
+  };
+  // Eight of 44 with 6 between them are 394, and a ninth would not leave 8 at each end of 420.
+  assert_eq!(shown(&mut stage), (0..8).collect::<Vec<_>>());
+  let (first_x, ..) = stage.bounds("viewer-thumb-0");
+  assert_eq!(
+    first_x,
+    8.0 + (420.0 - 394.0) / 2.0,
+    "in the middle of the row, none cut"
+  );
+
+  index.set(6);
+  stage.pass();
+  assert_eq!(shown(&mut stage), (2..10).collect::<Vec<_>>(), "about the one shown");
+  index.set(11);
+  stage.pass();
+  assert_eq!(shown(&mut stage), (4..12).collect::<Vec<_>>(), "and to the last");
+}
+
+#[test]
 fn with_wrap_the_first_comes_after_the_last() {
   let mut stage = in_page(|lightbox| lightbox.wrap(true));
   settled(&mut stage);

@@ -39,7 +39,7 @@ fn items() -> Row {
 /// The page's picture: a lake at dusk, 4 by 3. A sky from deep blue down to a pale green, a sun with a soft ring
 /// about it, and a ridge before them. The gallery has no photographs; a picture with a sun at one side and a
 /// ridge along the bottom shows what a fit keeps and what an anchor holds.
-fn lake(width: u32, height: u32) -> ImageData {
+pub(super) fn lake(width: u32, height: u32) -> ImageData {
   const SKY: [(f32, [f32; 3]); 5] = [
     (0.0, [11.0, 23.0, 54.0]),
     (0.36, [30.0, 58.0, 138.0]),

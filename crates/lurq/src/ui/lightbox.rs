@@ -31,6 +31,10 @@ use crate::{
 const ZOOM_STEP: f32 = 1.5;
 /// How far an arrow key moves a picture that is zoomed in.
 const PAN_STEP: f32 = 48.0;
+/// The room between the strip's small pictures, as the design has it, and the least there is at its ends:
+/// what tells how many of them the strip has room for.
+const STRIP_GAP: f32 = 6.0;
+const STRIP_INSET: f32 = 8.0;
 
 /// The parts of a lightbox a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -895,7 +899,19 @@ impl LightboxView {
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
       .justify(Justify::Center);
-    for (at, picture) in self.lightbox.pictures.iter().enumerate() {
+    // The strip shows as many as it has room for, about the one shown: a strip of a hundred pictures is not
+    // cut at both ends with the one shown out of sight. Until the lightbox is laid out it shows them all.
+    let (first, last) = {
+      let (width, _) = thumb_size(&self.part(LightboxPart::Thumb));
+      let room = self.stage.width();
+      let fits = match room > 0.0 {
+        true => (((room - 2.0 * STRIP_INSET + STRIP_GAP) / (width + STRIP_GAP)).floor() as usize).max(1),
+        false => count,
+      };
+      let first = self.index.saturating_sub(fits / 2).min(count.saturating_sub(fits));
+      (first, (first + fits).min(count))
+    };
+    for (at, picture) in self.lightbox.pictures.iter().enumerate().take(last).skip(first) {
       let recipe = if at == self.index { &self.current } else { &self.recipe };
       let part = recipe.part(LightboxPart::Thumb);
       let (width, height) = thumb_size(&part);

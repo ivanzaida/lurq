@@ -58,6 +58,7 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod lightbox;
 mod line_chart;
 mod list;
 mod listbox;
@@ -1067,6 +1068,14 @@ pub const PAGES: &[Page] = &[
     about: "picture image img photo figure caption alt thumbnail cover contain fill fit anchor aspect ratio skeleton loading progress error retry badge bar actions download menu select selected gallery bare overlay Picture PictureFit PictureSize PictureShape from_file from_bytes from_resource empty label width height size on_click on_download on_retry on_change mount",
     group: Group::Media,
     mount: |ctx| ctx.mount::<picture::PicturePage>(()),
+  },
+  Page {
+    path: "/lightbox",
+    name: "Lightbox",
+    icon: Some("zoom-in"),
+    about: "lightbox viewer gallery picture photo image zoom pan wheel pinch drag fit counter filmstrip thumbnails previous next arrows download close escape overlay modal inline Lightbox index zoom zoom_max wrap filmstrip counter on_index_change on_zoom_change on_download on_dismiss",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<lightbox::LightboxPage>(()),
   },
   Page {
     path: "/video-player",
