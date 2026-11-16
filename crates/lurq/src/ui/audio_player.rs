@@ -1425,9 +1425,12 @@ impl AudioPlayerView {
       };
       for (width, height) in lines {
         column = column.child(
+          // A line is as long as the board draws it, and no longer than the room beside the artwork.
           Row::new()
             .part(&skeleton)
-            .child(Skeleton::line().width(width).height(height).build(theme)),
+            .width(width)
+            .max_width(Dimension::Pct(100.0))
+            .child(Skeleton::line().width(Length::Fill).height(height).build(theme)),
         );
       }
       return column;
@@ -1859,6 +1862,7 @@ impl Themed for AudioPlayer {
       .base(Root, |s| s.foreground(Foreground))
       .variant(Full, Root, |s| {
         s.width(360.0)
+          .max_width(Length::Fill)
           .padding_x(20.0)
           .padding_y(20.0)
           .gap(16.0)
@@ -1868,6 +1872,7 @@ impl Themed for AudioPlayer {
       })
       .variant(Compact, Root, |s| {
         s.width(320.0)
+          .max_width(Length::Fill)
           .height(48.0)
           .padding_start(8.0)
           .padding_end(12.0)
@@ -1877,7 +1882,8 @@ impl Themed for AudioPlayer {
           .radius(RadiusSize::Lg)
       })
       .variant(Voice, Root, |s| {
-        s.padding_start(8.0)
+        s.max_width(Length::Fill)
+          .padding_start(8.0)
           .padding_end(12.0)
           .padding_y(8.0)
           .gap(10.0)

@@ -20,7 +20,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet, text},
+  kit::{FILL, fit, props_table, quiet, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -72,9 +72,10 @@ fn poster() -> Column {
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -88,12 +89,23 @@ fn items() -> Row {
     .overflow_visible()
 }
 
+/// The width and the height of a player the board draws `width` wide, where the stage has `most` of room (0: not
+/// measured yet, or enough): no wider than the stage, and as high as its shape makes it then.
+fn held(width: f32, height: f32, most: f32) -> (f32, f32) {
+  if most > 0.0 && most < width {
+    (most, (most * height / width).round())
+  } else {
+    (width, height)
+  }
+}
+
 /// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state.
-fn state() -> VideoPlayer {
+fn state(most: f32) -> VideoPlayer {
+  let (width, height) = held(432.0, 243.0, most);
   VideoPlayer::new()
     .media(picture())
-    .width(432.0)
-    .height(243.0)
+    .width(width)
+    .height(height)
     .duration(LENGTH)
     .buffered(140.0)
     .position_controlled(84.0, |_| {})
@@ -117,8 +129,15 @@ enum Scene {
   Minimal,
 }
 
+/// What a player of a section is given: the state it starts in, and the most width it takes (0: the board's).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Staged {
+  scene: Scene,
+  most: u16,
+}
+
 #[cfg(feature = "devtools")]
-impl lurq::app::component::DevtoolsInspectable for Scene {
+impl lurq::app::component::DevtoolsInspectable for Staged {
   fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
     formatter.value_debug(self);
   }
@@ -143,10 +162,10 @@ struct Demo {
 }
 
 impl Component for Demo {
-  type Props = Scene;
+  type Props = Staged;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let scene = *ctx.props::<Scene>();
+    let scene = ctx.props::<Staged>().scene;
     let playing = ctx.signal(matches!(
       scene,
       Scene::Playing | Scene::Waiting | Scene::Live | Scene::Captions
@@ -187,13 +206,14 @@ impl Component for Demo {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let scene = *ctx.props::<Scene>();
+    let Staged { scene, most } = *ctx.props::<Staged>();
     let (width, height, size) = match scene {
       Scene::Large => (640.0, 360.0, None),
       Scene::Compact => (320.0, 180.0, Some(VideoPlayerSize::Md)),
       Scene::Minimal => (200.0, 113.0, Some(VideoPlayerSize::Sm)),
       _ => (432.0, 243.0, None),
     };
+    let (width, height) = held(width, height, f32::from(most));
     let position = f64::from(self.position.get());
     let mut player = VideoPlayer::new()
       .media(picture())
@@ -388,6 +408,9 @@ impl VideoPlayerPage {
     let shown = {
       let make = make.clone();
       let forced = self.playground.forced();
+      // No wider than the stage, as an app's player is no wider than its window: in a window as narrow as a
+      // phone the width chosen is more than there is, and half a player scrolled to shows nothing of its bar.
+      let (fitted, high) = held(width, width * 9.0 / 16.0, self.playground.stage_room());
       move |ctx: &mut Ctx| {
         let say = |name: &'static str| {
           let record = record.clone();
@@ -407,6 +430,8 @@ impl VideoPlayerPage {
           say("on_retry"),
         );
         make()
+          .width(fitted)
+          .height(high)
           .force(forced)
           .on_playing_change(move |to| p(to.to_string()))
           .on_position_change(move |to| s(format!("{to:.1}")))
@@ -768,6 +793,9 @@ impl Component for VideoPlayerPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let playground = self.play(ctx);
+    // What a stage has of width: a state's player is no wider, as an app's is no wider than its window.
+    let room = self.frame.stage_room();
+    let most = room.floor().clamp(0.0, f32::from(u16::MAX)) as u16;
     // Each is a player of its own, live from the state the board draws: a press of anything on it is answered.
     let mut states = items();
     for (scene, caption) in [
@@ -782,18 +810,39 @@ impl Component for VideoPlayerPage {
       (Scene::Muted, "muted"),
       (Scene::Fullscreen, "fullscreen · the glyph exits"),
     ] {
-      states = states.child(item(ctx.mount::<Demo>(scene), caption));
+      states = states.child(item(ctx.mount::<Demo>(Staged { scene, most }), caption));
     }
-    let mut sizes = items();
-    for (scene, caption) in [
-      (Scene::Large, "large · 640 × 360"),
-      (Scene::Compact, "compact · 320 × 180"),
-      (Scene::Minimal, "minimal · 200 × 113"),
-    ] {
-      sizes = sizes.child(item(ctx.mount::<Demo>(scene), caption));
-    }
+    // A size is drawn at its own width, which is what it shows: in a stage narrower than it, it scrolls sideways
+    // under its name, and the sizes stand one under another.
+    let sized: Vec<(Element, &str, f32)> = [
+      (Scene::Large, "large · 640 × 360", 640.0),
+      (Scene::Compact, "compact · 320 × 180", 320.0),
+      (Scene::Minimal, "minimal · 200 × 113", 200.0),
+    ]
+    .into_iter()
+    .map(|(scene, caption, width)| (ctx.mount::<Demo>(Staged { scene, most: 0 }), caption, width))
+    .collect();
+    let sizes: Element = if room > 0.0 && room < 640.0 {
+      let mut sizes = Column::new().width(FILL).spacing(28.0).overflow_visible();
+      for (player, caption, width) in sized {
+        sizes = sizes.child(
+          Column::new()
+            .width(FILL)
+            .spacing(9.0)
+            .child(fit(caption, room, width, player))
+            .child(quiet(caption, 12.0)),
+        );
+      }
+      sizes.into()
+    } else {
+      let mut sizes = items();
+      for (player, caption, _) in sized {
+        sizes = sizes.child(item(player, caption));
+      }
+      sizes.into()
+    };
     let bare = items().child(item(
-      state().controls(false).mount(ctx),
+      state(room).controls(false).mount(ctx),
       "the picture alone, as in a feed",
     ));
     let feed = self.feed().key("feed").mount(ctx);

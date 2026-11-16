@@ -14,7 +14,7 @@ use crate::{
   app::theme::{OpacityLevel, PaletteColor, RadiusSize, Theme},
   components::{self, Row, Stack},
   core::Signal,
-  layout::{Alignment, StackAlignment},
+  layout::{Alignment, StackAlignment, layout_kind::Justify},
   node::{CursorIcon, Element, SliderPartStyle, color::Color, dimension::Dimension},
 };
 
@@ -336,12 +336,17 @@ impl WaveformView {
     self.peaks.iter().enumerate().fold(
       Row::new()
         .part(&self.part(WaveformPart::Bars))
+        // As wide as the waveform, the bars spread over it: at its own width that is the gap of the recipe, and in
+        // less room the bars keep their width and stand closer.
+        .spacing(0.0)
+        .width(Dimension::Pct(100.0))
+        .justify(Justify::SpaceBetween)
         .align_items(Alignment::Center)
         .describe("a11y_hidden", "true"),
       |row, (index, peak)| {
         let part = if index < played { &played_bar } else { &bar };
         let peak = if peak.is_finite() { peak.clamp(0.0, 1.0) } else { 0.0 };
-        row.child(Row::new().part(part).height(peak * tallest))
+        row.child(Row::new().part(part).flex_shrink(0.0).height(peak * tallest))
       },
     )
   }
@@ -365,7 +370,7 @@ impl WaveformView {
       self.disabled,
     )
     .part(&self.part(WaveformPart::Control))
-    .width(self.width())
+    .width(Dimension::Pct(100.0))
     .height(height)
     .track_style(clear().height(height))
     .thumb_style(clear().size(0.0, 0.0))
@@ -383,6 +388,11 @@ impl WaveformView {
     let mut root = Stack::new()
       .stack_align(StackAlignment::Center)
       .part(&self.part(WaveformPart::Root))
+      // The width of its bars and their gaps is the most it takes: what holds it may be narrower.
+      .width(self.width())
+      .max_width(Dimension::Pct(100.0))
+      .min_width(0.0)
+      .flex_shrink(1.0)
       // The ring of the focus is around the bars, past their box.
       .overflow_visible()
       .child(self.bars());

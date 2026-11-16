@@ -267,6 +267,22 @@ impl Playground {
     *self.mounted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(build));
   }
 
+  /// How wide what is on the stage may be before the stage scrolls to it: the stage less the room around what
+  /// it shows. Nothing until the card was laid out once. A component that is as wide as it is told, and that an
+  /// app would make no wider than its window (a player), asks.
+  pub fn stage_room(&self) -> f32 {
+    let room = self.room.get();
+    if room <= 0.0 {
+      return 0.0;
+    }
+    let stage = if room >= BESIDE {
+      room - 2.0 - PANEL - 1.0
+    } else {
+      room - 2.0
+    };
+    (stage - 2.0 * stage_padding()).max(1.0)
+  }
+
   /// The state the switch over the stage asks for: what the page gives its component's `force`.
   pub fn forced(&self) -> Option<Interaction> {
     FORCED[self.forced.get().min(FORCED.len() - 1)].1

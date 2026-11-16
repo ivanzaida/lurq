@@ -552,8 +552,9 @@ impl Component for SeekBarPage {
           Row::new()
             .width(FILL)
             .align_items(Alignment::Center)
-            .child(chord)
-            .child(quiet(does, 13.0)),
+            .child(chord.flex_shrink(0.0))
+            // In what is left beside the keys, on as many lines as it takes.
+            .child(Column::new().flex(1.0).min_width(0.0).child(quiet(does, 13.0))),
         )
       });
     let rows = [

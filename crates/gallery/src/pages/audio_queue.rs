@@ -87,6 +87,7 @@ fn held(queue: impl Into<Element>) -> Column {
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
     .child(shown)
@@ -205,7 +206,7 @@ impl AudioQueuePage {
           .into()
         })
         .measured(),
-        fill: false,
+        fill: true,
         forceable: true,
         facts: match current {
           Some(index) => format!("on track {}", index + 1),

@@ -21,9 +21,10 @@ use crate::{
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -252,6 +253,7 @@ fn picture(width: f32, height: f32) -> Row {
   .map(|(color, at)| GradientStop::at(Color::from_hex(color), at));
   Row::new()
     .size(width, height)
+    .max_width(FILL)
     .padding(12.0)
     .rounded(RadiusSize::Lg)
     .background_gradient(Gradient::linear(180.0, stops))

@@ -58,9 +58,10 @@ fn artwork(side: f32) -> Row {
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -672,7 +673,7 @@ impl AudioPlayerPage {
         } else {
           Shown::built(move |ctx| player.mount(ctx))
         },
-        fill: mini,
+        fill: true,
         forceable: true,
         facts,
         event: "on_playing_change",
