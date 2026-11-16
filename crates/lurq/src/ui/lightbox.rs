@@ -952,7 +952,8 @@ impl LightboxView {
       // A press in the lightbox is not one on what is around it.
       .on_click(|event: MouseEvent| event.stop_propagation())
       .on_key_down(move |event: KeyboardEvent| {
-        if event.ctrl || event.alt || event.meta {
+        // A key is told to every element: these are the lightbox's while the focus is in it.
+        if !event.focus_within || event.ctrl || event.alt || event.meta {
           return;
         }
         let handled = match event.key.as_str() {
