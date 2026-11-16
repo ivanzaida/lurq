@@ -339,3 +339,143 @@ fn it_is_a_search_and_each_of_its_controls_is_called_by_its_label() {
     assert_eq!(describe(&mut stage, id, "a11y_name").as_deref(), Some(name), "{id}");
   }
 }
+
+/// The bar with its three options and a count, over a view `width` wide which the signal changes.
+fn roomed(width: &Signal<f32>, case: &Signal<bool>, log: &Log) -> Stage {
+  let (width, case, log) = (width.clone(), case.clone(), log.clone());
+  let mut stage = Stage::first_frame_in(still(), 600.0, 300.0, move |ctx| {
+    let (told, dismissed) = (log.clone(), log.clone());
+    let bar = FindBar::new(Signal::new("bar".to_owned()))
+      .id("find")
+      .matches(3, 12)
+      .match_case(case.clone())
+      .on_match_case_change(move |on| note(&told, format!("case:{on}")))
+      .whole_word(Signal::new(false))
+      .regex(Signal::new(false))
+      .on_dismiss(move || note(&dismissed, "dismiss"));
+    Column::new()
+      .size(600.0, 300.0)
+      .child(Stack::new().size(width.get(), 300.0).id("view").child(bar.mount(ctx)))
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+fn laid_out(stage: &mut Stage, id: &str) -> bool {
+  stage.tree.get_element_by_id(id).is_some()
+}
+
+#[test]
+fn in_a_narrow_view_the_options_are_behind_one_button_and_the_field_keeps_room_to_read() {
+  let (width, case, log) = (Signal::new(256.0), Signal::new(true), Log::default());
+  let mut stage = roomed(&width, &case, &log);
+  let (bar, _, bar_width, _) = stage.bounds("find");
+  assert!(
+    close(bar_width, 240.0),
+    "the bar in a view of 256, less 8 on either side: {bar_width}"
+  );
+  assert!(
+    !laid_out(&mut stage, "find-match-case"),
+    "no option stands in the field"
+  );
+  let (field, _, field_width, _) = stage.bounds("find-field");
+  let (options, _, options_width, _) = stage.bounds("find-options");
+  assert!(
+    options >= field + 40.0 && options + options_width <= field + field_width + 0.5,
+    "the one button is at the field's end, with room to read before it: {options} in {field} to {}",
+    field + field_width
+  );
+  // The count and the buttons stay, in the bar.
+  assert!(stage.paints("3 of 12"));
+  for id in ["find-previous", "find-next", "find-close"] {
+    let (x, _, width, _) = stage.bounds(id);
+    assert!(
+      x >= field + field_width && x + width <= bar + bar_width + 0.5,
+      "{id} is after the field, in the bar: {x}"
+    );
+  }
+}
+
+#[test]
+fn the_button_of_the_options_opens_a_menu_of_them_checked_and_escape_closes_the_menu_alone() {
+  let (width, case, log) = (Signal::new(256.0), Signal::new(true), Log::default());
+  let mut stage = roomed(&width, &case, &log);
+  stage.click("find-options");
+  assert!(
+    stage.paints("Match case") && stage.paints("Match whole word") && stage.paints("Use regular expression"),
+    "the menu names each option as its button is called"
+  );
+  stage.key("Escape");
+  assert!(!stage.paints("Match case"), "Escape closes the menu");
+  assert!(laid_out(&mut stage, "find"), "and the bar stays");
+  assert!(!log.lock().unwrap().iter().any(|what| what == "dismiss"));
+  // An option chosen in the menu is turned as its button would turn it.
+  stage.click("find-options");
+  stage.click("find-match-case");
+  assert!(!case.get_untracked(), "match case was on, and is off");
+  assert_eq!(log.lock().unwrap().last().map(String::as_str), Some("case:false"));
+  assert!(!stage.paints("Match case"), "a choice closes the menu");
+}
+
+#[test]
+fn the_options_are_in_the_field_where_there_is_room_and_come_back_to_it() {
+  let (width, case, log) = (Signal::new(456.0), Signal::new(true), Log::default());
+  let mut stage = roomed(&width, &case, &log);
+  assert!(laid_out(&mut stage, "find-match-case") && !laid_out(&mut stage, "find-options"));
+  let wide = stage.picture();
+  width.set(256.0);
+  stage.pass();
+  stage.pass();
+  assert!(laid_out(&mut stage, "find-options") && !laid_out(&mut stage, "find-match-case"));
+  width.set(456.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(stage.picture(), wide, "wide again, as it was");
+}
+
+#[test]
+fn the_first_frame_of_a_bar_in_a_narrow_view_is_the_settled_one() {
+  let (case, log) = (Signal::new(true), Log::default());
+  let mut stage = Stage::first_frame_in(still(), 600.0, 300.0, move |ctx| {
+    let dismissed = log.clone();
+    let bar = FindBar::new(Signal::new("bar".to_owned()))
+      .id("find")
+      .matches(3, 12)
+      .match_case(case.clone())
+      .whole_word(Signal::new(false))
+      .regex(Signal::new(false))
+      .on_dismiss(move || note(&dismissed, "dismiss"));
+    Column::new()
+      .size(600.0, 300.0)
+      .child(Stack::new().size(256.0, 300.0).id("view").child(bar.mount(ctx)))
+      .into()
+  });
+  assert!(
+    laid_out(&mut stage, "find-options"),
+    "the first frame has the one button"
+  );
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(first, stage.picture(), "nothing moves in the second frame");
+}
+
+#[test]
+fn a_bar_narrower_than_its_field_and_buttons_puts_the_buttons_under_the_field() {
+  let (width, case, log) = (Signal::new(176.0), Signal::new(true), Log::default());
+  let mut stage = roomed(&width, &case, &log);
+  let (bar, _, bar_width, _) = stage.bounds("find");
+  let (field, field_y, field_width, field_height) = stage.bounds("find-field");
+  assert!(field + field_width <= bar + bar_width + 0.5, "the field is in the bar");
+  for id in ["find-previous", "find-next", "find-close"] {
+    let (x, y, width, _) = stage.bounds(id);
+    assert!(
+      x >= bar - 0.5 && x + width <= bar + bar_width + 0.5,
+      "{id} is in the bar: {x}"
+    );
+    assert!(
+      y >= field_y + field_height - 0.5,
+      "{id} is on a line under the field: {y}"
+    );
+  }
+}
