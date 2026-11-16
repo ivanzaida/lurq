@@ -1241,3 +1241,66 @@ fn it_shows_what_a_track_of_captions_says_at_its_position() {
     "a line the app gives is shown in the track's place"
   );
 }
+
+#[test]
+fn in_fullscreen_it_fills_its_window_and_keeps_its_room_where_it_stood() {
+  use lurq::{core::Signal, ui::VideoFullscreen};
+  let full = Signal::new(false);
+  let shown = full.clone();
+  let mut stage = stage(move |ctx| {
+    Column::new()
+      .child(
+        VideoPlayer::new()
+          .id("v")
+          .width(320.0)
+          .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
+          .duration(250.0)
+          .fullscreen(shown.clone())
+          .mount(ctx),
+      )
+      .child(Column::new().id("after").size(10.0, 10.0))
+      .into()
+  });
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 320.0, 180.0));
+  assert!(!has(&mut stage, "v-captions"), "compact at 320");
+  let after = stage.bounds("after");
+  stage.click("v-fullscreen");
+  stage.pass();
+  assert!(full.get(), "the button asks for it");
+  assert_eq!(
+    stage.bounds("v"),
+    (0.0, 0.0, 800.0, 520.0),
+    "it is as large as its window"
+  );
+  assert_eq!(stage.bounds("after"), after, "what stands after it has not moved");
+  assert!(has(&mut stage, "v-captions"), "in the form of the width it has now");
+  // Escape leaves, and it is back where it stood, as large as it was.
+  stage.key("Escape");
+  stage.pass();
+  assert!(!full.get(), "Escape asks to leave");
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 320.0, 180.0));
+  assert!(!has(&mut stage, "v-captions"));
+  assert_eq!(stage.bounds("after"), after);
+
+  // An app that lays fullscreen out itself: the player is drawn where it stands, its button saying "exit".
+  let mut own = mounted(|| {
+    VideoPlayer::new()
+      .id("v")
+      .width(432.0)
+      .duration(250.0)
+      .fullscreen_controlled(true, |_| {})
+      .fullscreen_fills(VideoFullscreen::App)
+  });
+  assert_eq!(own.bounds("v"), (0.0, 0.0, 432.0, 243.0));
+  says(&mut own, "v-fullscreen", "a11y_name", "Exit fullscreen");
+  // Filling its window alone, from its first frame.
+  let mut window = mounted(|| {
+    VideoPlayer::new()
+      .id("v")
+      .width(432.0)
+      .duration(250.0)
+      .fullscreen_controlled(true, |_| {})
+      .fullscreen_fills(VideoFullscreen::Window)
+  });
+  assert_eq!(window.bounds("v"), (0.0, 0.0, 800.0, 520.0));
+}

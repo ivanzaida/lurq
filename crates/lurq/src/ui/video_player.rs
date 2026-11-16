@@ -29,7 +29,7 @@ use crate::{
     events::KeyboardEvent,
     theme::{MotionDuration, MotionEasing, RadiusSize, Theme, TypographyStyle},
   },
-  components::{Column, Row, Stack},
+  components::{Column, Modal, Root, Row, Stack},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
@@ -355,6 +355,18 @@ impl Default for Words {
   }
 }
 
+/// What a player that is in fullscreen fills.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VideoFullscreen {
+  /// Its window, which goes to the whole screen: the default.
+  #[default]
+  Screen,
+  /// Its window, at the size the window has.
+  Window,
+  /// Nothing: it is drawn where it stands, and the app lays a player in fullscreen out itself.
+  App,
+}
+
 /// A video player.
 ///
 /// ```
@@ -421,6 +433,7 @@ pub struct VideoPlayer {
   qualities: Vec<Arc<str>>,
   quality: Held<Option<usize>>,
   fullscreen: Held<bool>,
+  fullscreen_fills: VideoFullscreen,
   picture_in_picture: Held<bool>,
   size: Option<Name>,
   width: Option<Length>,
@@ -513,6 +526,7 @@ impl VideoPlayer {
       qualities: Vec::new(),
       quality: Held::new(None),
       fullscreen: Held::new(false),
+      fullscreen_fills: VideoFullscreen::Screen,
       picture_in_picture: Held::new(false),
       size: None,
       width: None,
@@ -796,6 +810,14 @@ impl VideoPlayer {
     "whether it fills the screen; its button then exits."
   );
 
+  /// What a mounted player in fullscreen fills: its window, which goes to the whole screen
+  /// ([`VideoFullscreen::Screen`], the default), its window as it is, or nothing where the app does it itself.
+  /// Filling its window it keeps the room it had where it stands, and Escape asks to leave.
+  pub fn fullscreen_fills(mut self, fills: VideoFullscreen) -> Self {
+    self.fullscreen_fills = fills;
+    self
+  }
+
   held!(
     picture_in_picture,
     picture_in_picture_controlled,
@@ -984,6 +1006,14 @@ struct Live {
   follows: Arc<AtomicBool>,
   /// The aspect it follows, as the bits of an `f32`.
   aspect: Arc<AtomicU32>,
+  /// Whether it fills its window: in fullscreen, unless the app does that itself.
+  filling: Arc<AtomicBool>,
+  /// Whether it has taken its window to the whole screen.
+  screen: Arc<AtomicBool>,
+  /// How large it was laid out where it stands, before it filled its window: the room it keeps there.
+  rested: Arc<Mutex<(f32, f32)>>,
+  /// Its window, which fullscreen takes to the whole screen.
+  window: Option<crate::app::window::WindowHandle>,
   mounted: bool,
 }
 
@@ -1019,6 +1049,10 @@ impl Live {
       bucket: Signal::new(0),
       follows: Arc::new(AtomicBool::new(false)),
       aspect: Arc::new(AtomicU32::new(VIDEO_PLAYER_ASPECT.to_bits())),
+      filling: Arc::default(),
+      screen: Arc::default(),
+      rested: Arc::default(),
+      window: None,
       mounted: false,
     }
   }
@@ -1088,29 +1122,59 @@ impl Component for VideoPlayerHost {
       bucket: ctx.signal(0),
       follows: Arc::new(AtomicBool::new(false)),
       aspect: Arc::new(AtomicU32::new(VIDEO_PLAYER_ASPECT.to_bits())),
+      filling: Arc::default(),
+      screen: Arc::default(),
+      rested: Arc::default(),
+      window: Some(ctx.window()),
       mounted: true,
     };
     // Before the frame is painted: the form that fits the width it was laid out at, so that no frame shows another.
     // Its height follows a width the app gave it at its aspect, in the same frame.
     let (bucket_of, last) = (live.bucket.clone(), Arc::new(AtomicU8::new(0)));
     let (root, follows, aspect) = (live.root.mutable(), live.follows.clone(), live.aspect.clone());
+    let (filling, rested) = (live.filling.clone(), live.rested.clone());
     live.root.observe_rect_before_paint(move |rect| {
       let now = bucket(rect.width);
       if last.swap(now, Ordering::Relaxed) != now {
         bucket_of.set(now);
       }
+      // Filling its window it is as large as the window, and has no shape of its own to keep.
+      if filling.load(Ordering::Relaxed) {
+        return;
+      }
+      let mut height = rect.height;
       if follows.load(Ordering::Relaxed) {
         let aspect = f32::from_bits(aspect.load(Ordering::Relaxed));
-        root.set_size(None, Some(Dimension::Px(shaped(rect.width, aspect))));
+        height = shaped(rect.width, aspect);
+        root.set_size(None, Some(Dimension::Px(height)));
       }
+      *rested.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (rect.width, height);
     });
     Self { live }
+  }
+
+  /// A player taken away while it fills the screen gives the window back.
+  fn on_unmounted(&self) {
+    if self.live.screen.swap(false, Ordering::Relaxed)
+      && let Some(window) = &self.live.window
+    {
+      window.set_full_screen(false);
+    }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let player = ctx.props::<VideoPlayerProps>().0.clone();
     let live = &self.live;
-    let follows = player.height.is_none() && (player.width.is_some() || player.max_width.is_some());
+    // In fullscreen it fills its window, and takes the window to the whole screen, unless the app does it.
+    let fills = player.fullscreen.value && player.fullscreen_fills != VideoFullscreen::App;
+    live.filling.store(fills, Ordering::Relaxed);
+    let screen = fills && player.fullscreen_fills == VideoFullscreen::Screen;
+    if live.screen.swap(screen, Ordering::Relaxed) != screen
+      && let Some(window) = &live.window
+    {
+      window.set_full_screen(screen);
+    }
+    let follows = !fills && player.height.is_none() && (player.width.is_some() || player.max_width.is_some());
     live.follows.store(follows, Ordering::Relaxed);
     live.aspect.store(player.aspect.to_bits(), Ordering::Relaxed);
     let root = live.root.mutable();
@@ -1137,7 +1201,42 @@ impl Component for VideoPlayerHost {
       }
     }
     let theme = current_theme();
-    view(player, &theme, live, Some(ctx)).render_themed()
+    if !fills {
+      return view(player, &theme, live, Some(ctx)).render_themed();
+    }
+    // The player itself is in a layer over the whole window; where it stood a box keeps its room, so nothing
+    // around it moves while it is away and it comes back to the same place.
+    let rested = *live.rested.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (width, height, most) = (player.width, player.height, player.max_width);
+    let mut inside = player;
+    inside.width = Some(Length::Fill);
+    inside.height = Some(Length::Fill);
+    inside.max_width = None;
+    let filled = view(inside, &theme, live, Some(ctx));
+    let mut place = Stack::new().part(&filled.part(VideoPlayerPart::Root));
+    if rested.0 > 0.0 {
+      place = place.width(rested.0).height(rested.1);
+    } else {
+      // It was in fullscreen from its first frame: the size it was given, or its form's.
+      if let Some(width) = width.and_then(|width| width.resolve(&theme)) {
+        place = place.width(width);
+      }
+      if let Some(height) = height.and_then(|height| height.resolve(&theme)) {
+        place = place.height(height);
+      }
+    }
+    if let Some(most) = most.and_then(|most| most.resolve(&theme)) {
+      place = place.max_width(most);
+    }
+    let layer = Modal::new(
+      Stack::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .background(Color::new(0, 0, 0, 255))
+        .child(filled.render_themed()),
+    )
+    .target(Root)
+    .takes_focus(true);
+    place.child(layer).into()
   }
 }
 
@@ -1243,6 +1342,7 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     root: live.root.clone(),
     // A menu drawn open by force hangs from its anchor in the still form too: a picture of it, not dragged.
     mounted: live.mounted || player.force_menu.is_some(),
+    filling: live.filling.load(Ordering::Relaxed),
     recipe,
     id: player.id.clone(),
   }
@@ -1982,6 +2082,7 @@ impl Make<'_, '_> {
     let muted = (player.muted.value, player.muted.teller());
     let captions = (player.captions.value, player.captions.teller());
     let fullscreen = self.fullscreen_toggle();
+    let full = player.fullscreen.value;
     let buttons = self.live.buttons.clone();
     let poke = self.live.mounted.then(|| self.live.poke());
     let controls = player.controls && player.error.is_none();
@@ -2050,6 +2151,11 @@ impl Make<'_, '_> {
           fullscreen();
           true
         }
+        // Escape leaves fullscreen, as it does everywhere.
+        "Escape" if full => {
+          fullscreen();
+          true
+        }
         _ => false,
       };
       if handled {
@@ -2115,6 +2221,8 @@ pub struct VideoPlayerView {
   /// element given a new ref is a new element to the runtime: a slider in it would lose its drag and its focus
   /// each time the player is built again, so the still form gives its elements none.
   mounted: bool,
+  /// Whether it fills its window: its corners are square then.
+  filling: bool,
   id: Option<Arc<str>>,
 }
 
@@ -2156,6 +2264,9 @@ impl VideoPlayerView {
       .describe("a11y_name", self.label.clone());
     if self.mounted {
       root = root.ref_element(self.root.clone());
+    }
+    if self.filling {
+      root = root.rounded(0.0);
     }
     let width = self.width.and_then(|width| width.resolve(theme));
     if let Some(width) = width {

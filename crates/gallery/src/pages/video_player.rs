@@ -16,8 +16,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, Gradient, HitTestBehavior, color::Color, dimension::Dimension, gradient::GradientStop},
   ui::{
-    Button, ButtonPart, ButtonShape, ButtonVariant, Length, MediaCaptions, PlayButton, PlayButtonVariant, VideoPlayer,
-    VideoPlayerSize, icons, media_time_text,
+    Button, ButtonPart, ButtonShape, ButtonVariant, Length, MediaCaptions, PlayButton, PlayButtonVariant,
+    VideoFullscreen, VideoPlayer, VideoPlayerSize, icons, media_time_text,
   },
 };
 
@@ -230,6 +230,10 @@ impl Component for Demo {
     }
     if scene == Scene::Idle {
       player = player.poster(poster());
+    }
+    // The state is drawn where it stands: a player that filled the window would leave nothing of the page.
+    if scene == Scene::Fullscreen {
+      player = player.fullscreen_fills(VideoFullscreen::App);
     }
     if self.error.get() {
       player = player
@@ -801,7 +805,7 @@ impl Component for VideoPlayerPage {
       (Scene::Live, "live · no duration, the bar at the edge"),
       (Scene::Captions, "captions · above the bar"),
       (Scene::Muted, "muted"),
-      (Scene::Fullscreen, "fullscreen · the glyph exits"),
+      (Scene::Fullscreen, "fullscreen · the glyph exits (drawn in place)"),
     ] {
       states = states.child(item(ctx.mount::<Demo>(scene), caption));
     }
@@ -919,6 +923,13 @@ impl Component for VideoPlayerPage {
         "&str",
         "",
         "The line to show now, and the track's name the settings say.",
+      ),
+      (
+        "fullscreen_fills",
+        "VideoFullscreen",
+        "Screen",
+        "What a player in fullscreen fills: its window, taken to the whole screen (Screen); its window as it is \
+         (Window); or nothing, where the app lays it out itself (App). Escape asks to leave.",
       ),
       (
         "caption_cues",
