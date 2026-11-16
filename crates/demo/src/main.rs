@@ -781,7 +781,6 @@ fn main() {
   app
     .set_persistent_storage_path(default_persistent_storage_path())
     .expect("open demo persistent storage");
-  lurq::app::devtools::load_fonts(&mut app);
   let renderer = set_selected_render_engine(&mut tree, &options.renderer);
   animation_demo::register_keyframes(&mut tree);
   engine_presence_demo::register_keyframes(&mut tree);

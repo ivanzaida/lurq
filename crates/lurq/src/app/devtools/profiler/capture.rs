@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use crate::app::profiler::{
   ApplicationScopeSample, FrameScreenshot, GpuTimestampAvailability, InputDispatchSample, PassSample, ProfileReport,
-  ProfileSample, RenderCause, RenderSource, SampleData, UiUpdateSample, span_name,
+  ProfileSample, RenderCause, SampleData, UiUpdateSample, span_name,
 };
 
 /// One 60 Hz refresh: the timeline draws its budget line here and colours the
@@ -390,28 +390,6 @@ impl ProfilerCapture {
   }
 }
 
-/// One row per input a frame presented: its interaction id, queue delay,
-/// dispatch and input-to-present latency.
-pub(crate) fn input_detail(inputs: &[&InputDispatchSample]) -> Option<DetailSection> {
-  (!inputs.is_empty()).then(|| {
-    section(
-      "INPUT",
-      inputs.iter().map(|input| {
-        (
-          input.kind.name(),
-          format!(
-            "#{} queue {} · dispatch {} · present {}",
-            input.interaction_id,
-            format_duration(input.queue_delay),
-            format_duration(input.total),
-            input.input_to_present.map_or_else(|| "-".to_owned(), format_duration)
-          ),
-        )
-      }),
-    )
-  })
-}
-
 pub(crate) fn ms(duration: Duration) -> f64 {
   duration.as_secs_f64() * 1000.0
 }
@@ -561,35 +539,17 @@ pub(crate) fn phase_rows(pass: &PassSample) -> Vec<PhaseRow> {
     .collect()
 }
 
-/// What made the updates' components render, one row per distinct cause:
-/// the component, then the source's kind and value type, and for a memo what
-/// made it recompute. None when the updates hold no cause (not a detailed
-/// recording, or no update).
-pub(crate) fn causes_section(updates: &[&UiUpdateSample]) -> Option<DetailSection> {
+/// What made the updates' components render, each distinct cause once, in the order they came: the component,
+/// what changed (its kind and the type of its value), and for a memo what made it recompute. Empty when the
+/// updates hold no cause (not a detailed recording, or no update).
+pub(crate) fn causes<'a>(updates: &[&'a UiUpdateSample]) -> Vec<&'a RenderCause> {
   let mut causes: Vec<&RenderCause> = Vec::new();
   for cause in updates.iter().flat_map(|update| &update.causes) {
     if !causes.contains(&cause) {
       causes.push(cause);
     }
   }
-  if causes.is_empty() {
-    return None;
-  }
-  let source = |source: &RenderSource| match source.value_type {
-    Some(value_type) => format!("{} {value_type}", source.trigger.name()),
-    None => source.trigger.name().to_owned(),
-  };
-  Some(section(
-    "RENDER CAUSES",
-    causes.into_iter().map(|cause| {
-      let mut value = source(&cause.source);
-      if let Some(via) = &cause.via {
-        value.push_str(" via ");
-        value.push_str(&source(via));
-      }
-      (cause.component, value)
-    }),
-  ))
+  causes
 }
 
 #[derive(Clone, Debug, PartialEq)]

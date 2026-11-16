@@ -7,7 +7,7 @@ mod changes;
 mod components;
 mod context;
 mod kit;
-mod legacy;
+mod profiler;
 mod signals;
 mod snapshot;
 #[cfg(feature = "persistent_storage")]
@@ -25,13 +25,13 @@ use self::{
   components::{ComponentsState, Inspected},
   context::ContextState,
   kit::FILL,
-  legacy::{profiler, profiler_analysis},
+  profiler::ProfilerTab,
   signals::SignalsState,
 };
 use crate::{
   app::{
     component::Component,
-    ctx::{Ctx, Interval},
+    ctx::Ctx,
     events::KeyboardEvent,
     profiler::ProfilingHandle,
     theme::{PaletteColor, Theme},
@@ -43,20 +43,12 @@ use crate::{
   ui::{Tab, Tabs, TabsPart, TabsVariant, WindowChrome, icons},
 };
 
-/// The icon font of the tab not rebuilt yet (`legacy`): it goes with it.
-static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
-
 pub type DevToolsDebugOverlayCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
 pub type DevToolsBoolCallback = Arc<dyn Fn(bool) + Send + Sync>;
 pub type DevToolsPathCallback = Arc<dyn Fn(Vec<usize>) + Send + Sync>;
 
 /// The board's bar of tabs under the title bar.
 const TOP_BAR_HEIGHT: f32 = 40.0;
-
-pub fn load_fonts(app: &mut crate::app::App) {
-  app.load_font(LUCIDE_TTF.to_vec());
-  app.register_font("lucide", "lucide");
-}
 
 #[derive(Clone, crate::DevtoolsInspectable)]
 pub struct DevToolsProps {
@@ -126,9 +118,7 @@ pub struct DevTools {
   components: ComponentsState,
   signals: SignalsState,
   contexts: ContextState,
-  profiler: Signal<profiler::ProfilerState>,
-  /// Rereads a running recording's status; runs only while one does.
-  profiler_status_ticker: Interval,
+  profiler: ProfilerTab,
   last_picked_revision: AtomicU64,
 }
 
@@ -147,27 +137,20 @@ impl Component for DevTools {
   type Props = DevToolsProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let profiler = ctx.signal(profiler::ProfilerState::default());
-    let profiler_status_ticker = ctx.create_interval(profiler::STATUS_INTERVAL, {
-      let profiler = profiler.clone();
-      move || profiler.update(profiler::ProfilerState::refresh_status)
-    });
     Self {
       theme: Theme::new(),
       active_tab: ctx.signal(DevToolsTab::Components),
       components: ComponentsState::new(ctx),
       signals: SignalsState::new(ctx),
       contexts: ContextState::new(ctx),
-      profiler,
-      profiler_status_ticker,
+      profiler: ProfilerTab::new(ctx),
       last_picked_revision: AtomicU64::new(0),
     }
   }
 
   fn on_unmounted(&self) {
     // A recording left running would keep counting against the session limit.
-    self.profiler_status_ticker.stop();
-    self.profiler.update(profiler::ProfilerState::clear);
+    self.profiler.close();
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
@@ -188,7 +171,7 @@ impl Component for DevTools {
       let active = self.active_tab.get();
       let body = match active {
         DevToolsTab::Components => components::view(ctx, &props.snapshot, &self.components, &inspected),
-        DevToolsTab::Profiler => self.profiler_tab(ctx, &props),
+        DevToolsTab::Profiler => profiler::view(ctx, &self.profiler, props.profiling.clone()),
         #[cfg(feature = "persistent_storage")]
         DevToolsTab::PersistentStorage => storage::view(ctx),
         DevToolsTab::Signals => signals::view(ctx, &props.snapshot, &self.signals),
@@ -247,24 +230,6 @@ impl DevTools {
       .style(TabsPart::List, |s| s.height(TOP_BAR_HEIGHT).padding_x(16.0).gap(24.0))
       .style(TabsPart::Tab, |s| s.height(TOP_BAR_HEIGHT))
       .style(TabsPart::Label, |s| s.font_size(13.0))
-      .into()
-  }
-
-  fn profiler_tab(&self, ctx: &mut Ctx, props: &DevToolsProps) -> Element {
-    let state = self.profiler.get();
-    let analysis = profiler::analysis_props(&state, self.profiler.clone())
-      .map(|props| ctx.mount::<profiler_analysis::ProfilerAnalysis>(props))
-      .unwrap_or_default();
-    Column::new()
-      .child(profiler::profiler_actions(
-        &state,
-        self.profiler.clone(),
-        props.profiling.clone(),
-        self.profiler_status_ticker.clone(),
-      ))
-      .child(profiler::profiler_view(&state, self.profiler.clone(), analysis))
-      .size(FILL, FILL)
-      .flex(1.0)
       .into()
   }
 }

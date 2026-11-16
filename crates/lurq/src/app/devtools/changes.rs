@@ -150,7 +150,7 @@ pub(super) fn toolbar(state: &ListState, latest: u64, things: &str) -> Row {
 }
 
 /// The board's Recording: the toolbar's toggle, in the destructive color on its muted fill while it records.
-fn recording_toggle() -> Recipe {
+pub(super) fn recording_toggle() -> Recipe {
   use PaletteColor::{Destructive, DestructiveMuted};
   kit::outlined_toggle().state(ToggleState::On, TogglePart::Root, |s| {
     s.background(DestructiveMuted)

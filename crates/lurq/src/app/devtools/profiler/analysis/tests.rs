@@ -3,13 +3,19 @@ use std::{
   time::Duration,
 };
 
-use super::*;
+use super::{
+  super::{
+    calls,
+    flame::{CHART_ID, SELECTION_ID, TOOLTIP_ID, VIEW_ID, color_of, track_label},
+  },
+  *,
+};
 use crate::app::{
   App, Tree,
   events::{MouseButton, ScrollPhase},
   profiler::{
-    ApplicationScopeId, ApplicationScopeInfo, ApplicationScopeSample, PassSample, Phase, PhaseSpan, ProfileSample,
-    SampleData,
+    ApplicationLane, ApplicationScopeId, ApplicationScopeInfo, ApplicationScopeSample, PassSample, Phase, PhaseSpan,
+    ProfileSample, SampleData,
   },
 };
 
@@ -430,10 +436,20 @@ fn tables_total_the_pass_time_of_the_range() {
   assert!((tree.percent(pass.total_ns) - 100.0).abs() < 1e-9);
 }
 
-/// `ProfilerAnalysis` mounted alone on `capture`'s whole range, with the
-/// passes its clicks select.
-fn mounted(capture: Arc<ProfilerCapture>, selected: Option<u64>) -> (App, Tree, Arc<Mutex<Vec<u64>>>) {
+/// What a mounted analysis shows, and the name of what is selected in it.
+struct Shown {
+  analysis: Signal<AnalysisState>,
+  picked: Signal<Option<&'static str>>,
+}
+
+/// `ProfilerAnalysis` mounted alone on `capture`'s whole range, with what is shown of it and the passes its
+/// clicks select.
+fn mounted(capture: Arc<ProfilerCapture>, selected: Option<u64>) -> (App, Tree, Shown, Arc<Mutex<Vec<u64>>>) {
   let picked = Arc::new(Mutex::new(Vec::new()));
+  let state = Shown {
+    analysis: Signal::new(AnalysisState::default()),
+    picked: Signal::new(None),
+  };
   let mut app = App::new();
   let mut tree = Tree::new();
   tree.resize(1000, 600);
@@ -443,6 +459,8 @@ fn mounted(capture: Arc<ProfilerCapture>, selected: Option<u64>) -> (App, Tree, 
       range: capture.whole(),
       capture,
       selected,
+      state: state.analysis.clone(),
+      picked: state.picked.clone(),
       on_select_pass: Some(Arc::new({
         let picked = picked.clone();
         move |sequence| picked.lock().unwrap().push(sequence)
@@ -451,7 +469,7 @@ fn mounted(capture: Arc<ProfilerCapture>, selected: Option<u64>) -> (App, Tree, 
   );
   tree.pass_headless(&mut app);
   tree.pass_headless(&mut app);
-  (app, tree, picked)
+  (app, tree, state, picked)
 }
 
 fn bounds_of(tree: &mut Tree, id: &str) -> Option<crate::core::ElementRect> {
@@ -483,10 +501,10 @@ fn click(tree: &mut Tree, x: f32, y: f32) {
 
 #[test]
 fn the_chart_hovers_selects_zooms_and_pans() {
-  let (mut app, mut tree, picked) = mounted(three_passes(), None);
+  let (mut app, mut tree, state, picked) = mounted(three_passes(), None);
   let chart = bounds_of(&mut tree, CHART_ID).expect("the chart");
-  // 16 px of padding each side of the 1000 px panel.
-  close(chart.width, 968.0, "chart width");
+  // The board's room each side of the 1000 px panel.
+  close(chart.width, 1000.0 - PADDING * 2.0, "chart width");
   let view_text = |tree: &mut Tree| texts_of(tree, VIEW_ID).concat();
   assert_eq!(view_text(&mut tree), "+0ms – +100ms (100.00ms)");
 
@@ -495,7 +513,9 @@ fn the_chart_hovers_selects_zooms_and_pans() {
   let y = chart.y + TRACK_HEADER_HEIGHT + ROW_HEIGHT * 1.5;
   tree.mouse_move(x, y);
   tree.pass_headless(&mut app);
-  let tooltip = texts_of(&mut tree, TOOLTIP_ID);
+  // What the pointer says is one text of three lines.
+  let said = texts_of(&mut tree, TOOLTIP_ID).concat();
+  let tooltip: Vec<&str> = said.lines().collect();
   assert_eq!(tooltip[0], "layout_update");
   // 5.8 ms less ui_rebuild 2.6, layout_compute 1.8 and component_after_layout 0.6.
   assert_eq!(tooltip[1], "total 5.80ms · self 0.80ms");
@@ -504,9 +524,23 @@ fn the_chart_hovers_selects_zooms_and_pans() {
   click(&mut tree, x, y);
   tree.pass_headless(&mut app);
   assert_eq!(*picked.lock().unwrap(), [2]);
-  let selection = texts_of(&mut tree, SELECTION_ID);
-  assert_eq!(selection[0], "layout_update");
-  assert!(selection[1].contains("in pass"), "{selection:?}");
+  // Its name is what the tables and the sidebar pick out.
+  assert_eq!(state.picked.get_untracked(), Some("layout_update"));
+  assert_eq!(
+    texts_of(&mut tree, SELECTION_ID),
+    [
+      "Selected span",
+      "layout_update",
+      "Total",
+      "5.80ms",
+      "Self",
+      "0.80ms",
+      "Parent",
+      "pass",
+      "Origin",
+      "phase · pass #2 · +40ms"
+    ]
+  );
 
   // The wheel zooms in around the pointer.
   tree.scroll(x, y, 0.0, 100.0, ScrollPhase::Scroll);
@@ -531,78 +565,48 @@ fn the_chart_hovers_selects_zooms_and_pans() {
   assert!(bounds_of(&mut tree, TOOLTIP_ID).is_none());
 }
 
+fn shows(tree: &mut Tree, text: &str) -> bool {
+  tree
+    .find_element(|element: crate::node::ElementRef<'_>| element.text_content() == Some(text))
+    .is_some()
+}
+
 #[test]
 fn the_tables_show_total_self_count_and_percent() {
   let capture = Arc::new(synthetic_capture(30, 4));
   let analysis = Analysis::new(&capture, AnalysisScope::Range, capture.whole(), None);
-  let (mut app, mut tree, _) = mounted(capture.clone(), None);
-  let call_tree = bounds_of(&mut tree, &tab_id("Call tree")).unwrap();
-  click(&mut tree, call_tree.x + 4.0, call_tree.y + 4.0);
+  let (mut app, mut tree, state, _) = mounted(capture.clone(), None);
+  state.analysis.update(|state| state.tab = AnalysisTab::CallTree);
+  tree.pass_headless(&mut app);
   tree.pass_headless(&mut app);
   assert!(bounds_of(&mut tree, CHART_ID).is_none());
-  /// Every text of the first table row named `name`, its name cell first;
-  /// empty without one.
-  fn row_texts(tree: &Tree, name: &str) -> Vec<String> {
-    fn gather(element: crate::node::ElementRef<'_>, texts: &mut Vec<String>) {
-      if let Some(text) = element.text_content() {
-        texts.push(text.to_owned());
-      }
-      for child in element.children() {
-        gather(child, texts);
-      }
-    }
-    fn find(element: crate::node::ElementRef<'_>, name: &str) -> Option<Vec<String>> {
-      // A row: the name cell (chevron, swatch, name) and five value cells.
-      let children = element.children();
-      if children.len() == 6 {
-        let mut texts = Vec::new();
-        gather(element, &mut texts);
-        let mut name_cell = Vec::new();
-        gather(children.iter().next().unwrap(), &mut name_cell);
-        if name_cell.last().map(String::as_str) == Some(name) {
-          return Some(texts);
-        }
-      }
-      children.iter().find_map(|child| find(child, name))
-    }
-    find(tree.root().expect("a root"), name).unwrap_or_default()
-  }
+
   let tree_table = analysis.table(false, SpanTrack::Frames, CallSort::Total, true);
   let pass = &tree_table.nodes[tree_table.roots[0] as usize];
-  // Chevron, swatch and name, then total, total %, self, self %, count.
-  let texts = row_texts(&tree, "pass");
-  assert_eq!(
-    texts[texts.len() - 5..],
-    [
-      format_ms(pass.total_ns as f64 / 1e6),
-      "100.0%".to_owned(),
-      format_ms(pass.self_ns as f64 / 1e6),
-      format!("{:.1}%", tree_table.percent(pass.self_ns)),
-      "30".to_owned(),
-    ]
-  );
+  // The row of the passes: total, total %, self, self %, count.
+  for text in [
+    "pass".to_owned(),
+    format_ms(pass.total_ns as f64 / 1e6),
+    "100.0%".to_owned(),
+    format_ms(pass.self_ns as f64 / 1e6),
+    format!("{:.1}%", tree_table.percent(pass.self_ns)),
+    "30".to_owned(),
+  ] {
+    assert!(shows(&mut tree, &text), "the table shows {text}");
+  }
   // Open by default to the phases of the passes; deeper rows are closed.
-  assert!(!row_texts(&tree, "layout_update").is_empty());
-  assert!(
-    tree
-      .find_element(|element: crate::node::ElementRef<'_>| element.text_content() == Some("ui_commit"))
-      .is_none()
-  );
+  assert!(shows(&mut tree, "layout_update"));
+  assert!(!shows(&mut tree, "ui_commit"));
   // The table's total is the analysis's pass time.
-  assert!(
-    tree
-      .find_element(|element: crate::node::ElementRef<'_>| {
-        element.text_content()
-          == Some(format!("total {} = pass time of 30 passes", format_ms(analysis.pass_time_ms)).as_str())
-      })
-      .is_some()
-  );
+  assert!(shows(
+    &mut tree,
+    &format!("total {} = pass time of 30 passes", format_ms(analysis.pass_time_ms))
+  ));
 
-  let bottom_up = bounds_of(&mut tree, &tab_id("Bottom-up")).unwrap();
-  click(&mut tree, bottom_up.x + 4.0, bottom_up.y + 4.0);
+  state.analysis.update(|state| state.tab = AnalysisTab::BottomUp);
+  tree.pass_headless(&mut app);
   tree.pass_headless(&mut app);
   // Every name is a top row; canvas_commands' total is its self time.
-  let texts = row_texts(&tree, "canvas_commands");
   let table = analysis.table(true, SpanTrack::Frames, CallSort::Total, true);
   let commands = table
     .roots
@@ -612,6 +616,88 @@ fn the_tables_show_total_self_count_and_percent() {
     .unwrap();
   assert_eq!(commands.count, 30 * 4);
   assert_eq!(commands.total_ns, commands.self_ns);
-  assert_eq!(texts[texts.len() - 1], "120");
-  assert!(!row_texts(&tree, "ui_commit").is_empty());
+  assert!(shows(&mut tree, "canvas_commands"));
+  assert!(shows(&mut tree, "120"));
+  assert!(shows(&mut tree, "ui_commit"));
+}
+
+#[test]
+fn a_table_lists_each_open_row_over_its_children_in_the_color_of_its_phase() {
+  use crate::app::theme::PaletteColor;
+  let capture = three_passes();
+  let analysis = Analysis::new(&capture, AnalysisScope::Range, whole(&capture), None);
+  let mut state = AnalysisState::default();
+  let tree = analysis.table(false, SpanTrack::Frames, CallSort::Total, true);
+  let listed = |state: &AnalysisState| {
+    calls::lines(&tree, SpanTrack::Frames, false, |index, node| {
+      state.expanded(false, SpanTrack::Frames, index, node)
+    })
+  };
+  let lines = listed(&state);
+  // The passes and their phases are open; what a phase holds is closed.
+  assert_eq!(
+    lines
+      .iter()
+      .map(|line| (line.name, line.depth, line.open))
+      .collect::<Vec<_>>(),
+    [
+      ("pass", 0, true),
+      ("layout_update", 1, true),
+      ("ui_rebuild", 2, false),
+      ("layout_compute", 2, false),
+      ("component_after_layout", 2, false),
+      ("render", 1, true),
+      ("render_encode", 2, false),
+      ("render_submit", 2, false),
+      ("render_acquire", 2, false),
+      ("render_present", 2, false)
+    ]
+  );
+  assert_eq!(lines[0].count, 3);
+  assert!((lines[0].total_share - 100.0).abs() < 1e-9);
+  // ui_rebuild holds ui_commit: opened, the row is under it.
+  let rebuild = lines.iter().find(|line| line.name == "ui_rebuild").unwrap();
+  assert_eq!(rebuild.children, 1);
+  state.toggle(false, SpanTrack::Frames, rebuild.index);
+  let opened = listed(&state);
+  let at = opened.iter().position(|line| line.name == "ui_rebuild").unwrap();
+  assert!(opened[at].open);
+  assert_eq!((opened[at + 1].name, opened[at + 1].depth), ("ui_commit", 3));
+  // Closed again, and the passes closed: one row.
+  state.toggle(false, SpanTrack::Frames, rebuild.index);
+  state.toggle(false, SpanTrack::Frames, lines[0].index);
+  assert_eq!(listed(&state).len(), 1);
+
+  // A span of the chart is in the color of its phase, and a scope of the app's in the color of its own.
+  let color = |name: &str| {
+    analysis
+      .forest
+      .spans()
+      .iter()
+      .find(|span| span.name == name)
+      .map(|span| color_of(&analysis, span))
+  };
+  assert_eq!(color("pass"), Some(PaletteColor::MutedForeground));
+  assert_eq!(color("ui_commit"), Some(PaletteColor::Chart1));
+  assert_eq!(color("layout_compute"), Some(PaletteColor::Chart2));
+  assert_eq!(color("render_submit"), Some(PaletteColor::Chart4));
+  assert_eq!(color("load"), Some(PaletteColor::Chart5));
+}
+
+#[test]
+fn a_span_is_shown_with_a_tenth_of_its_length_at_each_side() {
+  let capture = three_passes();
+  let analysis = Analysis::new(&capture, AnalysisScope::Range, whole(&capture), None);
+  let pass = analysis
+    .forest
+    .spans()
+    .iter()
+    .position(|span| span.name == "pass" && span.sample == Some(2))
+    .unwrap();
+  let mut state = AnalysisState::default();
+  state.zoom_to(&analysis, pass as u32);
+  // The second pass runs 40..50 ms.
+  let view = state.view_of(&analysis);
+  assert!((view.start_ms - 39.0).abs() < 1e-9, "{view:?}");
+  assert!((view.end_ms - 51.0).abs() < 1e-9, "{view:?}");
 }
