@@ -2,10 +2,12 @@
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 #[cfg(feature = "canvas")]
 mod bar_chart;
@@ -58,6 +60,7 @@ mod heatmap;
 mod highlight;
 mod hover_card;
 mod icon;
+mod info_label;
 mod input;
 mod input_kinds;
 mod input_otp;
@@ -83,6 +86,7 @@ mod number_input;
 mod outcome;
 mod pagination;
 mod picture;
+mod persona;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;

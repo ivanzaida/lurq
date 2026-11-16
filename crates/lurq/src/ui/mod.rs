@@ -17,10 +17,12 @@
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 mod banner;
 #[cfg(feature = "canvas")]
@@ -72,6 +74,7 @@ mod highlight;
 mod hover_card;
 mod icon;
 pub mod icons;
+mod info_label;
 mod input;
 mod input_group;
 mod input_otp;
@@ -101,6 +104,7 @@ mod pagination;
 mod part_style;
 mod password_input;
 mod picture;
+mod persona;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -168,6 +172,7 @@ pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, 
 pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
+pub use ai_label::{AiLabel, AiLabelPart, AiLabelRenderer, AiLabelSize, AiLabelState, AiLabelView};
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use audio_player::{
   AUDIO_MINI_NARROW, AUDIO_MINI_TIME_FROM, AUDIO_MINI_VOLUME_FROM, AudioControls, AudioPlayer, AudioPlayerPart,
@@ -179,7 +184,10 @@ pub use audio_queue::{
 };
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
-  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
+  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView, Presence,
+};
+pub use back_to_top::{
+  BACK_TO_TOP_THRESHOLD, BackToTop, BackToTopPart, BackToTopRenderer, BackToTopState, BackToTopView,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
@@ -301,6 +309,7 @@ pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use info_label::{InfoLabel, InfoLabelPart, InfoLabelRenderer, InfoLabelState, InfoLabelView};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use input_group::{
   InputAddon, InputGroup, InputGroupPart, InputGroupRenderer, InputGroupSize, InputGroupState, InputGroupView,
@@ -377,6 +386,7 @@ pub use picture::{
   PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
   PictureState, PictureView,
 };
+pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use play_button::{
@@ -452,9 +462,10 @@ pub use slider::{
 pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
-  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
-  SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
-  SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, PageLoader,
+  PageLoaderPart, PageLoaderRenderer, PageLoaderState, PageLoaderView, SPINNER_BARS, SPINNER_BARS_PERIOD, SPINNER_DOTS,
+  SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer, SpinnerSize, SpinnerState, SpinnerVariant,
+  SpinnerView,
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,

@@ -705,6 +705,21 @@ into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/
 ctx.scroll_into_view(&details);
 ```
 
+To take a container back to its top, as a button at the foot of a long page does, ask from a component with
+`ctx.scroll_to_top_of(&scroll_state)`, given the `ScrollState` the container was built with (`with_scroll_state`), or
+call `tree.scroll_state_to_top(&scroll_state)`. The content goes there as a wheel's scroll goes: over the frames that
+follow, on the wheel's curve, with an `on_scroll` event of no delta for each step, and at once while motion is reduced
+or the theme's `smooth_scroll` is off. A notch of the wheel that comes meanwhile adds to where the content is going,
+and anything else that scrolls the container (`set_scroll`, a drag of the thumb, a finger) stops it there. A state
+that scrolls nothing in the tree, or is at its top already, asks for nothing. `ui::BackToTop` is the design system's
+button for it. (`ctx.scroll_to_top()`, with no state, is a phone's tap on its status bar: the page at the middle of the
+window.)
+
+```rust
+// `scroll` is the ScrollState the page's ScrollVertical was given.
+ctx.scroll_to_top_of(&scroll);
+```
+
 `ctx.scroll_range_into_view(&text_ref, range)` does the same for a range of a text, in bytes of its content: the lines
 the range covers are brought into view, and no more of the text, wherever it is wrapped. The current match of a search,
 in a long text that scrolls. The text must know where its characters are drawn, which one that is selectable or has

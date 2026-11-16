@@ -6,11 +6,13 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod area_chart;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 mod bar_list;
 mod gauge;
@@ -54,6 +56,7 @@ mod find_bar;
 mod floating_panel;
 mod hover_card;
 mod icons;
+mod info_label;
 mod input;
 mod input_group;
 mod input_otp;
@@ -80,6 +83,7 @@ mod overview;
 mod pagination;
 mod password_input;
 mod picture;
+mod persona;
 mod pie_chart;
 mod play_button;
 mod popconfirm;
@@ -435,6 +439,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
   },
   Page {
+    path: "/info-label",
+    name: "Info Label",
+    icon: Some("info"),
+    about: "info label field hint help tooltip mark explain explanation i icon more information placement arrow force_open nfo abel",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<info_label::InfoLabelPage>(()),
+  },
+  Page {
     path: "/calendar",
     name: "Calendar",
     icon: Some("calendar-days"),
@@ -643,6 +655,22 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
   },
   Page {
+    path: "/ai-label",
+    name: "AI Label",
+    icon: Some("sparkles"),
+    about: "ai label artificial intelligence generated model assistant sparkles mark badge suggestion draft text icon size abel",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<ai_label::AiLabelPage>(()),
+  },
+  Page {
+    path: "/back-to-top",
+    name: "Back To Top",
+    icon: Some("arrow-up"),
+    about: "back to top scroll up button page long list threshold floating return arrow smooth reduced motion on_click force_shown ack",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<back_to_top::BackToTopPage>(()),
+  },
+  Page {
     path: "/command-palette",
     name: "Command Palette",
     icon: Some("terminal"),
@@ -780,6 +808,14 @@ pub const PAGES: &[Page] = &[
     about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count name icon size shape vatar roup max label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
+  },
+  Page {
+    path: "/persona",
+    name: "Persona",
+    icon: Some("users"),
+    about: "persona person people user member avatar name description line presence online away busy offline size list menu header ersona",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<persona::PersonaPage>(()),
   },
   Page {
     path: "/separator",

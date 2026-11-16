@@ -228,6 +228,7 @@ pub struct Field {
   disabled: bool,
   required: bool,
   optional: Option<Arc<str>>,
+  info: Option<Arc<str>>,
   orientation: Orientation,
   full_width: bool,
   states: Vec<Name>,
@@ -254,6 +255,7 @@ impl Field {
       disabled: false,
       required: false,
       optional: None,
+      info: None,
       orientation: Orientation::Vertical,
       full_width: false,
       states: Vec::new(),
@@ -314,6 +316,15 @@ impl Field {
   /// Says that the field may be left empty in words of the app's own: in another language.
   pub fn optional_text(mut self, text: &str) -> Self {
     self.optional = Some(Arc::from(text));
+    self
+  }
+
+  /// What the label needs explained, in a few words: the mark of an [`InfoLabel`](super::InfoLabel) after the
+  /// label, an "i" in a circle, with the words in a tooltip above it. The tooltip shows on a field that is
+  /// mounted ([`Field::mount`]); on one converted into an element the mark is there and says the words to
+  /// tooling alone. An empty text is no mark.
+  pub fn info(mut self, info: &str) -> Self {
+    self.info = (!info.is_empty()).then(|| Arc::from(info));
     self
   }
 
@@ -391,7 +402,7 @@ impl Field {
     self.finish(&theme, Some(ctx))
   }
 
-  fn finish(self, theme: &Theme, ctx: Option<&mut Ctx>) -> Element {
+  fn finish(self, theme: &Theme, mut ctx: Option<&mut Ctx>) -> Element {
     // One judgment is shown, as an input shows it: an error makes the field invalid.
     let invalid = self.invalid || self.error.is_some();
     let warning = self.warning && !invalid;
@@ -419,8 +430,12 @@ impl Field {
         disabled: self.disabled,
         description: description.clone(),
       },
-      ctx,
+      ctx.as_deref_mut(),
     );
+    let info = self
+      .info
+      .as_deref()
+      .map(|info| super::InfoLabel::mark_alone(info, theme, ctx.as_deref_mut()));
     let control = match &description {
       Some(description) => described(control, description.clone()),
       None => control,
@@ -433,6 +448,7 @@ impl Field {
       description,
       required: self.required,
       optional: self.optional.filter(|_| !self.required),
+      info,
       orientation: self.orientation,
       recipe: theme.resolve::<Field>(&case, Some(&self.rules)),
       id: self.id,
@@ -466,6 +482,8 @@ pub struct FieldView {
   pub required: bool,
   /// The words of the mark of a field that may be left empty, where it has the mark.
   pub optional: Option<Arc<str>>,
+  /// The mark that explains the label, with its tooltip on it where the field is mounted: see [`Field::info`].
+  pub info: Option<Element>,
   /// Where the label is: above the control, or beside it.
   pub orientation: Orientation,
   /// The style of each part of this field.
@@ -505,6 +523,12 @@ impl FieldView {
       label = label.child(self.text(FieldPart::Required, "*"));
     } else if let Some(optional) = &self.optional {
       label = label.child(self.text(FieldPart::Optional, optional));
+    }
+    if let Some(info) = &self.info {
+      // 6 after what is before it, as an info label has its mark: 2 more than the label's own gap.
+      label = label
+        .overflow_visible()
+        .child(Row::new().padding_left(2.0).overflow_visible().child(info.clone()));
     }
     label
   }

@@ -59,6 +59,41 @@ impl Tree {
     self.scroll_event(x, y, delta_x, delta_y, phase, true);
   }
 
+  /// Sends the scroll container `state` is the state of to its top, as a wheel turned that far would: over
+  /// the frames that follow, on the wheel's curve, a step with every pass, and at once where a wheel's
+  /// scroll is not animated either (motion is reduced, or the theme's [`smooth_scroll`](Theme::set_smooth_scroll)
+  /// is off). A notch of the wheel that comes meanwhile adds to where the content is going, and anything else
+  /// that scrolls the container stops it, as with [`wheel`](Self::wheel); `on_scroll` handlers hear an event
+  /// with no delta for every step. `false` when no container of the tree has the state, or it is at its top
+  /// and going nowhere else. What [`Ctx::scroll_to_top_of`](crate::app::ctx::Ctx::scroll_to_top_of) asks for.
+  pub fn scroll_state_to_top(&mut self, state: &ScrollState) -> bool {
+    self.rebuild_if_dirty();
+    self.step_wheel_scrolls();
+    let Some(target_id) = self
+      .root
+      .as_ref()
+      .and_then(|root| find_scroll_node_id_by_state(root, state))
+    else {
+      return false;
+    };
+    let (_, going) = state.scroll_target();
+    if going <= 0.0 && state.scroll_y() <= 0.0 {
+      return false;
+    }
+    if self.wheel_motion {
+      let now = self.now();
+      state.wheel_by_with_overflow(0.0, -going, now);
+      Self::wheel_turned(&mut self.wheel_scrolls, target_id, state, (0.0, 0.0), now);
+    } else {
+      state.set_scroll(state.scroll_x(), 0.0);
+      if let Some(root) = &self.root {
+        mark_scroll_layout_dirty(root, target_id);
+      }
+    }
+    self.needs_redraw = true;
+    true
+  }
+
   /// Whether a wheel's scroll is on its way in some container.
   pub(super) fn wheel_scrolling(&self) -> bool {
     self.wheel_scrolls.iter().any(|scroll| scroll.state.wheel_scrolling())

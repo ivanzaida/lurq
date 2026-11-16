@@ -626,6 +626,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 | `disabled(bool)` | Its control takes no input, and a press of its label focuses nothing |
 | `required(bool)` | A `*` after the label |
 | `optional(bool)`, `optional_text(&str)` | "Optional" after the label, or the app's own words. A required field shows none |
+| `info(&str)` | What the label needs explained: the mark of an [info label](#info-label) after the label, 6 after what is before it, with the words in a tooltip above it. The tooltip shows on a field that is mounted (`mount(ctx)`), and the mark is then the field's first stop of Tab; on one converted into an element the mark says the words to tooling alone |
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
@@ -649,6 +650,42 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
+
+## Info Label
+
+What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.
+
+```rust
+use lurq::{app::ctx::Placement, ui::InfoLabel};
+
+InfoLabel::new("API key").info("Stored in the OS keychain").mount(ctx);
+
+// The tooltip on another side, with an arrow.
+InfoLabel::new("Region")
+  .info("Where the data of the workspace is kept")
+  .placement(Placement::Bottom)
+  .arrow(true)
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | The text of the label |
+| `info(&str)` | What the mark explains, in a few words: the text of its tooltip. Without one, or with an empty one, there is no mark |
+| `info_label(&str)` | What the mark is called to tooling, in place of "More information" |
+| `icon(name)` | The icon of the mark, in place of the "i" |
+| `placement(Placement)`, `offset(..)`, `collision(..)`, `arrow(bool)` | Where the tooltip stands, as a [tooltip](#tooltip) has them. Above the label, from its start (`Placement::TopStart`), unless told |
+| `force_open(Option<bool>)` | The tooltip shown whatever the pointer and the focus do, or never |
+| `mount(ctx)` | The label where it goes, with its tooltip on it. Converting it (`.into()`) builds its still form: the label and the mark, on which nothing shows |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and the mark is `<id>-mark`; `force` draws the mark under the pointer or focused |
+
+- The explanation is the theme's [tooltip](#tooltip), mounted on the label: it shows after the pointer has rested on the label or on its mark for the tooltip's delay, and at once when the keyboard's focus comes to the mark, which is a stop of Tab; it goes when they leave, on a press, and on Escape. It is a mounted component for that reason alone: `mount(ctx)` puts the tooltip on it.
+- A label longer than the room it has ends in an ellipsis on its one line, and the mark keeps its place after it.
+- To what reads the tree the mark is an `img` called "More information", or by `info_label`, and described by what it explains (`a11y_description`), in the still form too.
+- A [field](#field) draws the same mark after its own label: `Field::new(..).info("…")`. An explanation with a link in it, or one that opens on a press, is a [toggletip](#toggletip)'s.
+- Parts: `InfoLabelPart::Root` (the label and the mark, 6 apart), `Label`, `Mark` (the "i": its side, its color, and its ring while it is focused from the keyboard). State: `InfoLabelState::Info` (it has something to explain).
+- In the design the label is a field label's text (13, medium) in `Foreground`, and the mark an "i" of 14 in `MutedForeground` 6 after it; under the pointer and focused the mark is in `Foreground`, and focused from the keyboard it has the theme's ring around its circle. The board draws no state of the mark: these are a link's.
+- A renderer that draws another label has `view.root()`, `view.mark()` (`None` with nothing to explain) and `view.label`; when the tooltip shows stays the label's.
 
 ## Textarea
 
@@ -1702,6 +1739,7 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 | `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
 | `shape(AvatarShape)` | `Circle` (the default), or `Square` with the corners of a control |
 | `presence(AvatarPresence)` | The dot at the bottom end of the face: `Online`, `Away`, `Busy`, `Offline`; `None` for none |
+| `presence_label(&str)` | What the dot says to tooling after the name, in place of the presence's own word: the app's word, or the word in another language |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
 
 - While a picture decodes and when it fails (a broken file, a format the decoder does not read), the avatar shows its initials or its icon: they are the image's placeholder and its error view. A picture with clear pixels shows the face's fill through them.
@@ -1709,7 +1747,8 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 - Parts: `AvatarPart::Root` (the face and the dot, as large as the face), `Face` (the shape: side, corners, fill, the ring of a group; it clips what it holds), `Initials`, `Icon` (its width is the icon's side), `Image`, `Presence` (the dot). States: `AvatarState::Square`, and the avatar's `AvatarPresence` under its own name (`.state(AvatarPresence::Away, AvatarPart::Presence, ..)`). Sizes: `AvatarSize`.
 - In the design an avatar is a circle of 32 in `Muted`, its initials 12 and medium in `Foreground`; at 20, 24, 40 and 56 they are 9, 10, 14 and 18. A square one has the corners of `RadiusSize::Md`. The icon is half the side, in `MutedForeground`. The dot is 10 on a face of 32 (6, 8, 12 and 14 on the others), at the face's bottom end corner, round, ringed 2 outside it in `Background`: `Success` online, `Warning` away, `Destructive` busy, `MutedForeground` offline.
 - The ring of the dot stands outside the avatar's box, as the rings of a group do: what holds an avatar at its edge clips them, as a container clips what is in it, unless it leaves 2 of room or is `overflow_visible()`.
-- A person with a name and a line under it (the board's Persona) is an avatar beside two texts, built where it is used: `Row::new().spacing(10.0).child(Avatar::new(name).presence(..)).child(Column::new().spacing(1.0).child(name).child(line))`, the name 14 and medium, the line 12 in `MutedForeground`.
+- The dot on its own, with no avatar under it, is `Presence::new(AvatarPresence::Online)`: before a word in a list of who is there, beside a name in a line of text. It is the `AvatarPart::Presence` of the avatar's recipe, in the color of its presence and at the side of the dot of an avatar of its `size(AvatarSize)` (10 unless told), so a theme that restyles an avatar's dot restyles it; it has no ring, with no face to part it from. `style` and `rules` name the avatar's parts, and `label(&str)` says what tooling calls it in place of the presence's word: it is an `img` called "online".
+- A person with a name and a line under it (the board's Persona) is a [persona](#persona).
 - A renderer that draws another avatar has `view.face()` (the shape in its style, clipped), `view.fallback()` (the initials or the icon), `view.presence_dot()` and `view.label()`; `view.image` is the picture the app gave, to put in the face.
 
 ## Avatar group
@@ -1746,6 +1785,39 @@ AvatarGroup::new(people.map(Avatar::new))
 - Parts: `AvatarGroupPart::Root` (the row: how far each avatar lies over the one before, as a gap below nothing), `Item` (laid over each avatar's `Face`: its ring), `More` (laid over the count's `Face`, after `Item`). Sizes: `AvatarSize`.
 - In the design avatars of 32 lie 8 over one another, each ringed 2 outside its face in `Background`, the color of the surface behind them; the count is in `Secondary`, its text as the initials. Smaller and larger avatars lie a quarter of their side over each other.
 - A renderer that draws another group has `view.avatars` (ready, with the group's size and rules), `view.hidden` and `view.more()`, the count as an avatar.
+
+## Persona
+
+A person in a list, a menu or a header: their avatar with the dot that says whether they are there, their name, and a line under it.
+
+```rust
+use lurq::ui::{Avatar, AvatarPresence, AvatarShape, Persona, PersonaSize, icons};
+
+Persona::new("Ivan Zaida").description("Available · Kyiv").presence(AvatarPresence::Online);
+Persona::new("Ivy Chen").description("Away · back at 15:00").presence(AvatarPresence::Away).size(PersonaSize::Lg);
+
+// An avatar of the app's own: a picture, an icon, a shape.
+Persona::new("Build bot")
+  .description("Runs on every push")
+  .avatar(Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square));
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | Who it is: the name beside the avatar, and the avatar's initials |
+| `description(&str)` | The line under the name, in the muted color |
+| `presence(AvatarPresence)` | The dot at the corner of the avatar; `None` leaves the avatar as it was given |
+| `presence_label(&str)` | What the dot says to tooling in place of the presence's own word, as an [avatar](#avatar)'s |
+| `avatar(Avatar)` | An avatar in place of the one the name gives, with a picture, an icon or a shape of its own. The persona gives it its size, and its presence where it has one |
+| `size(PersonaSize)` | The avatar's: `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, with the text to match. `PersonaSize` is `AvatarSize` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
+
+- A name or a description longer than the room there is ends in an ellipsis, each on its one line; the avatar keeps its size, and the persona is no wider than what holds it.
+- A persona is read, not operated: it takes no press and is no stop of Tab. To what reads the tree it is a `group` called by the name and described by the description, with its avatar, an `img`, in it.
+- Parts: `PersonaPart::Root` (the avatar and the text, side by side), `Avatar` (what the persona says of its avatar's face, laid over the theme's recipe for it), `Text` (the name over the description), `Name`, `Description`. State: `PersonaState::Description` (it has the line). Sizes: `PersonaSize`.
+- In the design a persona is an avatar of 32, 10 before a name in 14 and medium in `Foreground` with a line 1 under it in 12 of `MutedForeground`. The board draws that one size; the others follow the avatar's: at 20 and 24 the name is 12 and 13 over a line of 11, 6 and 8 from the avatar; at 40 and 56 it is 15 and 18 over a line of 13 and 14, 12 and 14 from it.
+- The ring of the avatar's dot stands outside the persona's box: what holds a persona at its edge leaves 2 of room or is `overflow_visible()`, as with an [avatar](#avatar).
+- A renderer that draws another persona has `view.root()`, `view.text()` and `view.avatar`, the avatar with the persona's size and presence, to build where it likes.
 
 ## Card
 
@@ -1886,6 +1958,9 @@ Spinner::new().label("Loading results…");
 
 // A veil with a spinner over a part of the page while it loads.
 LoadingOverlay::new(loading.get(), panel);
+
+// In the place of a whole page while it starts.
+PageLoader::new("Starting lurq").description("Loading your workspace…");
 ```
 
 | Builder | |
@@ -1904,6 +1979,7 @@ LoadingOverlay::new(loading.get(), panel);
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
 - `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, and `Scrim`, whose background and opacity are the veil's fill. State: `LoadingOverlayState::Loading`.
+- `PageLoader::new(title)` stands in the place of a whole page, a window or a pane while it starts: a ring of 28 over the title and, with `.description(&str)`, a line that says what is being done, in the middle of the room it is given. It is as large as that room (it fills its width, and its height where what holds it has one) and keeps 24 from its sides; a title or a description longer than the room wraps, centred. It paints no surface: it stands on the page's, and the board's box of 280 by 180 is the page it is drawn on. `.spinner(Spinner)` gives a spinner of the app's in place of the ring, as it is given. To what reads the tree it is one `status`, called by its title and described by its description; the spinner in it is no status of its own. Parts: `PageLoaderPart::Root`, `Spinner` (laid over the spinner's `Indicator`: the ring's side), `Text`, `Title` (14, medium, `Foreground`), `Description` (13, `MutedForeground`, 4 under the title); the ring is 14 over the text. State: `PageLoaderState::Description`. A renderer has `view.root()`, `view.spinner()` and `view.text()`.
 - A renderer that draws another spinner starts from `view.indicator()` and `view.label()`; `view.name()` is what it is called.
 
 ## Skeleton
@@ -3414,6 +3490,72 @@ let tour = Tour::new(step.clone())
 - Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows, and a `Tour` the panel of the step its signal says, or of its first step while it says none.
 - Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
+
+## AI Label
+
+The mark on what a model made or filled in, and on what asks one: a summary that was generated, a field that was suggested.
+
+```rust
+use lurq::ui::{AiLabel, AiLabelSize};
+
+AiLabel::new();
+// Said otherwise, and called by more than it draws.
+AiLabel::new().text("Draft").label("Drafted by the assistant");
+AiLabel::new().size(AiLabelSize::Sm).icon(None);
+```
+
+| Builder | |
+| --- | --- |
+| `new()` | Sparkles and "AI" |
+| `text(&str)` | The word it draws in place of "AI": the app's word for it, or the word in another language |
+| `label(&str)` | What it is called to tooling, where that is more than the word it draws: "Generated by AI" |
+| `icon(IconChoice)` | An icon of the theme's set in place of the sparkles; `None` for no icon |
+| `size(AiLabelSize)` | `Sm` 18, `Md` 22 (the default, the board's), `Lg` 26 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- It is read and not operated: it takes no press, no focus and no stop of Tab. To what reads the tree it is a `note` called by its label, or by its word.
+- What explains it stands on it as on any element: `Tooltip::new("…").mount(ctx, AiLabel::new())`, or a [toggletip](#toggletip) beside it.
+- A word longer than the room it has ends in an ellipsis, and the icon keeps its place before it.
+- Parts: `AiLabelPart::Root`, `Icon`, `Label`. State: `AiLabelState::Icon` (it has one). Sizes: `AiLabelSize`.
+- In the design it is 22 high with the corners of `RadiusSize::Sm`, on `InfoMuted` in an edge of 1 in `Info`, padded 8, with sparkles of 12 4 before "AI" in 11 and semibold, both in `Info`. The board draws that one size: small is 18, padded 6, at 10 with an icon of 10, and large 26, padded 10, at 12 with an icon of 14, the steps of a [badge](#badge).
+
+## Back To Top
+
+A round button that shows once a page is scrolled down, and takes it back to its top.
+
+```rust
+use lurq::{
+  components::{Column, Stack},
+  layout::{StackAlignment, layout_kind::ScrollState},
+  ui::{BackToTop, ScrollArea},
+};
+
+// scroll: ScrollState, kept by the page and given to what scrolls it too.
+Stack::new()
+  .stack_align(StackAlignment::BottomEnd)
+  .child(ScrollArea::new().scroll_state(scroll.clone()).children(article))
+  .child(Column::new().padding(16.0).overflow_visible().child(BackToTop::new(&scroll).mount(ctx)));
+```
+
+| Builder | |
+| --- | --- |
+| `new(&ScrollState)` | The state of what it scrolls |
+| `threshold(f32)` | How far down the content is scrolled before the button shows: 300 (`ui::BACK_TO_TOP_THRESHOLD`) unless told; at 0, as soon as it leaves its top |
+| `label(&str)` | What the button is called to tooling, in place of "Back to top" |
+| `icon(name)` | Its icon, in place of the arrow that points up |
+| `on_click(..)` | Hears the press, and Enter and Space, before the content is scrolled; a handler that prevents the event's default keeps the content where it is. A second handler is called after the first |
+| `force_shown(Option<bool>)` | Shown wherever the content is scrolled to, or never |
+| `disabled(bool)` | It takes no input |
+| `mount(ctx)` | The button where it goes: it shows and goes with the scroll. Converting it (`.into()`) builds its still form, always shown, whose press takes the content to its top at once |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- It is a mounted component: after each layout it reads how far the content is scrolled, and shows once that is past the threshold, fading in, and goes, fading out, as the content comes back above it. A page opened scrolled shows it at once.
+- A press takes the content to its top with `ctx.scroll_to_top_of(&scroll)` (see [layout](../layout/#scroll)): over the frames that follow, as a wheel's scroll goes, and at once while motion is reduced or the theme's smooth scroll is off. A notch of the wheel that comes meanwhile adds to where the content is going, as with any wheel's scroll.
+- Where it floats is the app's to say, as a [fab](#fab)'s is: it is an element, put in a corner of a `Stack` over the scroll, in something that gives its shadow room or does not clip (`.overflow_visible()`). While it is gone it takes no room.
+- It is a [button](#button) to tooling, called "Back to top" or by its label, and a stop of Tab while it shows. Once the content is at its top the button is gone and the keyboard's focus with it: the next Tab goes on from where it stood.
+- Parts: `BackToTopPart::Root` (what holds the button, whoever draws it: its `enter` and `exit` are how it comes and goes), `Button` and `Icon`, the last two laid over the theme's recipe for the root and the icon of an outlined, round button that is an icon alone. State: `BackToTopState::Disabled`.
+- In the design it is a circle of 40 on `Background` in an edge of 1 in `Border`, with the medium shadow and an arrow of 16 in `Foreground`. Under the pointer, pressed and focused it is the outlined button it is made of.
+- A renderer that draws another has `view.button()`, the button with its press attached, to build or to put in what it likes. When it shows, and how it comes and goes, stay the component's: what a renderer returns is put in the root, which fades, so a renderer of any root fades out as the default one does.
 
 ## Command Palette
 
