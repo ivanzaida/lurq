@@ -74,20 +74,6 @@ pub fn shell(ctx: &mut Ctx, state: &Shell, open: &OpenTabs) -> Element {
     .size(FILL, FILL)
     .background(PaletteColor::Canvas)
     .foreground(PaletteColor::Foreground)
-    // Every key pressed in the window comes by here, whatever has the focus.
-    .on_key_down(move |event: KeyboardEvent| {
-      if !(event.ctrl || event.meta) || event.alt {
-        return;
-      }
-      if event.code == "KeyK" || event.key.eq_ignore_ascii_case("k") {
-        find.set(true);
-        event.prevent_default();
-      } else if !event.shift && (event.code == "KeyT" || event.key.eq_ignore_ascii_case("t")) {
-        // A new tab, as a browser opens one; the strip's own keys close it and go between the tabs.
-        new_tab.open("/");
-        event.prevent_default();
-      }
-    })
     .child(header(ctx, state))
     .child(search(state, open))
     .child(
@@ -98,6 +84,22 @@ pub fn shell(ctx: &mut Ctx, state: &Shell, open: &OpenTabs) -> Element {
         .child(sidebar(ctx, state, open, current))
         .child(Column::new().flex(1.0).min_width(0.0).child(open.outlet(ctx))),
     )
+    // Every key pressed in the window comes by here, whatever has the focus, after everything on the page has
+    // heard it: a key comes to the elements in the order of the tree, and this one is the last of it. A key
+    // something on the page took for its own (Ctrl+K in an editor is its link) is not the window's.
+    .child(Row::new().on_key_down(move |event: KeyboardEvent| {
+      if event.default_prevented() || !(event.ctrl || event.meta) || event.alt {
+        return;
+      }
+      if event.code == "KeyK" || event.key.eq_ignore_ascii_case("k") {
+        find.set(true);
+        event.prevent_default();
+      } else if !event.shift && (event.code == "KeyT" || event.key.eq_ignore_ascii_case("t")) {
+        // A new tab, as a browser opens one; the strip's own keys close it and go between the tabs.
+        new_tab.open("/");
+        event.prevent_default();
+      }
+    }))
     .into()
 }
 
