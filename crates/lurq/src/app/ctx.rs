@@ -732,6 +732,24 @@ impl Interval {
   }
 }
 
+thread_local! {
+  /// The moment a timer started on this thread takes as now, where a test drives time itself
+  /// ([`set_timer_clock`]): the wall clock where there is none.
+  static TIMER_CLOCK: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Has every timer started or restarted on this thread from now on count its delay from `now`, until set back to
+/// `None`: `Tree::tick_timers_at` then fires it at moments a test counts from its own clock, however long the
+/// machine takes between them.
+pub(crate) fn set_timer_clock(now: Option<Instant>) {
+  TIMER_CLOCK.with(|clock| clock.set(now));
+}
+
+/// The moment a timer starts at: the test's, or the wall clock's.
+fn timer_now() -> Instant {
+  TIMER_CLOCK.with(std::cell::Cell::get).unwrap_or_else(Instant::now)
+}
+
 impl Timer {
   fn new(
     duration: Duration,
@@ -751,7 +769,7 @@ impl Timer {
   }
 
   fn start(&self) {
-    let now = Instant::now();
+    let now = timer_now();
     let wake = {
       let mut inner = self.inner.lock();
       if inner.next_fire.is_some() {
@@ -764,7 +782,7 @@ impl Timer {
   }
 
   fn restart(&self) {
-    self.restart_at(Instant::now());
+    self.restart_at(timer_now());
   }
 
   fn restart_at(&self, now: Instant) {

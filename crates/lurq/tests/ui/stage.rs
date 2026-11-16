@@ -50,6 +50,17 @@ pub struct Stage {
   pub tree: Tree,
   /// The clock the tree's transitions run on, which every pass moves on.
   now: Instant,
+  /// Whether the timers started on the stage count from its clock too ([`Stage::own_timers`]).
+  timers: bool,
+}
+
+/// A stage that had its timers on its own clock gives the thread's back to the wall clock.
+impl Drop for Stage {
+  fn drop(&mut self) {
+    if self.timers {
+      self.tree.set_timer_clock(None);
+    }
+  }
 }
 
 impl Stage {
@@ -78,6 +89,7 @@ impl Stage {
       app,
       tree,
       now: Instant::now(),
+      timers: false,
     };
     stage.pass();
     stage
@@ -104,6 +116,7 @@ impl Stage {
       app,
       tree,
       now: Instant::now(),
+      timers: false,
     };
     stage.frame();
     stage
@@ -119,14 +132,18 @@ impl Stage {
         let what = match &quad.content {
           QuadContent::Text { text, .. } => format!("text {text:?}"),
           QuadContent::RichText { spans, .. } => {
-            format!("rich {:?}", spans.iter().map(|span| span.text.as_str()).collect::<String>())
+            format!(
+              "rich {:?}",
+              spans.iter().map(|span| span.text.as_str()).collect::<String>()
+            )
           }
           QuadContent::Rect { color, .. } => format!("rect {color:?}"),
           _ => "other".to_owned(),
         };
         // The width of each side of its border: a line between two groups is one side of one.
         let sides = quad.border.as_ref().map(|border| {
-          [&border.top, &border.right, &border.bottom, &border.left].map(|side| side.as_ref().map_or(0.0, |side| side.width))
+          [&border.top, &border.right, &border.bottom, &border.left]
+            .map(|side| side.as_ref().map_or(0.0, |side| side.width))
         });
         format!(
           "{:.1},{:.1} {:.1}x{:.1} {what} border {sides:?}",
@@ -136,9 +153,33 @@ impl Stage {
       .collect()
   }
 
+  /// Puts the timers started from now on (a `Timeout`, an `Interval`) on the stage's clock: each counts its
+  /// delay from the clock of the frame before it started, and [`tick_timers`](Self::tick_timers) fires those
+  /// that have run out by a moment of that clock. Which of two timers has run out then does not depend on how
+  /// long the machine took between them: for a test that ticks one timer and not another.
+  #[allow(dead_code)]
+  pub fn own_timers(&mut self) {
+    self.timers = true;
+    self.tree.set_timer_clock(Some(self.now));
+  }
+
+  /// Fires the timers that have run out `later` after the stage's clock: see [`own_timers`](Self::own_timers).
+  #[allow(dead_code)]
+  pub fn tick_timers(&mut self, later: Duration) {
+    self.tree.tick_timers_at(self.now + later);
+  }
+
+  /// The clock of a frame, which the timers started after it count from where they are the stage's.
+  fn clock(&mut self, now: Instant) {
+    self.tree.set_animation_clock(Some(now));
+    if self.timers {
+      self.tree.set_timer_clock(Some(now));
+    }
+  }
+
   /// Renders, lays out and paints one frame, a sixtieth of a second after the last.
   pub fn frame(&mut self) {
-    self.tree.set_animation_clock(Some(self.now));
+    self.clock(self.now);
     self.tree.request_redraw();
     self.tree.pass(&mut self.app, &TestSurface);
     self.now += Duration::from_millis(16);
@@ -149,7 +190,7 @@ impl Stage {
   /// run to its end.
   pub fn pass(&mut self) {
     for _ in 0..2 {
-      self.tree.set_animation_clock(Some(self.now));
+      self.clock(self.now);
       self.tree.request_redraw();
       self.tree.pass(&mut self.app, &TestSurface);
       self.now += Duration::from_secs(1);
@@ -280,7 +321,7 @@ impl Stage {
 
   /// Paints once more, `later` after the last pass: for what moves on its own.
   pub fn pass_after(&mut self, later: Duration) {
-    self.tree.set_animation_clock(Some(self.now + later));
+    self.clock(self.now + later);
     self.tree.request_redraw();
     self.tree.pass(&mut self.app, &TestSurface);
   }
