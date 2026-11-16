@@ -2412,6 +2412,11 @@ impl LayoutEngine {
     if !Self::cached_result_matches_node_tree(node, &cached) {
       return None;
     }
+    // The entry as it was last prepared, with no text's layout written anywhere since: what did not change in it
+    // holds what it was prepared with, and is not prepared again (see below).
+    let unchanged_hold = node
+      .layout_cache
+      .prepared_from(&cached, crate::node::node_kind::text_state_writes());
 
     let mut cached = cached.as_ref().clone();
     let mut child_overrides = vec![None; cached.children.len()];
@@ -2479,8 +2484,20 @@ impl LayoutEngine {
       cached.children[index].result = repaired;
     }
 
-    cached.reach = self.reach_of(node, &cached);
-    let prepared = self.prepare_cached_result(node, Arc::new(cached));
+    let prepared = if unchanged_hold {
+      // Patched where it changed: each child laid out again comes prepared from `layout_node`, and the others hold
+      // what they held. It is prepared as a parent laid out fresh is, its own scroll state and what sticks in it,
+      // not walked again through what did not change: a column of 3,000 blocks costs the block that changed.
+      self.prepare_layout_result_tree(node, &mut cached, false, None);
+      let result = Arc::new(cached);
+      node
+        .layout_cache
+        .prepared_now(&result, crate::node::node_kind::text_state_writes());
+      result
+    } else {
+      cached.reach = self.reach_of(node, &cached);
+      self.prepare_cached_result(node, Arc::new(cached))
+    };
     node.layout_cache.store_shared(constraints, prepared.clone());
     #[cfg(feature = "perf_profile")]
     self.trace.repaired();

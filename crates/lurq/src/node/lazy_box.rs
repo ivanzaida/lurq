@@ -19,6 +19,12 @@ impl<T> LazyBox<T> {
   pub(crate) const fn new() -> Self {
     Self(None)
   }
+
+  /// The value, where one was ever written.
+  #[cfg(feature = "devtools")]
+  pub(crate) fn get(&self) -> Option<&T> {
+    self.0.as_deref()
+  }
 }
 
 impl<T> Default for LazyBox<T> {

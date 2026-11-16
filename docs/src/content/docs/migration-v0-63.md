@@ -249,7 +249,7 @@ To hold a column at a width, give the column itself a `min_width`: a child never
 
 The design system's theme draws the design's bar: a lane of 8 with a thumb of 6 in it, round, in `Ring`, and `MutedForeground` under the pointer and while it is dragged. The bar of 0.62 had a thumb as wide as its lane, the same under the pointer. Each bar of a container that scrolls both ways has its own state, and where both are there each track ends before the other's lane.
 
-In either theme a bar that sets no thumb color is drawn in the theme's `Ring`, where it was black at a third of its opacity. A style whose `thumb_color` is another color keeps it.
+In the design system's theme a bar that sets no thumb color is drawn in the theme's `Ring`, where it was black at a third of its opacity. `ThemeDefinition::legacy()` keeps that black: its bar is the one 0.62 drew. A style whose `thumb_color` is a color of its own keeps it, 0.62's black included: the color a style that sets none has (`ScrollBarStyle::THEME_THUMB`) is a mark of its own.
 
 `ScrollBarStyle::default()` is still the bar of 0.62 in its shape, and `ThemeDefinition::legacy()` has it. To have it in the design's theme:
 

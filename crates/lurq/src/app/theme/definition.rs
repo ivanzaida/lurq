@@ -74,6 +74,19 @@ pub struct ThemeDefinition {
   pub form: FormTheme,
 }
 
+/// 0.62's bar: the engine's, with its black thumb and not the legacy palette's ring (`#2563eb`, the color of its
+/// focus). On iOS, the platform's indicator, in its own grey.
+fn legacy_scrollbar() -> ScrollBarStyle {
+  let bar = ScrollBarStyle::default();
+  if bar.thumb_color != ScrollBarStyle::THEME_THUMB {
+    return bar;
+  }
+  ScrollBarStyle {
+    thumb_color: ScrollBarStyle::LEGACY_THUMB,
+    ..bar
+  }
+}
+
 /// The design's scroll bar (`pencil/lurq-design-system.pen`, Scrollbar): a lane of 8 with no fill, a thumb of 6
 /// in it, round, in `Ring`, which is `MutedForeground` under the pointer and while it is dragged, 2 from the edge
 /// it runs along and from the ends of the container, as the engine's bar. On iOS the platform's indicator, as an
@@ -136,7 +149,7 @@ impl ThemeDefinition {
       typography: ThemeTypography::legacy(),
       radii: ThemeRadii::legacy(),
       shadows: ThemeShadows::legacy(),
-      scrollbar: ScrollBarStyle::default(),
+      scrollbar: legacy_scrollbar(),
       ..Self::neutral()
     }
   }

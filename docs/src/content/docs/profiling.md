@@ -303,7 +303,7 @@ With `perf_profile`, a pass times its steps as named frame sections: the setup, 
 (`ul:transition_tick`, `ul:animation_tick`, `ul:element_refs_walk`, `ul:verify_scroll_walk`, `ul:dropped_nodes_walk`,
 `compute:overlay_index_walk`, `compute:mark_dirty_walk`, `compute:clear_guards_walk`, `compute:layout_node`), the
 paint's `paint:resolve_quads` and its raster and render, `paint:glyphs_and_render`, and the steps of building
-again a component that changed on its own (`refresh:components`, `refresh:replace_slots`, `refresh:assign_ids`,
+again a component that changed on its own (`refresh:components`, `refresh:replace_slots`,
 `refresh:interaction`). A section nested in another counts in both.
 
 - `lurq::app::profiler::take_frame_sections()` gives each section's total and how many times it ran on this thread
