@@ -995,9 +995,9 @@ impl Component for VideoPlayerPage {
       (
         "fullscreen_fills",
         "VideoFullscreen",
-        "Screen",
-        "What a player in fullscreen fills: its window, taken to the whole screen (Screen); its window as it is \
-         (Window); or nothing, where the app lays it out itself (App). Escape asks to leave.",
+        "Window",
+        "What a player in fullscreen fills: its window as it is (Window); its window taken to the whole screen \
+         (Screen); or nothing, where the app lays it out itself (App). Escape asks to leave.",
       ),
       (
         "caption_cues",

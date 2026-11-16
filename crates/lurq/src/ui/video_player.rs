@@ -438,11 +438,12 @@ impl Default for Words {
 /// What a player that is in fullscreen fills.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum VideoFullscreen {
-  /// Its window, which goes to the whole screen: the default.
+  /// Its window, at the size the window has: the default. The video is as large as the app, and the app stays
+  /// where it is on the desktop.
   #[default]
-  Screen,
-  /// Its window, at the size the window has.
   Window,
+  /// Its window, which goes to the whole screen.
+  Screen,
   /// Nothing: it is drawn where it stands, and the app lays a player in fullscreen out itself.
   App,
 }
@@ -615,7 +616,7 @@ impl VideoPlayer {
       qualities: Vec::new(),
       quality: Held::new(None),
       fullscreen: Held::new(false),
-      fullscreen_fills: VideoFullscreen::Screen,
+      fullscreen_fills: VideoFullscreen::Window,
       picture_in_picture: Held::new(false),
       picture_in_picture_window: true,
       size: None,
@@ -900,8 +901,8 @@ impl VideoPlayer {
     "whether it fills the screen; its button then exits."
   );
 
-  /// What a mounted player in fullscreen fills: its window, which goes to the whole screen
-  /// ([`VideoFullscreen::Screen`], the default), its window as it is, or nothing where the app does it itself.
+  /// What a mounted player in fullscreen fills: its window as it is ([`VideoFullscreen::Window`], the default),
+  /// its window taken to the whole screen, or nothing where the app does it itself.
   /// Filling its window it keeps the room it had where it stands, and Escape asks to leave.
   pub fn fullscreen_fills(mut self, fills: VideoFullscreen) -> Self {
     self.fullscreen_fills = fills;
@@ -2066,13 +2067,24 @@ impl Make<'_, '_> {
     if let Some(kept) = &self.live.volume {
       volume = volume.kept(kept.clone());
     }
-    let element = volume.build(self.recipe.theme());
     let text = if player.muted.value {
       player.words.unmute.clone()
     } else {
       player.words.mute.clone()
     };
-    self.tip(element, &text, "M")
+    // The tooltip is the button's: over the slider it would say "Mute" of what sets the volume.
+    let recipe = self.recipe;
+    match self.ctx.as_deref_mut() {
+      Some(ctx) => volume.build_with(recipe.theme(), &mut |button| {
+        Tooltip::new(&text)
+          .shortcut("M")
+          .placement(Placement::Top)
+          .arrow(true)
+          .offset(4.0)
+          .mount(ctx, button)
+      }),
+      None => volume.build(recipe.theme()),
+    }
   }
 
   /// The mute button of the compact form, alone.

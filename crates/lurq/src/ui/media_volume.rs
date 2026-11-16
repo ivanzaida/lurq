@@ -318,6 +318,12 @@ impl MediaVolume {
   /// Builds a still picture of the volume control in `theme`, for a test or a screenshot: collapsed, it is the
   /// button alone. An app mounts the control ([`MediaVolume::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
+    self.build_with(theme, &mut |button| button)
+  }
+
+  /// Builds the control with its button given to `dress` first: what holds the control hangs a tooltip of its own
+  /// from the button alone, where one around the whole control would show over the slider too.
+  pub(super) fn build_with(self, theme: &Theme, dress: &mut dyn FnMut(Element) -> Element) -> Element {
     let volume = match (&self.volume, self.controlled) {
       (_, Some(held)) => held,
       (Some(volume), None) => f64::from(volume.get()),
@@ -359,7 +365,7 @@ impl MediaVolume {
     };
     match theme.renderer::<MediaVolume>() {
       Some(renderer) => renderer(view),
-      None => view.render(),
+      None => view.render_with(dress),
     }
   }
 }
@@ -580,11 +586,16 @@ impl MediaVolumeView {
   /// mounted control hears the pointer come and go over the whole of it, and the focus come to and leave its button
   /// and its slider.
   pub fn render(self) -> Element {
+    self.render_with(&mut |button| button)
+  }
+
+  /// [`render`](Self::render), with the button given to `dress` before it is put in the control.
+  fn render_with(self, dress: &mut dyn FnMut(Element) -> Element) -> Element {
     let theme = self.theme().clone();
     let mut root = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(MediaVolumePart::Root))
-      .child(self.button().build(&theme));
+      .child(dress(self.button().build(&theme)));
     if self.revealed {
       root = root.child(self.slider().build(&theme));
     }
