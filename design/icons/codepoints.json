@@ -169,5 +169,18 @@
   "grid": "E0A7",
   "trending-up": "E0A8",
   "columns": "E0A9",
-  "filter": "E0AA"
+  "filter": "E0AA",
+  "captions": "E0AB",
+  "equalizer": "E0AC",
+  "forward-10": "E0AD",
+  "fullscreen-exit": "E0AE",
+  "music": "E0AF",
+  "picture-in-picture": "E0B0",
+  "play": "E0B1",
+  "repeat": "E0B2",
+  "repeat-one": "E0B3",
+  "rewind-10": "E0B4",
+  "shuffle": "E0B5",
+  "volume-low": "E0B6",
+  "volume-off": "E0B7"
 }

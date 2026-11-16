@@ -9,10 +9,11 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker, DropZone, ErrorSummary, Field,
-    FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions, MentionsController, MessageBox, MessageBoxRole,
-    MultiSelect, NumberInput, Outcome, PasswordInput, Progress, ProgressDialog, Property, PropertyCategory,
-    PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast, TokenInput,
+    AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker,
+    DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions, MentionsController,
+    MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress, ProgressDialog, Property,
+    PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast,
+    TokenInput, Waveform,
   },
 };
 
@@ -374,4 +375,57 @@ fn a_toast_in_a_narrow_room_has_all_of_its_timer_in_it() {
       x + width
     );
   }
+}
+
+#[test]
+fn an_audio_player_is_no_wider_than_a_narrow_room() {
+  for variant in [
+    AudioPlayerVariant::Full,
+    AudioPlayerVariant::Compact,
+    AudioPlayerVariant::Voice,
+  ] {
+    fits(move || {
+      AudioPlayer::controlled(84.0, 250.0, |_| {})
+        .variant(variant)
+        .title("Night Drive")
+        .description("Aurora Lane")
+        .peaks(&[0.5; 36])
+        .id("it")
+        .build(&lurq::ui::current_theme())
+    });
+  }
+}
+
+#[test]
+fn a_waveform_in_a_narrow_room_keeps_its_bars_and_closes_its_gaps() {
+  // 60 bars of 3 with gaps of 2 are 298 wide: more than the room.
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Row::new()
+          .id("room")
+          .width(ROOM)
+          .child(Waveform::at(0.0, &[0.5; 60]).unheard(true).id("it")),
+      )
+      .into()
+  });
+  let (room, _, room_width, _) = stage.bounds("room");
+  let (x, _, width, _) = stage.bounds("it");
+  assert!(
+    x >= room - 0.5 && x + width <= room + room_width + 0.5,
+    "it is {width} wide at {x}"
+  );
+  let bars: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Rect { .. }) && (quad.width - 3.0).abs() < 0.01)
+    .collect();
+  assert_eq!(bars.len(), 60, "every bar is drawn, 3 wide");
+  assert!((bars[0].x - room).abs() < 0.5, "the first at the start of the room");
+  let last = bars.last().unwrap();
+  assert!(
+    (last.x + last.width - (room + room_width)).abs() < 0.5,
+    "the last at its end"
+  );
 }
