@@ -221,6 +221,8 @@ pub(crate) struct OverlaySpec {
   /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
   /// see [`Overlay::tab_after_anchor`].
   pub(crate) tab_after_anchor: bool,
+  /// Whether Tab stays in the overlay while the focus is in it: see [`Overlay::traps_tab`].
+  pub(crate) traps_tab: bool,
   /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
   pub(crate) at: Option<(f32, f32)>,
 }
@@ -327,6 +329,7 @@ impl OverlaySpec {
       on_dismiss: self.on_dismiss.clone(),
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
+      traps_tab: self.traps_tab,
       at: self.at,
     }
   }
@@ -460,6 +463,7 @@ pub struct Overlay {
   switch_on_anchor_press: bool,
   takes_focus: bool,
   tab_after_anchor: bool,
+  traps_tab: bool,
   at: Option<(f32, f32)>,
 }
 
@@ -482,6 +486,7 @@ impl Overlay {
       switch_on_anchor_press: true,
       takes_focus: false,
       tab_after_anchor: false,
+      traps_tab: false,
       at: None,
     }
   }
@@ -594,6 +599,24 @@ impl Overlay {
     self
   }
 
+  /// Whether Tab stays in the overlay while the focus is in it, as it stays in a modal: from its last element
+  /// Tab goes to its first, and Shift+Tab from its first to its last, where it would go on to what follows its
+  /// anchor. For an overlay a person is to finish before going on that is no modal: the card of a tour.
+  ///
+  /// - It holds Tab only while the focus is in it, or in an overlay that hangs from an element of it. With the focus on
+  ///   the page Tab goes through the page, and into the overlay after its anchor.
+  /// - It does not close the page to the pointer, and Escape and a press outside close it as its other settings say. As
+  ///   it closes the focus goes back as [`Self::takes_focus`] says.
+  /// - A modal opened over it holds Tab itself.
+  /// - With nothing in it that takes the focus, Tab does nothing while the focus is in it.
+  ///
+  /// Its elements are in the order of Tab right after its anchor's, as with [`Self::tab_after_anchor`]. Off by
+  /// default.
+  pub fn traps_tab(mut self, traps: bool) -> Self {
+    self.traps_tab = traps;
+    self
+  }
+
   /// A point of the window, in logical pixels, that the overlay stands at in
   /// place of its anchor: where a secondary press or a long press was, for a
   /// context menu. `None`, the default, places it by its anchor.
@@ -632,6 +655,7 @@ impl Overlay {
       on_dismiss: self.on_dismiss,
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
+      traps_tab: self.traps_tab,
       at: self.at,
     })
   }

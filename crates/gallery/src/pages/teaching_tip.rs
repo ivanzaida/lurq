@@ -1,5 +1,5 @@
 //! The page of the teaching tip: its playground, the design's tip with its
-//! picture, the primary look, and a tour of three steps.
+//! picture, and the primary look. A tour of them has a page of its own.
 
 use std::sync::Arc;
 
@@ -9,12 +9,12 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Button, ButtonVariant, Icon, TeachingTip, TeachingTipVariant, Tour, TourStep, icons},
+  ui::{Button, ButtonVariant, Icon, TeachingTip, TeachingTipVariant, icons},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, phone, props_table},
+  kit::{FILL, props_table},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -74,9 +74,6 @@ pub struct TeachingTipPage {
   /// The design's tip and the primary one: what each points at, and whether it is open.
   design: (ElementRef, Signal<bool>),
   primary: (ElementRef, Signal<bool>),
-  /// The tour: what its steps point at, and which step shows.
-  tour: [ElementRef; 3],
-  tour_step: Signal<Option<usize>>,
 }
 
 impl TeachingTipPage {
@@ -318,8 +315,6 @@ impl Component for TeachingTipPage {
       takes_focus: ctx.signal(false),
       design: (ElementRef::new(), ctx.signal(false)),
       primary: (ElementRef::new(), ctx.signal(false)),
-      tour: [ElementRef::new(), ElementRef::new(), ElementRef::new()],
-      tour_step: ctx.signal(None),
     }
   }
 
@@ -363,49 +358,6 @@ impl Component for TeachingTipPage {
       .child(target("Search", icons::SEARCH, anchor))
       .child(toggle("Show the tip", open))
       .child(primary_tip.mount(ctx));
-
-    let [theme, panels, settings] = &self.tour;
-    let tour = Tour::new(self.tour_step.clone())
-      .step(
-        TourStep::new(theme.clone(), "Switch themes here")
-          .description("Light and dark palettes share the same roles, so nothing else changes."),
-      )
-      .step(
-        TourStep::new(panels.clone(), "Dock panels anywhere")
-          .description("Drag a panel by its header and drop it on any edge of the window."),
-      )
-      .step(
-        TourStep::new(settings.clone(), "Make it yours").description("Shortcuts, fonts and density are in settings."),
-      );
-    let start = {
-      let step = self.tour_step.clone();
-      Button::new("Start the tour")
-        .variant(ButtonVariant::Secondary)
-        .on_click(move |_| step.set(Some(0)))
-    };
-    let steps = Row::new()
-      .align_items(Alignment::Center)
-      .child(target("Theme", icons::PALETTE, theme))
-      .child(target("Panels", icons::LAYERS, panels))
-      .child(target("Settings", icons::SETTINGS, settings));
-    let tour_stage = Column::new()
-      .width(FILL)
-      .padding_top(24.0)
-      .padding_bottom(240.0)
-      .spacing(24.0)
-      .align_items(Alignment::Center)
-      .child(start)
-      .child(
-        // The steps stand far apart, so that the tip is seen to move. A window as narrow as a phone has no
-        // room for that: they are closer there, and the one that does not fit beside the others goes on to
-        // the next line.
-        if phone() {
-          steps.width(FILL).wrap().spacing(16.0).justify(Justify::Center)
-        } else {
-          steps.spacing(96.0)
-        },
-      )
-      .child(tour.mount(ctx));
 
     let rows = [
       (
@@ -459,6 +411,12 @@ impl Component for TeachingTipPage {
         "The button that goes on, and what a press of it does.",
       ),
       ("secondary", "(&str, impl Fn())", "", "The button before it, outlined."),
+      (
+        "tertiary",
+        "(&str, impl Fn())",
+        "",
+        "A quiet button before the others: Skip, Remind me later.",
+      ),
       (
         "on_dismiss",
         "impl Fn()",
@@ -528,58 +486,6 @@ impl Component for TeachingTipPage {
         "Draws its close control hovered, pressed or focused with nothing on it.",
       ),
     ];
-    let tour_rows = [
-      (
-        "new",
-        "Signal<Option<usize>>",
-        "",
-        "Which step shows, counted from 0; None while the tour is not on. Its buttons set it.",
-      ),
-      (
-        "step",
-        "TourStep",
-        "",
-        "Adds a step: TourStep::new(anchor, title), with description, media, placement, id and key. steps adds \
-         several.",
-      ),
-      (
-        "back_label, next_label, done_label",
-        "&str",
-        "Back, Next, Done",
-        "The labels of its buttons: back, on, and on from the last step.",
-      ),
-      (
-        "on_finish",
-        "impl Fn()",
-        "",
-        "Told after the last step's button ended the tour.",
-      ),
-      (
-        "on_dismiss",
-        "impl Fn()",
-        "",
-        "Told after Escape left the tour, the signal None already.",
-      ),
-      ("dismiss_on_escape", "bool", "true", "Whether Escape leaves the tour."),
-      (
-        "dismiss_on_outside_press",
-        "bool",
-        "false",
-        "Whether a press outside the step's tip leaves the tour.",
-      ),
-      (
-        "variant, placement, offset, collision, arrow",
-        "",
-        "",
-        "As a teaching tip has them, for every step; a step's placement comes first.",
-      ),
-      (
-        "state, style, rules, id, key",
-        "",
-        "",
-        "Laid on the tip that shows; a step's id and key come first.",
-      ),
-    ];
     let playground = self.play(ctx);
     self.frame.page(
       ctx,
@@ -587,8 +493,8 @@ impl Component for TeachingTipPage {
         breadcrumb: &["Components", "Surfaces & overlays", "Teaching Tip"],
         title: "Teaching Tip",
         description: "A panel that points at one thing in the app and says what it is for, without taking the focus \
-                      from what a person is doing. A tour shows several, one after another.",
-        import: Some("use lurq::ui::{TeachingTip, Tour, TourStep};"),
+                      from what a person is doing. A Tour shows several, one after another: it has its own page.",
+        import: Some("use lurq::ui::TeachingTip;"),
         status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
@@ -640,34 +546,9 @@ impl Component for TeachingTipPage {
           ),
         ),
         Section::new(
-          "Tour",
-          "The app's tips one after another, each with its count and a button back and on; the last one's is Done, \
-           and Escape leaves the tour. The page holds which step shows.",
-          self.frame.demo(
-            2,
-            tour_stage,
-            "Tour::new(step).step(TourStep::new(anchor, \"Switch themes here\")).mount(ctx)",
-            &[
-              "// step: Signal<Option<usize>>; theme, panels, settings: ElementRef",
-              "Tour::new(step.clone())",
-              "    .step(TourStep::new(theme, \"Switch themes here\").description(..))",
-              "    .step(TourStep::new(panels, \"Dock panels anywhere\").description(..))",
-              "    .step(TourStep::new(settings, \"Make it yours\").description(..))",
-              "    .mount(ctx)",
-              "",
-              "Button::new(\"Start the tour\").on_click(move |_| step.set(Some(0)))",
-            ],
-          ),
-        ),
-        Section::new(
           "Props",
           "What a teaching tip is given.",
           props_table(&rows, &["open", "anchor", "mount"], self.frame.room()),
-        ),
-        Section::new(
-          "Tour props",
-          "What a tour is given.",
-          props_table(&tour_rows, &["new"], self.frame.room()),
         ),
       ],
     )

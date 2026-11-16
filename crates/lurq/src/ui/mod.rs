@@ -45,6 +45,7 @@ mod collapsible;
 mod color_field;
 mod color_picker;
 mod color_swatch;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
@@ -67,6 +68,7 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
 #[cfg(feature = "canvas")]
 mod gauge;
 #[cfg(feature = "canvas")]
@@ -98,6 +100,8 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
+mod notification_center;
 mod number_input;
 mod opening_rows;
 mod outcome;
@@ -129,6 +133,7 @@ mod seek_bar;
 mod segmented;
 mod select;
 mod selection;
+mod selection_marquee;
 mod separator;
 mod shared;
 mod sheet;
@@ -136,6 +141,7 @@ mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 #[cfg(feature = "canvas")]
 mod sparkline;
 mod spinner;
@@ -164,6 +170,8 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod tray_popover;
+mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
@@ -250,6 +258,9 @@ pub use color_swatch::{
   ColorSwatch, ColorSwatchPart, ColorSwatchRenderer, ColorSwatchShape, ColorSwatchSize, ColorSwatchState,
   ColorSwatchView,
 };
+pub use column_view::{
+  ColumnView, ColumnViewColumn, ColumnViewItem, ColumnViewPart, ColumnViewRenderer, ColumnViewState, ColumnViewView,
+};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use command_bar::{
   CommandBar, CommandBarCommand, CommandBarCommandPart, CommandBarCommandRenderer, CommandBarCommandState,
@@ -327,6 +338,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
+pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
@@ -370,6 +382,13 @@ pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, N
 pub use navigation_menu::{
   NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
   NavigationMenuVariant, NavigationMenuView,
+};
+pub use notification::{
+  Notification, NotificationPart, NotificationRenderer, NotificationState, NotificationVariant, NotificationView,
+};
+pub use notification_center::{
+  NotificationCenter, NotificationCenterPart, NotificationCenterRenderer, NotificationCenterState,
+  NotificationCenterView,
 };
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
@@ -443,6 +462,10 @@ pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
 pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
+pub use selection_marquee::{
+  Marquee, MarqueeMode, SelectionMarquee, SelectionMarqueePart, SelectionMarqueeRenderer, SelectionMarqueeState,
+  SelectionMarqueeView,
+};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
@@ -466,6 +489,10 @@ pub use skeleton::{
 };
 pub use slider::{
   RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
+};
+pub use sortable_list::{
+  SORTABLE_LIST_TILT, SortableItem, SortableList, SortableListPart, SortableListRenderer, SortableListState,
+  SortableListView, SortableRow, move_rows,
 };
 #[cfg(feature = "canvas")]
 pub use sparkline::{Sparkline, SparklinePart, SparklineRenderer, SparklineView};
@@ -538,6 +565,13 @@ pub use toolbar::{
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tray_popover::{
+  TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
+  TrayStatusVariant, TrayToggle,
+};
+pub use tree_select::{
+  TreeSelect, TreeSelectPart, TreeSelectRenderer, TreeSelectSize, TreeSelectState, TreeSelectView,
 };
 pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
@@ -624,6 +658,7 @@ inspectable!(
   pagination::PageItem,
   picture::PictureFit,
   picture::PictureShape,
+  selection_marquee::Marquee,
   part_style::Length,
   part_style::Opacity,
   part_style::FontFamily,

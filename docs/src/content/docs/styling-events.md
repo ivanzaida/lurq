@@ -1491,6 +1491,31 @@ Row::new()
 
 `ui::Splitter` is such a divider between panes, with the keys, panes that close and a layout the app saves.
 
+### A Drag That Scrolls Its Container
+
+`.drag_autoscroll(true)` on an element with `on_drag_*` handlers makes its drag scroll the scroll container it is in: the nearest one around it that has content beyond its viewport. While the pointer of the drag is within about 12 logical pixels of an edge of that container, or past the edge, the content scrolls toward the pointer on the axes the container scrolls, faster the further the pointer goes, a step each frame for as long as the pointer is held there; it stops at the end of the content and when the drag ends. It is off by default.
+
+After each step the drag's `on_drag_move` handlers are called with the pointer where it is, though it has not moved: what follows the drag reckons again with what scrolled under it. The container's `on_scroll` handlers hear each step, as they hear the wheel.
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::{Column, ScrollVertical},
+};
+
+// A rectangle dragged down a long list: at the list's bottom edge the list scrolls, and each step moves the
+// rectangle's end with it.
+ScrollVertical::new(
+  Column::new()
+    .start_drag_buttons(MouseButtonMask::LEFT)
+    .drag_autoscroll(true)
+    .on_drag_move(move |event: DragEvent| extend_to(event.x, event.y + state.scroll_y())),
+)
+.with_scroll_state(state.clone());
+```
+
+`ui::SelectionMarquee` is such a drag over a surface.
+
 ## File Drag And Drop
 
 Files dragged into the window from the OS (Explorer, Finder, another program) reach the element under the pointer, with the window's overlays and modals hit-tested as for the mouse, so a drag over a popup reaches the popup:

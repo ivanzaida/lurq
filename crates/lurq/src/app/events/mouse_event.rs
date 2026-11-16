@@ -85,6 +85,9 @@ pub struct MouseEvent {
   /// What moved the pointer: a mouse, or the finger that stands for it on a touch screen.
   pub pointer: PointerKind,
   pub target_id: NodeId,
+  /// When the window was given the event, on its clock for presses (`Tree::set_press_clock`, or the wall clock):
+  /// what a component that tells a second press from a first measures by.
+  pub(crate) time: crate::time::Instant,
   pub(crate) control: EventControl,
 }
 
