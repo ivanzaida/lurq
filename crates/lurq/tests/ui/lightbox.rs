@@ -540,3 +540,114 @@ mod ahead {
     assert!(until(&mut stage, || names.iter().all(|name| asked(name))));
   }
 }
+
+/// A page with a button that opens a lightbox of the pictures over the window.
+fn opened_by_a_button() -> (Stage, Signal<bool>) {
+  let open = Signal::new(false);
+  let shown = open.clone();
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    let press = shown.clone();
+    Column::new()
+      .size(600.0, 400.0)
+      .padding(8.0)
+      .child(
+        lurq::ui::Button::new("Open")
+          .id("open")
+          .on_click(move |_| press.set(true)),
+      )
+      .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
+      .into()
+  });
+  stage.pass();
+  (stage, open)
+}
+
+fn focused_id(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+#[test]
+fn opened_by_a_press_the_stage_takes_the_focus_with_no_ring_and_the_keys_work_at_once() {
+  let (mut stage, open) = opened_by_a_button();
+  stage.click("open");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(focused_id(&stage).as_deref(), Some("viewer-stage"));
+  assert!(!stage.tree.focus_visible(), "a pointer opened it: no ring");
+
+  stage.key("ArrowRight");
+  stage.pass();
+  assert_eq!(stage.text_quad("2").is_some(), true, "the arrow turned at once");
+  // Tab goes on to the buttons: the round ones over the stage first, which follow it.
+  stage.key("Tab");
+  assert_eq!(focused_id(&stage).as_deref(), Some("viewer-previous"));
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+}
+
+#[test]
+fn opened_by_a_key_the_ring_shows_on_the_stage() {
+  let (mut stage, open) = opened_by_a_button();
+  stage.key("Tab");
+  assert_eq!(focused_id(&stage).as_deref(), Some("open"));
+  stage.key("Enter");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(focused_id(&stage).as_deref(), Some("viewer-stage"));
+  assert!(stage.tree.focus_visible(), "the keyboard opened it: the ring shows");
+  let (x, y, width, height) = stage.bounds("viewer-stage");
+  let white = Color::new(255, 255, 255, 255);
+  assert!(
+    stage.quads().iter().any(|quad| {
+      quad.border.is_some()
+        && matches!(quad.content, QuadContent::Rect { .. })
+        && (quad.x - x).abs() < 3.0
+        && (quad.y - y).abs() < 3.0
+        && (quad.width - width).abs() < 5.0
+        && (quad.height - height).abs() < 5.0
+    }) || stage.has_ring(white),
+    "a white ring about the stage"
+  );
+}
+
+#[test]
+fn closer_than_it_fits_no_scroll_bar_is_painted_over_the_picture() {
+  let mut stage = in_page(|lightbox| lightbox);
+  settled(&mut stage);
+  stage.click("viewer-zoom-in");
+  stage.click("viewer-zoom-in");
+  settled(&mut stage);
+  let (x, y, width, height) = stage.bounds("viewer-stage");
+  let bars: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Rect { color, .. } if color.a() > 0))
+    .filter(|quad| {
+      quad.x >= x && quad.y >= y && quad.x + quad.width <= x + width + 0.5 && quad.y + quad.height <= y + height + 0.5
+    })
+    .filter(|quad| (quad.width <= 12.0 && quad.height >= 40.0) || (quad.height <= 12.0 && quad.width >= 40.0))
+    .map(|quad| (quad.x, quad.y, quad.width, quad.height))
+    .collect();
+  assert!(bars.is_empty(), "no bar over the picture: {bars:?}");
+}
+
+#[test]
+fn opened_again_the_picture_is_fitted() {
+  let (mut stage, open) = opened_by_a_button();
+  stage.click("open");
+  stage.pass();
+  stage.key("+");
+  stage.pass();
+  assert!(stage.paints("150%"));
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("100%"), "fitted, as the first time");
+}
