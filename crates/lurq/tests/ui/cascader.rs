@@ -441,3 +441,77 @@ fn tooling_reads_a_combobox_that_opens_listboxes_of_options() {
   assert_eq!(said("ukraine", "a11y_expanded").as_deref(), Some("true"));
   assert_eq!(said("poland", "a11y_selected").as_deref(), Some("false"));
 }
+
+/// Its words are the app's locale's, read again when the app changes it; a locale of its own is above the app's, and
+/// a word told by itself is above both. The mark between the steps of the path is no word.
+#[test]
+fn its_words_are_the_app_s_locale_s_and_a_word_told_by_itself_stays() {
+  use lurq::core::Locale;
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = Stage::first_frame_in(app, 640.0, 400.0, |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Cascader::controlled_optional(None::<Id>, Vec::<TreeItem<Id>>::new(), |_| {})
+          .inline(true)
+          .id("empty"),
+      )
+      .child(
+        Cascader::controlled_optional(Some("kyiv"), places(), |_| {})
+          .clearable(true)
+          .id("place"),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(stage.paints("Немає варіантів"));
+  assert!(stage.paints("Europe / Ukraine / Kyiv"));
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  assert_eq!(
+    stage
+      .tree
+      .get_element_by_id_mut("place-clear")
+      .and_then(|element| element.description("a11y_name"))
+      .as_deref(),
+    Some("Очистити")
+  );
+  handle.set_locale(Locale::for_tag("fr"));
+  stage.pass();
+  assert!(stage.paints("Aucune option") && !stage.paints("Немає варіантів"));
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  assert_eq!(
+    stage
+      .tree
+      .get_element_by_id_mut("place-clear")
+      .and_then(|element| element.description("a11y_name"))
+      .as_deref(),
+    Some("Effacer")
+  );
+
+  // A locale of its own, in an app of none, and a word told by itself, whichever comes first.
+  let own = staged(|_| {
+    Column::new()
+      .child(
+        Cascader::controlled_optional(None::<Id>, Vec::<TreeItem<Id>>::new(), |_| {})
+          .empty_text("Nada")
+          .locale(&Locale::for_tag("es"))
+          .inline(true),
+      )
+      .child(
+        Cascader::controlled_optional(None::<Id>, Vec::<TreeItem<Id>>::new(), |_| {})
+          .locale(&Locale::for_tag("es"))
+          .inline(true),
+      )
+      .into()
+  });
+  assert!(own.paints("Nada") && own.paints("Sin opciones"));
+  // With no locale it is English.
+  let plain = staged(|_| {
+    Cascader::controlled_optional(None::<Id>, Vec::<TreeItem<Id>>::new(), |_| {})
+      .inline(true)
+      .into()
+  });
+  assert!(plain.paints("No options"));
+}

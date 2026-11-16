@@ -132,6 +132,8 @@ pub struct QrCode {
   length: Option<Length>,
   media: Option<Element>,
   label: Option<Arc<str>>,
+  /// The words it was told to speak in, in place of the app's.
+  locale: Option<crate::core::DisplayWords>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -148,6 +150,7 @@ impl QrCode {
       length: None,
       media: None,
       label: None,
+      locale: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -185,9 +188,16 @@ impl QrCode {
     self
   }
 
-  /// What tooling calls the code: "QR code" unless the app says what it is for ("Pair your phone").
+  /// What tooling calls the code: the locale's "QR code" unless the app says what it is for ("Pair your phone").
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// The words this code speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)): what
+  /// tooling calls it. A label told by itself stays what it was told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.locale = Some(locale.display.clone());
     self
   }
 
@@ -251,7 +261,11 @@ impl QrCode {
       .filter(|level| level.index() <= asked.index())
       .find_map(|level| QrMatrix::encode(&self.text, level));
     let view = QrCodeView {
-      label: self.label.unwrap_or_else(|| Arc::from("QR code")),
+      // Its own locale's word, else the app's, read where it is built.
+      label: self.label.unwrap_or_else(|| match self.locale {
+        Some(words) => words.qr_code,
+        None => super::current_locale().display.qr_code.clone(),
+      }),
       text: self.text,
       matrix,
       quiet_zone: self.quiet_zone,

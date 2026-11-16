@@ -136,13 +136,15 @@ pub struct Transfer<T: 'static = ()> {
   on_change: Vec<ChangeHandler<[T]>>,
   checked: Option<(Vec<T>, Option<Write<T>>)>,
   on_checked_change: Vec<ChangeHandler<[T]>>,
-  source_title: Arc<str>,
-  target_title: Arc<str>,
+  source_title: Option<Arc<str>>,
+  target_title: Option<Arc<str>>,
   count_text: CountText,
-  select_all_label: Arc<str>,
-  add_label: Arc<str>,
-  remove_label: Arc<str>,
-  empty_text: Arc<str>,
+  select_all_label: Option<Arc<str>>,
+  add_label: Option<Arc<str>>,
+  remove_label: Option<Arc<str>>,
+  empty_text: Option<Arc<str>>,
+  /// The words it was told to speak in, in place of the app's.
+  locale: Option<crate::core::InputWords>,
   label: Option<Arc<str>>,
   disabled: bool,
   density: Option<Density>,
@@ -185,13 +187,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
       on_change: Vec::new(),
       checked: None,
       on_checked_change: Vec::new(),
-      source_title: Arc::from("Available"),
-      target_title: Arc::from("Selected"),
+      source_title: None,
+      target_title: None,
+      // A count and not a word: the same in every language.
       count_text: Arc::new(|checked, total| format!("{checked}/{total}")),
-      select_all_label: Arc::from("Select all"),
-      add_label: Arc::from("Add"),
-      remove_label: Arc::from("Remove"),
-      empty_text: Arc::from("No items"),
+      select_all_label: None,
+      add_label: None,
+      remove_label: None,
+      empty_text: None,
+      locale: None,
       label: None,
       disabled: false,
       density: None,
@@ -237,16 +241,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
     self
   }
 
-  /// What the left list is called, in its header and to what reads the tree: "Available" unless it is told
-  /// otherwise.
+  /// What the left list is called, in its header and to what reads the tree: the locale's "Available" unless it
+  /// is told otherwise.
   pub fn source_title(mut self, title: &str) -> Self {
-    self.source_title = Arc::from(title);
+    self.source_title = Some(Arc::from(title));
     self
   }
 
-  /// What the right list is called: "Selected" unless it is told otherwise.
+  /// What the right list is called: the locale's "Selected" unless it is told otherwise.
   pub fn target_title(mut self, title: &str) -> Self {
-    self.target_title = Arc::from(title);
+    self.target_title = Some(Arc::from(title));
     self
   }
 
@@ -257,28 +261,36 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
     self
   }
 
-  /// What the checkbox in a list's header is called to what reads the tree: "Select all" unless it is told
-  /// otherwise.
+  /// What the checkbox in a list's header is called to what reads the tree: the locale's "Select all" unless it
+  /// is told otherwise.
   pub fn select_all_label(mut self, label: &str) -> Self {
-    self.select_all_label = Arc::from(label);
+    self.select_all_label = Some(Arc::from(label));
     self
   }
 
-  /// What the button that moves to the right is called: "Add" unless it is told otherwise.
+  /// What the button that moves to the right is called: the locale's "Add" unless it is told otherwise.
   pub fn add_label(mut self, label: &str) -> Self {
-    self.add_label = Arc::from(label);
+    self.add_label = Some(Arc::from(label));
     self
   }
 
-  /// What the button that moves back to the left is called: "Remove" unless it is told otherwise.
+  /// What the button that moves back to the left is called: the locale's "Remove" unless it is told otherwise.
   pub fn remove_label(mut self, label: &str) -> Self {
-    self.remove_label = Arc::from(label);
+    self.remove_label = Some(Arc::from(label));
     self
   }
 
-  /// What a list with no items says: "No items" unless it is told otherwise.
+  /// What a list with no items says: the locale's "No items" unless it is told otherwise.
   pub fn empty_text(mut self, text: &str) -> Self {
-    self.empty_text = Arc::from(text);
+    self.empty_text = Some(Arc::from(text));
+    self
+  }
+
+  /// The words this transfer speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)):
+  /// its lists' titles, the names of its checkboxes and buttons, and what an empty list says. A word told by itself
+  /// (`source_title`, `add_label` and the others) stays what it was told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.locale = Some(locale.input.clone());
     self
   }
 
@@ -403,6 +415,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
   /// listbox, and whether it is long enough to build only the items near its view.
   fn view(&self, theme: &Theme, kept: Kept<T>) -> (TransferView, [Option<(Listbox<T, [T]>, bool)>; 2]) {
     let recipe = theme.resolve::<Transfer<T>>(&self.case(kept.stacked), Some(&self.rules));
+    // The words it was not told: its own locale's, else the app's, read where it is built.
+    let words = match &self.locale {
+      Some(words) => words.clone(),
+      None => super::current_locale().input.clone(),
+    };
+    let told = |word: &Option<Arc<str>>, default: &Arc<str>| word.clone().unwrap_or_else(|| default.clone());
     let ids: Vec<&T> = self.items.iter().map(SelectOption::value).collect();
     // What is on the right: the app's values that are items, in the app's order.
     let target: Vec<T> = self.value.iter().filter(|value| ids.contains(value)).cloned().collect();
@@ -466,9 +484,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
       let on: Vec<T> = checked.iter().filter(|value| held.contains(value)).cloned().collect();
       let can: Vec<T> = held.iter().filter(|value| enabled(value)).cloned().collect();
       let title = if is_target {
-        self.target_title.clone()
+        told(&self.target_title, &words.selected)
       } else {
-        self.source_title.clone()
+        told(&self.source_title, &words.available)
       };
       let name = if is_target { "target" } else { "source" };
       let id = self.id.as_ref().map(|id| Arc::<str>::from(format!("{id}-{name}")));
@@ -509,8 +527,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
         can: can.len(),
         all_checked: !can.is_empty() && can.iter().all(|value| on.contains(value)),
         list: None,
-        empty_text: self.empty_text.clone(),
-        select_all_label: self.select_all_label.clone(),
+        empty_text: told(&self.empty_text, &words.no_items),
+        select_all_label: told(&self.select_all_label, &words.select_all),
         disabled: self.disabled,
         all,
         recipe: recipe.clone(),
@@ -530,8 +548,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
       remove: (target_list.checked > 0 && !self.disabled).then(|| moving(false)),
       source,
       target: target_list,
-      add_label: self.add_label.clone(),
-      remove_label: self.remove_label.clone(),
+      add_label: told(&self.add_label, &words.add),
+      remove_label: told(&self.remove_label, &words.remove),
       stacked: kept.stacked,
       label: self.label.clone(),
       disabled: self.disabled,

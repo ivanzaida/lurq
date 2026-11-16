@@ -429,3 +429,34 @@ fn tooling_reads_an_image_called_by_its_label_and_described_by_its_text() {
     Some(3000)
   );
 }
+
+/// What tooling calls a code is the app's locale's word, read again when the app changes it; a locale of its own is
+/// above the app's, and a label told by itself above both.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn what_tooling_calls_it_is_the_app_s_locale_s_and_a_label_told_by_itself_stays() {
+  use lurq::core::Locale;
+  let named = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .child(QrCode::new(SHORT).id("plain"))
+      .child(QrCode::new(SHORT).label("Pair your phone").id("told"))
+      .child(QrCode::new(SHORT).locale(&Locale::for_tag("pl")).id("own"))
+      .into()
+  });
+  assert_eq!(named(&mut stage, "plain").as_deref(), Some("QR-код"));
+  assert_eq!(named(&mut stage, "told").as_deref(), Some("Pair your phone"));
+  assert_eq!(named(&mut stage, "own").as_deref(), Some("Kod QR"));
+  handle.set_locale(Locale::for_tag("de"));
+  stage.pass();
+  assert_eq!(named(&mut stage, "plain").as_deref(), Some("QR-Code"));
+  assert_eq!(named(&mut stage, "told").as_deref(), Some("Pair your phone"));
+}

@@ -514,3 +514,51 @@ fn tooling_reads_a_group_of_two_listboxes_of_checked_options_and_two_buttons() {
   assert_eq!(said("transfer-add", "a11y_name").as_deref(), Some("Add"));
   assert_eq!(said("transfer-remove", "a11y_name").as_deref(), Some("Remove"));
 }
+
+/// Its words are the app's locale's, read again when the app changes it; a locale of its own is above the app's, and
+/// a word told by itself is above both. The count is no word: the same in every locale.
+#[test]
+fn its_words_are_the_app_s_locale_s_and_a_word_told_by_itself_stays() {
+  use lurq::core::Locale;
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = wide_in(app, |ctx| {
+    Transfer::controlled(Vec::<Id>::new(), features(), |_| {})
+      .target_title("Увімкнені")
+      .id("transfer")
+      .mount(ctx)
+  });
+  assert!(stage.paints("Доступні") && stage.paints("Увімкнені") && !stage.paints("Вибрані"));
+  assert!(stage.paints("Немає елементів") && stage.paints("0/5"));
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  {
+    let mut named = |id: &str| {
+      stage
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.description("a11y_name"))
+    };
+    assert_eq!(named("transfer-add").as_deref(), Some("Додати"));
+    assert_eq!(named("transfer-remove").as_deref(), Some("Прибрати"));
+    assert_eq!(named("transfer-source-all").as_deref(), Some("Вибрати все"));
+  }
+  handle.set_locale(Locale::for_tag("de"));
+  stage.pass();
+  assert!(stage.paints("Verfügbar") && stage.paints("Keine Einträge") && !stage.paints("Доступні"));
+  assert!(stage.paints("Увімкнені"), "a word told by itself stays");
+
+  // A locale of its own, in an app of none; the word told stays whichever comes first.
+  let own = wide(|ctx| {
+    Transfer::controlled(Vec::<Id>::new(), features(), |_| {})
+      .empty_text("Pusto")
+      .locale(&Locale::for_tag("pl"))
+      .id("transfer")
+      .mount(ctx)
+  });
+  assert!(own.paints("Dostępne") && own.paints("Wybrane") && own.paints("Pusto"));
+  assert!(!own.paints("Brak elementów"));
+  // With no locale it is English.
+  let plain = wide(|ctx| Transfer::controlled(Vec::<Id>::new(), features(), |_| {}).mount(ctx));
+  assert!(plain.paints("Available") && plain.paints("Selected") && plain.paints("No items"));
+}

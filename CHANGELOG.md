@@ -52,6 +52,7 @@ Deprecated:
 
 Added:
 
+- The words of `ui::SignaturePad`, `ui::AngleSlider`, `ui::QrCode`, `ui::Transfer` and `ui::Cascader` are in the app's locale, in its six languages: `core::InputWords` (`Locale::input`: what a control that takes a value is called, its buttons' names, the words under a line, what an empty list says, "Loading") and `core::DisplayWords` (`Locale::display`: what tooling calls a QR code), with `Locale::with_input` and `with_display`. Each takes them from `ui::current_locale()` and has `.locale(&Locale)`; a word told by itself (`placeholder`, `add_label`, `clear_label` and the others) stays above both.
 - `ui::Watermark`: a text, or a picture (`media`), repeated across what it covers, turned and faint, over the content: `gap`, `angle`, `offset`, `stagger` and the mark's part as the board draws them. No pointer hits the marks and tooling does not read them; they are one mark in the tree, painted by the engine only where they can be seen, so a watermark over a long scrolled page costs the marks in view
 - `.repeat(Repeat)` on any element paints what it holds again and again across its box, a gap apart, every other row moved by a stagger, only where it can be seen: a pattern, a watermark. The copies are paint alone
 - An element described `a11y_hidden` `true` is left out of `lurq_read_tree` (but with `filter: "all"`) and `lurq_inspect` with all it holds, and its text is no part of a control's name: a watermark's marks, a chart's axis

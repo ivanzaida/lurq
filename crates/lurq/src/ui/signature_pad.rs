@@ -300,6 +300,8 @@ pub struct SignaturePad {
   clear_label: Option<Arc<str>>,
   signed_text: Option<Arc<str>>,
   empty_text: Option<Arc<str>>,
+  /// The words it was told to speak in, in place of the app's.
+  locale: Option<crate::core::InputWords>,
   read_only: bool,
   disabled: bool,
   invalid: bool,
@@ -325,6 +327,7 @@ impl SignaturePad {
       clear_label: None,
       signed_text: None,
       empty_text: None,
+      locale: None,
       read_only: false,
       disabled: false,
       invalid: false,
@@ -358,40 +361,48 @@ impl SignaturePad {
     self
   }
 
-  /// What it is called to tooling: "Signature" unless told. A field gives it its label.
+  /// What it is called to tooling: the locale's "Signature" unless told. A field gives it its label.
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
     self
   }
 
-  /// The words under the line: "Sign above the line" unless told. They stay once it is signed, as the board draws
-  /// them.
+  /// The words under the line: the locale's "Sign above the line" unless told. They stay once it is signed, as the
+  /// board draws them.
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.placeholder = Some(Arc::from(placeholder));
     self
   }
 
-  /// The name of the button that takes back the last stroke: "Undo" unless told.
+  /// The name of the button that takes back the last stroke: the locale's "Undo" unless told.
   pub fn undo_label(mut self, label: &str) -> Self {
     self.undo_label = Some(Arc::from(label));
     self
   }
 
-  /// The name of the button that takes back every stroke: "Clear" unless told.
+  /// The name of the button that takes back every stroke: the locale's "Clear" unless told.
   pub fn clear_label(mut self, label: &str) -> Self {
     self.clear_label = Some(Arc::from(label));
     self
   }
 
-  /// What the pad says to tooling once it is signed: "Signed" unless told.
+  /// What the pad says to tooling once it is signed: the locale's "Signed" unless told.
   pub fn signed_text(mut self, text: &str) -> Self {
     self.signed_text = Some(Arc::from(text));
     self
   }
 
-  /// What the pad says to tooling while nothing is signed: "Not signed" unless told.
+  /// What the pad says to tooling while nothing is signed: the locale's "Not signed" unless told.
   pub fn empty_text(mut self, text: &str) -> Self {
     self.empty_text = Some(Arc::from(text));
+    self
+  }
+
+  /// The words this pad speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)): its
+  /// name, the words under its line, its buttons' names and what it says it holds. A word told by itself
+  /// (`placeholder`, `undo_label` and the others) stays what it was told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.locale = Some(locale.input.clone());
     self
   }
 
@@ -518,16 +529,18 @@ impl SignaturePad {
     if let Some(height) = self.height {
       rules = rules.base(SignaturePadPart::Root, move |s| s.height(height));
     }
+    // The words it was not told: its own locale's, else the app's, read where it is built.
+    let words = self.locale.unwrap_or_else(|| super::current_locale().input.clone());
     Core {
       value: self.value,
       current,
       change,
-      label: self.label.unwrap_or_else(|| Arc::from("Signature")),
-      placeholder: self.placeholder.unwrap_or_else(|| Arc::from("Sign above the line")),
-      undo_label: self.undo_label.unwrap_or_else(|| Arc::from("Undo")),
-      clear_label: self.clear_label.unwrap_or_else(|| Arc::from("Clear")),
-      signed_text: self.signed_text.unwrap_or_else(|| Arc::from("Signed")),
-      empty_text: self.empty_text.unwrap_or_else(|| Arc::from("Not signed")),
+      label: self.label.unwrap_or(words.signature),
+      placeholder: self.placeholder.unwrap_or(words.sign_above_the_line),
+      undo_label: self.undo_label.unwrap_or(words.undo),
+      clear_label: self.clear_label.unwrap_or(words.clear),
+      signed_text: self.signed_text.unwrap_or(words.signed),
+      empty_text: self.empty_text.unwrap_or(words.not_signed),
       read_only: self.read_only,
       disabled: self.disabled,
       invalid: self.invalid,

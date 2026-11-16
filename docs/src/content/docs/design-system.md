@@ -958,6 +958,7 @@ AngleSlider::new(tilt.clone()).min(-180).max(180).step(15).wrap(false);
 | `step(v)`, `page_step(v)` | How far apart the angles are, from the least: 1 unless told, what an arrow key moves it by and what a drag snaps to. What Page Up and Page Down move it by: 15 unless told, in whole steps and at least one |
 | `wrap(bool)` | On unless told: where the range is a whole turn it goes round, a step past 359 is 0 and a drag goes on round. Off, or with another range, it stops at its ends, and a drag past an end stays there until it comes back |
 | `label(&str)` | What it is called to tooling, "Angle" unless told. A [field](#field) gives it its label |
+| `locale(&Locale)` | The words it speaks in, its name, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A `label` told by itself stays; the degrees are a sign, the same in every locale |
 | `value_text(Fn(f64) -> String)` | What it says the angle is, in its middle and to tooling: "45°" unless told, with the decimals of the step ("22.5°") |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the dial, what is dragged and focused |
 
@@ -1054,6 +1055,7 @@ let png = signature.get().to_png(2.0, ink, 2.0); // Option<Vec<u8>>, a PNG file
 | `label(&str)` | What it is called to tooling, "Signature" unless told. A [field](#field) gives it its label |
 | `undo_label(&str)`, `clear_label(&str)` | The names of its two buttons, "Undo" and "Clear" unless told |
 | `signed_text(&str)`, `empty_text(&str)` | What it says to tooling it holds: "Signed" and "Not signed" unless told |
+| `locale(&Locale)` | The words it speaks in, its name, the words under its line, its buttons' names and what it says it holds, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A word told by itself (`placeholder`, `undo_label` and the others) stays |
 | `invalid(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the pad, what takes the focus; its canvas is `<id>-surface` and its buttons `<id>-undo` and `<id>-clear` |
 | `mount(ctx)`, `build(theme)` | Converted into an element, or mounted, it is the pad that is signed on: it keeps the stroke being drawn. `build` is its still form, which shows the signature and takes nothing |
 
@@ -2979,6 +2981,7 @@ Cascader::controlled(app.city(), items, |city| app.set_city(*city));
 | `placeholder(&str)`, `size(CascaderSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open |
 | `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a cascader that may hold none; and what it is called, "Clear" |
 | `empty_text(&str)`, `loading_label(&str)` | What the panel says where there are no items, "No options"; what the spinner of a column on its way is called, "Loading" |
+| `locale(&Locale)` | The words it speaks in, the name of its cross, what an empty panel says and what a spinner is called, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A word told by itself (`clear_label`, `empty_text`, `loading_label`) stays; the mark between the steps is no word |
 | `label(&str)`, `panel_label(&str)` | What the cascader is called to what reads the tree, and its panel and its columns in place of that |
 | `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the columns with `-columns` (each column that, `-column-` and its place), the cross with `-clear` |
@@ -3088,6 +3091,7 @@ Transfer::controlled(app.features(), items, |features| app.set_features(features
 | `count_text(Fn(checked, total) -> String)` | What a header says of how many of its items are checked, of how many: `1/3` |
 | `select_all_label(&str)`, `add_label(&str)`, `remove_label(&str)` | What the header's checkbox and the two buttons are called to what reads the tree: "Select all", "Add", "Remove" |
 | `empty_text(&str)` | What a list with no items says: "No items" |
+| `locale(&Locale)` | The words it speaks in, its lists' titles, the names of its checkboxes and buttons and what an empty list says, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A word told by itself (`source_title`, `add_label` and the others) stays; the count is no word |
 | `label(&str)`, `disabled(bool)`, `density(Density)` | What the transfer is called, to what reads the tree; nothing in it takes input; how high an item is, whatever the theme's density |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; the lists' items have it with `-source` and `-target` (each item that and `-` and its place), their headers' checkboxes with `-source-all` and `-target-all`, the buttons with `-add` and `-remove` |
 | `mount(ctx)` | The transfer keeps what is checked, measures its room before it is painted and finds its narrow form there, and a list of more than two hundred items builds only those near its view. Converting it into an element declares the same component; `build(theme)` is the still form, wide only |
@@ -7940,6 +7944,7 @@ QrCode::new(address).media(logo);
 | `quiet_zone(modules)` | Modules of light around the code inside the card's padding: none unless the app says |
 | `media(element)` | A logo over the middle, in a well of the light fill; the code is made at `High` |
 | `label(&str)` | What tooling calls it: "QR code" unless the app says what it is for |
+| `locale(&Locale)` | The words it speaks in, what tooling calls it, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::display`. A `label` told by itself stays |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - It is dark on light in the light look and in the dark one alike, as the design draws it: a phone reads a code dark on light, and not every phone reads it the other way. Its fills are the roles of its recipe read in the theme's light palette (`Theme::palette_color_for(Appearance::Light, role)`): the card `Background`, the modules `Foreground`. Its edge is the window's `Border`.

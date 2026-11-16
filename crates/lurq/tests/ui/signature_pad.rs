@@ -597,3 +597,52 @@ fn tooling_reads_a_picture_named_by_its_label_signed_or_not() {
   let mut shown = scene(|| SignaturePad::controlled(one_stroke(), |_| {}).read_only(true));
   assert_eq!(said(&mut shown, "pad", "a11y_readonly").as_deref(), Some("true"));
 }
+
+/// Its words are the app's locale's, read again when the app changes it; a locale of its own is above the app's, and
+/// a word told by itself is above both.
+#[test]
+fn its_words_are_the_app_s_locale_s_and_a_word_told_by_itself_stays() {
+  use lurq::core::Locale;
+  let pad = || SignaturePad::controlled(one_stroke(), |_| {}).id("pad");
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let handle = app.clone();
+  let mut stage = Stage::software_in(app, move |_| Column::new().padding(8.0).child(pad()).into());
+  assert!(stage.paints("Підпишіть над лінією"));
+  handle.set_locale(Locale::for_tag("de"));
+  stage.pass();
+  assert!(stage.paints("Über der Linie unterschreiben") && !stage.paints("Підпишіть над лінією"));
+
+  // A word told by itself stays in the app's locale.
+  let app = App::new();
+  app.set_locale(Locale::for_tag("uk"));
+  let told = Stage::software_in(app, move |_| {
+    Column::new().padding(8.0).child(pad().placeholder("Sign here")).into()
+  });
+  assert!(told.paints("Sign here") && !told.paints("Підпишіть над лінією"));
+
+  // A locale of its own, in an app of none; the word told stays whichever comes first.
+  let mut own = Stage::software(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(pad().undo_label("Wstecz").locale(&Locale::for_tag("pl")))
+      .into()
+  });
+  assert!(own.paints("Podpisz nad linią"));
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  {
+    let mut said = |id: &str, what: &str| {
+      own
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.description(what))
+    };
+    assert_eq!(said("pad", "a11y_name").as_deref(), Some("Podpis"));
+    assert_eq!(said("pad", "a11y_description").as_deref(), Some("Podpisano"));
+    assert_eq!(said("pad-undo", "a11y_name").as_deref(), Some("Wstecz"));
+    assert_eq!(said("pad-clear", "a11y_name").as_deref(), Some("Wyczyść"));
+  }
+  // With no locale it is English.
+  let plain = scene(|| SignaturePad::controlled(Signature::default(), |_| {}));
+  assert!(plain.paints("Sign above the line"));
+}

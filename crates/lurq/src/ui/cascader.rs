@@ -170,9 +170,11 @@ pub struct Cascader<T: 'static = (), V: ?Sized + 'static = T> {
   boxed: BoxStates,
   full_width: bool,
   clearable: bool,
-  clear_label: Arc<str>,
-  empty_text: Arc<str>,
-  loading_label: Arc<str>,
+  clear_label: Option<Arc<str>>,
+  empty_text: Option<Arc<str>>,
+  loading_label: Option<Arc<str>>,
+  /// The words it was told to speak in, in place of the app's.
+  locale: Option<crate::core::InputWords>,
   panel_label: Option<Arc<str>>,
   placement: Placement,
   offset: Option<SpacingValue>,
@@ -263,14 +265,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Cascader
       leaves_only: true,
       open_on_hover: false,
       path: true,
+      // A mark between the steps, not a word: the same in every language.
       separator_text: Arc::from(" / "),
       placeholder: None,
       boxed: BoxStates::default(),
       full_width: false,
       clearable: false,
-      clear_label: Arc::from("Clear"),
-      empty_text: Arc::from("No options"),
-      loading_label: Arc::from("Loading"),
+      clear_label: None,
+      empty_text: None,
+      loading_label: None,
+      locale: None,
       panel_label: None,
       placement: Placement::BottomStart,
       offset: None,
@@ -408,22 +412,30 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Cascader
     self
   }
 
-  /// What the clear control is called to what reads the tree: "Clear" unless it is told otherwise.
+  /// What the clear control is called to what reads the tree: the locale's "Clear" unless it is told otherwise.
   pub fn clear_label(mut self, label: &str) -> Self {
-    self.clear_label = Arc::from(label);
+    self.clear_label = Some(Arc::from(label));
     self
   }
 
-  /// What the panel says where there are no items: "No options" unless it is told otherwise.
+  /// What the panel says where there are no items: the locale's "No options" unless it is told otherwise.
   pub fn empty_text(mut self, text: &str) -> Self {
-    self.empty_text = Arc::from(text);
+    self.empty_text = Some(Arc::from(text));
     self
   }
 
-  /// What the spinner of a column whose options are on their way is called to what reads the tree: "Loading"
-  /// unless it is told otherwise.
+  /// What the spinner of a column whose options are on their way is called to what reads the tree: the locale's
+  /// "Loading" unless it is told otherwise.
   pub fn loading_label(mut self, label: &str) -> Self {
-    self.loading_label = Arc::from(label);
+    self.loading_label = Some(Arc::from(label));
+    self
+  }
+
+  /// The words this cascader speaks in, in place of the app's ([`App::set_locale`](crate::app::App::set_locale)):
+  /// the name of its cross, what an empty panel says and what the spinner of a column on its way is called. A word
+  /// told by itself (`clear_label`, `empty_text`, `loading_label`) stays what it was told.
+  pub fn locale(mut self, locale: &crate::core::Locale) -> Self {
+    self.locale = Some(locale.input.clone());
     self
   }
 
@@ -574,6 +586,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Cascader
       .state(SelectState::Open, is_open && !self.inline)
       .state(SelectState::FullWidth, self.full_width);
     let recipe = theme.resolve::<Cascader<T, V>>(&case, Some(&self.rules));
+    // The words it was not told: its own locale's, else the app's, read where it is built.
+    let words = match &self.locale {
+      Some(words) => words.clone(),
+      None => super::current_locale().input.clone(),
+    };
+    let told = |word: &Option<Arc<str>>, default: &Arc<str>| word.clone().unwrap_or_else(|| default.clone());
     let on_path = theme.resolve::<Cascader<T, V>>(&case.clone().state(SelectState::Selected, true), Some(&self.rules));
 
     // The path to what is chosen: its values and its labels, from the top.
@@ -668,7 +686,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Cascader
         .press_activates(true)
         .activate_branches(!self.leaves_only)
         .open_on_hover(self.open_on_hover)
-        .loading_label(&self.loading_label)
+        .loading_label(&told(&self.loading_label, &words.loading))
         .disabled(disabled)
         .rules(&rules);
       view.autofocus = !self.inline;
@@ -701,9 +719,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Cascader
       recipe,
       forced: self.forced,
       columns,
-      empty_text: self.empty_text.clone(),
+      empty_text: told(&self.empty_text, &words.no_options),
       clear,
-      clear_label: self.clear_label.clone(),
+      clear_label: told(&self.clear_label, &words.clear),
       placement: self.placement,
       offset: self.offset.clone(),
       collision: self.collision,
