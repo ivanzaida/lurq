@@ -353,7 +353,8 @@ impl AudioQueue {
   }
 
   /// Builds a still picture of the queue in `theme`, for a test or a screenshot: its buttons with no tooltips. An
-  /// app mounts the queue ([`AudioQueue::mount`]): it is not an element by itself.
+  /// app gives the queue to its tree (`.child(AudioQueue::new(..))`), where it is a component that mounts those
+  /// tooltips, or mounts it ([`AudioQueue::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     Self::render_view(self.view(theme, None))
   }
@@ -458,6 +459,52 @@ impl AudioQueue {
       id: self.id,
       key: self.key,
     }
+  }
+}
+
+/// A queue in a tree is its component, declared: the component that renders the tree mounts it.
+impl crate::app::component::IntoComponent for AudioQueue {
+  type Component = AudioQueueHost;
+
+  fn into_props(self) -> AudioQueueProps {
+    AudioQueueProps(self)
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
+/// A queue to mount.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct AudioQueueProps(AudioQueue);
+
+/// The queue is built anew by every render of what holds it, so props are never the same as before.
+impl PartialEq for AudioQueueProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for AudioQueueProps {}
+
+/// The component of a queue given to a tree as it is: it has the `Ctx` the tooltips of the rows' "more" buttons
+/// are mounted in, and keeps nothing else.
+#[doc(hidden)]
+pub struct AudioQueueHost;
+
+impl crate::app::component::Component for AudioQueueHost {
+  type Props = AudioQueueProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let queue = ctx.props::<AudioQueueProps>().0.clone();
+    queue.mount(ctx)
   }
 }
 

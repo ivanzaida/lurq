@@ -489,8 +489,8 @@ impl Component for MediaVolumePage {
         "mount",
         "&mut Ctx",
         "",
-        "Puts it where it goes, the only way, keeping the pointer, the focus and a drag: what a collapsed one \
-         needs.",
+        "Mounts it at once, keeping the pointer, the focus and a drag: what a collapsed one needs. Given to a \
+         tree as it is (.child(volume)), it is the same component.",
       ),
     ];
     let playground = self.play(ctx);

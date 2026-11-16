@@ -17,6 +17,7 @@ mod more;
 mod other_window;
 mod scroll;
 mod sheets;
+mod sound;
 mod system;
 mod touch;
 mod ui;
@@ -145,6 +146,9 @@ fn routes() -> Routes {
         screen(ctx, "/scroll", |ctx| ctx.mount::<scroll::ScrollScreen>(()))
       })
       .route("/system", |ctx| screen(ctx, "/system", system::system))
+      .route("/sound", |ctx| {
+        screen(ctx, "/sound", |ctx| ctx.mount::<sound::SoundScreen>(()))
+      })
       .route("/auth", |ctx| {
         screen(ctx, "/auth", |ctx| ctx.mount::<auth::AuthScreen>(()))
       })

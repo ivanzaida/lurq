@@ -54,6 +54,11 @@ pub(crate) const SCREENS: &[Screen] = &[
     checks: "The person proves who they are with their face or finger before something is shown",
   },
   Screen {
+    path: "/sound",
+    title: "Sound",
+    checks: "A track played from bytes, from a file and from an address: play, pause, speed, volume, the end",
+  },
+  Screen {
     path: "/system",
     title: "System",
     checks: "The appearance, text size, bold text and reduced motion the person set, and what follows them",

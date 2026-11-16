@@ -1,0 +1,185 @@
+//! The thread of a sound on macOS and iOS: the system's own player of a sound (`AVAudioPlayer`) plays a file or
+//! bytes, and the media's clock follows where the player says it is.
+//!
+//! Only what is heard is played here ([`Media::sound`](super::Media::sound)): a video has no decoder on these
+//! systems yet, and says so. An address is a sound once the app's loader has loaded it whole, which is what a
+//! media does before it comes here; an address the loader could not load (a build without `http`, or more than
+//! the loader reads whole) says so, since this player reads no network.
+//!
+//! Written on Windows and compiled for both systems, and not run by who wrote it: what to check on a Mac and on
+//! a phone is in `docs/evidence/media-sound/apple-verification.md`.
+
+use std::{
+  sync::Arc,
+  time::{Duration, Instant},
+};
+
+use objc2::{
+  AnyThread,
+  rc::{Retained, autoreleasepool},
+};
+use objc2_avf_audio::AVAudioPlayer;
+use objc2_foundation::{NSData, NSError, NSURL};
+
+use super::{Command, Opened, Shared};
+
+/// How often the thread looks at the player while it plays: where it is, and whether it came to its end.
+const STEP: Duration = Duration::from_millis(20);
+/// The media's clock is set to the player's where they are this far apart, in seconds.
+const APART: f64 = 0.03;
+
+/// Runs a sound to its end: opens `opened`, and does what it is told until nothing holds the media.
+pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
+  if !heard {
+    shared.fail("this build shows no video on this system yet: it plays a sound (Media::sound)");
+    return;
+  }
+  // What the system makes while the thread runs is let go when the thread ends.
+  autoreleasepool(|_| match open(opened) {
+    Ok(player) => play(shared, &player),
+    Err(why) => shared.fail(why),
+  });
+}
+
+/// What the system says went wrong.
+fn said(error: &NSError) -> String {
+  error.localizedDescription().to_string()
+}
+
+/// A player of `opened`, ready to play.
+fn open(opened: Opened) -> Result<Retained<AVAudioPlayer>, String> {
+  // SAFETY: the player is made, used and let go on this thread alone; its initializers take what they are given
+  // and answer an error where they cannot read it.
+  let player = unsafe {
+    match opened {
+      Opened::File(path) => {
+        let address = NSURL::from_file_path(&path).ok_or("the path of the file is not one the system takes")?;
+        AVAudioPlayer::initWithContentsOfURL_error(AVAudioPlayer::alloc(), &address)
+      }
+      // The player tells what the bytes are from the bytes themselves.
+      Opened::Bytes(bytes, _) => AVAudioPlayer::initWithData_error(AVAudioPlayer::alloc(), &NSData::with_bytes(&bytes)),
+      Opened::Url(_) => {
+        return Err(
+          "a sound at an address is loaded by the app's loader, which could not load this one: the feature \
+           `http`, and no more than the loader reads whole"
+            .to_owned(),
+        );
+      }
+    }
+  }
+  .map_err(|error| said(&error))?;
+  // SAFETY: as above.
+  unsafe {
+    // A speed other than 1 is taken only by a player told so before it plays.
+    player.setEnableRate(true);
+    player.prepareToPlay();
+  }
+  Ok(player)
+}
+
+fn play(shared: &Shared, player: &AVAudioPlayer) {
+  // SAFETY: every call of the player in here is on the thread that made it.
+  unsafe {
+    let duration = Some(player.duration()).filter(|duration| duration.is_finite() && *duration > 0.0);
+    let (mut volume, mut muted) = {
+      let mut inner = shared.inner();
+      inner.duration = duration;
+      inner.sound = true;
+      inner.waiting = false;
+      inner.since = Instant::now();
+      (inner.volume, inner.muted)
+    };
+    let level = |volume: f32, muted: bool| if muted { 0.0 } else { volume };
+    player.setVolume(level(volume, muted));
+    shared.wake();
+    // How many of the times it was sent somewhere it has done.
+    let mut gone = 0_u64;
+    loop {
+      let playing = shared.inner().playing;
+      // Nothing to do until it is told something, unless it plays.
+      let wait = if playing { STEP } else { Duration::from_secs(3600) };
+      for command in shared.take(Some(wait)) {
+        match command {
+          Command::Close => {
+            player.stop();
+            return;
+          }
+          Command::Play => {
+            let mut inner = shared.inner();
+            if inner.ended {
+              player.setCurrentTime(0.0);
+              inner.ended = false;
+              inner.at = 0.0;
+            }
+            // The player's speed is set again each time it starts: a player stopped at its end forgets it.
+            player.setRate(inner.rate as f32);
+            if player.play() {
+              inner.since = Instant::now();
+              inner.playing = true;
+            } else {
+              drop(inner);
+              shared.fail("the system's output would not start");
+              return;
+            }
+          }
+          Command::Pause => {
+            player.pause();
+            let mut inner = shared.inner();
+            inner.at = player.currentTime();
+            inner.since = Instant::now();
+            inner.playing = false;
+          }
+          Command::Seek(to) => {
+            gone += 1;
+            let to = duration.map_or(to, |duration| to.min(duration));
+            player.setCurrentTime(to);
+            let mut inner = shared.inner();
+            inner.at = to;
+            inner.since = Instant::now();
+            inner.ended = false;
+          }
+          Command::Rate(rate) => {
+            let mut inner = shared.inner();
+            inner.hold();
+            inner.rate = rate;
+            player.setRate(rate as f32);
+          }
+          Command::Volume(to) => {
+            volume = to;
+            player.setVolume(level(volume, muted));
+          }
+          Command::Muted(to) => {
+            muted = to;
+            player.setVolume(level(volume, muted));
+          }
+        }
+      }
+      let mut inner = shared.inner();
+      if !inner.playing {
+        continue;
+      }
+      if player.isPlaying() {
+        // The media's clock is the player's: what is heard is where it is.
+        let heard = player.currentTime();
+        if inner.sent == gone && (heard - inner.position()).abs() > APART {
+          inner.at = heard;
+          inner.since = Instant::now();
+        }
+      } else {
+        // The player stopped by itself. At the end of what it plays it is back at its start; anywhere else the
+        // system stopped it (a call, another app's sound, the headphones pulled out), and it is paused there.
+        let at = player.currentTime();
+        let over = duration.is_none_or(|duration| at <= 0.05 || at >= duration - 0.3);
+        inner.at = match (over, inner.duration) {
+          (true, Some(duration)) => duration,
+          _ => at,
+        };
+        inner.since = Instant::now();
+        inner.ended = over;
+        inner.playing = false;
+        drop(inner);
+        shared.wake();
+      }
+    }
+  }
+}

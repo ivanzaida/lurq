@@ -32,7 +32,7 @@ AudioQueue::new(
 | `playing(bool)` | Whether the current track plays: the `equalizer` glyph stands for its number |
 | `item(AudioQueueItem)`, `items(..)` | Adds tracks at the end |
 | `label(&str)`, `more_label(&str)`, `playing_label(&str)` | What the queue ("Queue"), a row's more button ("More") and the equalizer ("Now playing") are called |
-| `mount(ctx)` | The only way a queue is put where it goes; it keeps the tooltips of the rows' more buttons |
+| `mount(ctx)` | Mounts it at once, with the tooltips of the rows' more buttons. `.child(queue)` is a component that has them too |
 | `build(theme)` | A still picture for a test or a screenshot: the buttons have no tooltips |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the row Tab would stop on |
 
@@ -56,6 +56,7 @@ AudioQueue::new(
 
 ## Decided
 
+- **A component by itself again, and now a kept one** (Ivan, 2026-11-16, after the line under this one). `AudioQueue` implements `app::component::IntoComponent`, and the engine converts whatever does into an element that declares its component (`Element::component`): `.child(AudioQueue::..)` compiles again, and is a host made for it (`AudioQueueHost`), which has the `Ctx` its tooltips are mounted in, mounted by the component that renders the tree once its render has returned. So the form without a `Ctx` keeps what the mounted one keeps: the more buttons have their tooltips (tested). `mount(ctx)` stays, for mounting at once; `build(theme)` stays the still picture. What the line under this one says of `.child(..)` not compiling is no longer so; its reason is what this form answers.
 - **Mounted, the only way** (Ivan, 2026-11-16). `AudioQueue` is not an element by itself: there is no `From<AudioQueue> for Element`, and `.child(AudioQueue::..)` does not compile; an app writes `.mount(ctx)`. The form that became an element without a `Ctx` kept nothing between renders, and was the one in which the more buttons had no tooltips. `build(theme)` stays as a still picture for a test or a screenshot, said by name.
 - **A list and its rows, apart from `AudioPlayer`**: what it holds (the tracks and which one is current) is not what a player holds. The row is `AudioQueueItem` (the playbook's word for what a list holds), its part `Item`.
 - **The current track is an index**, `Signal<Option<usize>>` (a queue may be on none), and `on_change(Fn(usize))` is told the index of the row pressed: a person cannot press "none". It is not called for the current row or an unavailable one.

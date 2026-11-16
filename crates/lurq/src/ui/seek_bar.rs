@@ -140,8 +140,8 @@ pub type SeekPreview = Arc<dyn Fn(f64) -> Element + Send + Sync>;
 ///
 /// Mounted ([`SeekBar::mount`]) it shows the time under the pointer in a chip over the bar, and the app's
 /// [`preview`](SeekBar::preview) of that moment over the chip, and tells [`SeekBar::on_hover`] the time under the
-/// pointer. It is the only way a bar is put where it goes: a bar is not an element by itself.
-/// [`SeekBar::build`] is a still picture of it, for a test.
+/// pointer. A bar given to a tree as it is (`.child(SeekBar::new(..))`) is the same component, declared: what
+/// renders the tree mounts it. [`SeekBar::build`] is a still picture of it, for a test.
 ///
 /// [`SeekBar::empty`] is a bar with nothing loaded (no thumb, no input); [`SeekBar::live`] a live stream with
 /// nothing to go back in (the bar full, the thumb at its end, no input).
@@ -345,7 +345,7 @@ impl SeekBar {
   }
 
   /// Builds a still picture of the seek bar in `theme`, for a test or a screenshot: no chip, nothing read of a
-  /// pointer that does not press it. An app mounts the bar ([`SeekBar::mount`]).
+  /// pointer that does not press it. An app gives the bar to its tree, or mounts it ([`SeekBar::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     let duration = if self.duration.is_finite() {
       self.duration.max(0.0)
@@ -439,9 +439,23 @@ impl SeekBar {
   }
 }
 
+/// A bar in a tree is its component, declared: the component that renders the tree mounts it.
+impl crate::app::component::IntoComponent for SeekBar {
+  type Component = SeekBarHost;
+
+  fn into_props(self) -> SeekBarProps {
+    SeekBarProps { bar: self }
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
 /// A seek bar, mounted.
+#[doc(hidden)]
 #[derive(Clone)]
-struct SeekBarProps {
+pub struct SeekBarProps {
   bar: SeekBar,
 }
 
@@ -467,7 +481,8 @@ struct Hover {
 }
 
 /// A seek bar, mounted.
-struct SeekBarHost {
+#[doc(hidden)]
+pub struct SeekBarHost {
   hover: Hover,
 }
 

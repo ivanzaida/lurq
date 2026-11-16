@@ -176,3 +176,29 @@ fn a_disabled_queue_takes_nothing() {
   stage.key("Enter");
   assert!(said(&log).is_empty(), "{:?}", said(&log));
 }
+
+#[test]
+fn given_to_a_tree_as_it_is_it_is_its_component_and_its_more_buttons_have_their_tooltips() {
+  let later = || std::time::Instant::now() + std::time::Duration::from_secs(2);
+  let log = Arc::new(Mutex::new(Vec::new()));
+  let shown = log.clone();
+  // No `mount` and no `Ctx`: the queue is a child as any element is.
+  let mut stage = Stage::new(move |_| lurq::components::Column::new().child(queue(&shown, Some(0))).into());
+  assert_eq!(stage.bounds("q-1").3, 48.0);
+  stage.click("q-3");
+  assert_eq!(said(&log), ["change 3"]);
+  stage.hover("q-1");
+  stage.hover("q-1-more");
+  stage.tree.tick_timers_at(later());
+  stage.pass();
+  assert!(stage.paints("More"), "the tooltip of a row's more button");
+
+  // A still picture has none.
+  let shown = log.clone();
+  let mut still = Stage::new(move |_| queue(&shown, Some(0)).build(&lurq::ui::current_theme()));
+  still.hover("q-1");
+  still.hover("q-1-more");
+  still.tree.tick_timers_at(later());
+  still.pass();
+  assert!(!still.paints("More"));
+}

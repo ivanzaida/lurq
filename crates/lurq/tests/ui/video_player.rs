@@ -324,6 +324,65 @@ fn given_a_width_alone_it_is_sixteen_by_nine_from_the_first_frame() {
 }
 
 #[test]
+fn it_keeps_the_shape_it_is_told_at_the_width_it_has() {
+  let told = Told::default();
+  let made = told.clone();
+  // An upright picture, as a feed's: 9 by 16.
+  let mut upright = still(move || player(&made).width(270.0).aspect(9.0 / 16.0));
+  assert_eq!(upright.bounds("v"), (0.0, 0.0, 270.0, 480.0));
+  let made = told.clone();
+  let mut stage = Stage::first_frame(800.0, 900.0, move |ctx| {
+    Column::new()
+      .size(800.0, 900.0)
+      .child(
+        Column::new()
+          .width(360.0)
+          .child(player(&made).width(Length::Fill).aspect(4.0 / 3.0).mount(ctx)),
+      )
+      .into()
+  });
+  assert_eq!(
+    stage.bounds("v"),
+    (0.0, 0.0, 360.0, 270.0),
+    "4 by 3 of the width it has"
+  );
+  // What is not a shape is not taken: it stays 16 by 9.
+  let made = told.clone();
+  let mut none = still(move || player(&made).width(320.0).aspect(0.0).aspect(f32::NAN));
+  assert_eq!(none.bounds("v"), (0.0, 0.0, 320.0, 180.0));
+}
+
+#[test]
+fn its_width_is_the_most_it_takes_where_the_app_says_and_its_shape_holds() {
+  let told = Told::default();
+  for (room, wide, high) in [(800.0, 432.0, 243.0), (326.0, 326.0, 183.0), (256.0, 256.0, 144.0)] {
+    let made = told.clone();
+    let mut stage = Stage::first_frame(800.0, 520.0, move |ctx| {
+      Column::new()
+        .size(800.0, 520.0)
+        .child(
+          Column::new()
+            .width(room)
+            .child(player(&made).width(432.0).max_width(Length::Fill).mount(ctx)),
+        )
+        .into()
+    });
+    assert_eq!(
+      stage.bounds("v"),
+      (0.0, 0.0, wide, high),
+      "in a room of {room}, from the first frame"
+    );
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(
+      stage.picture(),
+      first,
+      "the first frame in a room of {room} is the settled one"
+    );
+  }
+}
+
+#[test]
 fn the_volume_slider_folds_in_a_narrow_large_player() {
   let time_at = |width: f32| {
     let told = Told::default();
@@ -542,6 +601,49 @@ fn a_bound_player_is_dragged_through_the_renders_its_own_change_causes() {
     assert!(
       (after - before - 10.0).abs() < 0.01,
       "two arrow keys move it two steps of 5 (mounted: {mount}): from {before} to {after}"
+    );
+  }
+}
+
+#[test]
+fn the_volume_is_dragged_through_the_renders_its_own_change_causes() {
+  use lurq::core::Signal;
+  // Wide, the slider stands beside its button; under 480 it comes out under the pointer.
+  for width in [640.0, 432.0] {
+    let volume = Signal::new(0.5_f32);
+    let shown = volume.clone();
+    let mut stage = stage(move |ctx| {
+      VideoPlayer::new()
+        .id("v")
+        .width(width)
+        .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
+        .duration(250.0)
+        .volume(shown.clone())
+        .mount(ctx)
+    });
+    let button = stage.bounds("v-mute");
+    stage.hover("v-mute");
+    stage.pass();
+    // The slider of 64 after the button and its gap of 4.
+    let (from, middle) = (button.0 + button.2 + 4.0, button.1 + button.3 / 2.0);
+    stage.tree.mouse_move(from + 32.0, middle);
+    stage.tree.mouse_down(from + 32.0, middle, MouseButton::Left);
+    stage.pass();
+    stage.tree.mouse_move(from + 16.0, middle);
+    stage.pass();
+    let first = volume.get_untracked();
+    stage.tree.mouse_move(from + 58.0, middle - 40.0);
+    stage.pass();
+    let second = volume.get_untracked();
+    stage.tree.mouse_up(from + 58.0, middle - 40.0, MouseButton::Left);
+    stage.pass();
+    assert!(
+      (0.1..0.4).contains(&first),
+      "the thumb follows the pointer down (at {width}): {first}"
+    );
+    assert!(
+      second > 0.8,
+      "and goes on following it after the player was built again (at {width}): {first}, then {second}"
     );
   }
 }
@@ -1005,6 +1107,53 @@ fn the_controls_of_the_large_bar_stand_40_apart() {
 }
 
 #[test]
+fn a_folded_volume_shows_its_slider_under_the_pointer_in_the_times_place() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made).width(432.0));
+  // The id is the button's: the slider comes out after it.
+  let button = stage.bounds("v-mute");
+  let time = stage.bounds("v-time");
+  assert!(
+    time.0 - (button.0 + button.2) < 20.0,
+    "folded, the time stands right after the button: at {}",
+    time.0
+  );
+  // The pointer over the button: the slider comes out beside it, and the time gives it its room.
+  stage.hover("v-mute");
+  stage.pass();
+  assert!(
+    !has(&mut stage, "v-time"),
+    "the time is not drawn while the slider is out"
+  );
+  let (x, _, width, _) = stage.bounds("v");
+  for id in ["v-captions", "v-speed", "v-settings", "v-pip", "v-fullscreen"] {
+    let (at, _, wide, _) = stage.bounds(id);
+    assert!(
+      at >= button.0 + button.2 + 64.0 && at + wide <= x + width,
+      "{id} at {at} is after the slider of 64 and in the player"
+    );
+  }
+  // A drag of the slider tells the volume, and the slider stays out while it is dragged past the control.
+  let (along, middle) = (button.0 + button.2 + 4.0 + 44.0, button.1 + button.3 / 2.0);
+  stage.tree.mouse_move(along, middle);
+  stage.tree.mouse_down(along, middle, MouseButton::Left);
+  stage.pass();
+  stage.tree.mouse_move(along - 30.0, middle - 60.0);
+  stage.pass();
+  assert!(
+    told.take().iter().any(|what| what.starts_with("volume ")),
+    "the drag tells the volume"
+  );
+  assert!(!has(&mut stage, "v-time"), "dragged, the slider stays out");
+  stage.tree.mouse_up(along - 30.0, middle - 60.0, MouseButton::Left);
+  stage.tree.mouse_move(along + 200.0, middle - 120.0);
+  stage.pass();
+  assert!(has(&mut stage, "v-time"), "let go and left, the time is back");
+  assert_eq!(stage.bounds("v-time"), time);
+}
+
+#[test]
 fn a_still_player_folds_its_volume_by_the_width_it_was_given() {
   let time_at = |width: f32| {
     let told = Told::default();
@@ -1059,4 +1208,370 @@ fn nothing_of_the_bar_is_cut_at_any_width_still_or_mounted() {
       }
     }
   }
+}
+
+#[test]
+fn it_shows_what_a_track_of_captions_says_at_its_position() {
+  use lurq::ui::MediaCaptions;
+  let track =
+    MediaCaptions::parse("WEBVTT\n\n01:20.000 --> 01:30.000\nThe bar fades out.\n\n02:00.000 --> 02:05.000\nLater.\n");
+  let told = Told::default();
+  // The player is at 1:24.
+  let (made, cues) = (told.clone(), track.clone());
+  let mut on = still(move || player(&made).captions_controlled(true, |_| {}).caption_cues(&cues));
+  assert!(on.paints("The bar fades out."), "the cue of its position");
+  assert!(!on.paints("Later."));
+  let (made, cues) = (told.clone(), track.clone());
+  let mut off = still(move || player(&made).caption_cues(&cues));
+  assert!(!off.paints("The bar fades out."), "off, nothing is said");
+  let (made, cues) = (told.clone(), track.clone());
+  let mut between = still(move || {
+    player(&made)
+      .captions_controlled(true, |_| {})
+      .position_controlled(100.0, |_| {})
+      .caption_cues(&cues)
+  });
+  assert!(!has(&mut between, "v-caption"), "between two cues there is no line");
+  let mut own = still(move || {
+    player(&told)
+      .captions_controlled(true, |_| {})
+      .caption_cues(&track)
+      .caption_text("The app's own.")
+  });
+  assert!(
+    own.paints("The app's own.") && !own.paints("The bar fades out."),
+    "a line the app gives is shown in the track's place"
+  );
+}
+
+#[test]
+fn in_fullscreen_it_fills_its_window_and_keeps_its_room_where_it_stood() {
+  use lurq::{core::Signal, ui::VideoFullscreen};
+  let full = Signal::new(false);
+  let shown = full.clone();
+  let mut stage = stage(move |ctx| {
+    Column::new()
+      .child(
+        VideoPlayer::new()
+          .id("v")
+          .width(320.0)
+          .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
+          .duration(250.0)
+          .fullscreen(shown.clone())
+          .mount(ctx),
+      )
+      .child(Column::new().id("after").size(10.0, 10.0))
+      .into()
+  });
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 320.0, 180.0));
+  assert!(!has(&mut stage, "v-captions"), "compact at 320");
+  let after = stage.bounds("after");
+  stage.click("v-fullscreen");
+  stage.pass();
+  assert!(full.get(), "the button asks for it");
+  assert_eq!(
+    stage.bounds("v"),
+    (0.0, 0.0, 800.0, 520.0),
+    "it is as large as its window"
+  );
+  assert_eq!(stage.bounds("after"), after, "what stands after it has not moved");
+  assert!(has(&mut stage, "v-captions"), "in the form of the width it has now");
+  // Escape leaves, and it is back where it stood, as large as it was.
+  stage.key("Escape");
+  stage.pass();
+  assert!(!full.get(), "Escape asks to leave");
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 320.0, 180.0));
+  assert!(!has(&mut stage, "v-captions"));
+  assert_eq!(stage.bounds("after"), after);
+
+  // An app that lays fullscreen out itself: the player is drawn where it stands, its button saying "exit".
+  let mut own = mounted(|| {
+    VideoPlayer::new()
+      .id("v")
+      .width(432.0)
+      .duration(250.0)
+      .fullscreen_controlled(true, |_| {})
+      .fullscreen_fills(VideoFullscreen::App)
+  });
+  assert_eq!(own.bounds("v"), (0.0, 0.0, 432.0, 243.0));
+  says(&mut own, "v-fullscreen", "a11y_name", "Exit fullscreen");
+  // Filling its window alone, from its first frame.
+  let mut window = mounted(|| {
+    VideoPlayer::new()
+      .id("v")
+      .width(432.0)
+      .duration(250.0)
+      .fullscreen_controlled(true, |_| {})
+      .fullscreen_fills(VideoFullscreen::Window)
+  });
+  assert_eq!(window.bounds("v"), (0.0, 0.0, 800.0, 520.0));
+}
+
+#[test]
+fn in_picture_in_picture_it_says_so_where_it_stood_and_a_button_brings_it_back() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut away = mounted(move || {
+    // The handler of `player` goes on telling what is asked of it.
+    player(&made).width(432.0).picture_in_picture_controlled(true, |_| {})
+  });
+  assert_eq!(away.bounds("v"), (0.0, 0.0, 432.0, 243.0), "it keeps its room");
+  assert!(away.paints("Playing in picture in picture"));
+  assert!(
+    !has(&mut away, "v-play") && !has(&mut away, "v-controls"),
+    "its controls went with it"
+  );
+  assert!(!has(&mut away, "picture"), "and its picture");
+  told.take();
+  away.click("v-back");
+  assert_eq!(told.take(), ["picture in picture false"]);
+  // An app that makes the window itself: the player is drawn where it stands, its button on.
+  let made = told.clone();
+  let mut own = mounted(move || {
+    player(&made)
+      .width(640.0)
+      .picture_in_picture_controlled(true, |_| {})
+      .picture_in_picture_window(false)
+  });
+  assert!(has(&mut own, "v-play") && has(&mut own, "picture"));
+  assert!(!own.paints("Playing in picture in picture"));
+  says(&mut own, "v-pip", "a11y_pressed", "true");
+  // Not mounted, it has no window to open.
+  let mut still_one = still(move || player(&told).picture_in_picture_controlled(true, |_| {}));
+  assert!(has(&mut still_one, "v-play"));
+}
+
+/// Whether two measures are the same to half a pixel.
+fn near(one: f32, other: f32) -> bool {
+  (one - other).abs() <= 0.5
+}
+
+/// The touch form of [`player`], as wide as the board's phone.
+fn touch(told: &Told) -> VideoPlayer {
+  player(told).width(360.0).touch(true)
+}
+
+#[test]
+fn the_touch_form_is_the_boards() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || touch(&made));
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 360.0, 203.0));
+  // The top row: the captions and the settings, 44 each, 4 from the end. Nothing leaves it: the app does not listen.
+  assert_eq!(stage.bounds("v-settings"), (312.0, 0.0, 44.0, 44.0));
+  assert_eq!(stage.bounds("v-captions"), (268.0, 0.0, 44.0, 44.0));
+  assert!(!has(&mut stage, "v-back"));
+  // The middle: a play of 56 with ten seconds back and on, 44, 32 from it.
+  let (disc, rewind, forward) = (
+    stage.bounds("v-play"),
+    stage.bounds("v-rewind"),
+    stage.bounds("v-forward"),
+  );
+  assert_eq!((disc.2, disc.3), (56.0, 56.0));
+  assert!(
+    near(disc.0 + 28.0, 180.0) && near(disc.1 + 28.0, 101.5),
+    "in the middle: {disc:?}"
+  );
+  assert_eq!((rewind.2, rewind.3, forward.2, forward.3), (44.0, 44.0, 44.0, 44.0));
+  assert!(near(rewind.0 + 44.0 + 32.0, disc.0) && near(disc.0 + 56.0 + 32.0, forward.0));
+  // The bottom: the time 16 from the start, fullscreen 44 at the end, and the seek bar 16 from the sides, 6 up.
+  assert_eq!(stage.bounds("v-fullscreen").2, 44.0);
+  assert!(near(stage.bounds("v-fullscreen").0, 312.0));
+  let seek = stage.bounds("v-seek");
+  assert!(
+    near(seek.0, 16.0) && near(seek.2, 328.0) && near(seek.1 + seek.3 + 6.0, 203.0),
+    "{seek:?}"
+  );
+  assert!(!has(&mut stage, "v-mute"), "a phone has keys for the volume");
+  // What they tell.
+  told.take();
+  stage.click("v-rewind");
+  stage.click("v-forward");
+  stage.click("v-play");
+  assert_eq!(
+    told.take(),
+    [
+      "position 74",
+      "position end 74",
+      "position 94",
+      "position end 94",
+      "playing true"
+    ]
+  );
+}
+
+#[test]
+fn a_tap_shows_and_hides_the_touch_forms_controls_and_two_on_a_side_seek() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || touch(&made));
+  told.take();
+  // A tap on the picture, in its middle third and over no control: the controls go, and come back with the next.
+  press_at(&mut stage, 180.0, 60.0);
+  assert!(!has(&mut stage, "v-play") && !has(&mut stage, "v-settings") && !has(&mut stage, "v-seek"));
+  press_at(&mut stage, 180.0, 60.0);
+  assert!(has(&mut stage, "v-play") && has(&mut stage, "v-settings"));
+  assert!(told.take().is_empty(), "a tap in the middle tells nothing");
+  // Two on the right third: ten seconds on, the mark, and no control.
+  press_at(&mut stage, 330.0, 60.0);
+  press_at(&mut stage, 330.0, 60.0);
+  assert_eq!(told.take(), ["position 94", "position end 94"]);
+  assert!(stage.paints("10 seconds"));
+  assert!(!has(&mut stage, "v-play"), "nothing but the mark shows");
+  // A third adds up.
+  press_at(&mut stage, 330.0, 60.0);
+  assert!(stage.paints("20 seconds"));
+  told.take();
+  // The other side starts again.
+  press_at(&mut stage, 30.0, 60.0);
+  press_at(&mut stage, 30.0, 60.0);
+  assert_eq!(told.take(), ["position 74", "position end 74"]);
+  assert!(stage.paints("10 seconds") && !stage.paints("20 seconds"));
+}
+
+#[test]
+fn on_its_side_the_touch_form_has_its_title_its_speed_and_a_way_back() {
+  use lurq::ui::VideoFullscreen;
+  let told = Told::default();
+  let made = told.clone();
+  let side = move |made: &Told| {
+    touch(made)
+      .width(780.0)
+      .aspect(780.0 / 360.0)
+      .title("Night Drive")
+      .description("Aurora Lane")
+      .fullscreen_controlled(true, {
+        let say = made.say();
+        move |to| say(format!("fullscreen {to}"))
+      })
+      .fullscreen_fills(VideoFullscreen::App)
+  };
+  let mut stage = mounted({
+    let side = side.clone();
+    move || side(&made)
+  });
+  assert_eq!(stage.bounds("v"), (0.0, 0.0, 780.0, 360.0));
+  assert!(stage.paints("Night Drive") && stage.paints("Aurora Lane"));
+  // 44 at each side for the notch.
+  assert!(near(stage.bounds("v-back").0, 44.0));
+  assert!(near(stage.bounds("v-settings").0 + 44.0, 780.0 - 44.0));
+  let (disc, rewind) = (stage.bounds("v-play"), stage.bounds("v-rewind"));
+  assert_eq!((disc.2, rewind.2), (72.0, 48.0));
+  assert!(near(rewind.0 + 48.0 + 56.0, disc.0));
+  assert!(has(&mut stage, "v-speed"), "the speed is in its bottom row");
+  let seek = stage.bounds("v-seek");
+  assert!(near(seek.0, 56.0) && near(seek.2, 780.0 - 112.0));
+  // The way back leaves fullscreen where the app does not listen for it.
+  told.take();
+  stage.click("v-back");
+  assert!(told.take().iter().any(|what| what == "fullscreen false"));
+  let heard = told.clone();
+  let mut own = mounted(move || {
+    let say = heard.say();
+    side(&heard).on_back(move || say("back".to_owned()))
+  });
+  told.take();
+  own.click("v-back");
+  assert_eq!(told.take(), ["back"]);
+}
+
+/// Renders `stage` again until `is` holds, for at most ten seconds: a media works on a thread of its own.
+#[cfg(all(windows, feature = "media"))]
+#[track_caller]
+fn until(stage: &mut Stage, what: &str, mut is: impl FnMut(&mut Stage) -> bool) {
+  let started = std::time::Instant::now();
+  loop {
+    // The player's clock is a timer of its window, which a window with no loop does not run by itself.
+    stage.tree.tick_timers_at(std::time::Instant::now());
+    stage.pass();
+    if is(stage) {
+      return;
+    }
+    assert!(
+      started.elapsed() < std::time::Duration::from_secs(10),
+      "it never came to: {what}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+  }
+}
+
+#[cfg(all(windows, feature = "media"))]
+#[test]
+fn given_a_source_it_plays_the_file_and_its_controls_move_the_video() {
+  use lurq::resources::Source;
+  let clip = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4");
+  let told = Told::default();
+  let said = told.clone();
+  let mut stage = mounted(move || {
+    let say = said.say();
+    // Silenced: the clip has a tone, and a run of the tests is not heard.
+    VideoPlayer::new()
+      .id("v")
+      .width(640.0)
+      .source(&Source::file(&clip))
+      .muted_controlled(true, |_| {})
+      .on_playing_change(move |to| say(format!("playing {to}")))
+  });
+  // It opened: its length is the file's, and its picture is the media's.
+  until(&mut stage, "its length", |stage| stage.paints("0:15"));
+  assert!(stage.paints("0:00"));
+  says(&mut stage, "v-play", "a11y_name", "Play");
+  // Play: the app hears of it, and the video goes, by its own clock.
+  stage.click("v-play");
+  assert_eq!(told.take(), ["playing true"]);
+  until(&mut stage, "playing", |stage| {
+    has(stage, "v-play") && stage.paints("0:01")
+  });
+  says(&mut stage, "v-play", "a11y_name", "Pause");
+  // Pause: it stands where it is.
+  stage.click("v-play");
+  assert_eq!(told.take(), ["playing false"]);
+  stage.pass();
+  says(&mut stage, "v-play", "a11y_name", "Play");
+  std::thread::sleep(std::time::Duration::from_millis(1200));
+  stage.pass();
+  assert!(stage.paints("0:01"), "paused, the time stands");
+  // What is no video says so, with the reason under it and nothing to play.
+  let mut broken = mounted(|| {
+    VideoPlayer::new()
+      .id("v")
+      .width(640.0)
+      .source(&Source::bytes(b"not a video".to_vec()))
+  });
+  until(&mut broken, "the error", |stage| {
+    stage.paints("This video can't be played")
+  });
+  assert!(!has(&mut broken, "v-play"));
+}
+
+#[test]
+fn given_to_a_tree_as_it_is_it_is_its_component_with_the_form_of_its_width_and_its_menus() {
+  for (width, form) in [(640.0, "large"), (320.0, "compact"), (200.0, "minimal")] {
+    let told = Told::default();
+    // No `mount` and no `Ctx`: the player is a child as any element is.
+    let mut stage = Stage::first_frame(800.0, 520.0, move |_| {
+      Column::new()
+        .size(800.0, 520.0)
+        .child(player(&told).width(width).height(width * 9.0 / 16.0))
+        .into()
+    });
+    let first = stage.picture();
+    match form {
+      "large" => assert!(has(&mut stage, "v-settings"), "{width} is the large player"),
+      "compact" => assert!(
+        has(&mut stage, "v-more") && !has(&mut stage, "v-settings"),
+        "{width} is compact"
+      ),
+      _ => assert!(!has(&mut stage, "v-fullscreen"), "{width} is minimal"),
+    }
+    stage.frame();
+    assert_eq!(stage.picture(), first, "the first frame at {width} is the settled one");
+  }
+
+  // Its menus are kept between renders: a press of settings opens its panel.
+  let told = Told::default();
+  let mut stage = stage(move |_| player(&told).width(640.0).height(360.0).into());
+  assert!(!has(&mut stage, "v-settings-menu"));
+  stage.click("v-settings");
+  assert!(has(&mut stage, "v-settings-menu"), "the menu a mounted player keeps");
 }
