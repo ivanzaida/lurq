@@ -520,7 +520,9 @@ impl Themed for ExpandableTile {
       })
       .base(Header, |s| s.gap(8.0))
       .base(Title, |s| {
+        // The board's line of 17 for the text of 14, where the font's own is 16.8.
         s.typography(TypographyStyle::Body)
+          .line_height(17.0 / 14.0)
           .weight(FontWeight::Medium)
           .foreground(Foreground)
       })
@@ -530,7 +532,8 @@ impl Themed for ExpandableTile {
         s.padding_top(10.0)
           .typography(TypographyStyle::Body)
           .font_size(13.0)
-          .line_height(1.5)
+          // The board's lines of 20 (its 1.5 of 13, to the pixel above).
+          .line_height(20.0 / 13.0)
           .foreground(MutedForeground)
       })
       .state(FullWidth, Root, |s| s.width(Length::Fill))

@@ -20,6 +20,8 @@ use crate::{
 /// Markdown document): what [`BulletedList`]'s recipe is written with, and what a Markdown document's lists start
 /// from ([`ThemeMarkdown`](crate::app::theme::ThemeMarkdown)), so that the two are one look from one source.
 pub(crate) mod look {
+  /// How high a line of an item is: the board's 17 for its text of 14, where the font's own line is 16.8.
+  pub const LINE: f32 = 17.0;
   /// The room between two items, and between what an item holds under its line.
   pub const ITEM_GAP: f32 = 6.0;
   /// The side of a bullet.
@@ -541,6 +543,7 @@ impl Themed for BulletedList {
       .base(Mark, |s| {
         s.width(look::BULLET)
           .typography(TypographyStyle::Body)
+          .line_height(look::LINE / 14.0)
           .foreground(MutedForeground)
       })
       .base(Bullet, |s| {
@@ -548,7 +551,11 @@ impl Themed for BulletedList {
           .radius(RadiusSize::Full)
           .background(MutedForeground)
       })
-      .base(Label, |s| s.typography(TypographyStyle::Body).foreground(Foreground))
+      .base(Label, |s| {
+        s.typography(TypographyStyle::Body)
+          .line_height(look::LINE / 14.0)
+          .foreground(Foreground)
+      })
       .base(Body, |s| s.gap(look::ITEM_GAP))
       .state(Numbered, Item, |s| s.gap(look::NUMBER_GAP))
       .state(Numbered, Mark, |s| s.width(look::NUMBER_WIDTH))

@@ -160,7 +160,7 @@ fn the_list_is_the_boards() {
   let (x, y, width, height) = stage.bounds("contents");
   assert_eq!((x, y, width), (0.0, 0.0, 200.0));
   // A title of 21 and five entries of 28, 2 apart: 171 on the board.
-  assert!((height - 171.0).abs() < 2.0, "{height}");
+  assert!((height - 171.0).abs() < 0.01, "{height}");
   // The title: the mono face at 11, in capitals, in MutedForeground, 12 in.
   let title = text_of(&stage, "ON THIS PAGE");
   assert_eq!(stage.text("ON THIS PAGE"), (light(PaletteColor::MutedForeground), 11.0));

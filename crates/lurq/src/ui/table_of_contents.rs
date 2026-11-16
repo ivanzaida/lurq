@@ -580,6 +580,8 @@ impl Themed for TableOfContents {
           .font_size(11.0)
           .letter_spacing(1.0)
           .foreground(MutedForeground)
+          // The board's line of 15, where the face's own is 14.3: a title of 21 with the 6 under it.
+          .line_height(15.0 / 11.0)
       })
       .base(Entry, |s| {
         fading(

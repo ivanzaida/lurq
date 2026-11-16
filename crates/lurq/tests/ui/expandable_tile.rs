@@ -67,8 +67,8 @@ fn the_open_tile_is_the_boards() {
   let mut stage = staged(|| ExpandableTile::text(TITLE, DETAIL).open(true).id("tile"));
   let (x, y, width, height) = stage.bounds("tile");
   assert_eq!((x, y, width), (8.0, 8.0, 260.0));
-  // 16, a title of 17, 10, two lines of 19.5, 16: 99 on the board.
-  assert!((height - 99.0).abs() < 1.5, "{height}");
+  // 16, a title of 17, 10, two lines of 20, 16: 99 on the board.
+  assert!((height - 99.0).abs() < 0.01, "{height}");
   assert_eq!(stage.fill_color("tile"), Some(light(PaletteColor::Background)));
   let edge = stage.border("tile").and_then(|quad| quad.border).expect("its edge");
   let top = edge.top.expect("an edge on every side");
@@ -99,7 +99,7 @@ fn the_open_tile_is_the_boards() {
   assert!(detail.width <= 228.0 + 0.01 && detail.height > 30.0, "it wraps");
   match &detail.content {
     QuadContent::Text { style, .. } => {
-      assert_eq!((style.font_size, style.line_height), (13.0, 1.5));
+      assert_eq!((style.font_size, style.line_height), (13.0, 20.0 / 13.0), "lines of 20");
       assert_eq!(style.color, light(PaletteColor::MutedForeground));
     }
     _ => unreachable!(),

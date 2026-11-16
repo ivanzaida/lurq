@@ -64,7 +64,7 @@ fn the_list_is_the_boards() {
   let (x, y, width, height) = stage.bounds("list");
   assert_eq!((x, y, width), (0.0, 0.0, 380.0), "it fills its room");
   // Three lines of 17 with 6 between them: 63, as the board's.
-  assert!((height - 63.0).abs() < 1.5, "{height}");
+  assert!((height - 63.0).abs() < 0.01, "{height}");
   let dots = dots(&stage);
   assert_eq!(dots.len(), 3, "a dot for each item");
   for (dot, words) in dots.iter().zip(ROLES) {
