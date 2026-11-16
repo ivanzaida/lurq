@@ -76,7 +76,7 @@ fn carets(tree: &mut Tree, app: &mut App) -> usize {
   render_pass_with_app(tree, app)
     .rects
     .iter()
-    .filter(|rect| rect.width == 1.0 && rect.color == CARET)
+    .filter(|rect| rect.width == crate::support::caret_width() && rect.color == CARET)
     .count()
 }
 

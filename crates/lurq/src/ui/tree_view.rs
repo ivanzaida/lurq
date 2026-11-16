@@ -896,7 +896,8 @@ thread_local! {
 
 /// Whether a click of the row `index` is the second of a double press: then the next is a first again.
 pub(crate) fn second_press(index: usize, event: &MouseEvent) -> bool {
-  let now = Instant::now();
+  // The time the window was given the press at, not the time its handler runs at.
+  let now = event.time;
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
   LAST_PRESS.with(|last| {
     let second = last

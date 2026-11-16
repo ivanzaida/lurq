@@ -439,7 +439,7 @@ fn after_escape_the_editor_paints_no_caret() {
     stage
       .quads()
       .into_iter()
-      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .filter(|quad| quad.width == crate::support::caret_width() && quad.height > 8.0 && quad.border.is_none())
       .count()
   };
   let unfocused = carets(&stage);
@@ -465,7 +465,7 @@ fn two_grids_of_the_same_values_paint_one_caret_and_none_after_escape() {
     stage
       .quads()
       .into_iter()
-      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .filter(|quad| quad.width == crate::support::caret_width() && quad.height > 8.0 && quad.border.is_none())
       .count()
   };
   let unfocused = carets(&stage);
@@ -484,7 +484,7 @@ fn a_press_of_a_name_then_escape_leaves_no_caret() {
     stage
       .quads()
       .into_iter()
-      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .filter(|quad| quad.width == crate::support::caret_width() && quad.height > 8.0 && quad.border.is_none())
       .count()
   };
   let unfocused = carets(&stage);
@@ -766,6 +766,9 @@ fn a_category_opens_and_closes_with_its_height(height: Option<f32>) {
       .child(two_categories(height).mount(ctx))
       .into()
   });
+  // The grid's timers are on the stage's clock: the one that gives new rows their height is ticked without the
+  // one that ends the motion, however long the machine takes between the two.
+  stage.own_timers();
   let opened = top(&mut stage, "grid-Second");
   stage.key("Tab");
   assert_eq!(focused(&stage).as_deref(), Some("grid-First"));
@@ -780,9 +783,7 @@ fn a_category_opens_and_closes_with_its_height(height: Option<f32>) {
   );
   stage.pass_after(Duration::from_millis(60));
   let on_the_way = top(&mut stage, "grid-Second");
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.tick_timers(Duration::from_secs(2));
   stage.pass();
   let closed = top(&mut stage, "grid-Second");
   assert!(closed < opened - 90.0, "three rows of 32 less: {opened} -> {closed}");
@@ -800,9 +801,7 @@ fn a_category_opens_and_closes_with_its_height(height: Option<f32>) {
   // on the turn of the loop after the one that laid them out at none: the timers of that turn are ticked.
   press_key(&mut stage, "ArrowRight");
   stage.pass_after(Duration::ZERO);
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_millis(1));
+  stage.tick_timers(Duration::from_millis(1));
   stage.pass_after(Duration::ZERO);
   stage.pass_after(Duration::from_millis(60));
   let opening = top(&mut stage, "grid-Second");
@@ -817,9 +816,7 @@ fn a_category_opens_and_closes_with_its_height(height: Option<f32>) {
     turned <= opening + 0.5,
     "turned round, it goes back up from where it was: {opening} -> {turned}"
   );
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.tick_timers(Duration::from_secs(2));
   stage.pass();
   assert!((top(&mut stage, "grid-Second") - closed).abs() < 1.0, "closed again");
   assert_eq!(
@@ -830,13 +827,9 @@ fn a_category_opens_and_closes_with_its_height(height: Option<f32>) {
 
   // Opened to the end, its rows are there and reached again.
   stage.key("ArrowRight");
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_millis(1));
+  stage.tick_timers(Duration::from_millis(1));
   stage.pass();
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.tick_timers(Duration::from_secs(2));
   stage.pass();
   assert!((top(&mut stage, "grid-Second") - opened).abs() < 1.0, "open again");
   stage.key("ArrowDown");
@@ -919,19 +912,18 @@ fn as_a_long_category_opens_in_view_what_is_below_it_stays_painted_in_every_fram
     }
     Column::new().size(400.0, 500.0).child(grid.mount(ctx)).into()
   });
+  // On the stage's clock: the timer that ends the motion does not run out between the press and the tick of the
+  // one that gives the rows their height, on a machine that takes long over the frames between.
+  stage.own_timers();
   stage.key("Tab");
   stage.key("ArrowLeft");
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.tick_timers(Duration::from_secs(2));
   stage.pass();
   assert!(stage.paints("Group 1") && !stage.paints("p0"), "closed");
   press_key(&mut stage, "ArrowRight");
   stage.pass_after(Duration::ZERO);
   assert!(stage.paints("Group 1"), "the frame that builds its rows at no height");
-  stage
-    .tree
-    .tick_timers_at(lurq::time::Instant::now() + Duration::from_millis(1));
+  stage.tick_timers(Duration::from_millis(1));
   stage.pass_after(Duration::ZERO);
   assert!(
     stage.paints("Group 1"),

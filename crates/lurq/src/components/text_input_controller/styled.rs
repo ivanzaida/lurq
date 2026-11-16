@@ -3,7 +3,7 @@
 use super::{InputEditError, TextInputController};
 use crate::{
   app::events::KeyboardEvent,
-  components::{SelectionStyle, SpanStyle, StyledText, TextMark},
+  components::{ParagraphKind, RichText, SelectionStyle, SpanStyle, StyledText, TextMark},
   core::NodeId,
 };
 
@@ -51,6 +51,35 @@ impl TextInputController {
     Ok(self.state()?.set_pending_style(style))
   }
 
+  /// The text, its spans and the kinds of its paragraphs, as one value.
+  pub fn rich_text(&self) -> Result<Option<RichText>, InputEditError> {
+    let state = self.state()?;
+    Ok(state.styled_text().map(|styled| {
+      let kinds = state.current_paragraphs().map(|kinds| kinds.to_vec());
+      RichText::new(styled.text, styled.spans, kinds.unwrap_or_default())
+    }))
+  }
+
+  /// What each paragraph the selection touches is, in order: the one the
+  /// caret is in with nothing selected. `None` for an input without kinds
+  /// of paragraphs.
+  pub fn selected_paragraphs(&self) -> Result<Option<Vec<ParagraphKind>>, InputEditError> {
+    Ok(self.state()?.selected_paragraphs())
+  }
+
+  /// The paragraph the caret is in: its kind and the bytes of its text,
+  /// without its line break.
+  pub fn caret_paragraph(&self) -> Result<Option<(ParagraphKind, std::ops::Range<usize>)>, InputEditError> {
+    Ok(self.state()?.caret_paragraph().map(|(_, kind, range)| (kind, range)))
+  }
+
+  /// Makes every paragraph the selection touches a `kind` (the one the
+  /// caret is in with nothing selected), as one undo step. `false` where
+  /// they all are already.
+  pub fn set_paragraphs(&self, kind: ParagraphKind) -> Result<bool, InputEditError> {
+    Ok(self.state()?.set_paragraph_kind(kind))
+  }
+
   /// Replaces the selection, or inserts at the caret, text that brings its
   /// own spans (offsets from its start), as one undo step: what an app's
   /// paste handler calls with the Markdown it parsed. A plain input takes
@@ -60,5 +89,18 @@ impl TextInputController {
     state.sync_external_value();
     let keyboard = KeyboardEvent::new(&text.text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
     Ok(state.replace_selection_styled(text, &keyboard))
+  }
+
+  /// Replaces the selection, or inserts at the caret, text that brings its own spans and the kinds of its
+  /// paragraphs, as one undo step: what a paste of formatted text does. A single paragraph goes into the line
+  /// the caret is in and leaves it what it is, unless the line holds nothing else. Of several, the first goes on
+  /// from the text before the caret and takes its own kind only where there is none, those between come with
+  /// their kinds, and the last gives its kind to the text after the caret unless it is empty. An input without
+  /// kinds of paragraphs takes the text and its spans, a plain one the text.
+  pub fn replace_selection_rich(&self, text: &RichText) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    state.sync_external_value();
+    let keyboard = KeyboardEvent::new(&text.text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
+    Ok(state.replace_selection_rich(text, &keyboard))
   }
 }

@@ -11,12 +11,14 @@ mod back_to_top;
 mod badge;
 #[cfg(feature = "canvas")]
 mod bar_chart;
-mod blockquote;
 mod bar_list;
+mod blockquote;
 mod breadcrumb;
+mod bulleted_list;
 mod button;
 mod calendar;
 mod card;
+mod carousel;
 #[cfg(feature = "canvas")]
 mod chart_motion;
 mod checkbox;
@@ -46,17 +48,24 @@ mod dock_state;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
+mod event_calendar;
+mod expandable_tile;
 mod family;
 mod field_mount;
 mod fieldset;
-#[cfg(feature = "canvas")]
-mod gauge;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod fluid_field;
 mod follows_room;
 mod forced_on_one_item;
+// Pictures decoded in the test: the feature that has `lurq::images`.
+#[cfg(feature = "raster")]
+mod gallery;
+#[cfg(feature = "canvas")]
+mod gauge;
 #[cfg(feature = "canvas")]
 mod heatmap;
 mod highlight;
@@ -67,6 +76,8 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+// Pictures decoded in the test: the feature that has `lurq::images`.
+#[cfg(feature = "raster")]
 mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
@@ -85,9 +96,12 @@ mod multi_select;
 mod narrow_room;
 mod navbar;
 mod navigation_menu;
+mod notification;
+mod notification_center;
 mod number_input;
 mod outcome;
 mod pagination;
+mod path_field;
 mod picture;
 mod persona;
 #[cfg(feature = "canvas")]
@@ -103,6 +117,8 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod reopened_layers;
+#[cfg(feature = "markdown")]
+mod rich_text_editor;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
@@ -110,26 +126,29 @@ mod seek_bar;
 mod select;
 mod selection_marquee;
 mod separator;
-#[cfg(feature = "canvas")]
-mod sparkline;
+mod settings_card;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
 mod sortable_list;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod spinner;
-mod stat_card;
 mod splitter;
 mod stage;
+mod stat_card;
 mod status_bar;
 mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
+mod text_editing;
 mod textarea;
 mod theming;
 mod time_field;
@@ -140,6 +159,7 @@ mod toggletip;
 mod token_input;
 mod toolbar;
 mod tooltip;
+mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;

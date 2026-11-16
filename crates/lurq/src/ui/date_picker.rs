@@ -85,6 +85,9 @@ pub enum DatePickerState {
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// the date.
+  Fluid,
 }
 
 names!(DatePickerState {
@@ -95,6 +98,7 @@ names!(DatePickerState {
   ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Fluid => "fluid",
 });
 
 /// What a picker holds: a date, or a range of them.
@@ -783,9 +787,11 @@ impl<V: Picked> PickerView<V> {
   }
 
   /// The field: the input's box, the trigger over its start where the input draws its icon, and the button that
-  /// empties it over its end. It is what the calendar opens under.
+  /// empties it over its end. It is what the calendar opens under. In a fluid field the two buttons are on the line
+  /// of the date, under the field's label.
   pub fn field(&self) -> Stack {
     let (start, end) = self.padding();
+    let down = self.input.value_line();
     let inset = |button: DatePickerPart, icon: DatePickerPart| {
       // A button is larger than its glyph, which stays where the input draws its icon.
       ((self.px(self.part(button).rest().width) - self.px(self.part(icon).rest().width)) / 2.0).max(0.0)
@@ -798,6 +804,7 @@ impl<V: Picked> PickerView<V> {
       .child(
         Row::new()
           .padding_left((start - inset(DatePickerPart::Trigger, DatePickerPart::TriggerIcon)).max(0.0))
+          .padding_top(down)
           .align_items(Alignment::Center)
           .hit_test(HitTestBehavior::ContentOnly)
           .child(self.trigger()),
@@ -807,6 +814,7 @@ impl<V: Picked> PickerView<V> {
         Row::new()
           .width(Dimension::Pct(100.0))
           .padding_right((end - inset(DatePickerPart::Clear, DatePickerPart::ClearIcon)).max(0.0))
+          .padding_top(down)
           .align_items(Alignment::Center)
           .justify(Justify::End)
           .hit_test(HitTestBehavior::ContentOnly)
@@ -961,7 +969,7 @@ impl<V: Picked> PickerView<V> {
         .spacing(gap)
         .child(self.field())
         .child(self.panel());
-      if self.full_width {
+      if self.full_width || self.input.fluid() {
         root = root.width(Dimension::Pct(100.0));
       }
       if let Some(key) = &self.key {
@@ -969,12 +977,13 @@ impl<V: Picked> PickerView<V> {
       }
       return root.into();
     }
-    // No wider than the room it has: the field in it is as wide as its recipe says at most.
+    // No wider than the room it has: the field in it is as wide as its recipe says at most. In a fluid field it is
+    // as wide as the field.
     let mut root = Row::new()
       .max_width(Dimension::Pct(100.0))
       .child(self.field())
       .child(self.panel());
-    if self.full_width {
+    if self.full_width || self.input.fluid() {
       root = root.width(Dimension::Pct(100.0));
     }
     if let Some(key) = &self.key {
@@ -1360,6 +1369,10 @@ impl FieldControl for DatePicker {
     self.core.boxed.in_field(field);
     self.mount(ctx)
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl Themed for DatePicker {
@@ -1370,7 +1383,8 @@ impl Themed for DatePicker {
   /// calendar's glyph of 16 in the muted foreground 12 from its start and its date 8 after it in the body's type (the
   /// input's own recipe). The glyph is in a button of 24 with the small radius, on the highlight under the pointer.
   /// The calendar opens 4 under the field in the popover's panel, which has no padding of its own and is as wide as
-  /// the calendar (Open date picker). A clearable one has a cross of 16 in the same dress at its end.
+  /// the calendar (Open date picker). A clearable one has a cross of 16 in the same dress at its end. In a fluid
+  /// field the box is the input's fluid one, as wide as the field, with both buttons on the line of the date.
   fn recipe() -> Recipe {
     picker_recipe()
   }

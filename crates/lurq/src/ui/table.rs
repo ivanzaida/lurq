@@ -7,7 +7,6 @@ use std::{
   hash::Hash,
   marker::PhantomData,
   sync::Arc,
-  time::Instant,
 };
 
 use parking_lot::Mutex;
@@ -4924,14 +4923,16 @@ impl TableRow {
 thread_local! {
   /// The last plain press of a row: which row, when and where. A second one of it soon after at the same place,
   /// as the engine counts a double press, activates it.
-  static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
+  static LAST_PRESS: Cell<Option<(usize, crate::time::Instant, (f32, f32))>> = const { Cell::new(None) };
 }
 
 /// Whether a press of the row `index` is the second of a double press: then the next is a first again. A press
 /// with Shift, Ctrl or the system key, or from the keyboard, changes the selection and is never one.
 fn second_press(index: usize, event: &MouseEvent) -> bool {
   let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
-  let now = Instant::now();
+  // The time the window was given the press at, and not the time its handler runs at: what holds the two
+  // presses of a double press apart is how fast a person pressed, not how long the first took to be handled.
+  let now = event.time;
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
   LAST_PRESS.with(|last| {
     let second = plain
@@ -5464,12 +5465,12 @@ pub struct GridCell {
 thread_local! {
   /// The last plain press of a cell of a grid: which, when and where. A second one of it soon after at the
   /// same place edits it.
-  static LAST_CELL_PRESS: Cell<Option<((usize, usize), Instant, (f32, f32))>> = const { Cell::new(None) };
+  static LAST_CELL_PRESS: Cell<Option<((usize, usize), crate::time::Instant, (f32, f32))>> = const { Cell::new(None) };
 }
 
 fn second_cell_press(cell: (usize, usize), event: &MouseEvent) -> bool {
   let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
-  let now = Instant::now();
+  let now = event.time;
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
   LAST_CELL_PRESS.with(|last| {
     let second = plain

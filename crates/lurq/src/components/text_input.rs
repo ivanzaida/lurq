@@ -96,7 +96,103 @@ impl LineGutter {
   }
 }
 
+/// Wavy lines under ranges of an input's text: what a spelling checker marks. The ranges are UTF-8 bytes of the
+/// value as it is when the input is built; the app finds them again after an edit. They are drawn under the band
+/// of the text, a row at a time, and are not part of the value: nothing of them is selected or copied.
+///
+/// ```
+/// use lurq::{app::theme::PaletteColor, components::{InputSquiggles, TextInput}, core::Signal};
+///
+/// let text = Signal::new("A mispeled word".to_owned());
+/// let input = TextInput::new(text).squiggles(InputSquiggles::new([2..10]).color(PaletteColor::Destructive));
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputSquiggles {
+  pub(crate) ranges: std::sync::Arc<[std::ops::Range<usize>]>,
+  pub(crate) color: crate::node::TextColor,
+}
+
+impl InputSquiggles {
+  /// Lines under `ranges`, in the theme's destructive color.
+  pub fn new(ranges: impl IntoIterator<Item = std::ops::Range<usize>>) -> Self {
+    Self {
+      ranges: ranges.into_iter().collect(),
+      color: crate::node::TextColor::Palette(crate::app::theme::PaletteColor::Destructive),
+    }
+  }
+
+  /// The color of the lines.
+  pub fn color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    self.color = color.into();
+    self
+  }
+}
+
+/// A suggestion drawn after the end of an input's text, in the input's type: what a key would complete what is
+/// typed with. It is drawn while the input has the focus and holds text, with the caret at the end and nothing
+/// selected, and is no part of the value: the app puts it there when it is taken
+/// ([`super::TextInputController::replace_selection`]).
+///
+/// ```
+/// use lurq::{app::theme::PaletteColor, components::{InputGhost, TextInput}, core::Signal};
+///
+/// let command = Signal::new("cargo ru".to_owned());
+/// let input = TextInput::new(command)
+///   .single_line()
+///   .ghost(InputGhost::new("n --release").color(PaletteColor::MutedForeground).opacity(0.7));
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputGhost {
+  pub(crate) text: std::sync::Arc<str>,
+  pub(crate) color: Option<crate::node::TextColor>,
+  pub(crate) opacity: f32,
+}
+
+impl InputGhost {
+  /// `text` after the end of what is typed, in the color of the placeholder.
+  pub fn new(text: &str) -> Self {
+    Self {
+      text: text.into(),
+      color: None,
+      opacity: 1.0,
+    }
+  }
+
+  /// The color of the suggestion.
+  pub fn color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    self.color = Some(color.into());
+    self
+  }
+
+  /// How opaque the suggestion is, from 0 to 1.
+  pub fn opacity(mut self, opacity: f32) -> Self {
+    self.opacity = opacity;
+    self
+  }
+}
+
 impl TextInput {
+  /// Draws wavy lines under ranges of the text: see [`InputSquiggles`].
+  pub fn squiggles(mut self, squiggles: InputSquiggles) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_squiggles(Some(squiggles));
+      }
+    });
+    self
+  }
+
+  /// Draws a suggestion after the end of the text while the caret is there: see [`InputGhost`]. A plain input's:
+  /// one with tokens or styled spans draws none.
+  pub fn ghost(mut self, ghost: InputGhost) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_ghost(Some(ghost));
+      }
+    });
+    self
+  }
+
   /// Draw source-backed inline pills. Invalidated ranges and masked/IME text render normally.
   /// Use validated ranges for the exact current value; no display label replaces stored bytes.
   pub fn tokens(mut self, tokens: super::InputTokens) -> Self {
@@ -125,6 +221,26 @@ impl TextInput {
     self
   }
 
+  /// Gives a styled input kinds of paragraphs: `kinds` holds what each hard
+  /// paragraph of the value is ([`super::ParagraphKind`]: body text, a
+  /// heading, an item of a list, a quote, a line of code), one for each, and
+  /// `styles` says how each kind is drawn: its type, the room before its
+  /// text and what stands there, and the room between paragraphs. The input
+  /// keeps the kinds in step with every edit (a paragraph that is split
+  /// gives its kind to both halves; paragraphs that are joined take the
+  /// first's), in its undo history, and writes them back to the signal; the
+  /// app sets the signal with the value and the spans to load a document.
+  /// It needs [`Self::spans`] and [`Self::multiline`].
+  #[cfg(feature = "markdown")]
+  pub fn paragraphs(mut self, kinds: Signal<Vec<super::ParagraphKind>>, styles: super::ParagraphStyles) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_paragraphs(kinds, styles);
+      }
+    });
+    self
+  }
+
   /// Runs after every change a styled input makes to its text or spans
   /// (typing, deleting, pasting, styling, undo) with a [`super::StyledChange`]:
   /// the text and spans it now holds, shared rather than copied, and what the
@@ -147,6 +263,30 @@ impl TextInput {
     self.update_node(|node| {
       if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_copy_format(f);
+      }
+    });
+    self
+  }
+
+  /// Keeps the formatting of a styled input with kinds of paragraphs ([`Self::paragraphs`]) through the
+  /// clipboard. A copy or a cut puts the selected text on the clipboard as before and keeps the Markdown of it
+  /// beside it, its marks and the kinds of the paragraphs it touches. A paste whose content has Markdown beside
+  /// its text ([`ClipboardContent::markdown_content`](crate::app::events::ClipboardContent::markdown_content)),
+  /// or whose text reads as Markdown
+  /// ([`RichText::reads_as_markdown`](super::RichText::reads_as_markdown)), is inserted with its marks and kinds
+  /// as one undo step; any other is plain text, and so is every paste into a line of code. An `on_paste` handler
+  /// that prevents the default still takes the paste itself. An input without kinds of paragraphs is not
+  /// changed by it.
+  ///
+  /// The operating system's clipboard holds one text: a copy of a selection with a mark or a paragraph that is
+  /// not body text gives it the Markdown, which another app or another lurq process reads as it is written (and
+  /// such an input there pastes with its formatting). This process keeps the plain text beside it: while the
+  /// clipboard still holds what was written, an input of the app without this option pastes the plain text.
+  #[cfg(feature = "markdown")]
+  pub fn rich_clipboard(mut self, on: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_rich_clipboard(on);
       }
     });
     self
@@ -278,6 +418,18 @@ impl TextInput {
     self.update_node(|node| {
       if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
         state.set_keeps_text_while_focused(keeps);
+      }
+    });
+    self
+  }
+
+  /// Whether all the input's text is selected as it takes the focus, so that what is typed takes its place: a
+  /// name being renamed, a cell being edited, a text edited where it stands. A press that brings the focus puts
+  /// the caret where it is, as in any input.
+  pub fn select_on_focus(mut self, selects: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_select_on_focus(selects);
       }
     });
     self

@@ -25,9 +25,11 @@ use crate::{
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  // No wider than the stage: what is shown gets narrower with it, and what is said under it wraps.
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().padding(2.0).overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).padding(2.0).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -350,7 +352,6 @@ impl PicturePage {
       code.push(format!("    .caption({caption:?})"));
     }
     code.push("    .on_click(|_| open())".to_owned());
-    code.push("    .mount(ctx)".to_owned());
 
     let form = size.unwrap_or_else(|| PictureSize::for_width(room.0));
     let mut tree = vec![format!(
@@ -551,7 +552,15 @@ impl Component for PicturePage {
 
     let large = items()
       .id("picture-large")
-      .child(item(self.lake().size_px(640.0, 360.0), "picture · 640 × 360 · cover"))
+      .child(item(
+        self
+          .lake()
+          .title("Lake at dusk")
+          .size_px(640.0, 360.0)
+          .lightbox(true)
+          .id("picture-opens"),
+        "picture · 640 × 360 · cover · a press opens it in a lightbox",
+      ))
       .child(item(
         self
           .lake()
@@ -681,7 +690,9 @@ impl Component for PicturePage {
       ))
       .child(item(
         Row::new()
+          .max_width(FILL)
           .spacing(8.0)
+          .wrap()
           .child(self.lake().size_px(96.0, 96.0))
           .child(Picture::empty().loading(true).progress(0.42).size_px(96.0, 96.0))
           .child(broken().label(LAKE).size_px(96.0, 96.0)),
@@ -766,11 +777,11 @@ impl Component for PicturePage {
 
     let rows = [
       (
-        "new / from_file / from_bytes / from_resource / from_source / empty",
+        "new / from_file / from_bytes / from_resource / from_url / from_source / empty",
         "the source",
         "",
-        "Pixels the app has, a file or bytes decoded off the UI thread, a resource of the app, or nothing: a box \
-         that says it has no picture.",
+        "Pixels the app has, a file or bytes decoded off the UI thread, a resource of the app, an address on the \
+         network, or nothing: a box that says it has no picture.",
       ),
       (
         "label",
@@ -784,7 +795,8 @@ impl Component for PicturePage {
         "Length",
         "",
         "As a browser's img: with neither it is as large as its pixels, with one the other follows their ratio, \
-         with both it is a box.",
+         with both it is a box. The width is the most it takes: in a narrower room a box of pixels keeps its \
+         shape.",
       ),
       (
         "aspect_ratio",
@@ -822,7 +834,8 @@ impl Component for PicturePage {
         "placeholder",
         "PicturePlaceholder",
         "Skeleton",
-        "What the box shows while the pixels are on their way: the sheen, or the box alone.",
+        "What the box shows while the pixels are on their way: the sheen, a small version of the picture blurred \
+         (`PicturePlaceholder::blur`), or the box alone.",
       ),
       (
         "loading",
@@ -841,6 +854,12 @@ impl Component for PicturePage {
         "&str",
         "",
         "The line that says a picture did not load, and its button: \"The picture didn't load.\", \"Try again\".",
+      ),
+      (
+        "on_load / on_error",
+        "Fn() / Fn(&str)",
+        "",
+        "Told once the pixels are there, and once the picture did not come, with why.",
       ),
       (
         "on_retry",
@@ -876,7 +895,7 @@ impl Component for PicturePage {
         "menu_item / menu_items",
         "MenuItem",
         "",
-        "The menu behind More, which the bar has once it has an item. It opens on a mounted picture.",
+        "The menu behind More, which the bar has once it has an item.",
       ),
       (
         "action / actions",
@@ -903,6 +922,14 @@ impl Component for PicturePage {
         "false",
         "A picture that can be chosen, whether it is, and what a press would make it.",
       ),
+      (
+        "lightbox / open / on_open_change",
+        "bool / Signal<bool> / Fn(bool)",
+        "false",
+        "A press, and the last button of a large picture's bar, open the picture in a Lightbox over the window; \
+         whether it is open, to read and to set, and what tells of it. A picture that is chosen by a press is \
+         opened by the button.",
+      ),
       ("disabled", "bool", "false", "Half the opacity; it takes nothing."),
     ];
     let playground = self.play(ctx);
@@ -922,19 +949,22 @@ impl Component for PicturePage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of Picture is a control on the right. The picture is mounted, so its menu opens and its \
-           buttons have their tooltips; a smaller box shows what a small picture keeps.",
+          "Every prop of Picture is a control on the right. Its menu opens and its buttons have their tooltips; a \
+           smaller box shows what a small picture keeps.",
           playground,
         ),
         Section::new(
           "The picture, and a figure",
-          "A picture in its box, and one with a caption under it.",
+          "A picture in its box, which a press opens in a lightbox, and one with a caption under it.",
           self.frame.demo(
             0,
             large,
             "Picture::from_file(path)",
             &[
-              "Picture::from_file(\"photos/lake.jpg\").label(\"The lake at dusk\").size_px(640.0, 360.0)",
+              "Picture::from_file(\"photos/lake.jpg\")",
+              "    .label(\"The lake at dusk\")",
+              "    .size_px(640.0, 360.0)",
+              "    .lightbox(true)",
               "",
               "Picture::from_file(\"photos/lake.jpg\")",
               "    .label(\"The lake at dusk\")",

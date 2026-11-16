@@ -10,10 +10,11 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, ColumnView, Combobox, DateField, DatePicker,
-    DateRangePicker, DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions,
-    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress,
-    ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea,
-    TimeField, TimePicker, Toast, TokenInput, TreeItem, TreeSelect, Waveform,
+    DateRangePicker, DropZone, Editable, ErrorSummary, ExpandableTile, Field, FieldError, Fieldset, FieldsetVariant,
+    FileUpload, Input, InputGroup, ListItem, Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect,
+    NumberInput, Outcome, PasswordInput, PathField, Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid,
+    SearchField, Select, SettingsCard, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast, TokenInput, TreeItem,
+    TreeSelect, Waveform,
   },
 };
 
@@ -72,6 +73,16 @@ fn an_input_is_no_wider_than_a_narrow_room() {
 }
 
 #[test]
+fn an_editable_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    Editable::new(Signal::new("A project with a name longer than the room".to_owned()))
+      .id("it")
+      .into()
+  });
+  fits(|| Editable::new(text()).full_width(true).id("it").into());
+}
+
+#[test]
 fn a_textarea_is_no_wider_than_a_narrow_room() {
   fits(|| Textarea::new(text()).id("it").into());
 }
@@ -84,6 +95,22 @@ fn a_password_input_is_no_wider_than_a_narrow_room() {
 #[test]
 fn a_search_field_is_no_wider_than_a_narrow_room() {
   fits(|| SearchField::new(text()).id("it").into());
+}
+
+#[test]
+fn a_path_field_is_no_wider_than_a_narrow_room() {
+  fits(|| PathField::new(text()).id("it").into());
+}
+
+#[test]
+fn a_settings_card_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    SettingsCard::new(ListItem::new("Default project folder").description("Where new projects are created."))
+      .item(ListItem::new("Open at login"))
+      .open(true)
+      .id("it")
+      .into()
+  });
 }
 
 #[test]
@@ -135,6 +162,17 @@ fn a_fieldset_is_no_wider_than_a_narrow_room() {
   fits(|| {
     Fieldset::new("Profile")
       .description("What others see of you, wherever your name is shown.")
+      .child(Field::new("Display name", Input::new(text())))
+      .id("it")
+      .into()
+  });
+}
+
+#[test]
+fn a_group_box_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    Fieldset::new("Everything this app does when the computer starts")
+      .variant(FieldsetVariant::GroupBox)
       .child(Field::new("Display name", Input::new(text())))
       .id("it")
       .into()
@@ -574,6 +612,19 @@ fn a_waveform_in_a_narrow_room_keeps_its_bars_and_closes_its_gaps() {
 }
 
 #[test]
+fn an_expandable_tile_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    ExpandableTile::text(
+      "Renderer of the second monitor",
+      "wgpu 26 on DirectX 12. Frame time 6.9 ms median.",
+    )
+    .open(true)
+    .id("it")
+    .into()
+  });
+}
+
+#[test]
 fn a_tree_select_is_no_wider_than_a_narrow_room() {
   fits(|| {
     TreeSelect::controlled(
@@ -600,4 +651,84 @@ fn a_column_view_is_no_wider_than_a_narrow_room() {
     .id("it")
     .into()
   });
+}
+
+/// A menu whose first item opens a panel of two columns, mounted with that panel open in a window `width` wide.
+fn open_panel(width: f32) -> Stage {
+  use lurq::ui::{NavItem, NavLink, NavPanel, NavigationMenu};
+  let open = Signal::new(Some(0));
+  let mut stage = Stage::first_frame(width, 500.0, move |ctx| {
+    let panel = NavPanel::new()
+      .columns(2)
+      .link(
+        NavLink::new("Getting started")
+          .description("Install lurq and open your first window.")
+          .id("start"),
+      )
+      .link(
+        NavLink::new("Theming")
+          .description("Roles, palettes and dark mode.")
+          .id("theming"),
+      );
+    Column::new()
+      .size(width, 500.0)
+      .padding(12.0)
+      .child(
+        Row::new().width(lurq::node::dimension::Dimension::Pct(100.0)).child(
+          NavigationMenu::new()
+            .id("nav")
+            .item(NavItem::new("Docs").panel(panel))
+            .item(NavItem::new("Blog"))
+            .open(open.clone())
+            .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+#[test]
+fn the_open_panel_of_a_navigation_menu_takes_the_room_a_narrow_window_has() {
+  // In a window of 800 the panel is the board's: two columns of 208, 8 apart, padded 8.
+  let mut stage = open_panel(800.0);
+  let (panel, _, wide, _) = stage.bounds("nav-0-panel");
+  assert_eq!(wide, 440.0);
+  let (start, start_y, start_width, _) = stage.bounds("start");
+  let (theming, theming_y, theming_width, _) = stage.bounds("theming");
+  assert_eq!((start_width, theming_width), (208.0, 208.0));
+  assert!((start - panel - 8.0).abs() < 0.5 && (theming - (start + 208.0) - 8.0).abs() < 0.5);
+  assert!((start_y - theming_y).abs() < 0.5, "side by side");
+
+  // In a window of 320 two columns of 208 have no room: the panel is one column, as wide as the window lets it
+  // be, and every link is whole in it, its text wrapping. Narrower than one column of 208 too.
+  for window in [320.0, 200.0] {
+    let mut stage = open_panel(window);
+    let (panel, _, wide, _) = stage.bounds("nav-0-panel");
+    assert!(
+      panel >= -0.5 && panel + wide <= window + 0.5,
+      "at {window} the panel is in the window: {panel}..{}",
+      panel + wide
+    );
+    let (start, start_y, start_width, start_height) = stage.bounds("start");
+    let (theming, theming_y, theming_width, _) = stage.bounds("theming");
+    for (x, link) in [(start, start_width), (theming, theming_width)] {
+      assert!(
+        x >= panel + 8.0 - 0.5 && x + link <= panel + wide - 8.0 + 0.5,
+        "at {window} a link is in the panel: {x}..{} in {panel}..{}",
+        x + link,
+        panel + wide
+      );
+    }
+    assert!(
+      theming_y >= start_y + start_height - 0.5,
+      "at {window}: one under the other"
+    );
+    assert!(stage.paints("Theming"));
+  }
+  let mut stage = open_panel(320.0);
+  let first = stage.picture();
+  stage.frame();
+  assert_eq!(stage.picture(), first, "settled");
 }

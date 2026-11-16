@@ -58,6 +58,11 @@ impl PasteEvent {
     self.content.text_content()
   }
 
+  /// The Markdown beside the text, where a lurq input copied it with its formatting.
+  pub fn markdown(&self) -> Option<&str> {
+    self.content.markdown_content()
+  }
+
   pub fn image(&self) -> Option<&ClipboardImage> {
     self.content.image_content()
   }

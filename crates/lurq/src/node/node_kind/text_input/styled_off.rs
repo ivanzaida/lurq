@@ -19,7 +19,9 @@ pub(super) enum SpansBeforeEdit {}
 
 pub(super) type SnapshotSpans = Infallible;
 
-pub(super) enum InsertedText {}
+pub(super) type SnapshotParagraphs = Infallible;
+
+pub(super) struct InsertedText<'a>(std::marker::PhantomData<&'a ()>, Infallible);
 
 impl TextInputState {
   #[inline]
@@ -43,14 +45,24 @@ impl TextInputState {
     &self,
     _edit: Option<SpansBeforeEdit>,
     _range: Range<usize>,
-    inserted: &InsertedText,
+    inserted: &InsertedText<'_>,
   ) {
-    match *inserted {}
+    match inserted.1 {}
   }
 
   #[inline]
   pub(super) fn restore_spans(&self, spans: SnapshotSpans) {
     match spans {}
+  }
+
+  #[inline]
+  pub(super) fn current_paragraphs(&self) -> Option<SnapshotParagraphs> {
+    None
+  }
+
+  #[inline]
+  pub(super) fn restore_paragraphs(&self, kinds: SnapshotParagraphs) {
+    match kinds {}
   }
 
   /// What copying the selection puts on the clipboard: the selected text. Nothing while the input is masked, as a

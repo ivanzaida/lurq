@@ -123,6 +123,8 @@ fn decorated_state(width: f32) -> (TextInputState, Arc<crate::layout::quad::Deco
     width,
     min_width: width,
     wrap: true,
+    paragraphs: Vec::new(),
+    exact_rows: false,
     styles: vec![TokenStyle {
       range: start..start + 14,
       text: base,

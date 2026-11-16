@@ -24,13 +24,24 @@ use crate::{
     layout_kind::{Justify, ScrollState},
     text_style::{FontWeight, TextAlign},
   },
-  node::{CursorIcon, Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension, outline::Outline},
+  node::{
+    CursorIcon, Element, HitTestBehavior, NodeUpdate, border::Border, color::Color, dimension::Dimension,
+    outline::Outline,
+  },
 };
 
 /// How much one press of Zoom in, or one notch of the wheel, brings the picture closer.
 const ZOOM_STEP: f32 = 1.5;
 /// How far an arrow key moves a picture that is zoomed in.
 const PAN_STEP: f32 = 48.0;
+/// The top row's padding at its two ends, the room a button of it takes with the gap after it, the level's, the
+/// gap alone, and the width of a letter of the counter: what tells whether the row has room for its level.
+const TOP_SIDES: f32 = 24.0;
+const CONTROL_ROOM: f32 = 40.0;
+const LEVEL_ROOM: f32 = 60.0;
+const CONTROL_GAP: f32 = 4.0;
+const COUNTER_LETTER: f32 = 8.0;
+
 /// The room between the strip's small pictures, as the design has it, and the least there is at its ends:
 /// what tells how many of them the strip has room for.
 const STRIP_GAP: f32 = 6.0;
@@ -178,6 +189,7 @@ pub struct Lightbox {
   zoom: Option<Signal<f32>>,
   on_zoom_change: Vec<Told<f64>>,
   zoom_max: f32,
+  preload: usize,
   filmstrip: Option<bool>,
   counter: Option<bool>,
   counter_text: Option<Arc<dyn Fn(usize, usize) -> String + Send + Sync>>,
@@ -210,6 +222,7 @@ impl Lightbox {
       zoom: None,
       on_zoom_change: Vec::new(),
       zoom_max: 4.0,
+      preload: 1,
       filmstrip: None,
       counter: None,
       counter_text: None,
@@ -273,6 +286,13 @@ impl Lightbox {
   /// Called when the picture is brought closer or further, with how close it is.
   pub fn on_zoom_change(mut self, handler: impl Fn(f64) + Send + Sync + 'static) -> Self {
     self.on_zoom_change.push(Arc::new(handler));
+    self
+  }
+
+  /// How many pictures each way of the one shown are brought on once it is there, so that an arrow shows the
+  /// next at once: 1 unless told, 0 for none.
+  pub fn preload(mut self, preload: usize) -> Self {
+    self.preload = preload;
     self
   }
 
@@ -494,12 +514,29 @@ struct LightboxHost {
   stage: ElementRef,
   /// The stage's size the picture was last laid out for.
   room: Signal<(f32, f32)>,
+  /// The picture whose pixels came, by its place.
+  came: Signal<Option<usize>>,
+  /// Whether it was open at the last render: one that opens again shows its picture fitted.
+  was_open: std::sync::atomic::AtomicBool,
+  /// The pictures about the one shown brought on ahead, by their places, with the loads held while they are
+  /// on their way.
+  ahead: parking_lot::Mutex<Vec<(usize, Option<crate::resources::Load>)>>,
+  /// Moves on when a load ahead ends: what decodes what it brought.
+  ahead_tick: Signal<u64>,
+  /// What a load ahead calls when it ends: one waker, which a load keeps once.
+  ahead_wake: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Component for LightboxHost {
   type Props = LightboxProps;
 
   fn create(ctx: &mut Ctx) -> Self {
+    // A load ahead that ends renders the lightbox again; one that only came further does not.
+    let ahead_tick = ctx.signal(0u64);
+    let ahead_wake: Arc<dyn Fn() + Send + Sync> = {
+      let tick = ahead_tick.clone();
+      Arc::new(move || tick.set(tick.get_untracked().wrapping_add(1)))
+    };
     Self {
       index: ctx.signal(0),
       zoom: ctx.signal(1.0),
@@ -508,6 +545,11 @@ impl Component for LightboxHost {
       news: Arc::default(),
       stage: ElementRef::new(),
       room: ctx.signal((0.0, 0.0)),
+      came: ctx.signal(None),
+      was_open: std::sync::atomic::AtomicBool::new(false),
+      ahead: parking_lot::Mutex::new(Vec::new()),
+      ahead_tick,
+      ahead_wake,
     }
   }
 
@@ -521,6 +563,17 @@ impl Component for LightboxHost {
       .unwrap_or_else(|| index_signal.get())
       .min(count.saturating_sub(1));
     let zoom_signal = lightbox.zoom.clone().unwrap_or_else(|| self.zoom.clone());
+    // Opened again, the picture is fitted, as it is the first time: how close it was is the lightbox's own, and
+    // the app's where it gives a signal for it.
+    let open = lightbox.inline || lightbox.open.get();
+    let opened = open && !self.was_open.swap(open, std::sync::atomic::Ordering::Relaxed);
+    if !open {
+      self.was_open.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    if opened && lightbox.zoom.is_none() && self.zoom.get_untracked() != 1.0 {
+      self.zoom.set(1.0);
+      self.scroll.set_scroll(0.0, 0.0);
+    }
     let max = lightbox.zoom_max;
     let zoom = zoom_signal.get().clamp(1.0, max);
     let room = self.room.get();
@@ -577,8 +630,18 @@ impl Component for LightboxHost {
     // The picture in the room it has: laid out as large as the stage, where it fits whole, and drawn closer
     // from there by what scrolls it (`ZoomScroll`): the wheel about the pointer, two fingers about their
     // middle, a double click, a drag. Until the stage is laid out it has no size to be laid out at.
+    self.bring_on(ctx, &lightbox, index);
     let shown = lightbox.pictures.get(index).cloned().map(|picture| {
-      let picture: Element = picture.in_viewer().key(format!("picture-{index}")).into();
+      let came = self.came.clone();
+      let picture: Element = picture
+        .in_viewer()
+        .on_load(move || {
+          if came.get_untracked() != Some(index) {
+            came.set(Some(index));
+          }
+        })
+        .key(format!("picture-{index}"))
+        .into();
       if room.0 <= 0.0 || room.1 <= 0.0 {
         return picture;
       }
@@ -586,6 +649,8 @@ impl Component for LightboxHost {
         .range(1.0, max)
         .wheel_zoom(ZOOM_STEP)
         .drag_pan(true)
+        // It pans by a drag and by the arrows: the board draws no bars over the picture's black.
+        .scrollbars(false)
         .zoom(zoom_signal.clone())
         .scroll(self.scroll.clone());
       ZoomScroll::mount(ctx, props, picture)
@@ -632,6 +697,56 @@ impl Component for LightboxHost {
     }
     let news = std::mem::take(&mut *self.news.lock());
     news.iter().for_each(|tell| tell());
+  }
+}
+
+impl LightboxHost {
+  /// Brings on the pictures about the one shown, once its own pixels are there: as many each way as the
+  /// lightbox says, round the ends where it wraps. A load that ends renders this again, which decodes what it
+  /// brought.
+  fn bring_on(&self, ctx: &Ctx, lightbox: &Lightbox, index: usize) {
+    let _ = self.ahead_tick.get();
+    let count = lightbox.pictures.len();
+    let open = lightbox.inline || lightbox.open.get();
+    if !open || lightbox.preload == 0 || self.came.get() != Some(index) {
+      return;
+    }
+    let mut places = Vec::new();
+    for step in 1..=lightbox.preload.min(count) {
+      let after = index + step;
+      let before = index.checked_sub(step);
+      let after = if after < count {
+        Some(after)
+      } else {
+        lightbox.wrap.then(|| after % count)
+      };
+      let before = before.or_else(|| lightbox.wrap.then(|| (index + count - step % count) % count));
+      for at in [after, before].into_iter().flatten() {
+        if at != index && !places.contains(&at) {
+          places.push(at);
+        }
+      }
+    }
+    #[cfg(feature = "image")]
+    {
+      let loader = ctx.app_handle().map(|app| app.loader().clone());
+      let mut ahead = self.ahead.lock();
+      let held = std::mem::take(&mut *ahead);
+      for at in places {
+        // Asked once: a load that is on its way is held, and decoded here once it has ended.
+        let load = match held.iter().find(|(place, _)| *place == at) {
+          Some((_, None)) => None,
+          Some((_, Some(load))) if load.state().is_loading() => Some(load.clone()),
+          _ => lightbox.pictures[at].fetch(loader.as_ref()),
+        };
+        if let Some(load) = &load {
+          load.wake_with(self.ahead_wake.clone());
+        }
+        ahead.push((at, load));
+      }
+    }
+    #[cfg(not(feature = "image"))]
+    let _ = (ctx, places);
   }
 }
 
@@ -731,8 +846,15 @@ impl LightboxView {
       .part(&self.part(LightboxPart::Top))
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center);
+    // How wide the counter is, about: its letters are of one width.
+    let mut said = 0.0;
     if lightbox.counter.unwrap_or(count > 1) {
       let part = self.part(LightboxPart::Counter);
+      let letters = match &lightbox.counter_text {
+        Some(text) => text(self.index + 1, count).chars().count(),
+        None => format!("{} / {count}", self.index + 1).chars().count(),
+      };
+      said = letters as f32 * COUNTER_LETTER + CONTROL_GAP;
       let counter = match &lightbox.counter_text {
         Some(text) => Row::new().child(part.text(&text(self.index + 1, count)).nowrap().part(&part)),
         None => Row::new()
@@ -758,6 +880,12 @@ impl LightboxView {
     };
     let fit: Action = Arc::new(move || go(1.0));
     top = top.child(self.control(icons::ZOOM_OUT, &lightbox.words.zoom_out, "zoom-out", further));
+    // In a room too narrow for the whole row the level gives way: the buttons about it bring the picture closer
+    // and further still, and a double click and `0` fit it.
+    let buttons =
+      2 + lightbox.actions.len() + usize::from(!lightbox.on_download.is_empty()) + usize::from(lightbox.close_button);
+    let needed = TOP_SIDES + said + buttons as f32 * CONTROL_ROOM + LEVEL_ROOM;
+    let room = self.stage.width();
     let level = self.part(LightboxPart::Level);
     let mut fitter = pressable(&level, false)
       .describe("a11y_role", "button")
@@ -770,8 +898,10 @@ impl LightboxView {
     if let Some(id) = self.id("level") {
       fitter = fitter.id(id);
     }
+    if room <= 0.0 || room >= needed {
+      top = top.child(fitter);
+    }
     top = top
-      .child(fitter)
       .child(self.control(icons::ZOOM_IN, &lightbox.words.zoom_in, "zoom-in", closer))
       .with_children(lightbox.actions.iter().cloned());
     if !lightbox.on_download.is_empty() {
@@ -845,11 +975,22 @@ impl LightboxView {
   pub fn stage(&mut self) -> Element {
     let full = Dimension::Pct(100.0);
     let layer = || Stack::new().size(full, full).hit_test(HitTestBehavior::ContentOnly);
+    // The stage is what the keys act on, and what takes the focus as the lightbox opens: the arrows, `+`, `-`, `0`
+    // and Escape work at once, and Tab goes on to the buttons. Its ring shows where the keyboard put the focus.
+    let name = self
+      .lightbox
+      .pictures
+      .get(self.index)
+      .and_then(Picture::label_of)
+      .unwrap_or_else(|| Arc::from(format!("{} / {}", self.index + 1, self.count())));
     let mut room = Stack::new()
       .part(&self.part(LightboxPart::Stage))
       .width(full)
       .flex(1.0)
       .clip()
+      .tab_index(0)
+      .describe("a11y_role", "group")
+      .describe("a11y_name", name)
       .ref_element(self.stage.clone());
     if let Some(shown) = self.shown.take() {
       room = room.child(shown);
@@ -885,7 +1026,11 @@ impl LightboxView {
           .child(self.step(icons::CHEVRON_RIGHT, &words, "next", after)),
       );
     }
-    room.into()
+    let mut room: Element = room.into();
+    if !self.lightbox.inline {
+      NodeUpdate::autofocus(&mut *room.node, true);
+    }
+    room
   }
 
   /// The strip of small pictures along the bottom, the one shown marked, where it shows.
@@ -1003,7 +1148,8 @@ impl LightboxView {
       ),
       false => (full, full),
     };
-    panel = panel.size(width, height);
+    // The width said is the most the panel takes: in a narrower room it is as wide as the room.
+    panel = panel.size(width, height).max_width(full);
     if let Some(id) = &lightbox.id {
       panel = panel.id(id.clone());
     }
@@ -1114,6 +1260,8 @@ impl Themed for Lightbox {
       })
       .hovered(Control, |s| s.background(white_12))
       .focus_visible(Control, |s| s.outline(Outline::new(2.0, white)))
+      // Inside the stage, which reaches the panel's edges.
+      .focus_visible(Stage, |s| s.outline(Outline::new(2.0, white).offset(-2.0)))
       .base(ControlIcon, |s| s.square(20.0))
       .base(Level, |s| {
         fading(

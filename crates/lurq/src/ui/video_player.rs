@@ -3304,9 +3304,10 @@ impl VideoPlayerView {
       // A press plays and pauses at once; a second one soon after asks for fullscreen too, as the engine's double
       // press would only after holding the first press back for its while.
       let (toggle, fullscreen, pressed) = (self.toggle.clone(), self.fullscreen.clone(), self.pressed.clone());
-      layer = layer.on_click(move |_| {
+      layer = layer.on_click(move |event: MouseEvent| {
         toggle();
-        let now = Instant::now();
+        // The time the window was given the press at, not the time its handler runs at.
+        let now = event.time;
         let mut last = pressed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         match last.take() {
           Some(then) if now.duration_since(then) <= VIDEO_PLAYER_DOUBLE_PRESS => fullscreen(),

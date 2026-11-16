@@ -386,6 +386,7 @@ struct Words {
   retry: Arc<str>,
   download: Arc<str>,
   more: Arc<str>,
+  open: Arc<str>,
 }
 
 impl Default for Words {
@@ -395,6 +396,7 @@ impl Default for Words {
       retry: Arc::from("Try again"),
       download: Arc::from("Download"),
       more: Arc::from("More"),
+      open: Arc::from("Open"),
     }
   }
 }
@@ -466,6 +468,9 @@ pub struct Picture {
   selectable: bool,
   selected: bool,
   on_change: Vec<Told<bool>>,
+  lightbox: bool,
+  open: Option<Signal<bool>>,
+  on_open_change: Vec<Told<bool>>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -512,6 +517,9 @@ impl Picture {
       selectable: false,
       selected: false,
       on_change: Vec::new(),
+      lightbox: false,
+      open: None,
+      on_open_change: Vec::new(),
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -699,6 +707,12 @@ impl Picture {
     self
   }
 
+  /// What the button that opens the picture in its lightbox is called: "Open" unless told.
+  pub fn open_label(mut self, label: &str) -> Self {
+    self.words.open = Arc::from(label);
+    self
+  }
+
   /// What the menu's button is called: "More" unless told.
   pub fn more_label(mut self, label: &str) -> Self {
     self.words.more = Arc::from(label);
@@ -814,7 +828,6 @@ impl Picture {
   }
 
   /// A count over a veil: "+5" on the last picture of a row that could not hold them all. A gallery's.
-  #[allow(dead_code)]
   pub(crate) fn count(mut self, count: &str) -> Self {
     self.count = Some(Arc::from(count));
     self
@@ -844,6 +857,27 @@ impl Picture {
   /// after the first.
   pub fn on_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
+    self
+  }
+
+  /// A press of the picture, or Enter or Space while it has the focus, opens it in a [`Lightbox`] over the
+  /// window: the picture alone, whole, to bring closer. The lightbox shows its [`title`](Self::title) and its
+  /// [`description`](Self::description). The bar of a large picture has a button that opens it too, the
+  /// last one: a picture that can be chosen is chosen by a press, and opened by that button.
+  pub fn lightbox(mut self, lightbox: bool) -> Self {
+    self.lightbox = lightbox;
+    self
+  }
+
+  /// Whether its lightbox is open, to read and to set. Without it the picture keeps it.
+  pub fn open(mut self, open: Signal<bool>) -> Self {
+    self.open = Some(open);
+    self
+  }
+
+  /// Called when its lightbox opens, and when it is closed.
+  pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_open_change.push(Arc::new(handler));
     self
   }
 
@@ -904,6 +938,42 @@ impl Picture {
 
   /// The picture as a viewer shows it: the pixels alone, whole, in all the room there is, with nothing over
   /// them and nothing a press does. What it is called and how it loads stay.
+  /// Starts bringing the picture's pixels on without showing it: a file and bytes are decoded, a resource and
+  /// an address asked of `loader` and decoded once their bytes are there. What a picture shown later then has
+  /// at once. The load to hold while it is on its way, where the loader reads it: a load nobody holds is let
+  /// go. Called again once it has ended, it decodes what it brought.
+  #[cfg(feature = "image")]
+  pub(crate) fn fetch(&self, loader: Option<&crate::resources::Loader>) -> Option<crate::resources::Load> {
+    use crate::{
+      images::{ImageKey, ImageSizeCap, ImageSource, decoded_images},
+      resources::{LoadState, SourceKind},
+    };
+    let Source::Encoded { source, cap } = &self.source else {
+      return None;
+    };
+    let key = ImageKey::new(source.cache_key());
+    let cap = cap.map(|(width, height)| ImageSizeCap::new(width, height));
+    let decode = |from: ImageSource| {
+      decoded_images().load(key, cap, || from, None);
+    };
+    match &source.kind {
+      SourceKind::Bytes(bytes) => decode(ImageSource::Bytes(bytes.clone())),
+      SourceKind::File(path) => decode(ImageSource::File(path.clone())),
+      SourceKind::Resource(_) | SourceKind::Url(_) => {
+        if decoded_images().state(key, cap).is_some() {
+          return None;
+        }
+        let load = loader?.load(source);
+        match load.state() {
+          LoadState::Loading { .. } => return Some(load),
+          LoadState::Ready(bytes) => decode(ImageSource::Bytes(bytes)),
+          LoadState::Failed(_) => {}
+        }
+      }
+    }
+    None
+  }
+
   pub(crate) fn in_viewer(mut self) -> Self {
     self = self.stripped();
     self.width = Some(Length::Fill);
@@ -928,6 +998,26 @@ impl Picture {
     self.size = None;
     // What holds it is what tooling reads.
     self.decorative = true;
+    // A small picture decodes small: a strip of a dozen photos does not hold a dozen photos' pixels. Four times
+    // its longer side, both ways, covers its box at any scale of a screen and any shape of picture but a strip.
+    if let Source::Encoded { cap, .. } = &mut self.source
+      && cap.is_none()
+    {
+      let side = (width.max(height) * 4.0).ceil() as u32;
+      *cap = Some((side, side));
+    }
+    self
+  }
+
+  /// The picture as one of a gallery's: the pixels covering all of the room it is given, with nothing over
+  /// them and nothing a press does yet. What it is called and how it loads stay, and so do its box and its
+  /// corners.
+  pub(crate) fn in_grid(mut self) -> Self {
+    self = self.stripped();
+    self.width = Some(Length::Fill);
+    self.height = Some(Length::Fill);
+    self.aspect_ratio = None;
+    self.fit = PictureFit::Cover;
     self
   }
 
@@ -944,6 +1034,9 @@ impl Picture {
     self.selectable = false;
     self.selected = false;
     self.on_change.clear();
+    self.lightbox = false;
+    self.open = None;
+    self.on_open_change.clear();
     self.id = None;
     self.key = None;
     self
@@ -961,17 +1054,20 @@ impl Picture {
 
   /// Whether a press of the picture as a whole does something.
   fn pressable(&self) -> bool {
-    !self.disabled && (self.selectable || !self.on_click.is_empty())
+    !self.disabled && (self.selectable || self.lightbox || !self.on_click.is_empty())
   }
 
   /// The forms to build, each with the widths it lives at: the one that is said, or that a width in pixels
   /// gives, alone and at every width; else all of them, for layout to show the one that fits.
-  fn forms(&self, theme: &Theme) -> Vec<(PictureSize, Option<SizeBounds>)> {
+  ///
+  /// `narrowed` is the form of the width a box of pixels was laid out at where its room made it narrower than
+  /// it was told: the form of that width, built alone in its place.
+  fn forms(&self, theme: &Theme, narrowed: Option<PictureSize>) -> Vec<(PictureSize, Option<SizeBounds>)> {
     if let Some(size) = self.size {
       return vec![(PictureSize::of(size), None)];
     }
     match self.width.and_then(|width| width.resolve(theme)) {
-      Some(Dimension::Px(width)) => vec![(PictureSize::for_width(width), None)],
+      Some(Dimension::Px(width)) => vec![(narrowed.unwrap_or(PictureSize::for_width(width)), None)],
       // A box that takes the size of what is in it has no width to choose a form by before it is laid out.
       None if self.aspect_ratio.is_none() => vec![(PictureSize::Lg, None)],
       _ => PictureSize::ALL
@@ -1051,7 +1147,9 @@ struct Plain<'a> {
   words: &'a Words,
   lengths: (&'a Option<Length>, &'a Option<Length>, Option<f32>),
   shown: (PictureFit, StackAlignment, PictureShape, &'a Option<Name>, &'a [Name]),
-  flags: [bool; 7],
+  flags: [bool; 8],
+  /// The signal that says whether its lightbox is open, by its id.
+  open: Option<usize>,
   load: (Option<f64>, Option<bool>, Option<Interaction>),
 }
 
@@ -1095,6 +1193,9 @@ impl Picture {
       selectable,
       selected,
       on_change,
+      lightbox,
+      open,
+      on_open_change,
       disabled,
       states,
       rules,
@@ -1114,6 +1215,7 @@ impl Picture {
         && children.is_empty()
         && on_click.is_empty()
         && on_change.is_empty()
+        && on_open_change.is_empty()
         && rules.is_empty());
     if made_anew {
       return None;
@@ -1129,7 +1231,17 @@ impl Picture {
       words,
       lengths: (width, height, *aspect_ratio),
       shown: (*fit, *anchor, *shape, size, states),
-      flags: [*decorative, *bare, *loading, *bar, *selectable, *selected, *disabled],
+      flags: [
+        *decorative,
+        *bare,
+        *loading,
+        *bar,
+        *selectable,
+        *selected,
+        *disabled,
+        *lightbox,
+      ],
+      open: open.as_ref().map(Signal::id),
       load: (*progress, *force_bar_shown, *forced),
     })
   }
@@ -1145,6 +1257,8 @@ struct Live {
   menu: Signal<bool>,
   /// The More button, which the menu hangs from.
   more: ElementRef,
+  /// Whether its lightbox is open, where the app names no signal for it.
+  viewer: Signal<bool>,
   /// Counts on when a load or a decode of the picture's comes further or ends, and when it is asked for again:
   /// the picture renders again and looks.
   tick: Signal<u64>,
@@ -1159,6 +1273,12 @@ struct Live {
   told: Arc<parking_lot::Mutex<Option<(u64, bool)>>>,
   /// What to tell the app once this render is laid out.
   news: Arc<parking_lot::Mutex<Vec<Action>>>,
+  /// The box as it is laid out: a box of pixels that its room made narrower takes the form of the width it got.
+  frame: ElementRef,
+  /// The width in pixels the box was told, where it was told one and no form.
+  said: Arc<parking_lot::Mutex<Option<f32>>>,
+  /// The form of the width the box got, where that is narrower than it was told and has another form.
+  narrowed: Signal<Option<PictureSize>>,
 }
 
 /// The component of a picture.
@@ -1175,16 +1295,42 @@ impl Component for PictureHost {
       let tick = tick.clone();
       Arc::new(move || tick.set(tick.get_untracked().wrapping_add(1)))
     };
+    // Measured before paint, and written only where the form changes: the first frame of a box its room made
+    // narrower has the form that fits it, and a box at its width builds the one form it always did.
+    let (frame, said, narrowed) = (
+      ElementRef::new(),
+      Arc::new(parking_lot::Mutex::new(None::<f32>)),
+      ctx.signal(None::<PictureSize>),
+    );
+    {
+      let (said, narrowed) = (said.clone(), narrowed.clone());
+      frame.observe_rect_before_paint(move |rect| {
+        let want = match *said.lock() {
+          Some(width) if rect.width + 0.5 < width => {
+            let form = PictureSize::for_width(rect.width);
+            (form != PictureSize::for_width(width)).then_some(form)
+          }
+          _ => None,
+        };
+        if narrowed.get_untracked() != want {
+          narrowed.set(want);
+        }
+      });
+    }
     Self {
       live: Live {
         menu: ctx.signal(false),
         more: ElementRef::new(),
+        viewer: ctx.signal(false),
         tick,
         wake,
         held: Arc::default(),
         held_small: Arc::default(),
         told: Arc::default(),
         news: Arc::default(),
+        frame,
+        said,
+        narrowed,
       },
     }
   }
@@ -1192,6 +1338,10 @@ impl Component for PictureHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let picture = ctx.props::<PictureProps>().0.clone();
     let theme = current_theme();
+    *self.live.said.lock() = match (picture.size, picture.width.and_then(|width| width.resolve(&theme))) {
+      (None, Some(Dimension::Px(width))) => Some(width),
+      _ => None,
+    };
     // Read, so that a load that comes further renders the picture again.
     self.live.tick.get();
     let phase = self.phase(&picture, ctx);
@@ -1464,7 +1614,8 @@ fn view(
     || picture.description.is_some()
     || !picture.actions.is_empty()
     || !picture.on_download.is_empty()
-    || !picture.menu_items.is_empty();
+    || !picture.menu_items.is_empty()
+    || picture.lightbox;
   let menu_open = live.menu.get();
   let case = |size: PictureSize, on: bool| {
     Case {
@@ -1487,7 +1638,7 @@ fn view(
     .state(PictureState::On, on)
   };
   let forms: Vec<PictureForm> = picture
-    .forms(theme)
+    .forms(theme, live.narrowed.get())
     .into_iter()
     .map(|(size, bounds)| PictureForm {
       size,
@@ -1549,6 +1700,19 @@ fn view(
           .build(theme),
       );
     }
+    // Open larger is the last, where a video has fullscreen.
+    if large && picture.lightbox {
+      let open = picture.open.clone().unwrap_or_else(|| live.viewer.clone());
+      let told = picture.on_open_change.clone();
+      let press: Action = Arc::new(move || {
+        if !open.get_untracked() {
+          open.set(true);
+          told.iter().for_each(|tell| tell(true));
+        }
+      });
+      let button = control(form, false, icons::FULLSCREEN, &picture.words.open, id("open"), press);
+      buttons.push(tip(ctx.as_deref_mut(), button, &picture.words.open));
+    }
     bars.push(Some(PictureBar {
       title: picture.title.clone(),
       description: picture.description.clone().filter(|_| large),
@@ -1583,6 +1747,7 @@ fn view(
   PictureView {
     phase,
     retry,
+    viewer: picture.open.clone().unwrap_or_else(|| live.viewer.clone()),
     #[cfg(feature = "raster")]
     small: None,
     known: Known {
@@ -1593,6 +1758,7 @@ fn view(
     forms,
     bars,
     picture,
+    frame: live.frame.clone(),
   }
 }
 
@@ -1639,7 +1805,7 @@ pub struct PictureBar {
   pub title: Option<Arc<str>>,
   /// The line under the title; a compact picture has none.
   pub description: Option<Arc<str>>,
-  /// The buttons at the bar's end, in order: the app's, download, More.
+  /// The buttons at the bar's end, in order: the app's, download, More, open.
   pub buttons: Vec<Element>,
   /// The menu behind More, which takes no room, where the picture is mounted.
   pub menu: Option<Element>,
@@ -1657,11 +1823,15 @@ pub struct PictureView {
   picture: Picture,
   /// Where its pixels are.
   phase: Phase,
+  /// Whether its lightbox is open: the app's signal, or the picture's own.
+  viewer: Signal<bool>,
   /// The pixels of the small version that stands in for it, blurred, while it is on its way.
   #[cfg(feature = "raster")]
   small: Option<crate::images::ImageData>,
   /// Asks for the picture again.
   retry: Action,
+  /// The box as it is laid out.
+  frame: ElementRef,
 }
 
 impl PictureView {
@@ -2073,12 +2243,21 @@ impl PictureView {
   fn press(&self) -> impl Fn(MouseEvent) + Send + Sync + 'static {
     let (clicks, changes) = (self.picture.on_click.clone(), self.picture.on_change.clone());
     let (selectable, next) = (self.picture.selectable, !self.picture.selected);
+    // A picture that is chosen by a press opens nothing by it.
+    let opens =
+      (self.picture.lightbox && !selectable).then(|| (self.viewer.clone(), self.picture.on_open_change.clone()));
     move |event: MouseEvent| {
       for handler in &clicks {
         handler.call(&event);
       }
       if selectable {
         changes.iter().for_each(|handler| handler(next));
+      }
+      if let Some((open, told)) = &opens
+        && !open.get_untracked()
+      {
+        open.set(true);
+        told.iter().for_each(|tell| tell(true));
       }
     }
   }
@@ -2148,6 +2327,20 @@ impl PictureView {
     if let Some(edge) = self.edge() {
       inner = inner.child(edge);
     }
+    // Its lightbox, which takes no room: the picture as the app gave it, alone.
+    if picture.lightbox {
+      let told = picture.on_open_change.clone();
+      let mut viewer = super::Lightbox::new(self.viewer.clone(), [picture.clone()])
+        .on_dismiss(move || told.iter().for_each(|tell| tell(false)))
+        .key("viewer");
+      if let Some(label) = self.label() {
+        viewer = viewer.label(&label);
+      }
+      if let Some(id) = self.id("viewer") {
+        viewer = viewer.id(id);
+      }
+      inner = inner.child(viewer);
+    }
 
     let part = self.part(PicturePart::Root).forced(picture.forced);
     let role = match (picture.selectable, self.pressable) {
@@ -2172,15 +2365,31 @@ impl PictureView {
         .child(inner)
         .into()
     };
+    NodeUpdate::ref_element(&mut *root.node, self.frame.clone());
     let node = &mut *root.node;
-    if let Some(width) = picture.width.and_then(|width| width.resolve(theme)) {
+    let width = picture.width.and_then(|width| width.resolve(theme));
+    let height = picture.height.and_then(|height| height.resolve(theme));
+    if let Some(width) = width {
       NodeUpdate::width(node, width);
+      // The width said is the most the box takes: in a room narrower than it the box is as wide as the room.
+      NodeUpdate::max_width(node, Dimension::Pct(100.0));
     }
-    if let Some(height) = picture.height.and_then(|height| height.resolve(theme)) {
-      NodeUpdate::height(node, height);
-    }
-    if let Some(ratio) = picture.aspect_ratio {
-      NodeUpdate::aspect_ratio(node, ratio);
+    match (width, height, picture.aspect_ratio) {
+      // A box of so many pixels by so many keeps its shape where the room makes it narrower: its height follows
+      // its width. The ratio is a hair under the box's own and the height said is the most, so that at its
+      // full width the box is as high as said, and not a rounding of it.
+      (Some(Dimension::Px(wide)), Some(Dimension::Px(high)), None) if wide > 0.0 && high > 0.0 => {
+        NodeUpdate::aspect_ratio(node, wide / high * (1.0 - 4.0 * f32::EPSILON));
+        NodeUpdate::max_height(node, high);
+      }
+      (_, height, ratio) => {
+        if let Some(height) = height {
+          NodeUpdate::height(node, height);
+        }
+        if let Some(ratio) = ratio {
+          NodeUpdate::aspect_ratio(node, ratio);
+        }
+      }
     }
     match self.label() {
       Some(label) => {
@@ -2218,7 +2427,7 @@ impl PictureView {
       .child(frame)
       .child(wrapped(&part, caption));
     if let Some(width) = self.picture.width.and_then(|width| width.resolve(self.theme())) {
-      figure = figure.width(width);
+      figure = figure.width(width).max_width(Dimension::Pct(100.0));
     }
     if let Some(key) = &self.picture.key {
       figure = figure.key(key.clone());
@@ -2316,7 +2525,9 @@ impl Themed for Picture {
       })
       .base(Sheen, |s| s.radius(0.0))
       .base(Veil, |s| s.background(black_60))
-      .base(Center, |s| s.padding_x(24.0).padding_y(24.0).gap(12.0))
+      // What stands in the middle is centered, so the room over and under it is the least it keeps: a box only
+      // just higher than what it says shows all of it.
+      .base(Center, |s| s.padding_x(24.0).padding_y(8.0).gap(12.0))
       .size(Md, Center, |s| s.padding_x(12.0).padding_y(12.0).gap(8.0))
       .size(Sm, Center, |s| s.padding_x(8.0).padding_y(8.0))
       .size(Xs, Center, |s| s.padding_x(0.0).padding_y(0.0))

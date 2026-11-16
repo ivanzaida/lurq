@@ -65,12 +65,16 @@ pub enum PasswordInputState {
   Disabled,
   /// It is as wide as what holds it, with its meter.
   FullWidth,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(PasswordInputState {
   Revealed => "revealed",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Fluid => "fluid",
 });
 
 /// How strong the app judges a password to be: what the meter under the input shows.
@@ -470,6 +474,10 @@ impl FieldControl for PasswordInput {
     self.input.boxed.in_field(field);
     self.mount(ctx)
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl From<PasswordInput> for Element {
@@ -644,13 +652,15 @@ impl Themed for PasswordInput {
   /// Under it, 8 apart, a meter of four bars 4 high and 4 apart, fully round, on the input's color where the
   /// strength does not reach and in the strength's color where it does, and a message in a caption's type in that
   /// color: destructive for a weak password, warning for a fair one, success for a good or a strong one. The eye
-  /// is in the foreground under the pointer and while the password is shown.
+  /// is in the foreground under the pointer and while the password is shown. In a fluid field the box is the input's
+  /// fluid one, the eye on the line of the password, and the meter under the box as wide as the field.
   fn recipe() -> Recipe {
     use PaletteColor::{Destructive, Foreground, Input, MutedForeground, Success, Warning};
     use PasswordInputPart::{Bar, Description, Fill, Mask, Root, Strength, Toggle};
     let recipe = Recipe::new()
       .base(Root, |s| s.gap(8.0))
       .state(PasswordInputState::FullWidth, Root, |s| s.width(Length::Fill))
+      .state(PasswordInputState::Fluid, Root, |s| s.width(Length::Fill))
       .base(Mask, |s| s.letter_spacing(1.0))
       .base(Toggle, |s| {
         fading(

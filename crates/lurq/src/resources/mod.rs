@@ -40,4 +40,5 @@ pub use reader::{BytesReader, FileReader, Reader, read_all};
 #[cfg(feature = "http")]
 pub use resource_loader::ResourceLoader;
 pub use source::Source;
+#[cfg_attr(not(feature = "image"), allow(unused_imports))]
 pub(crate) use source::SourceKind;

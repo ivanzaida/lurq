@@ -449,6 +449,9 @@ pub(crate) fn set_in_loop_turn(in_turn: bool) {
 struct WindowInner {
   #[cfg(feature = "mcp")]
   accepted_close: bool,
+  /// The file dialog broker of the tree the window is of, where the tree registered one.
+  #[cfg(feature = "mcp")]
+  file_dialogs: crate::mcp::ServingBroker,
   /// How many times the window lost focus; input an MCP client holds is released by the next loss.
   #[cfg(feature = "mcp")]
   focus_losses: u64,
@@ -515,6 +518,8 @@ impl Window {
         #[cfg(feature = "mcp")]
         accepted_close: false,
         #[cfg(feature = "mcp")]
+        file_dialogs: crate::mcp::ServingBroker::default(),
+        #[cfg(feature = "mcp")]
         focus_losses: 0,
         info: WindowInfo {
           x: 0,
@@ -562,6 +567,22 @@ impl Window {
   /// The system's handles of the window, where the shell recorded them.
   pub(crate) fn parent(&self) -> Option<parent::ParentWindow> {
     self.inner.read().unwrap().parent
+  }
+
+  /// Tells the window which file dialog broker serves it: its tree's.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn serve_file_dialogs(&self, broker: &crate::mcp::ServingBroker) {
+    if self.inner.read().unwrap().file_dialogs.is(broker) {
+      return;
+    }
+    self.inner.write().unwrap().file_dialogs = broker.clone();
+  }
+
+  /// The file dialog broker of the window's tree, while it lives: what a dialog of lurq's own over this window
+  /// asks in place of the system.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn file_dialog_broker(&self) -> Option<crate::mcp::FileDialogBroker> {
+    self.inner.read().unwrap().file_dialogs.broker()
   }
 
   pub(crate) fn set_app_event_handler(&self, handler: Option<AppEventHandler>) {

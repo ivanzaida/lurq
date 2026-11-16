@@ -389,6 +389,37 @@ an alias.
   `ui::Highlight`, the type roles `Heading1` to `Heading6`, `Prose` and `Article`, `TextStyle::case`,
   `ElementRef::observe_rect_before_paint`, `Stage::first_frame`.
 
+## What the twelfth batch taught
+
+- **Find out first whether it exists.** Of 29 families the board draws apart, ten were a form of a component
+  already there. A brief names the neighbours to read and says that what exists is not built twice; the report
+  says for each family what an app writes, also when the answer is "it was there".
+- **A brief that contradicts a decision is the brief's fault, and is undone.** One told an agent to stop spinners
+  under reduced motion, against the plan's "it turns under reduced motion too". Before writing a rule into a brief,
+  search the plan and the docs for the thing it is about.
+- **Every check the branch will meet at the merge is in the brief**, with its features. Three were not, and each
+  broke the branch for a time: the gallery with `devtools` (a value a page keeps in a signal must be inspectable:
+  `inspectable!` in `ui/mod.rs`), the tests without `canvas` and `raster` (a test file that decodes a picture is
+  behind the feature), and the guard of a phone's width over every page (`cargo test -p gallery`).
+- **A test does not read the machine's clock.** Three clocks can be set: `Tree::set_animation_clock`,
+  `Tree::set_press_clock` (a double press, a double click in text, a click held back) and `Tree::set_timer_clock`
+  (`Stage::presses_at`, `Stage::own_timers`). A test that sleeps, or that passes only when two presses land within
+  half a second of real time, fails on a loaded machine: six builds at once found five of them in a day.
+- **A part given to a text as well as to its box draws the box twice.** `part.text(..)` is the part's type and
+  color; `.part(&part)` on the element is its box. A badge whose number took both was wider than the board's and
+  its number off its middle.
+- **A merge of lists by keeping both sides can keep a line twice** (`mod sparkline;`, `mod picture;`): compile the
+  tests after it, not only the library.
+- **An agent's kill is by its own process name.** Several galleries run at once; each agent copies its build to
+  `gallery-<name>.exe` and closes that. `taskkill //IM gallery.exe` is nobody's.
+- **Handing work to another agent**: the one that stops commits everything (what is unfinished as `wip:` with its
+  state said), leaves the tree clean and writes a handover of what the code does not say. The one that starts
+  reads it before anything and trusts it over its guesses.
+- **What a batch may use now**: the components of 14.26; `Field::fluid` and `Field::info`; `Breadcrumb::path`;
+  `Fieldset`'s `GroupBox`; `ListItem`'s setting rows; `.drag_autoscroll`; `Overlay::traps_tab`;
+  `ElementRef::add_rect_observer`; `Ctx::scroll_to_top_of`, `scroll_state_to`, `scroll_into_view_start`;
+  `FileDialog::pick_folder` and `pick_save`; `TextInput::paragraphs`, `squiggles`, `ghost`; the theme's caret.
+
 ## What the tenth batch taught
 
 - **A change of a rule the engine shares runs every suite before it is committed.** A session's own filtered tests

@@ -279,3 +279,101 @@ fn what_sticks_beside_an_element_takes_no_room_from_it_and_what_sticks_over_it_d
     rect.y
   );
 }
+
+/// A page that asks for one of its items at the start of the view, once `ask` is set.
+struct StartPage;
+
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct StartProps {
+  #[devtools_ignore]
+  target: ElementRef,
+  #[devtools_ignore]
+  ask: Signal<Option<usize>>,
+}
+
+impl PartialEq for StartProps {
+  fn eq(&self, _: &Self) -> bool {
+    true
+  }
+}
+
+impl Component for StartPage {
+  type Props = StartProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<StartProps>().clone();
+    let asked = props.ask.get();
+    if asked.is_some() {
+      ctx.scroll_into_view_start(&props.target);
+    }
+    let mut column = Column::new();
+    for index in 0..10 {
+      let mut item = button(index);
+      if Some(index) == asked {
+        item = item.ref_element(props.target.clone());
+      }
+      column = column.child(item);
+    }
+    ScrollVertical::new(column).height(VIEW)
+  }
+}
+
+#[test]
+fn ctx_scroll_into_view_start_brings_the_top_of_an_element_to_the_top_of_the_view() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  let ask = Signal::new(None);
+  tree.mount_root::<StartPage>(
+    &mut app,
+    StartProps {
+      target: ElementRef::new(),
+      ask: ask.clone(),
+    },
+  );
+  tree.pass_headless(&mut app);
+
+  // An element below the view: its top comes to the top, where nearest would bring its end to the bottom.
+  ask.set(Some(4));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  assert!(
+    (bounds(&mut tree, "item-4").y).abs() < 0.5,
+    "item-4 top = {}",
+    bounds(&mut tree, "item-4").y
+  );
+
+  // An element already in view moves to the top too.
+  ask.set(Some(5));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  assert!(
+    (bounds(&mut tree, "item-5").y).abs() < 0.5,
+    "item-5 top = {}",
+    bounds(&mut tree, "item-5").y
+  );
+
+  // Near the end of what scrolls it goes as far as the content lets it: the last item ends at the view's end.
+  ask.set(Some(9));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  let last = bounds(&mut tree, "item-9");
+  assert!(
+    (last.y + last.height - VIEW).abs() < 0.5,
+    "item-9 end = {}",
+    last.y + last.height
+  );
+
+  // And back up, above the view.
+  ask.set(Some(1));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  assert!(
+    (bounds(&mut tree, "item-1").y).abs() < 0.5,
+    "item-1 top = {}",
+    bounds(&mut tree, "item-1").y
+  );
+}

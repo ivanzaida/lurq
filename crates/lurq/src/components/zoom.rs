@@ -35,6 +35,7 @@ pub struct ZoomScrollProps {
   double_tap: Option<f32>,
   wheel: Option<f32>,
   drag: bool,
+  bars: bool,
   zoom: Option<Signal<f32>>,
   scroll: Option<ScrollState>,
 }
@@ -62,6 +63,7 @@ impl ZoomScrollProps {
       double_tap: Some(2.0),
       wheel: None,
       drag: false,
+      bars: true,
       zoom: None,
       scroll: None,
     }
@@ -94,6 +96,13 @@ impl ZoomScrollProps {
   /// list by dragging it.
   pub fn drag_pan(mut self, drag: bool) -> Self {
     self.drag = drag;
+    self
+  }
+
+  /// Whether the scroll bars show where the content is larger than the view: they do unless told. A viewer
+  /// that pans by a drag and by the keys, over a picture's black, shows none.
+  pub fn scrollbars(mut self, bars: bool) -> Self {
+    self.bars = bars;
     self
   }
 
@@ -254,32 +263,36 @@ impl Component for ZoomScroll {
     let mut list = ScrollBoth::new(area)
       .with_scroll_state(scroll.clone())
       .ref_element(self.view.clone())
-      .size(FILL, FILL)
-      .on_pinch({
-        let (held, go, point_at, view) = (self.held.clone(), go.clone(), point_at.clone(), self.view.clone());
-        move |event: PinchEvent| {
-          event.stop_propagation();
-          match event.phase {
-            GesturePhase::Start => {
-              let (zoom, point, _) = point_at(event.x, event.y);
-              *held.lock() = Some(Held { zoom, point });
-            }
-            GesturePhase::Change => {
-              if let Some(held) = &*held.lock() {
-                // The point the fingers took stays under their middle, wherever that goes.
-                go(
-                  held.zoom * event.scale,
-                  held.point,
-                  (event.x - view.x(), event.y - view.y()),
-                );
-              }
-            }
-            GesturePhase::End => {
-              held.lock().take();
+      .size(FILL, FILL);
+    // Bars in the theme's style, unless told none.
+    if !props.bars {
+      list = list.scrollbar(crate::layout::scrollbar::ScrollBarStyle::hidden());
+    }
+    list = list.on_pinch({
+      let (held, go, point_at, view) = (self.held.clone(), go.clone(), point_at.clone(), self.view.clone());
+      move |event: PinchEvent| {
+        event.stop_propagation();
+        match event.phase {
+          GesturePhase::Start => {
+            let (zoom, point, _) = point_at(event.x, event.y);
+            *held.lock() = Some(Held { zoom, point });
+          }
+          GesturePhase::Change => {
+            if let Some(held) = &*held.lock() {
+              // The point the fingers took stays under their middle, wherever that goes.
+              go(
+                held.zoom * event.scale,
+                held.point,
+                (event.x - view.x(), event.y - view.y()),
+              );
             }
           }
+          GesturePhase::End => {
+            held.lock().take();
+          }
         }
-      });
+      }
+    });
     if let Some(step) = props.wheel {
       let (go, point_at) = (go.clone(), point_at.clone());
       list = list.on_wheel(move |event: ScrollEvent| {

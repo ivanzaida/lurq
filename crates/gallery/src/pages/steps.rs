@@ -98,7 +98,8 @@ impl StepsPage {
       .force(self.playground.forced())
       .on_change(move |index| record(format!("on_change({index})")));
     // A handler makes the steps that are done pressable: the playground gives one only where they are. Mounted,
-    // the steps take the form the stage has room for: their titles under the marks, then down the page.
+    // the steps take the form the stage has room for: pressed, their titles under the marks, then down the page;
+    // only read, the board's progress of a phone.
     let shown = if pressable { steps } else { plain() };
 
     let mut code = vec!["// at: Signal<usize>".to_owned(), "Steps::new(at.clone(), [".to_owned()];

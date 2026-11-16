@@ -221,6 +221,8 @@ pub(crate) struct OverlaySpec {
   /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
   /// see [`Overlay::tab_after_anchor`].
   pub(crate) tab_after_anchor: bool,
+  /// Whether Tab stays in the overlay while the focus is in it: see [`Overlay::traps_tab`].
+  pub(crate) traps_tab: bool,
   /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
   pub(crate) at: Option<(f32, f32)>,
 }
@@ -327,6 +329,7 @@ impl OverlaySpec {
       on_dismiss: self.on_dismiss.clone(),
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
+      traps_tab: self.traps_tab,
       at: self.at,
     }
   }
@@ -460,6 +463,7 @@ pub struct Overlay {
   switch_on_anchor_press: bool,
   takes_focus: bool,
   tab_after_anchor: bool,
+  traps_tab: bool,
   at: Option<(f32, f32)>,
 }
 
@@ -482,6 +486,7 @@ impl Overlay {
       switch_on_anchor_press: true,
       takes_focus: false,
       tab_after_anchor: false,
+      traps_tab: false,
       at: None,
     }
   }
@@ -594,6 +599,24 @@ impl Overlay {
     self
   }
 
+  /// Whether Tab stays in the overlay while the focus is in it, as it stays in a modal: from its last element
+  /// Tab goes to its first, and Shift+Tab from its first to its last, where it would go on to what follows its
+  /// anchor. For an overlay a person is to finish before going on that is no modal: the card of a tour.
+  ///
+  /// - It holds Tab only while the focus is in it, or in an overlay that hangs from an element of it. With the focus on
+  ///   the page Tab goes through the page, and into the overlay after its anchor.
+  /// - It does not close the page to the pointer, and Escape and a press outside close it as its other settings say. As
+  ///   it closes the focus goes back as [`Self::takes_focus`] says.
+  /// - A modal opened over it holds Tab itself.
+  /// - With nothing in it that takes the focus, Tab does nothing while the focus is in it.
+  ///
+  /// Its elements are in the order of Tab right after its anchor's, as with [`Self::tab_after_anchor`]. Off by
+  /// default.
+  pub fn traps_tab(mut self, traps: bool) -> Self {
+    self.traps_tab = traps;
+    self
+  }
+
   /// A point of the window, in logical pixels, that the overlay stands at in
   /// place of its anchor: where a secondary press or a long press was, for a
   /// context menu. `None`, the default, places it by its anchor.
@@ -632,6 +655,7 @@ impl Overlay {
       on_dismiss: self.on_dismiss,
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
+      traps_tab: self.traps_tab,
       at: self.at,
     })
   }
@@ -732,6 +756,24 @@ impl Interval {
   }
 }
 
+thread_local! {
+  /// The moment a timer started on this thread takes as now, where a test drives time itself
+  /// ([`set_timer_clock`]): the wall clock where there is none.
+  static TIMER_CLOCK: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Has every timer started or restarted on this thread from now on count its delay from `now`, until set back to
+/// `None`: `Tree::tick_timers_at` then fires it at moments a test counts from its own clock, however long the
+/// machine takes between them.
+pub(crate) fn set_timer_clock(now: Option<Instant>) {
+  TIMER_CLOCK.with(|clock| clock.set(now));
+}
+
+/// The moment a timer starts at: the test's, or the wall clock's.
+fn timer_now() -> Instant {
+  TIMER_CLOCK.with(std::cell::Cell::get).unwrap_or_else(Instant::now)
+}
+
 impl Timer {
   fn new(
     duration: Duration,
@@ -751,7 +793,7 @@ impl Timer {
   }
 
   fn start(&self) {
-    let now = Instant::now();
+    let now = timer_now();
     let wake = {
       let mut inner = self.inner.lock();
       if inner.next_fire.is_some() {
@@ -764,7 +806,7 @@ impl Timer {
   }
 
   fn restart(&self) {
-    self.restart_at(Instant::now());
+    self.restart_at(timer_now());
   }
 
   fn restart_at(&self, now: Instant) {
@@ -823,12 +865,16 @@ impl Timer {
 struct ElementRequests {
   focus: Option<ElementRef>,
   scroll_into_view: Option<ElementRef>,
+  /// An element to scroll to the start of what scrolls it.
+  scroll_into_view_start: Option<ElementRef>,
   /// A range of a text to scroll into view, in bytes of its content.
   scroll_range_into_view: Option<(ElementRef, std::ops::Range<usize>)>,
   blur: bool,
   scroll_to_top: bool,
   /// The scroll containers to take to their tops, by their states.
   scroll_states_to_top: Vec<crate::layout::layout_kind::ScrollState>,
+  /// The scroll containers to take to an offset, by their states: the last asked of each.
+  scroll_states_to: Vec<(crate::layout::layout_kind::ScrollState, f32, f32)>,
 }
 
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
@@ -2550,6 +2596,20 @@ impl Ctx {
     self.wake_window();
   }
 
+  /// Scrolls an element to the start of what scrolls it after the current render is laid out: every scroll
+  /// container around it that scrolls down brings the element's top to the top of its viewport, as far as its
+  /// content lets it, and one that scrolls sideways moves by the smallest amount that shows it: the web's
+  /// `scrollIntoView({ block: "start", inline: "nearest" })`. What a list of a page's sections does when one of
+  /// them is pressed. The top it is brought to is clear of what sticks to the container's top, as
+  /// [`Ctx::scroll_into_view`] keeps clear of it.
+  ///
+  /// The ref may be attached by the render that follows this call. Requests for refs absent from that tree are
+  /// ignored. The last request wins.
+  pub fn scroll_into_view_start(&self, element: &ElementRef) {
+    self.element_requests.lock().scroll_into_view_start = Some(element.clone());
+    self.wake_window();
+  }
+
   /// Scrolls a range of a text into view after the current render is laid
   /// out, as [`Ctx::scroll_into_view`] scrolls an element: the lines bytes
   /// `range` of the text's content cover, and no more, are brought into
@@ -2589,6 +2649,7 @@ impl Ctx {
     let requests = self.element_requests.lock();
     requests.focus.is_some()
       || requests.scroll_into_view.is_some()
+      || requests.scroll_into_view_start.is_some()
       || requests.scroll_range_into_view.is_some()
       || requests.blur
       || requests.scroll_to_top
@@ -2636,6 +2697,23 @@ impl Ctx {
     std::mem::take(&mut self.element_requests.lock().scroll_states_to_top)
   }
 
+  /// Scrolls the container `state` is the state of to the offset `(x, y)`, after the current render: over
+  /// the frames that follow, on the curve a mouse's wheel scrolls by, and at once while motion is reduced or
+  /// the theme's smooth scroll is off. The offset is held to the content. A wheel or a finger that scrolls the
+  /// container meanwhile stops it where it is, and a second request before the render is applied replaces
+  /// the first. What a carousel turns to a slide with ([`Carousel`](crate::ui::Carousel)).
+  pub fn scroll_state_to(&self, state: &crate::layout::layout_kind::ScrollState, x: f32, y: f32) {
+    let mut requests = self.element_requests.lock();
+    requests.scroll_states_to.retain(|(asked, ..)| !asked.same(state));
+    requests.scroll_states_to.push((state.clone(), x, y));
+    drop(requests);
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_states_to(&self) -> Vec<(crate::layout::layout_kind::ScrollState, f32, f32)> {
+    std::mem::take(&mut self.element_requests.lock().scroll_states_to)
+  }
+
   /// How far in from each edge of the window this component's content stays clear of what is over it there:
   /// the window's [`safe_area`](crate::app::window::WindowInfo), and at the bottom also the bar a component
   /// around this one draws over its content, as a `TabOutlet` does. Content
@@ -2662,6 +2740,10 @@ impl Ctx {
 
   pub(crate) fn take_scroll_into_view_request(&self) -> Option<ElementRef> {
     self.element_requests.lock().scroll_into_view.take()
+  }
+
+  pub(crate) fn take_scroll_into_view_start_request(&self) -> Option<ElementRef> {
+    self.element_requests.lock().scroll_into_view_start.take()
   }
 
   pub fn element_ref_mut(&mut self) -> ElementRefMut {

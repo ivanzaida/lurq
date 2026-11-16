@@ -8,7 +8,7 @@ use super::{
   icons, names,
   part_style::{FontFamily, Length, Opacity, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  text_box::TextBoxSize,
+  text_box::{self, TextBoxSize},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -96,6 +96,9 @@ pub enum SelectState {
   FullWidth,
   /// Of an item, resolved on its parts: it is the one chosen. Its rules are for `Item` and `Check`.
   Selected,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its trigger, over
+  /// what is chosen.
+  Fluid,
 }
 
 names!(SelectState {
@@ -107,6 +110,7 @@ names!(SelectState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Selected => "selected",
+  Fluid => "fluid",
 });
 
 /// What builds a select's nodes: a theme's in place of the default one.
@@ -151,6 +155,7 @@ pub struct Select<V = ()> {
   read_only: bool,
   disabled: bool,
   full_width: bool,
+  fit_options: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -216,6 +221,7 @@ impl<V: 'static> Select<V> {
       read_only: false,
       disabled: false,
       full_width: false,
+      fit_options: false,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -293,6 +299,13 @@ impl<V: 'static> Select<V> {
   /// Whether the select is as wide as what holds it, in place of the design's 260.
   pub fn full_width(mut self, full_width: bool) -> Self {
     self.full_width = full_width;
+    self
+  }
+
+  /// Whether the list is as wide as its longest option, in place of as wide as its trigger: for a trigger that
+  /// hugs the one value it shows, as a toolbar's control does. The panel's `min_width` still holds.
+  pub fn fit_options(mut self, fit_options: bool) -> Self {
+    self.fit_options = fit_options;
     self
   }
 
@@ -379,6 +392,7 @@ impl<V: 'static> Select<V> {
       case,
       rules: self.rules,
       forced: self.forced,
+      fit_options: self.fit_options,
       choices: Arc::from(choices),
       name: self.name,
       id: self.id,
@@ -464,6 +478,8 @@ pub struct SelectView {
   case: Case,
   rules: Recipe,
   forced: Option<Interaction>,
+  /// Whether the list is as wide as its longest option.
+  fit_options: bool,
   choices: Arc<dyn Choices>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -495,7 +511,7 @@ impl SelectView {
   /// under the pointer or the keys, chosen and disabled, with its check and
   /// its detail.
   pub fn select_style(&self) -> SelectStyle {
-    engine_style(&self.recipe, self.forced, &|state| self.in_state(state))
+    engine_style(&self.recipe, self.forced, &|state| self.in_state(state)).menu_fits_options(self.fit_options)
   }
 
   /// The engine's select bound to the value and its options, in `style`, with
@@ -622,6 +638,11 @@ pub(crate) fn engine_style(
   if let Some(height) = px(menu.height, theme) {
     style = style.max_menu_height(height);
   }
+  // The list is as wide as its trigger, or as its least width where that is more: a narrow trigger's list holds
+  // its options whole.
+  if let Some(width) = px(menu.min_width, theme) {
+    style = style.min_menu_width(width);
+  }
 
   let item = recipe.part(Item);
   let chosen = in_state(SelectState::Selected.into()).part(Item);
@@ -700,8 +721,15 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
   if let Some(color) = &style.background {
     part = part.background(color.clone());
   }
-  if let Some(border) = &style.border {
-    part = part.border_custom(Borders::all(border.clone()));
+  // A line along the bottom is laid over the border of every side, as on any part.
+  match (&style.border, &style.underline) {
+    (Some(border), None) => part = part.border_custom(Borders::all(border.clone())),
+    (border, Some(line)) => {
+      let mut borders = border.clone().map(Borders::all).unwrap_or_default();
+      borders.bottom = Some(line.clone());
+      part = part.border_custom(borders);
+    }
+    (None, None) => {}
   }
   if let Some(radius) = style.radius {
     part.border_radius = Some(radius);
@@ -731,7 +759,7 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
         .left(start.unwrap_or(none)),
     );
   }
-  if let Some(height) = px(style.height, theme) {
+  if let Some(height) = px(style.height, theme).or_else(|| px(style.min_height, theme)) {
     part = part.min_height(height);
   }
   if style.sets_text() {
@@ -853,7 +881,7 @@ impl<V: 'static> Themed for Select<V> {
           .cursor(CursorIcon::Default)
       });
     // A judgment keeps its color under the pointer, in the focus and while open.
-    [
+    let recipe = [
       (SelectState::Invalid, Destructive),
       (SelectState::Warning, PaletteColor::Warning),
       (SelectState::Valid, Success),
@@ -870,6 +898,37 @@ impl<V: 'static> Themed for Select<V> {
         })
         .when(Selector::new().state(state).state(SelectState::Open), Trigger, |s| {
           s.outline(ring(color))
+        })
+    });
+    // In a fluid field the trigger is the fluid box, what is chosen on the line under the field's label; its line
+    // says what its edge says.
+    let fluid = || Selector::new().state(SelectState::Fluid);
+    let recipe = recipe
+      .state(SelectState::Fluid, Trigger, |s| {
+        text_box::fluid_box(s)
+          .width(Length::Fill)
+          .height(text_box::FLUID_HEIGHT)
+      })
+      .when(fluid().hovered(), Trigger, |s| text_box::fluid_line(s, Ring))
+      .when(fluid().state(SelectState::ReadOnly), Trigger, |s| {
+        text_box::fluid_line(s, PaletteColor::Border)
+      })
+      .when(fluid().state(SelectState::ReadOnly).hovered(), Trigger, |s| {
+        text_box::fluid_line(s, PaletteColor::Border)
+      });
+    [
+      (SelectState::Invalid, Destructive),
+      (SelectState::Warning, PaletteColor::Warning),
+      (SelectState::Valid, Success),
+    ]
+    .into_iter()
+    .fold(recipe, |recipe, (state, color)| {
+      recipe
+        .when(fluid().state(state), Trigger, |s| {
+          text_box::fluid_line(s, color.clone())
+        })
+        .when(fluid().state(state).hovered(), Trigger, |s| {
+          text_box::fluid_line(s, color)
         })
     })
   }
@@ -888,6 +947,13 @@ impl<V: 'static> super::FieldControl for Select<V> {
       self.valid = field.judgment == Some(super::Judgment::Valid);
     }
     self.disabled |= field.disabled;
+    if field.fluid {
+      self = self.state(SelectState::Fluid, true);
+    }
     self.into()
+  }
+
+  fn has_fluid_form(&self) -> bool {
+    true
   }
 }

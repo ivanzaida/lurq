@@ -30,6 +30,7 @@ mod bar_chart;
 mod bar_list;
 mod blockquote;
 mod breadcrumb;
+pub(crate) mod bulleted_list;
 mod button;
 mod button_group;
 mod calendar;
@@ -37,6 +38,7 @@ mod callout;
 mod card;
 #[cfg(feature = "canvas")]
 mod chart;
+mod carousel;
 mod checkbox;
 mod chip;
 mod choice_card;
@@ -60,13 +62,17 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
+mod event_calendar;
+mod expandable_tile;
 mod fab;
 mod field;
 mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
 #[cfg(feature = "canvas")]
 mod gauge;
 #[cfg(feature = "canvas")]
@@ -99,14 +105,17 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
+mod notification_center;
 mod number_input;
 mod opening_rows;
 mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
-mod picture;
+mod path_field;
 mod persona;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -120,6 +129,8 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod recipe;
+#[cfg(feature = "markdown")]
+mod rich_text_editor;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
@@ -130,6 +141,7 @@ mod select;
 mod selection;
 mod selection_marquee;
 mod separator;
+mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
@@ -147,6 +159,7 @@ mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -165,6 +178,7 @@ mod token_input;
 mod token_list;
 mod toolbar;
 mod tooltip;
+mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
@@ -202,7 +216,11 @@ pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRo
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
-  BreadcrumbStep, BreadcrumbView,
+  BreadcrumbStep, BreadcrumbVariant, BreadcrumbView,
+};
+pub use bulleted_list::{
+  BulletedList, BulletedListItem, BulletedListMarker, BulletedListPart, BulletedListRenderer, BulletedListState,
+  BulletedListView,
 };
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
@@ -291,14 +309,22 @@ pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use drop_zone::{
   DropZone, DropZonePart, DropZoneRenderer, DropZoneState, DropZoneView, RejectReason, RejectedFile,
 };
+pub use editable::{Editable, EditablePart, EditableRenderer, EditableState, EditableView};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
+};
+pub use event_calendar::{
+  CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarForm, EventCalendarPart, EventCalendarPeriod,
+  EventCalendarRenderer, EventCalendarState, EventCalendarView, ShownEvent,
+};
+pub use expandable_tile::{
+  ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
-  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
+  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetVariant, FieldsetView,
 };
 pub use file_upload::{
   FileUpload, FileUploadPart, FileUploadRenderer, FileUploadState, FileUploadView, UploadFile, UploadState,
@@ -308,6 +334,7 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
+pub use gallery::{GALLERY_LEAST_PICTURE, Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 #[cfg(feature = "canvas")]
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 #[cfg(feature = "canvas")]
@@ -332,6 +359,7 @@ pub use kbd::{
   KbdVariant, KbdView, KeyPlatform,
 };
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
+pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
@@ -376,6 +404,13 @@ pub use navigation_menu::{
   NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
   NavigationMenuVariant, NavigationMenuView,
 };
+pub use notification::{
+  Notification, NotificationPart, NotificationRenderer, NotificationState, NotificationVariant, NotificationView,
+};
+pub use notification_center::{
+  NotificationCenter, NotificationCenterPart, NotificationCenterRenderer, NotificationCenterState,
+  NotificationCenterView,
+};
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
   NumberInputState, NumberInputView,
@@ -390,12 +425,15 @@ pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
 };
-pub use picture::{
-  PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
-  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
-  PictureState, PictureView,
+pub use path_field::{
+  PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
 };
 pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
+pub use picture::{
+  PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
+  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall, PictureState,
+  PictureView,
+};
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use play_button::{
@@ -429,6 +467,11 @@ pub use rating::{
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
+#[cfg(feature = "markdown")]
+pub use rich_text_editor::{
+  RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor, RichTextEditorPart,
+  RichTextEditorRenderer, RichTextEditorState, RichTextEditorView, RichTextFormat, RichTextTool,
+};
 #[cfg(feature = "canvas")]
 pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};
 pub use scroll_area::{
@@ -448,6 +491,9 @@ pub use selection_marquee::{
   SelectionMarqueeView,
 };
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
+pub use settings_card::{
+  SettingsCard, SettingsCardPart, SettingsCardRenderer, SettingsCardState, SettingsCardView,
+};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{
@@ -507,6 +553,10 @@ pub use table::{
   TableGroup, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState, TableSummary, TableTextError,
   TableView, TextMatch, in_tracks, to_csv, to_delimited, to_tsv,
 };
+pub use table_of_contents::{
+  TableOfContents, TableOfContentsEntry, TableOfContentsPart, TableOfContentsRenderer, TableOfContentsState,
+  TableOfContentsView,
+};
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
 pub use teaching_tip::{
@@ -546,6 +596,10 @@ pub use toolbar::{
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tray_popover::{
+  TrayAction, TrayItem, TrayPopover, TrayPopoverPart, TrayPopoverRenderer, TrayPopoverState, TrayPopoverView,
+  TrayStatusVariant, TrayToggle,
 };
 pub use tree_select::{
   TreeSelect, TreeSelectPart, TreeSelectRenderer, TreeSelectSize, TreeSelectState, TreeSelectView,
@@ -627,6 +681,7 @@ inspectable!(
   breadcrumb::BreadcrumbSeparator,
   button::ButtonShape,
   calendar::CalendarChoice,
+  event_calendar::EventCalendarForm,
   choice_card::ChoiceCardKind,
   color_picker::ColorFormat,
   color_swatch::ColorSwatchShape,

@@ -59,11 +59,15 @@ pub enum SearchFieldState {
   Filled,
   /// It is as wide as what holds it.
   FullWidth,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(SearchFieldState {
   Filled => "filled",
   FullWidth => "full_width",
+  Fluid => "fluid",
 });
 
 /// The sizes of a search field: an input's.
@@ -327,6 +331,10 @@ impl FieldControl for SearchField {
     self.disabled = self.input.boxed.disabled;
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl From<SearchField> for Element {
@@ -476,14 +484,18 @@ impl Themed for SearchField {
   /// padded 10 at its start and 8 at its end, the search icon of 16 in the muted foreground 8 before the text.
   /// While it holds something a clear button of 16 in the muted foreground is at its end, in the foreground under
   /// the pointer; while it is empty, the hint of its key: 20 high, padded 6, 4 round on the muted fill in an edge
-  /// of 1 in the border's color, in the mono type of 11 in the muted foreground.
+  /// of 1 in the border's color, in the mono type of 11 in the muted foreground. In a fluid field the box is the
+  /// input's fluid one, as wide as the field and padded 12 at its start, where the field's label starts; the icon, the
+  /// clear button and the hint are on the line of the query.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, Muted, MutedForeground};
     use SearchFieldPart::{Clear, Control, Root, Shortcut, Trailing};
     Recipe::new()
       .base(Root, |s| s.width(280.0).max_width(Length::Fill))
       .state(SearchFieldState::FullWidth, Root, |s| s.width(Length::Fill))
+      .state(SearchFieldState::Fluid, Root, |s| s.width(Length::Fill))
       .base(Control, |s| s.padding_start(10.0).padding_end(8.0))
+      .state(SearchFieldState::Fluid, Control, |s| s.padding_start(12.0))
       .base(Trailing, |s| s.gap(8.0))
       .base(Clear, |s| {
         fading(

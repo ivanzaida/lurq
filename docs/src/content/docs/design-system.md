@@ -336,6 +336,7 @@ Button::new("Saving…").loading(saving.get());
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
 | `id(id)`, `key(key)`, `submit(bool)` | Its id and key; with the `form` feature, the button that submits the form it is in |
+| `ref_element(element)`, `focuses(&ElementRef)` | The ref of its element, which an app focuses or measures; and what a press of it gives the focus to, in place of taking it itself: the text a button of an editor's bar works on |
 
 | Size | Height | Padding | Label | Icon |
 | --- | --- | --- | --- | --- |
@@ -385,6 +386,7 @@ Toggle::new("Bold")
 | `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
 | `leading(element)` | An element before the label, where an icon by name is not enough: the dot of a recording. It stands before an icon that is given too |
 | `size(size)` | A `ToggleSize` (a `ButtonSize`): a toggle is as high as a button of that size |
+| `focuses(&ElementRef)` | What a press of it gives the focus to, in place of taking it itself: the text a toggle of an editor's bar works on. It is still a stop of Tab |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
 Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
@@ -579,6 +581,7 @@ Input::new(email.clone()).invalid(!email_ok);
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent`; `prevent_default()` refuses it |
 | `on_submit(Fn(&str))` | Called with what it holds when Enter is pressed in it, with no modifier and outside a composition. A second handler is called after the first |
+| `completion(&str)`, `squiggles(ranges)` | What would complete what is typed, drawn after it and taken by Tab; and wavy lines under ranges of its text, what the app's spelling checker marks. See [text editing](#text-editing) |
 | `name(..)` | The name of its value in a form (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, the box that is typed in |
 
@@ -629,6 +632,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 | `info(&str)` | What the label needs explained: the mark of an [info label](#info-label) after the label, 6 after what is before it, with the words in a tooltip above it. The tooltip shows on a field that is mounted (`mount(ctx)`), and the mark is then the field's first stop of Tab; on one converted into an element the mark says the words to tooling alone |
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `fluid(bool)` | The label inside the box of the control, over what it holds: a [fluid field](#fluid-field) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 | `mount(ctx)` | The field built where it is declared, its control mounted: see below. Converting it (`.into()`) builds it with its control as it is |
 
@@ -648,13 +652,54 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - The field's description, or its error while it has one, is the control's description to what reads the tree (`a11y_description`), whatever the control: the field puts it on each outermost node in the control that says what it is (`a11y_role`) or takes the focus, so a radio group is described and not each radio in it. `lurq_inspect` reports it as `description`.
 - A press of the label focuses the control: the first node under what holds it that takes the focus (`.focuses(&ElementRef)` on the label, the ref on the row that holds the control). A control that is disabled is not focused, and a disabled field's label focuses nothing. A renderer that holds the control another way puts `view.focus` on what holds it.
 - An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
-- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
+- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Fluid`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
 
 **In a narrow room.** A field whose label stands beside its control puts the label over the control where the
 field's own room, not the window's, is narrower than the two need side by side: the label is then as high as its
-text, and the control fills the row under it. With room again they stand side by side.
+text, and the control fills the row under it. With room again they stand side by side. The board draws the label beside its control (Fieldset, the horizontal field) and no narrow form of it: the label over the control is the form of its other fields.
 
+### Fluid Field
+
+A field whose label is inside the box of its control, over the value: the design's Fluid Field (`imRnW`), for a form whose fields stand edge to edge. It is a form of the field, `Field::fluid(true)`, for the controls that have a fluid form, which every text control a field holds has: an [input](#input), a [textarea](#textarea), a [select](#select), a [password input](#password-input), a [search field](#search-field), a [number input](#number-input), a [combobox](#combobox), a [multi select](#multi-select), a [date field](#date-field), a [time field](#time-field), a [date picker](#date-picker), a [date range picker](#date-range-picker), a [time picker](#time-picker), a [token input](#token-input), a [mentions field](#mentions) and a [color field](#color-field). A month picker and a year picker are panels of a grid, not boxes that hold a value: they have no fluid form.
+
+```rust
+use lurq::ui::{DatePicker, Field, Input, NumberInput, Select, Textarea};
+
+Field::new("Workspace name", Input::new(name.clone())).fluid(true);
+
+Field::new("Notes", Textarea::new(notes.clone()).rows(2, 5))
+  .fluid(true)
+  .description("Shown to everyone in the workspace.");
+
+Field::new("Theme", Select::new(theme.clone(), [("system", "System"), ("dark", "Dark")]))
+  .fluid(true)
+  .required(true);
+
+Field::new("Seats", NumberInput::new(seats.clone()).min(1)).fluid(true);
+
+// A control that keeps something between renders is mounted by the field, and has the form there too.
+Field::new("Due date", DatePicker::new(due.clone()).clearable(true))
+  .fluid(true)
+  .mount(ctx);
+```
+
+- The control is the box, as wide as the field: on `Muted`, round at its top (6) and square at its bottom, with a line of 1 in `Foreground` along its bottom and no edge on its other sides. The label lies over its top, 12 from its sides and 10 from its top, in a caption's type (12) and `MutedForeground`, on one line, cut with an ellipsis where the box is narrower; the mark of a required or an optional field is after it, and the mark that explains it (`Field::info`) after that, which alone of the label takes the pointer, for its tooltip: a press elsewhere on the label goes to the control. What the control holds is 4 under the label's line and 10 over the bottom: a control of one line is 56 high, a textarea as high as its rows and the 39 around them. The field is 240 wide, or as wide as what holds it (`full_width`).
+- The line says what the edge of a box says, where the board is silent: the ring's color under the pointer, `Destructive`, `Warning` or `Success` for the field's judgment (an error makes it destructive, as in any field), `Border` when the control is read only. The focus is a line of 2 inside the box, as an input's is. A disabled one is at half its opacity.
+- The description, or the error, is 6 under the box, as any field's. A press of the label goes to the control under it: an input takes the caret, a select opens.
+- What stands in the box beside the value stands on the line of the value, under the label, and not in the middle of the box: an input's icon, a password's eye, a search's clear button, a picker's button, a color's swatch. The board draws the form for an input alone; the others follow it, each with what is particular to it:
+  - A password input has its eye 12 from the end of the box; its meter and what the meter says are under the box, as wide as it.
+  - A search field is padded 12 at its start, so that its icon starts where the label does; its clear button, or the hint of its key while it is empty, is at its end.
+  - A number input has its buttons on the line of the number, where its layout has them: each 25 high with the small radius, from the label's line to 4 under the number's, and the lines beside them as high. Stacked, they are one over the other about the number's line, down to the line of the box.
+  - A combobox is a select's fluid trigger: what is typed, the cross that clears and the chevrons are on one line.
+  - A multi select is at least 56 high. A tag (24) is higher than a line of text, so its box is padded 26 over its tags and 6 under them, and 12 at its start: with one line of tags, or with none, it is 56, and each line more adds a tag and the 6 between lines.
+  - A date field and a time field are 56 high, their segments and their glyph on one line, padded 9 at the start so that the first segment's text starts where the label does.
+  - A date picker, a date range picker and a time picker are the input's fluid box, with the button that opens the panel, and a clearable date picker's cross, on the line of the value. A time picker, 160 wide on its own, is as wide as the field.
+  - A token input is padded 12 and 56 high on one line, its tokens in the middle of the line of its text; on rows it is as high as its rows (28 each) and the 39 around them.
+  - A mentions field is a token input on rows: its two rows of 21 and the 39 around them, and higher as its text takes more rows.
+  - A color field has its swatch and its eyedropper on the line of the hex; while its picker is open its line is in the ring's color.
+- A control says that it has the form with `FieldControl::has_fluid_form`, and takes it when the field tells it `InField::fluid`: a control of an app's own that wraps an input passes both on. A fluid field of a control that has none (a switch, a slider, a month picker) is drawn as any field, its label above the control. The label is always over the value: a fluid field's `orientation` is not read.
+- States: `FieldState::Fluid` on the field (its `Label` and its `Root`), and on the control the state `Fluid` of its own enum, named `fluid`: `InputState`, `TextareaState`, `SelectState`, `PasswordInputState`, `SearchFieldState`, `NumberInputState`, `ComboboxState` (a multi select's too), `DateFieldState` (a time field's too), `DatePickerState` (a date range picker's too), `TimePickerState`, `TokenInputState`, `MentionsState` and `ColorFieldState`. Its rules are on the part that is the box: the `Control`, the `Trigger` of a select, a combobox and a multi select, the `Root` of a date field and a time field. A renderer of a field has `view.fluid` and `view.fluid_label()`.
 ## Info Label
 
 What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.
@@ -717,6 +762,7 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: the edge in the destructive, warning or success color. One is shown, in that order |
 | `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent` (`new_value` is what it will hold); `prevent_default()` refuses it. A read-only one makes no edit |
+| `squiggles(ranges)` | Wavy lines in `Destructive` under ranges of its text, bytes of it: what the app's spelling checker marks. See [text editing](#text-editing) |
 | `full_width(bool)` | As wide as what holds it, in place of 260: in a form, as wide as its field. The state `FullWidth` |
 | `name(..)` | The name of its text in a form (feature `form`) |
 | `label(&str)` | What it is called, to what reads the tree. It draws nothing: a [field](#field) gives it its own label |
@@ -1021,13 +1067,14 @@ Select::controlled(rows, [(10, "10"), (20, "20"), (50, "50")], move |rows| set_r
 | `read_only(bool)` | What is chosen is read and not changed: the list does not open. It keeps the focus; the trigger is on `Muted` in an edge of `Border`, as a read only input is |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what is chosen: the edge and the ring in the destructive, warning or success color. One is shown, in that order, as an input shows them |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `fit_options(bool)` | Whether its list is as wide as its longest option, with the room of the check, in place of as wide as the trigger: for a trigger as wide as the one value it shows, as a bar's control is. The panel's `min_width` still holds |
 | `label(&str)` | What it is called, to what reads the tree. The field it is in shows its label |
 | `name(..)` | The name of its value in a form, the chosen option's label (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the select's node. `state(SelectState::Open, true)` draws the trigger as it is while open, for a gallery |
 
 - It is the engine's [`Select`](../styling-events/#select) dressed by the recipe, not a second one: a press, or Enter, Space and the arrows from the keyboard, open the list under it (over it where there is no room); the arrows, Home, End and the first letters move through it, skipping disabled options and the groups' labels; Enter or a press chooses, and Escape closes. Tab closes it too and goes on to the next stop, as from a closed select. Tab reaches it wherever it is (`tab_index(0)`); a disabled one does not open and Tab passes it by.
 - It stands beside an [input](#input): the same box, sizes, edge, ring and judgments. The ring is a line of 2 inside the box in `Ring`, shown from the keyboard and while the list is open.
-- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Panel` (the panel of the list: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts (`Item`, `Check`). Sizes: `SelectSize::Sm`, `Md`, `Lg`.
+- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Panel` (the panel of the list: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls, and its least width how wide it is where its trigger is narrower), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts (`Item`, `Check`). Sizes: `SelectSize::Sm`, `Md`, `Lg`.
 - In the design the trigger is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder and a chevron of 16 in `MutedForeground`, 8 apart; `Ring` under the pointer; `Destructive`, `Warning` or `Success` for a judgment, under the pointer, in the focus and open too; disabled is half opaque on `Muted`. The list is 4 under it and as wide, on `Popover` in an edge of `Border`, `radius-lg`, with the theme's middle shadow and 4 of padding. An item is 32 high, its text 8 in, `radius-sm`, in the body's type, on `Highlight` under the pointer or the keys; the chosen one has a check of 16 in `Foreground` at its end, 8 after the label; a disabled one is at 0.45. A hint is 11 in the mono type in `MutedForeground`. A group's label is 11, semibold, in `MutedForeground`, in line with the items' text; a line of 1 in `Border` is between groups, 4 from each.
 - Its options follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch, the steps of a row of 36 (28, 36, 44, 48). The trigger is a control and keeps its size.
 - The engine paints the trigger, the panel and the rows itself, from its `SelectStyle`, not from nodes the recipe styles: of the trigger it takes the fill, the edge, the corners, the shadow, the ring and the padding, at rest, `hovered`, `focus_visible` and in the state `Open`; of an item, the fill, edge, corners, padding, height (at least), type, color and opacity, at rest, `hovered` and in the states `Selected` and `Disabled`; of a group's label, its padding, fill, type and color; of the separator, its fill, height and padding. A transition is not painted.
@@ -1372,7 +1419,7 @@ list along the top is wider than it, they are their overflowing form (the list b
 its end), scrolled to the selected tab, with no frame of the other form, and the list alone again when it fits.
 `overflow(true)` keeps that form whether or not the list fits. Tabs converted into an element on their own cannot
 measure: in a room too narrow they end their labels in an ellipsis, every tab still in the room. A theme's renderer
-gives the box that is the tabs' room `TabsView::room_ref`.
+gives the box that is the tabs' room `TabsView::room_ref`. The form is the board's Tabs/Overflow. Its tabs of a phone (Mobile/Scrollable Tabs: 48 high, labels of 15, scrolled with no buttons) are another dress of the same scrolling list, which an app gives with rules; the room does not choose it.
 
 ## Accordion
 
@@ -1470,10 +1517,10 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 
 ## Breadcrumb
 
-The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on.
+The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on. As a path control, the folders of a path in a bar, as a file manager has them.
 
 ```rust
-use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, icons};
+use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, BreadcrumbVariant, icons};
 
 Breadcrumb::new([
   BreadcrumbStep::new("Settings").value("/settings"),
@@ -1489,15 +1536,30 @@ Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
   .max_shown(4)
   .separator(BreadcrumbSeparator::slash())
   .mount(ctx);
+
+// A path control: the parts of a path are its steps, each told as the path as far as it. Mounted, it folds the
+// middle of a path longer than its room into the menu of the ellipsis.
+Breadcrumb::path("H:\\projects\\lurq\\crates").on_select(|folder| open(folder)).mount(ctx);
+
+// The same bar for steps of the app's own.
+Breadcrumb::new([
+  BreadcrumbStep::new("Macintosh HD").icon(icons::DRIVE).value("/"),
+  BreadcrumbStep::new("projects").icon(icons::FOLDER).value("/projects"),
+])
+.variant(BreadcrumbVariant::Path);
 ```
 
 | Builder | |
 | --- | --- |
 | `new(steps)` | A breadcrumb of these steps, in order. The last is the page one is on: text, not a link. A `&str` is a step of that label. `Breadcrumb::default()` has none |
 | `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has |
+| `Breadcrumb::path(&str)` | A path control: the path of a folder or a file as a bar of its parts, the `Path` variant of `BreadcrumbStep::path`'s steps, called "Path", which overflows. `on_select` is told the path as far as the part pressed |
+| `BreadcrumbStep::path(&str)` | The steps of a path, apart at `/` and `\`: a drive (`H:`, whose value is `H:\`), the root (`/`) or a share (`\\nas\media`) first, with the icon of a drive, a `~` with a home's, the rest with a folder's. A path to a file is given the file's icon by the app, on the last step |
+| `variant(..)` | `BreadcrumbVariant::Plain` (the default: links in a line of text) or `Path` (segments in a bar, the last in a box of its own), or a variant the theme's recipe names |
+| `overflow(bool)` | Mounted, the steps it has no room for go into the menu of the ellipsis, the ones nearest the first first, the first and the last never, and come back as it is given room. With `max_shown` too, no more than that many are shown where there is room for more. It does nothing to a breadcrumb that is not mounted: that one is its still form (see below) |
 | `on_select(Fn(&str))` | Called with the value of the step followed, after the step's own handlers |
 | `max_shown(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_shown - 1`; never fewer than two. All of them without it |
-| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu` |
+| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from, and which steps one that overflows has no room for. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu`, and it drops no step |
 | `menu(Signal<bool>, ElementRef)` | Whether the menu of the hidden steps is open, and what it hangs from, where the app keeps them, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
 | `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
@@ -1507,9 +1569,11 @@ Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
 - Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
 - In the design the steps are 8 apart in the body's 14; the links are in `MutedForeground` and the page in `Foreground` at 500; a chevron of 14 in `MutedForeground` stands between each two. The ellipsis is a square of 24 filled with `Highlight` (the board's `$accent`), with the small radius and an icon of 16 in `Foreground`. Under the pointer a link is in `Foreground`; the ring of the focus is around the link. A step's icon is 14, 4 before its text. A disabled breadcrumb is dimmed, follows nothing and is no stop of Tab.
+- The path control of the design (`Path Control`) is the `Path` variant: a bar 28 high on `Muted` with the medium radius, 4 in from its sides, its segments touching. A segment is 22 high with the small radius, 6 in, an icon of 13 in `MutedForeground` 5 before a text of 12 in `Foreground`; a chevron of 12 in `MutedForeground` stands between each two; the last, the folder one is in, is on `Background` in an edge of 1 in `Border`. The board draws no segment under the pointer and no ellipsis in the bar: a segment has the `StateHover` and `StatePressed` veils, and the ellipsis is a square of 22 with an icon of 13.
+- **In a room narrower than its steps** a breadcrumb has two forms. The one that folds is `overflow(true)` with `mount(ctx)`: it measures before the frame is painted, so its first frame at a width is the settled one, and where even the first step, the ellipsis and the last have no room, the last is cut with an ellipsis. The still one is every other breadcrumb: one built on its own (`build`, `.into()`), with `overflow` or without, and a mounted one without `overflow`. It keeps nothing of what was measured, so it folds nothing: its root is no wider than its room, its last step gives way and is cut with an ellipsis, and the steps before it keep their widths, so that links wider together than the room run past its end. A breadcrumb in a window a person can narrow is the folding one; a still one is for a place that always has its room, or one that hides by count with `max_shown`.
 - A theme gives the separator a renderer of its own with `set_part_renderer::<Breadcrumb, BreadcrumbPartRenderer>(BreadcrumbPart::Separator, ..)`, built once for each place between two steps; or restyles it by the recipe.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb" (or its `label`), each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis, called "Show the hidden steps" (or its `more_label`), says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
-- A renderer that draws another breadcrumb has `view.shown()` (the steps to draw, by index), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
+- A renderer that draws another breadcrumb has `view.shown()` (the steps to lay out, by index: all but those over `max_shown`; `view.hidden` is what the ellipsis stands for, those a row dropped among them), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
 
 ## Pagination
 
@@ -1559,7 +1623,10 @@ Pagination::controlled(current, 12, move |to| go(to));
 than its buttons, it draws fewer pages on each side of the current one, down to the first, the current and the last
 between two ellipses; narrower than those, it says where the list is between previous and next ("Page 6 of 12").
 With room again it draws what the app says. Its root wraps: beside a select of how many to a page the pages go on
-to a line under it, and a table's footer puts its pagination under its count.
+to a line under it, and a table's footer puts its pagination under its count. The board draws no narrower form than
+its compact one (Pagination/Compact, where the list is between previous and next), which is what the last step
+is. A pagination that is only built (converted into an element, or `build`) cannot measure: it draws the pages the
+app says in any room, and only its root wraps; `mount(ctx)` is the one that measures.
 
 ## Steps
 
@@ -1606,10 +1673,63 @@ Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
 - A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
 
-**In a narrow room.** Steps across put in the tree with `mount` measure their room: their marks are always whole;
-the titles end in an ellipsis first, then stand under their marks (the `stacked` state), and under the room the
-marks and their lines need the steps run down the page. Steps that are only built keep their marks whole and cut
-their titles.
+**In a narrow room.** Steps across put in the tree with `mount(ctx)` measure their room before a frame is
+painted. Their marks are always whole, and the titles end in an ellipsis first. Under the room the titles need
+beside the marks, steps that are only read are the board's progress of a phone (Mobile/Step Progress, the
+`progress` state): a segment for each step, 4 high and 4 apart, in the primary color up to the current step, over
+a line that says where the process is, "Step 2 of 4 · Billing" (parts `segments`, `segment`, `summary`). Steps a
+person presses keep every step to press: the titles stand under their marks (the `stacked` state), and under the
+room the marks and their lines need, the steps run down the page; the board draws neither of these two. Steps that
+are only built (converted into an element, or `build`) cannot measure: they stay a row, keep their marks whole and
+cut their titles.
+
+## Table of Contents
+
+The list of a page's sections, with the one being read marked: "On this page" beside an article, the outline of a document. It follows the scroll of the container the app names, and a press of an entry brings its section to the top.
+
+```rust
+use lurq::{core::ElementRef, ui::{TableOfContents, TableOfContentsEntry}};
+
+// In `create`: a ref for each section, and one for what scrolls them.
+let (page, theme, palette, roles) = (ElementRef::new(), ElementRef::new(), ElementRef::new(), ElementRef::new());
+
+// In `render`: each section has its ref on it (`.ref_element(theme.clone())`), the scroll has `page`.
+TableOfContents::new([("Runtime theme", &theme), ("Palette", &palette)])
+  .entry(TableOfContentsEntry::new("Extra roles", &roles).level(2))
+  .container(&page)
+  .on_change(|index| println!("reading section {index}"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `TableOfContents::new(entries)` | Its entries: `TableOfContentsEntry`s, or pairs of a label and the ref of a section |
+| `entry(..)`, `entries(..)` | Adds to them |
+| `mount(ctx)` | The list where it is declared: it follows the scroll and goes to a section when its entry is pressed. Converted (`.into()`) it is still: see below |
+| `container(&ElementRef)` | What scrolls the sections, by the ref the app gave it: the reading line is measured from its top. With none, from the top of the window |
+| `reading_line(impl Into<f32>)` | How far under the top of the container a section's top is when the section becomes the one read: 24 unless told |
+| `current(Signal<usize>)` | The entry marked, the app's: the list sets it as the page scrolls and as an entry is pressed, and marks what the app sets. Without it a mounted list keeps the entry itself |
+| `on_change(Fn(usize))` | Another section became the one read, by the scroll or by a press: after the signal is set, and not when the app sets it |
+| `on_select(Fn(usize))` | An entry was pressed, before the list goes to its section |
+| `title(&str)` | What the list is called over its entries, in place of "On this page"; drawn in capitals. An empty one draws no title |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the marked entry |
+
+| Entry | |
+| --- | --- |
+| `TableOfContentsEntry::new(&str, &ElementRef)` | What the section is called, and the ref on the section's element, or on its heading |
+| `level(usize)` | How deep the section is: 1 for a section of the page, 2 for a section of a section, which is set in |
+| `disabled(bool)` | It takes no input, and the keys pass it by |
+| `id`, `key` | Of the entry |
+
+- A mounted list marks the last entry whose section's top has come up to the reading line: at the top of a page the first, and each next one as its heading nears the top of the container. Where the container is scrolled to its end, with the last section all in view and the first gone up out of it, the last entry is marked, though its section's top cannot come up to the line; scrolled back, the entry of the section at the line again. It adds observers of its own to the refs of its sections (`ElementRef::add_rect_observer_before_paint`), so the entry is marked in the frame the scroll is drawn in, and an observer the app registered on one of those refs is kept; a new render replaces the list's observers, which go with it.
+- A press of an entry scrolls its section to the start of what scrolls it (`ctx.scroll_into_view_start`, clear of what sticks to the top), and marks the entry. A section near the end of the page cannot come up to the line, the page ends first: its entry is the marked one because it was pressed, until the page is scrolled again.
+- Converted into an element on its own it is the still form of itself: it marks what its signal says (the first entry with no signal), follows no scroll, and a press sets the signal and tells the handlers, and scrolls nothing. A list that is to stay in view while the page scrolls is in a container of the app's that sticks (`.sticky(Sticky::top(0.0))`).
+- To the keyboard it is one stop of Tab, at the marked entry. Up and Down move between the entries and do not wrap, Home and End go to the first and the last, Enter and Space go to the section; the focus stays on the entry. A label longer than the list is cut with an ellipsis on its one line.
+- To what reads the tree it is a `navigation`, called by its label or its title, of `link`s called by their labels; the marked one says it is the current location (`a11y_current`).
+- Parts: `TableOfContentsPart::Root` (the width, the room between the entries), `Title`, `Entry` (what is pressed: its height, the line at its start, the room before its label), `Indent` (its width is how far a level sets an entry in), `Label`. States, each an entry's own: `TableOfContentsState::Current`, `Disabled`.
+- In the design (`i7m0J`) it is 200 wide, its entries 2 apart under a title in the mono face at 11, in capitals a pixel apart, in `MutedForeground`, 12 in and 6 over the first entry. An entry is 28 high with a line of 1 in `Border` at its start and its label 12 after it, 13 in `MutedForeground`; one of the second level is 12 further in. The marked one has a line of 2 in `Primary` and its label in `Foreground` at medium weight. The board draws no pointer: a label is in `Foreground` under it, and the focus is a line of 2 in the ring's color inside the entry. An entry is a row and follows the density.
+- A renderer that draws another list has `view.root()`, `view.title()`, `view.entry(index)`, `view.entry_recipe(index)` and `view.render()`.
 
 ## Badge
 
@@ -1884,9 +2004,55 @@ Card::new()
 - A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its body is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
 - Parts: `CardPart::Root` (the surface; what is pressed), `Content` (the header over the body, padded), `Header` (the text and the action), `Text` (the title over the description), `Title`, `Description`, `Action`, `Body` (what the app put in it), `Footer`. States: `CardState::Pressable`, `Disabled`, `Footer` (it has a footer under its content; the line over the footer is the content's `underline`).
 - In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its content is padded 24 with 24 between the header and the body; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the body is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
-- The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the body.
+- A surface of the app's own is a card with its parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what it holds as the body. The settings card and the stat card of the design are components of their own: a [settings card](#settings-card) and a [stat card](#stat-card).
 - To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
 - A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
+
+## Expandable Tile
+
+A tile that is pressed to show more of itself: a fact with its details, a figure with where it comes from, a plan with what it includes.
+
+```rust
+use lurq::{components::Text, core::Signal, ui::{ExpandableTile, icons}};
+
+// The board's tile, open.
+ExpandableTile::text("Renderer", "wgpu 26 on DirectX 12. Frame time 6.9 ms median.").open(true);
+
+// Open while the signal is true, which a press of the tile turns.
+let open = Signal::new(false);
+ExpandableTile::text("Renderer", "wgpu 26 on DirectX 12.")
+  .bind(open.clone())
+  .on_open_change(|open| println!("open: {open}"));
+
+// What it always shows, over an element it opens.
+ExpandableTile::new("Team", Text::new("Unlimited seats, SSO, audit log."))
+  .child(Text::new("$12 a seat"))
+  .icon(icons::PLUS)
+  .open_icon(icons::MINUS);
+```
+
+| Builder | |
+| --- | --- |
+| `ExpandableTile::new(title, element)` | Its title, and what it shows while it is open |
+| `ExpandableTile::text(title, text)` | Its title, and a text it shows while it is open, in the detail's type |
+| `child(..)`, `children(..)` | What it always shows, under its header: a figure, a line, a chart |
+| `open(bool)` | Whether what it opens is shown |
+| `bind(Signal<bool>)` | Open while the signal is true; a press turns it |
+| `on_open_change(Fn(bool))` | Told of a press, with what the tile is to be: after the signal is set where it is bound, and not when the app sets it |
+| `icon(..)`, `open_icon(..)` | The icon of the chevron (`chevron-down`), and of the open tile's (`chevron-up`, or its `icon` where it was given one); `None` for no chevron |
+| `disabled(bool)` | It takes no input |
+| `full_width(bool)` | As wide as what holds it, in place of the design's 260 |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- The whole tile is pressed: by the pointer anywhere on it, and by Enter and Space once Tab has reached it. It does not keep whether it is open: the app says so (`open`), or binds it (`bind`). With neither a handler nor a signal a press does nothing.
+- A press of an element the app put in it (what `child` gave it, the element it opens) is that element's alone, and the controls in it are stops of Tab of their own, after the tile. A press of the text of `ExpandableTile::text` is the tile's.
+- What it opens opens and closes with its height over the theme's base duration and fades, as a [collapsible](#collapsible)'s does, at once where motion is reduced. While it is closed it is not there: the controls in it are not stops of Tab.
+- A long title goes on to the next line, and the chevron stays at the end of its first.
+- To what reads the tree it is a `button`, called by its label or its title, which says whether what it opens is open (`a11y_expanded`).
+- Parts: `ExpandableTilePart::Root` (what is pressed: the fill, the edge, the padding), `Header`, `Title`, `Chevron`, `Body` (what it always shows), `Panel` (what opens: its height), `Detail` (what the panel holds, and the type of its text). States: `ExpandableTileState::Open`, `Disabled`, `FullWidth`, `Body`.
+- In the design (`slE1t`) it is 260 wide on `Background` in an edge of 1 in `Border` with the large radius, padded 16; its title is 14 at medium weight, 8 before a chevron of 16 in `MutedForeground`; what it opens is 10 under the header, a text of 13 on lines of 1.5 in `MutedForeground`. The board draws it open and at rest: closed it has `chevron-down`, under the pointer its edge is in the ring's color, as a pressed [card](#card)'s is, the focus is the theme's ring around it, and what it always shows is 10 under its header.
+- A renderer that draws another tile has `view.root()`, `view.header()`, `view.title()`, `view.chevron()`, `view.body()`, `view.panel()` and `view.render()`.
 
 ## Scroll Area
 
@@ -2516,10 +2682,10 @@ RadioCard::new("Team")
 
 ## Fieldset
 
-Fields that go together, under a legend that says what they are: the profile of an account, the address of an order.
+Fields that go together, under a legend that says what they are: the profile of an account, the address of an order. As a group box, a few options of a desktop dialog under a small legend.
 
 ```rust
-use lurq::ui::{Button, Field, Fieldset, Input};
+use lurq::ui::{Button, Checkbox, Field, Fieldset, FieldsetVariant, Input};
 
 Fieldset::new("Profile")
   .description("Shown to people you share a workspace with.")
@@ -2527,20 +2693,28 @@ Fieldset::new("Profile")
   .field(Field::new("Bio", Input::new(bio).full_width(true)).optional(true))
   .child(Button::new("Save profile"))
   .disabled(locked.get());
+
+// A group box: the legend over a box of what it holds.
+Fieldset::new("Startup")
+  .variant(FieldsetVariant::GroupBox)
+  .child(Checkbox::new("Open at login").bind(login))
+  .child(Checkbox::new("Restore windows").bind(restore));
 ```
 
 | Builder | |
 | --- | --- |
+| `variant(..)` | `FieldsetVariant::Boxed` (the default: the edge around the legend and the fields) or `GroupBox` (a small legend over a box of what it holds), or a variant the theme's recipe names |
 | `description(&str)` | More of it, 4 under the legend, in the muted color |
 | `field(Field)` | Adds a field, made as wide as the fieldset (`Field::full_width`) |
 | `child(element)`, `children(..)` | Adds anything else under what is there: a row of buttons, a group of cards, an [error summary](#error-summary) |
 | `disabled(bool)` | Every control in it takes no input and Tab passes it by; the whole fieldset is dimmed |
-| `full_width(bool)` | As wide as what holds it, in place of 400 |
+| `full_width(bool)` | As wide as what holds it, in place of 400 (250 as a group box) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [field](#field) has them |
 
 - What it holds is one under another, 16 apart, and stretched to its width: a field keeps a width of its own unless it is made full width, which `field` does.
-- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`. States: `FieldsetState::Disabled`, `FullWidth`.
+- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`, `Body` (what it holds; a group box's edge is around it). States: `FieldsetState::Disabled`, `FullWidth`.
 - In the design the fieldset is 400 wide, padded 20, with an edge of 1 of `Border` inside it and the large radius. The legend's title is 15 and semibold in `Foreground`, its description 13 in `MutedForeground`.
+- The group box of the design (`Group Box`) is the `GroupBox` variant: 250 wide, the legend's title 12 and semibold in `MutedForeground`, and 6 under it a box with an edge of 1 of `Border` and the medium radius, padded 12, what it holds 10 apart. The board gives it no description: one is 12, 2 under the title. It names its group and disables it as the boxed fieldset does.
 - A disabled fieldset disables its root, and an element that is disabled takes everything in it out of input, whatever it is: a control the app built itself too. The fieldset is dimmed as a whole, so a control in it is not dimmed again by its own disabled state.
 - To what reads the tree it is a `group` called by its legend and described by its description.
 
@@ -2885,6 +3059,117 @@ Mentions::new(comment.clone(), &mentions)
   before its label in the body's type; the active one, and the one under the pointer, are on `Highlight`. A mention is
   in the text's type on `InfoMuted`, its text in `Info`, 20 high and padded 4.
 
+## Rich Text Editor
+
+Formatted text typed into a box, under a bar of the tools that format it: a comment, release notes, the body of an
+article. It comes with the `markdown` feature.
+
+```rust
+use lurq::{components::RichText, ui::{RichTextEditor, RichTextTool}};
+
+// notes: Signal<RichText>, kept by the app. The document reads from Markdown and writes it.
+let notes = ctx.signal(RichText::from_markdown("## Release notes\n\nBackdrop blur **follows clips**.\n\n- Faster shaping"));
+RichTextEditor::new(notes.clone())
+  .placeholder("Write the release notes")
+  .on_change(|document| println!("{}", document.to_markdown()))
+  .mount(ctx);
+
+// A comment box: a few tools, no footer.
+RichTextEditor::new(comment.clone())
+  .tools([RichTextTool::Bold, RichTextTool::Italic, RichTextTool::Bullet, RichTextTool::Link])
+  .footer(false)
+  .rows(3, 8)
+  .mount(ctx);
+
+// Held by the app: it is told each change, and the editor shows what the app answers with.
+RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.clone())).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<RichText>)` | The document. Each change is written into the signal, and what the app writes there shows |
+| `controlled(value, on_change)` | A document the app holds: each change is told to `on_change`, and a change the app does not take is taken back |
+| `on_change(handler)` | Called with the `&RichText` after each change a person makes: typing, a tool, a key, undo. The signal is set first. Not when the app sets it |
+| `placeholder(&str)` | What the box shows while it holds nothing |
+| `rows(min, max)` | The rows of body text the box shows at least, and at most before its text scrolls inside it: 6 and 16 unless told (`RICH_TEXT_MIN_ROWS`, `RICH_TEXT_MAX_ROWS`) |
+| `tools(tools)` | The `RichTextTool`s of the bar, in order: `Style`, `Bold`, `Italic`, `Underline`, `Strikethrough`, `Bullet`, `Ordered`, `Quote`, `Code`, `Link`, `Image`, `Undo`, `Redo`. A line stands between two groups and the history is at the bar's end. All but `Image` unless told (`RichTextTool::DEFAULT`) |
+| `toolbar(bool)`, `footer(bool)` | Whether it has its bar, and the row under the box that says Markdown shortcuts are on and counts the words: both unless told |
+| `markdown_shortcuts(bool)` | Whether Markdown typed becomes what it says: on unless told |
+| `on_link_click(handler)` | Called with a link's target when it is clicked with Ctrl held (Cmd on a Mac): the app opens it |
+| `on_image(handler)` | What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to place outside it, and the editor draws none in its text |
+| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: its edge in the destructive, warning or success color |
+| `read_only(bool)` | It is focused, selected and copied, and not changed: its tools take no input |
+| `full_width(bool)` | As wide as what holds it, in place of 560 |
+| `label(&str)` | What it is called, to what reads the tree |
+| `name(..)` | The name of its document in a form (feature `form`): its value there is the document as Markdown, as it is at each change |
+| `toolbar_label`, `style_label`, `bold_label`, `italic_label`, `underline_label`, `strikethrough_label`, `bullet_label`, `ordered_label`, `quote_label`, `code_label`, `link_label`, `image_label`, `undo_label`, `redo_label`, `more_label`, `apply_label`, `remove_link_label` | What each control is called |
+| `paragraph_text`, `heading_text(Fn(level))`, `code_block_text`, `link_placeholder`, `shortcuts_text`, `count_text(Fn(words))` | The words it draws: the styles of its style control, the field of a link, and the footer's two texts |
+| `mount(ctx)` | Puts it in the tree: it keeps the text being edited, what its bar shows and the panel of a link |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. Its parts have the id with `-content`, `-toolbar`, `-style`, `-bold` and each tool's name, `-count` and `-link-field` after it |
+
+- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s) and what each paragraph is (`ParagraphKind`). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- It is the engine's [styled text input](../text-input-styled/) with kinds of paragraphs: the caret, the selection, the clipboard and the undo history are a text input's own, and a selection runs over paragraphs of any kind. A copy keeps the formatting: the clipboard of the system is given the selection as Markdown where it has marks or a paragraph that is not body text (the plain text where it has neither), so another app or another lurq process pastes the Markdown, and an input of the same app the plain text while the clipboard still holds what was written. A paste of Markdown, or of a text that reads as it (a line with a block mark, or a mark Markdown reads), comes with its marks and kinds as one undo step; any other text, and anything pasted into a block of code, is plain text in the style at the caret.
+- A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is selected; a list, a quote or a style over every paragraph the selection touches, and a second press of a list or a quote makes them paragraphs again. The bar shows what the selection is: a mark's tool is on while all of the selection has it, the style control says what its paragraphs are. A press of a tool leaves the focus in the text.
+- The style control makes a paragraph body text, a heading of a level from 1 to 3, or a line of a block of code. The link tool opens a panel at the selection with a field for the target: Enter or Apply links the selection, an empty target or Remove link takes the link away, Escape changes nothing, and the focus goes back to the text.
+- The keys, with Ctrl (Cmd on a Mac): B, I and U for bold, italic and underline, Shift+X to strike, E for code, K for a link, Alt+0 to Alt+3 for a paragraph and the headings, Shift+7, Shift+8 and Shift+9 for a numbered list, a bulleted one and a quote, Z and Y to undo and redo. Enter in an empty item or quote ends the list, Enter at the end of a heading starts a paragraph, and Backspace at the start of anything but a paragraph makes it one.
+- Markdown shortcuts: `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three backticks at the start of a paragraph make it what they say and are taken away; `**bold**`, `*italic*`, `_italic_`, `` `code` `` and `~~struck~~` become the mark as their last character is typed.
+- Parts: `RichTextEditorPart::Root`, `Toolbar` (laid over a [toolbar](#toolbar)'s root), `Tool`, `ToolOn` and `ToolIcon` (over its buttons and toggles, and a toggle that is on), `Style`, `StyleChevron` and `StyleList` (over a [select](#select)'s trigger, chevron and panel), `Content` (the box: its padding, the type of body text, and its gap, the room between two paragraphs), `Placeholder`, `Heading1`, `Heading2`, `Heading3` (levels 4 to 6 are drawn as the third), `Bullet` and `BulletMark`, `Ordered` and `OrderedMark`, `Quote` and `QuoteMark`, `CodeBlock`, `Footer`, `FooterText`, `LinkPanel` (over a [popover](#popover)'s panel). A paragraph's part gives its type over the content's, its start padding is the room before its text, and a mark's part its width, its gap to the text and its color. States: `RichTextEditorState::Focused`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the box is 560 wide in `Background` with an edge of 1 in `Border` and the large radius. The bar is 40 high on `Muted` over a line of 1, padded 6, its tools 28 square with the small radius and icons of 15, 2 apart, one that is on filled with `Background` (the board's `accent` is the bar's own fill, and would not show); the style control is 28 high and as wide as the name it shows (padded 10 before it and 6 after its chevron of 12, 6 from the name), its text 12, and its list as wide as its longest style with the check beside it. The box is padded 18 across and 16 down, its text the body's 14 in rows of 18, its paragraphs 10 apart. A heading of the second level is 22 semibold in rows of 26 (the first 28 bold in rows of 34, the third 18 semibold in rows of 22). An item's text starts 21 in after a dot of 5 in `MutedForeground`; a numbered item's 24 in, 6 after its number; a quote's 14 in, in `MutedForeground`, after a bar of 3 in `Border`; a block of code is the mono family at 13 in rows of 21 on `Muted`, 12 in. A row is as high as its kind says, whatever the font's own line is. The footer is 28 high over a line of 1, padded 12, its texts the mono family at 11 in `MutedForeground`; the count is of the runs of what is not white space. An empty editor draws its placeholder in the kind of its first paragraph, after its mark.
+- In a room narrower than its bar the tools that do not fit go into the menu of a More button at the bar's end, as a toolbar's do; the style control stays.
+- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`.
+- Built without `mount` (converted into an element) it is the still form of itself: the document as it is drawn, with nothing kept between two renders. A [field](#field) the app mounts (`Field::new("Notes", editor).mount(ctx)`) mounts it, calls it by its label, judges it and disables it.
+- A renderer that draws another editor has `view.bar()` (the toolbar, to add to), `view.toolbar` (it built), `view.content()`, `view.footer()`, `view.link_panel()`, `view.root()`, `view.paragraph_styles()` and `view.format`, what the selection is.
+
+## Editable
+
+A text that is read where it stands and edited in place: a title, a name, a cell.
+
+```rust
+use lurq::ui::Editable;
+
+// title: Signal<String>, set when an edit is kept.
+Editable::new(title.clone())
+  .label("Project name")
+  .placeholder("Untitled")
+  .on_change(|name| println!("renamed to {name}"))
+  .mount(ctx);
+
+// A list of names: no buttons, as wide as the row.
+Editable::new(file.clone()).actions(false).full_width(true).mount(ctx);
+
+// Held by the app, which starts the edit itself.
+Editable::controlled(&name, move |typed| rename(typed)).editing(renaming.clone()).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>)` | The text. An edit that is kept is written into the signal |
+| `controlled(value, on_change)` | A text the app holds: an edit that is kept is told to `on_change`, and the text shown is what the app answers with |
+| `on_change(handler)` | Called with the new `&str` when an edit that changed it is kept: by Enter, the button, or leaving the field. The signal is set first. Not for an edit that changed nothing |
+| `on_cancel(handler)` | Called when an edit is dropped: by Escape or the button |
+| `editing(Signal<bool>)` | Whether it is being edited, in the app's signal: the app starts an edit by setting it. Without it a mounted editable keeps this itself |
+| `default_editing(bool)` | Whether one that keeps this itself is being edited as it is first shown: a name just made |
+| `on_editing_change(handler)` | Called with `true` when a person starts an edit and with `false` when one ends, after `on_change` or `on_cancel`. Not when the app sets the signal |
+| `placeholder(&str)` | What the reading form shows while the text is empty, and the field while nothing is typed |
+| `actions(bool)` | Whether the editing form has the buttons that keep the edit and drop it: it has unless told |
+| `submit_on_blur(bool)` | Whether leaving the field keeps what was typed: it does unless told, and then leaving drops it |
+| `invalid(bool)` | What is typed is wrong: the field's edge says so |
+| `read_only(bool)` | The text is read and cannot be edited: no pencil, and a press does nothing |
+| `full_width(bool)` | As wide as what holds it: the text is cut where it is longer, and the field fills the room its buttons leave |
+| `label(&str)` | What the text is, to what reads the tree |
+| `confirm_label(&str)`, `cancel_label(&str)` | What its two buttons are called: "Save" and "Cancel" |
+| `mount(ctx)` | Puts it in the tree: it keeps whether it is being edited and what is typed, and moves the focus as an edit starts and ends |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. The field has the id with `-field` after it, the buttons `-confirm` and `-cancel` |
+
+- The reading form is one stop of Tab. A press of it, Enter, Space or F2 puts a field where the text was, with the text selected and the focus in it. Enter keeps what was typed and Escape drops it, as the two buttons do; leaving the field keeps it.
+- When an edit ends by a key or a button the focus goes back to the reading form. When it ends because the focus went elsewhere, the focus stays where it went: Tab in the field keeps the edit and goes on to the control after the editable. The two buttons are pressed by the pointer and are no stops of Tab.
+- Parts: `EditablePart::Root` (the reading form), `Label`, `Placeholder`, `Icon` (the pencil), `Editing` (the row of the field and its buttons), `Field` (laid over an [input](#input)'s root and control), `Confirm` and `Cancel` (over a [button](#button)'s root). States: `EditableState::Editing`, `Empty`, `Invalid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the reading form is a row 32 high: the text 16 semibold in `Foreground`, and 8 after it a pencil of 14 in `MutedForeground`. Edited, a field 160 wide and 32 high with text of 14, and 6 after it two buttons 32 square with icons of 16: the outline one keeps the edit, the ghost one drops it. A text longer than its room is cut with an ellipsis, and the pencil keeps its place.
+- To what reads the tree the reading form is a button called by its label, with the text as its description; the field is a `textbox` of the same name.
+- Built without `mount` it is the still form of itself: the reading form, or the editing one where the app's signal says so.
+- A renderer that draws another editable has `view.reading()` and `view.editor()`.
+
 ## Alert
 
 A message in the flow of a page about what is on it: a file that could not be saved, a disk that is nearly full, a shortcut to know.
@@ -3122,6 +3407,56 @@ Blockquote::new("")
 - Parts: `BlockquotePart::Root` (the line, the padding), `Label` (the text), `Body` (what it holds under its text). States: `BlockquoteState::Body`.
 - In the design it has a line of 2 in `Border` at its start, and is padded 16 after it and 4 above and below; its text is 14 in italics on lines of 1.5 in `MutedForeground`. The board draws no one who said it.
 - A renderer that draws another quote has `view.root()`, `view.label()`, `view.body()` and `view.render()`.
+
+## Bulleted List
+
+A list of lines, each with a mark before it: a bullet, a number, an icon or a mark of the app's own. The features of a plan, the steps of a recipe, what a release changed; Markdown's `-` and `1.` are drawn with the same numbers.
+
+```rust
+use lurq::ui::{BulletedList, BulletedListItem, BulletedListMarker, icons};
+
+BulletedList::new(["Semantic color roles", "Light and dark palettes"]);
+
+// Numbers, from 4, written as the app says.
+BulletedList::new(["Install", "Configure", "Run"])
+  .marker(BulletedListMarker::Number)
+  .start(4)
+  .number_text(|number| format!("{number})"));
+
+// An icon for every item: the name of one is a marker.
+BulletedList::new(["Signed", "Notarized"]).marker(icons::CHECK);
+
+// A list in an item, with a marker of its own.
+BulletedList::new(["Tokens"]).item(
+  BulletedListItem::new("Components")
+    .list(BulletedList::new(["Button", "Switch"]).marker(BulletedListMarker::Number)),
+);
+```
+
+| Builder | |
+| --- | --- |
+| `BulletedList::new(items)` | Its items: texts, or `BulletedListItem`s |
+| `item(..)`, `items(..)` | Adds to them |
+| `marker(impl Into<BulletedListMarker>)` | What stands before each item: `Bullet` (the default), `Number`, `Icon(name)`, or `None`, the lines alone. The name of an icon of the theme's set is a marker |
+| `start(u64)` | The number of the first item of a numbered list, in place of 1 |
+| `number_text(Fn(u64) -> String)` | How a numbered list writes a number, in place of `1.`: `a)`, a number in another script |
+| `label(&str)` | What it is called to tooling |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. What is said of a list is said of the lists in its items |
+
+| Item | |
+| --- | --- |
+| `BulletedListItem::new(&str)` | What it says, wrapping at the list's width. An empty text says nothing, for an item of elements alone |
+| `child(..)`, `children(..)` | Elements under its line, 6 apart: a paragraph, a block of code |
+| `list(BulletedList)` | A list in the item, under what it says and holds: set in to the item's text, its bullets rings, with the marker it was given |
+| `icon(name)` | An icon as this item's mark, in place of the list's |
+| `media(..)` | An element of the app's as this item's mark: a status dot, a picture |
+| `id`, `key` | Of the item's row |
+
+- It fills the width it is given. A mark stands in the middle of its item's first line, however many lines the item goes on to. It is read and not operated: no stop of Tab. To what reads the tree it is a `list` of `listitem`s, called by its label where it has one.
+- An icon or a mark of one item's own makes an icon's room before every item of that list, so that their lines start together; an item of it with neither keeps its bullet.
+- Parts: `BulletedListPart::Root` (the room between the items), `Item` (a mark and a body, and the room between them), `Mark` (the box a mark stands in, one line high: its width, and the type and color of a number), `Bullet`, `Label` (what an item says), `Body` (the line over what the item holds). States: `BulletedListState::Numbered`, `Icon`, `Nested` (it is in another list's item).
+- In the design (`btfDc`) its items are 6 apart, each a dot of 5 in `MutedForeground`, 10 before its text in the body's 14 in `Foreground`. Where the board is silent it has the Markdown document's lists: a number at the end of a width of 18 in `MutedForeground`, 8 before the text, a ring for the bullet of a list in an item, an icon of 14. The numbers of a Markdown document's lists (`ThemeMarkdown::list_item_spacing`, `bullet_size`, `bullet_gap`, `list_marker_gap`, `ordered_list_marker_width`) start from the same source, so the two are one look until a theme changes one.
+- A renderer that draws another list has `view.root()`, `view.item(index, item)`, `view.mark(index, icon, media)`, `view.label(text)`, `view.number(index)`, `view.line_height()` and `view.render()`.
 
 ## Empty State
 
@@ -3555,6 +3890,7 @@ let tour = Tour::new(step.clone())
 | `child(element)`, `children(..)` | What it holds under the description |
 | `step(n, of)` | That it is a step of several: "2 of 4" in its footer, in the tour's look |
 | `primary(&str, Fn())`, `secondary(&str, Fn())` | The button that goes on, and the one before it, and what a press of each does |
+| `tertiary(&str, Fn())` | A quiet button before them, "Skip", "Remind me later", and what a press of it does |
 | `on_dismiss(Fn())` | Told after its close control, Escape or a press outside it closed it: the signal is `false` already. A second handler is called after the first |
 | `dismiss_on_escape(bool)` | Whether Escape closes it, as its close control does: on by default |
 | `dismiss_on_outside_press(bool)` | Whether a press outside it closes it: off by default, since a press elsewhere is the person going on with what they do beside it |
@@ -3564,17 +3900,113 @@ let tour = Tour::new(step.clone())
 | `offset(..)`, `collision(CollisionStrategy)` | How far it stands from what it points at in place of the theme's 4, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle with the panel's edge pointing at what it is about: on by default |
 | `takes_focus(bool)` | The focus goes into it as it opens and back as it closes. Off by default |
+| `traps_tab(bool)` | Tab stays in it while the focus is in it, going round from its last button to its first. Off by default; a tour turns it on |
 | `force(Option<Interaction>)` | Draws its close control hovered, pressed or focused with nothing on it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
-| `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary` and `<id>-secondary` |
+| `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary`, `<id>-secondary` and `<id>-tertiary` |
 
 - It does not keep whether it is open: the app's signal does. Its close control and Escape close it: they set the signal to `false` and then tell `on_dismiss`, so that a handler that opens something else does not have it closed under it. A press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
 - It does not take the focus unless the app says so: Tab goes from what it points at into its buttons and on (`Overlay::tab_after_anchor`). With `takes_focus(true)` the focus goes into it as it opens and back to what had it as it closes.
 - To what reads the tree it is a `dialog` called by its label or else its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
-- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on; `dismiss_on_outside_press(true)` leaves it on a press outside the tip, as Escape does). `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on; `dismiss_on_outside_press(true)` leaves it on a press outside the tip, as Escape does). `skip_button(true)` gives every step but the last a quiet "Skip" before the others (`skip_label`), which leaves as Escape does; the design draws none, so it is off by default. `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- `Tour::controlled(Option<usize>, on_change)` is given the step as a value the app holds: a press of its buttons, its keys and Escape tell `on_change` the step it is asked to be at, and it stays where the app holds it. Bound, `on_change(Fn(Option<usize>))` is told the step after the signal is set, `None` as the tour ends or is left, before `on_finish` and `on_dismiss`; it is not told when the app sets the signal.
+- A tour takes the focus (`takes_focus(false)` leaves it where it is, as a teaching tip does): into its card as it starts, on the button that goes on whatever stands before it, on the button that was pressed from step to step, on "Next" where "Back" is gone with the first step, and back to what had it before the tour as it ends. Tab is held in the card (`traps_tab(false)` lets it go on to what follows what the step points at): from its last button it goes round to its first, and Shift+Tab the other way; the page behind still answers the pointer. While the focus is in the card the Right arrow goes on a step and the Left one back, Home and End go to the first and the last step, and none of them ends the tour: Done and Escape do. The card of all its steps is one overlay that goes from one element to the next (see [Popups And Outside Presses](../modals/#popups-and-outside-presses)).
 - Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows, and a `Tour` the panel of the step its signal says, or of its first step while it says none.
-- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
-- In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
+- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction`, `SecondaryAction` and `TertiaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
+- In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide with the `Md` shadow, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
+
+## Notification
+
+Something that happened which a person may act on now or later: who or what it is from, a title and a line, when, what can be done about it, whether it was read. A card on its own, and a row of a list of them.
+
+```rust
+use lurq::ui::{Avatar, Notification, NotificationVariant};
+
+// The design's card: the bell, a title over a line, a button, and what dismisses it.
+Notification::new("Review requested")
+  .description("Ivy asked you to review feat/node-blur.")
+  .button("Review", move || open_review())
+  .on_close(move || dismiss(id));
+
+// A row of a list: who it is from, when, and that it was not read.
+Notification::new("Ivy Chen requested a review")
+  .description("feat/node-blur")
+  .media(Avatar::new("Ivy Chen"))
+  .time("2m")
+  .unread(true)
+  .variant(NotificationVariant::Row)
+  .on_click(move |_| open(id));
+```
+
+| Builder | |
+| --- | --- |
+| `Notification::new(&str)` | The title: what happened. It is what the notification is called |
+| `description(&str)` | More of it, under the title |
+| `media(element)` | Who or what it is from, before the text in place of the icon: an `Avatar`, an app's mark |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the bell, or none (`icon(None)`) |
+| `time(&str)` | When it happened, as the app words it: "2m" |
+| `unread(bool)` | Whether it was not read: it has the dot, and a row's title is medium |
+| `button(&str, Fn())` | Adds a button under the text: the first is the primary one, the others ghosts |
+| `action(element)` | Adds something of the app's own to the actions: a link, a menu's button. It adds, since a notification has several |
+| `child(element)`, `children(..)` | Elements under the description, for more than text |
+| `variant(impl Into<Name>)` | A `NotificationVariant`: `Card` (the default), with an edge and a shadow, or `Row`, as a list draws each |
+| `on_click(handler)` | A press of the whole notification: it opens what it is about. A second handler is called after the first |
+| `on_close(Fn())` | Called on a press of what dismisses it, which it has once it is given `on_close`: a "Dismiss" button after a card's own, a close control at the end of a row. The app takes the notification out of what it lists |
+| `close_label(&str)`, `unread_label(&str)` | What dismisses it says and is called ("Dismiss"), and what its dot is called to tooling ("Unread") |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the notification's states where it is pressed, and else those of a row's close control; `id` is the id of the box, with `<id>-close` and `<id>-action-0`, `<id>-action-1` for what is in it |
+
+- A notification stays: it is there until the app takes it out of what it lists. A [toast](#toast) leaves by itself and is shown over the window from anywhere; an [alert](#alert), a [banner](#banner) and a [callout](#callout) are part of the page they stand in and say something about it. It keeps nothing: whether it was read and whether it is listed are the app's, and it tells what a person did.
+- Given `on_click` it is pressed as a whole: a button to what reads the tree, a stop of Tab with the ring inside it, pressed by Enter and Space. Its own buttons and what dismisses it are pressed apart from it, each a stop of Tab after it. Without `on_click` it is an `article` that takes no focus and answers no pointer.
+- A title and a description longer than their room wrap; the time stays whole on one line; buttons that do not fit side by side go on to the next line. A card is 340 wide at most and as wide as a narrower room.
+- A row follows the theme's density: 56 high at the default, 48 compact, 64 comfortable and 68 under a finger. A row that was read keeps the room of the dot, so what stands after it lines up down a list.
+- Parts: `NotificationPart::Root`, `Unread` (the dot), `Media`, `Icon`, `Content` (the text over the body and the actions), `Text`, `Header` (the title, and on a card the time and the dot), `Title`, `Time`, `Description`, `Body`, `Actions`, `Action` (what it gives the theme's buttons), `Close` (a row's close control). Variants: `NotificationVariant::Card`, `Row`. States: `NotificationState::Unread`, `Pressable`.
+- In the design the card is 340 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow, padded 16: the bell of 16 in `Foreground`, 12 from the title (14, medium) over the description (13, `MutedForeground`, lines of 1.4) 4 under it, and 10 under them the buttons, 28 high, 10 from their sides and 8 apart. The row is 12 from its top, its bottom and its start and 16 from its end, with 10 between the dot of 7 in `Info`, the avatar of 32, the text (the title 13 over the description of 12 in `MutedForeground`, 1 apart) and the time in mono 11 in `MutedForeground`; under the pointer it is in `Highlight`, as the board draws its first row. The board draws no time and no dot on a card: they stand after its title. It draws no pressed card and no focus: a pressed card has the veils of those states.
+- A renderer that draws another notification starts from `view.media()`, `view.text()`, `view.content()`, `view.actions()`, `view.close()`, `view.unread_dot()`, `view.time()` and `view.root(children)` (the behavior), with `view.row`, `view.unread` and `view.close_button`.
+
+## Notification Center
+
+The panel that lists an app's notifications, opened from its bell: a header with what marks all read or clears, the notifications as rows, and a footer that leads to all of them.
+
+```rust
+use lurq::ui::{Avatar, Badge, Button, ButtonVariant, Notification, NotificationCenter, icons};
+
+// open: Signal<bool> and bell: ElementRef, kept by the app; listed: Signal<Vec<(Id, bool)>>, its list.
+let unread = listed.get().iter().filter(|(_, read)| !read).count();
+NotificationCenter::new(open.clone(), bell.clone())
+  .trigger(Badge::count(unread).label("unread notifications").on(
+    Button::new("Notifications").icon(icons::BELL).icon_only(true).variant(ButtonVariant::Ghost),
+  ))
+  .items(listed.get().into_iter().map(|(id, read)| row(id).unread(!read)))
+  .on_mark_all_read(move || mark.update(|all| all.iter_mut().for_each(|(_, read)| *read = true)))
+  .on_clear(move || clear.set(Vec::new()))
+  .on_view_all(move || go_to_inbox());
+```
+
+| Builder | |
+| --- | --- |
+| `NotificationCenter::new(open, anchor)` | Shown beside `anchor`, the bell, while the `Signal<bool>` is `true` |
+| `trigger(element)` | What opens and closes it: a `Button`, or a `Badge` with its count or its dot on one. It is put before the panel and is its anchor; the first thing in it that takes the focus is what is pressed, and says whether the panel is open |
+| `title(&str)` | What the panel is called, at its top and to tooling: "Notifications" by default |
+| `item(Notification)`, `items(..)` | What it lists. Each is drawn as a row, whatever its own variant |
+| `on_mark_all_read(Fn())` | Draws "Mark all read" in the header and is called on a press of it. The control takes no press while nothing is unread |
+| `on_clear(Fn())` | Draws "Clear all" in the header and is called on a press of it. The control takes no press while the list is empty |
+| `on_view_all(Fn())` | Draws the footer, "View all", and is called on a press of it, after the panel closed |
+| `mark_all_read_label(&str)`, `clear_label(&str)`, `view_all_label(&str)` | What each control says |
+| `empty_text(&str)`, `empty(element)` | What it says under an inbox while it lists nothing ("No notifications"), or the app's own empty state in their place |
+| `on_dismiss(Fn())` | Told after a press outside it or Escape closed it; not when the app sets the signal, and not on "View all" |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether each closes it: both by default |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Under the bell with its end at the bell's end (`BottomEnd`), the theme's smallest spacing from it, and to the other side then into the window where there is no room |
+| `width(..)`, `max_height(..)` | How wide the panel is (360), and how high the list is at most before it scrolls (360) |
+| `inline(bool)` | Draws the panel where it is declared, open or not, with no trigger: a panel of a page, a gallery, a test |
+| `label(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [popover](#popover) has them. `force` draws its first pressed row's states; its controls are `<id>-mark-all-read`, `<id>-clear` and `<id>-view-all` |
+
+- The list and what is read are the app's. The panel tells what a person did (its three handlers, and each notification's own `on_click` and `on_close`) and is given the list as it is then; it keeps nothing but what a popover keeps, and is built anew with each render.
+- As it opens the focus goes into it, to the first thing in it that takes the focus, and back to the bell as it closes. Tab stops in the rows once and the arrow keys move between those that are pressed; a row's close control is a stop of Tab after it. "View all" closes the panel first and then tells, so what the handler opens keeps the focus it takes.
+- The list is as high as its rows up to its greatest height and scrolls past it, under the header and over the footer, and gives way where the window has less room. A title longer than the header's room is cut with an ellipsis; the controls keep their room.
+- To what reads the tree it is a `dialog` called by its label or its title, holding a `list` of the same name; its bell says `a11y_haspopup` and whether it is expanded.
+- Parts: `NotificationCenterPart::Panel`, `Header`, `Title`, `Actions`, `Action` and `ActionLabel` (what they give the theme's [link](#link)), `List`, `Item` (what holds a row that has another under it: the line between the two), `Empty`, `EmptyIcon`, `EmptyText`, `Footer`. States: `NotificationCenterState::Footer`, `Empty`. The rows are styled by [`Notification`](#notification)'s recipe.
+- In the design the panel is 360 wide on `Popover` in an edge of 1 in `Border`, `Xl` round, with the `Lg` shadow. The header is 48 high and 16 from its sides over a line in `Border`: the title at 15, semibold, and "Mark all read" at 13, medium, in `Info`. A row is 56 with a line in `Border` along its bottom, and the footer 40 with "View all" at 13, medium, in its middle. The board draws three rows and no end of the list, no empty panel and nothing under the pointer: the list scrolls past 360, an empty panel has an inbox of 24 over its words at 13, both `MutedForeground`, 32 over and under them, the header's controls are underlined under the pointer as a link is, and the footer is in `Highlight`. It fades in and out as the popover does.
 
 ## AI Label
 
@@ -3967,7 +4399,7 @@ a toggle (checked), a group of toggles, a labelled group (under its label), a st
 was given `in_menu`. What is kept in the bar is a control that `stays`, and a select, a field or any element with
 no `in_menu`. What is kept never runs past the bar: a bar narrower than what stays in it (and a bar without
 `overflow` narrower than its controls) scrolls sideways to it, by the wheel, a drag, and the keys, which bring the
-focused control into view. A bar that is only built has no menu, and scrolls to all of its controls.
+focused control into view. A bar that is only built has no menu, and scrolls to all of its controls. The board draws the bar and its overflow menu (Toolbar, Overflow Menu, Table Toolbar) and no narrower form: scrolling to what stays is lurq's.
 
 ## Action Bar
 
@@ -4014,7 +4446,9 @@ Stack::new()
 called by its label in a tooltip (`ActionBarView::compact`); an action with no icon keeps its label, and the
 count and the clear button stay. Narrower than its icons too, the actions go, the last first, into the menu of a
 More button before the clear button (`more_label`, "More actions"), and the text ends in an ellipsis only once
-every action is in the menu. A bar that is only built keeps its labels and cuts its text.
+every action is in the menu. This is the order of the board's bar of a phone (Mobile/Selection Bar: the count, the
+actions as icons, More). A bar that is only built (converted into an element, or `build`) cannot measure: it keeps
+its labels in any room and cuts its text; `mount(ctx)` is the one that measures.
 
 ## Floating Panel
 
@@ -4630,7 +5064,193 @@ view.on_key_down(move |event: KeyboardEvent| {
 
 **In a narrow room.** A mounted bar measures its field: where the field has no room for the options in it,
 they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
-and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it.
+and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it. The board draws the bar at 440 with the options in its field and no narrower form: the one button is lurq's.
+
+## Text Editing
+
+What every field of the design system draws while it is typed in. It is the engine's text input, so nothing is
+asked for but the two marks an app gives a field: the ranges its spelling checker found, and what would complete
+what is typed.
+
+```rust
+use lurq::ui::{ContextMenu, Input, MenuItem, Textarea};
+
+// The app's own checker says which bytes of the text are wrong.
+Input::new(text.clone()).squiggles(misspelled(&text.get()));
+Textarea::new(note.clone()).squiggles(misspelled(&note.get()));
+
+// What would complete what is typed, for what the field holds now. Tab takes it.
+Input::new(command.clone()).completion("n --release");
+
+// The commands of an edit in one row over the field.
+ContextMenu::new(open.clone(), Input::new(text.clone()))
+  .bar(true)
+  .items(["Cut", "Copy", "Paste", "Select All"].map(|name| MenuItem::new(name)));
+```
+
+| Mark | What draws it | |
+| --- | --- | --- |
+| Selection | The engine, in `PaletteColor::Selection` | Behind the band of the selected text (the font's ascent and descent), while the field has the focus. `TextInput::selection_color` for one field |
+| Caret | The engine, in the color of the text | A line where the next character goes, as wide and as high as [the theme's caret](../theme/#caret) says: the board's 1.5 by 18 in type of 14. It blinks unless the theme's `CaretMode` is `Persistent`. `TextInput::caret_color` for one field |
+| Composition | The engine, in the color of the text | A line under what an input method is composing, until it is committed, as thick as the theme's caret says: the board's 1.5 |
+| Spell check | `Input::squiggles(ranges)`, `Textarea::squiggles(ranges)` | A wavy line in `Destructive` under each range, bytes of the text, on every row the range is on. lurq has no checker: the app finds the ranges, and again after an edit. The part `Squiggle` (`InputPart`, `TextareaPart`) gives them another color |
+| Ghost completion | `Input::completion(&str)` | What would complete what is typed, drawn after it in `MutedForeground` at 0.7 while the field has the focus, holds text, and has the caret at its end with nothing selected. Tab puts it in the field as an edit (through `on_input`, one step of the undo) and the focus stays; anywhere else Tab goes on. The part `InputPart::Completion` gives it another color and opacity |
+| Edit menu | [`ContextMenu::bar(true)`](#context-menu) | The commands of selected text in one row over a field |
+
+- On the engine's input the two marks are `TextInput::squiggles(InputSquiggles::new(ranges).color(..))` and `TextInput::ghost(InputGhost::new(text).color(..).opacity(..))`. A masked input draws no squiggle, and an input with tokens or styled spans no ghost.
+- The key that takes a completion is not drawn by the input: put a [`Kbd`](#kbd) beside the field where it should be said.
+- The board fills a selection with `info-muted`; the engine's is the theme's `Selection` role, which the board has as a variable of its own.
+## Tray Popover
+
+The small panel a press of an app's icon in the system tray or the menu bar opens: who the app is and how it is doing, a few switches, a few commands.
+
+```rust
+use lurq::ui::{TrayAction, TrayPopover, TrayStatusVariant, TrayToggle, icons};
+
+// sync, paused: Signal<bool>, kept by the app.
+TrayPopover::new("lurq")
+  .icon(icons::BOX)
+  .status("Synced just now")
+  .item(TrayToggle::new("Sync in background").bind(sync.clone()))
+  .item(TrayToggle::new("Pause notifications").bind(paused.clone()))
+  .separator()
+  .item(TrayAction::new("Open lurq").on_select(move || show_window()))
+  .item(TrayAction::new("Preferences…").on_select(move || preferences()))
+  .item(TrayAction::new("Quit").on_select(move || quit()));
+
+// Over the app's own window, beside an element of its own: open: Signal<bool>, anchor: ElementRef.
+TrayPopover::new("lurq")
+  .status("Offline")
+  .status_variant(TrayStatusVariant::Warning)
+  .item(TrayAction::new("Retry now").on_select(move || retry()))
+  .anchored(open.clone(), anchor.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `TrayPopover::new(&str)` | What the app is called: the title, and what the panel is called |
+| `icon(impl Into<Name>)`, `media(element)` | The app's mark before its title: an icon of 16 on a tile of 28 in the primary color, or the app's own picture in place of the tile |
+| `status(&str)`, `status_variant(impl Into<Name>)` | How the app is doing, under its title after a dot, and the tone that colors the dot: a `TrayStatusVariant`, `Neutral`, `Info`, `Success` (the default), `Warning`, `Destructive` |
+| `item(impl Into<TrayItem>)`, `items(..)` | A row: a `TrayAction` or a `TrayToggle` |
+| `separator()` | A line between two groups of rows. The line under the header is there by itself |
+| `child(element)`, `children(..)` | Something of the app's own among the rows: a progress, an account |
+| `anchored(open, anchor)` | Shows the panel over the window beside `anchor` while the `Signal<bool>` is `true`, in place of where it is declared |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Where an anchored one stands: under its anchor with its end at the anchor's end (`BottomEnd`; `TopEnd` over a taskbar), 6 from it, to the other side then into the window where there is no room |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | What is told after Escape or a press outside closed an anchored one, and whether each closes it: both by default. A command is no dismissal |
+| `width(..)`, `label(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [popover](#popover) has them. `force` draws its first command's states |
+
+| Row | |
+| --- | --- |
+| `TrayAction::new(&str)` | A row that runs a command: `on_select(Fn())`, `disabled(bool)`, `id`, `key` |
+| `TrayToggle::new(&str)` | A row with a switch at its end: `bind(Signal<bool>)`, or `on(bool)` with `on_change(Fn(bool))` told what a press asks for; `disabled(bool)`, `id` (the switch's), `key` |
+
+- Declared plainly it is the panel in the flow, 280 wide at most. **lurq has no tray icon**: the icon and its press are the platform's, or a crate's for it (`tray-icon`). An app that has one opens a window with no frame on the press, `ctx.window_opener().open_with(WindowOptions::new("lurq", 280, 272).undecorated(), ..)`, mounts a root that renders the panel, and closes the window (`WindowHandle::close`) from its commands. What lurq does not have yet for that window is a place on the screen, a level over other windows and a way out of the taskbar: until then the window opens where the system puts it.
+- `anchored` shows it as a [popover](#popover) is shown, for a status item of the app's own title bar or status bar: Escape and a press outside close it, the focus goes into it as it opens and back as it closes, and a command closes it first and then runs, so what the command opens keeps the focus it takes.
+- A press of a toggle's row turns its switch as a press of the switch does. Bound, the signal is set and then `on_change` is told; not bound, `on_change` is told the value a press asks for and the row stays as the app holds it. Nothing is told when the app sets the signal.
+- Every command and every switch is a stop of Tab, and the arrow keys move through them, past the lines. A command is pressed by Enter and Space and has the ring inside it; a row that is `disabled` is faded, takes no press and is passed by.
+- A title, a status and a row's words longer than their room are cut with an ellipsis; a switch keeps its room. Rows follow the theme's density: a command is 28 at the default, 20 compact, 36 comfortable and 40 under a finger, and a toggle's row 2 more.
+- To what reads the tree it is a `group` (a `dialog` where it is anchored) called by its label or its title; its status is a `status`, a command a `menuitem`, and a toggle its switch.
+- Parts: `TrayPopoverPart::Panel`, `Header`, `Media` (the tile), `Icon`, `Text`, `Title`, `Status`, `StatusDot`, `Description` (the status's words), `Separator` and `Line`, `Toggle` and `ToggleLabel`, `Item` (a command), `Body` (what the app puts among the rows). Variants by `TrayStatusVariant`. States: `TrayPopoverState::Disabled`, resolved on a row's parts.
+- In the design the panel is 280 wide on `Popover` in an edge of 1 in `Border`, 12 round, with the `Lg` shadow, padded 10, what it holds 8 apart. The header is 4 from the sides: the mark of 16 in `PrimaryForeground` on a tile of 28 in `Primary`, `Md` round, 10 before the title (13, semibold) over the status 1 under it, a dot of 6 in `Success` 5 before words of 11 in `MutedForeground`. A line of 1 in `Border` has 4 over and under it. A toggle's row is 30 and a command 28, both 4 from their sides with words of 13; the command under the pointer is in `Highlight`, `Sm` round. The board draws the tray the popover hangs from, which is the platform's, and no focused or disabled row.
+
+## Path Field
+
+The path of a folder or a file in an input, with a button beside it that browses for one: where a project is kept, the file a report is written to.
+
+```rust
+use lurq::{files::FileDialog, ui::{PathField, PathKind}};
+
+// path: Signal<String>. The app answers the button: it opens what it likes and sets the signal.
+PathField::new(path.clone()).on_browse(move || choose_a_folder(&path));
+
+// Told what its path is of and mounted, the button opens the system's dialog and sets what is chosen.
+PathField::new(folder.clone())
+  .picks(PathKind::Folder)
+  .dialog(FileDialog::new().title("Project folder"))
+  .on_pick(|path| open_project(path))
+  .mount(ctx);
+
+PathField::new(report.clone())
+  .picks(PathKind::SaveFile)
+  .browse_label("Save as…")
+  .dialog(FileDialog::new().filter("Markdown", &["md"]).file_name("report.md"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `PathField::new(Signal<String>)` | A field bound to the path: it shows what the signal holds, and what is typed or chosen is set on it |
+| `on_browse(Fn())` | Called on a press of the button, before the system's dialog opens where the field opens one. A second one is called after the first |
+| `picks(PathKind)` | What the path is of: `PathKind::Folder`, `File` (one that is there, to open) or `SaveFile`. Mounted, the button then opens the system's dialog for it and sets the path chosen; of what is dropped on the field, a folder or a file of that kind is taken. Without it the button only tells `on_browse`, and a drop is taken whatever it is |
+| `dialog(FileDialog)` | The dialog as the button opens it: its title, the kinds of file it shows, the name a file to save starts with. It opens where the field's path is (in the folder itself for a folder, in the file's folder for a file) unless it is given a folder of its own |
+| `on_pick(Fn(&str))` | Called with the path a person chose in the dialog or dropped on the field, once the signal is set. Not for what is typed (`on_input`), nor for what the app sets |
+| `mount(ctx)` | Puts it where it goes, keeping the dialog it opens: a second press while the dialog is open opens no second one. `build(theme)` and `From<PathField> for Element` are its still form, whose button tells `on_browse` and opens nothing |
+| `browse_label(&str)` | What the button says, and is called to what reads the tree: "Browse…" unless told otherwise |
+| `icon(..)` | The glyph at the start of the box, by its name in the theme's set: a folder, or a file for a field that picks one, unless told otherwise. `icon(None)` takes it away |
+| `placeholder(&str)`, `size(..)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `label(&str)`, `name(..)`, `on_input(..)`, `on_submit(..)` | As an [input](#input) has them. `PathFieldSize` is the input's sizes, the button's too, and the small one unless told: the board's. A read-only field's button takes nothing; `full_width` is in place of 440 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, what is typed in; the button has it with `-browse` after it |
+
+- It is an [input](#input) and an outlined [button](#button) side by side: Tab stops in the input, then on the button; Enter in the input is told to `on_submit`, Enter and Space on the button press it.
+- The dialog is the system's with the feature `file_dialog`, through `lurq::files::FileDialog` (`pick_folder`, `pick`, `pick_save`): see [Files a person gives](../styling-events/#files-a-person-gives) for what each platform has. A browser has no dialog for a folder or for where to save, and no path of a file: there the button tells `on_browse` and nothing is chosen. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) the broker answers in the dialog's place.
+- A folder or a file dragged from the system and dropped on the field is its path, as one chosen in the dialog is: set on the signal, then told to `on_pick`. A field that is disabled or read only takes none.
+- In a [field](#field) it is called by the field's label and judged as the field is: `Field::new("Output folder", PathField::new(path))`, mounted by a field that is mounted.
+- Parts: `PathFieldPart::Root` (the two side by side), `Field` (laid over the input's root), `Control` (over the input's box: the type of the path), `Icon` (over the input's icon), `Button` (over the button's root). States: `PathFieldState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design (`Path Field`) it is 440 wide, the input and the button 8 apart and 32 high. The path is in the mono type at 12 in `Foreground`, 10 from the edge of the box, after a folder of 16 in `MutedForeground` and 8; the button is outlined, 12 in from its sides. A medium field is 36 with a path of 13, a large one 40 with a path of 14. A path longer than the box scrolls in it as in any input, and the button keeps its room.
+- To what reads the tree the input is a `textbox` called by its label, and the button a `button` called by what it says.
+- A renderer that draws another path field (`PathFieldRenderer`) is given `view.input` (the input's own view), `view.field()` (the input in its place, which takes a drop), `view.button()`, `view.root()` and `view.browse()` (what a press of the button does).
+
+## Settings Card
+
+A card of a settings page: one setting with its icon, its title, its description and the control that sets it, which may open to more settings; or the rows of several settings in one card.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, ListItem, Select, SelectSize, SettingsCard, Switch, icons};
+
+// One setting in a card of its own. With rows it opens to them; mounted, it keeps whether it is open.
+SettingsCard::new(
+  ListItem::new("App theme")
+    .icon(icons::PALETTE)
+    .description("Choose how lurq looks.")
+    .trailing(Select::new(theme, themes).size(SelectSize::Sm)),
+)
+.item(ListItem::new("High contrast").trailing(Switch::new("High contrast").label_hidden(true).bind(contrast)))
+.item(ListItem::new("Accent color").value("Blue").chevron(true).href("/settings/accent"))
+.mount(ctx);
+
+// Several settings in one card, a row each.
+SettingsCard::group([
+  ListItem::new("Open at login")
+    .description("Start lurq when you sign in to this computer.")
+    .trailing(Switch::new("Open at login").label_hidden(true).bind(login)),
+  ListItem::new("Default project folder")
+    .description("Where new projects are created.")
+    .trailing(Button::new("Choose…").variant(ButtonVariant::Outline).size("sm")),
+])
+.label("Startup");
+```
+
+| Builder | |
+| --- | --- |
+| `SettingsCard::new(ListItem)` | The card of one setting: the row is its own, with its icon, its title, its description and the control that sets it at its end |
+| `SettingsCard::group(rows)` | A card of several settings, a row each, with a line between each two |
+| `item(ListItem)`, `items(rows)` | Rows, after those it holds: the settings of a group, or what the card of one setting opens to |
+| `open(bool)` | Whether the rows under the card's own row are shown, where the app holds it: the card opens nothing itself, and tells `on_open_change` |
+| `bind(Signal<bool>)` | Open while the signal is true, which a press of the card's row turns; the handlers of `on_open_change` are told after it is set |
+| `default_open(bool)` | Whether a card that keeps it itself starts open |
+| `on_open_change(Fn(bool))` | Called on a press of the card's own row with what the card is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
+| `mount(ctx)` | Puts it where it goes, keeping whether it is open where the app says neither `open` nor `bind`. Built on its own (`build`, `.into()`) with neither, it is its still form, as it starts |
+| `label(&str)` | What the card is called to what reads the tree, in place of the title of its own row. It draws nothing: a heading over a group of settings is the page's own text |
+| `density(Density)`, `width(..)` | How high its rows are, whatever the theme is at; a width of its own in place of all the room it is given |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` takes everything in the card out of input and dims it; `force` draws the card's own row where it opens, and the pressed rows of a group. A row has the id the app gave it |
+
+- A row is a [list item](#list): its `icon`, its `description`, the control at its end (`trailing`), a `value` and a `chevron` for one that leads to a page of its own, which `on_click` or `href` makes pressed. The card puts each in the list item's `Setting` state, which is the design's Settings Row. Nothing else is a settings row: `ListItem::new("Open at login").description("..").trailing(Switch::new(..))` in a `SettingsCard`.
+- A card with a row of its own and rows under it opens. Its own row is pressed as a whole, by the pointer and by Enter and Space, after what the app made of its press, and shows a chevron at its end: down while the card is closed, up while it is open. A press of the control in that row is the control's and not the card's, and the control is a stop of Tab after the row. The rows open and close with their height over the theme's base duration and fade with it, as a [collapsible](#collapsible)'s panel does, and at once where motion is reduced; while the card is closed they are not there.
+- In a card the rows that are pressed and the controls in rows are one group to Up and Down, Home and End, as in a list.
+- Parts: `SettingsCardPart::Root` (the card), `Header` (laid over the root of the card's own row: the room over and under it), `Panel` (what opens and closes), `Body` (what the panel holds, under a line). States: `SettingsCardState::Open`, `Disabled`, `Header` (it has a row of its own). A row's parts are the list item's.
+- In the design (`Settings Card`, `Settings Row` and the cards of the Preferences window) the card is on `Card` with an edge of 1 in `Border` and the large radius, as wide as its room. A setting is 14 in from its sides, 12 between what it holds: an icon of 20 in `Foreground`, the title 13 at 500 over the description, 12 in `MutedForeground`, 2 under it, the control, and a chevron of 16 in `MutedForeground` 12 after it. The card's own row is 14 from the top and the bottom of the card, 61 high with a description; a row of a group is 12 from them, 57 high, with a line of 1 in `Border` between each two, along the bottom of the row over it. The board draws no setting of one line and no open card: a setting of one line is 44 at the least, and the rows of an open card are under a line. A longer title is cut with an ellipsis, a longer description wraps, and the control keeps its room. In a room that leaves the title and the description less than 80 beside the control (a card in a window as narrow as a phone), the control and the chevron go under the text, at the row's start, and the description is not broken in its words; a wide room never reaches it.
+- A setting follows the [density](../theme/#density) by half of a row's step over and under it: a row of a group with a description is 49, 65 and 69 at compact, comfortable and touch, and one of a single line 36, 52 and 56.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the card is a `group` called by its label or the title of its own row, its rows a `list`; the row of a card that opens is a `button` with `a11y_expanded`.
+- A renderer that draws another card (`SettingsCardRenderer`) starts from `view.root()` and puts in it `view.header()` (the card's own row with its behavior), `view.panel()` (what opens and closes, with the rows while the card is open) or `view.rows()` (the rows of a group).
 
 ## Column View
 
@@ -4989,7 +5609,7 @@ NavigationMenu::new()
 go, the last first, behind a More item at its end (`more_label`), which opens a menu of them, a link as an item
 (the page shown checked) and an item with a panel as its name over its panel's links. More is an item of the row
 to the keys, is drawn as the item of the page shown while that page is behind it, and is gone when every item is
-back. A theme's renderer builds the row of `NavigationMenuView::slot` and `more`.
+back. A theme's renderer builds the row of `NavigationMenuView::slot` and `more`. Its open panel takes the room a narrow window has: its columns go one under another where two have no room side by side, and none is wider than the window lets it be. The board draws the menu with room for all of it (Navigation Menu, a panel of two columns of 208) and no narrow form: More and the panel of one column are lurq's.
 
 ## Table
 
@@ -5067,7 +5687,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 **In a narrow room.** A cell's text wider than its column ends in an ellipsis unless the column wraps; the
 whole text is what tooling reads of the cell. The lines of a loading table are shares of their cells, so they
 end inside a narrow column. A footer too narrow for its count and its pagination puts the pagination under the
-count.
+count. The shares are the board's (Table/Loading: lines of 150, 190, 120 and 170 in a cell of 176, and 70 in one of 90).
 
 ## Charts
 
@@ -5587,6 +6207,81 @@ DateRangePicker::new(period.clone())
 - The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
 - A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
 
+## Event Calendar
+
+A calendar that shows events in its days: the days of a week side by side, the weeks of a month, or one day, each day with what is on it. The meetings of a team, the releases of a project, what is due.
+
+```rust
+use lurq::{
+  core::{Date, Signal},
+  ui::{CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarPeriod},
+};
+
+let chosen = Signal::new(None::<Date>);
+let events = vec![
+  CalendarEvent::new("standup", monday, "Standup"),
+  CalendarEvent::new("release", tuesday, "Release 0.60").variant(CalendarEventVariant::Success),
+  CalendarEvent::new("freeze", friday, "Deploy freeze").variant(CalendarEventVariant::Destructive),
+];
+
+// The design's week: five days, no header. Mounted, it keeps the week it shows.
+EventCalendar::new(chosen.clone(), events.clone())
+  .weekends(false)
+  .header(false)
+  .on_select(|event: &&str| open(event))
+  .mount(ctx);
+
+// A month, of which a day shows three events at most and "+2 more".
+EventCalendar::new(chosen.clone(), events)
+  .period(EventCalendarPeriod::Month)
+  .on_more(|date| show_day(date))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `EventCalendar::new(Signal<Option<Date>>, events)` | Bound to the chosen day, which a press of a day sets, with its events |
+| `EventCalendar::controlled(value, events, on_change)` | It shows `value` chosen and tells of a press, which it does not set |
+| `event(..)`, `events(..)` | Adds to its events |
+| `period(EventCalendarPeriod)` | What it shows at once: `Week` (the default, the design's), `Month`, or one `Day` |
+| `shown(Signal<Date>)` | The date whose week, month or day is shown, the app's: the buttons and the keys that leave the period set it. Without it a mounted calendar keeps it, starting at the chosen day, or today |
+| `weekends(bool)` | Whether Saturdays and Sundays are shown: they are unless told. Without them a week is the five days the design draws, and the keys pass a weekend by |
+| `header(bool)` | The row at its top: the buttons that show the period before and after, what the period is, and the button that shows today. It has it unless told |
+| `max_shown(usize)` | How many events of a day are shown at most: 4 in a week and 3 in a month unless told, all in a day. With more, one fewer are shown and "+N more" in the place of the last |
+| `on_change(Fn(Date))` | A person chose another day: a press or Enter on it, or a press of its "+N more". Not for the day chosen already, nor when the app sets the value |
+| `on_select(Fn(&T))` | An event was pressed, with what the event is to the app (the first argument of `CalendarEvent::new`), after the event's own handlers. A press of an event does not choose its day |
+| `on_more(Fn(Date))` | The "+N more" of a day was pressed, after the day is chosen: an app shows the day alone, or a list of what is on it |
+| `first_day(Weekday)`, `locale(..)`, `today(Date)` | The day weeks start on, the words of its dates and the day it marks as today, in place of the app's locale and the system's day |
+| `previous_label(&str)`, `next_label(&str)`, `today_label(&str)`, `more_text(Fn(usize) -> String)` | The names of its buttons, in place of the locale's, and what stands for the events not shown, in place of "+N more" |
+| `disabled(bool)` | It takes no input |
+| `label(&str)` | What its box is called to tooling, which is then a `group` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the calendar's id with its date after it (`team-2026-11-12`), the buttons with `-previous`, `-next` and `-today`, a day's "+N more" with `-more-` and the date |
+| `mount(ctx)` | The calendar where it is declared: it keeps the period it shows, and follows the chosen day to its period when the app sets it to a day that is not shown. Converted (`.into()`) it keeps nothing, and its buttons show no other period unless the app gives it `shown` |
+
+| Event | |
+| --- | --- |
+| `CalendarEvent::new(value, Date, &str)` | What it is to the app (its id, the record it is of), the day it is on, and its title |
+| `CalendarEvent::on(Date, &str)` | An event that is no value to the app: its own `on_select` hears its press |
+| `variant(impl Into<Name>)` | Its kind: `CalendarEventVariant::Neutral`, `Info` (the default), `Success`, `Warning`, `Destructive` |
+| `on_select(Fn())` | This event was pressed, before the calendar's `on_select` |
+| `disabled(bool)`, `id`, `key` | It takes no input; the id and the key of its element |
+
+- Its days are a [calendar](#calendar)'s: the weeks of a month are the same grid (`YearMonth::weeks`), filled with the days of the months beside it, and the keys are the same, from one function. The days are one stop of Tab, at the chosen day where it is shown, else today, else the first day shown. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and, with Shift, a year, into a period that is then shown. Enter and Space choose the focused day.
+- Tab goes on from the focused day into its events, each a stop, and then out of the days: an event is pressed with Enter or Space, and its press is its own. The arrows on an event move between the days.
+- A press anywhere on a day chooses it. A day of the month beside, in a month, is pressed to choose it and show its month, and is no stop of the keys.
+- An event's title is on one line in a week and a month, cut with an ellipsis where its day is narrower; in the day view, where the room is the day's, it wraps onto as many lines as it needs.
+- **In a narrow room.** Mounted, the calendar measures the room it is laid out in before the frame is painted, and takes the form that room holds from its first frame (`EventCalendarForm`, `view.form`); the room is its own, so a narrow panel of a wide window is a narrow room too:
+  - A week whose days would be narrower than `EventCalendar::WEEK_DAY_LEAST` (110) keeps them at that width, and they scroll sideways inside the calendar, under its header, which stands still (`Scrolling`).
+  - A week in a room under `EventCalendar::DAY_VIEW_BELOW` (330, three such days) shows one day of it (`OneDay`): the chosen day where it is in the week, else the day the week was shown by. Its title and its buttons are the day view's, and go a day; the keys are the same, and a press or Enter chooses as ever. With room again it shows the week of that day.
+  - A month whose days would be narrower than `EventCalendar::MONTH_DAY_LEAST` (80) shows each day's number and under it a dot of 6 for each of its events, in the ink of its kind (`Dots`); a press of a day chooses it and tells `on_more`, where an app shows what is on it.
+  - `EventCalendarForm::for_room(period, days, width)` is the form of a width. Converted into an element on its own the calendar has no room of its own to read, and keeps the full form.
+- An event is on one day. The events of a day are in the order the app gave them.
+- The names of the days and the months, the title of the header and the names of the buttons are the app's date locale's (`App::set_date_locale`, see [dates](../dates/)): a day of a week says `weekday_medium` and its number ("Thu 12"), the header a month's `month_title`, a week's `format_range` of its first and last day shown, or a day's `day_label`; the buttons say `previous_week_label`, `next_week_label`, `previous_day_label`, `next_day_label`, `today_label` and a month's `previous_month_label` and `next_month_label`.
+- To tooling the days are a `grid` called by the period shown, of `row`s of `gridcell`s called by their dates, which say whether they are chosen (`a11y_selected`) and today (`a11y_current`); a month's names of the days are `columnheader`s; an event and a "+N more" are `button`s.
+- Parts: `EventCalendarPart::Root`, `Header`, `Title`, `Nav` and `NavIcon` (rules over the buttons' root and icon), `Grid`, `Weekdays`, `Weekday`, `Week`, `Day` (what is pressed and focused), `Label` (the row at the top of a day), `Events`, `Event` (a pill, in its variant's fill and ink), `More`, `Dots` and `Dot` (a month's dots, in its variant's ink). States: `EventCalendarState::Month`, `Week`, `Day` (the period), `Header`, `Disabled`, `Compact` (a month of dots), `Scrolling` (a week that scrolls); a day's `Selected`, `Current`, `Outside`, `Last` (the last of its row, and a week the last of the calendar: no line after it); an event's `Unavailable`.
+- In the design (`eh5zV`) it is a box on `Background` in an edge of 1 in `Border` with the large radius, 150 high, its days side by side with a line of 1 after each but the last. A day's label is a row of 32 with a line under it, padded 10, its text 12 at medium weight in `MutedForeground`; today's is on `Highlight` (the board's accent) in `Foreground` at 600. The events are 6 from the day's sides and 4 apart, each a pill with the small radius padded 4 and 6, its title 11 at medium weight in the color of its kind on that kind's muted fill. The board draws a week of five days, and nothing else: the header (44 high, a calendar's buttons, the title at medium weight, an outline "Today"), the month (days at least 115 high under a row of the days' names, a day of the month beside at half its opacity), the chosen day (its label on `Primary`), "+N more" (an event's box in `MutedForeground`), the focus (a line of 2 in the ring's color inside a day or an event) and the event of no kind (`Muted`, `Foreground`) are lurq's.
+- A renderer that draws another calendar has `view.root()`, `view.header()`, `view.nav(by)`, `view.today_button()`, `view.title_text()`, `view.grid()`, `view.weekdays()`, `view.weeks()`, `view.week(days, last)`, `view.day(date, last)`, `view.day_text(date)`, `view.day_states(date, last)`, `view.events(date)`, `view.event(event)`, `view.more(date, count)`, `view.entry()`, `view.bounds()`, `view.within(date)`, `view.recipe_in(variant, states)` and `view.render()`.
+
 ## Color Picker
 
 A color chosen in an area of saturation and brightness, on a rail of hue and one of alpha, from swatches, or typed as hex, RGB or HSL: the color of a label, of a brush, of a theme's accent.
@@ -5974,11 +6669,11 @@ List::new().contained(true).title("Recent").item(ListItem::new("theme.md").chevr
 | `label(&str)`, `density(Density)`, `force(..)` | What the list is called to what reads the tree; the density of every row; every row drawn as under the pointer or focused |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them, on the row and on the list |
 
-- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
+- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a row that is pressed, what the app put at its end with `trailing` keeps its own presses, which are not the row's, and is a stop of Tab after the row. A title longer than its room is cut with an ellipsis, and a description goes on to the next line. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
 - A row with `href` goes to its path in the router around it (`router::current_navigator`), after its `on_click`; outside a router it goes nowhere.
 - What is selected is the app's: `selected(true)` on the row. A list of which one or many are chosen by a person is a [listbox](#listbox).
 - To what reads the tree a list is a `list` called by its label or its title. A row is a `listitem`; a pressed one a `button`, a `link` with a path, a `checkbox` or `radio` with one before its text (with `a11y_checked`), and a selected one says `a11y_selected`.
-- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`. Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
+- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`, `Setting` (it is a row of a [settings card](#settings-card), which draws it as the design's Settings Row). Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
 - In the design a row is 36 high (28, 44 and 56 at the compact, comfortable and touch densities), 12 in, with the medium radius and 12 between what it holds; with a description it is 16 higher, 52 at the default, its title at 500. The title is the body's type at 14, the description 12 in `MutedForeground` 2 under it, a value 13 and a chevron of 14 in `MutedForeground`, a note the mono type at 11, an icon 16 in `MutedForeground`. The selected row is on `Highlight`. A pressed row under the pointer and held down has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. Under a finger a row is the board's mobile row: 56 high, 16 in, its title at 16, its value at 15, its chevron 18, its icon of 18 on a tile of 32 on `Muted` with the large radius.
 - Rows are 2 apart; with lines between them they touch, a line of 1 in `Border` from the inset to the end along the bottom of the row over it, inside it: the lines add no height, and a contained list of three rows is 32 + 3 × 36 = 140, as the board's is. A disabled row says `a11y_disabled` to tooling. A contained list is a box on `Background` with an edge of 1 in `Border` and the large radius; its header is 32 high on `Muted`, 12 in, with a line under it, its title the mono type at 11 in `MutedForeground`, 1 apart; its rows are square, their titles 13 and 8 from what is at their end.
 - A theme's renderer is given `ListItemView` (`view.root(children)`, `view.leading()`, `view.content()`, `view.trailing()`, `view.render()`) and `ListView` (`view.root()`, `view.header()`, `view.rows()`, `view.separator()`).
@@ -6261,10 +6956,11 @@ StatCard::new("Frames per second", "144")
 
 ## Media
 
-A video player, an audio player and the parts they are built of. They draw and tell: the picture, the
-position, whether it plays, the volume and the speed are the app's, bound to its signals or held by it, and
-what a person does is told back. They decode nothing. A player, a queue, a seek bar and a volume control are
-mounted (`.mount(ctx)`): they keep a drag, a measure of their room or a menu between renders.
+A video player, an audio player and the parts they are built of. Given a source (`source(&Source)`, with the
+feature `media`), a player plays it with the system's decoder and output and its controls move it; without one,
+every value it shows is the app's, bound to its signals or held by it, and what a person does is told back. A
+player, a queue, a seek bar and a volume control keep a drag, a measure of their room or a menu between renders:
+each is a component, mounted with `.mount(ctx)` or declared where an element goes (`.child(player)`).
 
 ## Video Player
 
@@ -6321,11 +7017,20 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `live(bool)` | No end: the LIVE badge for the time, the seek bar full (or the window that can be gone back in, given as the duration), no speed |
 | `error(&str)`, `error_description(&str)`, `on_retry(handler)` | That it cannot play: the veil, the title and the line in the middle, and no bar. The button ("Try again") is drawn once `on_retry` is given |
 | `size(VideoPlayerSize)` | `Lg`, `Md` (compact) or `Sm` (minimal) in place of the form its width gives it |
-| `width(Length)`, `height(Length)` | Its size, in place of its form's (640 by 360 for the large one). A width with no height gives a height of 16 by 9 |
+| `width(Length)`, `height(Length)` | Its size, in place of its form's (640 by 360 for the large one). A width with no height gives the height its aspect makes |
+| `caption_cues(&MediaCaptions)` | A track of captions: while they are on, the player shows what the track says at its position. `caption_text` given too is shown in its place |
+| `fullscreen_fills(VideoFullscreen)` | What a mounted player in fullscreen fills: its window as it is (`Window`, the default); its window taken to the whole screen (`Screen`); nothing, where the app lays it out itself (`App`) |
+| `picture_in_picture_window(bool)` | Whether a mounted player in picture in picture opens its small window itself (the default). Without it the value is told and drawn, and the window is the app's |
+| `in_picture_text(&str)`, `back_label(&str)` | What stands where the player was while it is in its small window, and the button that brings it back |
+| `touch(bool)` | The touch form: larger controls over a scrim, shown and hidden by a tap; two taps on a side third seek ten seconds, and more add up. On its side while in fullscreen |
+| `title(&str)`, `description(&str)` | What plays and a line under it, at the top of the touch form on its side |
+| `on_back(impl Fn())` | The first button of the touch form's top row: drawn upright where a handler is given, always on its side, where it leaves fullscreen if there is none |
+| `max_width(Length)` | The most it is wide: narrower where what holds it is, its aspect kept |
+| `aspect(f32)` | The shape of the picture, its width over its height: `16.0 / 9.0` unless told |
 | `force_menu(Option<VideoPlayerMenu>)`, `force_controls_shown(Option<bool>)` | A menu drawn open, or the bar shown or faded, with nothing pointing at it: for a gallery or a test |
 | `label`, `play_label`, `pause_label`, `replay_label`, `mute_label`, `unmute_label`, `volume_label`, `seek_label`, `captions_label`, `speed_label`, `settings_label`, `quality_label`, `picture_in_picture_label`, `fullscreen_label`, `exit_fullscreen_label`, `more_label`, `retry_label`, `speed_heading_text`, `auto_text`, `on_text`, `off_text`, `live_text` | Every word it says and every name it gives a control |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the buttons of the bar as under the pointer or focused. The controls have ids after the player's: `{id}-play`, `{id}-seek`, `{id}-mute`, `{id}-time`, `{id}-captions`, `{id}-speed`, `{id}-settings`, `{id}-pip`, `{id}-fullscreen`, `{id}-more`, `{id}-center`, `{id}-retry`, `{id}-controls`, `{id}-caption`, `{id}-overlay`, and the menus' panels `{id}-settings-menu`, `{id}-speed-menu`, `{id}-more-menu` |
-| `mount(ctx)` | Keeps its width, the timer that fades the bar, its menus and their pages, the seek bar's preview and its tooltips. The only way a player is put where it goes |
+| `mount(ctx)` | Keeps its width, the timer that fades the bar, its menus and their pages, the seek bar's preview and its tooltips. `.child(player)` is the same component, declared: what renders the tree mounts it |
 | `build(theme)` | A still picture for a test or a screenshot: the bar shown, the large form unless told or given a width in pixels, its menus not opened, no tooltips and no preview |
 
 - A press on a control tells the app what the value is to be and changes nothing by itself: bound, the signal is set first; held, the app answers with the next render. No handler is called when the app sets a value, nor for a choice of what is already chosen.
@@ -6388,6 +7093,7 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 | `rate(Signal<f32>)`, `rate_controlled(f64, handler)`, `on_rate_change(Fn(f64))` | The speed: the card's speed button opens `MediaSpeedMenu`; a voice message's badge steps 1×, 1.5×, 2× (`VOICE_RATES`) while it plays |
 | `shuffle(Signal<bool>)`, `shuffle_controlled(bool, handler)`, `on_shuffle_change(Fn(bool))` | Shuffle, in the card |
 | `repeat(Signal<AudioRepeat>)`, `repeat_controlled(AudioRepeat, handler)`, `on_repeat_change(Fn(AudioRepeat))` | `Off`, `All`, `One`; a press steps it (`AudioRepeat::next`), and `One` has the `repeat-one` glyph |
+| `source(&Source)` (feature `media`) | What it plays: a file, bytes, a resource of the app, an address. The player opens it as a sound and plays it; where it is, how long it is and whether it plays, loads or failed are then the sound's, and its controls move it. An address is loaded when it is first played, once, and kept (`media::sound_cache()`). See `media-playback.md` |
 | `loading(bool)` | Lines of skeleton for the texts, "-:--" for the times, an empty bar, a spinner in play, previous and next dimmed |
 | `error(Option<&str>)`, `on_retry(Fn())`, `retry_text(&str)` | What went wrong: a line in the destructive color in place of the times (in place of the bar in a row, where play turns to a retry button; in place of the description in the mini player). "Try again" at its end in the card |
 | `unheard(bool)` | A voice message not heard yet: a dot of 8 in the info color, and the whole waveform in the color of what is not played |
@@ -6395,7 +7101,7 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 | `peaks(&[f32])` | The loudness of each bar of a waveform, from 0 to 1: a voice message draws it, the compact row in place of the bar |
 | `on_previous`, `on_next`, `on_more`, `on_queue`, `on_expand` | Commands; each call adds a handler. `more_anchor(ElementRef)` is the ref of the card's more button, for a menu of the app |
 | `label(&str)` and `play_label`, `pause_label`, `previous_label`, `next_label`, `shuffle_label`, `repeat_label`, `more_label`, `speed_label`, `queue_label`, `expand_label`, `seek_label` | What the player and its controls are called |
-| `mount(ctx)` | The tooltips of the buttons, the speed menu, the mini player's form from its own width, and the time over the mini player's line under the pointer. The only way a player is put where it goes |
+| `mount(ctx)` | The tooltips of the buttons, the speed menu, the mini player's form from its own width, and the time over the mini player's line under the pointer. `.child(player)` is the same component, declared: what renders the tree mounts it |
 | `build(theme)` | A still picture for a test or a screenshot: no tooltips, no speed menu, a mini player as wide as it is given |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the play button; `id` is the root's, and each control has it with `-play`, `-seek`, `-previous`, `-next`, `-shuffle`, `-repeat`, `-more`, `-speed`, `-volume`, `-queue`, `-expand`, `-retry`, `-rate`, `-line` after it |
 
@@ -6435,7 +7141,7 @@ AudioQueue::new(
 | `playing(bool)` | Whether the current track plays: the `equalizer` glyph stands for its number |
 | `item(AudioQueueItem)`, `items(..)` | Adds tracks at the end |
 | `label(&str)`, `more_label(&str)`, `playing_label(&str)` | What the queue ("Queue"), a row's more button ("More") and the equalizer ("Now playing") are called |
-| `mount(ctx)` | The only way a queue is put where it goes; it keeps the tooltips of the rows' more buttons |
+| `mount(ctx)` | Mounts it at once, with the tooltips of the rows' more buttons. `.child(queue)` is a component that has them too |
 | `build(theme)` | A still picture for a test or a screenshot: the buttons have no tooltips |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the row Tab would stop on |
 
@@ -6493,7 +7199,7 @@ SeekBar::controlled(at, 250.0, move |to| seek_to(to));
 | `empty(bool)` | Nothing is loaded: the track alone, with nothing played or loaded and no thumb, and it takes no input (no stop of Tab). A player draws it while it loads and after an error. It is not dimmed |
 | `live(bool)` | A live stream with nothing to go back in: the bar full, the thumb at its end, and a press, a drag and the keys tell nothing (no stop of Tab). The whole may be of no length |
 | `label(&str)` | What it is called, to what reads the tree: "Seek" unless told |
-| `mount(ctx)` | Puts it where it goes keeping the time under the pointer and the width it is laid out at: it shows the chip with the time, and the preview over it. The only way a bar is put where it goes |
+| `mount(ctx)` | Puts it where it goes keeping the time under the pointer and the width it is laid out at: it shows the chip with the time, and the preview over it. `.child(bar)` is the same component, declared: what renders the tree mounts it |
 | `build(theme)` | A still picture for a test or a screenshot: with no chip, and it reads nothing of a pointer that does not press it |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what is dragged and focused. A mounted bar forced `Hovered` shows its position in the chip |
 
@@ -6648,7 +7354,7 @@ MediaVolume::new(volume.clone()).muted(muted.clone()).on_media(true).collapsed(t
 | `length(f32)` | How long the slider is, in place of the recipe's 72 |
 | `label(&str)` | What the slider is called: "Volume" |
 | `mute_label(&str)`, `unmute_label(&str)` | What the button is called while a press would mute or bring the sound back: "Mute", "Unmute" |
-| `mount(ctx)` | Puts it in the tree of `ctx`'s component, keeping whether the pointer is over it, the focus is in it and its slider is being dragged |
+| `mount(ctx)` | Puts it in the tree of `ctx`'s component, keeping whether the pointer is over it, the focus is in it and its slider is being dragged. `.child(volume)` is the same component, declared: what renders the tree mounts it |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` and `force` are the button's |
 
 - The glyph is `volume` from a half up, `volume-low` under it, and `volume-off` while muted or at nothing. Muted, the slider stands at nothing and the app's volume is not touched; moving the slider up from there sets the volume and tells `on_muted_change(false)` once in the gesture.
@@ -6693,6 +7399,293 @@ MediaSpeedMenu::new(open.clone(), speed_button.clone(), speed.get())
 - Parts: `MediaSpeedMenuPart::Panel` and `Label` (laid over a menu's `Panel` and `Label`), `Item`, `ItemLabel`, `Check` (laid over a menu item's `Root`, `Label` and `Check`). State: `MediaSpeedMenuState::Inline`.
 - In the design it is the menu's panel 168 wide (where a menu is at least 230), with the group label and a menu item for each speed; the check is at the end of the row of the speed in use. Over a picture it stays themed: it is the system's own surface, and opaque.
 - A renderer that draws another speed menu starts from `view.menu()`, the menu with its speeds, or `view.item(rate)` for one speed.
+
+## Playing a video
+
+`VideoPlayer::source(&Source)` (feature `media`) makes a mounted player play what the source holds: a file, bytes, a resource of the app, an address.
+
+```rust
+VideoPlayer::new()
+  .source(&Source::file("clips/lake.mp4"))
+  .width(640.0)
+  .max_width(Length::Fill)
+  .mount(ctx)
+```
+
+The player opens the source with the app's loader, decodes it with the system's decoder and draws its frames as its picture. Where it is, how long it is, and whether it plays, waits, ended or failed are the media's, in place of what the app would say. A press on a control tells the app's handlers and does what it says to the media: play, pause, the seek bar, the speed, the keys. An app that holds `playing` or `rate` (a signal, or a value it sets) moves the media by changing them. With no source the player is drawn from the values it is given, as before.
+
+An app that draws its own player asks for a media itself:
+
+```rust
+let media = Media::open(app.loader(), &Source::file("clips/lake.mp4"));
+media.play();
+let picture = media.frame().map(Video::new); // drawn again by itself as frames come
+let state = media.state(); // duration, position, size, playing, waiting, ended, error, rate
+media.seek(42.0);
+media.set_rate(1.5);
+media.on_change(|| { /* it opened, ended, failed: from the media's thread */ });
+```
+
+## Playing a sound
+
+`AudioPlayer::source(&Source)` (feature `media`) makes a player play what the source holds: a file, bytes, a resource of the app, an address.
+
+```rust
+AudioPlayer::new(position, 0.0)
+  .source(&Source::url("https://example.com/night-drive.mp3"))
+  .title("Night Drive")
+  .volume(volume)
+```
+
+The player opens the source as a sound and plays it through the system's output. Where it is, how long it is, and whether it plays, loads or failed are the sound's, in place of what the app would say: the length given to `new` is drawn only until it opened. A press on a control tells the app's handlers and does what it says to the sound: play, pause, the seek bar, the volume, the mute, the speed. An app that holds `playing`, `volume`, `muted` or `rate` moves the sound by changing them. With `AudioRepeat::One` the track starts over at its end. "Try again" loads the source anew.
+
+A sound at an address is loaded whole through the app's loader (its headers, its timeout, what it allows; the feature `http`), and kept: played again, by this player or another, it starts at once and asks the network for nothing. While it loads the player is drawn loading. What is kept is what the server sent, up to 64 MiB of sounds; over that, what was played longest ago is let go.
+
+```rust
+sound_cache().budget(256 * 1024 * 1024); // keep more
+sound_cache().forget(&source);           // this one has changed: load it again
+sound_cache().clear();
+```
+
+An app that draws its own player asks for the sound itself:
+
+```rust
+let song = Media::sound(app.loader(), &Source::file("songs/night-drive.mp3"));
+song.set_volume(0.8);
+song.play();
+song.set_muted(true);
+let state = song.state(); // duration, position, sound, volume, muted, playing, waiting, ended, error, rate
+```
+
+A video has its sound too: `Media::open` and `VideoPlayer::source` play it, and the picture goes by what is heard.
+
+## Picture
+
+An image in its box: it covers the box unless told otherwise, shows a skeleton while it loads and its name when it
+cannot be shown, and carries a badge, a bar and a layer of the app's over it.
+
+```rust
+use lurq::ui::{Picture, PictureFit, PicturePlaceholder};
+
+// Pixels the app has, a file, bytes, a resource of the app, an address.
+Picture::from_file("photos/lake.jpg")
+  .label("The lake at dusk")
+  .size_px(640.0, 360.0)
+  .lightbox(true);
+
+// As wide as its room, 3 by 2 before its pixels are there, with a small version blurred while they come.
+Picture::from_url("https://example.com/lake.jpg")
+  .label("The lake at dusk")
+  .aspect_ratio(3.0 / 2.0)
+  .placeholder(PicturePlaceholder::blur("photos/lake-small.jpg"))
+  .on_error(|why| tracing::warn!("{why}"));
+
+// A figure: the picture with a caption under it.
+Picture::from_resource("images/lake.jpg")
+  .width(320.0)
+  .caption("Figure 1. The lake at dusk.");
+```
+
+| Builder | |
+| --- | --- |
+| `new(ImageData)`, `from_file(path)`, `from_bytes(bytes)`, `from_resource(path)`, `from_url(url)`, `from_source(source)`, `empty()` | Pixels the app has; a file or bytes, decoded off the UI thread; a resource of the app or an address, read by the app's `Loader`; any `resources::Source`; or no source: a box that says it has no picture. `ImageData` converts into a picture. An address outside a browser needs the feature `http`, decoding the feature `image`: without it the box says the picture did not load, and why |
+| `cache_key(u64)`, `downscale_to(width, height)` | The key the decoded pixels are kept under, for bytes the app tells apart itself; and the most pixels that are kept of a large picture |
+| `label(&str)`, `decorative(bool)` | What the picture is called: what it shows of itself where there are no pixels, and its name to tooling. A decorative one says nothing to tooling |
+| `width(Length)`, `height(Length)`, `size_px(width, height)`, `aspect_ratio(f32)` | As a browser's `img`: with neither side it is as large as its pixels, with one the other follows their ratio, with both it is a box. A ratio gives the side that is not said, and with neither makes the box as wide as its room; it holds the box of a picture whose pixels are not there yet. The width is the most the box takes: in a narrower room it is as wide as the room, and a box of pixels keeps its shape |
+| `fit(PictureFit)`, `anchor(StackAlignment)` | `Cover` (the default), `Contain`, `Fill`, `None` (its own size); and which side is kept where the pixels are cut or do not fill the box |
+| `shape(PictureShape)`, `bare(bool)` | `Rounded` or `Circle`; bare is the pixels alone, with no fill, no corners and no line |
+| `size(PictureSize)` | The form: `Lg` from 240 wide, `Md` under it, `Sm` at 96 and under, `Xs` at 40 and under. Not said, it follows the width the box gets: the width in pixels it was told, or less where its room is narrower, or the width of its room |
+| `placeholder(PicturePlaceholder)` | What the box shows while the pixels are on their way: `Skeleton` (the sheen), `blur(source)` or `blur_pixels(data)` (a small version of the picture, blurred), `None` (the box alone) |
+| `loading(bool)`, `progress(Option<f64>)`, `progress_text(Fn(PictureLoad) -> String)` | The box as while its pixels are on their way, for a picture the app is still fetching; how far the load has come, of 1, which draws a rail in place of the sheen; and the words under the rail. A picture that loads from an address shows its own progress where the server says how long it is |
+| `on_load(Fn())`, `on_error(Fn(&str))`, `on_retry(Fn())` | Told once the pixels are there; once the picture did not come, with why; and on a press of "Try again", before the picture asks again |
+| `error_description(&str)`, `retry_label(&str)`, `download_label(&str)`, `more_label(&str)`, `open_label(&str)` | Its words: "The picture didn't load.", "Try again", "Download", "More", "Open" |
+| `title(&str)`, `description(&str)`, `badge(element)` | What the bar along the bottom says, and what stands at the top, at the start. The bar shows under the pointer and with the focus |
+| `on_download(Fn())`, `menu_item(MenuItem)`, `menu_items(..)`, `action(element)`, `actions(..)` | The bar's Download button, the menu behind More, and buttons of the app's |
+| `bar(bool)`, `force_bar_shown(Option<bool>)` | Whether the bar is drawn, and whether it shows whatever the pointer does |
+| `child(element)`, `children(..)` | The app's own layer over the whole picture |
+| `caption(&str)` | A caption under the picture, which makes it a figure |
+| `on_click(handler)` | A press of the picture as a whole |
+| `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
+| `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
+
+- A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
+  by the component whose render returns it, keeps its load, its menu and its lightbox there, and is told apart from
+  its like by its place or its `key`. In a tree no component renders (`Tree::set_root(element)`) it shows nothing.
+  `mount(ctx)` mounts it at once, for a place that needs the element.
+- A picture made of the same plain things as the last time is not rendered again with what holds it: a list of five
+  hundred costs what its changed pictures cost. A handler, a child, a badge or a menu makes it render with its
+  parent.
+- While a box that does not wait for its pixels loads, what stands in for them goes out over them as they come;
+  a box the pixels size drops it at once.
+- A press, Enter and Space press a picture that takes a press; Tab reaches it, and the ring of the focus is drawn
+  from the keyboard. The buttons of the bar are pressed on their own, and the picture is not.
+- Parts: `PicturePart::Figure`, `Root`, `Image`, `Edge`, `StandIn`, `Sheen`, `Veil`, `Overlay`, `Center`, `Mark`,
+  `Label`, `ErrorIcon`, `ErrorLabel`, `ErrorDescription`, `Retry`, `Progress`, `Track`, `Fill`, `ProgressLabel`,
+  `ProgressLine`, `Count`, `Top`, `Select`, `SelectIcon`, `Controls`, `Text`, `Title`, `Description`, `Actions`,
+  `Control`, `ControlIcon`, `MoreMenu`, `Caption`. States: `PictureState::Bare`, `Circle`, `Pressable`,
+  `Selectable`, `Selected`, `Disabled`, `Shown` (the bar is held shown), `On` (a button of the bar whose menu is
+  open). Sizes
+  `PictureSize::Xs`, `Sm`, `Md`, `Lg`.
+- In the design the box is `Muted` with a line of `Border` inside it, round by `RadiusSize::Lg` (`Md` for a small
+  one); the bar is white on a gradient to black at 70% in both themes, since the picture is not themed. A chosen
+  picture has a disc of `Primary` with a check at its top end and a line of `Primary` about it.
+- To what reads the tree it is an `img` called by its label, a `button` where it is pressed, a `checkbox` where it
+  is chosen, and a `figure` about the two where it has a caption.
+- A renderer that draws another picture has `view.frame()` (the box with everything in it), and the pieces it is
+  made of: `view.image()`, `view.empty()`, `view.overlay()`, `view.top()`, `view.controls()`, `view.edge()`.
+
+## Lightbox
+
+Pictures one at a time, whole, over the window: to look at closely, to bring closer, to turn through.
+
+```rust
+use lurq::ui::{Lightbox, Picture};
+
+// open: Signal<bool>. Open while it says so; Escape, a press beside the picture and Close set it to false.
+Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.path).title(&photo.name)))
+  .index(shown.clone())
+  .wrap(true)
+  .on_download(move |which| save(which));
+
+// One picture needs none of this: Picture::lightbox(true). A grid of them: Gallery.
+```
+
+| Builder | |
+| --- | --- |
+| `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
+| `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
+| `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
+| `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
+| `wrap(bool)` | Whether the first picture comes after the last |
+| `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
+| `on_download(Fn(usize))` | Shows the Download button, and is called with the picture shown |
+| `action(element)`, `actions(..)` | Buttons of the app's in the top row, before Download |
+| `inline(bool)`, `width(Length)`, `height(Length)` | Stands in the page where it is declared, open or not, in place of over the window: for a gallery, a screenshot, a test, a viewer that is part of a page. Its size there; the width is the most it takes |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)`, `close_button(bool)` | Told when a person closes it; and whether Escape, a press beside the picture and a Close button do |
+| `label`, `close_label`, `previous_label`, `next_label`, `zoom_in_label`, `zoom_out_label`, `fit_label`, `download_label` | Its words to tooling: "Pictures", "Close", "Previous picture", "Next picture", "Zoom in", "Zoom out", "Fit to the window", "Download" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel; its parts are `<id>-close`, `-next`, `-previous`, `-zoom-in`, `-zoom-out`, `-level`, `-download`, `-stage` |
+
+- It is a component wherever it is put, as a [picture](#picture) is: it keeps which picture is shown, how close, and
+  where the view is.
+- The wheel brings the picture closer about the pointer and a drag moves it; two fingers on a touch screen pinch and
+  pan. A double click goes to twice the size it fits and back.
+- Keys, while the focus is in it: the left and right arrows turn to the picture before and after, and move a
+  picture that is closer than it fits, as the up and down arrows do; `+` and `-` bring it closer and further, `0`
+  fits it; Escape closes. Over the window it takes the focus.
+- The level says how close the picture is as a share of the size it fits at (100% fitted), and a press of it fits
+  the picture again. In a panel too narrow for the whole top row the level is not there.
+- The strip shows as many small pictures as it has room for, about the one shown.
+- Parts: `LightboxPart::Veil` (what covers the window), `Root` (the panel), `Top`, `Counter`, `Total`, `Control`,
+  `ControlIcon`, `Level`, `Stage`, `Step`, `StepIcon`, `Side`, `Caption`, `Title`, `Description`, `Filmstrip`,
+  `Thumb`. States: `LightboxState::Inline`, `Current` (the small picture of the one shown).
+- In the design it is white on near black (`#09090BF2`) in both themes, since a picture is not themed: a top row of
+  52 with the counter in the mono face and buttons of 36, round buttons of 36 on black at 40% over the sides of
+  the stage, a caption on a gradient to black at 70%, and a strip of 52 with pictures of 44 by 32, the one shown
+  whole and ringed in white, the others at 60%.
+- To what reads the tree its buttons are `button`s called by their labels.
+- A renderer that draws another lightbox has `view.top()`, `view.stage()`, `view.caption()`, `view.filmstrip()`,
+  `view.panel()` (the three with the keys) and `view.dismisser()`.
+
+## Gallery
+
+Pictures in rows, each in a room of one shape, with one [lightbox](#lightbox) for them all; a gallery that chooses
+keeps which of them are chosen.
+
+```rust
+use lurq::ui::{Gallery, Picture};
+
+// A press of a picture opens it in a lightbox that holds them all.
+Gallery::new(photos.iter().map(|photo| Picture::from_file(&photo.path).label(&photo.name)))
+  .columns(4)
+  .max_shown(8);
+
+// chosen: Signal<Vec<PhotoId>>. A press chooses, Enter opens.
+Gallery::keyed(photos.iter().map(|photo| (photo.id, Picture::from_file(&photo.path))))
+  .selectable(true)
+  .selected(chosen.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(pictures)`, `picture(Picture)`, `pictures(..)` | The pictures, told apart by their place |
+| `keyed(items)`, `item(key, Picture)` | The pictures, each with a key of the app's (`GalleryKey`: `Clone + PartialEq + Send + Sync`): what is chosen is a list of those keys, which stays right when the pictures are put in another order |
+| `columns(usize)`, `min_picture_width(f32)`, `gap(f32)`, `aspect_ratio(f32)` | The most pictures in a row (4); the least width of a picture (92, the board's thumbnail), which takes columns away as the room narrows, down to one, and which 0 turns off; the room between them across and down (8); and the width of a picture's room to its height (92 to 68). The room is measured before paint: the first frame has the rows of the settled one. A row the pictures do not fill keeps its empty rooms: its pictures are as wide as the others |
+| `width(Length)` | How wide the gallery is: all the room there is unless told, and never wider than its room. The pictures share it |
+| `size(PictureSize)` | The form of its pictures: `Sm` unless told |
+| `max_shown(usize)`, `more_text(Fn(usize) -> String)` | The most pictures it shows: with more, the last one shown lies under a veil that says how many more there are, itself among them ("+5"). A press of it opens that picture in the lightbox, which holds every picture |
+| `selectable(bool)`, `selected(Signal<Vec<K>>)`, `selected_controlled(keys, on_change)`, `on_selection_change(Fn(&[K]))` | Pictures that can be chosen, and the keys of the ones that are. Without a signal the gallery keeps them |
+| `lightbox(bool)`, `open(Signal<Option<usize>>)`, `on_open_change(Fn(Option<usize>))` | Whether a picture opens in the lightbox (it does unless told), and which one is open, `None` while it is closed |
+| `on_select(Fn(usize))` | A press of a picture, with its place, in a gallery that neither chooses nor opens |
+| `label(&str)`, `disabled(bool)` | What it is called to tooling; and a gallery that takes nothing, its pictures at half the opacity |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the gallery; its pictures are `<id>-0`, `<id>-1`, … |
+
+- It is a component wherever it is put, as a [picture](#picture) is: it keeps which picture is open, and what is
+  chosen where the app gives no signal.
+- Each picture is the app's, without what lies over it (its bar, its badge, its own press and its own lightbox):
+  the gallery gives it its press, its mark and its place in the lightbox. Its title and description are what the
+  lightbox says under it.
+- In a gallery that chooses, a press chooses a picture and takes it out again, and Enter opens the one with the
+  focus; the picture that stands for the rest opens and is not chosen.
+- Tab reaches the gallery once, and the arrows move the focus among its pictures, across and down.
+- Parts: `GalleryPart::Root`, `Row`, `Cell`. States: `GalleryState::Selectable`, `Disabled`. What a picture looks
+  like in it is the picture's recipe: `.rules(..)` on the pictures the app gives.
+- To what reads the tree it is a `list` of pictures, or a `listbox` that takes several where it chooses.
+- A renderer that draws another gallery has `view.render()` and the parts' styles; the rows are of `flex(1)` rooms
+  with the ratio, so a picture is as wide as its share.
+
+## Carousel
+
+Slides one after another in a room that shows one, or a few, at a time: turned by the round buttons beside them,
+the dots under them, the arrow keys, a swipe or a drag.
+
+```rust
+use std::time::Duration;
+use lurq::ui::{Carousel, Picture};
+
+// Pictures as wide as the room, the first after the last.
+Carousel::new(photos.iter().map(|photo| Picture::from_file(&photo.path).aspect_ratio(16.0 / 9.0)))
+  .wrap(true)
+  .label("Photos");
+
+// Three cards in view, turning by itself every five seconds.
+Carousel::new(cards)
+  .per_view(3)
+  .autoplay(Duration::from_secs(5))
+  .index(shown.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(slides)`, `slide(element)`, `slides(..)` | The slides: any elements, each laid out as wide as its room |
+| `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which slide it is at, counted from 0: the first one shown. Without either the carousel keeps it and starts at the first |
+| `per_view(usize)`, `gap(f32)` | How many slides the room shows at once, each as wide as its share (1); and the room between two (12). A turn moves by one, and the last few slides are one place |
+| `wrap(bool)` | Whether the first slide comes after the last, and the last before the first |
+| `arrows(bool)`, `dots(bool)` | The round buttons beside the slides and the dots under them: both show unless told. With one place there are no dots |
+| `autoplay(Duration)` | Turns to the next slide by itself, from the last to the first. It waits while the pointer is over it and while the focus is in it from the keyboard, and stops for good once a person turns it |
+| `width(Length)` | How wide it is, its buttons with it: all the room there is unless told, and never wider than its room. The slides share what the buttons leave |
+| `label(&str)`, `previous_label(&str)`, `next_label(&str)`, `slide_label(Fn(usize, usize) -> String)` | Its words to tooling: "Carousel", "Previous slide", "Next slide", "Slide 2 of 4" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the carousel; its parts are `<id>-previous`, `-next`, `-viewport`, `-slide-<n>`, `-dot-<n>` |
+
+- It is a component wherever it is put, as a [picture](#picture) is: it keeps which slide it is at.
+- A press of a round button turns by one, a press of a dot goes to its place; a turn takes the slides there over a
+  few frames, at once with motion reduced. A finger swipes a page at a time, as many slides as are shown. A drag
+  of the mouse carries the slides, and let go a fifth of a slide away it goes on to the next. A trackpad scrolls
+  them sideways and they come to rest on a slide.
+- Keys: Tab reaches a round button, and the left and right arrow keys on it turn to the slide before and after;
+  Tab reaches the dots once, the arrow keys move among them and Enter or Space goes to the one with the focus. A
+  button that has nothing more to turn to takes nothing, and the focus it had goes to the other one. The slides
+  that are not shown take neither the focus nor the pointer.
+- Parts: `CarouselPart::Root`, `Track`, `Viewport`, `Slide`, `Arrow` (the round buttons, which are design-system
+  [buttons](#button), `Outline`, round), `Dots`, `Dot`, `DotMark`. States: `CarouselState::Current` (the dot of the
+  place it is at), `Disabled`.
+- In the design the buttons are outline buttons of 36 with arrows of 16, 12 from the slides; 12 under the slides
+  the dots are 6 across, 6 apart, in `Input`, the current one in `Primary`. A dot is pressed in a room 3 larger on
+  every side.
+- To what reads the tree it is a `region` described as a carousel, each slide a `group` described as a slide and
+  called by its label, the dots a `tablist` of `tab`s.
+- A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
+  what turns them) and `view.dots()`.
 
 ## Tab And The Design System's Controls
 

@@ -83,6 +83,12 @@ struct TextInputInner {
   /// While focused, the input keeps what it shows when a render binds it to another signal: see
   /// [`TextInputState::copy_runtime_state_from`].
   keeps_text_while_focused: bool,
+  /// Whether all its text is selected as it takes the focus: see [`crate::components::TextInput::select_on_focus`].
+  select_on_focus: bool,
+  /// Wavy lines under ranges of the text: see [`crate::components::InputSquiggles`].
+  squiggles: Option<crate::components::InputSquiggles>,
+  /// What is drawn after the end of the text while the caret is there: see [`crate::components::InputGhost`].
+  ghost: Option<crate::components::InputGhost>,
   /// An input method composition in progress, shown at the caret.
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
@@ -98,6 +104,8 @@ struct TextInputSnapshot {
   selection_anchor: Option<usize>,
   /// A styled input's spans, so undo restores styles with the text.
   spans: Option<styled::SnapshotSpans>,
+  /// The kinds of a styled input's paragraphs, where it has them.
+  paragraphs: Option<styled::SnapshotParagraphs>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -165,6 +173,9 @@ impl TextInputState {
         content: ContentKind::default(),
         focused: false,
         keeps_text_while_focused: false,
+        select_on_focus: false,
+        squiggles: None,
+        ghost: None,
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
@@ -337,6 +348,10 @@ impl TextInputState {
     self.inner.lock().keeps_text_while_focused = keeps;
   }
 
+  pub(crate) fn set_select_on_focus(&self, selects: bool) {
+    self.inner.lock().select_on_focus = selects;
+  }
+
   pub(crate) fn set_keyboard(&self, keyboard: KeyboardKind) {
     self.inner.lock().keyboard = keyboard;
   }
@@ -498,6 +513,12 @@ impl TextInputState {
     }
   }
 
+  /// How many edits there are to undo, and how many to redo.
+  pub(crate) fn history_depths(&self) -> (usize, usize) {
+    let inner = self.inner.lock();
+    (inner.undo_stack.len(), inner.redo_stack.len())
+  }
+
   pub(crate) fn has_selection(&self) -> bool {
     let value = self.value();
     let inner = self.inner.lock();
@@ -507,12 +528,14 @@ impl TextInputState {
   fn snapshot(&self) -> TextInputSnapshot {
     let value = self.value();
     let spans = self.current_spans();
+    let paragraphs = self.current_paragraphs();
     let inner = self.inner.lock();
     TextInputSnapshot {
       value,
       caret: inner.caret,
       selection_anchor: inner.selection_anchor,
       spans,
+      paragraphs,
     }
   }
 
@@ -547,6 +570,9 @@ impl TextInputState {
     inner.caret = caret;
     inner.selection_anchor = selection_anchor;
     drop(inner);
+    if let Some(paragraphs) = snapshot.paragraphs {
+      self.restore_paragraphs(paragraphs);
+    }
     if let Some(spans) = snapshot.spans {
       self.restore_spans(spans);
     }

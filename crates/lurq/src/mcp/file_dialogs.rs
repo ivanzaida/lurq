@@ -21,9 +21,6 @@ pub(crate) const LIST_TOOL: &str = "lurq_file_dialogs";
 pub(crate) const RESPOND_TOOL: &str = "lurq_file_dialog_respond";
 const MAX_PENDING: usize = 32;
 
-/// The broker registered last; see [`FileDialogBroker::registered`].
-static REGISTERED: Mutex<Weak<Mutex<State>>> = Mutex::new(Weak::new());
-
 pub(crate) fn scope() -> Scope {
   Scope::custom("file_dialogs")
 }
@@ -40,6 +37,24 @@ struct State {
   closed: bool,
   shared: Weak<McpShared>,
   pending: BTreeMap<String, Pending>,
+}
+
+/// The broker of a tree, as each window of the tree keeps it: what lurq's own
+/// [`FileDialog`](crate::files::FileDialog) asks before it opens a system dialog over that window. A window knows
+/// the broker of its own tree and no other, so two trees with brokers in one process (an app's tests, run in
+/// parallel) never answer each other's dialogs. It does not keep the broker alive.
+#[derive(Clone, Default)]
+pub(crate) struct ServingBroker(Weak<Mutex<State>>);
+
+impl ServingBroker {
+  /// The broker, while it lives.
+  pub(crate) fn broker(&self) -> Option<FileDialogBroker> {
+    self.0.upgrade().map(FileDialogBroker)
+  }
+
+  pub(crate) fn is(&self, other: &Self) -> bool {
+    self.0.ptr_eq(&other.0)
+  }
 }
 
 /// Explicitly opt an application's normal picker handler into MCP selection.
@@ -62,14 +77,11 @@ impl FileDialogBroker {
     );
     state.attached = true;
     state.shared = Arc::downgrade(shared);
-    drop(state);
-    *REGISTERED.lock().unwrap() = Arc::downgrade(&self.0);
   }
 
-  /// The broker registered last in this process, while it lives: what lurq's own
-  /// [`FileDialog`](crate::files::FileDialog) asks before it opens a system dialog.
-  pub(crate) fn registered() -> Option<Self> {
-    REGISTERED.lock().unwrap().upgrade().map(Self)
+  /// The broker as the windows of its tree keep it: see [`ServingBroker`].
+  pub(crate) fn serving(&self) -> ServingBroker {
+    ServingBroker(Arc::downgrade(&self.0))
   }
 
   fn permitted(state: &State) -> bool {
@@ -144,8 +156,13 @@ impl FileDialogBroker {
     }
   }
 
-  /// Run by the ordinary root drain/pass, including when no MCP call arrives.
+  /// Run by the ordinary root drain/pass, including when no MCP call arrives. Every window of the tree is told
+  /// which broker serves it, one opened since the last pass too.
   pub(crate) fn reconcile(&self, windows: &[(String, crate::app::Window)]) {
+    let serving = self.serving();
+    for (_, window) in windows {
+      window.serve_file_dialogs(&serving);
+    }
     let mut state = self.0.lock().unwrap();
     let gone: Vec<_> = state
       .pending

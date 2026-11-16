@@ -265,6 +265,20 @@ app.theme().set_scrollbar(ScrollBarStyle::default());
 
 `ScrollBarStyle` has three fields more, `thumb_inset`, `thumb_hovered_color` and `thumb_pressed_color`. A style written out field by field must add them, or end with `..ScrollBarStyle::default()`. See [Scroll](../styling-events/#scroll).
 
+### The Caret
+
+The caret of a text input and the line under what an input method composes are the theme's now (`ThemeCaret`), and the design system's theme draws the design's: a caret 1.5 wide and nine sevenths of the font size high (18 in type of 14), and a line of 1.5. In 0.62 the caret was 1 wide and as high as the font size, and the line 1. `ThemeDefinition::legacy()` and `ThemeDefinition::bare()` keep those. To have them in the design's theme:
+
+```rust
+use lurq::app::theme::ThemeCaret;
+
+app.theme().set_caret(ThemeCaret::legacy());
+```
+
+What moves with the caret in the design's theme: a single-line input scrolls 1.5 past the end of its text, where it scrolled 1, and a multiline input whose lines do not wrap is half a pixel wider. A test that finds the caret by a width of 1 finds it by `ThemeCaret::default().width()`.
+
+`ThemeCaret::new(mode)` and `ThemeCaret::default()` are the design's caret. An app on the legacy theme that set `theme.set_caret(ThemeCaret::new(CaretMode::Persistent))` gets the design's size with it: write `ThemeCaret::legacy().with_mode(CaretMode::Persistent)`, or `theme.set_caret_mode(CaretMode::Persistent)`, which changes the mode alone. `ThemeCaret` is no longer `Eq`, its sizes being `f32`; it is still `PartialEq`.
+
 ### A Select's Checkmark After The Label
 
 A single-select whose checkmark is after the label (`SelectCheckmarkPosition::Trailing`) keeps the checkmark's room on the selected row only. The labels and trailing elements of the other rows run to the row's end, where every row kept an empty slot of the checkmark's width. A checkmark before the label, and a multi-select, are as they were.
@@ -554,6 +568,11 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `MarkdownBlock` | `Admonition { kind, blocks }`, `Details { summary, open, blocks }` | A `match` arm |
 | `MarkdownInline` | `Kbd(String)` | A `match` arm |
 | `MarkdownTextStyle` | `baseline_shift` | `..Default::default()` |
+| `SpanStyle` | `underline` | `SpanStyle::new()` and its methods, or `..SpanStyle::default()` |
+| `SelectionStyle` | `underline` | `..SelectionStyle::default()` |
+| `ThemeTextMarks` | `underline` | `..ThemeTextMarks::default()` |
+| `TextMark` | `Underline`; `TextMark::ALL` is five long | A `match` arm |
+| `StyledEdit` | `Paragraphs { range }` | A `match` arm: the kinds of the paragraphs changed, the text did not |
 | `ThemeMarkdown` | `task_item_spacing`, `bullet_gap`, `box_gap`, `bullet_indent`, `bullet_size`, `table_stripe`, `heading_2_rule`, `kbd`, `task_done`, `rule`, `image_box`, `image_height`, `image_caption`, `details_box`, `details_summary_box`, `details_summary`, `details_padding`, `footnote_reference`, `footnote`, `footnotes_rule_width` | `..ThemeMarkdown::default()` |
 | `TextHighlight` | `padding`, `border` | `TextHighlight::new(range, color)` |
 | `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end` | `..Default::default()` |

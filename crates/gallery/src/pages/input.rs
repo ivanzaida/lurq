@@ -8,10 +8,14 @@ use std::sync::Arc;
 use lurq::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
-  core::Signal,
+  core::{Date, DateRange, Signal, Time},
   layout::Alignment,
-  node::Element,
-  ui::{Field, Input, InputSize, Interaction, Orientation, Switch, icons},
+  node::{Element, color::Color},
+  ui::{
+    ColorField, Combobox, DateField, DatePicker, DateRangePicker, Field, Input, InputSize, Interaction, Mention,
+    Mentions, MentionsController, MultiSelect, NumberInput, Orientation, PasswordInput, SearchField, Select, Switch,
+    Textarea, TimeField, TimePicker, Token, TokenInput, icons,
+  },
 };
 
 use crate::{
@@ -75,6 +79,26 @@ pub struct InputPage {
   name: Signal<String>,
   email: Signal<String>,
   workspace: Signal<String>,
+  /// What the fluid fields hold.
+  fluid_name: Signal<String>,
+  fluid_notes: Signal<String>,
+  fluid_theme: Signal<&'static str>,
+  /// What the fluid fields of the other text controls hold.
+  fluid_password: Signal<String>,
+  fluid_query: Signal<String>,
+  fluid_quantity: Signal<f64>,
+  fluid_framework: Signal<String>,
+  fluid_languages: Signal<Vec<String>>,
+  fluid_born: Signal<Date>,
+  fluid_starts: Signal<Time>,
+  fluid_due: Signal<Option<Date>>,
+  fluid_sprint: Signal<Option<DateRange>>,
+  fluid_alarm: Signal<Time>,
+  fluid_tags: Signal<String>,
+  fluid_comment: Signal<String>,
+  /// What the fluid mentions field keeps: its list, and where its caret is.
+  fluid_mentions: MentionsController,
+  fluid_accent: Signal<Color>,
 }
 
 impl InputPage {
@@ -257,6 +281,27 @@ impl Component for InputPage {
       name: ctx.signal(String::new()),
       email: ctx.signal("ivan@".to_owned()),
       workspace: ctx.signal(String::new()),
+      fluid_name: ctx.signal("lurq-demo".to_owned()),
+      fluid_notes: ctx.signal("Opens with the theme of the system.".to_owned()),
+      fluid_theme: ctx.signal("system"),
+      fluid_password: ctx.signal("hunter2".to_owned()),
+      fluid_query: ctx.signal("grid".to_owned()),
+      fluid_quantity: ctx.signal(12.0),
+      fluid_framework: ctx.signal("lurq".to_owned()),
+      fluid_languages: ctx.signal(vec!["rust".to_owned(), "wgsl".to_owned()]),
+      fluid_born: ctx.signal(Date::new(2026, 11, 12).expect("a date")),
+      fluid_starts: ctx.signal(Time::new(9, 30, 0).expect("a time")),
+      fluid_due: ctx.signal(Date::new(2026, 11, 12)),
+      fluid_sprint: ctx.signal(
+        Date::new(2026, 11, 9)
+          .zip(Date::new(2026, 11, 15))
+          .map(|(first, last)| DateRange::new(first, last)),
+      ),
+      fluid_alarm: ctx.signal(Time::new(7, 15, 0).expect("a time")),
+      fluid_tags: ctx.signal("rust wgpu ".to_owned()),
+      fluid_comment: ctx.signal("Ship it on Friday.".to_owned()),
+      fluid_mentions: MentionsController::new(),
+      fluid_accent: ctx.signal(Color::from_hex("#2563EB")),
     }
   }
 
@@ -348,6 +393,165 @@ impl Component for InputPage {
       .spacing(16.0)
       .child(Field::new("Time zone", showing("Europe/Kyiv").full_width(true)).orientation(Orientation::Horizontal))
       .child(Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal));
+    // The fluid field: the label inside the box of an input, a textarea and a select.
+    let fluid = items()
+      .child(item(
+        Field::new("Workspace name", Input::new(self.fluid_name.clone())).fluid(true),
+        "the board's fluid field",
+      ))
+      .child(item(
+        Field::new("Notes", Textarea::new(self.fluid_notes.clone()).rows(2, 5)).fluid(true),
+        "a textarea",
+      ))
+      .child(item(
+        Field::new(
+          "Theme",
+          Select::new(
+            self.fluid_theme.clone(),
+            [("system", "System"), ("light", "Light"), ("dark", "Dark")],
+          ),
+        )
+        .fluid(true),
+        "a select",
+      ));
+    let fluid_states = items()
+      .child(item(
+        Field::new("Workspace name", showing("lurq-demo").force(Some(Interaction::Hovered))).fluid(true),
+        "hover",
+      ))
+      .child(item(
+        Field::new(
+          "Workspace name",
+          showing("lurq-demo").force(Some(Interaction::FocusVisible)),
+        )
+        .fluid(true),
+        "focus",
+      ))
+      .child(item(
+        Field::new("Workspace name", showing("lurq demo"))
+          .fluid(true)
+          .required(true)
+          .error("A name has no spaces."),
+        "required · error",
+      ))
+      .child(item(
+        Field::new("Workspace name", showing("lurq-demo").read_only(true))
+          .fluid(true)
+          .description("Set by your organization."),
+        "read only · description",
+      ))
+      .child(item(
+        Field::new("Workspace name", showing("lurq-demo"))
+          .fluid(true)
+          .disabled(true),
+        "disabled",
+      ))
+      .child(item(
+        Field::new("Search", showing("").placeholder("Components").icon(icons::SEARCH)).fluid(true),
+        "with icon · placeholder",
+      ));
+    // Every other text control in a fluid field. The field mounts the ones that keep something between renders: a
+    // password's reveal, what is half typed in a date, whether a picker is open.
+    let frameworks = [("lurq", "lurq"), ("gpui", "GPUI"), ("slint", "Slint"), ("iced", "Iced")];
+    let languages = [
+      ("rust", "Rust"),
+      ("wgsl", "WGSL"),
+      ("typescript", "TypeScript"),
+      ("swift", "Swift"),
+    ];
+    let fluid_every = items()
+      .child(item(
+        Field::new("Password", PasswordInput::new(self.fluid_password.clone()))
+          .fluid(true)
+          .mount(ctx),
+        "a password input",
+      ))
+      .child(item(
+        Field::new("Search", SearchField::new(self.fluid_query.clone()).shortcut("/")).fluid(true),
+        "a search field",
+      ))
+      .child(item(
+        Field::new("Quantity", NumberInput::new(self.fluid_quantity.clone()).min(0).max(99)).fluid(true),
+        "a number input",
+      ))
+      .child(item(
+        Field::new(
+          "Framework",
+          Combobox::new(
+            self.fluid_framework.clone(),
+            frameworks.map(|(value, label)| (value.to_owned(), label)),
+          ),
+        )
+        .fluid(true),
+        "a combobox",
+      ))
+      .child(item(
+        Field::new(
+          "Languages",
+          MultiSelect::new(
+            self.fluid_languages.clone(),
+            languages.map(|(value, label)| (value.to_owned(), label)),
+          ),
+        )
+        .fluid(true),
+        "a multi select · grows by its lines of tags",
+      ))
+      .child(item(
+        Field::new("Date of birth", DateField::new(self.fluid_born.clone()))
+          .fluid(true)
+          .mount(ctx),
+        "a date field",
+      ))
+      .child(item(
+        Field::new("Starts at", TimeField::new(self.fluid_starts.clone()))
+          .fluid(true)
+          .mount(ctx),
+        "a time field",
+      ))
+      .child(item(
+        Field::new("Due date", DatePicker::new(self.fluid_due.clone()).clearable(true))
+          .fluid(true)
+          .mount(ctx),
+        "a date picker",
+      ))
+      .child(item(
+        Field::new("Sprint", DateRangePicker::new(self.fluid_sprint.clone()))
+          .fluid(true)
+          .mount(ctx),
+        "a date range picker",
+      ))
+      .child(item(
+        Field::new("Alarm", TimePicker::new(self.fluid_alarm.clone()))
+          .fluid(true)
+          .mount(ctx),
+        "a time picker",
+      ))
+      .child(item(
+        Field::new(
+          "Tags",
+          TokenInput::new(self.fluid_tags.clone()).find_tokens(|text| Token::separated(text, ' ')),
+        )
+        .fluid(true),
+        "a token input",
+      ))
+      .child(item(
+        Field::new(
+          "Comment",
+          Mentions::new(self.fluid_comment.clone(), &self.fluid_mentions).trigger(
+            '@',
+            ["Ivan Zaida", "Mira Chen", "Noor Haddad"]
+              .into_iter()
+              .map(Mention::new)
+              .collect::<Vec<_>>(),
+          ),
+        )
+        .fluid(true),
+        "a mentions field · as high as its rows",
+      ))
+      .child(item(
+        Field::new("Accent", ColorField::new(self.fluid_accent.clone())).fluid(true),
+        "a color field",
+      ));
 
     let input_rows = [
       (
@@ -424,6 +628,18 @@ impl Component for InputPage {
         "Called with what it holds when Enter is pressed in it.",
       ),
       (
+        "completion",
+        "&str",
+        "",
+        "What would complete what is typed, drawn after it while the caret is at the end: Tab takes it.",
+      ),
+      (
+        "squiggles",
+        "impl IntoIterator<Item = Range<usize>>",
+        "",
+        "Wavy lines in the destructive color under ranges of its text: what the app's spelling checker marks.",
+      ),
+      (
         "name",
         "impl Into<Arc<str>>",
         "",
@@ -481,6 +697,12 @@ impl Component for InputPage {
         "bool",
         "false",
         "As wide as what holds it, in place of 260.",
+      ),
+      (
+        "fluid",
+        "bool",
+        "false",
+        "The label inside the box of the control, over what it holds, and the box as wide as the field (240): for every text control a field holds. A field of another control (a switch, a month picker) is drawn as it is without it.",
       ),
     ];
     let playground = self.play(ctx);
@@ -639,6 +861,97 @@ impl Component for InputPage {
             &[
               "Field::new(\"Time zone\", Input::new(zone).full_width(true)).orientation(Orientation::Horizontal)",
               "Field::new(\"Notifications\", Switch::new(\"Pause notifications\")).orientation(Orientation::Horizontal)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Fluid field",
+          "The board's Fluid Field: the label is inside the box, over the value, on the muted fill with a line \
+           along its bottom. Here an input, a textarea and a select; a press of the label goes to the control \
+           under it.",
+          self.frame.demo(
+            7,
+            fluid,
+            ".fluid(true)",
+            &[
+              "// name, notes: Signal<String>; theme: Signal<&'static str>",
+              "Field::new(\"Workspace name\", Input::new(name.clone())).fluid(true)",
+              "",
+              "Field::new(\"Notes\", Textarea::new(notes.clone()).rows(2, 5)).fluid(true)",
+              "",
+              "Field::new(",
+              "  \"Theme\",",
+              "  Select::new(theme.clone(), [(\"system\", \"System\"), (\"light\", \"Light\"), (\"dark\", \"Dark\")]),",
+              ")",
+              ".fluid(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Fluid field: states",
+          "The line along the bottom says what an input's edge says: the ring's color under the pointer, the \
+           judgment's color, the border's when it is read only; the focus is a line of 2 inside the box. The \
+           description and the error are under the box, and the mark of a required field after the label.",
+          self.frame.demo(
+            8,
+            fluid_states,
+            ".fluid(true).error(..)",
+            &[
+              "Field::new(\"Workspace name\", Input::new(name.clone()))",
+              "    .fluid(true)",
+              "    .required(true)",
+              "    .error(\"A name has no spaces.\")",
+              "",
+              "Field::new(\"Workspace name\", Input::new(name.clone()).read_only(true))",
+              "    .fluid(true)",
+              "    .description(\"Set by your organization.\")",
+              "",
+              "Field::new(\"Workspace name\", Input::new(name.clone())).fluid(true).disabled(true)",
+              "",
+              "Field::new(\"Search\", Input::new(query).placeholder(\"Components\").icon(icons::SEARCH)).fluid(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Fluid field: every text control",
+          "Every text control a field holds has the form. What stands in the box beside the value (a password's eye, \
+           a search's clear button, a number's buttons, a picker's button, a color's swatch) is on the line of the \
+           value, under the label. A control of more than one line is as high as what it holds: a multi select by \
+           its lines of tags, a token input and a mentions field by their rows. The field mounts the ones that \
+           keep something between renders.",
+          self.frame.demo(
+            9,
+            fluid_every,
+            ".fluid(true).mount(ctx)",
+            &[
+              "// Each value is a signal the page keeps. `mount(ctx)` is for a control that keeps something between",
+              "// renders: a password's reveal, what is half typed in a date, whether a picker is open.",
+              "Field::new(\"Password\", PasswordInput::new(password.clone())).fluid(true).mount(ctx)",
+              "Field::new(\"Search\", SearchField::new(query.clone()).shortcut(\"/\")).fluid(true)",
+              "Field::new(\"Quantity\", NumberInput::new(quantity.clone()).min(0).max(99)).fluid(true)",
+              "",
+              "// framework: Signal<String>; languages: Signal<Vec<String>>",
+              "Field::new(\"Framework\", Combobox::new(framework.clone(), frameworks)).fluid(true)",
+              "Field::new(\"Languages\", MultiSelect::new(languages.clone(), all_languages)).fluid(true)",
+              "",
+              "// born: Signal<Date>; starts, alarm: Signal<Time>; due: Signal<Option<Date>>;",
+              "// sprint: Signal<Option<DateRange>>",
+              "Field::new(\"Date of birth\", DateField::new(born.clone())).fluid(true).mount(ctx)",
+              "Field::new(\"Starts at\", TimeField::new(starts.clone())).fluid(true).mount(ctx)",
+              "Field::new(\"Due date\", DatePicker::new(due.clone()).clearable(true)).fluid(true).mount(ctx)",
+              "Field::new(\"Sprint\", DateRangePicker::new(sprint.clone())).fluid(true).mount(ctx)",
+              "Field::new(\"Alarm\", TimePicker::new(alarm.clone())).fluid(true).mount(ctx)",
+              "",
+              "// tags, comment: Signal<String>; mentions: MentionsController, kept with the comment",
+              "Field::new(",
+              "  \"Tags\",",
+              "  TokenInput::new(tags.clone()).find_tokens(|text| Token::separated(text, ' ')),",
+              ")",
+              ".fluid(true)",
+              "Field::new(\"Comment\", Mentions::new(comment.clone(), &mentions).trigger('@', people)).fluid(true)",
+              "",
+              "// accent: Signal<Color>",
+              "Field::new(\"Accent\", ColorField::new(accent.clone())).fluid(true)",
             ],
           ),
         ),

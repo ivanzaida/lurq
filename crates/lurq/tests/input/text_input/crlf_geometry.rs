@@ -17,6 +17,8 @@ fn config(raw: &str, width: f32, padding: f32) -> InputConfig {
     width,
     min_width: 0.0,
     wrap: true,
+    paragraphs: Vec::new(),
+    exact_rows: false,
     styles: raw
       .match_indices(TOKEN)
       .map(|(start, _)| TokenStyle {

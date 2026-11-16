@@ -73,6 +73,9 @@ pub enum TokenInputState {
   FullWidth,
   /// Its text wraps onto as many rows as it needs, between the rows it is given.
   Multiline,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// its text.
+  Fluid,
   /// The token is under the pointer: a token's own state, resolved on its parts.
   Hovered,
   /// The selection covers all of the token: a token's own state, resolved on its parts.
@@ -87,6 +90,7 @@ names!(TokenInputState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Multiline => "multiline",
+  Fluid => "fluid",
   Hovered => "hovered",
   Selected => "selected",
 });
@@ -651,6 +655,10 @@ impl FieldControl for TokenInput {
   fn in_field(self, field: &InField) -> Element {
     TokenInput::in_field(self, field).into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl From<TokenInput> for Element {
@@ -954,6 +962,10 @@ impl Themed for TokenInput {
   /// its lines are 28 high (twice the text), a token's text with them. A mention ([`MENTION`]) stands in a line of
   /// prose: in the informative color's muted fill and its text in the color, in the text's type with lines of 1.5,
   /// 20 high and padded 4.
+  ///
+  /// In a fluid field, which the board does not draw for it, the box is the fluid one, as wide as the field and
+  /// padded 12 at its sides, where the field's label starts: 56 high on one line, its tokens in the middle of the
+  /// line of the text, and on rows as high as its rows with the 29 over them and the 10 under.
   fn recipe() -> Recipe {
     use PaletteColor::*;
     use TokenInputPart::{Control, Placeholder, Root, Token, TokenIcon, TokenLabel};
@@ -1051,6 +1063,16 @@ impl Themed for TokenInput {
       .when(mention.state(TokenInputState::Multiline), TokenLabel, |s| {
         s.line_height(1.5)
       });
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    // A line with a token in it is higher than a line of text, so a box of one line is 56 and not as high as what it
+    // holds; on rows it is as high as they are.
+    let rows = Selector::new()
+      .state(TokenInputState::Fluid)
+      .state(TokenInputState::Multiline);
+    text_box::fluid_rules(recipe, Root, Control)
+      .state(TokenInputState::Fluid, Control, |s| {
+        s.padding_x(12.0).height(text_box::FLUID_HEIGHT)
+      })
+      .when(rows, Control, |s| s.height(Length::Auto))
   }
 }

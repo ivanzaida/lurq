@@ -6,7 +6,9 @@
 //! (see [`FileDragEvent`](crate::app::events::FileDragEvent)); a file of it is
 //! a [`DroppedFile`] with [`DroppedFile::from_path`]. [`FileDialog`] opens the
 //! system's dialog for files to open and gives what was chosen as the same
-//! [`DroppedFile`]s, so an app handles a drop and a choice alike.
+//! [`DroppedFile`]s, so an app handles a drop and a choice alike. The same
+//! dialog chooses a folder ([`FileDialog::pick_folder`]) and where a file is
+//! to be saved ([`FileDialog::pick_save`]), each given as its path.
 //!
 //! # What each platform gives
 //!
@@ -16,13 +18,15 @@
 //!   is not modal to the app's.
 //! - **A browser**: no drop from the system reaches the page (winit reports none), and a page reads no path. The dialog
 //!   is the browser's file input, which asks the person to confirm first (a press must open it); a chosen file has its
-//!   name and size and no path. Its bytes are not read through lurq yet.
+//!   name and size and no path. Its bytes are not read through lurq yet. A page is given no path, so there is no dialog
+//!   for a folder or for where to save: [`FileDialog::pick_folder`] and [`FileDialog::pick_save`] give nothing.
 //! - **iOS**: no drop and no dialog: `rfd` has no backend there, so [`FileDialog::pick`] gives nothing.
 //!
-//! Without the feature `file_dialog`, [`FileDialog::pick`] gives nothing on
-//! every platform and says so through `tracing` once. Under an MCP server with
+//! Without the feature `file_dialog`, [`FileDialog::pick`] and the others give nothing on
+//! every platform and say so through `tracing` once. Under an MCP server with
 //! a [`FileDialogBroker`](crate::mcp::FileDialogBroker) registered, the
-//! dialog is the broker's: an agent answers it, and no system dialog opens.
+//! dialog of a window of that tree is the broker's: an agent answers it, and
+//! no system dialog opens. A window asks the broker of its own tree only.
 
 use std::{
   future::Future,
@@ -212,8 +216,24 @@ pub struct FileDialog {
   filters: Vec<(String, Vec<String>)>,
   multiple: bool,
   folder: Option<PathBuf>,
+  /// The name a dialog for where to save starts with.
+  file_name: Option<String>,
+  /// What it chooses: set by the method that opens it.
+  asks: Asks,
   /// The window it is modal to, where the platform's dialog takes one.
   parent: Option<crate::app::window::parent::ParentWindow>,
+}
+
+/// What a dialog chooses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Asks {
+  /// Files to open.
+  #[default]
+  Files,
+  /// A folder.
+  Folder,
+  /// Where a file is to be saved.
+  Save,
 }
 
 impl FileDialog {
@@ -253,22 +273,81 @@ impl FileDialog {
     self
   }
 
+  /// The dialog opening in `folder`, where it was given no folder of its own.
+  pub(crate) fn folder_unless_given(mut self, folder: impl Into<PathBuf>) -> Self {
+    if self.folder.is_none() {
+      self.folder = Some(folder.into());
+    }
+    self
+  }
+
+  /// The name a dialog for where to save ([`pick_save`](Self::pick_save)) starts with, where the system follows
+  /// it.
+  pub fn file_name(mut self, name: &str) -> Self {
+    self.file_name = Some(name.to_owned());
+    self
+  }
+
   /// Opens the dialog over `window` and gives what the person chose: nothing when they cancelled, or where there
   /// is no dialog (see the [module](self)). The future does not borrow the window: it is for
   /// [`Ctx::future_action`](crate::app::ctx::Ctx::future_action), whose result is `Result<Vec<DroppedFile>, ()>`
   /// with [`FileDialog::pick_result`].
-  pub fn pick(self, window: &WindowHandle) -> impl Future<Output = Vec<DroppedFile>> + Send + 'static + use<> {
+  pub fn pick(mut self, window: &WindowHandle) -> impl Future<Output = Vec<DroppedFile>> + Send + 'static + use<> {
+    self.asks = Asks::Files;
+    self.ask(window)
+  }
+
+  /// Opens the dialog for a folder over `window` and gives the folder the person chose: `None` when they
+  /// cancelled, or where there is no such dialog (a browser, iOS, a build without `file_dialog`). Its title and
+  /// the [folder](Self::folder) it opens in are the dialog's; its filters say nothing of folders.
+  ///
+  /// ```no_run
+  /// use lurq::{app::ctx::Ctx, files::FileDialog};
+  ///
+  /// # fn open(ctx: &mut Ctx) {
+  /// let window = ctx.window();
+  /// let choose = ctx.future_action(move |()| {
+  ///   let folder = FileDialog::new().title("Project folder").pick_folder(&window);
+  ///   async move { Ok::<_, ()>(folder.await) }
+  /// });
+  /// // In a handler: `choose.run(())`; `choose.state()` then holds the folder, or `None`.
+  /// # }
+  /// ```
+  pub fn pick_folder(
+    mut self,
+    window: &WindowHandle,
+  ) -> impl Future<Output = Option<PathBuf>> + Send + 'static + use<> {
+    self.asks = Asks::Folder;
+    let asked = self.ask(window);
+    async move { path_of(asked.await) }
+  }
+
+  /// Opens the dialog for where to save a file over `window` and gives the path the person chose: `None` when
+  /// they cancelled, or where there is no such dialog. It starts in its [folder](Self::folder) with its
+  /// [file name](Self::file_name), and its filters are the kinds the file can be saved as. The system asks before
+  /// a file that is there is chosen; nothing is written by lurq.
+  pub fn pick_save(mut self, window: &WindowHandle) -> impl Future<Output = Option<PathBuf>> + Send + 'static + use<> {
+    self.asks = Asks::Save;
+    let asked = self.ask(window);
+    async move { path_of(asked.await) }
+  }
+
+  /// Opens the dialog for what it asks, over `window`: the broker's where the window's tree registered one
+  /// with its MCP server, the system's otherwise. A folder and a path to save at come back as one file with that path.
+  fn ask(self, window: &WindowHandle) -> Picked {
     let this = self.over(window);
     #[cfg(feature = "mcp")]
-    if let Some(broker) = crate::mcp::FileDialogBroker::registered() {
+    if let Some(broker) = window.file_dialog_broker() {
       use crate::mcp::{FileDialogOperation, FileDialogRequest};
-      let mut request = FileDialogRequest::new(if this.multiple {
-        FileDialogOperation::OpenFiles
-      } else {
-        FileDialogOperation::OpenFile
+      let mut request = FileDialogRequest::new(match this.asks {
+        Asks::Files if this.multiple => FileDialogOperation::OpenFiles,
+        Asks::Files => FileDialogOperation::OpenFile,
+        Asks::Folder => FileDialogOperation::OpenFolder,
+        Asks::Save => FileDialogOperation::SaveFile,
       });
       request.title = this.title.clone();
       request.filters = this.filters.clone();
+      request.suggested_name = this.file_name.clone().filter(|_| this.asks == Asks::Save);
       match broker.request(window, request) {
         Ok(Some(pending)) => {
           return Picked::Broker(Box::pin(async move {
@@ -309,6 +388,11 @@ impl FileDialog {
   }
 }
 
+/// The path of the one thing a dialog for a folder or for where to save chose.
+fn path_of(chosen: Vec<DroppedFile>) -> Option<PathBuf> {
+  chosen.into_iter().next().and_then(|file| file.path)
+}
+
 /// What [`FileDialog::pick`] waits on.
 enum Picked {
   #[cfg(feature = "mcp")]
@@ -347,7 +431,10 @@ impl Answer {
     (Self(slot.clone()), Answering(slot))
   }
 
-  #[cfg_attr(all(feature = "file_dialog", not(target_os = "ios")), allow(dead_code))]
+  #[cfg_attr(
+    all(feature = "file_dialog", not(target_os = "ios"), not(target_arch = "wasm32")),
+    allow(dead_code)
+  )]
   fn ready(files: Vec<DroppedFile>) -> Self {
     let (answer, answering) = Self::new();
     answering.give(files);
@@ -388,7 +475,7 @@ impl Answering {
 
 #[cfg(all(feature = "file_dialog", not(target_os = "ios"), not(target_arch = "wasm32")))]
 mod native {
-  use super::{Answer, DroppedFile, FileDialog};
+  use super::{Answer, Asks, DroppedFile, FileDialog};
 
   /// The system's dialog, run on a thread of its own so the loop goes on drawing; on macOS `rfd` hands it to the
   /// main thread, which the loop keeps turning.
@@ -416,10 +503,16 @@ mod native {
     if let Some(parent) = &dialog.parent {
       native = native.set_parent(parent);
     }
-    let handles = if multiple {
-      native.pick_files().await.unwrap_or_default()
-    } else {
-      native.pick_file().await.into_iter().collect()
+    let handles = match dialog.asks {
+      Asks::Files if multiple => native.pick_files().await.unwrap_or_default(),
+      Asks::Files => native.pick_file().await.into_iter().collect(),
+      Asks::Folder => native.pick_folder().await.into_iter().collect(),
+      Asks::Save => {
+        if let Some(name) = &dialog.file_name {
+          native = native.set_file_name(name);
+        }
+        native.save_file().await.into_iter().collect()
+      }
     };
     handles
       .into_iter()
@@ -455,10 +548,14 @@ mod native {
 
 #[cfg(all(feature = "file_dialog", target_arch = "wasm32"))]
 mod native {
-  use super::{Answer, DroppedFile, FileDialog};
+  use super::{Answer, Asks, DroppedFile, FileDialog};
 
-  /// The browser's file input, run by the page's own executor; the files cross as their names and sizes.
+  /// The browser's file input, run by the page's own executor; the files cross as their names and sizes. A page
+  /// is given no path: there is no dialog for a folder or for where to save.
   pub(super) fn pick(dialog: FileDialog) -> Answer {
+    if dialog.asks != Asks::Files {
+      return Answer::ready(Vec::new());
+    }
     let (answer, answering) = Answer::new();
     wasm_bindgen_futures::spawn_local(async move {
       let mut native = rfd::AsyncFileDialog::new();
@@ -522,6 +619,32 @@ mod tests {
       "a name that starts with its dot has no extension"
     );
     assert_eq!(dotfile.kind(), FileKind::Other);
+  }
+
+  #[test]
+  fn a_folder_or_a_place_to_save_is_the_path_of_the_one_thing_chosen() {
+    assert_eq!(path_of(Vec::new()), None, "cancelled");
+    assert_eq!(
+      path_of(vec![DroppedFile::new("notes.md", None)]),
+      None,
+      "a browser's file has no path"
+    );
+    let chosen = path_of(vec![DroppedFile::from_path("/projects/lurq")]);
+    assert_eq!(chosen.as_deref(), Some(Path::new("/projects/lurq")));
+  }
+
+  #[cfg(not(feature = "file_dialog"))]
+  #[test]
+  fn without_the_feature_a_folder_and_a_place_to_save_are_not_chosen() {
+    use std::{pin::pin, task::Waker};
+
+    let tree = crate::app::Tree::new();
+    let window = tree.window().handle();
+    let mut cx = Context::from_waker(Waker::noop());
+    let folder = pin!(FileDialog::new().title("Project folder").pick_folder(&window));
+    assert_eq!(folder.poll(&mut cx), Poll::Ready(None));
+    let save = pin!(FileDialog::new().file_name("notes.md").pick_save(&window));
+    assert_eq!(save.poll(&mut cx), Poll::Ready(None));
   }
 
   #[cfg(windows)]

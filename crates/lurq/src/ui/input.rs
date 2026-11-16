@@ -33,6 +33,11 @@ pub enum InputPart {
   Placeholder,
   /// The glyph at the start of the box, where the input has one.
   Icon,
+  /// What would complete what is typed, drawn after it: its foreground is its color, and its opacity how faint
+  /// it is.
+  Completion,
+  /// The wavy lines under ranges the app marks: its foreground is their color.
+  Squiggle,
 }
 
 names!(InputPart {
@@ -40,6 +45,8 @@ names!(InputPart {
   Control => "control",
   Placeholder => "placeholder",
   Icon => "icon",
+  Completion => "completion",
+  Squiggle => "squiggle",
 });
 
 /// The sizes of an input: the heights of the theme's controls, and the type of each. A textarea has the same.
@@ -63,6 +70,9 @@ pub enum InputState {
   FullWidth,
   /// It has an icon at its start.
   Icon,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(InputState {
@@ -73,6 +83,7 @@ names!(InputState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Icon => "icon",
+  Fluid => "fluid",
 });
 
 /// What builds an input's nodes: a theme's in place of the default one.
@@ -110,6 +121,8 @@ pub struct Input {
   on_submit: Vec<SubmitHandler>,
   /// Called as the focus leaves the control: for a component that commits a text then.
   pub(crate) on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
+  completion: Option<Arc<str>>,
+  squiggles: Vec<std::ops::Range<usize>>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   pub(crate) key: Option<Arc<str>>,
@@ -133,10 +146,27 @@ impl Input {
       on_input: Vec::new(),
       on_submit: Vec::new(),
       on_leave: Vec::new(),
+      completion: None,
+      squiggles: Vec::new(),
       name: None,
       id: None,
       key: None,
     }
+  }
+
+  /// What would complete what is typed, drawn after it in the muted foreground while the input has the focus
+  /// with the caret at its end: Tab puts it there, as an edit of the input's. The app gives the rest of the
+  /// word or the line, for what the input holds now, and none (`""`) where it has nothing to offer.
+  pub fn completion(mut self, completion: &str) -> Self {
+    self.completion = (!completion.is_empty()).then(|| Arc::from(completion));
+    self
+  }
+
+  /// Wavy lines in the destructive color under ranges of what the input holds, bytes of its text: what a
+  /// spelling checker of the app's marks.
+  pub fn squiggles(mut self, ranges: impl IntoIterator<Item = std::ops::Range<usize>>) -> Self {
+    self.squiggles = ranges.into_iter().collect();
+    self
   }
 
   /// What the input says while it is empty.
@@ -300,6 +330,8 @@ impl Input {
       on_input: self.on_input,
       on_submit: self.on_submit,
       on_leave: self.on_leave,
+      completion: self.completion,
+      squiggles: self.squiggles,
       name: self.name,
       id: self.id,
       key: self.key,
@@ -313,6 +345,10 @@ impl FieldControl for Input {
   fn in_field(mut self, field: &InField) -> Element {
     self.boxed.in_field(field);
     self.into()
+  }
+
+  fn has_fluid_form(&self) -> bool {
+    true
   }
 }
 
@@ -342,6 +378,9 @@ pub struct InputView {
   on_input: Vec<EditHandler>,
   pub(crate) on_submit: Vec<SubmitHandler>,
   on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
+  /// What would complete what is typed, where the app offers something.
+  pub completion: Option<Arc<str>>,
+  squiggles: Vec<std::ops::Range<usize>>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   name: Option<Arc<str>>,
@@ -415,6 +454,43 @@ impl InputView {
     if let Some(start) = self.text_start().filter(|_| self.icon.is_some()) {
       control = control.padding_left(start);
     }
+    if !self.squiggles.is_empty() {
+      let mut squiggles = components::InputSquiggles::new(self.squiggles.iter().cloned());
+      if let Some(color) = self.part(InputPart::Squiggle).rest().foreground {
+        squiggles = squiggles.color(color);
+      }
+      control = control.squiggles(squiggles);
+    }
+    if let Some(completion) = self.completion.clone().filter(|_| !self.read_only && !self.disabled) {
+      let part = self.part(InputPart::Completion).rest();
+      let mut ghost = components::InputGhost::new(&completion);
+      if let Some(color) = part.foreground.clone() {
+        ghost = ghost.color(color);
+      }
+      if let Some(opacity) = part.opacity_in(self.theme()) {
+        ghost = ghost.opacity(opacity);
+      }
+      // Tab takes the completion while the caret is at the end of what is typed with nothing selected: it is
+      // put there as an edit of the input's, and Tab goes nowhere.
+      let controller = components::TextInputController::new();
+      let (taker, value) = (controller.clone(), self.value.clone());
+      control = control
+        .ghost(ghost)
+        .controller(controller)
+        .on_key_down(move |event: KeyboardEvent| {
+          let plain = !(event.shift || event.ctrl || event.alt || event.meta);
+          if event.key != "Tab" || !event.focus_within || !plain || event.composing || event.default_prevented() {
+            return;
+          }
+          let end = value.with_untracked(String::len);
+          let at_end = taker
+            .selection()
+            .is_ok_and(|selection| selection.caret == end && selection.range().is_empty());
+          if at_end && end > 0 && taker.replace_selection(&completion).unwrap_or(false) {
+            event.prevent_default();
+          }
+        });
+    }
     #[cfg(feature = "form")]
     if let Some(name) = &self.name {
       control = control.name(name.clone());
@@ -458,6 +534,8 @@ impl InputView {
     Some(
       Row::new()
         .padding_left(padding)
+        // In a fluid field the icon stands on the line of the value, under the field's label.
+        .padding_top(self.value_line())
         .align_items(Alignment::Center)
         .pointer_events_none()
         .child(
@@ -485,6 +563,17 @@ impl InputView {
     self.padding(Side::Start)
   }
 
+  /// Whether the input is in a fluid field, and its box the fluid one.
+  pub(crate) fn fluid(&self) -> bool {
+    self.boxed.fluid
+  }
+
+  /// How far down what is laid over the middle of the box is moved to stand on the line of the value: nothing but in
+  /// a fluid field, where the value is under the field's label ([`text_box::value_line`]).
+  pub(crate) fn value_line(&self) -> f32 {
+    text_box::value_line(&self.part(InputPart::Control).rest(), self.theme())
+  }
+
   /// The room the control keeps at its end for what is `width` wide over it there: its own padding, the width, and
   /// the room an icon has before the text.
   pub(crate) fn end_room(&self, width: f32) -> f32 {
@@ -499,7 +588,8 @@ impl InputView {
 
   /// How a component made of an input builds it: `control` (this input's [`Self::control`], with what the
   /// component adds to it), its icon over its start, and `end` over its end, in from the control's padding there.
-  /// Only what is in `end` takes the pointer: around it the pointer reaches the control.
+  /// Only what is in `end` takes the pointer: around it the pointer reaches the control. In a fluid field both stand
+  /// on the line of the value.
   pub(crate) fn render_with_end(&self, control: components::TextInput, end: Option<Row>) -> Stack {
     let mut root = Stack::new()
       .stack_align(StackAlignment::CenterStart)
@@ -513,6 +603,7 @@ impl InputView {
         end
           .width(Dimension::Pct(100.0))
           .padding_right(self.padding(Side::End))
+          .padding_top(self.value_line())
           .align_items(Alignment::Center)
           .justify(Justify::End)
           .hit_test(HitTestBehavior::ContentOnly),
@@ -567,10 +658,13 @@ impl Themed for Input {
           .typography(TypographyStyle::Body)
       })
       .base(Icon, |s| s.square(IconSize::Md).foreground(MutedForeground))
+      .base(InputPart::Completion, |s| s.foreground(MutedForeground).opacity(0.7))
+      .base(InputPart::Squiggle, |s| s.foreground(PaletteColor::Destructive))
       .state(InputState::FullWidth, Root, |s| s.width(Length::Fill))
       .state(InputState::Valid, Icon, |s| s.foreground(Success));
     let recipe = text_box::box_sizes(recipe, Control, true);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    text_box::fluid_rules(recipe, Root, Control)
   }
 }
 

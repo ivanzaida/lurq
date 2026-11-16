@@ -116,21 +116,13 @@ impl<V: FieldValue<i32>> FieldControl for YearPicker<V> {
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled where it
   /// is.
   fn in_field(mut self, field: &InField) -> Element {
-    if self.core.label.is_none() {
-      self.core.label = Some(field.label.clone());
-    }
-    self.core.invalid |= field.judgment == Some(super::text_box::Judgment::Invalid);
-    self.core.disabled |= field.disabled;
+    self.core.in_field(field);
     self.into()
   }
 
   /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
   fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
-    if self.core.label.is_none() {
-      self.core.label = Some(field.label.clone());
-    }
-    self.core.invalid |= field.judgment == Some(super::text_box::Judgment::Invalid);
-    self.core.disabled |= field.disabled;
+    self.core.in_field(field);
     self.mount(ctx)
   }
 }

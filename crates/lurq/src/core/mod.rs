@@ -25,7 +25,7 @@ pub use date_locale::{
   DateFormatter, DateLabels, DateLocale, DateOrder, DateParser, DateSegment, DateStyle, DateText, SegmentWords,
 };
 pub use effect::Effect;
-pub use element_ref::{ElementRect, ElementRef, ElementRefMut};
+pub use element_ref::{ElementRect, ElementRef, ElementRefMut, RectObserver};
 pub use guard::Guard;
 pub use id_gen::{IdGenerator, NodeId};
 pub use memo::Memo;

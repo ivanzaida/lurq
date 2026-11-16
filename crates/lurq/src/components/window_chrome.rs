@@ -469,7 +469,8 @@ impl ChromeTitleBar {
       .background(self.background)
       .on_mouse_down(move |event: MouseEvent| {
         if event.button == MouseButton::Left {
-          let now = Instant::now();
+          // The time the window was given the press at, not the time its handler runs at.
+          let now = event.time;
           let mut titlebar_click = titlebar_click
             .lock()
             .expect("titlebar click state should not be poisoned");

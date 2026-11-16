@@ -103,6 +103,123 @@ fn a_picture_made_of_the_same_plain_things_is_not_rendered_again_with_what_holds
   assert_eq!(stage.bounds("same"), (8.0, 8.0, 64.0, 64.0));
 }
 
+/// A picture of 160 by 90 with a lightbox, 8 in from the corner of a window of 600 by 400. The page fills the
+/// window, as a window's root does: what lies over the window is laid in the room the root has.
+fn with_a_lightbox(picture: impl Fn(Picture) -> Picture + Send + Sync + 'static) -> Stage {
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
+      .title("Lake at dusk")
+      .size_px(160.0, 90.0)
+      .lightbox(true)
+      .id("lake");
+    Column::new()
+      .size(600.0, 400.0)
+      .child(Row::new().padding(8.0).child(picture(lake)))
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+/// What the level of the picture's lightbox says, where the lightbox is open.
+fn level(stage: &mut Stage) -> Option<String> {
+  let level = stage.tree.get_element_by_id("lake-viewer-level")?;
+  level
+    .children()
+    .iter()
+    .find_map(|child| child.text_content().map(str::to_owned))
+}
+
+#[test]
+fn a_press_opens_the_picture_in_a_lightbox_and_escape_closes_it() {
+  let open = lurq::core::Signal::new(false);
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (shown, tell) = (open.clone(), told.clone());
+  let mut stage = with_a_lightbox(move |picture| {
+    let tell = tell.clone();
+    picture
+      .open(shown.clone())
+      .on_open_change(move |open| tell.lock().unwrap().push(open))
+  });
+  assert!(level(&mut stage).is_none(), "closed, its lightbox is not there");
+
+  stage.click("lake");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 600.0, 400.0), "over the window");
+  assert_eq!(level(&mut stage).as_deref(), Some("100%"), "the picture alone, fitted");
+  assert!(
+    stage.tree.get_element_by_id("lake-viewer-next").is_none(),
+    "with no other to turn to"
+  );
+
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+  assert!(level(&mut stage).is_none());
+  assert_eq!(*told.lock().unwrap(), [true, false]);
+
+  // The app opens it itself.
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+}
+
+#[test]
+fn without_a_signal_the_picture_keeps_whether_its_lightbox_is_open() {
+  let mut stage = with_a_lightbox(|picture| picture);
+  stage.click("lake");
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+  stage.click("lake-viewer-close");
+  stage.pass();
+  assert!(level(&mut stage).is_none());
+}
+
+#[test]
+fn a_picture_that_is_chosen_by_a_press_opens_nothing_by_it() {
+  let chosen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let tell = chosen.clone();
+  let mut stage = with_a_lightbox(move |picture| {
+    let tell = tell.clone();
+    picture.selectable(true).on_change(move |_| {
+      tell.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    })
+  });
+  stage.click("lake");
+  stage.pass();
+  assert_eq!(chosen.load(std::sync::atomic::Ordering::SeqCst), 1);
+  assert!(level(&mut stage).is_none());
+}
+
+#[test]
+fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
+  let mut stage = Stage::first_frame(600.0, 400.0, |_| {
+    let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
+      .title("Lake at dusk")
+      .size_px(320.0, 180.0)
+      .lightbox(true)
+      .selectable(true)
+      .on_download(|| {})
+      .force_bar_shown(Some(true))
+      .id("lake");
+    Column::new()
+      .size(600.0, 400.0)
+      .child(Row::new().padding(8.0).child(lake))
+      .into()
+  });
+  stage.pass();
+  let (download, ..) = stage.bounds("lake-download");
+  let (open, _, width, _) = stage.bounds("lake-open");
+  assert!(open > download, "after the others");
+  assert_eq!(open + width, 8.0 + 320.0 - 12.0, "12 from the picture's end");
+
+  stage.click("lake-open");
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+}
+
 fn corner(quad: &Quad) -> f32 {
   quad.border_radius.map_or(0.0, |radius| radius.top_left)
 }
@@ -377,6 +494,88 @@ fn a_caption_makes_it_a_figure() {
   );
   let (color, size) = stage.text("Figure 1. The lake at dusk.");
   assert_eq!((color, size), (light(PaletteColor::MutedForeground), 13.0));
+}
+
+/// A picture and a figure in a room of 200, narrower than the width they are given.
+fn in_a_narrow_room(picture: impl Fn() -> Picture + Send + Sync + 'static) -> Stage {
+  Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Row::new().id("room").width(200.0).child(picture()))
+      .into()
+  })
+}
+
+#[test]
+fn a_box_wider_than_its_room_is_as_wide_as_the_room_and_keeps_its_shape() {
+  let mut stage = in_a_narrow_room(|| Picture::new(pixels(8, 6)).size_px(640.0, 360.0).id("lake"));
+  let (x, y, width, height) = stage.bounds("lake");
+  assert_eq!((x, y, width), (0.0, 0.0, 200.0));
+  assert!((height - 112.5).abs() < 0.01, "16 by 9 still: {height} high");
+
+  // In a room that holds it, it is the box that was said, to the pixel.
+  for (width, height) in [
+    (160.0, 90.0),
+    (432.0, 243.0),
+    (130.0, 73.0),
+    (207.0, 116.0),
+    (200.0, 113.0),
+  ] {
+    let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+      Row::new()
+        .child(Picture::new(pixels(8, 6)).size_px(width, height).id("lake"))
+        .into()
+    });
+    assert_eq!(stage.bounds("lake"), (0.0, 0.0, width, height));
+  }
+}
+
+#[test]
+fn a_box_its_room_made_narrower_takes_the_form_of_the_width_it_got_from_the_first_frame() {
+  let lake = || {
+    Picture::new(pixels(8, 6))
+      .size_px(640.0, 360.0)
+      .title("Lake at dusk")
+      .description("Ivan Zaida · 4032 × 3024")
+      .force_bar_shown(Some(true))
+      .id("lake")
+  };
+  // In a room that holds it, the large form: the line under the title.
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| Row::new().child(lake()).into());
+  stage.pass();
+  assert!(stage.paints("Ivan Zaida · 4032 × 3024"));
+
+  // In a room of 200, the form of 200: the title alone, from the first frame on.
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(Row::new().width(200.0).child(lake()))
+      .into()
+  });
+  assert!(stage.paints("Lake at dusk"), "the first frame");
+  assert!(!stage.paints("Ivan Zaida · 4032 × 3024"), "the first frame");
+  stage.pass();
+  assert!(stage.paints("Lake at dusk"));
+  assert!(!stage.paints("Ivan Zaida · 4032 × 3024"));
+}
+
+#[test]
+fn a_figure_wider_than_its_room_is_as_wide_as_the_room() {
+  let mut stage = in_a_narrow_room(|| {
+    Picture::new(pixels(8, 6))
+      .width(320.0)
+      .aspect_ratio(2.0)
+      .caption("Figure 1. The lake at dusk, from the east shore.")
+      .id("lake")
+  });
+  assert_eq!(stage.bounds("lake"), (0.0, 0.0, 200.0, 100.0));
+  let caption = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Text { .. }))
+    .map(|quad| quad.x + quad.width)
+    .fold(0.0, f32::max);
+  assert!(caption <= 200.5, "the caption wraps in the room: it ends at {caption}");
 }
 
 #[cfg(feature = "image")]

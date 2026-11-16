@@ -377,3 +377,279 @@ fn its_keys_are_its_own_only_while_the_focus_is_in_it() {
   assert_eq!(stage.text("1"), (WHITE, 12.0));
   assert!(stage.paints("100%"));
 }
+
+#[test]
+fn in_a_page_it_is_no_wider_than_a_room_narrower_than_it() {
+  let open = Signal::new(true);
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    Column::new()
+      .size(600.0, 400.0)
+      .child(
+        Row::new().id("room").width(280.0).child(
+          Lightbox::new(open.clone(), pictures())
+            .inline(true)
+            .width(420.0)
+            .height(290.0)
+            .id("viewer"),
+        ),
+      )
+      .into()
+  });
+  settled(&mut stage);
+  assert_eq!(stage.bounds("viewer"), (0.0, 0.0, 280.0, 290.0));
+  for id in ["viewer-close", "viewer-next", "viewer-zoom-in", "viewer-level"] {
+    let (x, _, width, _) = stage.bounds(id);
+    assert!(x >= 0.0 && x + width <= 280.5, "{id} is in the panel: {width} at {x}");
+  }
+}
+
+#[test]
+fn the_level_gives_way_where_the_top_row_has_no_room_for_it() {
+  let open = Signal::new(true);
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    Column::new()
+      .size(600.0, 400.0)
+      .child(
+        Row::new().id("room").width(240.0).child(
+          Lightbox::new(open.clone(), pictures())
+            .inline(true)
+            .width(420.0)
+            .height(290.0)
+            .on_download(|_| {})
+            .id("viewer"),
+        ),
+      )
+      .into()
+  });
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-level").is_none());
+  for id in ["viewer-zoom-out", "viewer-zoom-in", "viewer-download", "viewer-close"] {
+    let (x, _, width, _) = stage.bounds(id);
+    assert!(x >= 0.0 && x + width <= 240.5, "{id} is in the panel: {width} at {x}");
+  }
+  // The buttons about it still bring the picture closer.
+  stage.click("viewer-zoom-in");
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-zoom-out").is_some());
+}
+
+/// What a lightbox brings on ahead: the pictures about the one shown, asked of the loader once its own pixels came.
+#[cfg(feature = "image")]
+mod ahead {
+  use std::time::Duration;
+
+  use lurq::{
+    images::{ImageKey, decoded_images},
+    resources::Source,
+  };
+
+  use super::*;
+
+  const RED: &[u8] = include_bytes!("../assets/images/red_64x32.png");
+
+  /// Five pictures that are resources of the app, `<name>-0.png` to `<name>-4.png`, in a folder of this test's
+  /// own; the ones in `missing` are not there.
+  fn app_with(name: &str, missing: &[usize]) -> (lurq::app::App, Vec<String>) {
+    let folder = std::env::temp_dir().join(format!("lurq-lightbox-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let names: Vec<String> = (0..5).map(|at| format!("{name}-{at}.png")).collect();
+    for (at, file) in names.iter().enumerate() {
+      let _ = std::fs::remove_file(folder.join(file));
+      if !missing.contains(&at) {
+        std::fs::write(folder.join(file), RED).unwrap();
+      }
+    }
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    (app, names)
+  }
+
+  /// Whether the pixels of the resource `name` were asked for: they are decoded, or on their way.
+  fn asked(name: &str) -> bool {
+    decoded_images()
+      .state(ImageKey::new(Source::resource(name).cache_key()), None)
+      .is_some()
+  }
+
+  fn lightbox_of(app: lurq::app::App, names: &[String], preload: Option<usize>) -> Stage {
+    let names = names.to_vec();
+    Stage::first_frame_in(app, 600.0, 400.0, move |_| {
+      let mut lightbox = Lightbox::new(Signal::new(true), names.iter().map(|name| Picture::from_resource(name)))
+        .inline(true)
+        .width(420.0)
+        .height(290.0)
+        // The strip decodes its small pictures small: what it asks for is not the pictures themselves.
+        .index(Signal::new(2))
+        .id("viewer");
+      if let Some(preload) = preload {
+        lightbox = lightbox.preload(preload);
+      }
+      Column::new().size(600.0, 400.0).child(lightbox).into()
+    })
+  }
+
+  /// Passes until `done`, a second at most.
+  fn until(stage: &mut Stage, done: impl Fn() -> bool) -> bool {
+    for _ in 0..100 {
+      stage.pass();
+      if done() {
+        return true;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+  }
+
+  #[test]
+  fn the_pictures_beside_the_one_shown_are_asked_for_once_it_came() {
+    let (app, names) = app_with("beside", &[]);
+    // When is the next test's: nothing is asked for ahead of a picture that did not come. A picture that is a
+    // file on this disk comes within the first frame, and the ones beside it with it.
+    let mut stage = lightbox_of(app, &names, None);
+    assert!(
+      until(&mut stage, || asked(&names[1]) && asked(&names[3])),
+      "the one before and the one after"
+    );
+    assert!(asked(&names[2]));
+    // One each way, and no further.
+    std::thread::sleep(Duration::from_millis(100));
+    stage.pass();
+    assert!(!asked(&names[0]) && !asked(&names[4]));
+  }
+
+  #[test]
+  fn nothing_is_asked_for_ahead_of_one_that_did_not_come() {
+    let (app, names) = app_with("failed", &[2]);
+    let mut stage = lightbox_of(app, &names, None);
+    for _ in 0..20 {
+      stage.pass();
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!asked(&names[1]) && !asked(&names[3]));
+  }
+
+  #[test]
+  fn told_none_it_asks_for_nothing_ahead_and_told_two_it_asks_for_two_each_way() {
+    let (app, names) = app_with("none", &[]);
+    let mut stage = lightbox_of(app, &names, Some(0));
+    assert!(until(&mut stage, || asked(&names[2])));
+    std::thread::sleep(Duration::from_millis(100));
+    stage.pass();
+    assert!(!asked(&names[1]) && !asked(&names[3]));
+
+    let (app, names) = app_with("two", &[]);
+    let mut stage = lightbox_of(app, &names, Some(2));
+    assert!(until(&mut stage, || names.iter().all(|name| asked(name))));
+  }
+}
+
+/// A page with a button that opens a lightbox of the pictures over the window.
+fn opened_by_a_button() -> (Stage, Signal<bool>) {
+  let open = Signal::new(false);
+  let shown = open.clone();
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    let press = shown.clone();
+    Column::new()
+      .size(600.0, 400.0)
+      .padding(8.0)
+      .child(
+        lurq::ui::Button::new("Open")
+          .id("open")
+          .on_click(move |_| press.set(true)),
+      )
+      .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
+      .into()
+  });
+  stage.pass();
+  (stage, open)
+}
+
+fn focused_id(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+#[test]
+fn opened_by_a_press_the_stage_takes_the_focus_with_no_ring_and_the_keys_work_at_once() {
+  let (mut stage, open) = opened_by_a_button();
+  stage.click("open");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(focused_id(&stage).as_deref(), Some("viewer-stage"));
+  assert!(!stage.tree.focus_visible(), "a pointer opened it: no ring");
+
+  stage.key("ArrowRight");
+  stage.pass();
+  assert_eq!(stage.text_quad("2").is_some(), true, "the arrow turned at once");
+  // Tab goes on to the buttons: the round ones over the stage first, which follow it.
+  stage.key("Tab");
+  assert_eq!(focused_id(&stage).as_deref(), Some("viewer-previous"));
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+}
+
+#[test]
+fn opened_by_a_key_the_ring_shows_on_the_stage() {
+  let (mut stage, open) = opened_by_a_button();
+  stage.key("Tab");
+  assert_eq!(focused_id(&stage).as_deref(), Some("open"));
+  stage.key("Enter");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(focused_id(&stage).as_deref(), Some("viewer-stage"));
+  assert!(stage.tree.focus_visible(), "the keyboard opened it: the ring shows");
+  let (x, y, width, height) = stage.bounds("viewer-stage");
+  let white = Color::new(255, 255, 255, 255);
+  assert!(
+    stage.quads().iter().any(|quad| {
+      quad.border.is_some()
+        && matches!(quad.content, QuadContent::Rect { .. })
+        && (quad.x - x).abs() < 3.0
+        && (quad.y - y).abs() < 3.0
+        && (quad.width - width).abs() < 5.0
+        && (quad.height - height).abs() < 5.0
+    }) || stage.has_ring(white),
+    "a white ring about the stage"
+  );
+}
+
+#[test]
+fn closer_than_it_fits_no_scroll_bar_is_painted_over_the_picture() {
+  let mut stage = in_page(|lightbox| lightbox);
+  settled(&mut stage);
+  stage.click("viewer-zoom-in");
+  stage.click("viewer-zoom-in");
+  settled(&mut stage);
+  let (x, y, width, height) = stage.bounds("viewer-stage");
+  let bars: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Rect { color, .. } if color.a() > 0))
+    .filter(|quad| {
+      quad.x >= x && quad.y >= y && quad.x + quad.width <= x + width + 0.5 && quad.y + quad.height <= y + height + 0.5
+    })
+    .filter(|quad| (quad.width <= 12.0 && quad.height >= 40.0) || (quad.height <= 12.0 && quad.width >= 40.0))
+    .map(|quad| (quad.x, quad.y, quad.width, quad.height))
+    .collect();
+  assert!(bars.is_empty(), "no bar over the picture: {bars:?}");
+}
+
+#[test]
+fn opened_again_the_picture_is_fitted() {
+  let (mut stage, open) = opened_by_a_button();
+  stage.click("open");
+  stage.pass();
+  stage.key("+");
+  stage.pass();
+  assert!(stage.paints("150%"));
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("100%"), "fitted, as the first time");
+}

@@ -380,7 +380,7 @@ Column::new()
 Tab and Shift+Tab move through one scope and wrap around at its ends:
 
 1. **A modal is open**: the topmost open modal (see [Modal Focus Trap](#modal-focus-trap)).
-2. **Otherwise**: the whole window, including open popups and overlays after the page, in tree order. The stops of a popup or overlay that takes the focus (`takes_focus(true)`, see [Popups](../modals/#popups-and-outside-presses)) come right after its anchor's instead, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last stop goes on to what follows the trigger. Where the anchor is in a focus group Tab stops in once, they come after the group.
+2. **Otherwise**: the whole window, including open popups and overlays after the page, in tree order. The stops of a popup or overlay that takes the focus (`takes_focus(true)`, see [Popups](../modals/#popups-and-outside-presses)) come right after its anchor's instead, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last stop goes on to what follows the trigger. Where the anchor is in a focus group Tab stops in once, they come after the group. An overlay that holds Tab (`traps_tab(true)`, see [Popups And Outside Presses](../modals/#popups-and-outside-presses)) is the scope while the focus is in it, as a modal is, with no modal over it.
 
 `WindowChrome`'s title bar and resize zones are a layer over the page, but they are window decoration, not a modal: they never become the Tab scope, and stops placed in the title bar follow the page's stops in the window order. A `Modal` declared in the chrome's content or passed to `WindowChrome::overlay` is a real modal and traps Tab as usual.
 

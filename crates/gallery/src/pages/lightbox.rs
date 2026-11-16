@@ -38,9 +38,11 @@ const TITLES: [(&str, &str); 4] = [
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  // No wider than the stage: what is shown gets narrower with it, and what is said under it wraps.
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().padding(2.0).overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).padding(2.0).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -62,7 +64,7 @@ pub struct LightboxPage {
 }
 
 /// `count` pictures: the three shots in turn, each with what it is called.
-fn pictures_of(shots: &[ImageData; 3], count: usize) -> Vec<Picture> {
+pub(super) fn pictures_of(shots: &[ImageData; 3], count: usize) -> Vec<Picture> {
   (0..count)
     .map(|at| {
       let (title, description) = TITLES[at % TITLES.len()];
@@ -316,6 +318,12 @@ impl Component for LightboxPage {
         "Signal<f32> / Fn(f64) / f32",
         "1 / 4",
         "How close the picture is, 1 where it fits, and the closest it is brought.",
+      ),
+      (
+        "preload",
+        "usize",
+        "1",
+        "How many pictures each way of the one shown are brought on once it came, so that an arrow shows the next          at once; 0 for none.",
       ),
       (
         "filmstrip / counter",

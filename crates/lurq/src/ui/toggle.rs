@@ -83,6 +83,7 @@ pub struct Toggle {
   rules: Recipe,
   forced: Option<Interaction>,
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  focuses: Option<crate::core::ElementRef>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -101,9 +102,17 @@ impl Toggle {
       rules: Recipe::new(),
       forced: None,
       on_change: Vec::new(),
+      focuses: None,
       id: None,
       key: None,
     }
+  }
+
+  /// What a press of the toggle gives the focus to, in place of taking it itself: the text a toggle of an
+  /// editor's bar works on, which goes on being typed in. The toggle is still a stop of Tab.
+  pub fn focuses(mut self, target: &crate::core::ElementRef) -> Self {
+    self.focuses = Some(target.clone());
+    self
   }
 
   /// A [`ToggleSize`], or a size the theme's recipe names.
@@ -243,6 +252,7 @@ impl Toggle {
       recipe: theme.resolve::<Toggle>(&case, Some(&self.rules)),
       forced: self.forced,
       on_change: self.on_change,
+      focuses: self.focuses,
       id: self.id,
       key: self.key,
     };
@@ -275,6 +285,7 @@ pub struct ToggleView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  focuses: Option<crate::core::ElementRef>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -310,6 +321,9 @@ impl ToggleView {
     }
     if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
+    }
+    if let Some(target) = &self.focuses {
+      root = root.focuses(target);
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());

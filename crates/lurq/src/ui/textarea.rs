@@ -35,12 +35,15 @@ pub enum TextareaPart {
   Control,
   /// What it shows while it holds nothing: its type and its color, laid over the control's.
   Placeholder,
+  /// The wavy lines under ranges the app marks: its foreground is their color.
+  Squiggle,
 }
 
 names!(TextareaPart {
   Root => "root",
   Control => "control",
   Placeholder => "placeholder",
+  Squiggle => "squiggle",
 });
 
 /// The sizes of a textarea: the type of an input's sizes, 13, 14 and 15. It is as high as its rows of that type.
@@ -62,6 +65,9 @@ pub enum TextareaState {
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(TextareaState {
@@ -71,6 +77,7 @@ names!(TextareaState {
   ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Fluid => "fluid",
 });
 
 /// What builds a textarea's nodes: a theme's in place of the default one.
@@ -107,6 +114,7 @@ pub struct Textarea {
   rules: Recipe,
   forced: Option<Interaction>,
   on_input: Vec<EditHandler>,
+  squiggles: Vec<std::ops::Range<usize>>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -126,10 +134,18 @@ impl Textarea {
       rules: Recipe::new(),
       forced: None,
       on_input: Vec::new(),
+      squiggles: Vec::new(),
       name: None,
       id: None,
       key: None,
     }
+  }
+
+  /// Wavy lines in the destructive color under ranges of what it holds, bytes of its text: what a spelling
+  /// checker of the app's marks.
+  pub fn squiggles(mut self, ranges: impl IntoIterator<Item = std::ops::Range<usize>>) -> Self {
+    self.squiggles = ranges.into_iter().collect();
+    self
   }
 
   /// What it shows while it holds nothing.
@@ -272,6 +288,7 @@ impl Textarea {
       forced: self.forced,
       boxed: self.boxed,
       on_input: self.on_input,
+      squiggles: self.squiggles,
       name: self.name,
       id: self.id,
       key: self.key,
@@ -296,6 +313,10 @@ impl FieldControl for Textarea {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 /// A textarea as a renderer sees it: what it was given, the style of its
@@ -316,6 +337,7 @@ pub struct TextareaView {
   forced: Option<Interaction>,
   boxed: BoxStates,
   on_input: Vec<EditHandler>,
+  squiggles: Vec<std::ops::Range<usize>>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   name: Option<Arc<str>>,
@@ -362,6 +384,13 @@ impl TextareaView {
     let mut input = text_box::text_box(input, &self.boxed, self.on_input.clone());
     if let Some(placeholder) = &self.placeholder {
       input = input.placeholder(placeholder);
+    }
+    if !self.squiggles.is_empty() {
+      let mut squiggles = crate::components::InputSquiggles::new(self.squiggles.iter().cloned());
+      if let Some(color) = self.part(TextareaPart::Squiggle).rest().foreground {
+        squiggles = squiggles.color(color);
+      }
+      input = input.squiggles(squiggles);
     }
     #[cfg(feature = "form")]
     if let Some(name) = &self.name {
@@ -412,7 +441,9 @@ impl Themed for Textarea {
           .line_height(1.5)
           .foreground(PaletteColor::Foreground)
       });
-    let recipe = text_box::box_sizes(recipe, Control, false);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_sizes(recipe, Control, false)
+      .base(TextareaPart::Squiggle, |s| s.foreground(PaletteColor::Destructive));
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    text_box::fluid_rules(recipe, Root, Control)
   }
 }

@@ -466,6 +466,8 @@ fn a_press_of_a_checkbox_adds_its_row_and_the_headers_selects_every_row_or_none(
 #[test]
 fn a_press_selects_and_focuses_at_once_and_a_second_press_soon_after_activates() {
   let (mut stage, selected, told) = selecting(&[]);
+  // Every press at one time: the second is soon after the first however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   stage.click("t-row-1");
   assert_eq!(
     selected.get(),

@@ -341,7 +341,6 @@ impl TextInputState {
 
   pub(crate) fn selection_ranges(&self) -> Vec<TextSelectionRange> {
     let value = self.value();
-    let decorated = self.token_layout();
     let inner = self.inner.lock();
     // A composition is shown in place of the selection.
     if inner.composition.is_some() {
@@ -350,6 +349,23 @@ impl TextInputState {
     let Some((start, end)) = selection_range_indices(&value, inner.selection_anchor, inner.caret) else {
       return Vec::new();
     };
+    drop(inner);
+    self.range_rects(start, end)
+  }
+
+  /// Where the text from the byte `start` to the byte `end` is drawn: a rectangle for each row it is on, from
+  /// the start of the text's box with the scroll taken off, as a selection of it would be.
+  pub(crate) fn range_rects(&self, start: usize, end: usize) -> Vec<TextSelectionRange> {
+    let value = self.value();
+    let (start, end) = (
+      clamp_to_char_boundary(&value, start.min(value.len())),
+      clamp_to_char_boundary(&value, end.min(value.len())),
+    );
+    if start >= end {
+      return Vec::new();
+    }
+    let decorated = self.token_layout();
+    let inner = self.inner.lock();
     if let Some(layout) = decorated {
       return layout.selection(start..end, (inner.scroll_x, inner.scroll_y()));
     }
@@ -363,6 +379,52 @@ impl TextInputState {
     )
   }
 
+  /// Sets the wavy lines drawn under ranges of the text.
+  pub(crate) fn set_squiggles(&self, squiggles: Option<crate::components::InputSquiggles>) {
+    let mut inner = self.inner.lock();
+    if inner.squiggles == squiggles {
+      return;
+    }
+    inner.squiggles = squiggles;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// The wavy lines to draw: none while the text is masked or an input method composes over it.
+  pub(crate) fn squiggles(&self) -> Option<crate::components::InputSquiggles> {
+    let inner = self.inner.lock();
+    if inner.mask.is_some() || inner.composition.is_some() {
+      return None;
+    }
+    inner.squiggles.clone()
+  }
+
+  /// Sets what is drawn after the end of the text while the caret is there.
+  pub(crate) fn set_ghost(&self, ghost: Option<crate::components::InputGhost>) {
+    let mut inner = self.inner.lock();
+    if inner.ghost == ghost {
+      return;
+    }
+    inner.ghost = ghost;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// The suggestion to draw: while the input has the focus and holds text, with the caret at its end and
+  /// nothing selected, in a plain input that is neither masked nor composed over.
+  pub(crate) fn shown_ghost(&self) -> Option<crate::components::InputGhost> {
+    let value = self.value();
+    let inner = self.inner.lock();
+    let shown = inner.focused
+      && inner.mask.is_none()
+      && inner.composition.is_none()
+      && inner.token_layout.is_none()
+      && !value.is_empty()
+      && inner.caret == value.len()
+      && selection_range_indices(&value, inner.selection_anchor, inner.caret).is_none();
+    inner.ghost.clone().filter(|ghost| shown && !ghost.text.is_empty())
+  }
+
   pub(crate) fn set_focused(&self, focused: bool) {
     let mut inner = self.inner.lock();
     if inner.focused == focused {
@@ -372,6 +434,14 @@ impl TextInputState {
     // A composition belongs to the focused input; leaving it cancels it.
     if !focused {
       inner.composition = None;
+    }
+    // An input told so has all its text selected as the focus comes: what is typed takes its place. A press
+    // that brings the focus then puts the caret where it is.
+    if focused && inner.select_on_focus && inner.mask.is_none() {
+      let end = self.value.with_untracked(String::len);
+      inner.selection_anchor = (end > 0).then_some(0);
+      inner.caret = end;
+      inner.token_affinity = None;
     }
     drop(inner);
     // Taking the focus shows the caret; losing it leaves the text where it is.

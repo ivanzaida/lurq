@@ -66,15 +66,6 @@ pub fn mono(content: &str, size: f32) -> Text {
   Text::styled(content, style)
 }
 
-/// A label in capitals over a list: a group of the side bar, the list of a page's sections.
-pub fn overline(content: &str) -> Text {
-  let theme = lurq::ui::current_theme();
-  let mut style = theme.typography_style(TypographyStyle::Mono);
-  style.font_size = theme.scaled(11.0);
-  style.letter_spacing = 1.0;
-  Text::styled(&content.to_uppercase(), style).color(PaletteColor::MutedForeground)
-}
-
 /// Text that says less: a caption, a hint.
 pub fn muted(content: &str, style: TypographyStyle) -> Text {
   Text::new(content).variant(style).color(PaletteColor::MutedForeground)

@@ -7,9 +7,9 @@ use parking_lot::Mutex;
 use super::{
   Button, ButtonGroup, Fab, Link, Toggle, names,
   part_style::{Length, PartStyle},
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::Orientation,
-  text_box::Judgment,
+  text_box::{self, Judgment},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -17,10 +17,10 @@ use crate::{
     ctx::Ctx,
     theme::{ControlSize, PaletteColor, Theme, TypographyStyle},
   },
-  components::{Column, Row, Stack},
+  components::{Column, Row, Stack, TextOverflow},
   core::{ElementRef, ElementRefMut},
-  layout::{Alignment, text_style::FontWeight},
-  node::{Element, dimension::Dimension},
+  layout::{Alignment, StackAlignment, text_style::FontWeight},
+  node::{Element, HitTestBehavior, dimension::Dimension},
 };
 
 /// What a field tells the control it holds.
@@ -36,6 +36,10 @@ pub struct InField {
   /// What is under the control: the field's error while it has one, else its description. The field gives it to
   /// the control as its description to what reads the tree itself; a control need not.
   pub description: Option<Arc<str>>,
+  /// Whether the field is fluid and draws its label inside the control's box: said only to a control that has a
+  /// fluid form ([`FieldControl::has_fluid_form`]), which then is the box, with the room of the label over what it
+  /// holds.
+  pub fluid: bool,
 }
 
 /// A control a [`Field`] holds, which the field finishes: it gives it its label as its name, its judgment and its
@@ -80,6 +84,16 @@ pub trait FieldControl {
   {
     let _ = ctx;
     self.in_field(field)
+  }
+
+  /// Whether the control has a form for a fluid field ([`Field::fluid`]): a box as wide as the field, with the room
+  /// of the field's label inside it, over what it holds ([`InField::fluid`] tells it to take it). Every text control
+  /// of the design system has: an [`Input`](super::Input), a [`Textarea`](super::Textarea), a
+  /// [`Select`](super::Select), a password input, a search field, a number input, a combobox, a multi select, a
+  /// token input, a mentions field, a color field, the date and time fields and their pickers. A fluid field of a
+  /// control that has none (a switch, a slider) is drawn as any field, its label above the control.
+  fn has_fluid_form(&self) -> bool {
+    false
   }
 }
 
@@ -184,6 +198,8 @@ pub enum FieldState {
   FullWidth,
   /// It takes no input: its control is disabled.
   Disabled,
+  /// Its label is inside its control's box, over what the control holds.
+  Fluid,
 }
 
 names!(FieldState {
@@ -194,6 +210,7 @@ names!(FieldState {
   Vertical => "vertical",
   FullWidth => "full_width",
   Disabled => "disabled",
+  Fluid => "fluid",
 });
 
 /// What builds a field's nodes: a theme's in place of the default one.
@@ -219,6 +236,16 @@ pub type FieldRenderer = Arc<dyn Fn(FieldView) -> Element + Send + Sync>;
 /// it: an input in it is called by the field's label and is invalid while
 /// the field has an error, unless the app said otherwise of the input
 /// itself. A press of the label focuses the control.
+///
+/// A fluid field ([`Field::fluid`]) has its label inside the box of its control, over what the control holds: the
+/// design's Fluid Field, for a form whose fields stand edge to edge.
+///
+/// ```
+/// use lurq::{core::Signal, ui::{Field, Input}};
+///
+/// let workspace = Signal::new("lurq-demo".to_owned());
+/// let fluid = Field::new("Workspace name", Input::new(workspace)).fluid(true);
+/// ```
 pub struct Field {
   label: Arc<str>,
   control: Unfinished,
@@ -233,6 +260,9 @@ pub struct Field {
   info: Option<Arc<str>>,
   orientation: Orientation,
   full_width: bool,
+  fluid: bool,
+  /// Whether the control has a form for a fluid field.
+  fluid_control: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -244,6 +274,8 @@ impl Field {
   /// the engine's goes in with `.into()`.
   pub fn new(label: &str, control: impl FieldControl + 'static) -> Self {
     Self {
+      fluid: false,
+      fluid_control: control.has_fluid_form(),
       label: Arc::from(label),
       control: Box::new(move |field: &InField, ctx: Option<&mut Ctx>| match ctx {
         Some(ctx) => control.mount_in_field(field, ctx),
@@ -344,6 +376,16 @@ impl Field {
     self
   }
 
+  /// Whether the field is fluid: its label is inside the box of its control, over what the control holds, and the
+  /// box is as wide as the field. For a control that has a fluid form ([`FieldControl::has_fluid_form`]): an
+  /// [`Input`](super::Input), a [`Textarea`](super::Textarea), a [`Select`](super::Select) and every other text
+  /// control of the design system. A field of any other control is drawn as it is without this. A fluid field's
+  /// label is always over the value: its orientation is not read.
+  pub fn fluid(mut self, fluid: bool) -> Self {
+    self.fluid = fluid;
+    self
+  }
+
   /// Puts the field in a state the theme's recipe names, or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
@@ -409,6 +451,7 @@ impl Field {
     let invalid = self.invalid || self.error.is_some();
     let warning = self.warning && !invalid;
     let valid = self.valid && !invalid && !warning;
+    let fluid = self.fluid && self.fluid_control;
     let case = Case {
       variant: None,
       size: None,
@@ -422,7 +465,8 @@ impl Field {
     .state(FieldState::Horizontal, self.orientation == Orientation::Horizontal)
     .state(FieldState::Vertical, self.orientation == Orientation::Vertical)
     .state(FieldState::FullWidth, self.full_width)
-    .state(FieldState::Disabled, self.disabled);
+    .state(FieldState::Disabled, self.disabled)
+    .state(FieldState::Fluid, fluid);
     let judgment = Judgment::of(invalid, warning, valid);
     let description = self.error.or(self.description);
     let control = (self.control)(
@@ -431,6 +475,7 @@ impl Field {
         judgment,
         disabled: self.disabled,
         description: description.clone(),
+        fluid,
       },
       ctx.as_deref_mut(),
     );
@@ -452,6 +497,7 @@ impl Field {
       optional: self.optional.filter(|_| !self.required),
       info,
       orientation: self.orientation,
+      fluid,
       recipe: theme.resolve::<Field>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -488,6 +534,9 @@ pub struct FieldView {
   pub info: Option<Element>,
   /// Where the label is: above the control, or beside it.
   pub orientation: Orientation,
+  /// Whether the field is fluid, and its control has taken the fluid form: the label is drawn inside the control's
+  /// box.
+  pub fluid: bool,
   /// The style of each part of this field.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -547,9 +596,83 @@ impl FieldView {
     )
   }
 
+  /// The label of a fluid field, laid over the top of the control's box: on one line, cut with an ellipsis where
+  /// the box is narrower than it, with the field's mark after it and the mark that explains it ([`Field::info`]).
+  /// The pointer passes through the label and the field's mark to the control, which a press there focuses; the
+  /// mark that explains it takes the pointer, for its tooltip.
+  pub fn fluid_label(&self) -> Row {
+    let part = self.part(FieldPart::Label);
+    let mut label = Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Center)
+      .hit_test(HitTestBehavior::ContentOnly)
+      .part(&part)
+      // On one line, which gives way first and is cut with an ellipsis: the marks keep their room.
+      .child(
+        Row::new().flex_shrink(1.0).min_width(0.0).pointer_events_none().child(
+          part
+            .text(&self.label)
+            .nowrap()
+            .text_overflow(TextOverflow::Elipsis),
+        ),
+      );
+    if self.required {
+      label = label.child(self.text(FieldPart::Required, "*").pointer_events_none());
+    } else if let Some(optional) = &self.optional {
+      label = label.child(self.text(FieldPart::Optional, optional).pointer_events_none());
+    }
+    if let Some(info) = &self.info {
+      // 6 after what is before it, as in a field's label above its control.
+      label = label.overflow_visible().child(
+        Row::new()
+          .padding_left(2.0)
+          .flex_shrink(0.0)
+          .overflow_visible()
+          .hit_test(HitTestBehavior::ContentOnly)
+          .child(info.clone()),
+      );
+    }
+    label
+  }
+
+  /// How the default renderer builds a fluid field: the control, which is the box, with the label over its top,
+  /// and the description under them.
+  fn render_fluid(self) -> Element {
+    let label = self.fluid_label();
+    let description = self.description();
+    // The stack carries a ref made anew in each build, and a key, as the row of any field's control does.
+    let boxed = Stack::new()
+      .key("control")
+      .width(Dimension::Pct(100.0))
+      .stack_align(StackAlignment::TopStart)
+      .overflow_visible()
+      .ref_element(self.focus.clone())
+      .child(self.control)
+      .child(label);
+    let mut root = Column::new()
+      .align_items(Alignment::Stretch)
+      .overflow_visible()
+      .part(&self.recipe.part(FieldPart::Root))
+      .child(boxed);
+    if let Some(description) = description {
+      root = root.child(description);
+    }
+    if let Some(id) = self.id {
+      root = root.id(id);
+    }
+    if let Some(key) = self.key {
+      root = root.key(key);
+    }
+    root.into()
+  }
+
   /// How the default renderer builds a field: the label, the control and the
-  /// description one under another, or the label beside the other two.
+  /// description one under another, or the label beside the other two. A fluid one has its label over the top of
+  /// its control's box.
   pub fn render(self) -> Element {
+    if self.fluid {
+      return self.render_fluid();
+    }
     let label = self.label();
     let description = self.description();
     let root_part = self.part(FieldPart::Root);
@@ -765,5 +888,19 @@ impl Themed for Field {
         s.width(110.0).height(ControlSize::Md)
       })
       .state(FieldState::FullWidth, Root, |s| s.width(Length::Fill))
+      // A fluid field (`imRnW`): 240 wide, its label inside the box, 12 from its sides and 10 from its top, in a
+      // caption's type (12) and the muted foreground.
+      .state(FieldState::Fluid, Root, |s| s.width(240.0))
+      .state(FieldState::Fluid, Label, |s| {
+        s.padding_x(12.0)
+          .padding_top(text_box::FLUID_PAD)
+          .typography(TypographyStyle::Caption)
+          .foreground(MutedForeground)
+      })
+      .when(
+        Selector::new().state(FieldState::Fluid).state(FieldState::FullWidth),
+        Root,
+        |s| s.width(Length::Fill),
+      )
   }
 }

@@ -124,6 +124,10 @@ impl FieldControl for DateRangePicker {
     self.core.boxed.in_field(field);
     self.mount(ctx)
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl Themed for DateRangePicker {

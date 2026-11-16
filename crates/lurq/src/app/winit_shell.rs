@@ -2391,7 +2391,13 @@ impl ApplicationHandler for WinitHandler {
     // The text of a paste the browser has answered; see `clipboard::web`.
     #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
     if let Some(text) = crate::clipboard::web::take_pasted() {
-      self.main.tree.paste(crate::app::events::ClipboardContent::text(text));
+      // What this page copied with its Markdown, where the clipboard still holds what it wrote: the plain text,
+      // and the Markdown beside it.
+      use crate::app::events::ClipboardContent;
+      self.main.tree.paste(match crate::app::runtime::copied_rich(&text) {
+        Some((plain, markdown)) => ClipboardContent::text(plain).with_markdown(markdown),
+        None => ClipboardContent::text(text),
+      });
     }
     self.main.tick();
     // What the person set for the whole system, read again each turn: it is a few calls, and the loop turns

@@ -403,8 +403,13 @@ impl Pagination {
     Self::pages_shown(self.current, self.pages, siblings).len()
   }
 
-  /// Builds the pagination in `theme`. Converting a pagination into an
-  /// element does this in the theme of what is being rendered.
+  /// Builds the pagination in `theme`, with nothing kept: a still one, which
+  /// cannot measure its room, draws the pages the app says in any room, and
+  /// its root wraps, so what has no room beside the select of how many to a
+  /// page goes on to a line under it. [`mount`](Self::mount) is the one that
+  /// measures, and draws fewer pages as its room narrows. Converting a
+  /// pagination into an element does this in the theme of what is being
+  /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let view = self.view(theme);
     match theme.renderer::<Pagination>() {

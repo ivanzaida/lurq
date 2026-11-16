@@ -14,20 +14,17 @@ mod audio_queue;
 mod avatar;
 mod back_to_top;
 mod badge;
-mod bar_list;
-mod gauge;
-mod heatmap;
-mod meter;
-mod sparkline;
-mod stat_card;
 mod banner;
 mod bar_chart;
+mod bar_list;
 mod blockquote;
+mod bulleted_list;
 mod breadcrumb;
 mod button;
 mod calendar;
 mod callout;
 mod card;
+mod carousel;
 mod checkbox;
 mod checkbox_card;
 mod code_block;
@@ -48,13 +45,19 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+mod editable;
 mod empty_state;
+mod event_calendar;
+mod expandable_tile;
 mod family;
 mod family_play;
 mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+mod gallery;
+mod gauge;
+mod heatmap;
 mod hover_card;
 mod icons;
 mod info_label;
@@ -67,22 +70,26 @@ mod line_chart;
 mod list;
 mod listbox;
 mod markdown;
-mod media_time;
-mod mentions;
 mod media_speed_menu;
+mod media_time;
 mod media_volume;
+mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod meter;
 mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
+mod notification_center;
 mod number_input;
 mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod path_field;
 mod picture;
 mod persona;
 mod pie_chart;
@@ -96,6 +103,7 @@ mod radar_chart;
 mod radio;
 mod radio_card;
 mod rating;
+mod rich_text_editor;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
@@ -103,28 +111,35 @@ mod seek_bar;
 mod select;
 mod selection_marquee;
 mod separator;
+mod settings_card;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
 mod sortable_list;
+mod sparkline;
 mod spinner;
 mod splitter;
+mod stat_card;
 mod status_bar;
 mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
+mod text_editing;
 mod textarea;
 mod time_field;
 mod time_picker;
 mod timeline;
 mod toast;
 mod toggletip;
+mod tour;
+mod tray_popover;
 mod token_input;
 mod tokens;
 mod toolbar;
@@ -270,7 +285,7 @@ pub const PAGES: &[Page] = &[
     path: "/input",
     name: "Input",
     icon: Some("text-cursor"),
-    about: "input field text entry label description error hint required optional placeholder icon invalid read only form value size warning valid read_only disabled full_width on_input name control horizontal",
+    about: "input field text entry label description error hint required optional placeholder icon invalid read only form value size warning valid read_only disabled full_width on_input name control horizontal fluid fluid field label inside floating label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input::InputPage>(()),
   },
@@ -366,7 +381,7 @@ pub const PAGES: &[Page] = &[
     path: "/fieldset",
     name: "Fieldset",
     icon: Some("rows-4"),
-    about: "fieldset legend group fields disabled form error summary errors alert attention link focus description field child children full_width ield rror new focuses",
+    about: "fieldset legend group fields disabled form error summary errors alert attention link focus description field child children full_width ield rror new focuses group box groupbox frame options checkboxes radios variant boxed",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<fieldset::FieldsetPage>(()),
   },
@@ -441,6 +456,22 @@ pub const PAGES: &[Page] = &[
     about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag value controller ention on_mention tokens rows placeholder size invalid warning valid read_only disabled full_width label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
+  },
+  Page {
+    path: "/rich-text-editor",
+    name: "Rich Text Editor",
+    icon: Some("pencil"),
+    about: "rich text editor wysiwyg formatted text markdown bold italic underline strikethrough code link heading list bullet numbered ordered quote toolbar undo redo document notes comment richtext value controlled on_change on_link_click on_image controller tools toolbar footer markdown_shortcuts placeholder rows invalid warning valid read_only disabled full_width label count_text",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<rich_text_editor::RichTextEditorPage>(()),
+  },
+  Page {
+    path: "/editable",
+    name: "Editable",
+    icon: Some("pencil"),
+    about: "editable inline edit in place rename title name text field enter f2 escape commit cancel blur pencil save value controlled on_change on_cancel editing default_editing on_editing_change placeholder actions submit_on_blur invalid read_only disabled full_width label confirm_label cancel_label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<editable::EditablePage>(()),
   },
   Page {
     path: "/info-label",
@@ -667,6 +698,30 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
   },
   Page {
+    path: "/tour",
+    name: "Tour",
+    icon: Some("route"),
+    about: "tour walkthrough onboarding steps step guide coach marks product tour next back skip done 2 of 4 count arrow keys focus escape Tour TourStep new controlled on_change on_finish on_dismiss skip_button skip_label back_label next_label done_label takes_focus placement variant mount",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<tour::TourPage>(()),
+  },
+  Page {
+    path: "/notification",
+    name: "Notification",
+    icon: Some("bell"),
+    about: "notification card row inbox message event review requested from avatar title description time unread read dot dismiss actions button action media icon on_click on_close close_label unread_label variant NotificationVariant",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<notification::NotificationPage>(()),
+  },
+  Page {
+    path: "/notification-center",
+    name: "Notification Center",
+    icon: Some("inbox"),
+    about: "notification center notifications panel inbox bell count badge list mark all read clear all view all empty scroll popover trigger item items on_mark_all_read on_clear on_view_all on_dismiss empty_text max_height inline placement",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<notification_center::NotificationCenterPage>(()),
+  },
+  Page {
     path: "/ai-label",
     name: "AI Label",
     icon: Some("sparkles"),
@@ -718,7 +773,7 @@ pub const PAGES: &[Page] = &[
     path: "/breadcrumb",
     name: "Breadcrumb",
     icon: Some("chevron-right"),
-    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation step readcrumb tep value icon on_select max_items menu disabled",
+    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation step readcrumb tep value icon on_select max_items menu disabled path control pathcontrol file manager folder folders drive bar segments address variant overflow fold",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
   },
@@ -737,6 +792,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal orientation on_select pressable ahead disabled label",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/table-of-contents",
+    name: "Table of Contents",
+    icon: Some("table-of-contents"),
+    about: "table of contents toc on this page outline sections headings anchors scroll spy scrollspy reading current section jump navigation article docs sticky new entry entries level container reading_line current on_change on_select title label mount disabled",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<table_of_contents::TableOfContentsPage>(()),
   },
   Page {
     path: "/tree-view",
@@ -958,6 +1021,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
   },
   Page {
+    path: "/event-calendar",
+    name: "Event Calendar",
+    icon: Some("calendar-days"),
+    about: "event calendar events schedule scheduler agenda week month day planner meeting appointment today more weekdays weekends timetable new controlled event events period shown weekends header max_shown first_day locale today on_change on_select on_more more_text today_label previous_label next_label mount disabled variant",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<event_calendar::EventCalendarPage>(()),
+  },
+  Page {
     path: "/code-block",
     name: "Code Block",
     icon: Some("file-code"),
@@ -972,6 +1043,22 @@ pub const PAGES: &[Page] = &[
     about: "blockquote quote citation passage prose markdown said line italic lockquote new child children label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<blockquote::BlockquotePage>(()),
+  },
+  Page {
+    path: "/bulleted-list",
+    name: "Bulleted List",
+    icon: Some("list"),
+    about: "bulleted list bullet bullets numbered ordered unordered number numbers ol ul li item items nested mark marker icon check media prose markdown typography new item items marker start number_text label list icon media child children",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<bulleted_list::BulletedListPage>(()),
+  },
+  Page {
+    path: "/expandable-tile",
+    name: "Expandable Tile",
+    icon: Some("panel-top-open"),
+    about: "expandable tile expand collapse open close more details disclosure card fold chevron press tile new text child children open bind on_open_change icon open_icon disabled full_width label",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<expandable_tile::ExpandableTilePage>(()),
   },
   Page {
     path: "/table",
@@ -1126,6 +1213,22 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<lightbox::LightboxPage>(()),
   },
   Page {
+    path: "/gallery",
+    name: "Gallery",
+    icon: Some("image"),
+    about: "gallery grid pictures photos thumbnails rows columns gap aspect ratio select selected choose keys lightbox open more count max_shown veil Gallery keyed columns gap aspect_ratio size max_shown more_text selectable selected on_selection_change lightbox open on_open_change on_select",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<gallery::GalleryPage>(()),
+  },
+  Page {
+    path: "/carousel",
+    name: "Carousel",
+    icon: Some("columns"),
+    about: "carousel slides slider slideshow swipe pages dots arrows previous next turn wrap loop autoplay per view several Carousel new slide slides index index_controlled on_index_change per_view gap wrap arrows dots autoplay width label previous_label next_label slide_label disabled",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<carousel::CarouselPage>(()),
+  },
+  Page {
     path: "/video-player",
     name: "Video Player",
     icon: Some("play-circle"),
@@ -1198,6 +1301,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<find_bar::FindBarPage>(()),
   },
   Page {
+    path: "/text-editing",
+    name: "Text Editing",
+    icon: Some("text-cursor"),
+    about: "text editing selection caret cursor ime composition input method spell check spelling squiggle wavy underline misspelled ghost completion autocomplete suggestion tab edit menu cut copy paste select all squiggles completion InputSquiggles InputGhost",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<text_editing::TextEditingPage>(()),
+  },
+  Page {
     path: "/floating-panel",
     name: "Floating Panel",
     icon: Some("layers"),
@@ -1212,6 +1323,30 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/tray-popover",
+    name: "Tray Popover",
+    icon: Some("panel-bottom"),
+    about: "tray popover system tray menu bar status item taskbar notification area icon panel background app status synced switches toggles commands open preferences quit TrayPopover TrayAction TrayToggle TrayItem TrayStatusVariant anchored status status_variant item separator on_select on_change bind",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<tray_popover::TrayPopoverPage>(()),
+  },
+  Page {
+    path: "/path-field",
+    name: "Path Field",
+    icon: Some("folder"),
+    about: "path field pathfield file folder directory browse choose pick save dialog system rfd input mono drop on_browse on_pick picks PathKind FileDialog browse_label placeholder size invalid read_only disabled full_width mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<path_field::PathFieldPage>(()),
+  },
+  Page {
+    path: "/settings-card",
+    name: "Settings Card",
+    icon: Some("settings"),
+    about: "settings card row settings row preferences options expander expand open collapse group rows control switch select button icon title description chevron SettingsCard ListItem group item items open bind default_open on_open_change density disabled label width mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<settings_card::SettingsCardPage>(()),
   },
   Page {
     path: "/column-view",
