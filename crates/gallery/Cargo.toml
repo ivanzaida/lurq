@@ -12,7 +12,12 @@ mcp = ["lurq/mcp"]
 devtools = ["lurq/devtools"]
 
 [dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas", "media"] }
+
+# Addresses on the network, for the sound the Audio Player page plays from one. Not in a browser: the client is
+# not built for one, and the loader loads no address there yet.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["http"] }
 
 # The gallery as a page: `scripts/gallery-web.py`. What it asks the browser for is in `src/web.rs`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -1,7 +1,10 @@
 //! The page of the video player: its playground, driven by a clock of the page's own, its states, its three forms,
 //! the player without controls, and one with an app's own controls laid over the picture.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+  sync::{Arc, OnceLock},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -13,8 +16,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, Gradient, HitTestBehavior, color::Color, dimension::Dimension, gradient::GradientStop},
   ui::{
-    Button, ButtonPart, ButtonShape, ButtonVariant, PlayButton, PlayButtonVariant, VideoPlayer, VideoPlayerSize, icons,
-    media_time_text,
+    Button, ButtonPart, ButtonShape, ButtonVariant, Length, MediaCaptions, PlayButton, PlayButtonVariant,
+    VideoFullscreen, VideoPlayer, VideoPlayerSize, icons, media_time_text,
   },
 };
 
@@ -89,23 +92,22 @@ fn items() -> Row {
     .overflow_visible()
 }
 
-/// The width and the height of a player the board draws `width` wide, where the stage has `most` of room (0: not
-/// measured yet, or enough): no wider than the stage, and as high as its shape makes it then.
-fn held(width: f32, height: f32, most: f32) -> (f32, f32) {
-  if most > 0.0 && most < width {
-    (most, (most * height / width).round())
-  } else {
-    (width, height)
-  }
+/// The gallery's own clip: fifteen seconds of a test picture, 640 by 360, in the gallery's binary.
+#[cfg(not(target_arch = "wasm32"))]
+fn clip() -> lurq::resources::Source {
+  static CLIP: OnceLock<lurq::resources::Source> = OnceLock::new();
+  CLIP
+    .get_or_init(|| lurq::resources::Source::bytes(include_bytes!("../../assets/media/sample.mp4").to_vec()))
+    .clone()
 }
 
-/// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state.
-fn state(most: f32) -> VideoPlayer {
-  let (width, height) = held(432.0, 243.0, most);
+/// A player of the states' size, paused at 1:24 of 4:10, for a picture of a state: 432 wide and no wider than
+/// what holds it, as high as 16 by 9 makes it.
+fn state() -> VideoPlayer {
   VideoPlayer::new()
     .media(picture())
-    .width(width)
-    .height(height)
+    .width(432.0)
+    .max_width(Length::Fill)
     .duration(LENGTH)
     .buffered(140.0)
     .position_controlled(84.0, |_| {})
@@ -127,17 +129,12 @@ enum Scene {
   Large,
   Compact,
   Minimal,
-}
-
-/// What a player of a section is given: the state it starts in, and the most width it takes (0: the board's).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Staged {
-  scene: Scene,
-  most: u16,
+  Touch,
+  TouchSide,
 }
 
 #[cfg(feature = "devtools")]
-impl lurq::app::component::DevtoolsInspectable for Staged {
+impl lurq::app::component::DevtoolsInspectable for Scene {
   fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
     formatter.value_debug(self);
   }
@@ -162,10 +159,10 @@ struct Demo {
 }
 
 impl Component for Demo {
-  type Props = Staged;
+  type Props = Scene;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let scene = ctx.props::<Staged>().scene;
+    let scene = *ctx.props::<Scene>();
     let playing = ctx.signal(matches!(
       scene,
       Scene::Playing | Scene::Waiting | Scene::Live | Scene::Captions
@@ -197,7 +194,7 @@ impl Component for Demo {
       rate,
       captions: ctx.signal(scene == Scene::Captions),
       quality: ctx.signal(None),
-      fullscreen: ctx.signal(scene == Scene::Fullscreen),
+      fullscreen: ctx.signal(matches!(scene, Scene::Fullscreen | Scene::TouchSide)),
       picture_in_picture: ctx.signal(false),
       ended: ctx.signal(scene == Scene::Ended),
       error,
@@ -206,19 +203,23 @@ impl Component for Demo {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let Staged { scene, most } = *ctx.props::<Staged>();
-    let (width, height, size) = match scene {
-      Scene::Large => (640.0, 360.0, None),
-      Scene::Compact => (320.0, 180.0, Some(VideoPlayerSize::Md)),
-      Scene::Minimal => (200.0, 113.0, Some(VideoPlayerSize::Sm)),
-      _ => (432.0, 243.0, None),
+    let scene = *ctx.props::<Scene>();
+    let (width, size) = match scene {
+      Scene::Large => (640.0, None),
+      Scene::Compact => (320.0, Some(VideoPlayerSize::Md)),
+      Scene::Minimal => (200.0, Some(VideoPlayerSize::Sm)),
+      // The board's phone, upright and on its side.
+      Scene::Touch => (360.0, None),
+      Scene::TouchSide => (780.0, None),
+      _ => (432.0, None),
     };
-    let (width, height) = held(width, height, f32::from(most));
     let position = f64::from(self.position.get());
+    // As wide as the board draws it and no wider than what holds it, a window as narrow as a phone; its height is
+    // what 16 by 9 makes of the width it has.
     let mut player = VideoPlayer::new()
       .media(picture())
       .width(width)
-      .height(height)
+      .max_width(Length::Fill)
       .live(scene == Scene::Live)
       .waiting(scene == Scene::Waiting)
       .ended(self.ended.get())
@@ -228,7 +229,7 @@ impl Component for Demo {
       .muted(self.muted.clone())
       .rate(self.rate.clone())
       .captions(self.captions.clone())
-      .caption_text(VideoPlayerPage::cue(position))
+      .caption_cues(&VideoPlayerPage::captions())
       .captions_track("English")
       .qualities(&["1080p", "720p", "480p"])
       .quality(self.quality.clone())
@@ -243,6 +244,19 @@ impl Component for Demo {
     }
     if scene == Scene::Idle {
       player = player.poster(poster());
+    }
+    if matches!(scene, Scene::Touch | Scene::TouchSide) {
+      player = player
+        .touch(true)
+        .title("Night Drive")
+        .description("Aurora Lane · Low Tide");
+    }
+    if scene == Scene::TouchSide {
+      player = player.aspect(780.0 / 360.0);
+    }
+    // The state is drawn where it stands: a player that filled the window would leave nothing of the page.
+    if matches!(scene, Scene::Fullscreen | Scene::TouchSide) {
+      player = player.fullscreen_fills(VideoFullscreen::App);
     }
     if self.error.get() {
       player = player
@@ -290,6 +304,10 @@ pub struct VideoPlayerPage {
   quality: Signal<Option<usize>>,
   fullscreen: Signal<bool>,
   picture_in_picture: Signal<bool>,
+  /// Whether the player in the playground's own window fills that window, and whether it is in picture in
+  /// picture: they are of a window, and a press in one window is not a press in the other.
+  window_fullscreen: Signal<bool>,
+  window_picture: Signal<bool>,
   waiting: Signal<bool>,
   ended: Signal<bool>,
   live: Signal<bool>,
@@ -297,23 +315,33 @@ pub struct VideoPlayerPage {
   poster: Signal<bool>,
   controls: Signal<bool>,
   overlay: Signal<bool>,
-  /// Which cue of the captions the clock's time is in.
-  cue: Signal<usize>,
   feed_playing: Signal<bool>,
   feed_muted: Signal<bool>,
   _clock: Interval,
 }
 
 impl VideoPlayerPage {
-  /// The line of the captions for a time: the cue the app would have.
-  fn cue(position: f64) -> &'static str {
-    const CUES: [&str; 4] = [
-      "The bar fades out while the video plays.",
-      "Move the pointer and it comes back.",
-      "Space or K plays and pauses; the arrows seek.",
-      "C turns these captions off.",
-    ];
-    CUES[(position / 6.0) as usize % CUES.len()]
+  /// The track of the captions, read from the text of a WebVTT file as an app would read its own: a cue every
+  /// six seconds, to the end.
+  fn captions() -> MediaCaptions {
+    static TRACK: OnceLock<MediaCaptions> = OnceLock::new();
+    TRACK
+      .get_or_init(|| {
+        const CUES: [&str; 4] = [
+          "The bar fades out while the video plays.",
+          "Move the pointer and it comes back.",
+          "Space or K plays and pauses; the arrows seek.",
+          "C turns these captions off.",
+        ];
+        let stamp = |seconds: usize| format!("{:02}:{:02}.000", seconds / 60, seconds % 60);
+        let mut vtt = String::from("WEBVTT\n");
+        for (index, start) in (0..LENGTH as usize).step_by(6).enumerate() {
+          let cue = CUES[index % CUES.len()];
+          vtt.push_str(&format!("\n{} --> {}\n{cue}\n", stamp(start), stamp(start + 6)));
+        }
+        MediaCaptions::parse(&vtt)
+      })
+      .clone()
   }
 
   /// The playground: the player as the panel's props make it, its values held by the page and moved on by its clock.
@@ -323,8 +351,8 @@ impl VideoPlayerPage {
     let (waiting, ended, live, error) = (self.waiting.get(), self.ended.get(), self.live.get(), self.error.get());
     let (poster_on, controls, overlay) = (self.poster.get(), self.controls.get(), self.overlay.get());
     // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and a
-    // position read here would build the whole page again for every step of a drag. The cue is the clock's.
-    let caption = Self::cue(self.cue.get() as f64 * 6.0);
+    // position read here would build the whole page again for every step of a drag. The player finds the cue of
+    // its position in the track it is given.
     let make = {
       let (playing, position, volume, muted, rate) = (
         self.playing.clone(),
@@ -341,11 +369,17 @@ impl VideoPlayerPage {
       );
       let buffered = LENGTH.min(200.0);
       let (was_ended, failed) = (self.ended.clone(), self.error.clone());
-      move || {
+      let own = (self.window_fullscreen.clone(), self.window_picture.clone());
+      // `window`: for the playground's own window, whose fullscreen and picture in picture are its own.
+      move |window: bool| {
+        let (fullscreen, pip) = if window {
+          (own.0.clone(), own.1.clone())
+        } else {
+          (fullscreen.clone(), pip.clone())
+        };
         let mut player = VideoPlayer::new()
           .media(picture())
           .width(width)
-          .height(width * 9.0 / 16.0)
           .live(live)
           .buffered(buffered)
           .waiting(waiting)
@@ -357,7 +391,7 @@ impl VideoPlayerPage {
           .muted(muted.clone())
           .rate(rate.clone())
           .captions(captions.clone())
-          .caption_text(caption)
+          .caption_cues(&Self::captions())
           .captions_track("English")
           .qualities(&["1080p", "720p", "480p"])
           .quality(quality.clone())
@@ -410,7 +444,7 @@ impl VideoPlayerPage {
       let forced = self.playground.forced();
       // No wider than the stage, as an app's player is no wider than its window: in a window as narrow as a
       // phone the width chosen is more than there is, and half a player scrolled to shows nothing of its bar.
-      let (fitted, high) = held(width, width * 9.0 / 16.0, self.playground.stage_room());
+      let room = self.playground.stage_room();
       move |ctx: &mut Ctx| {
         let say = |name: &'static str| {
           let record = record.clone();
@@ -429,9 +463,12 @@ impl VideoPlayerPage {
           say("on_picture_in_picture_change"),
           say("on_retry"),
         );
-        make()
-          .width(fitted)
-          .height(high)
+        let mut player = make(false);
+        // The stage scrolls to what is wider than it, so it has no width to be a share of: the room is told.
+        if room > 0.0 {
+          player = player.max_width(room);
+        }
+        player
           .force(forced)
           .on_playing_change(move |to| p(to.to_string()))
           .on_position_change(move |to| s(format!("{to:.1}")))
@@ -453,7 +490,6 @@ impl VideoPlayerPage {
       "VideoPlayer::new()".to_owned(),
       "    .media(frame)".to_owned(),
       format!("    .width({width}.0)"),
-      format!("    .height({}.0)", width * 9.0 / 16.0),
     ];
     if let Some(size) = size {
       code.push(format!("    .size(VideoPlayerSize::{size:?})"));
@@ -482,7 +518,7 @@ impl VideoPlayerPage {
         "    .muted(muted)",
         "    .rate(rate)",
         "    .captions(captions)",
-        "    .caption_text(cue)",
+        "    .caption_cues(&track)",
         "    .qualities(&[\"1080p\", \"720p\", \"480p\"])",
         "    .quality(quality)",
         "    .fullscreen(fullscreen)",
@@ -567,13 +603,13 @@ impl VideoPlayerPage {
     controls_list.extend(flags);
     self.playground.window_shows({
       let make = make.clone();
-      move |ctx| make().mount(ctx)
+      move |ctx| make(true).mount(ctx)
     });
     self.playground.card(
       ctx,
       Spec {
         title: "VideoPlayer",
-        make: Arc::new(move || -> Element { make().build(&lurq::ui::current_theme()) }),
+        make: Arc::new(move || -> Element { make(false).build(&lurq::ui::current_theme()) }),
         shown: Shown::built(shown),
         fill: false,
         forceable: true,
@@ -724,7 +760,9 @@ impl VideoPlayerPage {
     VideoPlayer::new()
       .media(poster())
       .width(243.0)
-      .height(432.0)
+      .max_width(Length::Fill)
+      // Upright, as a feed's picture is.
+      .aspect(9.0 / 16.0)
       .controls(false)
       .playing_controlled(playing, |_| {})
       .muted_controlled(muted, |_| {})
@@ -738,21 +776,16 @@ impl Component for VideoPlayerPage {
   fn create(ctx: &mut Ctx) -> Self {
     let (playing, position, rate) = (ctx.signal(false), ctx.signal(0.0_f32), ctx.signal(1.0_f32));
     let (waiting, ended, error) = (ctx.signal(false), ctx.signal(false), ctx.signal(false));
-    let cue = ctx.signal(0_usize);
     // The page's clock: while it plays it moves the position on by the time gone at the speed chosen, and at the
-    // end it stops and says it ended. It says which cue of the captions the time is in, when that changes.
+    // end it stops and says it ended.
     let clock = ctx.create_interval(TICK, {
-      let (playing, position, rate, cue) = (playing.clone(), position.clone(), rate.clone(), cue.clone());
+      let (playing, position, rate) = (playing.clone(), position.clone(), rate.clone());
       let (waiting, ended, error) = (waiting.clone(), ended.clone(), error.clone());
       move || {
         if !playing.get_untracked() || waiting.get_untracked() || error.get_untracked() {
           return;
         }
         let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();
-        let index = (next / 6.0) as usize;
-        if cue.get_untracked() != index {
-          cue.set(index);
-        }
         if f64::from(next) >= LENGTH {
           position.set(LENGTH as f32);
           playing.set(false);
@@ -777,6 +810,8 @@ impl Component for VideoPlayerPage {
       quality: ctx.signal(None),
       fullscreen: ctx.signal(false),
       picture_in_picture: ctx.signal(false),
+      window_fullscreen: ctx.signal(false),
+      window_picture: ctx.signal(false),
       waiting,
       ended,
       live: ctx.signal(false),
@@ -784,7 +819,6 @@ impl Component for VideoPlayerPage {
       poster: ctx.signal(true),
       controls: ctx.signal(true),
       overlay: ctx.signal(false),
-      cue,
       feed_playing: ctx.signal(false),
       feed_muted: ctx.signal(true),
       _clock: clock,
@@ -795,7 +829,6 @@ impl Component for VideoPlayerPage {
     let playground = self.play(ctx);
     // What a stage has of width: a state's player is no wider, as an app's is no wider than its window.
     let room = self.frame.stage_room();
-    let most = room.floor().clamp(0.0, f32::from(u16::MAX)) as u16;
     // Each is a player of its own, live from the state the board draws: a press of anything on it is answered.
     let mut states = items();
     for (scene, caption) in [
@@ -808,9 +841,9 @@ impl Component for VideoPlayerPage {
       (Scene::Live, "live · no duration, the bar at the edge"),
       (Scene::Captions, "captions · above the bar"),
       (Scene::Muted, "muted"),
-      (Scene::Fullscreen, "fullscreen · the glyph exits"),
+      (Scene::Fullscreen, "fullscreen · the glyph exits (drawn in place)"),
     ] {
-      states = states.child(item(ctx.mount::<Demo>(Staged { scene, most }), caption));
+      states = states.child(item(ctx.mount::<Demo>(scene), caption));
     }
     // A size is drawn at its own width, which is what it shows: in a stage narrower than it, it scrolls sideways
     // under its name, and the sizes stand one under another.
@@ -820,7 +853,7 @@ impl Component for VideoPlayerPage {
       (Scene::Minimal, "minimal · 200 × 113", 200.0),
     ]
     .into_iter()
-    .map(|(scene, caption, width)| (ctx.mount::<Demo>(Staged { scene, most: 0 }), caption, width))
+    .map(|(scene, caption, width)| (ctx.mount::<Demo>(scene), caption, width))
     .collect();
     let sizes: Element = if room > 0.0 && room < 640.0 {
       let mut sizes = Column::new().width(FILL).spacing(28.0).overflow_visible();
@@ -841,8 +874,45 @@ impl Component for VideoPlayerPage {
       }
       sizes.into()
     };
+    // A real clip, decoded by the system: the player is given its source and nothing else, and the media says
+    // where it is. A browser has no decoder of ours yet.
+    #[cfg(not(target_arch = "wasm32"))]
+    let real: Element = items()
+      .child(item(
+        VideoPlayer::new()
+          .source(&clip())
+          .width(640.0)
+          .max_width(Length::Fill)
+          .key("clip")
+          .mount(ctx),
+        "the gallery's clip · 15 s of 640 × 360, decoded by Media Foundation",
+      ))
+      .into();
+    #[cfg(target_arch = "wasm32")]
+    let real: Element = quiet("A video is not decoded in a browser build yet.", 13.0).into();
+    // The touch form on its side is as wide as a phone on its side: where the stage is narrower it scrolls.
+    let upright = ctx.mount::<Demo>(Scene::Touch);
+    let side = ctx.mount::<Demo>(Scene::TouchSide);
+    let touch = Column::new()
+      .width(FILL)
+      .spacing(28.0)
+      .overflow_visible()
+      .child(item(
+        upright,
+        "upright · a tap shows and hides the controls, two on a side seek 10 s",
+      ))
+      .child(
+        Column::new()
+          .width(FILL)
+          .spacing(9.0)
+          .child(fit("touch-side", room, 780.0, side))
+          .child(quiet(
+            "on its side, as in fullscreen · the title, the speed, 44 at each side for the notch",
+            12.0,
+          )),
+      );
     let bare = items().child(item(
-      state(room).controls(false).mount(ctx),
+      state().controls(false).mount(ctx),
       "the picture alone, as in a feed",
     ));
     let feed = self.feed().key("feed").mount(ctx);
@@ -928,6 +998,47 @@ impl Component for VideoPlayerPage {
         "The line to show now, and the track's name the settings say.",
       ),
       (
+        "source",
+        "&Source",
+        "",
+        "What it plays (feature media): a mounted player decodes it and draws its frames, and its time, its \
+         length and whether it plays are the media's. Its sound is heard, as loud as the volume says.",
+      ),
+      (
+        "touch",
+        "bool",
+        "false",
+        "The touch form: larger controls over a scrim, shown and hidden by a tap, two taps on a side seeking ten \
+         seconds. On its side while in fullscreen.",
+      ),
+      (
+        "title / description / on_back",
+        "&str / &str / impl Fn()",
+        "",
+        "The touch form: what plays, said at its top on its side, and what its first button calls.",
+      ),
+      (
+        "picture_in_picture_window",
+        "bool",
+        "true",
+        "Whether picture in picture opens its small window itself: no frame, kept over the other windows, the \
+         player in it and a button that brings it back. Without it the value is told and the window is the app's.",
+      ),
+      (
+        "fullscreen_fills",
+        "VideoFullscreen",
+        "Window",
+        "What a player in fullscreen fills: its window as it is (Window); its window taken to the whole screen \
+         (Screen); or nothing, where the app lays it out itself (App). Escape asks to leave.",
+      ),
+      (
+        "caption_cues",
+        "&MediaCaptions",
+        "",
+        "A track read from a WebVTT or a SubRip file (MediaCaptions::parse): the player shows what it says at its \
+         position.",
+      ),
+      (
         "qualities / quality",
         "&[&str], Signal<Option<usize>>",
         "None",
@@ -985,7 +1096,19 @@ impl Component for VideoPlayerPage {
         "width / height",
         "Length",
         "640 × 360",
-        "Its size, in place of its form's.",
+        "Its size, in place of its form's. With a width and no height it is as high as its aspect makes it.",
+      ),
+      (
+        "max_width",
+        "Length",
+        "",
+        "The most it is wide: narrower where what holds it is, a window as narrow as a phone, and its aspect holds.",
+      ),
+      (
+        "aspect",
+        "f32",
+        "16.0 / 9.0",
+        "The shape of the picture, its width over its height: 9.0 / 16.0 for an upright one.",
       ),
       (
         "force_menu / force_controls_shown",
@@ -997,8 +1120,8 @@ impl Component for VideoPlayerPage {
         "mount",
         "&mut Ctx",
         "",
-        "Puts it where it goes, the only way: it keeps its width, the timer that fades the bar, its menus and \
-         its tooltips.",
+        "Mounts it at once: it keeps its width, the timer that fades the bar, its menus and its tooltips. \
+         Given to a tree as it is (.child(player)), it is the same component.",
       ),
     ];
     self.frame.page(
@@ -1041,6 +1164,24 @@ impl Component for VideoPlayerPage {
           ),
         ),
         Section::new(
+          "Playing a file",
+          "Given a source (a file, bytes, a resource, an address), a mounted player decodes it with the system's \
+           decoder and draws its frames: play, pause, the seek bar, the speed and the keys move the video itself. \
+           Its sound is heard through the system's output, and the volume and the mute are its own.",
+          self.frame.demo(
+            5,
+            real,
+            ".source(&Source::file(\"clip.mp4\"))",
+            &[
+              "VideoPlayer::new()",
+              "    .source(&Source::file(\"clips/lake.mp4\"))",
+              "    .width(640.0)",
+              "    .max_width(Length::Fill)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
           "Sizes",
           "The form follows the player's width: compact under 400, minimal under 280. The large form folds its \
            volume into its button under 480. size says the form where the app wants another.",
@@ -1052,6 +1193,25 @@ impl Component for VideoPlayerPage {
               "VideoPlayer::new().media(frame).width(640.0).height(360.0)",
               "VideoPlayer::new().media(frame).width(320.0).height(180.0)",
               "VideoPlayer::new().media(frame).width(200.0).height(113.0)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Touch",
+          "For a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play, the time \
+           and fullscreen over a seek bar with a thumb of 16, and no volume. In fullscreen it is the form for a \
+           phone on its side. An app chooses it with touch(true).",
+          self.frame.demo(
+            4,
+            touch,
+            ".touch(true)",
+            &[
+              "VideoPlayer::new()",
+              "    .media(frame)",
+              "    .touch(true)",
+              "    .title(\"Night Drive\")",
+              "    .description(\"Aurora Lane · Low Tide\")",
+              "    .on_back(|| minimize())",
             ],
           ),
         ),
@@ -1077,7 +1237,7 @@ impl Component for VideoPlayerPage {
               "VideoPlayer::new()",
               "    .media(frame)",
               "    .width(243.0)",
-              "    .height(432.0)",
+              "    .aspect(9.0 / 16.0)",
               "    .controls(false)",
               "    .child(",
               "        Stack::new()",

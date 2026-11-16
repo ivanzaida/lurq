@@ -8,6 +8,9 @@ publish = false
 default = []
 # Lets an agent drive the app and take screenshots of it; see `lurq::mcp`.
 mcp = ["lurq/mcp"]
+# Addresses on the network: the Sound screen's last player loads one. Without it that player says the build
+# loads no address.
+http = ["lurq/http"]
 
 [dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "raster"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "raster", "media"] }

@@ -11,7 +11,12 @@ use super::{
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::{component::Component, ctx::Ctx, theme::Theme},
+  app::{
+    component::Component,
+    ctx::Ctx,
+    events::{KeyboardEvent, MouseEvent},
+    theme::Theme,
+  },
   components::Row,
   core::Signal,
   layout::Alignment,
@@ -102,8 +107,9 @@ type Handler<T> = Arc<dyn Fn(T) + Send + Sync>;
 /// from a half up, the low one under it, and the crossed one while muted or at nothing.
 ///
 /// Collapsed it is the button alone, and the slider comes while the pointer is over it or the focus is in it. What
-/// that needs between renders is kept by [`MediaVolume::mount`], the only way a control is put where it goes: it
-/// is not an element by itself. [`MediaVolume::build`] is a still picture of it, for a test.
+/// that needs between renders is kept by [`MediaVolume::mount`]. A control given to a tree as it is
+/// (`.child(MediaVolume::new(..))`) is the same component, declared: what renders the tree mounts it.
+/// [`MediaVolume::build`] is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct MediaVolume {
   /// The app's volume, where it is bound to a signal.
@@ -303,9 +309,22 @@ impl MediaVolume {
     element
   }
 
+  /// The control with what a component that holds it keeps for it between renders, in place of the control's
+  /// own mount: built with it, a collapsed control shows its slider as a mounted one does.
+  pub(super) fn kept(mut self, kept: Kept) -> Self {
+    self.kept = Some(kept);
+    self
+  }
+
   /// Builds a still picture of the volume control in `theme`, for a test or a screenshot: collapsed, it is the
-  /// button alone. An app mounts the control ([`MediaVolume::mount`]).
+  /// button alone. An app gives the control to its tree, or mounts it ([`MediaVolume::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
+    self.build_with(theme, &mut |button| button)
+  }
+
+  /// Builds the control with its button given to `dress` first: what holds the control hangs a tooltip of its own
+  /// from the button alone, where one around the whole control would show over the slider too.
+  pub(super) fn build_with(self, theme: &Theme, dress: &mut dyn FnMut(Element) -> Element) -> Element {
     let volume = match (&self.volume, self.controlled) {
       (_, Some(held)) => held,
       (Some(volume), None) => f64::from(volume.get()),
@@ -347,7 +366,7 @@ impl MediaVolume {
     };
     match theme.renderer::<MediaVolume>() {
       Some(renderer) => renderer(view),
-      None => view.render(),
+      None => view.render_with(dress),
     }
   }
 }
@@ -355,16 +374,35 @@ impl MediaVolume {
 /// What a mounted control keeps between renders: whether the pointer is over it, whether the focus is on its button
 /// or its slider, and whether its slider is being dragged.
 #[derive(Clone)]
-struct Kept {
+pub(super) struct Kept {
   hovered: Signal<bool>,
   focused: Signal<bool>,
   dragging: Signal<bool>,
+  /// Whether the focus came with a press of the pointer: it is over the control then, and the focus it leaves
+  /// behind asks for nothing once it has gone. A key pressed in the control makes the focus the keyboard's.
+  pointed: Signal<bool>,
+  /// Whether the pointer is held down in the control: what it changes then is a drag. A slider the app holds and
+  /// has not answered yet tells a change again after its end, which is no drag.
+  pressed: Arc<AtomicBool>,
 }
 
 impl Kept {
-  /// Whether any of them asks for the slider. Read in a render, it renders again when one changes.
-  fn asks(&self) -> bool {
-    self.hovered.get() || self.focused.get() || self.dragging.get()
+  /// What a component that holds a control keeps for it, in place of the control's own mount: a player, which
+  /// lays its bar out by whether the slider is out.
+  pub(super) fn new(ctx: &mut Ctx) -> Self {
+    Self {
+      hovered: ctx.signal(false),
+      focused: ctx.signal(false),
+      dragging: ctx.signal(false),
+      pointed: ctx.signal(false),
+      pressed: Arc::default(),
+    }
+  }
+
+  /// Whether any of them asks for the slider: the pointer over the control, its slider dragged, or the focus the
+  /// keyboard brought to it. Read in a render, it renders again when one changes.
+  pub(super) fn asks(&self) -> bool {
+    self.hovered.get() || self.dragging.get() || (self.focused.get() && !self.pointed.get())
   }
 }
 
@@ -375,15 +413,19 @@ fn put(signal: &Signal<bool>, value: bool) {
   }
 }
 
-/// Has each stop of Tab in `node` say in `focused` whether it has the focus.
-fn watch_focus(node: &mut Node, focused: &Signal<bool>) {
+/// Has each stop of Tab in `node` say in `kept` whether it has the focus, and whether the pointer brought it: a
+/// press focuses what is under the pointer, which is over the control then.
+fn watch_focus(node: &mut Node, kept: &Kept) {
   if node.tab_index_value().is_some_and(|index| index >= 0) && node.is_focusable() {
-    let (gained, lost) = (focused.clone(), focused.clone());
-    NodeUpdate::on_focus(node, move || put(&gained, true));
+    let (gained, lost) = (kept.clone(), kept.focused.clone());
+    NodeUpdate::on_focus(node, move || {
+      put(&gained.pointed, gained.hovered.get_untracked());
+      put(&gained.focused, true);
+    });
     NodeUpdate::on_blur(node, move || put(&lost, false));
   }
   for child in &mut node.children {
-    watch_focus(child, focused);
+    watch_focus(child, kept);
   }
 }
 
@@ -495,10 +537,12 @@ impl MediaVolumeView {
     // Told once in a gesture: the handlers of a drag hear many values before the app renders the control unmuted.
     let unmute = self.muted.then(|| Arc::new(AtomicBool::new(false)));
     let dragging = self.kept.as_ref().map(|kept| kept.dragging.clone());
-    let held = dragging.clone();
+    let held = self.kept.clone();
     let mut slider = Slider::controlled(self.shown_volume() as f32, move |to| {
-      if let Some(held) = &held {
-        put(held, true);
+      if let Some(held) = &held
+        && held.pressed.load(Ordering::Relaxed)
+      {
+        put(&held.dragging, true);
       }
       if let Some(bound) = &bound {
         bound.set(to as f32);
@@ -521,7 +565,11 @@ impl MediaVolumeView {
     .disabled(self.disabled)
     .rules(&rules);
     let ended = self.on_change_end.clone();
+    let let_go = self.kept.as_ref().map(|kept| kept.pressed.clone());
     slider = slider.on_change_end(move |to| {
+      if let Some(let_go) = &let_go {
+        let_go.store(false, Ordering::Relaxed);
+      }
       if let Some(dragging) = &dragging {
         put(dragging, false);
       }
@@ -539,11 +587,16 @@ impl MediaVolumeView {
   /// mounted control hears the pointer come and go over the whole of it, and the focus come to and leave its button
   /// and its slider.
   pub fn render(self) -> Element {
+    self.render_with(&mut |button| button)
+  }
+
+  /// [`render`](Self::render), with the button given to `dress` before it is put in the control.
+  fn render_with(self, dress: &mut dyn FnMut(Element) -> Element) -> Element {
     let theme = self.theme().clone();
     let mut root = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(MediaVolumePart::Root))
-      .child(self.button().build(&theme));
+      .child(dress(self.button().build(&theme)));
     if self.revealed {
       root = root.child(self.slider().build(&theme));
     }
@@ -553,12 +606,28 @@ impl MediaVolumeView {
     let Some(kept) = &self.kept else {
       return root.into();
     };
-    let (enter, leave) = (kept.hovered.clone(), kept.hovered.clone());
+    let (enter, leave, keyed) = (kept.hovered.clone(), kept.hovered.clone(), kept.pointed.clone());
+    let (down, up, gone) = (kept.pressed.clone(), kept.pressed.clone(), kept.clone());
     let mut element: Element = root
       .on_mouse_enter(move || put(&enter, true))
-      .on_mouse_leave(move || put(&leave, false))
+      // While the slider is dragged the runtime gives it every move of the pointer and tells no one else, so the
+      // pointer is not said to leave during a drag: when it is, nothing is held any more. A slider the app holds
+      // and does not answer is let go without its end being told, and would stay out.
+      .on_mouse_leave(move || {
+        gone.pressed.store(false, Ordering::Relaxed);
+        put(&gone.dragging, false);
+        put(&leave, false);
+      })
+      .on_mouse_down(move |_: MouseEvent| down.store(true, Ordering::Relaxed))
+      .on_mouse_up(move |_: MouseEvent| up.store(false, Ordering::Relaxed))
+      // A key pressed in it: the focus is the keyboard's from here on, whatever brought it.
+      .on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within {
+          put(&keyed, false);
+        }
+      })
       .into();
-    watch_focus(&mut element.node, &kept.focused);
+    watch_focus(&mut element.node, kept);
     element
   }
 }
@@ -606,8 +675,23 @@ impl Themed for MediaVolume {
   }
 }
 
+/// A control in a tree is its component, declared: the component that renders the tree mounts it.
+impl crate::app::component::IntoComponent for MediaVolume {
+  type Component = MediaVolumeHost;
+
+  fn into_props(self) -> MediaVolumeProps {
+    MediaVolumeProps { control: self }
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
+/// A volume control to mount.
+#[doc(hidden)]
 #[derive(Clone)]
-struct MediaVolumeProps {
+pub struct MediaVolumeProps {
   control: MediaVolume,
 }
 
@@ -623,7 +707,8 @@ impl crate::app::component::DevtoolsInspectable for MediaVolumeProps {}
 
 /// A mounted volume control: it keeps whether the pointer is over it, whether the focus is in it, and whether its
 /// slider is being dragged.
-struct MediaVolumeHost {
+#[doc(hidden)]
+pub struct MediaVolumeHost {
   kept: Kept,
 }
 
@@ -631,13 +716,7 @@ impl Component for MediaVolumeHost {
   type Props = MediaVolumeProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    Self {
-      kept: Kept {
-        hovered: ctx.signal(false),
-        focused: ctx.signal(false),
-        dragging: ctx.signal(false),
-      },
-    }
+    Self { kept: Kept::new(ctx) }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {

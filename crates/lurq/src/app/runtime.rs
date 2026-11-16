@@ -1028,6 +1028,8 @@ pub(crate) struct SecondaryWindow {
   height: u32,
   /// Whether the OS window is created with native decorations.
   decorations: bool,
+  /// Whether the OS window is kept over the other windows of the desktop.
+  always_on_top: bool,
   tree: Tree,
   open: bool,
   metadata: SecondaryWindowMetadata,
@@ -1061,6 +1063,7 @@ impl SecondaryWindow {
       width,
       height,
       decorations: true,
+      always_on_top: false,
       tree,
       open: true,
       metadata: SecondaryWindowMetadata::default(),
@@ -1084,6 +1087,11 @@ impl SecondaryWindow {
 
   fn with_decorations(mut self, decorations: bool) -> Self {
     self.decorations = decorations;
+    self
+  }
+
+  fn with_always_on_top(mut self, always_on_top: bool) -> Self {
+    self.always_on_top = always_on_top;
     self
   }
 
@@ -1128,6 +1136,11 @@ impl SecondaryWindow {
 
   pub(crate) fn decorations(&self) -> bool {
     self.decorations
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn always_on_top(&self) -> bool {
+    self.always_on_top
   }
 
   pub(crate) fn tree(&self) -> &Tree {
@@ -2069,6 +2082,7 @@ impl Tree {
       self.push_secondary_window(
         SecondaryWindow::new(request.title, request.width, request.height, tree)
           .with_decorations(request.decorations)
+          .with_always_on_top(request.always_on_top)
           .with_name(request.name),
       );
       changed = true;

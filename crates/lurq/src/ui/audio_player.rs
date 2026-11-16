@@ -7,6 +7,11 @@
 //! changes nothing by itself: the app answers by setting the value, or binds it to a signal the press sets.
 
 use std::sync::Arc;
+#[cfg(feature = "media")]
+use std::sync::{
+  Mutex,
+  atomic::{AtomicBool, Ordering},
+};
 
 use super::{
   Button, ButtonPart, ButtonShape, ButtonSize, ButtonVariant, Link, MediaSpeedMenu, MediaTime, MediaVolume, PlayButton,
@@ -389,8 +394,8 @@ impl Default for Words {
 /// pauses on Space, and its seek bar and volume move on the arrow keys.
 ///
 /// [`AudioPlayer::mount`] keeps what the player needs between renders (its tooltips, its speed menu, a mini
-/// player's own width), and is the only way a player is put where it goes: it is not an element by itself.
-/// [`AudioPlayer::build`] is a still picture of it, for a test.
+/// player's own width). A player given to a tree as it is (`.child(AudioPlayer::new(..))`) is the same component,
+/// declared: what renders the tree mounts it. [`AudioPlayer::build`] is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct AudioPlayer {
   variant: Name,
@@ -425,6 +430,8 @@ pub struct AudioPlayer {
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  #[cfg(feature = "media")]
+  source: Option<crate::resources::Source>,
 }
 
 impl AudioPlayer {
@@ -462,6 +469,8 @@ impl AudioPlayer {
       forced: None,
       id: None,
       key: None,
+      #[cfg(feature = "media")]
+      source: None,
     }
   }
 
@@ -629,6 +638,34 @@ impl AudioPlayer {
   /// button, previous and next dimmed.
   pub fn loading(mut self, loading: bool) -> Self {
     self.loading = loading;
+    self
+  }
+
+  /// What it plays: a file, bytes, a resource of the app or an address. A player in a tree (given to it as it
+  /// is, or mounted) opens it as a sound ([`Media::sound`](crate::media::Media::sound)) with the app's loader and
+  /// plays it through the system's output: where it is, how long it is, and whether it plays, loads or failed
+  /// are the media's, in place of what the app says of them. A sound at an address is loaded when it is first
+  /// played, once, and kept ([`sound_cache`](crate::media::sound_cache)): while it loads, the player is drawn
+  /// loading, and until then it is drawn from the length the app gave. A file, bytes and a sound that is kept
+  /// already are opened as soon as the player is in a tree.
+  ///
+  /// What a person does on a control is told to the app's handlers and done to the media: play and pause, the
+  /// seek bar, the volume, the mute and the speed. An app that holds `playing`, `volume`, `muted` or `rate`
+  /// moves the media by changing them. With [`AudioRepeat::One`] the track starts over at its end. "Try again"
+  /// loads the source anew. With no source the player is drawn from the values it is given.
+  ///
+  /// ```
+  /// use lurq::{core::Signal, resources::Source, ui::AudioPlayer};
+  ///
+  /// // The length is the sound's once it opened: what is said here is drawn until then.
+  /// let player = AudioPlayer::new(Signal::new(0.0), 0.0)
+  ///   .source(&Source::url("https://example.com/night-drive.mp3"))
+  ///   .title("Night Drive")
+  ///   .description("Aurora Lane");
+  /// ```
+  #[cfg(feature = "media")]
+  pub fn source(mut self, source: &crate::resources::Source) -> Self {
+    self.source = Some(source.clone());
     self
   }
 
@@ -852,7 +889,8 @@ impl AudioPlayer {
   }
 
   /// Builds a still picture of the player in `theme`, for a test or a screenshot: no tooltips, no speed menu, a
-  /// mini player as wide as it is given. An app mounts the player ([`AudioPlayer::mount`]).
+  /// mini player as wide as it is given. An app gives the player to its tree, or mounts it
+  /// ([`AudioPlayer::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     Self::render_view(self.view(theme, None, &Kept::default()))
   }
@@ -1742,9 +1780,23 @@ impl AudioPlayerView {
   }
 }
 
+/// A player in a tree is its component, declared: the component that renders the tree mounts it.
+impl crate::app::component::IntoComponent for AudioPlayer {
+  type Component = AudioPlayerHost;
+
+  fn into_props(self) -> AudioPlayerProps {
+    AudioPlayerProps { player: self }
+  }
+
+  fn component_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
 /// The mounted player: what its host is given.
+#[doc(hidden)]
 #[derive(Clone)]
-struct AudioPlayerProps {
+pub struct AudioPlayerProps {
   player: AudioPlayer,
 }
 
@@ -1759,7 +1811,8 @@ impl PartialEq for AudioPlayerProps {
 impl crate::app::component::DevtoolsInspectable for AudioPlayerProps {}
 
 /// What a mounted player keeps from one render to the next.
-struct AudioPlayerHost {
+#[doc(hidden)]
+pub struct AudioPlayerHost {
   speed_open: Signal<bool>,
   speed_anchor: ElementRef,
   root: ElementRef,
@@ -1767,6 +1820,208 @@ struct AudioPlayerHost {
   fold: Signal<u8>,
   scrub: Signal<f32>,
   remaining: Signal<bool>,
+  #[cfg(feature = "media")]
+  played: Played,
+}
+
+/// What a mounted player with a source keeps: the media it opened, and what renders the player again for it.
+#[cfg(feature = "media")]
+struct Played {
+  /// The media, with the key of the source it was opened from: another source is another media.
+  media: Arc<Mutex<Option<(u64, crate::media::Media)>>>,
+  /// Counted up when the media changed, and while it plays: the player reads it and is rendered again.
+  beat: Signal<u64>,
+  /// Whether it plays: the clock that counts the beat runs while it does.
+  plays: Arc<AtomicBool>,
+  /// What the app last said of playing, of the speed, of how loud it is and of whether it is silenced: a
+  /// change of them moves the media.
+  said: Arc<Mutex<Said>>,
+  /// The key of the source a person asked to play before it was opened: a sound at an address is opened, and
+  /// so loaded, when it is first played.
+  asked: Arc<Mutex<Option<u64>>>,
+  _clock: crate::app::ctx::Interval,
+}
+
+#[cfg(feature = "media")]
+type Said = (Option<bool>, Option<f64>, Option<f64>, Option<bool>);
+
+#[cfg(feature = "media")]
+impl Played {
+  fn new(ctx: &mut Ctx) -> Self {
+    let (beat, plays) = (ctx.signal(0_u64), Arc::new(AtomicBool::new(false)));
+    // While it plays the time and the seek bar move: four times a second is what they show.
+    let clock = ctx.create_interval(std::time::Duration::from_millis(250), {
+      let (beat, plays) = (beat.clone(), plays.clone());
+      move || {
+        if plays.load(Ordering::Relaxed) {
+          beat.update(|count| *count += 1);
+        }
+      }
+    });
+    clock.start();
+    Self {
+      media: Arc::default(),
+      beat,
+      plays,
+      said: Arc::default(),
+      asked: Arc::default(),
+      _clock: clock,
+    }
+  }
+}
+
+/// `player` as it is while its source plays: the media of the source, opened once, is where it is and how long,
+/// whether it plays, loads or failed; and what a person does on a control is done to the media too.
+#[cfg(feature = "media")]
+fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlayer {
+  use crate::media::Media;
+  let mut held = played.media.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  let Some(source) = player.source.take() else {
+    // No source any more: the media ends with what held it.
+    *held = None;
+    played.plays.store(false, Ordering::Relaxed);
+    return player;
+  };
+  // Rendered again when the media says it changed, and as its clock goes.
+  played.beat.get();
+  let key = source.cache_key();
+  // The app's loader, with its resource root and what it allows; a tree with no app has a loader of its own.
+  let loader = ctx
+    .app_handle()
+    .map_or_else(crate::resources::Loader::new, |app| app.loader().clone());
+  if held.as_ref().is_none_or(|(of, _)| *of != key) {
+    // A sound at an address is not loaded for being drawn: a list of a hundred players loads nothing until
+    // one of them is played. What is kept already, a file and bytes are there, and are opened at once.
+    let asked = *played.asked.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) == Some(key);
+    let there = !source.is_remote() || crate::media::sound_cache().holds(&source);
+    if !(there || asked || player.playing.value) {
+      *held = None;
+      played.plays.store(false, Ordering::Relaxed);
+      let (asked, beat) = (played.asked.clone(), played.beat.clone());
+      player.playing.tell.push(Arc::new(move |to| {
+        if to {
+          *asked.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(key);
+          beat.update(|count| *count += 1);
+        }
+      }));
+      return player;
+    }
+    let media = Media::sound(&loader, &source);
+    let beat = played.beat.clone();
+    media.on_change(move || beat.update(|count| *count += 1));
+    // The press that opened it is a press of play: it plays once it is loaded.
+    if asked {
+      media.play();
+    }
+    *held = Some((key, media));
+    *played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Said::default();
+  }
+  let media = held
+    .as_ref()
+    .map(|(_, media)| media.clone())
+    .expect("the media just held");
+  drop(held);
+  // What the app says of playing, of the speed and of the sound moves the media when it changes: an app that
+  // holds them plays, pauses, and changes the speed and the volume by setting them.
+  {
+    let mut said = played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if said.0 != Some(player.playing.value) {
+      // A player that starts paused has nothing to tell a media that opens paused.
+      if player.playing.value {
+        media.play();
+      } else if said.0.is_some() {
+        media.pause();
+      }
+      said.0 = Some(player.playing.value);
+    }
+    if said.1 != Some(player.rate.value) {
+      media.set_rate(player.rate.value);
+      said.1 = Some(player.rate.value);
+    }
+    if said.2 != Some(player.volume.value) {
+      media.set_volume(player.volume.value as f32);
+      said.2 = Some(player.volume.value);
+    }
+    if said.3 != Some(player.muted.value) {
+      media.set_muted(player.muted.value);
+      said.3 = Some(player.muted.value);
+    }
+  }
+  // What a person does on a control is done to the media, after the app's own handlers heard of it.
+  let again = {
+    let beat = played.beat.clone();
+    move || beat.update(|count| *count += 1)
+  };
+  player.playing.tell.push({
+    let (media, again) = (media.clone(), again.clone());
+    Arc::new(move |to| {
+      if to {
+        media.play();
+      } else {
+        media.pause();
+      }
+      again();
+    })
+  });
+  player.position.tell.push({
+    let (media, again) = (media.clone(), again.clone());
+    Arc::new(move |to| {
+      media.seek(to);
+      again();
+    })
+  });
+  player.rate.tell.push({
+    let (media, again) = (media.clone(), again.clone());
+    Arc::new(move |to| {
+      media.set_rate(to);
+      again();
+    })
+  });
+  player.volume.tell.push({
+    let (media, again) = (media.clone(), again.clone());
+    Arc::new(move |to| {
+      media.set_volume(to as f32);
+      again();
+    })
+  });
+  player.muted.tell.push({
+    let (media, again) = (media.clone(), again.clone());
+    Arc::new(move |to| {
+      media.set_muted(to);
+      again();
+    })
+  });
+  // Trying again loads and opens the source anew: a load that failed stays failed until it is forgotten.
+  player.on_retry.push({
+    let (held, again) = (played.media.clone(), again);
+    Arc::new(move || {
+      loader.forget(&source);
+      *held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+      again();
+    })
+  });
+  let state = media.state();
+  // One track again and again: at its end it starts over. The other ways of repeating are of a queue, and the
+  // app's.
+  if state.ended && player.repeat.value == AudioRepeat::One && state.error.is_none() {
+    media.play();
+  }
+  played.plays.store(state.playing, Ordering::Relaxed);
+  player.playing.value = state.playing;
+  player.position.value = state.position;
+  player.rate.value = state.rate;
+  player.volume.value = f64::from(state.volume);
+  player.muted.value = state.muted;
+  if let Some(duration) = state.duration {
+    player.duration = duration;
+    // All of a sound is there to play once it opened: its bar is loaded to its end, unless the app says how far.
+    player.buffered = player.buffered.or(Some(duration));
+  }
+  player.loading = player.loading || state.waiting;
+  if let (None, Some(why)) = (&player.error, &state.error) {
+    player.error = Some(why.clone());
+  }
+  player
 }
 
 /// Sets `signal` to `value` where it is not that already: a signal set renders again what reads it.
@@ -1800,11 +2055,15 @@ impl Component for AudioPlayerHost {
       fold,
       scrub: ctx.signal(-1.0),
       remaining: ctx.signal(false),
+      #[cfg(feature = "media")]
+      played: Played::new(ctx),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let player = ctx.props::<AudioPlayerProps>().player.clone();
+    #[cfg(feature = "media")]
+    let player = playing(player, &self.played, ctx);
     let mini = AudioPlayerVariant::of(player.variant) == AudioPlayerVariant::Mini;
     let kept = Kept {
       speed: Some((self.speed_open.clone(), self.speed_anchor.clone())),
