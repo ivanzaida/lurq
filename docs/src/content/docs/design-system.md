@@ -930,6 +930,48 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `slider` called by its label; a range slider's value is `low,high`.
 - A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, fill and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
 
+## Angle Slider
+
+A dial that sets an angle in degrees, by a drag round it, a press on it or the keys: the rotation of a layer, the direction of a gradient or of a light.
+
+```rust
+use lurq::ui::AngleSlider;
+
+// rotation: Signal<f64>, 0 to 360 in whole degrees, going round past 359 to 0.
+AngleSlider::new(rotation.clone()).label("Rotation");
+
+// The app holds the angle; told each change, and of the end of a drag.
+AngleSlider::controlled(angle, move |angle| preview(angle))
+  .on_change_end(move |angle| save(angle));
+
+// A half turn either way of 0, in steps of 15, held at its ends.
+AngleSlider::new(tilt.clone()).min(-180).max(180).step(15).wrap(false);
+```
+
+| Builder | |
+| --- | --- |
+| `AngleSlider::new(Signal<f64>)` | The angle the signal holds, in degrees; a drag, a press and the keys set it |
+| `AngleSlider::controlled(f64, on_change)` | The app holds the angle: it is told what a person makes it, and what is drawn is what it gives next |
+| `on_change(Fn(f64))` | Each change a person makes, as it is made: a drag as it moves, a press, a key. After the signal is set; not when the app sets it, nor for a press that leaves it as it is. Each call adds |
+| `on_change_end(Fn(f64))` | The angle when a change is over, where it is another than it was as the change began: the drag let go, the key's step made. A drag taken back to where it began tells nothing. Each call adds |
+| `min(v)`, `max(v)` | The range: 0 to 360 unless told. A range of more than a turn is turned round more than once |
+| `step(v)`, `page_step(v)` | How far apart the angles are, from the least: 1 unless told, what an arrow key moves it by and what a drag snaps to. What Page Up and Page Down move it by: 15 unless told, in whole steps and at least one |
+| `wrap(bool)` | On unless told: where the range is a whole turn it goes round, a step past 359 is 0 and a drag goes on round. Off, or with another range, it stops at its ends, and a drag past an end stays there until it comes back |
+| `label(&str)` | What it is called to tooling, "Angle" unless told. A [field](#field) gives it its label |
+| `value_text(Fn(f64) -> String)` | What it says the angle is, in its middle and to tooling: "45°" unless told, with the decimals of the step ("22.5°") |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the dial, what is dragged and focused |
+
+- The angle is drawn as on a compass: 0 at the top and growing clockwise, the dot on the ring at it. An angle the app gives is snapped to the step and kept in the range; where it goes round, 370 is 10 and 360 is 0.
+- The pointer: a press anywhere on the dial sets the angle it is at (of a range of more than a turn, the turn nearer to the angle it holds; past the ends of a range of less than a turn, the nearer end), and a drag goes on round from there, snapped to the step. A press at the dial's very middle, where a point has no angle, sets nothing and the drag goes on from where it moves. A finger or a pen turns it as the mouse does, and is taken from the page. A press focuses it, so the keys go on from it.
+- The keys: Right and Up a step clockwise, Left and Down a step back, Page Up and Page Down by `page_step`, Home to the least and End to the greatest (where it goes round, the last step before it comes round to the least: 359). Each is a change and its end. Tab stops on it once; the ring of the focus is around the circle.
+- It tells as a [slider](#slider) does: `on_change` for each change, then `on_change_end` for the end of the drag or the key's step; bound, the signal is set first.
+- It is built of boxes: the circle, the text in its middle and the dot, placed at the angle, so the parts are styled as any others are.
+- In the design the dial is 64 on `Background` with a ring of 1.5 in `Input` inside it, the angle in the mono type of 13 in `Foreground`, and a dot of 9 in `Primary` inside the ring, touching it. The board draws it at rest: the ring of the focus is around the circle, the pointer is a hand over it, and a disabled dial is dimmed. A dial made larger (`style(AngleSliderPart::Root, |s| s.square(96.0))`) keeps its dot touching its ring.
+- To a screen reader it is a slider called by its label, of its range, that says its angle.
+- Parts: `AngleSliderPart::Root` (the circle, what is focused), `Value`, `Handle`. State: `AngleSliderState::Disabled`.
+- In a [field](#field) it is called by the field's label unless it has one of its own and disabled where the field is.
+- A renderer that draws another dial is given an `AngleSliderView`: `view.root()` is the dial with its behavior (the pointer, the keys, the role), `view.value()` and `view.handle()` the text and the dot, `view.reach()` how far the dot is from the middle, `view.text()` what it says, `view.angle` the angle.
+
 ## Rating
 
 A number of stars, chosen by a press or by the keys, or shown and not chosen: the quality of a call, how much a person liked a release, what others gave a package.

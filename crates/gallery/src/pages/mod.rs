@@ -9,6 +9,7 @@ mod action_bar;
 mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod area_chart;
 mod audio_player;
 mod audio_queue;
@@ -618,6 +619,14 @@ pub const PAGES: &[Page] = &[
     about: "signature pad sign signed draw ink pen stylus finger touch stroke strokes pressure undo clear consent delivery picture image png to_image Signature SignatureStroke SignaturePoint new controlled on_change placeholder read_only disabled invalid full_width width height label undo_label clear_label signed_text empty_text mount canvas",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<signature_pad::SignaturePadPage>(()),
+  },
+  Page {
+    path: "/angle-slider",
+    name: "Angle Slider",
+    icon: Some("rotate-left"),
+    about: "angle slider dial knob rotation degrees direction compass turn wrap round drag press keys step page_step min max new controlled on_change on_change_end value_text label disabled slider",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<angle_slider::AngleSliderPage>(()),
   },
   Page {
     path: "/tooltip",

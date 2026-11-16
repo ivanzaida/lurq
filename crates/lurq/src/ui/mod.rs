@@ -20,6 +20,7 @@ mod action_bar;
 mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod audio_player;
 mod audio_queue;
 mod avatar;
@@ -197,6 +198,9 @@ pub use action_bar::{
 pub use action_sheet::{ActionSheet, ActionSheetPart, ActionSheetRenderer, ActionSheetState, ActionSheetView};
 pub use ai_label::{AiLabel, AiLabelPart, AiLabelRenderer, AiLabelSize, AiLabelState, AiLabelView};
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
+pub use angle_slider::{
+  AngleSlider, AngleSliderPart, AngleSliderRenderer, AngleSliderState, AngleSliderView, AngleText,
+};
 pub use audio_player::{
   AUDIO_MINI_NARROW, AUDIO_MINI_TIME_FROM, AUDIO_MINI_VOLUME_FROM, AudioControls, AudioPlayer, AudioPlayerPart,
   AudioPlayerRenderer, AudioPlayerState, AudioPlayerVariant, AudioPlayerView, AudioRepeat, VOICE_RATES,
