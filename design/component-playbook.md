@@ -366,6 +366,12 @@ an alias.
 - **The merge compiles the browser's build and checks the docs' links every time**:
   `cargo check -p gallery --target wasm32-unknown-unknown`, and the docs build with `scripts/check-docs.py`.
   The engine's clock is `crate::time::Instant`, never `std`'s.
+- **`scripts/check.ps1` is run whole before a batch is called done.** It is the pipeline's check, and its four
+  steps turn on features the suites of a merge do not: the tests without `form` and `router`, the tests with
+  `devtools`, `perf_profile` and the counting allocator, and all of them together. For days it failed on the
+  branch with nobody running it: a test that uses a form is behind `form`, a type a test hands to a component
+  derives `lurq::DevtoolsInspectable`, and what a profiling feature keeps is kept only once something asks for it,
+  so that the guards on allocations measure the tree and not the profiler.
 - **What moves, moves in every form of the component.** A category that opens with a motion in an accordion
   opens with it in a property grid and a tree; a chart whose bars move to new values has lines and slices
   that do. One of a family animated and the others not reads as a fault.
@@ -449,9 +455,15 @@ components of its own.
   be narrower (a table's bar, a window's frame, a wizard's steps) scrolls sideways in its card,
   `kit::fit(key, self.frame.stage_room(), least, scene)`. `kit::phone()` says the window is under 640, for a scene
   that stacks there. A table's flexible column has a `min_width`, so that a narrow table scrolls and no cell is cut.
-- **What is mounted keeps what it measured.** A splitter, a dock layout or a grid first laid out in a narrow card
-  and then given its width by `fit` keeps the sizes of the first layout: its `key` says whether it scrolls, so the
-  one in the scroll is mounted anew.
+- **What keeps sizes between renders follows its room.** A splitter that wrote the sizes a narrow room fitted its
+  panes to kept them when the room was wide again; a component that fits to a room keeps what it had before the
+  fit, and goes back to it. Its test takes it through 300, 900 and 300 and compares it at each width with one first
+  laid out there (`crates/lurq/tests/ui/follows_room.rs`).
+- **A component has its own narrow form, chosen by its own room.** Where a row of controls has less room than it
+  needs, the component gives way in an order it decides (labels to an ellipsis, items into a menu, a form down the
+  page), measured before paint (`ElementRef::observe_rect_before_paint`), not by the window's breakpoint: a narrow
+  panel of a wide window is a narrow room too. A page's `kit::fit` is for a scene that is a picture of a desktop
+  window, not for a component that could not get narrower.
 - **Nothing is hidden and no text is made smaller to fit**, and the wide form stays as it is: a change for a narrow
   window is a greatest width, a wrap that a wide window never reaches, or a branch on `phone()` or on a measured
   room.

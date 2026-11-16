@@ -22,7 +22,7 @@ use crate::time::Instant;
 pub enum ImageKind {
   Bytes(ImageData),
   Native(NativeImageData),
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   Resource(Arc<str>),
 }
 
@@ -32,21 +32,21 @@ pub enum ImagePixelFormat {
   Nv12,
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 impl From<&str> for ImageKind {
   fn from(value: &str) -> Self {
     Self::Resource(Arc::from(value))
   }
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 impl From<String> for ImageKind {
   fn from(value: String) -> Self {
     Self::Resource(Arc::from(value))
   }
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 impl From<Arc<str>> for ImageKind {
   fn from(value: Arc<str>) -> Self {
     Self::Resource(value)

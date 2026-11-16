@@ -122,6 +122,73 @@ impl Element {
     Self::from_node(Node::new())
   }
 
+  /// The component `C` with `props`, declared where the element stands: what `ctx.mount::<C>(props)` gives,
+  /// with no `Ctx` at hand. The component whose render returns the element mounts it once the render has
+  /// returned, and keeps its slot: `C` is created once and lives as long as renders go on returning it.
+  ///
+  /// It is told from its siblings as a component mounted with no key is, by its order among what that
+  /// component mounts: in a list that changes give it a key ([`component_keyed`](Self::component_keyed), or
+  /// [`key`](Self::key) on the element). An id, a key and classes put on the element go to the component's
+  /// root.
+  ///
+  /// It is a component only where a component renders it. In a tree given to a window with none around it
+  /// (`Tree::set_root` with an element) it shows nothing, and the log says so.
+  ///
+  /// ```
+  /// use lurq::{app::{component::Component, ctx::Ctx}, components::{Row, Text}, node::Element};
+  ///
+  /// struct Clock;
+  ///
+  /// impl Component for Clock {
+  ///   type Props = ();
+  ///   fn create(_ctx: &mut Ctx) -> Self {
+  ///     Self
+  ///   }
+  ///   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+  ///     Text::new("12:00")
+  ///   }
+  /// }
+  ///
+  /// let row = Row::new().child(Element::component::<Clock>(()));
+  /// ```
+  pub fn component<C: crate::app::component::Component>(props: C::Props) -> Self
+  where
+    C::Props: Clone,
+  {
+    Self::declaring::<C>(None, props)
+  }
+
+  /// [`component`](Self::component) with a key, as `ctx.mount_keyed::<C>(key, props)`.
+  pub fn component_keyed<C: crate::app::component::Component>(
+    key: impl Into<std::sync::Arc<str>>,
+    props: C::Props,
+  ) -> Self
+  where
+    C::Props: Clone,
+  {
+    Self::declaring::<C>(Some(key.into()), props)
+  }
+
+  fn declaring<C: crate::app::component::Component>(key: Option<std::sync::Arc<str>>, props: C::Props) -> Self
+  where
+    C::Props: Clone,
+  {
+    // Props may hold elements, which are sent and not shared: behind a lock, what mounts them is both.
+    let props = parking_lot::Mutex::new(props);
+    let mount: crate::node::outer_decoration::DeclaredMount =
+      std::sync::Arc::new(move |ctx: &mut crate::app::ctx::Ctx, key: Option<&str>| {
+        let props = props.lock().clone();
+        match key {
+          Some(key) => ctx.mount_keyed::<C>(key, props),
+          None => ctx.mount::<C>(props),
+        }
+      });
+    Self::from_node(Node::declaring(crate::node::outer_decoration::DeclaredComponent {
+      mount,
+      key,
+    }))
+  }
+
   pub fn node_id(&self) -> crate::core::NodeId {
     self.node.node_id()
   }
@@ -250,6 +317,11 @@ impl<'a> ElementRef<'a> {
   #[allow(dead_code)]
   pub(crate) fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
     self.node.component_contexts_debug()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn component_render_debug(&self) -> Option<crate::app::ctx::ComponentRenderDebug> {
+    self.node.component_render_debug()
   }
 
   #[cfg(feature = "devtools")]

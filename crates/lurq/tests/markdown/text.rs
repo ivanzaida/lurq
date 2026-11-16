@@ -451,7 +451,7 @@ fn markdown_links_fire_click_callback() {
 }
 
 #[test]
-#[cfg(not(all(feature = "image", feature = "resources")))]
+#[cfg(not(all(feature = "image", feature = "http")))]
 fn markdown_image_falls_back_to_alt_text_without_resource_images() {
   let mut app = App::new();
   let mut tree = Tree::new();

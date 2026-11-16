@@ -65,7 +65,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     background_image: Guard::new(None),
     #[cfg(feature = "raster")]
     background_size: crate::node::node::BackgroundSize::default(),
-    #[cfg(all(feature = "image", feature = "resources"))]
+    #[cfg(all(feature = "image", feature = "http"))]
     background_resource_image: None,
     scrollbar_style: Guard::new(None),
     scrollbar_hovered_style: None,
@@ -243,6 +243,14 @@ impl Node {
   pub fn max_height(self, height: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
       max_height: Some(height.into()),
+      ..Default::default()
+    })
+  }
+
+  /// The box's width over its height; see the components' `.aspect_ratio(...)`.
+  pub fn aspect_ratio(self, ratio: f32) -> Self {
+    self.frame(FrameConstraints {
+      aspect_ratio: Some(ratio),
       ..Default::default()
     })
   }

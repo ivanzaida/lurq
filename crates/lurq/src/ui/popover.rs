@@ -347,23 +347,27 @@ impl Popover {
         }
       });
     }
-    let Some(mut trigger) = self.trigger else {
+    let Some(trigger) = self.trigger else {
       return popup.into();
     };
     // The trigger's own node is the anchor, so the engine knows it for the popup's trigger: the first thing
-    // a press reaches that takes the focus.
-    let node = &mut *trigger.node;
-    let (open, expanded) = (self.open.clone(), self.open.get());
-    NodeUpdate::ref_element(node, self.anchor);
-    NodeUpdate::on_click(node, move |_: crate::app::events::MouseEvent| {
-      open.update(|open| *open = !*open)
+    // a press reaches that takes the focus. It is put on the trigger's root as a decoration, so that a trigger
+    // that is a component has it on the root it renders, whenever it renders.
+    let (open, expanded, anchor) = (self.open.clone(), self.open.get(), self.anchor);
+    let trigger = trigger.decorate_root(move |mut node| {
+      let open = open.clone();
+      NodeUpdate::ref_element(&mut node, anchor.clone());
+      NodeUpdate::on_click(&mut node, move |_: crate::app::events::MouseEvent| {
+        open.update(|open| *open = !*open)
+      });
+      NodeUpdate::describe(&mut node, Arc::from("a11y_haspopup"), Arc::from("dialog"));
+      NodeUpdate::describe(
+        &mut node,
+        Arc::from("a11y_expanded"),
+        Arc::from(if expanded { "true" } else { "false" }),
+      );
+      node
     });
-    NodeUpdate::describe(node, Arc::from("a11y_haspopup"), Arc::from("dialog"));
-    NodeUpdate::describe(
-      node,
-      Arc::from("a11y_expanded"),
-      Arc::from(if expanded { "true" } else { "false" }),
-    );
     Row::new().child(trigger).child(popup).into()
   }
 }

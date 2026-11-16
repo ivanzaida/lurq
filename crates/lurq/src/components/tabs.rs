@@ -263,6 +263,25 @@ impl Tabs {
     self.bump();
   }
 
+  /// Moves a tab to the place `index` among the others, as taking it out of the list and putting it back there
+  /// does: what a strip of tabs a person drags along asks for. The tab keeps its history, its screens and whether
+  /// it is the one shown. Does nothing when there is no tab with the key.
+  pub fn move_to(&self, key: &str, index: usize) {
+    {
+      let mut tabs = self.inner.tabs.lock();
+      let Some(from) = tabs.iter().position(|tab| tab.key == key) else {
+        return;
+      };
+      let to = index.min(tabs.len() - 1);
+      if from == to {
+        return;
+      }
+      let tab = tabs.remove(from);
+      tabs.insert(to, tab);
+    }
+    self.bump();
+  }
+
   /// Shows the tab with the key. Does nothing when there is none.
   pub fn select(&self, key: &str) {
     let known = self.inner.tabs.lock().iter().any(|tab| tab.key == key);
@@ -807,6 +826,7 @@ impl Component for TabOutlet {
 
 /// A tab's symbol in a color, where the platform draws symbols.
 #[allow(unused_variables)]
+#[allow(deprecated)]
 fn symbol(name: &str, size: f32, color: Color) -> Option<Element> {
   #[cfg(all(target_os = "ios", feature = "raster"))]
   if let Some(symbol) = crate::app::ios_symbol::symbol(name, size, color) {

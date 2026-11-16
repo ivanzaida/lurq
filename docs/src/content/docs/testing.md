@@ -10,14 +10,14 @@ The repo has focused Rust tests under `crates/lurq/tests`. They are the best ref
 ## Run Tests
 
 ```powershell
-cargo test -p lurq --features resources
+cargo test -p lurq --features http
 ```
 
 With feature combinations:
 
 ```powershell
-cargo test -p lurq --features "image svg resources devtools"
-cargo test -p lurq --features "winit wgpu image svg resources devtools clipboard"
+cargo test -p lurq --features "image svg http devtools"
+cargo test -p lurq --features "winit wgpu image svg http devtools clipboard"
 ```
 
 The combinations above do not enable every subsystem. Check feature-specific behavior explicitly:

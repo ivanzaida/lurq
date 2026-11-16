@@ -32,7 +32,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement},
-    events::{KeyboardEvent, MouseEvent},
+    events::{KeyboardEvent, MouseButton, MouseEvent},
     theme::{
       BorderSize, Breakpoint, IconSize, MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize, Theme,
       TypographyStyle,
@@ -183,6 +183,15 @@ pub type SidebarRenderer = Arc<dyn Fn(SidebarView) -> Element + Send + Sync>;
 
 type Handler = Arc<dyn Fn() + Send + Sync>;
 
+/// Whether a press asks for an item beside what is open: with Ctrl held, or Cmd where that is the platform's key.
+fn aside_asked(event: &MouseEvent) -> bool {
+  if cfg!(any(target_os = "macos", target_os = "ios")) {
+    event.meta
+  } else {
+    event.ctrl
+  }
+}
+
 /// Whether the window is too narrow for a sidebar beside the page: narrower than the `md` breakpoint.
 fn window_is_narrow() -> bool {
   super::current_breakpoint().is_none_or(|breakpoint| breakpoint < Breakpoint::Md)
@@ -220,6 +229,7 @@ pub struct SidebarItem {
   disabled: bool,
   default_open: Option<bool>,
   on_select: Vec<Handler>,
+  on_open_aside: Vec<Handler>,
   href: Option<Arc<str>>,
   children: Vec<SidebarItem>,
   forced: Option<Interaction>,
@@ -240,6 +250,7 @@ impl SidebarItem {
       disabled: false,
       default_open: None,
       on_select: Vec::new(),
+      on_open_aside: Vec::new(),
       href: None,
       children: Vec::new(),
       forced: None,
@@ -295,6 +306,15 @@ impl SidebarItem {
   /// Called when it is chosen: pressed, or Enter or Space while it has the focus.
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_select.push(Arc::new(handler));
+    self
+  }
+
+  /// Called when a person asks for it beside what is open, in place of going to it: a press of the middle button on
+  /// it, or a press with Ctrl held (Cmd on macOS). An app with tabs opens it in a new one. Such a press does not
+  /// choose the item: [`on_select`](Self::on_select) is not called, its path is not gone to, its nested items stay
+  /// as they are and the sidebar over the page stays open. A second handler is called after the first.
+  pub fn on_open_aside(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_open_aside.push(Arc::new(handler));
     self
   }
 
@@ -1090,6 +1110,18 @@ impl Build<'_> {
       button = button.ref_element(self.mark(None));
     }
     let choose = self.choose(item);
+    // Asked for beside what is open: the middle button, or a press with the platform's key held.
+    let aside: Option<Handler> = (!item.disabled && !item.on_open_aside.is_empty()).then(|| {
+      let handlers = item.on_open_aside.clone();
+      Arc::new(move || handlers.iter().for_each(|handler| handler())) as Handler
+    });
+    if let Some(aside) = &aside {
+      let aside = aside.clone();
+      button = button.on_mouse_click(MouseButton::Middle, move |event: MouseEvent| {
+        event.stop_propagation();
+        aside();
+      });
+    }
     let mut menu = None;
     if self.collapsed && has_children {
       let (anchor, menu_open) = self.menu_state(key);
@@ -1116,9 +1148,12 @@ impl Build<'_> {
       button = button.describe("a11y_expanded", if open { "true" } else { "false" });
       if !item.disabled {
         let (press, keys) = (signal.clone(), signal.clone());
-        let choose = choose.clone();
+        let (choose, aside) = (choose.clone(), aside.clone());
         button = button
-          .on_click(move |_| {
+          .on_click(move |event: MouseEvent| {
+            if let Some(aside) = aside.as_ref().filter(|_| aside_asked(&event)) {
+              return aside();
+            }
             press.update(|open| *open = !*open);
             if let Some(choose) = &choose {
               choose();
@@ -1127,8 +1162,15 @@ impl Build<'_> {
           // The list is a tree to the keys: Right opens it and goes into it, Left closes it.
           .focus_expanded(open, move |open| keys.set(open));
       }
-    } else if let Some(choose) = choose {
-      button = button.on_click(move |_| choose());
+    } else if choose.is_some() || aside.is_some() {
+      button = button.on_click(move |event: MouseEvent| {
+        if let Some(aside) = aside.as_ref().filter(|_| aside_asked(&event)) {
+          return aside();
+        }
+        if let Some(choose) = &choose {
+          choose();
+        }
+      });
     }
 
     if !self.collapsed {

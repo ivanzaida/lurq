@@ -84,6 +84,14 @@ impl RouterHandle {
     super::Navigator { handle: self.clone() }
   }
 
+  /// A router over `routes`, at no path yet: `replace` gives it its first. What [`Ctx::router`] makes in a render;
+  /// this makes one anywhere, for a place that is added while the app runs, such as a tab a person opens.
+  ///
+  /// [`Ctx::router`]: crate::app::ctx::Ctx::router
+  pub fn new(routes: Routes) -> Self {
+    Self::new_with_signal(routes, Signal::new(String::new()))
+  }
+
   pub(crate) fn new_with_signal(routes: Routes, current_path: Signal<String>) -> Self {
     Self {
       inner: Arc::new(RouterInner {

@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -25,10 +25,6 @@ const WIZARD: [(&str, &str); 4] = [
   ("Workspace", "Name and members"),
   ("Finish", "Review and confirm"),
 ];
-
-/// The least width the wizard's four steps are read in, in a row: narrower, their titles are cut to nothing,
-/// and then their marks.
-const WIZARD_WIDTH: f32 = 520.0;
 
 /// The current steps the playground offers: each of the four, and past the last.
 const CURRENTS: [(&str, usize); 5] = [
@@ -101,14 +97,9 @@ impl StepsPage {
     let steps = plain()
       .force(self.playground.forced())
       .on_change(move |index| record(format!("on_change({index})")));
-    // A handler makes the steps that are done pressable: the playground gives one only where they are.
-    let shown: Element = if pressable { steps.into() } else { plain().into() };
-    // Four steps in a row do not fit the stage of a window as narrow as a phone: they scroll sideways on it.
-    let shown = if vertical {
-      shown
-    } else {
-      fit("played", self.frame.stage_room(), WIZARD_WIDTH, shown)
-    };
+    // A handler makes the steps that are done pressable: the playground gives one only where they are. Mounted,
+    // the steps take the form the stage has room for: their titles under the marks, then down the page.
+    let shown = if pressable { steps } else { plain() };
 
     let mut code = vec!["// at: Signal<usize>".to_owned(), "Steps::new(at.clone(), [".to_owned()];
     for (index, (title, description)) in WIZARD.iter().enumerate() {
@@ -174,7 +165,7 @@ impl StepsPage {
       Spec {
         title: "Steps",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(shown),
+        shown: Shown::built(move |ctx| shown.mount(ctx)),
         fill: !vertical,
         forceable: pressable,
         facts: format!("current {shown_current}"),
@@ -223,22 +214,21 @@ impl StepsPage {
   }
 
   /// A wizard: its steps, and Back and Next under them. A step that is done is pressed to go back to it.
-  fn wizard(&self) -> Column {
+  fn wizard(&self, ctx: &mut Ctx) -> Column {
     let at = self.at.get();
     let last = WIZARD.len() - 1;
     let (back, next) = (self.at.clone(), self.at.clone());
     Column::new()
       .width(FILL)
       .spacing(24.0)
-      // In a narrow card the steps keep the width they are read in, and scroll sideways.
-      .child(fit(
-        "wizard",
-        self.frame.stage_room(),
-        WIZARD_WIDTH,
+      // Mounted, the steps take the form the card has room for.
+      .child(
         Steps::new(self.at.clone(), wizard(false, false))
           .label("Sign up")
-          .pressable(true),
-      ))
+          .pressable(true)
+          .key("wizard")
+          .mount(ctx),
+      )
       .child(
         Row::new()
           .width(FILL)
@@ -279,16 +269,24 @@ impl Component for StepsPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let signed_up = self.wizard(ctx);
     let three = ["Account", "Workspace", "Finish"];
     let states = Column::new()
       .width(FILL)
       .spacing(28.0)
-      .child(item(Steps::at(0, three), "at the first step: the others to come"))
+      // Mounted, each takes the form the card has room for.
       .child(item(
-        Steps::at(1, three),
+        Steps::at(0, three).key("first").mount(ctx),
+        "at the first step: the others to come",
+      ))
+      .child(item(
+        Steps::at(1, three).key("second").mount(ctx),
         "at the second: the first done, the line to the current one in the primary color",
       ))
-      .child(item(Steps::at(3, three), "past the last: every step done"))
+      .child(item(
+        Steps::at(3, three).key("done").mount(ctx),
+        "past the last: every step done",
+      ))
       .child(item(
         Steps::at(
           1,
@@ -297,7 +295,9 @@ impl Component for StepsPage {
             Step::new("Workspace").invalid(true),
             Step::new("Finish"),
           ],
-        ),
+        )
+        .key("invalid")
+        .mount(ctx),
         "an invalid step: its mark and its title in the destructive color",
       ));
     let column = Row::new().child(
@@ -384,7 +384,7 @@ impl Component for StepsPage {
            sets it. Tab enters the steps at the current one.",
           self.frame.demo(
             0,
-            self.wizard(),
+            signed_up,
             "Steps::new(at.clone(), [..]).pressable(true)",
             &[
               "// at: Signal<usize>",

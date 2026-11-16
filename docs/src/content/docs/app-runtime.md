@@ -25,7 +25,6 @@ let mut app = lurq::app::App::new();
 app.load_font_file(std::path::Path::new("assets/Inter.ttf"));
 app.register_font("ui", "Inter");
 
-#[cfg(feature = "resources")]
 app.set_resource_root(std::path::PathBuf::from("assets"));
 ```
 
@@ -238,7 +237,6 @@ Size, colour and spacing do not matter; one style per family, weight and slant i
 With `devtools` enabled:
 
 ```rust
-lurq::app::devtools::load_fonts(&mut app);
 tree.mount_devtools(&mut app);
 ```
 

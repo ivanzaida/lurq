@@ -14,6 +14,14 @@ pub enum StackAlignment {
   BottomEnd,
 }
 
+/// In a signal with DevTools on, a stack's alignment is shown as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for StackAlignment {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 impl StackAlignment {
   pub fn resolve_offset(&self, container: Size, child: Size) -> Offset {
     let x = match self {

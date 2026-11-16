@@ -1317,7 +1317,8 @@
                   "width": "fill_container",
                   "content": "Changes apply to every open window.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -1360,7 +1361,8 @@
                   "width": "fill_container",
                   "content": "Shown under a title to explain it.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -1491,7 +1493,8 @@
                   "width": "fill_container",
                   "content": "Last synced 2 minutes ago",
                   "fontFamily": "$font-sans",
-                  "fontSize": 12
+                  "fontSize": 12,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -1534,7 +1537,8 @@
                   "width": "fill_container",
                   "content": "cargo add lurq --features wgpu",
                   "fontFamily": "$font-mono",
-                  "fontSize": 13
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8564,7 +8568,8 @@
                   "width": "fill_container",
                   "content": "Changes apply to every open window.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8607,7 +8612,8 @@
                   "width": "fill_container",
                   "content": "Shown under a title to explain it.",
                   "fontFamily": "$font-sans",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8738,7 +8744,8 @@
                   "width": "fill_container",
                   "content": "Last synced 2 minutes ago",
                   "fontFamily": "$font-sans",
-                  "fontSize": 12
+                  "fontSize": 12,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -8781,7 +8788,8 @@
                   "width": "fill_container",
                   "content": "cargo add lurq --features wgpu",
                   "fontFamily": "$font-mono",
-                  "fontSize": 13
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
@@ -22141,7 +22149,8 @@
                                       "fill": "$foreground",
                                       "content": "08",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22185,7 +22194,8 @@
                                       "fill": "$foreground",
                                       "content": "10",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22206,7 +22216,8 @@
                                       "fill": "$foreground",
                                       "content": "11",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -22237,7 +22248,8 @@
                                       "fill": "$foreground",
                                       "content": "00",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22258,7 +22270,8 @@
                                       "fill": "$foreground",
                                       "content": "15",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -22302,7 +22315,8 @@
                                       "fill": "$foreground",
                                       "content": "45",
                                       "fontFamily": "$font-mono",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -24559,7 +24573,8 @@
                                       "width": "fill_container",
                                       "content": "Asia",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "BeZa1",
@@ -24643,7 +24658,8 @@
                                       "width": "fill_container",
                                       "content": "Americas",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "gxCdW",
@@ -24699,7 +24715,8 @@
                                       "width": "fill_container",
                                       "content": "Poland",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "PWjqC",
@@ -24783,7 +24800,8 @@
                                       "width": "fill_container",
                                       "content": "Spain",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "id": "Tx6Dg",
@@ -24863,7 +24881,8 @@
                                       "width": "fill_container",
                                       "content": "Lviv",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -24890,7 +24909,8 @@
                                       "width": "fill_container",
                                       "content": "Odesa",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -26781,7 +26801,8 @@
                                   "width": "fill_container",
                                   "content": "DirectX 12",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -26808,7 +26829,8 @@
                                   "width": "fill_container",
                                   "content": "Metal",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -26836,7 +26858,8 @@
                                   "width": "fill_container",
                                   "content": "OpenGL (legacy)",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27130,7 +27153,8 @@
                                   "fill": "$foreground",
                                   "content": "Jan",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27151,7 +27175,8 @@
                                   "fill": "$foreground",
                                   "content": "Feb",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27172,7 +27197,8 @@
                                   "fill": "$foreground",
                                   "content": "Mar",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27193,7 +27219,8 @@
                                   "fill": "$foreground",
                                   "content": "Apr",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27223,7 +27250,8 @@
                                   "fill": "$foreground",
                                   "content": "May",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27244,7 +27272,8 @@
                                   "fill": "$foreground",
                                   "content": "Jun",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27265,7 +27294,8 @@
                                   "fill": "$foreground",
                                   "content": "Jul",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27286,7 +27316,8 @@
                                   "fill": "$foreground",
                                   "content": "Aug",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27316,7 +27347,8 @@
                                   "fill": "$foreground",
                                   "content": "Sep",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27337,7 +27369,8 @@
                                   "fill": "$foreground",
                                   "content": "Oct",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27381,7 +27414,8 @@
                                   "fill": "$foreground",
                                   "content": "Dec",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27634,7 +27668,8 @@
                                   "fill": "$foreground",
                                   "content": "2020",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27655,7 +27690,8 @@
                                   "fill": "$foreground",
                                   "content": "2021",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27676,7 +27712,8 @@
                                   "fill": "$foreground",
                                   "content": "2022",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27697,7 +27734,8 @@
                                   "fill": "$foreground",
                                   "content": "2023",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27727,7 +27765,8 @@
                                   "fill": "$foreground",
                                   "content": "2024",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27748,7 +27787,8 @@
                                   "fill": "$foreground",
                                   "content": "2025",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27792,7 +27832,8 @@
                                   "fill": "$foreground",
                                   "content": "2027",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -27822,7 +27863,8 @@
                                   "fill": "$foreground",
                                   "content": "2028",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27843,7 +27885,8 @@
                                   "fill": "$foreground",
                                   "content": "2029",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27864,7 +27907,8 @@
                                   "fill": "$foreground",
                                   "content": "2030",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -27885,7 +27929,8 @@
                                   "fill": "$foreground",
                                   "content": "2031",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -30147,7 +30192,8 @@
                           "fill": "$muted-foreground",
                           "content": "All",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30177,7 +30223,8 @@
                           "fill": "$muted-foreground",
                           "content": "Profiles",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30207,7 +30254,8 @@
                           "fill": "$muted-foreground",
                           "content": "MCP servers",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30237,7 +30285,8 @@
                           "fill": "$muted-foreground",
                           "content": "Instructions",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30267,7 +30316,8 @@
                           "fill": "$muted-foreground",
                           "content": "Skills",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30297,7 +30347,8 @@
                           "fill": "$muted-foreground",
                           "content": "Tools",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30370,7 +30421,8 @@
                           "fill": "$muted-foreground",
                           "content": "Archived",
                           "fontFamily": "$font-sans",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -30575,7 +30627,8 @@
                               "fill": "$muted-foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -30598,7 +30651,8 @@
                               "fill": "$muted-foreground",
                               "content": "Keyboard",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -30621,7 +30675,8 @@
                               "fill": "$muted-foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -30717,7 +30772,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Canvas",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30759,7 +30815,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Text",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30777,7 +30834,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Theme",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30795,7 +30853,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Router",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -30813,7 +30872,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Forms",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -32052,7 +32112,8 @@
                               "width": "fill_container",
                               "content": "crates",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32109,7 +32170,8 @@
                               "width": "fill_container",
                               "content": "lurq",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32211,7 +32273,8 @@
                               "width": "fill_container",
                               "content": "theme.rs",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32268,7 +32331,8 @@
                               "width": "fill_container",
                               "content": "demo",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -32316,7 +32380,8 @@
                               "width": "fill_container",
                               "content": "Cargo.toml",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -33648,7 +33713,8 @@
                               "fill": "$muted-foreground",
                               "content": "Runtime theme",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -33709,7 +33775,8 @@
                               "fill": "$muted-foreground",
                               "content": "Extra roles",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -33739,7 +33806,8 @@
                               "fill": "$muted-foreground",
                               "content": "Typography",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -33769,7 +33837,8 @@
                               "fill": "$muted-foreground",
                               "content": "Font weight",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -37019,7 +37088,8 @@
                                       "fill": "$muted-foreground",
                                       "content": "Insert",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -37041,7 +37111,8 @@
                                       "fill": "$muted-foreground",
                                       "content": "View",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -37063,7 +37134,8 @@
                                       "fill": "$muted-foreground",
                                       "content": "Help",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -37962,7 +38034,8 @@
                               "width": "fill_container",
                               "content": "Overview",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38073,7 +38146,8 @@
                               "width": "fill_container",
                               "content": "Components",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38116,7 +38190,8 @@
                               "width": "fill_container",
                               "content": "Buttons",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38159,7 +38234,8 @@
                               "width": "fill_container",
                               "content": "Inputs",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38214,7 +38290,8 @@
                               "width": "fill_container",
                               "content": "Tokens",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38280,7 +38357,8 @@
                               "width": "fill_container",
                               "content": "Members",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -38321,7 +38399,8 @@
                               "width": "fill_container",
                               "content": "Settings",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -39723,7 +39802,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Position",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -39854,7 +39934,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Size",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -39985,7 +40066,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Rotation",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40127,7 +40209,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Fill",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40222,7 +40305,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Opacity",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40428,7 +40512,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Blend",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -40525,7 +40610,8 @@
                                   "fill": "$muted-foreground",
                                   "content": "Visible",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -49744,7 +49830,8 @@
                                   "width": "fill_container",
                                   "content": "Mark published 0.60",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -55737,7 +55824,7 @@
                 {
                   "type": "frame",
                   "id": "dgz7N",
-                  "name": "Image",
+                  "name": "Picture",
                   "layout": "vertical",
                   "gap": 10,
                   "children": [
@@ -55745,7 +55832,7 @@
                       "id": "di8LN",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 110,
                       "descendants": {
@@ -55779,9 +55866,9 @@
                     {
                       "type": "text",
                       "id": "T8ebd",
-                      "name": "image",
+                      "name": "picture",
                       "fill": "$muted-foreground",
-                      "content": "image",
+                      "content": "picture",
                       "fontFamily": "$font-mono",
                       "fontSize": 11,
                       "fontWeight": "normal"
@@ -57212,9 +57299,9 @@
                               "width": "fill_container",
                               "height": 68,
                               "cornerRadius": "$radius-md",
-                              "stroke": "$info",
+                              "stroke": "$primary",
                               "strokeWidth": 2,
-                              "strokeAlignment": "inner",
+                              "strokeAlignment": "outer",
                               "descendants": {
                                 "VsMbC": {
                                   "x": 0,
@@ -57743,6 +57830,71 @@
                                   "width": 420
                                 }
                               }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "YqU8r",
+                              "layoutPosition": "absolute",
+                              "x": 0,
+                              "y": 123,
+                              "name": "Caption",
+                              "width": 420,
+                              "fill": {
+                                "type": "gradient",
+                                "gradientType": "linear",
+                                "enabled": true,
+                                "rotation": 180,
+                                "size": {
+                                  "height": 1
+                                },
+                                "colors": [
+                                  {
+                                    "color": "#00000000",
+                                    "position": 0
+                                  },
+                                  {
+                                    "color": "#000000B3",
+                                    "position": 1
+                                  }
+                                ]
+                              },
+                              "layout": "vertical",
+                              "gap": 2,
+                              "padding": [
+                                20,
+                                16,
+                                8,
+                                16
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "SjrGJ",
+                                  "name": "Title",
+                                  "fill": "#FFFFFF",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Lake at dusk",
+                                  "textAlign": "center",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 14,
+                                  "fontWeight": "500"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "G7Fyu",
+                                  "name": "Line",
+                                  "fill": "#FFFFFF99",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Ivan Zaida · 4032 × 3024",
+                                  "textAlign": "center",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
                             },
                             {
                               "id": "clo1g",
@@ -75938,7 +76090,7 @@
           "id": "wfriA",
           "x": 6136,
           "y": 4678,
-          "name": "Image",
+          "name": "Picture",
           "width": 964,
           "fill": "$background",
           "cornerRadius": 20,
@@ -75960,9 +76112,9 @@
                 {
                   "type": "text",
                   "id": "lDL3e",
-                  "name": "Image",
+                  "name": "Picture",
                   "fill": "$foreground",
-                  "content": "Image",
+                  "content": "Picture",
                   "fontFamily": "$font-sans",
                   "fontSize": 18,
                   "fontWeight": "600"
@@ -75993,14 +76145,14 @@
                 {
                   "type": "frame",
                   "id": "j40I5v",
-                  "name": "Image",
+                  "name": "Picture",
                   "layout": "vertical",
                   "gap": 10,
                   "children": [
                     {
                       "type": "frame",
                       "id": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "reusable": true,
                       "clip": true,
                       "width": 640,
@@ -76319,8 +76471,11 @@
                               "enabled": false,
                               "width": 20,
                               "height": 20,
-                              "fill": "$info",
+                              "fill": "$primary",
                               "cornerRadius": "$radius-full",
+                              "stroke": "$primary-foreground",
+                              "strokeWidth": 1.5,
+                              "strokeAlignment": "inner",
                               "justifyContent": "center",
                               "alignItems": "center",
                               "children": [
@@ -76334,7 +76489,7 @@
                                   "enabled": true,
                                   "descendants": {
                                     "XBWYP": {
-                                      "stroke": "#FFFFFF",
+                                      "stroke": "$primary-foreground",
                                       "strokeWidth": 1
                                     }
                                   }
@@ -76544,9 +76699,9 @@
                     {
                       "type": "text",
                       "id": "f8VqD",
-                      "name": "image · 640 × 360 · cover",
+                      "name": "picture · 640 × 360 · cover",
                       "fill": "$muted-foreground",
-                      "content": "image · 640 × 360 · cover",
+                      "content": "picture · 640 × 360 · cover",
                       "fontFamily": "$font-mono",
                       "fontSize": 11,
                       "fontWeight": "normal"
@@ -76563,7 +76718,7 @@
                     {
                       "type": "frame",
                       "id": "zw8fR",
-                      "name": "Image/Figure",
+                      "name": "Picture/Figure",
                       "reusable": true,
                       "width": 212,
                       "layout": "vertical",
@@ -76574,7 +76729,7 @@
                           "id": "eu5dd",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": "fill_container",
                           "height": 141,
                           "descendants": {
@@ -76663,7 +76818,7 @@
                           "id": "kWPkN",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -76727,7 +76882,7 @@
                           "id": "PPCTx",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -76807,7 +76962,7 @@
                           "id": "k3sqvM",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -76877,7 +77032,7 @@
                           "id": "idD2f",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -76980,7 +77135,7 @@
                           "id": "czjh9",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -77047,7 +77202,7 @@
                           "id": "O7zuoo",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -77148,7 +77303,7 @@
                           "id": "iEF3p",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "stroke": "$ring",
@@ -77220,7 +77375,7 @@
                           "id": "tDQan",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -77264,7 +77419,7 @@
                           "id": "I1gdx",
                           "x": 204,
                           "y": 59,
-                          "name": "Image/Menu",
+                          "name": "Picture/Menu",
                           "reusable": true,
                           "width": 216,
                           "fill": "$popover",
@@ -77445,7 +77600,7 @@
                       "id": "Bh0Hi",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -77500,7 +77655,7 @@
                       "id": "JJSeS",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -77573,7 +77728,7 @@
                       "id": "F8ybb",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -77649,13 +77804,13 @@
                       "id": "CvRvF",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
-                      "stroke": "$info",
+                      "stroke": "$primary",
                       "strokeWidth": 2,
-                      "strokeAlignment": "inner",
+                      "strokeAlignment": "outer",
                       "descendants": {
                         "VsMbC": {
                           "x": 0,
@@ -77721,7 +77876,7 @@
                       "id": "TXE7D",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -77787,7 +77942,7 @@
                       "id": "BtQsl",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -77842,7 +77997,7 @@
                       "id": "pE24B",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -77897,7 +78052,7 @@
                       "id": "jm7NY",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -77952,7 +78107,7 @@
                       "id": "Zlpnm",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -78007,7 +78162,7 @@
                       "id": "rQvZU",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -78062,7 +78217,7 @@
                       "id": "MEXi5",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -78127,7 +78282,7 @@
                       "id": "lahF0",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 96,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -78182,7 +78337,7 @@
                       "id": "iUu71",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 128,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -78237,7 +78392,7 @@
                       "id": "gK7uN",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 171,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -78292,7 +78447,7 @@
                       "id": "OWIIp",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 144,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -78347,7 +78502,7 @@
                       "id": "s0rEt",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 72,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -78402,7 +78557,7 @@
                       "id": "FtaRA",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 96,
                       "height": 96,
                       "cornerRadius": "$radius-full",
@@ -78467,7 +78622,7 @@
                       "id": "x8uKN",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -78524,7 +78679,7 @@
                       "id": "gj8cV",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -78584,7 +78739,7 @@
                       "id": "ZBvuw",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -78644,7 +78799,7 @@
                       "id": "P0UDy",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -78758,6 +78913,10 @@
                             },
                             "rUdJr/N3iZRB": {
                               "width": 432
+                            },
+                            "YqU8r": {
+                              "y": 76,
+                              "width": 432
                             }
                           }
                         }
@@ -78831,6 +78990,9 @@
                             },
                             "rUdJr/N3iZRB": {
                               "width": 432
+                            },
+                            "YqU8r": {
+                              "enabled": false
                             }
                           }
                         }
@@ -78869,7 +79031,7 @@
                       "id": "tzfHh",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 200,
                       "height": 113,
                       "descendants": {
@@ -78979,7 +79141,7 @@
                           "id": "zDYU0",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 96,
                           "height": 96,
                           "cornerRadius": "$radius-md",
@@ -79015,7 +79177,7 @@
                           "id": "sgRD9",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 96,
                           "height": 96,
                           "cornerRadius": "$radius-md",
@@ -79055,7 +79217,7 @@
                           "id": "le04F",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 96,
                           "height": 96,
                           "cornerRadius": "$radius-md",
@@ -79133,7 +79295,7 @@
                           "id": "jWRvh",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-full",
@@ -79169,7 +79331,7 @@
                           "id": "PSt41",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-md",
@@ -79205,7 +79367,7 @@
                           "id": "R2X5IK",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-full",
@@ -79238,7 +79400,7 @@
                           "id": "tzykK",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-md",
@@ -79319,7 +79481,7 @@
                       "id": "p7Lr8R",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 432,
                       "height": 243,
                       "fill": "#00000000",
@@ -79376,7 +79538,7 @@
                       "id": "KVqqQ",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 432,
                       "height": 243,
                       "descendants": {
@@ -92455,7 +92617,7 @@
                 {
                   "type": "frame",
                   "id": "vvAUf",
-                  "name": "Image",
+                  "name": "Picture",
                   "layout": "vertical",
                   "gap": 10,
                   "children": [
@@ -92463,7 +92625,7 @@
                       "id": "DtAwF",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 110,
                       "descendants": {
@@ -92497,9 +92659,9 @@
                     {
                       "type": "text",
                       "id": "pO8mK",
-                      "name": "image",
+                      "name": "picture",
                       "fill": "$muted-foreground",
-                      "content": "image",
+                      "content": "picture",
                       "fontFamily": "$font-mono",
                       "fontSize": 11,
                       "fontWeight": "normal"
@@ -100677,7 +100839,7 @@
           "id": "Gg1rp",
           "x": 6136,
           "y": 4678,
-          "name": "Image",
+          "name": "Picture",
           "width": 964,
           "fill": "$background",
           "cornerRadius": 20,
@@ -100699,9 +100861,9 @@
                 {
                   "type": "text",
                   "id": "e8OpDD",
-                  "name": "Image",
+                  "name": "Picture",
                   "fill": "$foreground",
-                  "content": "Image",
+                  "content": "Picture",
                   "fontFamily": "$font-sans",
                   "fontSize": 18,
                   "fontWeight": "600"
@@ -100732,7 +100894,7 @@
                 {
                   "type": "frame",
                   "id": "YtvTY",
-                  "name": "Image",
+                  "name": "Picture",
                   "layout": "vertical",
                   "gap": 10,
                   "children": [
@@ -100744,9 +100906,9 @@
                     {
                       "type": "text",
                       "id": "PvNvD",
-                      "name": "image · 640 × 360 · cover",
+                      "name": "picture · 640 × 360 · cover",
                       "fill": "$muted-foreground",
-                      "content": "image · 640 × 360 · cover",
+                      "content": "picture · 640 × 360 · cover",
                       "fontFamily": "$font-mono",
                       "fontSize": 11,
                       "fontWeight": "normal"
@@ -100806,7 +100968,7 @@
                           "id": "WJIlp",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -100870,7 +101032,7 @@
                           "id": "TjRNj",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -100950,7 +101112,7 @@
                           "id": "NMlwG",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -101020,7 +101182,7 @@
                           "id": "LW7qU",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -101123,7 +101285,7 @@
                           "id": "JKO3A",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -101190,7 +101352,7 @@
                           "id": "NiaOk",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -101291,7 +101453,7 @@
                           "id": "tTxGz",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "stroke": "$ring",
@@ -101363,7 +101525,7 @@
                           "id": "Tx9M3",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 432,
                           "height": 243,
                           "x": 0,
@@ -101442,7 +101604,7 @@
                       "id": "L4GNhb",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -101497,7 +101659,7 @@
                       "id": "x71gjY",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -101570,7 +101732,7 @@
                       "id": "D4Ogx",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -101646,13 +101808,13 @@
                       "id": "V1UVP",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
-                      "stroke": "$info",
+                      "stroke": "$primary",
                       "strokeWidth": 2,
-                      "strokeAlignment": "inner",
+                      "strokeAlignment": "outer",
                       "descendants": {
                         "VsMbC": {
                           "x": 0,
@@ -101718,7 +101880,7 @@
                       "id": "aA4jZ",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 160,
                       "height": 100,
                       "cornerRadius": "$radius-md",
@@ -101784,7 +101946,7 @@
                       "id": "VtwDh",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -101839,7 +102001,7 @@
                       "id": "u84OtK",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -101894,7 +102056,7 @@
                       "id": "I32LZ",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -101949,7 +102111,7 @@
                       "id": "lT54O",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -102004,7 +102166,7 @@
                       "id": "aG4Wj",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -102059,7 +102221,7 @@
                       "id": "qqplu",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 130,
                       "height": 73,
                       "cornerRadius": "$radius-md",
@@ -102124,7 +102286,7 @@
                       "id": "aBPiM",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 96,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -102179,7 +102341,7 @@
                       "id": "GCjyA",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 128,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -102234,7 +102396,7 @@
                       "id": "EwW5h",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 171,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -102289,7 +102451,7 @@
                       "id": "c03nCT",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 144,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -102344,7 +102506,7 @@
                       "id": "DRxaD",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 72,
                       "height": 96,
                       "cornerRadius": "$radius-md",
@@ -102399,7 +102561,7 @@
                       "id": "Lq1LX",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 96,
                       "height": 96,
                       "cornerRadius": "$radius-full",
@@ -102464,7 +102626,7 @@
                       "id": "GGhRF",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -102521,7 +102683,7 @@
                       "id": "GcG6A",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -102581,7 +102743,7 @@
                       "id": "VffJ8",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -102641,7 +102803,7 @@
                       "id": "d84cg",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 207,
                       "height": 116,
                       "descendants": {
@@ -102755,6 +102917,10 @@
                             },
                             "rUdJr/N3iZRB": {
                               "width": 432
+                            },
+                            "YqU8r": {
+                              "y": 76,
+                              "width": 432
                             }
                           }
                         }
@@ -102828,6 +102994,9 @@
                             },
                             "rUdJr/N3iZRB": {
                               "width": 432
+                            },
+                            "YqU8r": {
+                              "enabled": false
                             }
                           }
                         }
@@ -102866,7 +103035,7 @@
                       "id": "N4Sto",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 200,
                       "height": 113,
                       "descendants": {
@@ -102976,7 +103145,7 @@
                           "id": "tYGu2",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 96,
                           "height": 96,
                           "cornerRadius": "$radius-md",
@@ -103012,7 +103181,7 @@
                           "id": "BqzZG",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 96,
                           "height": 96,
                           "cornerRadius": "$radius-md",
@@ -103052,7 +103221,7 @@
                           "id": "sl3MU",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 96,
                           "height": 96,
                           "cornerRadius": "$radius-md",
@@ -103130,7 +103299,7 @@
                           "id": "NqwZy",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-full",
@@ -103166,7 +103335,7 @@
                           "id": "byKsR",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-md",
@@ -103202,7 +103371,7 @@
                           "id": "imkvU",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-full",
@@ -103235,7 +103404,7 @@
                           "id": "DR6Xo",
                           "type": "ref",
                           "ref": "o1gLD",
-                          "name": "Image",
+                          "name": "Picture",
                           "width": 40,
                           "height": 40,
                           "cornerRadius": "$radius-md",
@@ -103316,7 +103485,7 @@
                       "id": "TKV6N",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 432,
                       "height": 243,
                       "fill": "#00000000",
@@ -103373,7 +103542,7 @@
                       "id": "skDyP",
                       "type": "ref",
                       "ref": "o1gLD",
-                      "name": "Image",
+                      "name": "Picture",
                       "width": 432,
                       "height": 243,
                       "descendants": {
@@ -105100,7 +105269,8 @@
                                   "fill": "$foreground",
                                   "content": "10",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105121,7 +105291,8 @@
                                   "fill": "$foreground",
                                   "content": "11",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105163,7 +105334,8 @@
                                   "fill": "$foreground",
                                   "content": "13",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105184,7 +105356,8 @@
                                   "fill": "$foreground",
                                   "content": "14",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -105214,7 +105387,8 @@
                                   "fill": "$foreground",
                                   "content": "Sep",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105235,7 +105409,8 @@
                                   "fill": "$foreground",
                                   "content": "Oct",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105277,7 +105452,8 @@
                                   "fill": "$foreground",
                                   "content": "Dec",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105298,7 +105474,8 @@
                                   "fill": "$foreground",
                                   "content": "Jan",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -105328,7 +105505,8 @@
                                   "fill": "$foreground",
                                   "content": "2024",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105349,7 +105527,8 @@
                                   "fill": "$foreground",
                                   "content": "2025",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105391,7 +105570,8 @@
                                   "fill": "$foreground",
                                   "content": "2027",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -105412,7 +105592,8 @@
                                   "fill": "$foreground",
                                   "content": "2028",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 17
+                                  "fontSize": 17,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -110796,7 +110977,8 @@
                                           "fill": "$foreground",
                                           "content": "26",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110829,7 +111011,8 @@
                                           "fill": "$foreground",
                                           "content": "27",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110862,7 +111045,8 @@
                                           "fill": "$foreground",
                                           "content": "28",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110895,7 +111079,8 @@
                                           "fill": "$foreground",
                                           "content": "29",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110928,7 +111113,8 @@
                                           "fill": "$foreground",
                                           "content": "30",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110961,7 +111147,8 @@
                                           "fill": "$foreground",
                                           "content": "31",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -110993,7 +111180,8 @@
                                           "fill": "$foreground",
                                           "content": "1",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111033,7 +111221,8 @@
                                           "fill": "$foreground",
                                           "content": "2",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111065,7 +111254,8 @@
                                           "fill": "$foreground",
                                           "content": "3",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111097,7 +111287,8 @@
                                           "fill": "$foreground",
                                           "content": "4",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111129,7 +111320,8 @@
                                           "fill": "$foreground",
                                           "content": "5",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111161,7 +111353,8 @@
                                           "fill": "$foreground",
                                           "content": "6",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111193,7 +111386,8 @@
                                           "fill": "$foreground",
                                           "content": "7",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111225,7 +111419,8 @@
                                           "fill": "$foreground",
                                           "content": "8",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111268,7 +111463,8 @@
                                           "fill": "$foreground",
                                           "content": "9",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111300,7 +111496,8 @@
                                           "fill": "$foreground",
                                           "content": "10",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111332,7 +111529,8 @@
                                           "fill": "$foreground",
                                           "content": "11",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111398,7 +111596,8 @@
                                           "fill": "$foreground",
                                           "content": "13",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111430,7 +111629,8 @@
                                           "fill": "$foreground",
                                           "content": "14",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111462,7 +111662,8 @@
                                           "fill": "$foreground",
                                           "content": "15",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111502,7 +111703,8 @@
                                           "fill": "$foreground",
                                           "content": "16",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111534,7 +111736,8 @@
                                           "fill": "$foreground",
                                           "content": "17",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111566,7 +111769,8 @@
                                           "fill": "$foreground",
                                           "content": "18",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111598,7 +111802,8 @@
                                           "fill": "$foreground",
                                           "content": "19",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111630,7 +111835,8 @@
                                           "fill": "$foreground",
                                           "content": "20",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111662,7 +111868,8 @@
                                           "fill": "$foreground",
                                           "content": "21",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111694,7 +111901,8 @@
                                           "fill": "$foreground",
                                           "content": "22",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111734,7 +111942,8 @@
                                           "fill": "$foreground",
                                           "content": "23",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111766,7 +111975,8 @@
                                           "fill": "$foreground",
                                           "content": "24",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111798,7 +112008,8 @@
                                           "fill": "$foreground",
                                           "content": "25",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111830,7 +112041,8 @@
                                           "fill": "$foreground",
                                           "content": "26",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111862,7 +112074,8 @@
                                           "fill": "$foreground",
                                           "content": "27",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111894,7 +112107,8 @@
                                           "fill": "$foreground",
                                           "content": "28",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -111926,7 +112140,8 @@
                                           "fill": "$foreground",
                                           "content": "29",
                                           "fontFamily": "$font-sans",
-                                          "fontSize": 16
+                                          "fontSize": 16,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -113282,7 +113497,8 @@
                                   "fill": "$foreground",
                                   "content": "Mark as read",
                                   "fontFamily": "$font-sans",
-                                  "fontSize": 15
+                                  "fontSize": 15,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -116192,7 +116408,7 @@
           "id": "VmTdR",
           "x": 64,
           "y": 3720,
-          "name": "Mobile Image",
+          "name": "Mobile Picture",
           "width": 964,
           "fill": "$background",
           "cornerRadius": 20,
@@ -116214,9 +116430,9 @@
                 {
                   "type": "text",
                   "id": "ZS3HK",
-                  "name": "Mobile Image",
+                  "name": "Mobile Picture",
                   "fill": "$foreground",
-                  "content": "Mobile Image",
+                  "content": "Mobile Picture",
                   "fontFamily": "$font-sans",
                   "fontSize": 18,
                   "fontWeight": "600"
@@ -116261,7 +116477,7 @@
                         {
                           "type": "frame",
                           "id": "T9drb",
-                          "name": "Mobile/Image",
+                          "name": "Mobile/Picture",
                           "reusable": true,
                           "clip": true,
                           "width": 360,
@@ -116272,7 +116488,7 @@
                               "id": "m5WVsh",
                               "type": "ref",
                               "ref": "o1gLD",
-                              "name": "Image",
+                              "name": "Picture",
                               "width": 360,
                               "height": 240,
                               "strokeWidth": 0,
@@ -116363,7 +116579,7 @@
                               "id": "F0imv",
                               "type": "ref",
                               "ref": "T9drb",
-                              "name": "Mobile/Image",
+                              "name": "Mobile/Picture",
                               "x": 0,
                               "y": 0
                             },
@@ -116426,7 +116642,7 @@
                     {
                       "type": "frame",
                       "id": "nBrZz",
-                      "name": "Mobile/Image/Viewer",
+                      "name": "Mobile/Picture/Viewer",
                       "reusable": true,
                       "clip": true,
                       "width": 360,
@@ -120363,7 +120579,7 @@
           "id": "zzLvV",
           "x": 64,
           "y": 3720,
-          "name": "Mobile Image",
+          "name": "Mobile Picture",
           "width": 964,
           "fill": "$background",
           "cornerRadius": 20,
@@ -120385,9 +120601,9 @@
                 {
                   "type": "text",
                   "id": "MmBGg",
-                  "name": "Mobile Image",
+                  "name": "Mobile Picture",
                   "fill": "$foreground",
-                  "content": "Mobile Image",
+                  "content": "Mobile Picture",
                   "fontFamily": "$font-sans",
                   "fontSize": 18,
                   "fontWeight": "600"
@@ -120466,7 +120682,7 @@
                               "id": "nO1aP",
                               "type": "ref",
                               "ref": "T9drb",
-                              "name": "Mobile/Image",
+                              "name": "Mobile/Picture",
                               "x": 0,
                               "y": 0
                             },
@@ -127731,7 +127947,8 @@
                               "fill": "$foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127770,7 +127987,8 @@
                               "fill": "$foreground",
                               "content": "Keyboard",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127809,7 +128027,8 @@
                               "fill": "$foreground",
                               "content": "Notifications",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127848,7 +128067,8 @@
                               "fill": "$foreground",
                               "content": "Privacy",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -127887,7 +128107,8 @@
                               "fill": "$foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -128296,7 +128517,8 @@
                               "fill": "$muted-foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128333,7 +128555,8 @@
                               "fill": "$muted-foreground",
                               "content": "Keys",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128370,7 +128593,8 @@
                               "fill": "$muted-foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -128706,7 +128930,8 @@
                               "fill": "$foreground",
                               "content": "Welcome",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128752,7 +128977,8 @@
                               "fill": "$foreground",
                               "content": "Location",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -128839,7 +129065,8 @@
                               "fill": "$muted-foreground",
                               "content": "Summary",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -128928,7 +129155,8 @@
                                       "fill": "$foreground",
                                       "content": "Empty window",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -129009,7 +129237,8 @@
                                       "fill": "$foreground",
                                       "content": "Document",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -132949,7 +133178,8 @@
                               "fill": "$foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -132988,7 +133218,8 @@
                               "fill": "$foreground",
                               "content": "Keyboard",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133027,7 +133258,8 @@
                               "fill": "$foreground",
                               "content": "Notifications",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133066,7 +133298,8 @@
                               "fill": "$foreground",
                               "content": "Privacy",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133105,7 +133338,8 @@
                               "fill": "$foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -133514,7 +133748,8 @@
                               "fill": "$muted-foreground",
                               "content": "Appearance",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133551,7 +133786,8 @@
                               "fill": "$muted-foreground",
                               "content": "Keys",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133588,7 +133824,8 @@
                               "fill": "$muted-foreground",
                               "content": "Advanced",
                               "fontFamily": "$font-sans",
-                              "fontSize": 11
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -133924,7 +134161,8 @@
                               "fill": "$foreground",
                               "content": "Welcome",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -133970,7 +134208,8 @@
                               "fill": "$foreground",
                               "content": "Location",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -134057,7 +134296,8 @@
                               "fill": "$muted-foreground",
                               "content": "Summary",
                               "fontFamily": "$font-sans",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -134146,7 +134386,8 @@
                                       "fill": "$foreground",
                                       "content": "Empty window",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -134227,7 +134468,8 @@
                                       "fill": "$foreground",
                                       "content": "Document",
                                       "fontFamily": "$font-sans",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -138599,7 +138841,7 @@
                           "fill": "$foreground",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "181 glyphs; every icon in this file is a lurq glyph",
+                          "content": "182 glyphs; every icon in this file is a lurq glyph",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
                           "fontWeight": "normal"
@@ -149412,6 +149654,112 @@
                               "textGrowth": "fixed-width",
                               "width": 40,
                               "content": "18",
+                              "textAlign": "right",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "RyHkW",
+                          "name": "Row / marquee",
+                          "width": "fill_container",
+                          "height": 40,
+                          "stroke": "$border",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "gap": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Q7TSI",
+                              "name": "Lucide name",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 182,
+                              "content": "square-dashed",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "w4oMom",
+                              "name": "Arrow",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 16,
+                              "content": "→",
+                              "textAlign": "center",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "NLU4V",
+                              "name": "Icon/marquee",
+                              "reusable": true,
+                              "width": 24,
+                              "height": 24,
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "b8Be5K",
+                                  "name": "Glyph",
+                                  "geometry": "M5 3a2 2 0 0 0-2 2m16-2a2 2 0 0 1 2 2m0 14a2 2 0 0 1-2 2m-14 0a2 2 0 0 1-2-2m6-16h1m-1 18h1m4-18h1m-1 18h1m-12-12v1m18-1v1m-18 4v1m18-1v1",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": "fill_container",
+                                  "height": "fill_container",
+                                  "stroke": "$foreground",
+                                  "strokeWidth": 2,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "cYVqF",
+                              "type": "ref",
+                              "ref": "NLU4V",
+                              "name": "marquee 16",
+                              "width": 16,
+                              "height": 16,
+                              "descendants": {
+                                "b8Be5K": {
+                                  "strokeWidth": 1.33
+                                }
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "d8ryyL",
+                              "name": "lurq name",
+                              "fill": "$foreground",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "marquee",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "nufd6",
+                              "name": "Uses",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 40,
+                              "content": "1",
                               "textAlign": "right",
                               "fontFamily": "$font-mono",
                               "fontSize": 11,
@@ -161719,7 +162067,7 @@
                           "fill": "$foreground",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "181 glyphs; every icon in this file is a lurq glyph",
+                          "content": "182 glyphs; every icon in this file is a lurq glyph",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
                           "fontWeight": "normal"

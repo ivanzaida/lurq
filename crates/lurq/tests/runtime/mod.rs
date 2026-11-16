@@ -1,8 +1,10 @@
 mod app_lifetime;
 mod click;
 mod cursor;
+mod declared_component;
 mod double_click;
 mod drag;
+mod drag_autoscroll;
 mod dropdown_switch;
 mod dropdown_trigger;
 mod element_lookup {
@@ -40,6 +42,7 @@ mod hover_frames;
 mod input_after_rebuild;
 mod input_source;
 mod one_component_rebuilt;
+mod repair_beside_rewritten_text;
 mod skipped_subtrees;
 // `Tree::set_canvas_waker` stands in for the shell's event-loop waker.
 #[cfg(feature = "canvas")]
@@ -81,4 +84,5 @@ mod timers {
   mod timeout_fires_once;
   mod timeout_restart_replaces_pending_fire;
 }
+mod wheel_handler;
 mod window_controls;

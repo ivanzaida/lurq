@@ -942,6 +942,8 @@ pub struct Table<R, K = usize> {
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
+  /// The row a mounted table is asked to bring into view, and which asking it is.
+  reveal: Option<(K, u64)>,
   density: Option<Density>,
   height: Option<Length>,
   max_height: Option<Length>,
@@ -1022,6 +1024,7 @@ impl<R, K: Clone> Clone for Table<R, K> {
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
+      reveal: self.reveal.clone(),
       density: self.density.clone(),
       height: self.height,
       max_height: self.max_height,
@@ -1112,6 +1115,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
+      reveal: None,
       density: None,
       height: None,
       max_height: None,
@@ -1198,6 +1202,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
+      reveal: None,
       density: self.density,
       height: self.height,
       max_height: self.max_height,
@@ -1505,6 +1510,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// Called with the row a double press or Enter activates: open what it is.
   pub fn on_row_activate(mut self, handler: impl Fn(&K) + Send + Sync + 'static) -> Self {
     self.on_row_activate.push(Arc::new(handler));
+    self
+  }
+
+  /// Brings the row of `key` into view, once for each new `request`: a mounted table scrolls the least that
+  /// shows it, as it does for a row the keys go to, and makes it the row Tab stops on. For a row the app selects
+  /// from outside the table (a thing picked elsewhere): the app counts its askings, and asking again with the
+  /// same number does nothing, so a person who scrolls away is not brought back at the next render.
+  pub fn reveal(mut self, key: K, request: u64) -> Self {
+    self.reveal = Some((key, request));
     self
   }
 
@@ -2239,6 +2253,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         key_index,
       )
     };
+    // A row the app asks to see is scrolled to once for each asking, by the table that keeps where it is
+    // scrolled, once it knows how high its rows are.
+    if let Some((key, request)) = &self.reveal
+      && let Some(host) = window.as_ref().and_then(|window| window.host.as_ref())
+      && *host.state.revealed.lock() != Some(*request)
+      && host.state.metrics.lock().row_height > 0.0
+    {
+      *host.state.revealed.lock() = Some(*request);
+      if let Some(position) = keys.rank_of(key).and_then(|rank| lines.position_of(rank)) {
+        host.state.reveal(position);
+      }
+    }
     let grouped = !lines.groups.is_empty() || !self.grouping.is_empty() || lines.tree.is_some();
     let ranked = keys.clone();
     let model = Arc::new(Model {
@@ -2630,8 +2656,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 .flex_full(1.0, 1.0, Some(0.0))
                 .min_width(Dimension::Px(0.0))
                 .into(),
+              // A text on one line gives way to the room its column has, and ends in an ellipsis: what reads the
+              // tree still has all of it.
               (Content::Text(text), _) => marked(rank, column_index, part.text(&text(row)), &text(row))
                 .nowrap()
+                .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+                .flex_full(0.0, 1.0, None)
+                .min_width(Dimension::Px(0.0))
                 .into(),
               (Content::Element(cell), _) => cell(row),
               // A column edited with a box that builds no cell of its own shows the box.
@@ -3768,9 +3799,12 @@ impl TableView {
   }
 
   /// Rows of skeletons in the tracks of the columns, where the rows will be: a line in each cell, the first
-  /// column's of a width that changes from row to row.
+  /// column's of a length that changes from row to row. A line is a share of its cell, so it ends inside a
+  /// column of any width: the board's lengths (150, 190, 120 and 170 in a name of 176; 70 in a column of 90) as
+  /// shares of the columns it draws them in.
   pub fn skeletons(&self) -> Column {
-    const FIRST: [f32; 4] = [150.0, 190.0, 120.0, 170.0];
+    const FIRST: [f32; 4] = [0.85, 1.0, 0.68, 0.965];
+    const OTHER: f32 = 0.78;
     let part = self.part(TablePart::Row);
     let cell = self.part(TablePart::Cell);
     let columns = self.tracks.len() - usize::from(self.checkboxes) - usize::from(self.numbered);
@@ -3797,8 +3831,10 @@ impl TableView {
           row = row.child(Row::new());
         }
         row.with_children((0..columns).map(|column| {
-          let width = if column == 0 { FIRST[index % FIRST.len()] } else { 70.0 };
-          let line = Skeleton::line().width(width).build(self.theme());
+          let share = if column == 0 { FIRST[index % FIRST.len()] } else { OTHER };
+          let line = Row::new()
+            .width(Dimension::Pct(share * 100.0))
+            .child(Skeleton::line().width(Length::Fill).build(self.theme()));
           let mut wrapper = Row::new().part(&cell).align_items(Alignment::Center).child(line);
           if column + 1 < columns {
             wrapper = wrapper.padding_right(self.geometry.gap);
@@ -3823,7 +3859,9 @@ impl TableView {
   pub fn footer(&mut self) -> Option<Row> {
     let text = self.footer.take()?;
     let count = self.part(TablePart::Count);
+    // In a table too narrow for the count and the pagination on one line, the pagination is under the count.
     let mut footer = Row::new()
+      .wrap()
       .align_items(Alignment::Center)
       .justify(Justify::SpaceBetween)
       .part(&self.part(TablePart::Footer))
@@ -4632,9 +4670,12 @@ fn tree_cell(
     .padding_left(18.0 * level as f32)
     .child(chevron)
     .child(content);
-  if wraps {
-    cell = cell.flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0));
-  }
+  // In the room of its cell: a text that wraps takes all of it, and one on a line gives way to it.
+  cell = if wraps {
+    cell.flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0))
+  } else {
+    cell.flex_full(0.0, 1.0, None).min_width(Dimension::Px(0.0))
+  };
   cell.into()
 }
 
@@ -5938,6 +5979,8 @@ struct HostState {
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
+  /// The last asking to bring a row into view that was answered.
+  revealed: Mutex<Option<u64>>,
   revision: Signal<u64>,
 }
 
@@ -6442,6 +6485,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         detail_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
+        revealed: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
       own_range: Arc::new(Mutex::new(None)),
@@ -7094,7 +7138,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .density(Density::Comfortable, TablePart::Summary, |s| s.height(52.0))
       .density(Density::Touch, TablePart::Summary, |s| s.height(52.0))
       .base(Empty, |s| s.width(Length::Fill))
-      .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
+      .base(Footer, |s| s.min_height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)

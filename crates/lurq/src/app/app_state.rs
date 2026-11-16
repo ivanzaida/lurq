@@ -1,6 +1,7 @@
-#[cfg(any(feature = "persistent_storage", feature = "resources"))]
-use std::path::PathBuf;
-use std::{path::Path, sync::Arc};
+use std::{
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use parking_lot::Mutex;
 
@@ -165,13 +166,15 @@ pub(crate) struct AppShared {
   pub(crate) scale_override: Mutex<Option<f32>>,
   #[cfg(feature = "tokio")]
   pub(crate) tokio_handle: Mutex<Option<tokio::runtime::Handle>>,
-  #[cfg(feature = "resources")]
+  /// What reads the sources of everything that loads; see [`App::loader`].
+  pub(crate) loader: crate::resources::Loader,
+  #[cfg(feature = "http")]
   pub(crate) resource_loader: Mutex<crate::resources::ResourceLoader>,
   #[cfg(feature = "persistent_storage")]
   pub(crate) persistent_storage: Mutex<crate::persistent_storage::PersistentStorage>,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) image_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>>,
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   pub(crate) svg_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::svg::SvgData>>,
 }
 
@@ -195,13 +198,14 @@ impl App {
         scale_override: Mutex::new(None),
         #[cfg(feature = "tokio")]
         tokio_handle: Mutex::new(None),
-        #[cfg(feature = "resources")]
+        loader: crate::resources::Loader::new(),
+        #[cfg(feature = "http")]
         resource_loader: Mutex::new(crate::resources::ResourceLoader::new()),
         #[cfg(feature = "persistent_storage")]
         persistent_storage: Mutex::new(crate::persistent_storage::PersistentStorage::memory()),
-        #[cfg(all(feature = "image", feature = "resources"))]
+        #[cfg(all(feature = "image", feature = "http"))]
         image_resource_cache: Mutex::new(std::collections::HashMap::new()),
-        #[cfg(all(feature = "svg", feature = "resources"))]
+        #[cfg(all(feature = "svg", feature = "http"))]
         svg_resource_cache: Mutex::new(std::collections::HashMap::new()),
       }),
     }
@@ -386,9 +390,27 @@ impl App {
     }
   }
 
-  #[cfg(feature = "resources")]
+  /// The app's loader: what reads the sources of its pictures, and of anything else the app loads through it.
+  /// It holds the resource root and what the network may do.
+  ///
+  /// ```
+  /// use std::time::Duration;
+  ///
+  /// let app = lurq::app::App::new();
+  /// app.loader().root("assets").timeout(Duration::from_secs(10));
+  /// ```
+  pub fn loader(&self) -> &crate::resources::Loader {
+    &self.shared.loader
+  }
+
+  /// The folder the app's resources are under: a path given as a resource is a path in it. The same as
+  /// `app.loader().root(root)`.
   pub fn set_resource_root(&mut self, root: PathBuf) {
+    self.shared.loader.root(root.clone());
+    #[cfg(feature = "http")]
     self.shared.resource_loader.lock().set_root(root);
+    #[cfg(not(feature = "http"))]
+    let _ = root;
   }
 
   #[cfg(feature = "persistent_storage")]
