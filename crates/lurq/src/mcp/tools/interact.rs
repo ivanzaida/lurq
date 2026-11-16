@@ -9,7 +9,7 @@ use super::{
 use crate::{
   app::{
     App, Tree,
-    events::{ClipboardContent, DraggedPaths, MouseButton},
+    events::{ClipboardContent, ClipboardImage, DraggedPaths, MouseButton},
     synthetic_input::{self, SyntheticInput, SyntheticModifiers},
   },
   core::NodeId,
@@ -224,12 +224,18 @@ pub(super) fn interact_tool(
     "paste" => {
       let text = args.get("text").and_then(|value| value.as_str());
       let files = path_list(args, "files")?;
-      if text.is_none() && files.is_empty() {
-        return Err("paste needs `text` and/or `files`; the OS clipboard is never read for a synthetic paste".into());
+      let image = args.get("image").map(pasted_image).transpose()?;
+      if text.is_none() && files.is_empty() && image.is_none() {
+        return Err(
+          "paste needs `text`, `files` and/or `image`; the OS clipboard is never read for a synthetic paste".into(),
+        );
       }
       let mut content = ClipboardContent::files(files);
       if let Some(text) = text {
         content = content.with_text(text);
+      }
+      if let Some(image) = image {
+        content = content.with_image(image);
       }
       let window = requested_window(args);
       let target = window_tree_mut(tree, &window, state.include_devtools)?;
@@ -237,7 +243,7 @@ pub(super) fn interact_tool(
       apply_all(target, vec![SyntheticInput::paste(content)]);
       Ok(McpToolOutput::Json(serde_json::json!({
         "ok": true, "action": "paste", "window": window,
-        "text": kinds.text, "files": kinds.files,
+        "text": kinds.text, "files": kinds.files, "image": kinds.image,
         "note": "delivered to the focused text input and its ancestors' on_paste handlers; nothing without a focused input"
       })))
     }
@@ -300,6 +306,17 @@ pub(super) fn interact_tool(
 }
 
 /// The string array `name` as paths; empty when absent.
+/// The picture a paste holds as pixels: the image file at the path `value` says, decoded, as a program that
+/// copied a picture (a screenshot) puts its pixels on the clipboard.
+fn pasted_image(value: &serde_json::Value) -> Result<ClipboardImage, String> {
+  let path = value.as_str().ok_or("`image` must be the path of an image file")?;
+  let decoded = image::open(path)
+    .map_err(|error| format!("`image` {path}: {error}"))?
+    .to_rgba8();
+  let (width, height) = decoded.dimensions();
+  ClipboardImage::from_rgba(width, height, decoded.into_raw()).map_err(|error| format!("`image` {path}: {error}"))
+}
+
 fn path_list(args: &serde_json::Value, name: &str) -> Result<Vec<std::path::PathBuf>, String> {
   let Some(list) = args.get(name) else {
     return Ok(Vec::new());

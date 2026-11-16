@@ -27,7 +27,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement},
-    events::{KeyboardEvent, MouseEvent},
+    events::{ClipboardImage, KeyboardEvent, MouseEvent, PasteEvent},
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{
@@ -209,6 +209,7 @@ type Run = Arc<dyn Fn() + Send + Sync>;
 type ChangeHandler = Arc<dyn Fn(&RichText) + Send + Sync>;
 type LinkHandler = Arc<dyn Fn(&str) + Send + Sync>;
 type PictureBuilder = Arc<dyn Fn(&InlineObject) -> Element + Send + Sync>;
+type ImageKeeper = Arc<dyn Fn(&ClipboardImage) -> Option<String> + Send + Sync>;
 type CountText = Arc<dyn Fn(usize) -> String + Send + Sync>;
 type HeadingText = Arc<dyn Fn(u8) -> String + Send + Sync>;
 
@@ -494,6 +495,7 @@ pub struct RichTextEditor {
   on_link_click: Vec<LinkHandler>,
   on_image: Vec<Run>,
   picture: Option<PictureBuilder>,
+  on_paste_image: Option<ImageKeeper>,
   controller: Option<RichTextController>,
   placeholder: Option<Arc<str>>,
   min_rows: usize,
@@ -557,6 +559,7 @@ impl RichTextEditor {
       on_link_click: Vec::new(),
       on_image: Vec::new(),
       picture: None,
+      on_paste_image: None,
       controller: None,
       placeholder: None,
       min_rows: RICH_TEXT_MIN_ROWS,
@@ -637,6 +640,32 @@ impl RichTextEditor {
   /// ```
   pub fn picture(mut self, element: impl Fn(&InlineObject) -> Element + Send + Sync + 'static) -> Self {
     self.picture = Some(Arc::new(element));
+    self
+  }
+
+  /// What is done with a picture pasted as pixels: a screenshot, an image copied in another app. `keep` is given
+  /// the pixels, keeps them where the app keeps its pictures (a file it writes, a store of its own), and answers
+  /// with the source the document is to name them by; the editor puts a picture of that source at the caret, as
+  /// one step of the undo. `None` puts nothing in. Without it a paste of pixels does nothing: a document names
+  /// its pictures and holds no pixels itself. A second call takes the place of the first.
+  ///
+  /// A clipboard that holds words is pasted as text, whatever else it holds. Files that are pictures, copied in
+  /// a file manager, are put in by their paths with no handler at all, each called by its file's name.
+  ///
+  /// ```
+  /// use lurq::{components::RichText, core::Signal, ui::RichTextEditor};
+  ///
+  /// # fn build(notes: Signal<RichText>) -> RichTextEditor {
+  /// RichTextEditor::new(notes).on_paste_image(|image| {
+  ///   // The app writes the pixels where it keeps its pictures, and says where.
+  ///   let path = format!("attachments/pasted-{}x{}.png", image.width(), image.height());
+  ///   std::fs::write(&path, image.to_png().ok()?).ok()?;
+  ///   Some(path)
+  /// })
+  /// # }
+  /// ```
+  pub fn on_paste_image(mut self, keep: impl Fn(&ClipboardImage) -> Option<String> + Send + Sync + 'static) -> Self {
+    self.on_paste_image = Some(Arc::new(keep));
     self
   }
 
@@ -919,6 +948,7 @@ impl RichTextEditor {
       on_link_click: self.on_link_click,
       on_image: self.on_image,
       picture: self.picture,
+      on_paste_image: self.on_paste_image,
       boxed: self.boxed,
       words: self.words,
       forced: self.forced,
@@ -1139,6 +1169,7 @@ pub struct RichTextEditorView {
   on_link_click: Vec<LinkHandler>,
   on_image: Vec<Run>,
   picture: Option<PictureBuilder>,
+  on_paste_image: Option<ImageKeeper>,
   boxed: BoxStates,
   words: Words,
   forced: Option<Interaction>,
@@ -1583,6 +1614,47 @@ impl RichTextEditorView {
         }
       })
       .on_mouse_up(move |_: MouseEvent| pressed.redraw())
+      .on_paste(self.paste_pictures())
+  }
+
+  /// What a paste that holds no words does: pixels are given to the app to keep and put in as the picture it
+  /// answers with, and files that are pictures are put in by their paths. Anything else is left to the text.
+  fn paste_pictures(&self) -> impl Fn(PasteEvent) + Send + Sync + 'static {
+    let (keep, editor, editable) = (
+      self.on_paste_image.clone(),
+      self.kept.controller.clone(),
+      self.editable(),
+    );
+    move |event: PasteEvent| {
+      if !editable || event.default_prevented() || event.text().is_some_and(|text| !text.is_empty()) {
+        return;
+      }
+      // Each picture to put in: its source, and what it is called.
+      let mut pictures: Vec<(String, String)> = Vec::new();
+      match (event.image(), &keep) {
+        (Some(image), Some(keep)) => pictures.extend(keep(image).map(|source| (source, String::new()))),
+        _ => {
+          for path in event.files() {
+            let extension = path
+              .extension()
+              .map(|extension| extension.to_string_lossy().to_lowercase());
+            if extension.is_some_and(|extension| {
+              crate::files::FileKind::of_extension(&extension) == crate::files::FileKind::Image
+            }) {
+              let name = path.file_stem().map(|name| name.to_string_lossy().into_owned());
+              pictures.push((path.to_string_lossy().into_owned(), name.unwrap_or_default()));
+            }
+          }
+        }
+      }
+      if pictures.is_empty() {
+        return;
+      }
+      event.prevent_default();
+      for (source, label) in pictures {
+        editor.insert_picture(&source, &label);
+      }
+    }
   }
 
   /// What the keys do in the box, besides what they do in any text: the marks, the kinds of paragraphs, the
