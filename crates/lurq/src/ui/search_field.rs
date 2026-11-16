@@ -107,6 +107,7 @@ pub struct SearchField {
   rules: Recipe,
   input_rules: Recipe,
   forced: Option<Interaction>,
+  element_ref: Option<crate::core::ElementRef>,
 }
 
 impl SearchField {
@@ -127,6 +128,7 @@ impl SearchField {
       rules: Recipe::new(),
       input_rules: Recipe::new(),
       forced: None,
+      element_ref: None,
     }
   }
 
@@ -158,6 +160,12 @@ impl SearchField {
   /// The icon before the text, in place of the search icon, or none: `icon(None)`.
   pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
     self.input = self.input.with_icon(icon.into().0);
+    self
+  }
+
+  /// The ref of the field's text input: what the app focuses on the key the hint shows (`ctx.focus`).
+  pub fn ref_element(mut self, element: crate::core::ElementRef) -> Self {
+    self.element_ref = Some(element);
     self
   }
 
@@ -301,6 +309,7 @@ impl SearchField {
       editable: !self.read_only && !self.disabled,
       recipe,
       forced: self.forced,
+      element_ref: self.element_ref,
       input: input.view(theme),
     };
     match theme.renderer::<SearchField>() {
@@ -341,6 +350,7 @@ pub struct SearchFieldView {
   /// The style of each of the search field's own parts.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
+  element_ref: Option<crate::core::ElementRef>,
 }
 
 impl SearchFieldView {
@@ -392,6 +402,9 @@ impl SearchFieldView {
     };
     if let Some(end) = end {
       control = control.padding_right(self.input.end_room(end));
+    }
+    if let Some(element) = &self.element_ref {
+      control = control.ref_element(element.clone());
     }
     let (value, empties) = (self.input.value.clone(), self.editable && self.clearable);
     // A key reaches every node: this acts only while the focus is in the field, and leaves a composition's keys to

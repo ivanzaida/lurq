@@ -1,6 +1,7 @@
 mod app_lifetime;
 mod click;
 mod cursor;
+mod declared_component;
 mod double_click;
 mod drag;
 mod drag_autoscroll;
@@ -83,4 +84,5 @@ mod timers {
   mod timeout_fires_once;
   mod timeout_restart_replaces_pending_fire;
 }
+mod wheel_handler;
 mod window_controls;

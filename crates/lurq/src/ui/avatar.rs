@@ -139,7 +139,7 @@ fn initials(name: &str) -> String {
 /// let bot = Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 /// ```
 ///
-/// With [`image`](Self::image) it shows a picture, clipped to its shape; the
+/// With [`picture`](Self::picture) it shows a picture, clipped to its shape; the
 /// initials stay in its place while the picture loads and when it fails. An
 /// avatar is read, not operated: to tooling that reads the tree it is an image
 /// called by the name.
@@ -148,8 +148,7 @@ pub struct Avatar {
   /// What the face shows in place of the initials: the count at the end of a group.
   text: Option<Arc<str>>,
   icon: Option<IconChoice>,
-  #[cfg(feature = "raster")]
-  image: Option<crate::components::Image>,
+  picture: Option<super::Picture>,
   size: Name,
   shape: AvatarShape,
   presence: Option<AvatarPresence>,
@@ -166,8 +165,7 @@ impl Avatar {
       name: Arc::from(name),
       text: None,
       icon: None,
-      #[cfg(feature = "raster")]
-      image: None,
+      picture: None,
       size: AvatarSize::default().into(),
       shape: AvatarShape::default(),
       presence: None,
@@ -185,23 +183,21 @@ impl Avatar {
     avatar
   }
 
-  /// A picture of the person in place of the initials, which fills the
-  /// avatar and is clipped to its shape: the engine's image element as the
-  /// app builds it, from pixels it has (`Image::new`) or from a file or bytes
-  /// it decodes (`Image::from_file`, `Image::from_bytes`, with feature
-  /// `image`), with a cache key and a size to decode to where it wants them.
-  /// While a picture decodes, and when it fails, the avatar shows its initials
-  /// or its icon: they are the image's placeholder and its error view.
+  /// A picture of the person in place of the initials, which fills the avatar and is clipped to its shape:
+  /// a [`Picture`](super::Picture) of pixels the app has, of a file or bytes it decodes, of a resource or an
+  /// address the app's loader reads, with a cache key and a size to decode to where it wants them. While the
+  /// picture is on its way, and when it did not come, the avatar shows its initials or its icon, and they go
+  /// out over the picture when it is there.
   ///
   /// ```
-  /// use lurq::{components::Image, images::ImageData, ui::Avatar};
+  /// use lurq::ui::{Avatar, Picture};
   ///
-  /// let pixels = ImageData::from_rgba(vec![200; 4 * 4 * 4], 4, 4);
-  /// let ivan = Avatar::new("Ivan Zaida").image(Image::new(pixels));
+  /// let ivan = Avatar::new("Ivan Zaida").picture(Picture::from_file("ivan.jpg").downscale_to(112, 112));
   /// ```
-  #[cfg(feature = "raster")]
-  pub fn image(mut self, image: crate::components::Image) -> Self {
-    self.image = Some(image);
+  ///
+  /// The picture is a component as every picture is: the avatar is laid in a tree that a component renders.
+  pub fn picture(mut self, picture: impl Into<super::Picture>) -> Self {
+    self.picture = Some(picture.into());
     self
   }
 
@@ -281,8 +277,7 @@ impl Avatar {
       initials: self.text.as_deref().map_or_else(|| initials(&self.name), str::to_owned),
       name: self.name,
       icon: self.icon,
-      #[cfg(feature = "raster")]
-      image: self.image,
+      picture: self.picture,
       size: self.size,
       shape: self.shape,
       presence: self.presence,
@@ -312,8 +307,7 @@ pub struct AvatarView {
   /// The icon it was given in place of its initials: a name, or `None` for no icon at all.
   pub icon: Option<IconChoice>,
   /// The picture it shows in place of its initials.
-  #[cfg(feature = "raster")]
-  pub image: Option<crate::components::Image>,
+  pub picture: Option<super::Picture>,
   pub size: Name,
   pub shape: AvatarShape,
   pub presence: Option<AvatarPresence>,
@@ -375,16 +369,22 @@ impl AvatarView {
       .clip()
   }
 
-  /// The picture in the style of its part, with the fallback in its place while it loads and once it failed.
-  #[cfg(feature = "raster")]
-  fn picture(&self, image: crate::components::Image) -> Element {
-    let image = image.cover().part(&self.part(AvatarPart::Image));
-    #[cfg(feature = "image")]
-    let image = {
-      let fallback = self.fallback_maker();
-      image.placeholder(fallback()).error_view(move |_| fallback())
-    };
-    image.into()
+  /// The picture, filling the face in the style of its part, with the fallback in its place while it is on
+  /// its way, once it did not come, and where it has no source.
+  fn picture_in_face(&self, picture: super::Picture) -> Element {
+    use super::{PictureFit, PicturePart, PictureSize};
+    let fallback = self.fallback_maker();
+    picture
+      .size(PictureSize::Xs)
+      .width(Length::Fill)
+      .height(Length::Fill)
+      .fit(PictureFit::Cover)
+      .bare(true)
+      // The avatar is what tooling reads; its picture says nothing of its own.
+      .decorative(true)
+      .rules(&self.recipe.rules_for(AvatarPart::Image, PicturePart::Image))
+      .fallback(fallback)
+      .into()
   }
 
   /// The dot of presence in the style of its part, or nothing where the avatar has none.
@@ -395,18 +395,12 @@ impl AvatarView {
   /// How the default renderer builds an avatar: the face with its picture or
   /// its fallback, and the dot of presence over its bottom end corner.
   pub fn render(self) -> Element {
-    #[cfg(feature = "raster")]
     let mut this = self;
-    #[cfg(not(feature = "raster"))]
-    let this = self;
     let face = this.face();
-    #[cfg(feature = "raster")]
-    let face = match this.image.take() {
-      Some(image) => face.child(this.picture(image)),
+    let face = match this.picture.take() {
+      Some(picture) => face.child(this.picture_in_face(picture)),
       None => face.child(this.fallback()),
     };
-    #[cfg(not(feature = "raster"))]
-    let face = face.child(this.fallback());
     // The dot and the ring of a group stand outside the face: nothing of the avatar clips them.
     let mut root = Stack::new()
       .stack_align(StackAlignment::BottomEnd)

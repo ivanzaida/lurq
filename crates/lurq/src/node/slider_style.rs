@@ -1,4 +1,4 @@
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 use std::sync::Arc;
 
 #[cfg(feature = "raster")]
@@ -40,7 +40,7 @@ pub struct SliderPartStyle {
   pub(crate) outline: Option<Outline>,
   #[cfg(feature = "raster")]
   pub(crate) background_image: Option<crate::images::ImageData>,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) background_resource_image: Option<Arc<str>>,
   #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
@@ -128,7 +128,7 @@ impl SliderPartStyle {
       crate::images::ImageKind::Native(data) => {
         self.background_image = Some(data.image_data());
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);
       }
@@ -176,7 +176,7 @@ impl SliderPartStyle {
       if other.background_image.is_some() {
         self.background_image = other.background_image.clone();
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       if other.background_resource_image.is_some() {
         self.background_resource_image = other.background_resource_image.clone();
       }

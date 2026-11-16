@@ -383,6 +383,7 @@ Toggle::new("Bold")
 | `bind(Signal<bool>)` | On while the signal is true, which a press turns; `on_change` handlers are called after it is set |
 | `on_change(handler)` | Called on a press with what the toggle is to be: on if it was off |
 | `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
+| `leading(element)` | An element before the label, where an icon by name is not enough: the dot of a recording. It stands before an icon that is given too |
 | `size(size)` | A `ToggleSize` (a `ButtonSize`): a toggle is as high as a button of that size |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
@@ -2128,6 +2129,7 @@ SearchField::new(query.clone())
 | `SearchField::new(value)` | A search field bound to a `Signal<String>`, which the app filters by as it changes |
 | `shortcut(&str)` | The key that reaches the field, at its end while it is empty: `/`, `Ctrl K`. The app binds the key |
 | `on_submit(Fn(&str))` | Called on Enter with what the field holds. The focus stays in the field |
+| `ref_element(ElementRef)` | The ref of the field's text input: what the app focuses on the key the hint shows (`ctx.focus(&field)`) |
 | `clear_label(&str)` | What the clear button is called to tooling, in place of "Clear search" |
 | `clearable(bool)` | The clear button while it holds something, and Escape that empties it: on unless the app says not |
 | `icon(impl Into<IconChoice>)` | The icon before the text in place of the search icon, or `None` for none |
@@ -4837,6 +4839,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `selected(Signal<Vec<K>>)`, `selected_controlled(keys, on_change)` | The rows selected, the app's signal or its value, with a column of checkboxes |
 | `on_selection_change(\|keys: &[K]\|)` | Told the whole new selection after a press or a key that changes it, bound or not; not for one that leaves it as it is, nor when the app sets the signal |
 | `checkboxes(bool)` | Whether a table whose rows are selected has the column of checkboxes; without it a press of a row selects it |
+| `reveal(key, request)` | A mounted table brings the row of `key` into view, once for each new `request`: for a row the app selects from outside the table. It scrolls the least that shows the row and makes it the row Tab stops on; asking again with the same number does nothing |
 | `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter |
 | `density(Density)` | Rows of 36 compact, 44 at the default, 52 comfortable and touch |
 | `height(..)`, `max_height(..)` | The table's height: the header stays and the rows scroll under it |

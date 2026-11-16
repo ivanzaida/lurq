@@ -6,7 +6,8 @@ use crate::app::profile_types::FrameProfile;
 use crate::{
   app::{
     ctx::{
-      ComponentContextDebug, ComponentEffectDebug, ComponentMemoDebug, ComponentSignalDebug, DevtoolsInspectableDebug,
+      ComponentContextDebug, ComponentEffectDebug, ComponentMemoDebug, ComponentRenderDebug, ComponentSignalDebug,
+      DevtoolsInspectableDebug,
     },
     runtime::Tree,
   },
@@ -52,6 +53,8 @@ pub struct DevToolsNode {
   pub contexts: Vec<ComponentContextDebug>,
   pub shape: Vec<DevToolsShapeRow>,
   pub effects: Vec<ComponentEffectDebug>,
+  /// How the component rendered, on the node its render returned: how many times, and how long the last took.
+  pub render: Option<ComponentRenderDebug>,
   pub layout_box: Option<DevToolsLayoutBox>,
   pub hovered: bool,
   pub active: bool,
@@ -65,6 +68,32 @@ impl DevToolsNode {
       .attrs
       .iter()
       .any(|(name, value)| name == "masked" && value == "true")
+  }
+
+  /// A node with nothing in it but what a test names.
+  #[cfg(test)]
+  pub(crate) fn for_test(id: NodeId, tag: &str, kind: DevToolsNodeKind, children: Vec<DevToolsNode>) -> Self {
+    Self {
+      id,
+      tag: tag.to_owned(),
+      kind,
+      key: None,
+      attrs: Vec::new(),
+      text: None,
+      color: None,
+      props: None,
+      signals: Vec::new(),
+      memos: Vec::new(),
+      contexts: Vec::new(),
+      shape: Vec::new(),
+      effects: Vec::new(),
+      render: None,
+      layout_box: None,
+      hovered: false,
+      active: false,
+      focused: false,
+      children,
+    }
   }
 }
 
@@ -245,6 +274,7 @@ fn snapshot_node(
     memos,
     effects,
     contexts,
+    render: element.component_render_debug(),
     shape: shape_rows(element),
     layout_box: layout.map(|layout| layout_box(element.node, layout, abs_x, abs_y, rel_x, rel_y)),
     hovered: element.node.style_state.is_hovered(),
@@ -342,11 +372,9 @@ fn snapshot_node_for_selection(
     signals: signals_ref.to_vec(),
     memos: memos_ref.to_vec(),
     effects: effects_ref.to_vec(),
-    contexts: if include_inspector_details {
-      contexts_ref.to_vec()
-    } else {
-      Vec::new()
-    },
+    render: element.component_render_debug(),
+    // Of every node: the Context tab lists them all, and resolves who reads whose.
+    contexts: contexts_ref.to_vec(),
     shape: if include_inspector_details {
       shape_rows(element)
     } else {
@@ -780,7 +808,7 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     NodeKind::ResourceImage { .. } => "ResourceImage",
     #[cfg(feature = "svg")]
     NodeKind::Svg { .. } => "Svg",
-    #[cfg(all(feature = "svg", feature = "resources"))]
+    #[cfg(all(feature = "svg", feature = "http"))]
     NodeKind::ResourceSvg { .. } => "ResourceSvg",
   }
 }
