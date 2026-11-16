@@ -551,7 +551,15 @@ impl Component for PicturePage {
 
     let large = items()
       .id("picture-large")
-      .child(item(self.lake().size_px(640.0, 360.0), "picture · 640 × 360 · cover"))
+      .child(item(
+        self
+          .lake()
+          .title("Lake at dusk")
+          .size_px(640.0, 360.0)
+          .lightbox(true)
+          .id("picture-opens"),
+        "picture · 640 × 360 · cover · a press opens it in a lightbox",
+      ))
       .child(item(
         self
           .lake()

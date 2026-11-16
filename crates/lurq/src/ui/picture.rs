@@ -466,6 +466,9 @@ pub struct Picture {
   selectable: bool,
   selected: bool,
   on_change: Vec<Told<bool>>,
+  lightbox: bool,
+  open: Option<Signal<bool>>,
+  on_open_change: Vec<Told<bool>>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -512,6 +515,9 @@ impl Picture {
       selectable: false,
       selected: false,
       on_change: Vec::new(),
+      lightbox: false,
+      open: None,
+      on_open_change: Vec::new(),
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -846,6 +852,26 @@ impl Picture {
     self
   }
 
+  /// A press of the picture, or Enter or Space while it has the focus, opens it in a [`Lightbox`] over the
+  /// window: the picture alone, whole, to bring closer. The lightbox shows its [`title`](Self::title) and its
+  /// [`description`](Self::description). A picture that can be chosen is chosen by a press, and opens nothing.
+  pub fn lightbox(mut self, lightbox: bool) -> Self {
+    self.lightbox = lightbox;
+    self
+  }
+
+  /// Whether its lightbox is open, to read and to set. Without it the picture keeps it.
+  pub fn open(mut self, open: Signal<bool>) -> Self {
+    self.open = Some(open);
+    self
+  }
+
+  /// Called when its lightbox opens, and when it is closed.
+  pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_open_change.push(Arc::new(handler));
+    self
+  }
+
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
     self
@@ -955,6 +981,9 @@ impl Picture {
     self.selectable = false;
     self.selected = false;
     self.on_change.clear();
+    self.lightbox = false;
+    self.open = None;
+    self.on_open_change.clear();
     self.id = None;
     self.key = None;
     self
@@ -972,7 +1001,7 @@ impl Picture {
 
   /// Whether a press of the picture as a whole does something.
   fn pressable(&self) -> bool {
-    !self.disabled && (self.selectable || !self.on_click.is_empty())
+    !self.disabled && (self.selectable || self.lightbox || !self.on_click.is_empty())
   }
 
   /// The forms to build, each with the widths it lives at: the one that is said, or that a width in pixels
@@ -1062,7 +1091,9 @@ struct Plain<'a> {
   words: &'a Words,
   lengths: (&'a Option<Length>, &'a Option<Length>, Option<f32>),
   shown: (PictureFit, StackAlignment, PictureShape, &'a Option<Name>, &'a [Name]),
-  flags: [bool; 7],
+  flags: [bool; 8],
+  /// The signal that says whether its lightbox is open, by its id.
+  open: Option<usize>,
   load: (Option<f64>, Option<bool>, Option<Interaction>),
 }
 
@@ -1106,6 +1137,9 @@ impl Picture {
       selectable,
       selected,
       on_change,
+      lightbox,
+      open,
+      on_open_change,
       disabled,
       states,
       rules,
@@ -1125,6 +1159,7 @@ impl Picture {
         && children.is_empty()
         && on_click.is_empty()
         && on_change.is_empty()
+        && on_open_change.is_empty()
         && rules.is_empty());
     if made_anew {
       return None;
@@ -1140,7 +1175,17 @@ impl Picture {
       words,
       lengths: (width, height, *aspect_ratio),
       shown: (*fit, *anchor, *shape, size, states),
-      flags: [*decorative, *bare, *loading, *bar, *selectable, *selected, *disabled],
+      flags: [
+        *decorative,
+        *bare,
+        *loading,
+        *bar,
+        *selectable,
+        *selected,
+        *disabled,
+        *lightbox,
+      ],
+      open: open.as_ref().map(Signal::id),
       load: (*progress, *force_bar_shown, *forced),
     })
   }
@@ -1156,6 +1201,8 @@ struct Live {
   menu: Signal<bool>,
   /// The More button, which the menu hangs from.
   more: ElementRef,
+  /// Whether its lightbox is open, where the app names no signal for it.
+  viewer: Signal<bool>,
   /// Counts on when a load or a decode of the picture's comes further or ends, and when it is asked for again:
   /// the picture renders again and looks.
   tick: Signal<u64>,
@@ -1190,6 +1237,7 @@ impl Component for PictureHost {
       live: Live {
         menu: ctx.signal(false),
         more: ElementRef::new(),
+        viewer: ctx.signal(false),
         tick,
         wake,
         held: Arc::default(),
@@ -1594,6 +1642,7 @@ fn view(
   PictureView {
     phase,
     retry,
+    viewer: picture.open.clone().unwrap_or_else(|| live.viewer.clone()),
     #[cfg(feature = "raster")]
     small: None,
     known: Known {
@@ -1668,6 +1717,8 @@ pub struct PictureView {
   picture: Picture,
   /// Where its pixels are.
   phase: Phase,
+  /// Whether its lightbox is open: the app's signal, or the picture's own.
+  viewer: Signal<bool>,
   /// The pixels of the small version that stands in for it, blurred, while it is on its way.
   #[cfg(feature = "raster")]
   small: Option<crate::images::ImageData>,
@@ -2084,12 +2135,21 @@ impl PictureView {
   fn press(&self) -> impl Fn(MouseEvent) + Send + Sync + 'static {
     let (clicks, changes) = (self.picture.on_click.clone(), self.picture.on_change.clone());
     let (selectable, next) = (self.picture.selectable, !self.picture.selected);
+    // A picture that is chosen by a press opens nothing by it.
+    let opens =
+      (self.picture.lightbox && !selectable).then(|| (self.viewer.clone(), self.picture.on_open_change.clone()));
     move |event: MouseEvent| {
       for handler in &clicks {
         handler.call(&event);
       }
       if selectable {
         changes.iter().for_each(|handler| handler(next));
+      }
+      if let Some((open, told)) = &opens
+        && !open.get_untracked()
+      {
+        open.set(true);
+        told.iter().for_each(|tell| tell(true));
       }
     }
   }
@@ -2158,6 +2218,20 @@ impl PictureView {
       .with_children(self.controls());
     if let Some(edge) = self.edge() {
       inner = inner.child(edge);
+    }
+    // Its lightbox, which takes no room: the picture as the app gave it, alone.
+    if picture.lightbox {
+      let told = picture.on_open_change.clone();
+      let mut viewer = super::Lightbox::new(self.viewer.clone(), [picture.clone()])
+        .on_dismiss(move || told.iter().for_each(|tell| tell(false)))
+        .key("viewer");
+      if let Some(label) = self.label() {
+        viewer = viewer.label(&label);
+      }
+      if let Some(id) = self.id("viewer") {
+        viewer = viewer.id(id);
+      }
+      inner = inner.child(viewer);
     }
 
     let part = self.part(PicturePart::Root).forced(picture.forced);

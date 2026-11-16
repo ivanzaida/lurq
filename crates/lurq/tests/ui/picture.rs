@@ -103,6 +103,96 @@ fn a_picture_made_of_the_same_plain_things_is_not_rendered_again_with_what_holds
   assert_eq!(stage.bounds("same"), (8.0, 8.0, 64.0, 64.0));
 }
 
+/// A picture of 160 by 90 with a lightbox, 8 in from the corner of a window of 600 by 400. The page fills the
+/// window, as a window's root does: what lies over the window is laid in the room the root has.
+fn with_a_lightbox(picture: impl Fn(Picture) -> Picture + Send + Sync + 'static) -> Stage {
+  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+    let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
+      .title("Lake at dusk")
+      .size_px(160.0, 90.0)
+      .lightbox(true)
+      .id("lake");
+    Column::new()
+      .size(600.0, 400.0)
+      .child(Row::new().padding(8.0).child(picture(lake)))
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+/// What the level of the picture's lightbox says, where the lightbox is open.
+fn level(stage: &mut Stage) -> Option<String> {
+  let level = stage.tree.get_element_by_id("lake-viewer-level")?;
+  level
+    .children()
+    .iter()
+    .find_map(|child| child.text_content().map(str::to_owned))
+}
+
+#[test]
+fn a_press_opens_the_picture_in_a_lightbox_and_escape_closes_it() {
+  let open = lurq::core::Signal::new(false);
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (shown, tell) = (open.clone(), told.clone());
+  let mut stage = with_a_lightbox(move |picture| {
+    let tell = tell.clone();
+    picture
+      .open(shown.clone())
+      .on_open_change(move |open| tell.lock().unwrap().push(open))
+  });
+  assert!(level(&mut stage).is_none(), "closed, its lightbox is not there");
+
+  stage.click("lake");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 600.0, 400.0), "over the window");
+  assert_eq!(level(&mut stage).as_deref(), Some("100%"), "the picture alone, fitted");
+  assert!(
+    stage.tree.get_element_by_id("lake-viewer-next").is_none(),
+    "with no other to turn to"
+  );
+
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+  assert!(level(&mut stage).is_none());
+  assert_eq!(*told.lock().unwrap(), [true, false]);
+
+  // The app opens it itself.
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+}
+
+#[test]
+fn without_a_signal_the_picture_keeps_whether_its_lightbox_is_open() {
+  let mut stage = with_a_lightbox(|picture| picture);
+  stage.click("lake");
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+  stage.click("lake-viewer-close");
+  stage.pass();
+  assert!(level(&mut stage).is_none());
+}
+
+#[test]
+fn a_picture_that_is_chosen_by_a_press_opens_nothing_by_it() {
+  let chosen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let tell = chosen.clone();
+  let mut stage = with_a_lightbox(move |picture| {
+    let tell = tell.clone();
+    picture.selectable(true).on_change(move |_| {
+      tell.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    })
+  });
+  stage.click("lake");
+  stage.pass();
+  assert_eq!(chosen.load(std::sync::atomic::Ordering::SeqCst), 1);
+  assert!(level(&mut stage).is_none());
+}
+
 fn corner(quad: &Quad) -> f32 {
   quad.border_radius.map_or(0.0, |radius| radius.top_left)
 }
