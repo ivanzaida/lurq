@@ -19,7 +19,10 @@ fn fixture() -> (FileDialogBroker, Arc<McpShared>, Tree) {
   ));
   broker.attach(&shared);
   *shared.file_dialogs.lock().unwrap() = Some(broker.clone());
-  (broker, shared, Tree::new())
+  // As `enable_mcp` does: the tree's window asks this broker, and no other test's.
+  let tree = Tree::new();
+  tree.window().serve_file_dialogs(&broker.serving());
+  (broker, shared, tree)
 }
 
 fn path() -> PathBuf {
@@ -306,46 +309,113 @@ fn file_dialogs_opt_in_tools_and_actual_drain_cancel_without_later_mcp_call() {
   ));
 }
 
+/// The one request `broker` holds: its id and what was asked.
+fn asked(broker: &FileDialogBroker) -> (String, FileDialogRequest) {
+  let pending: Vec<(String, FileDialogRequest)> = broker
+    .0
+    .lock()
+    .unwrap()
+    .pending
+    .iter()
+    .map(|(id, pending)| (id.clone(), pending.request.clone()))
+    .collect();
+  assert_eq!(
+    pending.len(),
+    1,
+    "the dialog asked the broker of its window's tree, once"
+  );
+  pending.into_iter().next().unwrap()
+}
+
+fn wait<T>(future: impl std::future::Future<Output = T>) -> T {
+  tokio::runtime::Builder::new_current_thread()
+    .build()
+    .unwrap()
+    .block_on(future)
+}
+
 #[test]
-fn lurqs_own_file_dialog_asks_the_registered_broker_and_never_opens_a_native_one() {
-  // Brokers of other tests register in parallel; the dialog asks the last one, so this tries until the one it
-  // made is the one asked.
-  for _ in 0..100 {
+fn lurqs_own_file_dialog_asks_the_broker_of_its_windows_tree_and_never_opens_a_native_one() {
+  let (broker, _shared, tree) = fixture();
+  let picked = crate::files::FileDialog::new()
+    .title("Add files")
+    .filter("Text", &["txt"])
+    .multiple(true)
+    .pick(&tree.window().handle());
+  let (id, request) = asked(&broker);
+  assert_eq!(
+    request.operation,
+    FileDialogOperation::OpenFiles,
+    "several files: multiple"
+  );
+  assert_eq!(request.title, "Add files");
+  assert_eq!(request.filters, vec![("Text".to_owned(), vec!["txt".to_owned()])]);
+  broker
+    .respond(&id, tree.window(), FileDialogOperation::OpenFiles, Some(selected()))
+    .unwrap();
+  let files = wait(picked);
+  assert_eq!(files.len(), 1);
+  assert_eq!(files[0].name(), "Unicode-α.txt");
+  assert_eq!(files[0].path(), Some(path().as_path()));
+}
+
+#[test]
+fn lurqs_dialog_for_a_folder_and_for_where_to_save_ask_the_broker_as_what_they_are() {
+  for operation in [FileDialogOperation::OpenFolder, FileDialogOperation::SaveFile] {
     let (broker, _shared, tree) = fixture();
-    let picked = crate::files::FileDialog::new()
-      .title("Add files")
-      .filter("Text", &["txt"])
-      .multiple(true)
-      .pick(&tree.window().handle());
-    let pending: Vec<(String, FileDialogRequest)> = broker
-      .0
-      .lock()
-      .unwrap()
-      .pending
-      .iter()
-      .map(|(id, pending)| (id.clone(), pending.request.clone()))
-      .collect();
-    let Some((id, request)) = pending.into_iter().next() else {
-      continue;
+    let window = tree.window().handle();
+    let dialog = crate::files::FileDialog::new().title("Choose").file_name("report.md");
+    let picked: std::pin::Pin<Box<dyn std::future::Future<Output = Option<PathBuf>>>> = match operation {
+      FileDialogOperation::OpenFolder => Box::pin(dialog.pick_folder(&window)),
+      _ => Box::pin(dialog.pick_save(&window)),
     };
+    let (id, request) = asked(&broker);
+    assert_eq!(request.operation, operation);
+    assert_eq!(request.title, "Choose");
+    // The name a file starts with is said of a file to save, and of nothing else.
     assert_eq!(
-      request.operation,
-      FileDialogOperation::OpenFiles,
-      "several files: multiple"
+      request.suggested_name.as_deref(),
+      (operation == FileDialogOperation::SaveFile).then_some("report.md")
     );
-    assert_eq!(request.title, "Add files");
-    assert_eq!(request.filters, vec![("Text".to_owned(), vec!["txt".to_owned()])]);
-    broker
-      .respond(&id, tree.window(), FileDialogOperation::OpenFiles, Some(selected()))
-      .unwrap();
-    let files = tokio::runtime::Builder::new_current_thread()
-      .build()
-      .unwrap()
-      .block_on(picked);
-    assert_eq!(files.len(), 1);
-    assert_eq!(files[0].name(), "Unicode-α.txt");
-    assert_eq!(files[0].path(), Some(path().as_path()));
-    return;
+    broker.respond(&id, tree.window(), operation, Some(selected())).unwrap();
+    assert_eq!(
+      wait(picked).as_deref(),
+      Some(path().as_path()),
+      "the path that was chosen"
+    );
   }
-  panic!("the dialog never asked the broker this test registered");
+}
+
+#[test]
+fn a_dialog_over_a_window_of_another_tree_is_not_this_brokers() {
+  // Two trees in one process, each with a broker: a dialog over a window asks its own tree's, whichever was
+  // registered last, and a tree with no broker asks none.
+  let (first, _first_shared, first_tree) = fixture();
+  let (second, _second_shared, second_tree) = fixture();
+  let _picked = crate::files::FileDialog::new()
+    .title("The first tree's")
+    .pick(&first_tree.window().handle());
+  assert_eq!(asked(&first).1.title, "The first tree's");
+  assert!(
+    second.0.lock().unwrap().pending.is_empty(),
+    "the other tree's broker heard nothing"
+  );
+  let _picked = crate::files::FileDialog::new()
+    .title("The second tree's")
+    .pick_folder(&second_tree.window().handle());
+  assert_eq!(asked(&second).1.title, "The second tree's");
+  assert_eq!(first.0.lock().unwrap().pending.len(), 1);
+
+  // Without the system's dialog built in, a tree with no broker has none to open, and asks neither of these.
+  #[cfg(not(feature = "file_dialog"))]
+  {
+    let alone = Tree::new();
+    let _picked = crate::files::FileDialog::new().pick(&alone.window().handle());
+    assert_eq!(
+      first.0.lock().unwrap().pending.len(),
+      1,
+      "a tree with no broker asks none"
+    );
+    assert_eq!(second.0.lock().unwrap().pending.len(), 1);
+  }
 }

@@ -86,6 +86,7 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod path_field;
 mod picture;
 mod persona;
 mod pie_chart;
@@ -107,6 +108,7 @@ mod seek_bar;
 mod select;
 mod selection_marquee;
 mod separator;
+mod settings_card;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
@@ -375,7 +377,7 @@ pub const PAGES: &[Page] = &[
     path: "/fieldset",
     name: "Fieldset",
     icon: Some("rows-4"),
-    about: "fieldset legend group fields disabled form error summary errors alert attention link focus description field child children full_width ield rror new focuses",
+    about: "fieldset legend group fields disabled form error summary errors alert attention link focus description field child children full_width ield rror new focuses group box groupbox frame options checkboxes radios variant boxed",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<fieldset::FieldsetPage>(()),
   },
@@ -767,7 +769,7 @@ pub const PAGES: &[Page] = &[
     path: "/breadcrumb",
     name: "Breadcrumb",
     icon: Some("chevron-right"),
-    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation step readcrumb tep value icon on_select max_items menu disabled",
+    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation step readcrumb tep value icon on_select max_items menu disabled path control pathcontrol file manager folder folders drive bar segments address variant overflow fold",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
   },
@@ -1293,6 +1295,22 @@ pub const PAGES: &[Page] = &[
     about: "tray popover system tray menu bar status item taskbar notification area icon panel background app status synced switches toggles commands open preferences quit TrayPopover TrayAction TrayToggle TrayItem TrayStatusVariant anchored status status_variant item separator on_select on_change bind",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<tray_popover::TrayPopoverPage>(()),
+  },
+  Page {
+    path: "/path-field",
+    name: "Path Field",
+    icon: Some("folder"),
+    about: "path field pathfield file folder directory browse choose pick save dialog system rfd input mono drop on_browse on_pick picks PathKind FileDialog browse_label placeholder size invalid read_only disabled full_width mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<path_field::PathFieldPage>(()),
+  },
+  Page {
+    path: "/settings-card",
+    name: "Settings Card",
+    icon: Some("settings"),
+    about: "settings card row settings row preferences options expander expand open collapse group rows control switch select button icon title description chevron SettingsCard ListItem group item items open bind default_open on_open_change density disabled label width mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<settings_card::SettingsCardPage>(()),
   },
   Page {
     path: "/column-view",

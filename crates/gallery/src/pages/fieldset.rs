@@ -1,5 +1,6 @@
-//! The page of the fieldset: its playground with the board's profile in it, a fieldset that is disabled with
-//! everything in it, and the error summary at the top of a form, whose lines focus their fields.
+//! The page of the fieldset: its playground with the board's profile in it, the group box of a desktop dialog, a
+//! fieldset that is disabled with everything in it, and the error summary at the top of a form, whose lines focus
+//! their fields.
 
 use std::sync::Arc;
 
@@ -10,8 +11,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify},
   node::Element,
   ui::{
-    Button, ButtonVariant, CheckboxCard, CheckboxCardGroup, ErrorSummary, Field, FieldError, Fieldset, Input,
-    Orientation, Switch,
+    Button, ButtonVariant, Checkbox, CheckboxCard, CheckboxCardGroup, ErrorSummary, Field, FieldError, Fieldset,
+    FieldsetVariant, Input, Orientation, Switch,
   },
 };
 
@@ -58,6 +59,9 @@ fn profile(
     )
 }
 
+/// Where the playground's fieldset has its edge.
+const VARIANTS: [(&str, usize); 2] = [("Boxed", 0), ("GroupBox", 1)];
+
 /// What is wrong with the name and the email, as the form of the page judges them.
 fn judged(name: &str, email: &str) -> (Option<&'static str>, Option<&'static str>) {
   let at = email.find('@');
@@ -72,9 +76,12 @@ pub struct FieldsetPage {
   frame: Frame,
   playground: Playground,
   legend: Signal<String>,
+  variant: Signal<usize>,
   description: Signal<bool>,
   disabled: Signal<bool>,
   full_width: Signal<bool>,
+  /// The options of the board's group box.
+  startup: [Signal<bool>; 3],
   name: Signal<String>,
   bio: Signal<String>,
   zone: Signal<String>,
@@ -92,12 +99,16 @@ impl FieldsetPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let legend = self.legend.get();
     let (description, disabled, full_width) = (self.description.get(), self.disabled.get(), self.full_width.get());
+    let group_box = self.variant.get() == 1;
     let (name, bio, zone) = (self.name.clone(), self.bio.clone(), self.zone.clone());
     let record = self.playground.recorder();
     let plain = {
       let legend = legend.clone();
       move || {
         let mut fieldset = Fieldset::new(&legend).disabled(disabled).full_width(full_width);
+        if group_box {
+          fieldset = fieldset.variant(FieldsetVariant::GroupBox);
+        }
         if description {
           fieldset = fieldset.description("Shown to people you share a workspace with.");
         }
@@ -111,6 +122,9 @@ impl FieldsetPage {
     };
 
     let mut code = vec![format!("Fieldset::new({legend:?})")];
+    if group_box {
+      code.push("    .variant(FieldsetVariant::GroupBox)".to_owned());
+    }
     if description {
       code.push("    .description(\"Shown to people you share a workspace with.\")".to_owned());
     }
@@ -133,23 +147,43 @@ impl FieldsetPage {
     }
 
     let mut tree = vec![format!(
-      "root          {}   padded 20 · edge 1, border · radius-lg · 16 apart",
-      self.playground.measured()
+      "root          {}   {}",
+      self.playground.measured(),
+      if group_box {
+        "the legend 6 over the box"
+      } else {
+        "padded 20 · edge 1, border · radius-lg · 16 apart"
+      }
     )];
-    tree.push("├─ legend     4 apart".to_owned());
+    tree.push(format!("├─ legend     {} apart", if group_box { 2 } else { 4 }));
     tree.push(format!(
-      "│  {} title    15, semibold",
-      if description { "├─" } else { "└─" }
+      "│  {} title    {}",
+      if description { "├─" } else { "└─" },
+      if group_box {
+        "12, semibold, muted"
+      } else {
+        "15, semibold"
+      }
     ));
     if description {
-      tree.push("│  └─ description  13, muted".to_owned());
+      tree.push(format!("│  └─ description  {}, muted", if group_box { 12 } else { 13 }));
     }
-    tree.push("├─ field      Display name, required".to_owned());
-    tree.push("├─ field      Bio, optional".to_owned());
-    tree.push("├─ field      Time zone, its label beside it".to_owned());
-    tree.push("└─ row        Reset · Save profile".to_owned());
+    tree.push(format!(
+      "└─ body       {}",
+      if group_box {
+        "padded 12 · edge 1, border · radius-md · 10 apart"
+      } else {
+        "16 apart"
+      }
+    ));
+    tree.push("   ├─ field   Display name, required".to_owned());
+    tree.push("   ├─ field   Bio, optional".to_owned());
+    tree.push("   ├─ field   Time zone, its label beside it".to_owned());
+    tree.push("   └─ row     Reset · Save profile".to_owned());
 
     let to_legend = self.legend.clone();
+    let (to_variant, pick_variant) = (self.variant.clone(), self.variant.clone());
+    let variant = self.variant.get();
     let flags = [self.disabled.clone(), self.full_width.clone()];
     let to_description = self.description.clone();
     self.playground.card(
@@ -166,17 +200,25 @@ impl FieldsetPage {
         tree,
         controls: vec![
           prop("legend", "&str", field(&self.legend)),
+          prop(
+            "variant",
+            "FieldsetVariant",
+            self
+              .playground
+              .select(0, &VARIANTS, &variant, move |which| pick_variant.set(which)),
+          ),
           divider(),
           flag("description", &self.description),
           flag("disabled", &self.disabled),
           flag("full_width", &self.full_width),
         ],
-        changed: [legend != "Profile", !description, disabled, full_width]
+        changed: [legend != "Profile", group_box, !description, disabled, full_width]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
         reset: Arc::new(move || {
           to_legend.set("Profile".to_owned());
+          to_variant.set(0);
           to_description.set(true);
           for flag in &flags {
             flag.set(false);
@@ -231,11 +273,13 @@ impl Component for FieldsetPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 0),
+      playground: Playground::new(ctx, 1),
       legend: ctx.signal("Profile".to_owned()),
+      variant: ctx.signal(0),
       description: ctx.signal(true),
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
+      startup: [ctx.signal(true), ctx.signal(true), ctx.signal(false)],
       name: ctx.signal("Ivan Zaida".to_owned()),
       bio: ctx.signal(String::new()),
       zone: ctx.signal("Europe/Kyiv".to_owned()),
@@ -274,12 +318,26 @@ impl Component for FieldsetPage {
         ),
       )
       .disabled(true);
+    // The board's group box: three options of an app's start, each a checkbox bound to its own signal.
+    let [login, restore, updates] = self.startup.clone();
+    let group_box = Fieldset::new("Startup")
+      .variant(FieldsetVariant::GroupBox)
+      .child(Checkbox::new("Open at login").bind(login))
+      .child(Checkbox::new("Restore windows").bind(restore))
+      .child(Checkbox::new("Check for updates").bind(updates));
     let fieldset_rows = [
       (
         "legend",
         "&str",
         "",
         "What the fields are, together, in 15 and semibold: what the fieldset is called to what reads the tree.",
+      ),
+      (
+        "variant",
+        "FieldsetVariant",
+        "Boxed",
+        "Boxed: the edge around the legend and the fields. GroupBox: a small legend over a box of what it holds, \
+         250 wide.",
       ),
       (
         "description",
@@ -309,7 +367,7 @@ impl Component for FieldsetPage {
         "full_width",
         "bool",
         "false",
-        "As wide as what holds it, in place of 400.",
+        "As wide as what holds it, in place of 400 (250 as a group box).",
       ),
     ];
     let summary_rows = [
@@ -360,7 +418,7 @@ impl Component for FieldsetPage {
         title: "Fieldset",
         description: "Fields that go together under a legend, which it disables together; and at the top of a form, \
                       the summary of what is wrong in it, with a link to each field.",
-        import: Some("use lurq::ui::{ErrorSummary, FieldError, Fieldset};"),
+        import: Some("use lurq::ui::{ErrorSummary, FieldError, Fieldset, FieldsetVariant};"),
         status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
@@ -371,6 +429,24 @@ impl Component for FieldsetPage {
           "Every prop of Fieldset is a control on the right. The fieldset on the stage is the board's: a required \
            field, an optional one, one with its label beside it, and its actions.",
           playground,
+        ),
+        Section::new(
+          "Group box",
+          "The board's Group Box is the fieldset's GroupBox variant: the legend small and muted over a box of what \
+           it holds, as a desktop dialog groups a few options. It names its group and disables it as any fieldset \
+           does.",
+          self.frame.demo(
+            2,
+            group_box,
+            ".variant(FieldsetVariant::GroupBox)",
+            &[
+              "Fieldset::new(\"Startup\")",
+              "    .variant(FieldsetVariant::GroupBox)",
+              "    .child(Checkbox::new(\"Open at login\").bind(login))",
+              "    .child(Checkbox::new(\"Restore windows\").bind(restore))",
+              "    .child(Checkbox::new(\"Check for updates\").bind(updates))",
+            ],
+          ),
         ),
         Section::new(
           "Disabled",

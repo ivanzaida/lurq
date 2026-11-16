@@ -1475,10 +1475,10 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 
 ## Breadcrumb
 
-The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on.
+The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on. As a path control, the folders of a path in a bar, as a file manager has them.
 
 ```rust
-use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, icons};
+use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, BreadcrumbVariant, icons};
 
 Breadcrumb::new([
   BreadcrumbStep::new("Settings").value("/settings"),
@@ -1494,15 +1494,30 @@ Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
   .max_shown(4)
   .separator(BreadcrumbSeparator::slash())
   .mount(ctx);
+
+// A path control: the parts of a path are its steps, each told as the path as far as it. Mounted, it folds the
+// middle of a path longer than its room into the menu of the ellipsis.
+Breadcrumb::path("H:\\projects\\lurq\\crates").on_select(|folder| open(folder)).mount(ctx);
+
+// The same bar for steps of the app's own.
+Breadcrumb::new([
+  BreadcrumbStep::new("Macintosh HD").icon(icons::DRIVE).value("/"),
+  BreadcrumbStep::new("projects").icon(icons::FOLDER).value("/projects"),
+])
+.variant(BreadcrumbVariant::Path);
 ```
 
 | Builder | |
 | --- | --- |
 | `new(steps)` | A breadcrumb of these steps, in order. The last is the page one is on: text, not a link. A `&str` is a step of that label. `Breadcrumb::default()` has none |
 | `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has |
+| `Breadcrumb::path(&str)` | A path control: the path of a folder or a file as a bar of its parts, the `Path` variant of `BreadcrumbStep::path`'s steps, called "Path", which overflows. `on_select` is told the path as far as the part pressed |
+| `BreadcrumbStep::path(&str)` | The steps of a path, apart at `/` and `\`: a drive (`H:`, whose value is `H:\`), the root (`/`) or a share (`\\nas\media`) first, with the icon of a drive, a `~` with a home's, the rest with a folder's. A path to a file is given the file's icon by the app, on the last step |
+| `variant(..)` | `BreadcrumbVariant::Plain` (the default: links in a line of text) or `Path` (segments in a bar, the last in a box of its own), or a variant the theme's recipe names |
+| `overflow(bool)` | Mounted, the steps it has no room for go into the menu of the ellipsis, the ones nearest the first first, the first and the last never, and come back as it is given room. With `max_shown` too, no more than that many are shown where there is room for more. It does nothing to a breadcrumb that is not mounted: that one is its still form (see below) |
 | `on_select(Fn(&str))` | Called with the value of the step followed, after the step's own handlers |
 | `max_shown(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_shown - 1`; never fewer than two. All of them without it |
-| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu` |
+| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from, and which steps one that overflows has no room for. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu`, and it drops no step |
 | `menu(Signal<bool>, ElementRef)` | Whether the menu of the hidden steps is open, and what it hangs from, where the app keeps them, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
 | `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
@@ -1512,9 +1527,11 @@ Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
 - Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
 - In the design the steps are 8 apart in the body's 14; the links are in `MutedForeground` and the page in `Foreground` at 500; a chevron of 14 in `MutedForeground` stands between each two. The ellipsis is a square of 24 filled with `Highlight` (the board's `$accent`), with the small radius and an icon of 16 in `Foreground`. Under the pointer a link is in `Foreground`; the ring of the focus is around the link. A step's icon is 14, 4 before its text. A disabled breadcrumb is dimmed, follows nothing and is no stop of Tab.
+- The path control of the design (`Path Control`) is the `Path` variant: a bar 28 high on `Muted` with the medium radius, 4 in from its sides, its segments touching. A segment is 22 high with the small radius, 6 in, an icon of 13 in `MutedForeground` 5 before a text of 12 in `Foreground`; a chevron of 12 in `MutedForeground` stands between each two; the last, the folder one is in, is on `Background` in an edge of 1 in `Border`. The board draws no segment under the pointer and no ellipsis in the bar: a segment has the `StateHover` and `StatePressed` veils, and the ellipsis is a square of 22 with an icon of 13.
+- **In a room narrower than its steps** a breadcrumb has two forms. The one that folds is `overflow(true)` with `mount(ctx)`: it measures before the frame is painted, so its first frame at a width is the settled one, and where even the first step, the ellipsis and the last have no room, the last is cut with an ellipsis. The still one is every other breadcrumb: one built on its own (`build`, `.into()`), with `overflow` or without, and a mounted one without `overflow`. It keeps nothing of what was measured, so it folds nothing: its root is no wider than its room, its last step gives way and is cut with an ellipsis, and the steps before it keep their widths, so that links wider together than the room run past its end. A breadcrumb in a window a person can narrow is the folding one; a still one is for a place that always has its room, or one that hides by count with `max_shown`.
 - A theme gives the separator a renderer of its own with `set_part_renderer::<Breadcrumb, BreadcrumbPartRenderer>(BreadcrumbPart::Separator, ..)`, built once for each place between two steps; or restyles it by the recipe.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb" (or its `label`), each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis, called "Show the hidden steps" (or its `more_label`), says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
-- A renderer that draws another breadcrumb has `view.shown()` (the steps to draw, by index), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
+- A renderer that draws another breadcrumb has `view.shown()` (the steps to lay out, by index: all but those over `max_shown`; `view.hidden` is what the ellipsis stands for, those a row dropped among them), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
 
 ## Pagination
 
@@ -1897,7 +1914,7 @@ Card::new()
 - A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its body is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
 - Parts: `CardPart::Root` (the surface; what is pressed), `Content` (the header over the body, padded), `Header` (the text and the action), `Text` (the title over the description), `Title`, `Description`, `Action`, `Body` (what the app put in it), `Footer`. States: `CardState::Pressable`, `Disabled`, `Footer` (it has a footer under its content; the line over the footer is the content's `underline`).
 - In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its content is padded 24 with 24 between the header and the body; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the body is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
-- The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the body.
+- A surface of the app's own is a card with its parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what it holds as the body. The settings card and the stat card of the design are components of their own: a [settings card](#settings-card) and a [stat card](#stat-card).
 - To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
 - A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
 
@@ -2529,10 +2546,10 @@ RadioCard::new("Team")
 
 ## Fieldset
 
-Fields that go together, under a legend that says what they are: the profile of an account, the address of an order.
+Fields that go together, under a legend that says what they are: the profile of an account, the address of an order. As a group box, a few options of a desktop dialog under a small legend.
 
 ```rust
-use lurq::ui::{Button, Field, Fieldset, Input};
+use lurq::ui::{Button, Checkbox, Field, Fieldset, FieldsetVariant, Input};
 
 Fieldset::new("Profile")
   .description("Shown to people you share a workspace with.")
@@ -2540,20 +2557,28 @@ Fieldset::new("Profile")
   .field(Field::new("Bio", Input::new(bio).full_width(true)).optional(true))
   .child(Button::new("Save profile"))
   .disabled(locked.get());
+
+// A group box: the legend over a box of what it holds.
+Fieldset::new("Startup")
+  .variant(FieldsetVariant::GroupBox)
+  .child(Checkbox::new("Open at login").bind(login))
+  .child(Checkbox::new("Restore windows").bind(restore));
 ```
 
 | Builder | |
 | --- | --- |
+| `variant(..)` | `FieldsetVariant::Boxed` (the default: the edge around the legend and the fields) or `GroupBox` (a small legend over a box of what it holds), or a variant the theme's recipe names |
 | `description(&str)` | More of it, 4 under the legend, in the muted color |
 | `field(Field)` | Adds a field, made as wide as the fieldset (`Field::full_width`) |
 | `child(element)`, `children(..)` | Adds anything else under what is there: a row of buttons, a group of cards, an [error summary](#error-summary) |
 | `disabled(bool)` | Every control in it takes no input and Tab passes it by; the whole fieldset is dimmed |
-| `full_width(bool)` | As wide as what holds it, in place of 400 |
+| `full_width(bool)` | As wide as what holds it, in place of 400 (250 as a group box) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [field](#field) has them |
 
 - What it holds is one under another, 16 apart, and stretched to its width: a field keeps a width of its own unless it is made full width, which `field` does.
-- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`. States: `FieldsetState::Disabled`, `FullWidth`.
+- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`, `Body` (what it holds; a group box's edge is around it). States: `FieldsetState::Disabled`, `FullWidth`.
 - In the design the fieldset is 400 wide, padded 20, with an edge of 1 of `Border` inside it and the large radius. The legend's title is 15 and semibold in `Foreground`, its description 13 in `MutedForeground`.
+- The group box of the design (`Group Box`) is the `GroupBox` variant: 250 wide, the legend's title 12 and semibold in `MutedForeground`, and 6 under it a box with an edge of 1 of `Border` and the medium radius, padded 12, what it holds 10 apart. The board gives it no description: one is 12, 2 under the title. It names its group and disables it as the boxed fieldset does.
 - A disabled fieldset disables its root, and an element that is disabled takes everything in it out of input, whatever it is: a control the app built itself too. The fieldset is dimmed as a whole, so a control in it is not dimmed again by its own disabled state.
 - To what reads the tree it is a `group` called by its legend and described by its description.
 
@@ -4942,6 +4967,105 @@ TrayPopover::new("lurq")
 - Parts: `TrayPopoverPart::Panel`, `Header`, `Media` (the tile), `Icon`, `Text`, `Title`, `Status`, `StatusDot`, `Description` (the status's words), `Separator` and `Line`, `Toggle` and `ToggleLabel`, `Item` (a command), `Body` (what the app puts among the rows). Variants by `TrayStatusVariant`. States: `TrayPopoverState::Disabled`, resolved on a row's parts.
 - In the design the panel is 280 wide on `Popover` in an edge of 1 in `Border`, 12 round, with the `Lg` shadow, padded 10, what it holds 8 apart. The header is 4 from the sides: the mark of 16 in `PrimaryForeground` on a tile of 28 in `Primary`, `Md` round, 10 before the title (13, semibold) over the status 1 under it, a dot of 6 in `Success` 5 before words of 11 in `MutedForeground`. A line of 1 in `Border` has 4 over and under it. A toggle's row is 30 and a command 28, both 4 from their sides with words of 13; the command under the pointer is in `Highlight`, `Sm` round. The board draws the tray the popover hangs from, which is the platform's, and no focused or disabled row.
 
+## Path Field
+
+The path of a folder or a file in an input, with a button beside it that browses for one: where a project is kept, the file a report is written to.
+
+```rust
+use lurq::{files::FileDialog, ui::{PathField, PathKind}};
+
+// path: Signal<String>. The app answers the button: it opens what it likes and sets the signal.
+PathField::new(path.clone()).on_browse(move || choose_a_folder(&path));
+
+// Told what its path is of and mounted, the button opens the system's dialog and sets what is chosen.
+PathField::new(folder.clone())
+  .picks(PathKind::Folder)
+  .dialog(FileDialog::new().title("Project folder"))
+  .on_pick(|path| open_project(path))
+  .mount(ctx);
+
+PathField::new(report.clone())
+  .picks(PathKind::SaveFile)
+  .browse_label("Save as…")
+  .dialog(FileDialog::new().filter("Markdown", &["md"]).file_name("report.md"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `PathField::new(Signal<String>)` | A field bound to the path: it shows what the signal holds, and what is typed or chosen is set on it |
+| `on_browse(Fn())` | Called on a press of the button, before the system's dialog opens where the field opens one. A second one is called after the first |
+| `picks(PathKind)` | What the path is of: `PathKind::Folder`, `File` (one that is there, to open) or `SaveFile`. Mounted, the button then opens the system's dialog for it and sets the path chosen; of what is dropped on the field, a folder or a file of that kind is taken. Without it the button only tells `on_browse`, and a drop is taken whatever it is |
+| `dialog(FileDialog)` | The dialog as the button opens it: its title, the kinds of file it shows, the name a file to save starts with. It opens where the field's path is (in the folder itself for a folder, in the file's folder for a file) unless it is given a folder of its own |
+| `on_pick(Fn(&str))` | Called with the path a person chose in the dialog or dropped on the field, once the signal is set. Not for what is typed (`on_input`), nor for what the app sets |
+| `mount(ctx)` | Puts it where it goes, keeping the dialog it opens: a second press while the dialog is open opens no second one. `build(theme)` and `From<PathField> for Element` are its still form, whose button tells `on_browse` and opens nothing |
+| `browse_label(&str)` | What the button says, and is called to what reads the tree: "Browse…" unless told otherwise |
+| `icon(..)` | The glyph at the start of the box, by its name in the theme's set: a folder, or a file for a field that picks one, unless told otherwise. `icon(None)` takes it away |
+| `placeholder(&str)`, `size(..)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `label(&str)`, `name(..)`, `on_input(..)`, `on_submit(..)` | As an [input](#input) has them. `PathFieldSize` is the input's sizes, the button's too, and the small one unless told: the board's. A read-only field's button takes nothing; `full_width` is in place of 440 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, what is typed in; the button has it with `-browse` after it |
+
+- It is an [input](#input) and an outlined [button](#button) side by side: Tab stops in the input, then on the button; Enter in the input is told to `on_submit`, Enter and Space on the button press it.
+- The dialog is the system's with the feature `file_dialog`, through `lurq::files::FileDialog` (`pick_folder`, `pick`, `pick_save`): see [Files a person gives](../styling-events/#files-a-person-gives) for what each platform has. A browser has no dialog for a folder or for where to save, and no path of a file: there the button tells `on_browse` and nothing is chosen. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) the broker answers in the dialog's place.
+- A folder or a file dragged from the system and dropped on the field is its path, as one chosen in the dialog is: set on the signal, then told to `on_pick`. A field that is disabled or read only takes none.
+- In a [field](#field) it is called by the field's label and judged as the field is: `Field::new("Output folder", PathField::new(path))`, mounted by a field that is mounted.
+- Parts: `PathFieldPart::Root` (the two side by side), `Field` (laid over the input's root), `Control` (over the input's box: the type of the path), `Icon` (over the input's icon), `Button` (over the button's root). States: `PathFieldState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design (`Path Field`) it is 440 wide, the input and the button 8 apart and 32 high. The path is in the mono type at 12 in `Foreground`, 10 from the edge of the box, after a folder of 16 in `MutedForeground` and 8; the button is outlined, 12 in from its sides. A medium field is 36 with a path of 13, a large one 40 with a path of 14. A path longer than the box scrolls in it as in any input, and the button keeps its room.
+- To what reads the tree the input is a `textbox` called by its label, and the button a `button` called by what it says.
+- A renderer that draws another path field (`PathFieldRenderer`) is given `view.input` (the input's own view), `view.field()` (the input in its place, which takes a drop), `view.button()`, `view.root()` and `view.browse()` (what a press of the button does).
+
+## Settings Card
+
+A card of a settings page: one setting with its icon, its title, its description and the control that sets it, which may open to more settings; or the rows of several settings in one card.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, ListItem, Select, SelectSize, SettingsCard, Switch, icons};
+
+// One setting in a card of its own. With rows it opens to them; mounted, it keeps whether it is open.
+SettingsCard::new(
+  ListItem::new("App theme")
+    .icon(icons::PALETTE)
+    .description("Choose how lurq looks.")
+    .trailing(Select::new(theme, themes).size(SelectSize::Sm)),
+)
+.item(ListItem::new("High contrast").trailing(Switch::new("High contrast").label_hidden(true).bind(contrast)))
+.item(ListItem::new("Accent color").value("Blue").chevron(true).href("/settings/accent"))
+.mount(ctx);
+
+// Several settings in one card, a row each.
+SettingsCard::group([
+  ListItem::new("Open at login")
+    .description("Start lurq when you sign in to this computer.")
+    .trailing(Switch::new("Open at login").label_hidden(true).bind(login)),
+  ListItem::new("Default project folder")
+    .description("Where new projects are created.")
+    .trailing(Button::new("Choose…").variant(ButtonVariant::Outline).size("sm")),
+])
+.label("Startup");
+```
+
+| Builder | |
+| --- | --- |
+| `SettingsCard::new(ListItem)` | The card of one setting: the row is its own, with its icon, its title, its description and the control that sets it at its end |
+| `SettingsCard::group(rows)` | A card of several settings, a row each, with a line between each two |
+| `item(ListItem)`, `items(rows)` | Rows, after those it holds: the settings of a group, or what the card of one setting opens to |
+| `open(bool)` | Whether the rows under the card's own row are shown, where the app holds it: the card opens nothing itself, and tells `on_open_change` |
+| `bind(Signal<bool>)` | Open while the signal is true, which a press of the card's row turns; the handlers of `on_open_change` are told after it is set |
+| `default_open(bool)` | Whether a card that keeps it itself starts open |
+| `on_open_change(Fn(bool))` | Called on a press of the card's own row with what the card is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
+| `mount(ctx)` | Puts it where it goes, keeping whether it is open where the app says neither `open` nor `bind`. Built on its own (`build`, `.into()`) with neither, it is its still form, as it starts |
+| `label(&str)` | What the card is called to what reads the tree, in place of the title of its own row. It draws nothing: a heading over a group of settings is the page's own text |
+| `density(Density)`, `width(..)` | How high its rows are, whatever the theme is at; a width of its own in place of all the room it is given |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` takes everything in the card out of input and dims it; `force` draws the card's own row where it opens, and the pressed rows of a group. A row has the id the app gave it |
+
+- A row is a [list item](#list): its `icon`, its `description`, the control at its end (`trailing`), a `value` and a `chevron` for one that leads to a page of its own, which `on_click` or `href` makes pressed. The card puts each in the list item's `Setting` state, which is the design's Settings Row. Nothing else is a settings row: `ListItem::new("Open at login").description("..").trailing(Switch::new(..))` in a `SettingsCard`.
+- A card with a row of its own and rows under it opens. Its own row is pressed as a whole, by the pointer and by Enter and Space, after what the app made of its press, and shows a chevron at its end: down while the card is closed, up while it is open. A press of the control in that row is the control's and not the card's, and the control is a stop of Tab after the row. The rows open and close with their height over the theme's base duration and fade with it, as a [collapsible](#collapsible)'s panel does, and at once where motion is reduced; while the card is closed they are not there.
+- In a card the rows that are pressed and the controls in rows are one group to Up and Down, Home and End, as in a list.
+- Parts: `SettingsCardPart::Root` (the card), `Header` (laid over the root of the card's own row: the room over and under it), `Panel` (what opens and closes), `Body` (what the panel holds, under a line). States: `SettingsCardState::Open`, `Disabled`, `Header` (it has a row of its own). A row's parts are the list item's.
+- In the design (`Settings Card`, `Settings Row` and the cards of the Preferences window) the card is on `Card` with an edge of 1 in `Border` and the large radius, as wide as its room. A setting is 14 in from its sides, 12 between what it holds: an icon of 20 in `Foreground`, the title 13 at 500 over the description, 12 in `MutedForeground`, 2 under it, the control, and a chevron of 16 in `MutedForeground` 12 after it. The card's own row is 14 from the top and the bottom of the card, 61 high with a description; a row of a group is 12 from them, 57 high, with a line of 1 in `Border` between each two, along the bottom of the row over it. The board draws no setting of one line and no open card: a setting of one line is 44 at the least, and the rows of an open card are under a line. A longer title is cut with an ellipsis, a longer description wraps, and the control keeps its room. In a room that leaves the title and the description less than 80 beside the control (a card in a window as narrow as a phone), the control and the chevron go under the text, at the row's start, and the description is not broken in its words; a wide room never reaches it.
+- A setting follows the [density](../theme/#density) by half of a row's step over and under it: a row of a group with a description is 49, 65 and 69 at compact, comfortable and touch, and one of a single line 36, 52 and 56.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the card is a `group` called by its label or the title of its own row, its rows a `list`; the row of a card that opens is a `button` with `a11y_expanded`.
+- A renderer that draws another card (`SettingsCardRenderer`) starts from `view.root()` and puts in it `view.header()` (the card's own row with its behavior), `view.panel()` (what opens and closes, with the rows while the card is open) or `view.rows()` (the rows of a group).
+
 ## Column View
 
 A hierarchy as columns side by side: choosing an item of one shows what it holds in the next, as a file browser's columns do.
@@ -6284,11 +6408,11 @@ List::new().contained(true).title("Recent").item(ListItem::new("theme.md").chevr
 | `label(&str)`, `density(Density)`, `force(..)` | What the list is called to what reads the tree; the density of every row; every row drawn as under the pointer or focused |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them, on the row and on the list |
 
-- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
+- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a row that is pressed, what the app put at its end with `trailing` keeps its own presses, which are not the row's, and is a stop of Tab after the row. A title longer than its room is cut with an ellipsis, and a description goes on to the next line. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
 - A row with `href` goes to its path in the router around it (`router::current_navigator`), after its `on_click`; outside a router it goes nowhere.
 - What is selected is the app's: `selected(true)` on the row. A list of which one or many are chosen by a person is a [listbox](#listbox).
 - To what reads the tree a list is a `list` called by its label or its title. A row is a `listitem`; a pressed one a `button`, a `link` with a path, a `checkbox` or `radio` with one before its text (with `a11y_checked`), and a selected one says `a11y_selected`.
-- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`. Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
+- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`, `Setting` (it is a row of a [settings card](#settings-card), which draws it as the design's Settings Row). Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
 - In the design a row is 36 high (28, 44 and 56 at the compact, comfortable and touch densities), 12 in, with the medium radius and 12 between what it holds; with a description it is 16 higher, 52 at the default, its title at 500. The title is the body's type at 14, the description 12 in `MutedForeground` 2 under it, a value 13 and a chevron of 14 in `MutedForeground`, a note the mono type at 11, an icon 16 in `MutedForeground`. The selected row is on `Highlight`. A pressed row under the pointer and held down has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. Under a finger a row is the board's mobile row: 56 high, 16 in, its title at 16, its value at 15, its chevron 18, its icon of 18 on a tile of 32 on `Muted` with the large radius.
 - Rows are 2 apart; with lines between them they touch, a line of 1 in `Border` from the inset to the end along the bottom of the row over it, inside it: the lines add no height, and a contained list of three rows is 32 + 3 × 36 = 140, as the board's is. A disabled row says `a11y_disabled` to tooling. A contained list is a box on `Background` with an edge of 1 in `Border` and the large radius; its header is 32 high on `Muted`, 12 in, with a line under it, its title the mono type at 11 in `MutedForeground`, 1 apart; its rows are square, their titles 13 and 8 from what is at their end.
 - A theme's renderer is given `ListItemView` (`view.root(children)`, `view.leading()`, `view.content()`, `view.trailing()`, `view.render()`) and `ListView` (`view.root()`, `view.header()`, `view.rows()`, `view.separator()`).

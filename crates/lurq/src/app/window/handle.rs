@@ -11,6 +11,12 @@ impl WindowHandle {
   pub(crate) fn dialog_window(&self) -> DialogWindow {
     DialogWindow(Arc::downgrade(&self.window.inner))
   }
+  /// The file dialog broker of the window's tree, while it lives.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn file_dialog_broker(&self) -> Option<crate::mcp::FileDialogBroker> {
+    self.window.file_dialog_broker()
+  }
+
   /// The system's handles of the window, where the shell recorded them: the parent of a dialog of the system.
   pub(crate) fn parent(&self) -> Option<super::parent::ParentWindow> {
     self.window.parent()

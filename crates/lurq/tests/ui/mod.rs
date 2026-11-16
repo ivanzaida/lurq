@@ -96,6 +96,7 @@ mod notification_center;
 mod number_input;
 mod outcome;
 mod pagination;
+mod path_field;
 mod picture;
 mod persona;
 #[cfg(feature = "canvas")]
@@ -120,6 +121,9 @@ mod seek_bar;
 mod select;
 mod selection_marquee;
 mod separator;
+mod settings_card;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;

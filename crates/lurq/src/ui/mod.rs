@@ -109,6 +109,7 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+mod path_field;
 mod picture;
 mod persona;
 #[cfg(feature = "canvas")]
@@ -136,6 +137,7 @@ mod select;
 mod selection;
 mod selection_marquee;
 mod separator;
+mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
@@ -209,7 +211,7 @@ pub use bar_list::{BarList, BarListItem, BarListPart, BarListRenderer, BarListRo
 pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteState, BlockquoteView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
-  BreadcrumbStep, BreadcrumbView,
+  BreadcrumbStep, BreadcrumbVariant, BreadcrumbView,
 };
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
@@ -306,7 +308,7 @@ pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
-  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
+  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetVariant, FieldsetView,
 };
 pub use file_upload::{
   FileUpload, FileUploadPart, FileUploadRenderer, FileUploadState, FileUploadView, UploadFile, UploadState,
@@ -406,6 +408,9 @@ pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
 };
+pub use path_field::{
+  PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
+};
 pub use picture::{
   PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
   PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
@@ -469,6 +474,9 @@ pub use selection_marquee::{
   SelectionMarqueeView,
 };
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
+pub use settings_card::{
+  SettingsCard, SettingsCardPart, SettingsCardRenderer, SettingsCardState, SettingsCardView,
+};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{

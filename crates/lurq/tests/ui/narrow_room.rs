@@ -10,10 +10,10 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, ColumnView, Combobox, DateField, DatePicker,
-    DateRangePicker, DropZone, Editable, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup,
-    Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput,
-    Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder,
-    Textarea, TimeField, TimePicker, Toast, TokenInput, TreeItem, TreeSelect, Waveform,
+    DateRangePicker, DropZone, Editable, ErrorSummary, Field, FieldError, Fieldset, FieldsetVariant, FileUpload, Input,
+    InputGroup, ListItem, Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome,
+    PasswordInput, PathField, Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select,
+    SettingsCard, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast, TokenInput, TreeItem, TreeSelect, Waveform,
   },
 };
 
@@ -97,6 +97,22 @@ fn a_search_field_is_no_wider_than_a_narrow_room() {
 }
 
 #[test]
+fn a_path_field_is_no_wider_than_a_narrow_room() {
+  fits(|| PathField::new(text()).id("it").into());
+}
+
+#[test]
+fn a_settings_card_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    SettingsCard::new(ListItem::new("Default project folder").description("Where new projects are created."))
+      .item(ListItem::new("Open at login"))
+      .open(true)
+      .id("it")
+      .into()
+  });
+}
+
+#[test]
 fn an_input_group_is_no_wider_than_a_narrow_room() {
   fits(|| InputGroup::new(Input::new(text())).id("it").into());
 }
@@ -145,6 +161,17 @@ fn a_fieldset_is_no_wider_than_a_narrow_room() {
   fits(|| {
     Fieldset::new("Profile")
       .description("What others see of you, wherever your name is shown.")
+      .child(Field::new("Display name", Input::new(text())))
+      .id("it")
+      .into()
+  });
+}
+
+#[test]
+fn a_group_box_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    Fieldset::new("Everything this app does when the computer starts")
+      .variant(FieldsetVariant::GroupBox)
       .child(Field::new("Display name", Input::new(text())))
       .id("it")
       .into()

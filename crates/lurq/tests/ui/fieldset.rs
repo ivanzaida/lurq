@@ -14,8 +14,8 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::color::Color,
   ui::{
-    Button, Case, ErrorSummary, ErrorSummaryPart, Field, FieldError, Fieldset, FieldsetPart, FieldsetState, Input,
-    Opacity,
+    Button, Case, ErrorSummary, ErrorSummaryPart, Field, FieldError, Fieldset, FieldsetPart, FieldsetState,
+    FieldsetVariant, Input, Opacity,
   },
 };
 
@@ -311,4 +311,154 @@ fn a_summary_adds_errors_after_the_first_and_a_line_has_its_own_id() {
   }
   let (_, y, _, height) = stage.bounds("name-error");
   assert!(height > 0.0 && y > 0.0, "the first line has its id");
+}
+
+/// The quad of the edge of a group box's body: the one edge painted that is `width` wide.
+fn box_edge(stage: &Stage, width: f32) -> Quad {
+  stage
+    .quads()
+    .into_iter()
+    .find(|quad| quad.border.is_some() && quad.width == width)
+    .expect("the group box should have an edge around what it holds")
+}
+
+#[test]
+fn a_group_box_is_the_board_s_small_legend_over_a_box_of_what_it_holds() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(
+        Fieldset::new("Startup")
+          .variant(FieldsetVariant::GroupBox)
+          .child(Row::new().id("first").height(16.0).width(106.0))
+          .child(Row::new().id("second").height(16.0).width(129.0))
+          .child(Row::new().id("third").height(16.0).width(138.0))
+          .id("group"),
+      )
+      .into()
+  });
+  // 250 wide, with no edge of its own: the legend is over the box.
+  let (x, y, width, height) = stage.bounds("group");
+  assert_eq!(width, 250.0);
+  assert!(stage.border("group").is_none(), "the edge is around what it holds");
+  let title = stage.text_quad("Startup").unwrap();
+  assert_eq!((title.x, title.y), (x, y));
+  assert_eq!(stage.text("Startup"), (light(PaletteColor::MutedForeground), 12.0));
+
+  // The box: 6 under the legend, an edge of 1 in the border's color with the medium radius, padded 12, its
+  // children 10 apart.
+  let edge = box_edge(&stage, 250.0);
+  assert!((edge.y - (title.y + title.height + 6.0)).abs() < 0.5);
+  let side = edge.border.and_then(|border| border.top).unwrap();
+  assert_eq!((side.width, side.color), (1.0, light(PaletteColor::Border)));
+  assert!(
+    edge.border_radius.is_some_and(|radius| radius.top_left == 6.0),
+    "radius-md"
+  );
+  let (first, second, third) = (stage.bounds("first"), stage.bounds("second"), stage.bounds("third"));
+  assert_eq!((first.0 - edge.x, first.1 - edge.y), (12.0, 12.0));
+  assert_eq!(second.1 - (first.1 + first.3), 10.0);
+  assert_eq!(third.1 - (second.1 + second.3), 10.0);
+  // Three rows of 16 with 10 between them and 12 around: the board's 92, and the whole is its 113.
+  assert_eq!(edge.height, 92.0);
+  assert!(
+    (y + height - (edge.y + edge.height)).abs() < 0.01,
+    "the box ends the group"
+  );
+  assert!(
+    (height - 113.0).abs() < 1.5,
+    "the board's group box is 113 high: {height}"
+  );
+}
+
+#[test]
+fn a_group_box_names_its_group_wraps_a_long_legend_and_is_disabled_as_a_fieldset_is() {
+  let presses = Arc::new(AtomicUsize::new(0));
+  let count = presses.clone();
+  let legend = "Everything this app does when the computer starts and a person signs in";
+  let mut stage = Stage::new(move |_| {
+    let count = count.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(
+        Fieldset::new(legend)
+          .variant(FieldsetVariant::GroupBox)
+          .description("Applies the next time you sign in.")
+          .child(Button::new("Open at login").id("open").on_click(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+          }))
+          .disabled(true)
+          .id("group"),
+      )
+      .into()
+  });
+  // A legend longer than the box goes on to the next line, in the box's width; the description is under it in 12.
+  let (x, _, width, _) = stage.bounds("group");
+  assert_eq!(width, 250.0);
+  let wrapped = stage.text_quad(legend).expect("the legend is painted");
+  assert!(wrapped.height > 25.0, "it goes on to the next line: {}", wrapped.height);
+  for quad in stage.quads() {
+    if matches!(&quad.content, QuadContent::Text { .. }) {
+      assert!(quad.x + quad.width <= x + width + 0.5, "no text is past the box");
+    }
+  }
+  assert_eq!(
+    stage.text("Applies the next time you sign in."),
+    (light(PaletteColor::MutedForeground), 12.0)
+  );
+  // Disabled, nothing in it is pressed or focused.
+  stage.click("open");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(presses.load(Ordering::SeqCst), 0);
+  let theme = stage.app.theme().clone();
+  let case = Case::new()
+    .variant(FieldsetVariant::GroupBox)
+    .state(FieldsetState::Disabled, true);
+  assert_eq!(
+    theme
+      .resolve::<Fieldset>(&case, None)
+      .part(FieldsetPart::Root)
+      .rest()
+      .opacity,
+    Some(Opacity::Level(OpacityLevel::Disabled))
+  );
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_group_box_is_a_group_called_by_its_legend_to_tooling() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(Fieldset::new("Startup").variant(FieldsetVariant::GroupBox).id("group"))
+      .into()
+  });
+  let said = |stage: &mut Stage, key: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("group")
+      .and_then(|element| element.description(key))
+  };
+  assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("group"));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Startup"));
+}
+
+#[test]
+fn a_full_width_group_box_fills_its_room() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(
+        Fieldset::new("Startup")
+          .variant(FieldsetVariant::GroupBox)
+          .full_width(true)
+          .id("group"),
+      )
+      .into()
+  });
+  assert_eq!(stage.bounds("group").2, 384.0);
 }
