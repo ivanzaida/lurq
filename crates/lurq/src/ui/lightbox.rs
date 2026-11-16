@@ -24,7 +24,10 @@ use crate::{
     layout_kind::{Justify, ScrollState},
     text_style::{FontWeight, TextAlign},
   },
-  node::{CursorIcon, Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension, outline::Outline},
+  node::{
+    CursorIcon, Element, HitTestBehavior, NodeUpdate, border::Border, color::Color, dimension::Dimension,
+    outline::Outline,
+  },
 };
 
 /// How much one press of Zoom in, or one notch of the wheel, brings the picture closer.
@@ -513,6 +516,8 @@ struct LightboxHost {
   room: Signal<(f32, f32)>,
   /// The picture whose pixels came, by its place.
   came: Signal<Option<usize>>,
+  /// Whether it was open at the last render: one that opens again shows its picture fitted.
+  was_open: std::sync::atomic::AtomicBool,
   /// The pictures about the one shown brought on ahead, by their places, with the loads held while they are
   /// on their way.
   ahead: parking_lot::Mutex<Vec<(usize, Option<crate::resources::Load>)>>,
@@ -541,6 +546,7 @@ impl Component for LightboxHost {
       stage: ElementRef::new(),
       room: ctx.signal((0.0, 0.0)),
       came: ctx.signal(None),
+      was_open: std::sync::atomic::AtomicBool::new(false),
       ahead: parking_lot::Mutex::new(Vec::new()),
       ahead_tick,
       ahead_wake,
@@ -557,6 +563,17 @@ impl Component for LightboxHost {
       .unwrap_or_else(|| index_signal.get())
       .min(count.saturating_sub(1));
     let zoom_signal = lightbox.zoom.clone().unwrap_or_else(|| self.zoom.clone());
+    // Opened again, the picture is fitted, as it is the first time: how close it was is the lightbox's own, and
+    // the app's where it gives a signal for it.
+    let open = lightbox.inline || lightbox.open.get();
+    let opened = open && !self.was_open.swap(open, std::sync::atomic::Ordering::Relaxed);
+    if !open {
+      self.was_open.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    if opened && lightbox.zoom.is_none() && self.zoom.get_untracked() != 1.0 {
+      self.zoom.set(1.0);
+      self.scroll.set_scroll(0.0, 0.0);
+    }
     let max = lightbox.zoom_max;
     let zoom = zoom_signal.get().clamp(1.0, max);
     let room = self.room.get();
@@ -632,6 +649,8 @@ impl Component for LightboxHost {
         .range(1.0, max)
         .wheel_zoom(ZOOM_STEP)
         .drag_pan(true)
+        // It pans by a drag and by the arrows: the board draws no bars over the picture's black.
+        .scrollbars(false)
         .zoom(zoom_signal.clone())
         .scroll(self.scroll.clone());
       ZoomScroll::mount(ctx, props, picture)
@@ -956,11 +975,22 @@ impl LightboxView {
   pub fn stage(&mut self) -> Element {
     let full = Dimension::Pct(100.0);
     let layer = || Stack::new().size(full, full).hit_test(HitTestBehavior::ContentOnly);
+    // The stage is what the keys act on, and what takes the focus as the lightbox opens: the arrows, `+`, `-`, `0`
+    // and Escape work at once, and Tab goes on to the buttons. Its ring shows where the keyboard put the focus.
+    let name = self
+      .lightbox
+      .pictures
+      .get(self.index)
+      .and_then(Picture::label_of)
+      .unwrap_or_else(|| Arc::from(format!("{} / {}", self.index + 1, self.count())));
     let mut room = Stack::new()
       .part(&self.part(LightboxPart::Stage))
       .width(full)
       .flex(1.0)
       .clip()
+      .tab_index(0)
+      .describe("a11y_role", "group")
+      .describe("a11y_name", name)
       .ref_element(self.stage.clone());
     if let Some(shown) = self.shown.take() {
       room = room.child(shown);
@@ -996,7 +1026,11 @@ impl LightboxView {
           .child(self.step(icons::CHEVRON_RIGHT, &words, "next", after)),
       );
     }
-    room.into()
+    let mut room: Element = room.into();
+    if !self.lightbox.inline {
+      NodeUpdate::autofocus(&mut *room.node, true);
+    }
+    room
   }
 
   /// The strip of small pictures along the bottom, the one shown marked, where it shows.
@@ -1226,6 +1260,8 @@ impl Themed for Lightbox {
       })
       .hovered(Control, |s| s.background(white_12))
       .focus_visible(Control, |s| s.outline(Outline::new(2.0, white)))
+      // Inside the stage, which reaches the panel's edges.
+      .focus_visible(Stage, |s| s.outline(Outline::new(2.0, white).offset(-2.0)))
       .base(ControlIcon, |s| s.square(20.0))
       .base(Level, |s| {
         fading(
