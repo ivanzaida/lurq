@@ -106,14 +106,14 @@ fn a_picture_made_of_the_same_plain_things_is_not_rendered_again_with_what_holds
 /// A picture of 160 by 90 with a lightbox, 8 in from the corner of a window of 600 by 400. The page fills the
 /// window, as a window's root does: what lies over the window is laid in the room the root has.
 fn with_a_lightbox(picture: impl Fn(Picture) -> Picture + Send + Sync + 'static) -> Stage {
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
       .title("Lake at dusk")
       .size_px(160.0, 90.0)
       .lightbox(true)
       .id("lake");
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(Row::new().padding(8.0).child(picture(lake)))
       .into()
   });
@@ -146,7 +146,7 @@ fn a_press_opens_the_picture_in_a_lightbox_and_escape_closes_it() {
   stage.click("lake");
   stage.pass();
   assert!(open.get());
-  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 600.0, 400.0), "over the window");
+  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 800.0, 400.0), "over the window");
   assert_eq!(level(&mut stage).as_deref(), Some("100%"), "the picture alone, fitted");
   assert!(
     stage.tree.get_element_by_id("lake-viewer-next").is_none(),
@@ -195,7 +195,7 @@ fn a_picture_that_is_chosen_by_a_press_opens_nothing_by_it() {
 
 #[test]
 fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
-  let mut stage = Stage::first_frame(600.0, 400.0, |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, |_| {
     let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
       .title("Lake at dusk")
       .size_px(320.0, 180.0)
@@ -205,7 +205,7 @@ fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
       .force_bar_shown(Some(true))
       .id("lake");
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(Row::new().padding(8.0).child(lake))
       .into()
   });

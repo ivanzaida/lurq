@@ -358,7 +358,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
-pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
+pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxVariant, LightboxView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
