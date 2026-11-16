@@ -3415,6 +3415,55 @@ let tour = Tour::new(step.clone())
 - Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
 
+## Notification
+
+Something that happened which a person may act on now or later: who or what it is from, a title and a line, when, what can be done about it, whether it was read. A card on its own, and a row of a list of them.
+
+```rust
+use lurq::ui::{Avatar, Notification, NotificationVariant};
+
+// The design's card: the bell, a title over a line, a button, and what dismisses it.
+Notification::new("Review requested")
+  .description("Ivy asked you to review feat/node-blur.")
+  .button("Review", move || open_review())
+  .on_close(move || dismiss(id));
+
+// A row of a list: who it is from, when, and that it was not read.
+Notification::new("Ivy Chen requested a review")
+  .description("feat/node-blur")
+  .media(Avatar::new("Ivy Chen"))
+  .time("2m")
+  .unread(true)
+  .variant(NotificationVariant::Row)
+  .on_click(move |_| open(id));
+```
+
+| Builder | |
+| --- | --- |
+| `Notification::new(&str)` | The title: what happened. It is what the notification is called |
+| `description(&str)` | More of it, under the title |
+| `media(element)` | Who or what it is from, before the text in place of the icon: an `Avatar`, an app's mark |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the bell, or none (`icon(None)`) |
+| `time(&str)` | When it happened, as the app words it: "2m" |
+| `unread(bool)` | Whether it was not read: it has the dot, and a row's title is medium |
+| `button(&str, Fn())` | Adds a button under the text: the first is the primary one, the others ghosts |
+| `action(element)` | Adds something of the app's own to the actions: a link, a menu's button. It adds, since a notification has several |
+| `child(element)`, `children(..)` | Elements under the description, for more than text |
+| `variant(impl Into<Name>)` | A `NotificationVariant`: `Card` (the default), with an edge and a shadow, or `Row`, as a list draws each |
+| `on_click(handler)` | A press of the whole notification: it opens what it is about. A second handler is called after the first |
+| `on_close(Fn())` | Called on a press of what dismisses it, which it has once it is given `on_close`: a "Dismiss" button after a card's own, a close control at the end of a row. The app takes the notification out of what it lists |
+| `close_label(&str)`, `unread_label(&str)` | What dismisses it says and is called ("Dismiss"), and what its dot is called to tooling ("Unread") |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the notification's states where it is pressed, and else those of a row's close control; `id` is the id of the box, with `<id>-close` and `<id>-action-0`, `<id>-action-1` for what is in it |
+
+- A notification stays: it is there until the app takes it out of what it lists. A [toast](#toast) leaves by itself and is shown over the window from anywhere; an [alert](#alert), a [banner](#banner) and a [callout](#callout) are part of the page they stand in and say something about it. It keeps nothing: whether it was read and whether it is listed are the app's, and it tells what a person did.
+- Given `on_click` it is pressed as a whole: a button to what reads the tree, a stop of Tab with the ring inside it, pressed by Enter and Space. Its own buttons and what dismisses it are pressed apart from it, each a stop of Tab after it. Without `on_click` it is an `article` that takes no focus and answers no pointer.
+- A title and a description longer than their room wrap; the time stays whole on one line; buttons that do not fit side by side go on to the next line. A card is 340 wide at most and as wide as a narrower room.
+- A row follows the theme's density: 56 high at the default, 48 compact, 64 comfortable and 68 under a finger. A row that was read keeps the room of the dot, so what stands after it lines up down a list.
+- Parts: `NotificationPart::Root`, `Unread` (the dot), `Media`, `Icon`, `Content` (the text over the body and the actions), `Text`, `Header` (the title, and on a card the time and the dot), `Title`, `Time`, `Description`, `Body`, `Actions`, `Action` (what it gives the theme's buttons), `Close` (a row's close control). Variants: `NotificationVariant::Card`, `Row`. States: `NotificationState::Unread`, `Pressable`.
+- In the design the card is 340 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow, padded 16: the bell of 16 in `Foreground`, 12 from the title (14, medium) over the description (13, `MutedForeground`, lines of 1.4) 4 under it, and 10 under them the buttons, 28 high, 10 from their sides and 8 apart. The row is 12 from its top, its bottom and its start and 16 from its end, with 10 between the dot of 7 in `Info`, the avatar of 32, the text (the title 13 over the description of 12 in `MutedForeground`, 1 apart) and the time in mono 11 in `MutedForeground`; under the pointer it is in `Highlight`, as the board draws its first row. The board draws no time and no dot on a card: they stand after its title. It draws no pressed card and no focus: a pressed card has the veils of those states.
+- A renderer that draws another notification starts from `view.media()`, `view.text()`, `view.content()`, `view.actions()`, `view.close()`, `view.unread_dot()`, `view.time()` and `view.root(children)` (the behavior), with `view.row`, `view.unread` and `view.close_button`.
+
 ## Command Palette
 
 A search over the window that finds a command or a place by typing: every command of an editor, the pages of an app, the files of a project.

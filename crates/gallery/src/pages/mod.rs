@@ -73,6 +73,7 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
 mod number_input;
 mod outcome;
 mod overview;
@@ -639,6 +640,14 @@ pub const PAGES: &[Page] = &[
     about: "teaching tip coach mark onboarding tour step next back guide callout feature discovery arrow anchor open mount title description media child primary secondary on_close close_button variant placement takes_focus width",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
+  },
+  Page {
+    path: "/notification",
+    name: "Notification",
+    icon: Some("bell"),
+    about: "notification card row inbox message event review requested from avatar title description time unread read dot dismiss actions button action media icon on_click on_close close_label unread_label variant NotificationVariant",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<notification::NotificationPage>(()),
   },
   Page {
     path: "/command-palette",

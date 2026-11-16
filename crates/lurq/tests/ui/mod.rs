@@ -78,6 +78,7 @@ mod multi_select;
 mod narrow_room;
 mod navbar;
 mod navigation_menu;
+mod notification;
 mod number_input;
 mod outcome;
 mod pagination;

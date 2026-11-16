@@ -93,6 +93,7 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod notification;
 mod number_input;
 mod opening_rows;
 mod outcome;
@@ -354,6 +355,9 @@ pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, N
 pub use navigation_menu::{
   NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
   NavigationMenuVariant, NavigationMenuView,
+};
+pub use notification::{
+  Notification, NotificationPart, NotificationRenderer, NotificationState, NotificationVariant, NotificationView,
 };
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
