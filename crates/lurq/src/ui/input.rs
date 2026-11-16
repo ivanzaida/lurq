@@ -463,19 +463,11 @@ impl InputView {
     let part = self.part(InputPart::Icon);
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
     let padding = self.padding(Side::Start);
-    // In a fluid field the icon stands on the line of the value, under the field's label.
-    let under = if self.boxed.fluid {
-      let [_, _, bottom, _] = self.part(InputPart::Control).rest().paddings();
-      bottom
-        .map(|padding| padding.resolve(&self.theme().spacing(), 0.0))
-        .unwrap_or(0.0)
-    } else {
-      0.0
-    };
     Some(
       Row::new()
         .padding_left(padding)
-        .padding_bottom(under)
+        // In a fluid field the icon stands on the line of the value, under the field's label.
+        .padding_top(self.value_line())
         .align_items(Alignment::Center)
         .pointer_events_none()
         .child(
@@ -503,6 +495,17 @@ impl InputView {
     self.padding(Side::Start)
   }
 
+  /// Whether the input is in a fluid field, and its box the fluid one.
+  pub(crate) fn fluid(&self) -> bool {
+    self.boxed.fluid
+  }
+
+  /// How far down what is laid over the middle of the box is moved to stand on the line of the value: nothing but in
+  /// a fluid field, where the value is under the field's label ([`text_box::value_line`]).
+  pub(crate) fn value_line(&self) -> f32 {
+    text_box::value_line(&self.part(InputPart::Control).rest(), self.theme())
+  }
+
   /// The room the control keeps at its end for what is `width` wide over it there: its own padding, the width, and
   /// the room an icon has before the text.
   pub(crate) fn end_room(&self, width: f32) -> f32 {
@@ -517,7 +520,8 @@ impl InputView {
 
   /// How a component made of an input builds it: `control` (this input's [`Self::control`], with what the
   /// component adds to it), its icon over its start, and `end` over its end, in from the control's padding there.
-  /// Only what is in `end` takes the pointer: around it the pointer reaches the control.
+  /// Only what is in `end` takes the pointer: around it the pointer reaches the control. In a fluid field both stand
+  /// on the line of the value.
   pub(crate) fn render_with_end(&self, control: components::TextInput, end: Option<Row>) -> Stack {
     let mut root = Stack::new()
       .stack_align(StackAlignment::CenterStart)
@@ -531,6 +535,7 @@ impl InputView {
         end
           .width(Dimension::Pct(100.0))
           .padding_right(self.padding(Side::End))
+          .padding_top(self.value_line())
           .align_items(Alignment::Center)
           .justify(Justify::End)
           .hit_test(HitTestBehavior::ContentOnly),
@@ -543,11 +548,7 @@ impl InputView {
   pub fn render(self) -> Element {
     // The control is the box, so that the ring of its focus is its own edge; the icon lies over it.
     let mut root = Stack::new()
-      .stack_align(if self.boxed.fluid {
-        StackAlignment::BottomStart
-      } else {
-        StackAlignment::CenterStart
-      })
+      .stack_align(StackAlignment::CenterStart)
       .part(&self.part(InputPart::Root))
       .child(self.control());
     if let Some(icon) = self.icon() {

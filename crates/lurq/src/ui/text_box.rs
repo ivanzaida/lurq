@@ -18,7 +18,7 @@ use crate::{
   },
   components::TextInput,
   layout::text_style::TextStyle,
-  node::{CursorIcon, Outline, TextColor, border::Border},
+  node::{CursorIcon, Outline, SpacingValue, TextColor, border::Border},
 };
 
 /// The sizes of a box that is typed in: the heights of the theme's controls, and the type of each. An input is
@@ -261,6 +261,19 @@ pub(crate) const FLUID_TOP: f32 = 29.0;
 pub(crate) const FLUID_PAD: f32 = 10.0;
 /// How high a fluid box of one line is: the board's 56.
 pub(crate) const FLUID_HEIGHT: f32 = 56.0;
+/// The room between the line of the field's label and what a fluid box holds.
+pub(crate) const FLUID_GAP: f32 = 4.0;
+
+/// How far down what stands in a box beside its value is moved, to stand in the middle of the value's line and not of
+/// the box: the padding over what the box holds less the padding under it. Nothing in a box at rest; 19 in a fluid one,
+/// whose value is under the field's label. What is in the middle of the box with this much padding over it is in the
+/// middle of the value's line.
+pub(crate) fn value_line(style: &PartStyle, theme: &Theme) -> f32 {
+  let [top, _, bottom, _] = style.paddings();
+  let spacing = theme.spacing();
+  let px = |padding: Option<SpacingValue>| padding.map_or(0.0, |padding| padding.resolve(&spacing, 0.0));
+  (px(top) - px(bottom)).max(0.0)
+}
 
 /// A line of 1 along the bottom of a fluid box, and no edge on its other sides.
 pub(crate) fn fluid_line(style: PartStyle, color: PaletteColor) -> PartStyle {

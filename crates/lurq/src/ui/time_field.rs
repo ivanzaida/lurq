@@ -146,6 +146,10 @@ impl<V: FieldValue<Time>> FieldControl for TimeField<V> {
     self.core.boxed.in_field(field);
     self.mount(ctx)
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl<V: FieldValue<Time>> Mountable for TimeField<V> {

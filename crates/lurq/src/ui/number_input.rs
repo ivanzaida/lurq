@@ -103,6 +103,9 @@ pub enum NumberInputState {
   AtMin,
   /// Its value is the greatest it can be: the button that steps up is disabled.
   AtMax,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over the
+  /// number, and its buttons are on the line of the number.
+  Fluid,
 }
 
 names!(NumberInputState {
@@ -114,6 +117,7 @@ names!(NumberInputState {
   FullWidth => "full_width",
   AtMin => "at_min",
   AtMax => "at_max",
+  Fluid => "fluid",
 });
 
 /// What builds a number input's nodes: a theme's in place of the default one.
@@ -939,6 +943,10 @@ impl FieldControl for NumberInput {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl From<NumberInput> for Element {
@@ -1260,9 +1268,15 @@ impl NumberInputView {
   }
 
   /// The buttons laid over the box, as the layout has them; none for a bare one. Only the buttons take the pointer:
-  /// elsewhere it reaches the box under them.
+  /// elsewhere it reaches the box under them. They are laid over the whole of the box: as high as it is, or as the
+  /// least it is where it is as high as what it holds (in a fluid field, where the part's padding puts them on the
+  /// line of the number).
   pub fn buttons(&self) -> Option<Row> {
-    let height = self.px(self.part(NumberInputPart::Control).rest().height);
+    let control = self.part(NumberInputPart::Control).rest();
+    let height = match self.px(control.height) {
+      height if height > 0.0 => height,
+      _ => self.px(control.min_height),
+    };
     let room = || Row::new().flex(1.0).pointer_events_none();
     let row = Row::new()
       .part(&self.part(NumberInputPart::Buttons))
@@ -1321,6 +1335,11 @@ impl Themed for NumberInput {
   /// accent's fill; the one toward the end of the range the value is at is half opaque. Small is 32 with type of 13,
   /// large 40 with type of 15, the buttons as wide as the box is high. Stacked, the buttons are 24 wide at the end, a
   /// chevron of 14 up over one down with a line between them, and the number is at the start, 12 in.
+  ///
+  /// In a fluid field, which the board does not draw for it, the box is the fluid one, as wide as the field, and the
+  /// buttons stand on the line of the number, under the field's label: 25 high with the small radius, from the
+  /// label's line to 4 under the number's, the lines beside them as high. Stacked, they are one over the other about
+  /// the number's line, down to the line of the box.
   fn recipe() -> Recipe {
     use NumberInputLayout::{Split, Stacked};
     use NumberInputPart::{Buttons, Control, Decrease, Icon, Increase, Placeholder, Root, Separator};
@@ -1368,6 +1387,23 @@ impl Themed for NumberInput {
         .when(Selector::new().variant(Split).size(size), Increase, side);
     }
     let recipe = text_box::box_sizes(recipe, Control, true);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    let fluid_button = |s: PartStyle| s.radius(RadiusSize::Sm);
+    let stacked = || Selector::new().variant(Stacked).state(NumberInputState::Fluid);
+    text_box::fluid_rules(recipe, Root, Control)
+      // The buttons from the label's line to as far under the number's line as the label is over it.
+      .state(NumberInputState::Fluid, Buttons, |s| {
+        s.padding_top(text_box::FLUID_TOP - text_box::FLUID_GAP)
+          .padding_bottom(text_box::FLUID_PAD - text_box::FLUID_GAP)
+      })
+      .state(NumberInputState::Fluid, Decrease, fluid_button)
+      .state(NumberInputState::Fluid, Increase, fluid_button)
+      // One over the other they need more: down to the line of the box, and as far over the number's line.
+      .when(stacked(), Buttons, |s| {
+        s.padding_top(text_box::FLUID_TOP - text_box::FLUID_PAD + 1.0)
+          .padding_bottom(1.0)
+      })
+      .when(stacked(), Decrease, |s| s.radius(0.0))
+      .when(stacked(), Increase, |s| s.radius(0.0))
   }
 }

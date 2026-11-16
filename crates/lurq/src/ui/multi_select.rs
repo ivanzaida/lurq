@@ -12,7 +12,7 @@ use super::{
   icon::Icon,
   icons, names,
   part_style::{Length, PartStyle},
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   select::{self, engine_style},
   tag::{Tag, TagPart, TagSize},
   text_box::{self, BoxStates, EditHandler, Judgment, TextBoxSize},
@@ -501,6 +501,10 @@ impl<V: 'static> FieldControl for MultiSelect<V> {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 /// A multi select as a renderer sees it: what it was given, the style of its parts, and its behavior ready to be
@@ -847,6 +851,9 @@ impl MultiSelectView {
     let style = self.select_style();
     let gap = self.part(MultiSelectPart::Trigger).rest().gap;
     let tags_gap = self.part(MultiSelectPart::Tags).rest().gap;
+    // The least the line of the tags is high, where the recipe says: in a fluid field, a tag's height, so that the
+    // box is as high with no tag as with a line of them.
+    let least = select::px(self.part(MultiSelectPart::Tags).rest().min_height, self.theme());
     let held = Mutex::new(Some((self.tags(), self.clear(), self.chevron())));
     self.select(style, move |state| {
       let Some((tags, clear, chevron)) = held.lock().unwrap().take() else {
@@ -872,6 +879,9 @@ impl MultiSelectView {
         .child(line);
       if let Some(gap) = gap {
         row = row.spacing(gap);
+      }
+      if let Some(least) = least {
+        row = row.min_height(Dimension::Px(least));
       }
       if let Some(clear) = clear {
         row = row.child(clear);
@@ -904,6 +914,12 @@ impl<V: 'static> Themed for MultiSelect<V> {
   /// before its label, 4 round: on the background's fill in an edge of the color of an input's, and, chosen, on the
   /// primary fill with a check of 12 in the primary's foreground. The cross that clears is 16, in the muted
   /// foreground, the foreground under the pointer.
+  ///
+  /// In a fluid field, which the board does not draw for it, the box is a select's fluid one, at least 56 high and
+  /// padded 12 at its start, where the field's label starts. Its tags are higher than a line of text, so it is
+  /// padded 26 over them, 1 under the label's line, and 6 under them: one line of tags is the 56 of any fluid box, the
+  /// tags, what is typed and the chevron in the middle of it about where an input's value stands, and each line more
+  /// adds a tag and the 6 between lines.
   fn recipe() -> Recipe {
     use MultiSelectPart::{Check, CheckIcon, Tag, TagLabel, Tags, Trigger, Unchecked, Value};
     use PaletteColor::{Primary, PrimaryForeground, Secondary, SecondaryForeground};
@@ -947,7 +963,23 @@ impl<V: 'static> Themed for MultiSelect<V> {
           .border(edge(PaletteColor::Input))
       })
       .size(TextBoxSize::Sm, TagLabel, |s| s.font_size(12.0))
-      .size(TextBoxSize::Lg, TagLabel, |s| s.font_size(14.0));
+      .size(TextBoxSize::Lg, TagLabel, |s| s.font_size(14.0))
+      .state(MultiSelectState::Fluid, Trigger, |s| {
+        // 26, a tag of 24 and 6 are the 56 of a fluid box.
+        s.padding_start(12.0).padding_top(26.0).padding_bottom(6.0)
+      })
+      // The line of the tags is as high as a tag of the box's size with no tag in it too.
+      .state(MultiSelectState::Fluid, Tags, |s| s.min_height(24.0))
+      .when(
+        Selector::new().size(TextBoxSize::Sm).state(MultiSelectState::Fluid),
+        Tags,
+        |s| s.min_height(20.0),
+      )
+      .when(
+        Selector::new().size(TextBoxSize::Lg).state(MultiSelectState::Fluid),
+        Tags,
+        |s| s.min_height(28.0),
+      );
     // The parts of the list and the clear control a combobox adds to a select's, by the same names.
     combobox::clear_rules(combobox::status_rules(recipe))
   }

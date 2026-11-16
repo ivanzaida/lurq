@@ -658,10 +658,10 @@ text, and the control fills the row under it. With room again they stand side by
 
 ### Fluid Field
 
-A field whose label is inside the box of its control, over the value: the design's Fluid Field (`imRnW`), for a form whose fields stand edge to edge. It is a form of the field, `Field::fluid(true)`, for the controls that have a fluid form: an [input](#input), a [textarea](#textarea) and a [select](#select).
+A field whose label is inside the box of its control, over the value: the design's Fluid Field (`imRnW`), for a form whose fields stand edge to edge. It is a form of the field, `Field::fluid(true)`, for the controls that have a fluid form, which every text control a field holds has: an [input](#input), a [textarea](#textarea), a [select](#select), a [password input](#password-input), a [search field](#search-field), a [number input](#number-input), a [combobox](#combobox), a [multi select](#multi-select), a [date field](#date-field), a [time field](#time-field), a [date picker](#date-picker), a [date range picker](#date-range-picker), a [time picker](#time-picker), a [month picker and a year picker](#month-picker), a [token input](#token-input), a [mentions field](#mentions) and a [color field](#color-field).
 
 ```rust
-use lurq::ui::{Field, Input, Select, Textarea};
+use lurq::ui::{DatePicker, Field, Input, NumberInput, Select, Textarea};
 
 Field::new("Workspace name", Input::new(name.clone())).fluid(true);
 
@@ -672,13 +672,32 @@ Field::new("Notes", Textarea::new(notes.clone()).rows(2, 5))
 Field::new("Theme", Select::new(theme.clone(), [("system", "System"), ("dark", "Dark")]))
   .fluid(true)
   .required(true);
+
+Field::new("Seats", NumberInput::new(seats.clone()).min(1)).fluid(true);
+
+// A control that keeps something between renders is mounted by the field, and has the form there too.
+Field::new("Due date", DatePicker::new(due.clone()).clearable(true))
+  .fluid(true)
+  .mount(ctx);
 ```
 
-- The control is the box, as wide as the field: on `Muted`, round at its top (6) and square at its bottom, with a line of 1 in `Foreground` along its bottom and no edge on its other sides. The label lies over its top, 12 from its sides and 10 from its top, in a caption's type (12) and `MutedForeground`, on one line, cut with an ellipsis where the box is narrower; the mark of a required or an optional field is after it. What the control holds is 4 under the label's line and 10 over the bottom: an input and a select are 56 high, a textarea as high as its rows and the 39 around them. The field is 240 wide, or as wide as what holds it (`full_width`).
+- The control is the box, as wide as the field: on `Muted`, round at its top (6) and square at its bottom, with a line of 1 in `Foreground` along its bottom and no edge on its other sides. The label lies over its top, 12 from its sides and 10 from its top, in a caption's type (12) and `MutedForeground`, on one line, cut with an ellipsis where the box is narrower; the mark of a required or an optional field is after it. What the control holds is 4 under the label's line and 10 over the bottom: a control of one line is 56 high, a textarea as high as its rows and the 39 around them. The field is 240 wide, or as wide as what holds it (`full_width`).
 - The line says what the edge of a box says, where the board is silent: the ring's color under the pointer, `Destructive`, `Warning` or `Success` for the field's judgment (an error makes it destructive, as in any field), `Border` when the control is read only. The focus is a line of 2 inside the box, as an input's is. A disabled one is at half its opacity.
-- The description, or the error, is 6 under the box, as any field's. A press of the label goes to the control under it: an input takes the caret, a select opens. An input's icon stands on the line of the value, under the label.
+- The description, or the error, is 6 under the box, as any field's. A press of the label goes to the control under it: an input takes the caret, a select opens.
+- What stands in the box beside the value stands on the line of the value, under the label, and not in the middle of the box: an input's icon, a password's eye, a search's clear button, a picker's button, a color's swatch. The board draws the form for an input alone; the others follow it, each with what is particular to it:
+  - A password input has its eye 12 from the end of the box; its meter and what the meter says are under the box, as wide as it.
+  - A search field is padded 12 at its start, so that its icon starts where the label does; its clear button, or the hint of its key while it is empty, is at its end.
+  - A number input has its buttons on the line of the number, where its layout has them: each 25 high with the small radius, from the label's line to 4 under the number's, and the lines beside them as high. Stacked, they are one over the other about the number's line, down to the line of the box.
+  - A combobox is a select's fluid trigger: what is typed, the cross that clears and the chevrons are on one line.
+  - A multi select is at least 56 high. A tag (24) is higher than a line of text, so its box is padded 26 over its tags and 6 under them, and 12 at its start: with one line of tags, or with none, it is 56, and each line more adds a tag and the 6 between lines.
+  - A date field and a time field are 56 high, their segments and their glyph on one line, padded 9 at the start so that the first segment's text starts where the label does.
+  - A date picker, a date range picker and a time picker are the input's fluid box, with the button that opens the panel, and a clearable date picker's cross, on the line of the value. A time picker, 160 wide on its own, is as wide as the field.
+  - A token input is padded 12 and 56 high on one line, its tokens in the middle of the line of its text; on rows it is as high as its rows (28 each) and the 39 around them.
+  - A mentions field is a token input on rows: its two rows of 21 and the 39 around them, and higher as its text takes more rows.
+  - A color field has its swatch and its eyedropper on the line of the hex; while its picker is open its line is in the ring's color.
+  - A month picker and a year picker have no field of one line, so the panel itself is the box: the fluid fill, corners and line, with no shadow, as wide as the field, the heading 29 under its top, where the label stands, and the grid 10 over its line.
 - A control says that it has the form with `FieldControl::has_fluid_form`, and takes it when the field tells it `InField::fluid`: a control of an app's own that wraps an input passes both on. A fluid field of a control that has none (a switch, a slider) is drawn as any field, its label above the control. The label is always over the value: a fluid field's `orientation` is not read.
-- States: `FieldState::Fluid` on the field (its `Label` and its `Root`), and `InputState::Fluid`, `TextareaState::Fluid`, `SelectState::Fluid` on the control (its `Control`, a select's `Trigger`). A renderer of a field has `view.fluid` and `view.fluid_label()`.
+- States: `FieldState::Fluid` on the field (its `Label` and its `Root`), and on the control the state `Fluid` of its own enum, named `fluid`: `InputState`, `TextareaState`, `SelectState`, `PasswordInputState`, `SearchFieldState`, `NumberInputState`, `ComboboxState` (a multi select's too), `DateFieldState` (a time field's too), `DatePickerState` (a date range picker's too), `TimePickerState`, `MonthPickerState` (a year picker's too), `TokenInputState`, `MentionsState` and `ColorFieldState`. Its rules are on the part that is the box: the `Control`, the `Trigger` of a select, a combobox and a multi select, the `Root` of a date field, a time field, a month picker and a year picker. A renderer of a field has `view.fluid` and `view.fluid_label()`.
 ## Info Label
 
 What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.

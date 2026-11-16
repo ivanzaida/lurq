@@ -87,9 +87,11 @@ pub trait FieldControl {
   }
 
   /// Whether the control has a form for a fluid field ([`Field::fluid`]): a box as wide as the field, with the room
-  /// of the field's label inside it, over what it holds ([`InField::fluid`] tells it to take it). An
-  /// [`Input`](super::Input), a [`Textarea`](super::Textarea) and a [`Select`](super::Select) have. A fluid field of
-  /// a control that has none is drawn as any field, its label above the control.
+  /// of the field's label inside it, over what it holds ([`InField::fluid`] tells it to take it). Every text control
+  /// of the design system has: an [`Input`](super::Input), a [`Textarea`](super::Textarea), a
+  /// [`Select`](super::Select), a password input, a search field, a number input, a combobox, a multi select, a
+  /// token input, a mentions field, a color field, the date and time fields and their pickers. A fluid field of a
+  /// control that has none (a switch, a slider) is drawn as any field, its label above the control.
   fn has_fluid_form(&self) -> bool {
     false
   }
@@ -376,9 +378,9 @@ impl Field {
 
   /// Whether the field is fluid: its label is inside the box of its control, over what the control holds, and the
   /// box is as wide as the field. For a control that has a fluid form ([`FieldControl::has_fluid_form`]): an
-  /// [`Input`](super::Input), a [`Textarea`](super::Textarea), a [`Select`](super::Select). A field of any other
-  /// control is drawn as it is without this. A fluid field's label is always over the value: its orientation is not
-  /// read.
+  /// [`Input`](super::Input), a [`Textarea`](super::Textarea), a [`Select`](super::Select) and every other text
+  /// control of the design system. A field of any other control is drawn as it is without this. A fluid field's
+  /// label is always over the value: its orientation is not read.
   pub fn fluid(mut self, fluid: bool) -> Self {
     self.fluid = fluid;
     self
