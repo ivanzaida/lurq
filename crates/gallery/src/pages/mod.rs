@@ -774,7 +774,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/table-of-contents",
     name: "Table of Contents",
-    icon: Some("list-tree"),
+    icon: Some("table-of-contents"),
     about: "table of contents toc on this page outline sections headings anchors scroll spy scrollspy reading current section jump navigation article docs sticky new entry entries level container reading_line current on_change on_select title label mount disabled",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<table_of_contents::TableOfContentsPage>(()),
@@ -1033,7 +1033,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/expandable-tile",
     name: "Expandable Tile",
-    icon: Some("rows-2"),
+    icon: Some("panel-top-open"),
     about: "expandable tile expand collapse open close more details disclosure card fold chevron press tile new text child children open bind on_open_change icon open_icon disabled full_width label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<expandable_tile::ExpandableTilePage>(()),
