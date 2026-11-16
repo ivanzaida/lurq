@@ -2636,3 +2636,58 @@ fn a_grid_told_not_to_export_has_no_export_in_its_menu() {
   assert!(stage.paints("Size to fit"), "the menu is open");
   assert!(!stage.paints("Export"));
 }
+
+#[test]
+fn a_cell_narrower_than_its_text_ends_it_in_an_ellipsis_and_tooling_reads_all_of_it() {
+  let mut stage = Stage::new(|ctx| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(56.0)
+        .text(|row: &File| format!("{} of the renderer", row.name)),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .text(|row: &File| format!("{:?}", row.name.len())),
+    ];
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        DataGrid::new(columns, files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .mount(ctx),
+      )
+      .into()
+  });
+  let whole = format!("{} of the renderer", files()[0].name);
+  let (x, _, width, _) = stage.bounds("g-cell-0-0");
+  let cut = stage.cut_text_quad(&whole).expect("the name is drawn, whole or cut");
+  let lurq::layout::quad::QuadContent::Text { text, .. } = &cut.content else {
+    unreachable!()
+  };
+  assert!(
+    text.ends_with('…'),
+    "a name wider than its cell ends in an ellipsis: {text:?}"
+  );
+  assert!(
+    cut.x >= x - 0.5 && cut.x + cut.width <= x + width + 0.5,
+    "it is in its cell, {x} to {}: {} to {}",
+    x + width,
+    cut.x,
+    cut.x + cut.width
+  );
+  // What reads the tree has the whole name, not the cut one.
+  fn texts(element: lurq::node::ElementRef<'_>, into: &mut Vec<String>) {
+    if let Some(text) = element.text_content() {
+      into.push(text.to_owned());
+    }
+    for child in element.children() {
+      texts(child, into);
+    }
+  }
+  let mut read = Vec::new();
+  texts(stage.tree.get_element_by_id("g-cell-0-0").expect("the cell"), &mut read);
+  assert!(
+    read.contains(&whole),
+    "the cell says all of its text to tooling: {read:?}"
+  );
+}

@@ -2630,8 +2630,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 .flex_full(1.0, 1.0, Some(0.0))
                 .min_width(Dimension::Px(0.0))
                 .into(),
+              // A text on one line gives way to the room its column has, and ends in an ellipsis: what reads the
+              // tree still has all of it.
               (Content::Text(text), _) => marked(rank, column_index, part.text(&text(row)), &text(row))
                 .nowrap()
+                .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+                .flex_full(0.0, 1.0, None)
+                .min_width(Dimension::Px(0.0))
                 .into(),
               (Content::Element(cell), _) => cell(row),
               // A column edited with a box that builds no cell of its own shows the box.
@@ -3768,9 +3773,12 @@ impl TableView {
   }
 
   /// Rows of skeletons in the tracks of the columns, where the rows will be: a line in each cell, the first
-  /// column's of a width that changes from row to row.
+  /// column's of a length that changes from row to row. A line is a share of its cell, so it ends inside a
+  /// column of any width: the board's lengths (150, 190, 120 and 170 in a name of 176; 70 in a column of 90) as
+  /// shares of the columns it draws them in.
   pub fn skeletons(&self) -> Column {
-    const FIRST: [f32; 4] = [150.0, 190.0, 120.0, 170.0];
+    const FIRST: [f32; 4] = [0.85, 1.0, 0.68, 0.965];
+    const OTHER: f32 = 0.78;
     let part = self.part(TablePart::Row);
     let cell = self.part(TablePart::Cell);
     let columns = self.tracks.len() - usize::from(self.checkboxes) - usize::from(self.numbered);
@@ -3797,8 +3805,10 @@ impl TableView {
           row = row.child(Row::new());
         }
         row.with_children((0..columns).map(|column| {
-          let width = if column == 0 { FIRST[index % FIRST.len()] } else { 70.0 };
-          let line = Skeleton::line().width(width).build(self.theme());
+          let share = if column == 0 { FIRST[index % FIRST.len()] } else { OTHER };
+          let line = Row::new()
+            .width(Dimension::Pct(share * 100.0))
+            .child(Skeleton::line().width(Length::Fill).build(self.theme()));
           let mut wrapper = Row::new().part(&cell).align_items(Alignment::Center).child(line);
           if column + 1 < columns {
             wrapper = wrapper.padding_right(self.geometry.gap);
@@ -4632,9 +4642,12 @@ fn tree_cell(
     .padding_left(18.0 * level as f32)
     .child(chevron)
     .child(content);
-  if wraps {
-    cell = cell.flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0));
-  }
+  // In the room of its cell: a text that wraps takes all of it, and one on a line gives way to it.
+  cell = if wraps {
+    cell.flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0))
+  } else {
+    cell.flex_full(0.0, 1.0, None).min_width(Dimension::Px(0.0))
+  };
   cell.into()
 }
 
