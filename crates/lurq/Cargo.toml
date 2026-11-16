@@ -22,6 +22,15 @@ form = []
 image = ["raster", "dep:image"]
 # Shared raw RGBA transport and GPU composition; no image codecs.
 raster = ["dep:core-video-sys"]
+# Playing a video: `lurq::media` and `ui::VideoPlayer::source`. On Windows it decodes with Media Foundation.
+media = [
+    "raster",
+    "windows/Win32_Media_MediaFoundation",
+    "windows/Win32_System_Com",
+    "windows/Win32_System_Com_StructuredStorage",
+    "windows/Win32_System_Variant",
+    "windows/Win32_UI_Shell",
+]
 canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
 i18n = []
 markdown = ["dep:pulldown-cmark", "dep:unicode-bidi", "dep:unicode-linebreak"]
@@ -228,6 +237,10 @@ windows = { version = "0.62.2", features = ["Win32_Graphics_Gdi"] }
 [[test]]
 name = "resources_tests"
 required-features = ["http"]
+
+[[test]]
+name = "media_tests"
+required-features = ["media"]
 
 [[test]]
 name = "counting_allocator"
