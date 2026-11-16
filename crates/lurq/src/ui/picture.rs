@@ -2258,14 +2258,29 @@ impl PictureView {
         .into()
     };
     let node = &mut *root.node;
-    if let Some(width) = picture.width.and_then(|width| width.resolve(theme)) {
+    let width = picture.width.and_then(|width| width.resolve(theme));
+    let height = picture.height.and_then(|height| height.resolve(theme));
+    if let Some(width) = width {
       NodeUpdate::width(node, width);
+      // The width said is the most the box takes: in a room narrower than it the box is as wide as the room.
+      NodeUpdate::max_width(node, Dimension::Pct(100.0));
     }
-    if let Some(height) = picture.height.and_then(|height| height.resolve(theme)) {
-      NodeUpdate::height(node, height);
-    }
-    if let Some(ratio) = picture.aspect_ratio {
-      NodeUpdate::aspect_ratio(node, ratio);
+    match (width, height, picture.aspect_ratio) {
+      // A box of so many pixels by so many keeps its shape where the room makes it narrower: its height follows
+      // its width. The ratio is a hair under the box's own and the height said is the most, so that at its
+      // full width the box is as high as said, and not a rounding of it.
+      (Some(Dimension::Px(wide)), Some(Dimension::Px(high)), None) if wide > 0.0 && high > 0.0 => {
+        NodeUpdate::aspect_ratio(node, wide / high * (1.0 - 4.0 * f32::EPSILON));
+        NodeUpdate::max_height(node, high);
+      }
+      (_, height, ratio) => {
+        if let Some(height) = height {
+          NodeUpdate::height(node, height);
+        }
+        if let Some(ratio) = ratio {
+          NodeUpdate::aspect_ratio(node, ratio);
+        }
+      }
     }
     match self.label() {
       Some(label) => {
@@ -2303,7 +2318,7 @@ impl PictureView {
       .child(frame)
       .child(wrapped(&part, caption));
     if let Some(width) = self.picture.width.and_then(|width| width.resolve(self.theme())) {
-      figure = figure.width(width);
+      figure = figure.width(width).max_width(Dimension::Pct(100.0));
     }
     if let Some(key) = &self.picture.key {
       figure = figure.key(key.clone());
@@ -2401,7 +2416,9 @@ impl Themed for Picture {
       })
       .base(Sheen, |s| s.radius(0.0))
       .base(Veil, |s| s.background(black_60))
-      .base(Center, |s| s.padding_x(24.0).padding_y(24.0).gap(12.0))
+      // What stands in the middle is centered, so the room over and under it is the least it keeps: a box only
+      // just higher than what it says shows all of it.
+      .base(Center, |s| s.padding_x(24.0).padding_y(8.0).gap(12.0))
       .size(Md, Center, |s| s.padding_x(12.0).padding_y(12.0).gap(8.0))
       .size(Sm, Center, |s| s.padding_x(8.0).padding_y(8.0))
       .size(Xs, Center, |s| s.padding_x(0.0).padding_y(0.0))

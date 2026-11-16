@@ -579,6 +579,8 @@ impl GalleryView {
     let mut root = Column::new()
       .part(&self.part(GalleryPart::Root))
       .width(width)
+      // The width said is the most the gallery takes: in a narrower room its pictures are smaller.
+      .max_width(full)
       .spacing(self.gap)
       // One stop of Tab, and the arrows move among the pictures.
       .focus_group(FocusGroup::both().one_stop(true))

@@ -469,6 +469,59 @@ fn a_caption_makes_it_a_figure() {
   assert_eq!((color, size), (light(PaletteColor::MutedForeground), 13.0));
 }
 
+/// A picture and a figure in a room of 200, narrower than the width they are given.
+fn in_a_narrow_room(picture: impl Fn() -> Picture + Send + Sync + 'static) -> Stage {
+  Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Row::new().id("room").width(200.0).child(picture()))
+      .into()
+  })
+}
+
+#[test]
+fn a_box_wider_than_its_room_is_as_wide_as_the_room_and_keeps_its_shape() {
+  let mut stage = in_a_narrow_room(|| Picture::new(pixels(8, 6)).size_px(640.0, 360.0).id("lake"));
+  let (x, y, width, height) = stage.bounds("lake");
+  assert_eq!((x, y, width), (0.0, 0.0, 200.0));
+  assert!((height - 112.5).abs() < 0.01, "16 by 9 still: {height} high");
+
+  // In a room that holds it, it is the box that was said, to the pixel.
+  for (width, height) in [
+    (160.0, 90.0),
+    (432.0, 243.0),
+    (130.0, 73.0),
+    (207.0, 116.0),
+    (200.0, 113.0),
+  ] {
+    let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+      Row::new()
+        .child(Picture::new(pixels(8, 6)).size_px(width, height).id("lake"))
+        .into()
+    });
+    assert_eq!(stage.bounds("lake"), (0.0, 0.0, width, height));
+  }
+}
+
+#[test]
+fn a_figure_wider_than_its_room_is_as_wide_as_the_room() {
+  let mut stage = in_a_narrow_room(|| {
+    Picture::new(pixels(8, 6))
+      .width(320.0)
+      .aspect_ratio(2.0)
+      .caption("Figure 1. The lake at dusk, from the east shore.")
+      .id("lake")
+  });
+  assert_eq!(stage.bounds("lake"), (0.0, 0.0, 200.0, 100.0));
+  let caption = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Text { .. }))
+    .map(|quad| quad.x + quad.width)
+    .fold(0.0, f32::max);
+  assert!(caption <= 200.5, "the caption wraps in the room: it ends at {caption}");
+}
+
 #[cfg(feature = "image")]
 mod decoded {
   use std::time::Duration;

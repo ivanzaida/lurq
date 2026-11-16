@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  components::Row,
+  components::{Column, Row},
   core::Signal,
   images::ImageData,
   layout::quad::QuadContent,
@@ -174,4 +174,24 @@ fn without_a_signal_it_keeps_what_is_chosen_itself() {
   stage.click("photos-3");
   stage.click("photos-0");
   assert_eq!(*told.lock().unwrap(), [vec![0], vec![0, 3], vec![3]]);
+}
+
+#[test]
+fn a_gallery_wider_than_its_room_is_as_wide_as_the_room() {
+  let mut stage = Stage::first_frame(600.0, 500.0, |_| {
+    Column::new()
+      .size(600.0, 500.0)
+      .child(
+        Row::new()
+          .width(200.0)
+          .child(Gallery::new(pictures(8)).width(392.0).id("photos")),
+      )
+      .into()
+  });
+  stage.pass();
+  let (x, _, width, _) = stage.bounds("photos");
+  assert_eq!((x, width), (0.0, 200.0));
+  // Four in a row still, each a quarter of what the gaps leave.
+  let (_, _, cell, _) = stage.bounds("photos-0");
+  assert_eq!(cell, (200.0 - 3.0 * 8.0) / 4.0);
 }
