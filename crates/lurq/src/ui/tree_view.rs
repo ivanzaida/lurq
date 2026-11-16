@@ -8,7 +8,6 @@ use std::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
   },
-  time::Instant,
 };
 
 use super::{
@@ -37,6 +36,8 @@ use crate::{
     text_style::FontWeight,
   },
   node::{CursorIcon, Element, FocusGroup, FocusRows, FocusStep, SpacingValue, dimension::Dimension, outline::Outline},
+  // The engine's clock: the standard one is not there in a browser.
+  time::Instant,
 };
 
 /// The parts of a tree view a recipe styles.
@@ -121,17 +122,18 @@ pub type TreeViewRenderer = Arc<dyn Fn(TreeViewView) -> Element + Send + Sync>;
 /// ```
 #[derive(Clone)]
 pub struct TreeItem<T> {
-  value: T,
-  label: Arc<str>,
-  icon: Option<Name>,
-  open_icon: Option<Name>,
-  trailing: Option<Element>,
-  trailing_on_hover: bool,
-  disabled: bool,
-  lazy: bool,
-  items: Vec<TreeItem<T>>,
-  id: Option<Arc<str>>,
-  key: Option<Arc<str>>,
+  // Read by what else shows a hierarchy of these: a tree select's panel, a column view's columns.
+  pub(crate) value: T,
+  pub(crate) label: Arc<str>,
+  pub(crate) icon: Option<Name>,
+  pub(crate) open_icon: Option<Name>,
+  pub(crate) trailing: Option<Element>,
+  pub(crate) trailing_on_hover: bool,
+  pub(crate) disabled: bool,
+  pub(crate) lazy: bool,
+  pub(crate) items: Vec<TreeItem<T>>,
+  pub(crate) id: Option<Arc<str>>,
+  pub(crate) key: Option<Arc<str>>,
 }
 
 impl<T> TreeItem<T> {
@@ -325,6 +327,12 @@ pub struct TreeView<T: 'static, M: RowSelection<T> = OneSelected> {
   selected: Vec<T>,
   select: Option<Arc<dyn Fn(Vec<T>) + Send + Sync>>,
   guides: bool,
+  /// Whether a press of a row adds it to what is selected or takes it out, with no key held, and no second press
+  /// activates: the tree of a tree select of any number.
+  pub(crate) press_toggles: bool,
+  /// Whether the row Tab would stop on takes the focus as the overlay the tree is in opens: the tree of a tree
+  /// select's panel.
+  pub(crate) autofocus: bool,
   disabled: bool,
   label: Option<Arc<str>>,
   on_change: Vec<Arc<dyn Fn(&M::Value) + Send + Sync>>,
@@ -405,6 +413,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       selected: Vec::new(),
       select: None,
       guides: false,
+      press_toggles: false,
+      autofocus: false,
       disabled: false,
       label: None,
       on_change: Vec::new(),
@@ -692,6 +702,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
           entry: entry == Some(index),
           index,
           multiple,
+          press_toggles: self.press_toggles,
+          autofocus: self.autofocus && forced_at == Some(index),
           recipe: recipe(selected, row.open, row.disabled),
           forced: self.forced.filter(|_| forced_at == Some(index)),
           toggle,
@@ -883,7 +895,7 @@ thread_local! {
 }
 
 /// Whether a click of the row `index` is the second of a double press: then the next is a first again.
-fn second_press(index: usize, event: &MouseEvent) -> bool {
+pub(crate) fn second_press(index: usize, event: &MouseEvent) -> bool {
   let now = Instant::now();
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
   LAST_PRESS.with(|last| {
@@ -1042,6 +1054,8 @@ pub struct TreeRow {
   /// Which of the tree's shown rows it is.
   index: usize,
   multiple: bool,
+  press_toggles: bool,
+  autofocus: bool,
   /// The style of each part of this row, in its case.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -1090,6 +1104,9 @@ impl TreeRow {
     if let Some(index) = self.row {
       row = row.focus_row(index);
     }
+    if self.autofocus {
+      row = row.autofocus(true);
+    }
     if self.opens {
       row = row.describe("a11y_expanded", flag(self.open));
     }
@@ -1106,7 +1123,7 @@ impl TreeRow {
       // `on_dblclick`: the engine holds back the click of an element that has one until it knows it is not the
       // first of a double press, and the focus with it. Space clicks the focused row: it selects too.
       let press = actions.clone();
-      let index = self.index;
+      let (index, toggles) = (self.index, self.press_toggles);
       row = row.on_click(move |event: MouseEvent| {
         if event.from_keyboard {
           (press.pick)(Pick::of(&event, multiple));
@@ -1115,7 +1132,10 @@ impl TreeRow {
         if event.button != MouseButton::Left {
           return;
         }
-        if second_press(index, &event) {
+        if toggles {
+          // Each press is a choice of its own: in or out, or with Shift the rows from the last chosen.
+          (press.pick)(if event.shift { Pick::Range } else { Pick::Toggle });
+        } else if second_press(index, &event) {
           (press.activate)();
         } else {
           (press.pick)(Pick::of(&event, false));

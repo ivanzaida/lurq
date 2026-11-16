@@ -2676,6 +2676,64 @@ MultiSelect::new(languages.clone(), [
 - It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
+## Tree Select
+
+A select whose options are a tree: a file of a project, a category of a catalogue, the folders a search looks in.
+
+```rust
+use lurq::ui::{TreeItem, TreeSelect};
+
+// file: Signal<Option<&str>>: one or none, of the files alone.
+TreeSelect::optional(file, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
+      TreeItem::file("lib.rs", "lib.rs"),
+      TreeItem::file("theme.rs", "theme.rs"),
+    ]),
+  ]),
+  TreeItem::file("Cargo.toml", "Cargo.toml"),
+])
+.label("File")
+.placeholder("Select a file")
+.leaves_only(true)
+.clearable(true)
+.mount(ctx);
+
+// Any number: a press adds a row or takes it out, and the panel stays open.
+TreeSelect::multiple(folders, items).max_shown(2).mount(ctx);
+
+// Held by the app, which is told each choice.
+TreeSelect::controlled(app.file(), items, |file| app.open(file));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)`, `optional(value, items)`, `multiple(values, items)` | The tree's items (`TreeItem<T>`, a [tree view](#tree-view)'s) and what is chosen of them, bound to a `Signal<T>`, a `Signal<Option<T>>` or a `Signal<Vec<T>>` |
+| `controlled(value, items, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same held by the app, which is told `on_change(&T)`, `on_change(&Option<T>)` or `on_change(&[T])` and shows what it gives back |
+| `on_change(handler)` | Told what is chosen after a choice a person makes, after the signal is set; not for the row chosen already, nor when the app sets the signal. The select is `TreeSelect<T, T>`, `TreeSelect<T, Option<T>>` or `TreeSelect<T, [T]>`, so a handler of another type does not compile |
+| `open(Signal<bool>)` | Whether the panel is open, where the app keeps it. `on_open_change(bool)` hears each change a person makes, a choice too; `on_dismiss()` Escape and a press outside, before it |
+| `branches(Signal<Vec<T>>)`, `branches_controlled(open, on_branch_change)` | The branches of the tree that are open, where the app keeps them. `on_branch_change(&value, open)` hears each one a press or a key opens or closes: where a lazy item's children are brought |
+| `leaves_only(bool)` | A press of a row that holds others opens or closes it in place of choosing it: only what holds nothing is chosen |
+| `path(bool)`, `separator_text(&str)` | The trigger of a select of one says the whole path to what is chosen, `crates / lurq / lib.rs` (it does unless told otherwise), or its label alone; and what stands between the steps, `" / "` |
+| `max_shown(n)` | How many labels the trigger of a select of any number says before it counts the rest, `lib.rs, theme.rs +2` |
+| `placeholder(&str)`, `size(TreeSelectSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open; a full width one's panel is as wide as it is |
+| `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a select that may hold none; and what it is called, "Clear" |
+| `empty_text(&str)` | What the panel says where the tree has no items: "No options" |
+| `label(&str)`, `panel_label(&str)` | What the select is called to what reads the tree, and its panel and its tree in place of that |
+| `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the tree with `-tree`, the cross with `-clear` |
+| `mount(ctx)` | In place of converting it: the select keeps whether it is open, the trigger the focus goes back to and which branches are open |
+
+- It is built of what is there already: its trigger is a [select](#select)'s box (the same recipe, sizes, ring and judgments), its panel a [popover](#popover) and what the panel holds a [tree view](#tree-view), with a tree's rows, icons, chevrons and keys. What a `TreeItem` has, it has here: `disabled`, `lazy`, `trailing`.
+- A press, Enter, Space, Down or Up on the trigger opens the panel, and the focus goes to the chosen row, or the first. Up and Down move through the rows, Right and Left open, close and go in and out, a letter goes to the next row that starts with it. Of one, a press of a row or Space chooses it, Enter does on a row that holds nothing (on one that holds others it opens or closes it), and the panel closes first and the handler is told after, so a handler that opens a dialog keeps its focus. Of any number, a press of a row or Space adds it or takes it out, a press with Shift chooses the rows from the last chosen to it, and the panel stays open.
+- The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Tab in the panel leaves the tree, which is one stop.
+- A select that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and which branches are open. As the panel opens, the branches the chosen rows are in open, so it opens on what is chosen; while it is open nothing opens or closes but by a person, so a row taken out of what is chosen stays under the focus.
+- A select of any number has no checkboxes: the board draws none, and its rows are a tree's, in the highlight while they are chosen.
+- To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `tree`, `a11y_expanded`, `a11y_value` (what it says), `a11y_invalid`, `a11y_readonly` and `a11y_multiselectable` where they hold; the panel a `dialog` and what it holds a `tree` of `treeitem`s, called by the select's label.
+- Parts: `TreeSelectPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon`, `Panel` (laid over the popover's panel), `Tree` (its greatest height, past which the tree scrolls), `Row`, `RowIcon` and `RowLabel` (laid over the tree view's row, icon and label) and `Empty`. States: a select's, `TreeSelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
+- In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
+- A theme's renderer is given `TreeSelectView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.panel()` and `view.render()`. It is set for `TreeSelect<T>` of any `T`.
+
 ## Token Input
 
 A box that holds a list as tokens, with what is being typed after them: tags, recipients. Or a text in which the app
@@ -4573,6 +4631,151 @@ view.on_key_down(move |event: KeyboardEvent| {
 **In a narrow room.** A mounted bar measures its field: where the field has no room for the options in it,
 they go behind one button (`options_label`, "Search options") whose menu checks the ones that are on; the count
 and the arrows stay. Under the least a field is wide, the count and the buttons go on to a line under it.
+
+## Column View
+
+A hierarchy as columns side by side: choosing an item of one shows what it holds in the next, as a file browser's columns do.
+
+```rust
+use lurq::ui::{ColumnView, TreeItem};
+
+// path: Signal<Vec<&str>>, the values from the top down to the item chosen last.
+ColumnView::new(path, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
+      TreeItem::folder("src", "src"),
+      TreeItem::file("Cargo.toml", "Cargo.toml"),
+    ]),
+  ]),
+  TreeItem::folder("docs", "docs"),
+])
+.label("Files")
+.on_activate(|file| open_file(file))
+.mount(ctx);
+
+// The path held by the app, which is told each new one.
+ColumnView::controlled(app.path(), items, |path| app.go(path));
+```
+
+| Builder | |
+| --- | --- |
+| `new(path, items)` | What is at the top, each a `TreeItem<T>` with what it holds (a [tree view](#tree-view)'s items), and the path chosen, bound to a `Signal<Vec<T>>`: the values from an item at the top down to the item chosen last |
+| `controlled(path, items, on_change)` | The path held by the app, which is told `on_change(&[T])` and shows what it gives back |
+| `on_change(handler)` | Told the whole new path after a press or a key changes it, after the signal is set; not for the path chosen already, nor when the app sets it |
+| `on_activate(handler)` | Told of the item a double press or Enter activates: open the file |
+| `label(&str)`, `loading_label(&str)` | What the view is called to what reads the tree, and the spinner of a column whose items are on their way, "Loading" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and each column has it with `-column-` and its place; `force` draws the item Tab stops on so |
+| `mount(ctx)` | In place of converting it: the view keeps where its columns are scrolled to, starts at the end of its path and brings the last column into sight as the path grows |
+
+- The first column is what is at the top; each one after it is what the item chosen in the one before holds. A press of an item ends the path at it. An item on the path is in the highlight and the one the path ends at on the info fill; a value of the path that is no item ends the path before it.
+- A `TreeItem` marked `lazy` with no items yet has a chevron and, chosen, a column with a spinner: the app hears the path in `on_change` and gives the item its children. `icon` and `open_icon` (while the item is on the path), `trailing`, `trailing_on_hover` and `disabled` are a tree's.
+- The view is one stop of Tab, at the item the path ends at, or the first. The choice follows the focus. Up and Down go through the items of a column, Home and End to its first and its last, without going round and without leaving the column; Right goes into what the item holds, to its first item, and Left back to the item the column is of, where the path then ends. A letter goes to the next item that starts with it, in the column and then in those after it. Enter activates. A disabled item is passed by.
+- The columns share the view's width, none narrower than the `Column` part's least width (160), and scroll sideways where they do not fit. A column scrolls down where its items are more than the view is high. The keys keep the item they go to in sight.
+- The keys are the engine's: the view is a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, `activate`s, with `typeahead` and without `wrap`, and each item takes the arrows to the item they go to by its key (`KeyboardEvent::focus_key`), which may be in a column the choice has only just shown.
+- To what reads the tree it is a `group` called by its label, each column a `listbox` called by the item it is of, each item an `option` with `a11y_selected`, `a11y_level` (its column), `a11y_posinset`, `a11y_setsize` and, where it holds others, `a11y_expanded`.
+- Parts: `ColumnViewPart::Root`, `Column`, `Item`, `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of an item marked to show it on hover), `Chevron`, `Status` and `Spinner` (of a column whose items are on their way). States: `ColumnViewState::Selected` (on the path), `Current` (the end of the path), `Last` (of a column: the last has no line at its end), `Disabled`.
+- In the design the view is 520 by 176 on `Background` in an edge of 1 in `Border`, `radius-lg`. A column is padded 4 with a line of 1 in `Border` at its end, its items 1 apart. An item is 26 high with `radius-sm`, 6 at each side, and holds an icon of 14 and a chevron of 12 in `MutedForeground` and its label in the body's type at 13, 6 apart. On the path it is on `Highlight`; at its end on `Info`, its icon, label and chevron in white. Under the pointer and held down it has the `StateHover` and `StatePressed` veils, the focus is a ring of 2 in `Ring` inside it, and a disabled item is half opaque. An item follows the [density](../theme/#density): 18, 26, 34 and 38 high.
+- A theme's renderer is given `ColumnViewView`: `view.columns` (each a `ColumnViewColumn` with its `items`, each a `ColumnViewItem` with its label, icon, whether it opens, is selected, is current, is disabled), `view.root()`, `column.render()`, and on an item `item.button()`, `item.icon()`, `item.label()`, `item.chevron()` and `item.render()`.
+
+## Sortable List
+
+A list whose rows a person puts in another order, by a drag of a row or of its handle and by the keys: the columns of a table, the layers of a scene, the steps of a pipeline.
+
+```rust
+use lurq::ui::{SortableItem, SortableList, move_rows};
+
+// sections: Signal<Vec<&str>>, the rows in the app's order.
+let order = sections.clone();
+SortableList::new(sections.get().into_iter().map(|name| (name, name)))
+  .label("Sections")
+  .on_reorder(move |from, to| {
+    order.update(|rows| {
+      let row = rows.remove(from);
+      rows.insert(to, row);
+    })
+  })
+  .mount(ctx);
+
+// A selection, whose rows are dragged together.
+SortableList::new(rows)
+  .selected(selected)
+  .on_reorder(|from, to| ..)
+  .on_reorder_many(move |rows, to| sections.update(|order| move_rows(order, rows, to)))
+  .mount(ctx);
+
+// Rows that hold what is pressed itself are dragged by their grip alone.
+SortableList::new(settings.map(|name| SortableItem::new(name, name).trailing(switch(name)))).handle_only(true);
+```
+
+| Builder | |
+| --- | --- |
+| `new(items)` | The rows in the app's order: `(value, title)`, or `SortableItem::new(value, title)` with `description`, `icon`, `trailing`, `disabled`, `id` and `key` |
+| `on_reorder(handler)` | Told `(from, to)` when a person moves one row: where it was and where it goes, as it is taken out and put back, `rows.insert(to, rows.remove(from))`, as a [strip of tabs](#window-tabs) tells it. The app reorders its rows |
+| `on_reorder_many(handler)` | Told `(&rows, to)` when several selected rows are moved together: where they were, in order, and where the first of them goes in the list without them. `ui::move_rows(&mut list, rows, to)` does it to a `Vec` |
+| `selected(Signal<Vec<T>>)`, `selected_controlled(values, on_selected_change)` | The rows that are selected, bound or held by the app. A list without it has no selection. `on_selected_change(&[T])` hears each change a person makes |
+| `handle(bool)`, `handle_only(bool)` | Whether each row has its grip (it has unless told otherwise), and whether a row is dragged by its grip alone and not by the rest of it |
+| `label(&str)` | What the list is called to what reads the tree |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the row Tab stops on so |
+| `mount(ctx)` | In place of converting it: the list keeps a drag from one render to the next, and draws it |
+
+- The list does not keep the order: the app's rows do, and it shows them in the order it is given. A row is a [list item](#list) in the list's dress, so it has a list item's two lines, its veils, its ring and its heights at each [density](../theme/#density).
+- A press that moves past a few pixels is a drag. The row follows the pointer over the list, turned a little (`ui::SORTABLE_LIST_TILT`) under the theme's large shadow and narrower than the list by what the `Lifted` part says (40, taken off about the pointer, so what was under it stays under it); what stood in its place is a ghost; and a line with a dot at its start stands in the flow of the list between the rows it would go between, which move apart to make room for it: the room between two rows is a `Slot`, which opens round the line over the theme's base duration in its standard easing, at once where motion is reduced, and closes again when the line goes. The list is as much higher while the line shows. Where letting go would move nothing there is no line. Let go, the app is told where; let go where it was, nothing. Escape puts it back, and the release that follows tells nothing. A drag that moved presses and selects nothing.
+- The list is one stop of Tab. Up and Down move the focus through the rows. Alt with Up or Down moves the focused row one place, Alt with Home or End to the first or the last, and the focus goes with it. A disabled row is passed by, is not moved, and other rows are put before and after it.
+- With a selection a press selects a row, with Ctrl (Cmd) one in or out and with Shift the rows from the last selected, Space adds the focused row or takes it out, Shift with the arrows selects on the way, and Ctrl+A selects them all. A drag of a selected row, or Alt with a key on it, moves every selected row together: each leaves a ghost, the row under the pointer counts them in a badge on its corner, they land together in their order, and the app is told by `on_reorder_many`. One row moved, selected or not, is told by `on_reorder`.
+- Converted into an element on its own the list keeps nothing: a drag still tells where the row was let go, with nothing drawn on the way.
+- To what reads the tree it is a `list` of `listitem`s, or with a selection a `listbox` (`a11y_multiselectable`) of `option`s with `a11y_selected`; each row says `a11y_posinset` and `a11y_setsize`.
+- Parts: `SortableListPart::Root` (the room between the rows), `Item` (laid over the list item's root), `Handle`, `Icon`, `Title`, `Description`, `Ghost`, `Slot` (the room between two rows, before the first and after the last, where the line shows), `Line`, `Cap` (the dot at the line's start), `Count` and `Lifted` (what holds the row under the pointer). States of a row: `SortableListState::Selected`, `Dragged` (the row drawn under the pointer), `Disabled`.
+- In the design the rows are 4 apart, each 36 high on `Card` in an edge of 1 in `Border`, `radius-md`, with a grip of 14 in `MutedForeground` 6 from its start, its text 8 after it at 13 and 10 from its end. The ghost is on `Muted` in an edge of 1 in `Input` at 0.6; the line is 2 in `Info` with a dot of 6, 4 from the row over it and 4 from the row under it, so those two are 10 apart; the row under the pointer is 260 over a list of 300; the count is a disc of 20 in `Info` with its number in white at 11 and 600, 4 past that row's end and 8 over it. A selected row is on `Highlight`.
+- A theme's renderer is given `SortableListView`: `view.rows` (each a `SortableRow` with its title, whether it is selected, disabled, a ghost, dragged), `view.list()`, `view.slot(index, count)`, `view.line_at()`, `view.line()`, `view.lifted(row)`, `view.dragged()` and `view.dragged_count()`; on a row `row.handle()` and `row.render()`.
+
+## Selection Marquee
+
+The rectangle a person drags over a surface to select what it touches: the tiles of a grid, the files of a folder, the nodes of a canvas.
+
+```rust
+use lurq::ui::SelectionMarquee;
+
+// selected, before: Signal<Vec<usize>>
+SelectionMarquee::new(tiles)
+  // What was selected when the drag began: what Shift adds to, and what Escape puts back.
+  .on_start(move |_| before.set(selected.get_untracked()))
+  .on_change(move |marquee| {
+    let touched = (0..count).filter(|tile| {
+      let (x, y, width, height) = place(*tile);
+      marquee.touches(x, y, width, height)
+    });
+    selected.set(marquee.select(&before.get_untracked(), touched));
+  })
+  .on_cancel(move || selected.set(before.get_untracked()))
+  .mount(ctx);
+
+// In a scroll container the marquee wraps what scrolls, and is given the container's state.
+ScrollVertical::new(SelectionMarquee::new(tiles).scroll(&state).mount(ctx)).with_scroll_state(state.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `new(child)` | The app's surface: what the rectangle is dragged over |
+| `on_start(handler)` | Told the rectangle once, as a drag becomes a marquee: where the app keeps what was selected before it |
+| `on_change(handler)` | Told the rectangle (`&Marquee`) each time it changes, the first too: as the pointer moves, and as the surface scrolls under it |
+| `on_change_end(handler)` | Told the last rectangle when the button comes up; not for a marquee Escape ended |
+| `on_cancel(handler)` | Told when Escape ends a marquee: where the app puts back what was selected before it |
+| `scroll(&ScrollState)` | The state of the scroll container the surface is in: the rectangle keeps its start on the content while the container scrolls under the drag |
+| `rect(x, y, width, height)` | Draws the rectangle at a place with nothing dragging it: for a gallery, a test |
+| `label(&str)` | What the surface is called to what reads the tree |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the surface's, and the rectangle has it with `-marquee` |
+| `mount(ctx)` | In place of converting it: the marquee keeps a drag from one render to the next, and draws the rectangle |
+
+- The marquee draws nothing and takes nothing until a press on its surface moves past a few pixels: a press that does not is the press of what is under it. From then the rectangle runs from where the button went down to the pointer, kept on the surface, and the release presses nothing.
+- A `Marquee` is `x`, `y`, `width` and `height` in the surface's own coordinates (from the top left corner of what the marquee wraps, whatever it is scrolled to) and `mode`, what the keys held at the press ask for: `MarqueeMode::Replace` with none, `Add` with Shift, `Toggle` with Ctrl (Cmd). `touches(x, y, width, height)` says whether it shares some room with a box of the surface, `contains(..)` whether the box is wholly in it, `touches_element(&element_ref)` the same of an element of the surface by where it is laid out, and `select(&before, touched)` what is selected with it: the touched alone, `before` and the touched, or `before` with each of the touched put in or taken out.
+- What is selected is the app's: the marquee tells the rectangle and keeps no selection. A press of the surface's own room that is no drag is the app's too, which selects none there.
+- Escape ends a marquee under way and tells `on_cancel`; the release that follows tells nothing.
+- Something on the surface that is dragged itself (it has `on_drag_*` handlers) keeps its drag: a press on it starts no marquee.
+- In a scroll container the marquee is what scrolls. A drag held at the container's edge scrolls it, faster the further the pointer is past the edge (the engine's [`drag_autoscroll`](../styling-events/#a-drag-that-scrolls-its-container)), and with the container's state the rectangle keeps its start on the content and grows over what comes into sight.
+- Converted into an element on its own the marquee keeps nothing: a drag still tells the app its rectangle, and none is drawn.
+- Parts: `SelectionMarqueePart::Root` (the surface, which the recipe gives nothing) and `Marquee`. States: `SelectionMarqueeState::Active` (a rectangle is drawn) and `Disabled`.
+- In the design the rectangle is on `InfoMuted` in an edge of 1 in `Info`, the whole of it at 0.55.
+- A theme's renderer is given `SelectionMarqueeView`: `view.rect` (the rectangle to draw, if any), `view.root()` (the surface with the drag), `view.marquee()` and `view.render()`.
 
 ## Highlight
 

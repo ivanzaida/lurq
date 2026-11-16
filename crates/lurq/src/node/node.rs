@@ -652,6 +652,7 @@ pub(crate) trait NodeUpdate {
   fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask);
+  fn drag_autoscroll(&mut self, enabled: bool);
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn on_drag_move(&mut self, f: impl IntoDragEventHandler);
@@ -934,6 +935,9 @@ pub struct EventHandlers {
   pub on_mouse_up: Vec<Callback<MouseEvent>>,
   pub on_mouse_move: Vec<Callback<MouseEvent>>,
   pub start_drag_buttons: MouseButtonMask,
+  /// A drag of the node scrolls the scroll container around it while the pointer is at the container's edge; see
+  /// `Node::drag_autoscroll`.
+  pub drag_autoscroll: bool,
   pub on_drag_start: Vec<Callback<DragEvent>>,
   pub on_drag_move: Vec<Callback<DragEvent>>,
   pub on_drag_end: Vec<Callback<DragEvent>>,
@@ -1884,6 +1888,10 @@ impl NodeUpdate for Node {
 
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask) {
     self.events.start_drag_buttons = buttons;
+  }
+
+  fn drag_autoscroll(&mut self, enabled: bool) {
+    self.events.drag_autoscroll = enabled;
   }
 
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler) {
@@ -3842,6 +3850,18 @@ impl Node {
 
   pub fn start_drag_buttons(mut self, buttons: MouseButtonMask) -> Self {
     self.events.start_drag_buttons = buttons;
+    self
+  }
+
+  /// Whether a drag that starts on this node scrolls the scroll container around it while the pointer is at the
+  /// container's edge or past it, off by default: the nearest container the node is in that has content beyond
+  /// its viewport scrolls toward the pointer, on the axes it scrolls, faster the farther the pointer is past the
+  /// edge, a step each frame while the pointer is held there, until the drag ends. After each step the drag's
+  /// `on_drag_move` handlers are called with the pointer where it is, so that what follows the drag (a rectangle
+  /// dragged over a list, a row carried along it) reckons with what scrolled under it. For a node with drag
+  /// handlers; it does nothing on any other.
+  pub fn drag_autoscroll(mut self, enabled: bool) -> Self {
+    self.events.drag_autoscroll = enabled;
     self
   }
 

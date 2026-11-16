@@ -9,11 +9,11 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker,
-    DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions, MentionsController,
-    MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress, ProgressDialog, Property,
-    PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast,
-    TokenInput, Waveform,
+    AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, ColumnView, Combobox, DateField, DatePicker,
+    DateRangePicker, DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions,
+    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress,
+    ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea,
+    TimeField, TimePicker, Toast, TokenInput, TreeItem, TreeSelect, Waveform,
   },
 };
 
@@ -571,4 +571,33 @@ fn a_waveform_in_a_narrow_room_keeps_its_bars_and_closes_its_gaps() {
     (last.x + last.width - (room + room_width)).abs() < 0.5,
     "the last at its end"
   );
+}
+
+#[test]
+fn a_tree_select_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    TreeSelect::controlled(
+      "lib.rs",
+      [TreeItem::folder("crates", "crates").item(TreeItem::file("lib.rs", "lib.rs"))],
+      |_| {},
+    )
+    .id("it")
+    .into()
+  });
+}
+
+#[test]
+fn a_column_view_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    ColumnView::controlled(
+      [],
+      [
+        TreeItem::folder("crates", "crates").item(TreeItem::file("lib.rs", "lib.rs")),
+        TreeItem::file("Cargo.toml", "Cargo.toml"),
+      ],
+      |_| {},
+    )
+    .id("it")
+    .into()
+  });
 }

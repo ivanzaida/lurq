@@ -33,6 +33,7 @@ mod checkbox_card;
 mod code_block;
 mod color_field;
 mod color_picker;
+mod column_view;
 mod combobox;
 mod command_bar;
 mod command_palette;
@@ -100,12 +101,14 @@ mod scroll_area;
 mod search_field;
 mod seek_bar;
 mod select;
+mod selection_marquee;
 mod separator;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+mod sortable_list;
 mod spinner;
 mod splitter;
 mod status_bar;
@@ -126,6 +129,7 @@ mod token_input;
 mod tokens;
 mod toolbar;
 mod tooltip;
+mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
@@ -565,6 +569,14 @@ pub const PAGES: &[Page] = &[
     about: "year picker years decade grid birth new optional controlled controlled_optional min max today locale previous_label next_label memory label invalid disabled on_change",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<year_picker::YearPickerPage>(()),
+  },
+  Page {
+    path: "/tree-select",
+    name: "Tree Select",
+    icon: Some("list-tree"),
+    about: "tree select treeselect cascader hierarchy nested options folder file category dropdown combobox panel branches leaves path new optional multiple controlled controlled_optional controlled_multiple on_change open branches branches_controlled on_branch_change leaves_only path separator_text max_shown placeholder size clearable clear_label empty_text invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<tree_select::TreeSelectPage>(()),
   },
   Page {
     path: "/tooltip",
@@ -1200,6 +1212,30 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/column-view",
+    name: "Column View",
+    icon: Some("columns"),
+    about: "column view columns miller finder file browser hierarchy folders path drill down side by side lazy spinner new controlled path items on_change on_activate disabled label loading_label mount TreeItem ColumnView",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<column_view::ColumnViewPage>(()),
+  },
+  Page {
+    path: "/sortable-list",
+    name: "Sortable List",
+    icon: Some("grip-vertical"),
+    about: "sortable list reorder drag drop rows order move handle grip ghost insertion line count selection keyboard alt arrows SortableList SortableItem on_reorder on_reorder_many move_rows selected selected_controlled on_selected_change handle handle_only disabled label mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<sortable_list::SortableListPage>(()),
+  },
+  Page {
+    path: "/selection-marquee",
+    name: "Selection Marquee",
+    icon: Some("marquee"),
+    about: "selection marquee rubber band lasso rectangle drag select tiles grid files canvas shift ctrl add toggle escape scroll autoscroll SelectionMarquee Marquee MarqueeMode on_start on_change on_change_end on_cancel scroll rect disabled label touches contains select mount",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<selection_marquee::SelectionMarqueePage>(()),
   },
   Page {
     path: "/play-button",
