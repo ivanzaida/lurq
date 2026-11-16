@@ -6,6 +6,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod area_chart;
 mod audio_player;
@@ -649,6 +650,14 @@ pub const PAGES: &[Page] = &[
     about: "teaching tip coach mark onboarding tour step next back guide callout feature discovery arrow anchor open mount title description media child primary secondary on_close close_button variant placement takes_focus width",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
+  },
+  Page {
+    path: "/ai-label",
+    name: "AI Label",
+    icon: Some("sparkles"),
+    about: "ai label artificial intelligence generated model assistant sparkles mark badge suggestion draft text icon size abel",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<ai_label::AiLabelPage>(()),
   },
   Page {
     path: "/command-palette",
