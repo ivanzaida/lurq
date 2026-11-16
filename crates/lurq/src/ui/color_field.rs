@@ -83,6 +83,9 @@ pub enum ColorFieldState {
   FullWidth,
   /// Its picker is open.
   Open,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// the color.
+  Fluid,
 }
 
 names!(ColorFieldState {
@@ -93,6 +96,7 @@ names!(ColorFieldState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Open => "open",
+  Fluid => "fluid",
 });
 
 /// The sizes of a color field: an input's.
@@ -514,6 +518,10 @@ impl<V: FieldColor> FieldControl for ColorField<V> {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 /// The color as the box writes it: its hex, with the alpha where the color is not opaque.
@@ -815,7 +823,8 @@ impl ColorFieldView {
     Some(trigger.into())
   }
 
-  /// The field: the box, the swatch over its start and the eyedropper over its end. What the picker opens under.
+  /// The field: the box, the swatch over its start and the eyedropper over its end. What the picker opens under. In
+  /// a fluid field the swatch and the eyedropper are on the line of the color, under the field's label.
   pub fn field(&self) -> Stack {
     let root = self.part(ColorFieldPart::Root);
     let swatch_side = match self.swatch_size() {
@@ -850,6 +859,10 @@ impl ColorFieldView {
           } else {
             edge
           })
+          .padding_top(text_box::value_line(
+            &self.part(ColorFieldPart::Control).rest(),
+            self.theme(),
+          ))
           .align_items(Alignment::Center)
           .justify(Justify::SpaceBetween)
           .hit_test(HitTestBehavior::ContentOnly)
@@ -889,11 +902,15 @@ impl ColorFieldView {
 
   /// How the default renderer builds a field: the field, and the panel that opens under it.
   pub fn render(self) -> Element {
-    // No wider than the room it has: the field in it is as wide as its recipe says at most.
+    // No wider than the room it has: the field in it is as wide as its recipe says at most. In a fluid field it is
+    // as wide as the field.
     let mut root = Row::new()
       .max_width(Dimension::Pct(100.0))
       .child(self.field())
       .child(self.panel());
+    if self.boxed.fluid {
+      root = root.width(Dimension::Pct(100.0));
+    }
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
@@ -911,7 +928,8 @@ impl Themed for ColorField {
   /// in the muted foreground 6 from its end. The board draws it at rest only: under the pointer, focused, judged, read
   /// only and disabled it is an input; the eyedropper is in a button of 24 with the small radius, on the highlight
   /// under the pointer. The picker opens 4 under it in a popover whose panel is the picker's: 232 wide, no padding of
-  /// its own.
+  /// its own. In a fluid field, which the board does not draw for it, the box is the fluid one, as wide as the field,
+  /// the swatch and the eyedropper on the line of the hex; its line is in the ring's color while the picker is open.
   fn recipe() -> Recipe {
     use ColorFieldPart::{Control, Panel, Placeholder, Root, Trigger, TriggerIcon};
     use PaletteColor::{Foreground, Highlight, MutedForeground};
@@ -943,6 +961,11 @@ impl Themed for ColorField {
         s.border(text_box::edge(PaletteColor::Ring))
       });
     let recipe = text_box::box_sizes(recipe, Control, true);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    // Open, a box has its edge in the ring's color: a fluid one its line.
+    let open = Selector::new()
+      .state(ColorFieldState::Fluid)
+      .state(ColorFieldState::Open);
+    text_box::fluid_rules(recipe, Root, Control).when(open, Control, |s| text_box::fluid_line(s, PaletteColor::Ring))
   }
 }

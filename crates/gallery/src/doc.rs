@@ -7,7 +7,6 @@
 use std::{
   path::{Path, PathBuf},
   sync::{Arc, Mutex},
-  time::Duration,
 };
 
 use lurq::{
@@ -22,14 +21,11 @@ use lurq::{
     layout_kind::{Justify, Sticky},
     text_style::FontWeight,
   },
-  node::{CursorIcon, Element, border::Border},
-  time::Instant,
-  ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant},
+  node::{Element, border::Border},
+  ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Length, TableOfContents, TableOfContentsPart},
 };
 
-use crate::kit::{
-  FILL, call_line, code_block, icon, icon_tool, line, mono, overline, phone, stage_padding, styled, text, tool,
-};
+use crate::kit::{FILL, call_line, code_block, icon, icon_tool, line, mono, phone, stage_padding, styled, text, tool};
 
 /// How wide the list of sections is.
 const ON_THIS_PAGE: f32 = 216.0;
@@ -37,11 +33,15 @@ const ON_THIS_PAGE: f32 = 216.0;
 const CONTENT: f32 = 880.0;
 /// The widest a page's name and description get, beside the page's actions.
 const TITLE_BLOCK: f32 = 620.0;
-/// How far down the window a section's top has to be for the section to be the one that is read: under the
-/// title bar and the header, a few lines into the page.
-const READING_LINE: f32 = 240.0;
-/// How long the list keeps the section that was clicked while the page scrolls to it.
-const HELD: Duration = Duration::from_millis(250);
+/// How far under the top of the page's scroll a section's top has to be for the section to be the one that is
+/// read: a few lines into the page.
+const READING_LINE: f32 = 140.0;
+/// The same from the top of the window, where nothing says what scrolls the page: under the title bar and the tabs.
+const READING_LINE_IN_WINDOW: f32 = 240.0;
+
+/// What scrolls the pages of a tab, said by the tab to the pages in it: the list of a page's sections follows it.
+#[derive(Clone)]
+pub struct PageScroll(pub ElementRef);
 /// The design system's board, from the root of the repository.
 const BOARD: &str = "pencil/lurq-design-system.pen";
 
@@ -78,19 +78,11 @@ impl Section {
   }
 }
 
-/// What a page keeps between renders for its frame: where its sections are,
-/// and the one the list of sections was asked to show.
+/// What a page keeps between renders for its frame: where its sections are, and how wide one of them is. The list
+/// of the sections is a `ui::TableOfContents`, which keeps the one that is read itself.
 #[derive(Clone)]
 pub struct Frame {
   anchors: Arc<Mutex<Vec<ElementRef>>>,
-  wanted: Arc<Mutex<Option<usize>>>,
-  /// Bumped when a section is asked for, so that the page renders and scrolls to it.
-  asked: Signal<u32>,
-  current: Signal<usize>,
-  /// Where the top of each section is in the window, as it was last laid out.
-  tops: Arc<Mutex<Vec<f32>>>,
-  /// Until when the section that was clicked stays the marked one, wherever the page scrolls to.
-  held: Arc<Mutex<Option<Instant>>>,
   /// The demo cards of the page whose code is shown: a bit for each, by its number.
   shown_code: Signal<u32>,
   /// How wide a section of the page is, measured: the room a card has.
@@ -102,11 +94,6 @@ impl Frame {
   pub fn new(ctx: &mut Ctx) -> Self {
     Self {
       anchors: Arc::default(),
-      wanted: Arc::default(),
-      asked: ctx.signal(0),
-      current: ctx.signal(0),
-      tops: Arc::default(),
-      held: Arc::default(),
       shown_code: ctx.signal(0),
       room: ctx.signal(0.0),
     }
@@ -204,36 +191,15 @@ impl Frame {
     while anchors.len() < sections.len() {
       anchors.push(ctx.element_ref());
     }
-    // The list marks the section that is being read: the last one whose top the page has scrolled past the
-    // reading line. A section says where it is whenever that changes, which scrolling does.
-    for (index, anchor) in anchors.iter().enumerate().take(sections.len()) {
-      let (tops, held, current) = (self.tops.clone(), self.held.clone(), self.current.clone());
+    // Every section is as wide as the first, which says how wide. The list of the sections watches their refs
+    // beside this observer.
+    if let Some(first) = anchors.first() {
       let room = self.room.clone();
-      anchor.observe_rect(move |rect| {
-        // Every section is as wide as the first.
-        if index == 0 && (room.get() - rect.width).abs() >= 0.5 {
+      first.observe_rect(move |rect| {
+        if (room.get() - rect.width).abs() >= 0.5 {
           room.set(rect.width);
         }
-        let mut tops = tops.lock().unwrap();
-        if tops.len() <= index {
-          tops.resize(index + 1, f32::MAX);
-        }
-        tops[index] = rect.y;
-        if held.lock().unwrap().is_some_and(|until| Instant::now() < until) {
-          return;
-        }
-        let read = tops.iter().rposition(|top| *top <= READING_LINE).unwrap_or(0);
-        if current.get() != read {
-          current.set(read);
-        }
       });
-    }
-    // Reading the signal is what renders the page when a section is asked for.
-    let _ = self.asked.get();
-    if let Some(wanted) = self.wanted.lock().unwrap().take()
-      && let Some(anchor) = anchors.get(wanted)
-    {
-      ctx.scroll_into_view(anchor);
     }
 
     // A wide window with a narrow column for the page has no room for the actions beside the title.
@@ -264,74 +230,35 @@ impl Frame {
           .child(section.body),
       );
     }
-    drop(anchors);
 
     let mut page = Row::new().width(FILL).align_items(Alignment::Start).child(main);
     if with_list {
-      page = page.child(self.on_this_page(&titles));
+      page = page.child(self.on_this_page(ctx, &titles, &anchors));
     }
+    drop(anchors);
     page.into()
   }
 
-  /// The list of the page's sections. It stays at the top of the view while the page scrolls under it.
-  fn on_this_page(&self, titles: &[&'static str]) -> Column {
-    let mut list = Column::new()
+  /// The list of the page's sections, a `ui::TableOfContents`: it marks the section that is read as the page
+  /// scrolls, and a press of an entry goes to its section. It stays at the top of the view while the page scrolls
+  /// under it.
+  fn on_this_page(&self, ctx: &mut Ctx, titles: &[&'static str], anchors: &[ElementRef]) -> Column {
+    let mut contents = TableOfContents::new(titles.iter().copied().zip(anchors))
+      // As wide as the column it is in.
+      .style(TableOfContentsPart::Root, |s| s.width(Length::Fill));
+    // The tab the page is in says what scrolls it: the reading line is under the top of that.
+    contents = match ctx.use_context::<PageScroll>() {
+      Some(PageScroll(scroll)) => contents.container(&scroll).reading_line(READING_LINE),
+      None => contents.reading_line(READING_LINE_IN_WINDOW),
+    };
+    Column::new()
       .width(ON_THIS_PAGE)
       .padding_top(36.0)
       .padding_right(16.0)
       .padding_bottom(32.0)
       .padding_left(8.0)
-      .spacing(2.0)
       .sticky(Sticky::top(0.0))
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(21.0)
-          .padding_left(12.0)
-          .padding_bottom(6.0)
-          .align_items(Alignment::Center)
-          .child(overline("On this page")),
-      );
-    let current = self.current.get();
-    for (index, title) in titles.iter().enumerate() {
-      let on = index == current;
-      let (wanted, asked, chosen) = (self.wanted.clone(), self.asked.clone(), self.current.clone());
-      let held = self.held.clone();
-      list = list.child(
-        Row::new()
-          .width(FILL)
-          .height(28.0)
-          .padding_left(12.0)
-          .align_items(Alignment::Center)
-          .cursor(CursorIcon::Pointer)
-          // The section that is being read is marked with a heavier edge in the primary color.
-          .border_left(if on {
-            Border::inside(2.0, PaletteColor::Primary)
-          } else {
-            Border::inside(1.0, PaletteColor::Border)
-          })
-          .foreground(if on {
-            PaletteColor::Foreground
-          } else {
-            PaletteColor::MutedForeground
-          })
-          .hovered(|style| style.foreground(PaletteColor::Foreground))
-          .on_click(move |_| {
-            *wanted.lock().unwrap() = Some(index);
-            // A section near the end of a page cannot come up to the reading line: it is the marked one
-            // because it was asked for, until the page is scrolled again.
-            *held.lock().unwrap() = Some(Instant::now() + HELD);
-            chosen.set(index);
-            asked.update(|count| *count += 1);
-          })
-          .child(text(
-            title,
-            13.0,
-            if on { FontWeight::Medium } else { FontWeight::Normal },
-          )),
-      );
-    }
-    list
+      .child(contents.mount(ctx))
   }
 }
 

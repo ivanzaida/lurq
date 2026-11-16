@@ -67,6 +67,38 @@ struct ElementRefInner {
   /// Whether what `rect_observer` changes is rendered and laid out again before the frame is painted
   /// ([`ElementRef::observe_rect_before_paint`]).
   before_paint: bool,
+  /// The observers added beside the ref's own ([`ElementRef::add_rect_observer`]), each with its number and whether
+  /// what it changes is shown before paint. Each is removed when its [`RectObserver`] is dropped.
+  added_observers: Vec<(u64, RectCallback, bool)>,
+  /// The number of the next added observer.
+  next_observer: u64,
+}
+
+type RectCallback = Arc<dyn Fn(ElementRect) + Send + Sync>;
+
+/// An observer of an element's rect added with [`ElementRef::add_rect_observer`] or
+/// [`ElementRef::add_rect_observer_before_paint`]: it is called for as long as this is kept, and removed from the
+/// ref when this is dropped. A component that adds one in each render keeps the last ones it added and drops those
+/// of the render before, so that they do not pile up.
+#[must_use = "the observer is removed when this is dropped"]
+pub struct RectObserver {
+  inner: std::sync::Weak<RwLock<ElementRefInner>>,
+  id: u64,
+}
+
+impl Drop for RectObserver {
+  fn drop(&mut self) {
+    if let Some(inner) = self.inner.upgrade() {
+      let mut inner = inner.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+      inner.added_observers.retain(|(id, ..)| *id != self.id);
+    }
+  }
+}
+
+impl std::fmt::Debug for RectObserver {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("RectObserver").field("id", &self.id).finish()
+  }
 }
 
 thread_local! {
@@ -238,7 +270,7 @@ impl ElementRef {
   }
 
   pub(crate) fn update(&self, x: f32, y: f32, relative_x: f32, relative_y: f32, width: f32, height: f32) {
-    let observer = {
+    let observers = {
       let mut inner = self.inner.write().unwrap();
       let changed = !inner.attached
         || inner.x != x
@@ -255,25 +287,30 @@ impl ElementRef {
       inner.height = height;
       inner.attached = true;
       if changed {
-        if inner.before_paint && inner.rect_observer.is_some() {
+        let before_paint = (inner.before_paint && inner.rect_observer.is_some())
+          || inner.added_observers.iter().any(|(_, _, before_paint)| *before_paint);
+        if before_paint {
           OBSERVED_BEFORE_PAINT.with(|observed| observed.set(true));
         }
-        inner.rect_observer.clone()
+        let mut observers: Vec<RectCallback> = inner.rect_observer.iter().cloned().collect();
+        observers.extend(inner.added_observers.iter().map(|(_, observer, _)| observer.clone()));
+        observers
       } else {
-        None
+        Vec::new()
       }
     };
-    // Outside the lock: the observer may read this ref (or write signals
-    // whose subscribers do).
-    if let Some(observer) = observer {
-      observer(ElementRect {
-        x,
-        y,
-        relative_x,
-        relative_y,
-        width,
-        height,
-      });
+    // Outside the lock: an observer may read this ref (or write signals
+    // whose subscribers do), or add and remove observers.
+    let rect = ElementRect {
+      x,
+      y,
+      relative_x,
+      relative_y,
+      width,
+      height,
+    };
+    for observer in observers {
+      observer(rect);
     }
   }
 
@@ -282,8 +319,13 @@ impl ElementRef {
   /// (after layout, before present), so writing a [`crate::core::Signal`]
   /// from it marks the owning component dirty and the runtime schedules a
   /// follow-up pass — the measure-then-render handshake for components whose
-  /// render depends on their own measured size. Registering again replaces
-  /// the previous observer.
+  /// render depends on their own measured size.
+  ///
+  /// This is the ref's own observer: registering again replaces it, so the
+  /// owner of the element registers it in every render. Code that watches a
+  /// ref it was given, and must not take its owner's observer away (a list of
+  /// a page's sections that follows their scroll), adds one of its own with
+  /// [`add_rect_observer`](Self::add_rect_observer), beside this one.
   pub fn observe_rect(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
     let mut inner = self.inner.write().unwrap();
     inner.rect_observer = Some(Arc::new(observer));
@@ -300,10 +342,38 @@ impl ElementRef {
   /// What is laid out again may be measured anew, so the frame is laid out again until nothing that is watched
   /// changes, four times at most. The observer should change what it writes only where the rect crosses what it is
   /// watching for: a value that changes on every rect lays every frame out again and again, and settles in none.
+  ///
+  /// This is the ref's own observer, as [`observe_rect`](Self::observe_rect)'s is, and replaces it; one added beside
+  /// it is [`add_rect_observer_before_paint`](Self::add_rect_observer_before_paint).
   pub fn observe_rect_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
     let mut inner = self.inner.write().unwrap();
     inner.rect_observer = Some(Arc::new(observer));
     inner.before_paint = true;
+  }
+
+  /// Adds an observer of the rect, called as [`observe_rect`](Self::observe_rect)'s is, beside the ref's own
+  /// observer and any others added: none replaces another. It is called while the [`RectObserver`] this gives is
+  /// kept, and removed when that is dropped. It is not called for the rect the element has now, only when that
+  /// changes.
+  pub fn add_rect_observer(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) -> RectObserver {
+    self.add_observer(Arc::new(observer), false)
+  }
+
+  /// As [`add_rect_observer`](Self::add_rect_observer), and what the observer changes is shown in the frame that
+  /// laid the element out, as with [`observe_rect_before_paint`](Self::observe_rect_before_paint).
+  pub fn add_rect_observer_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) -> RectObserver {
+    self.add_observer(Arc::new(observer), true)
+  }
+
+  fn add_observer(&self, observer: RectCallback, before_paint: bool) -> RectObserver {
+    let mut inner = self.inner.write().unwrap();
+    let id = inner.next_observer;
+    inner.next_observer += 1;
+    inner.added_observers.push((id, observer, before_paint));
+    RectObserver {
+      inner: Arc::downgrade(&self.inner),
+      id,
+    }
   }
 
   pub(crate) fn same_handle(&self, other: &Self) -> bool {
@@ -436,6 +506,16 @@ impl ElementRefMut {
   /// As [`ElementRef::observe_rect_before_paint`].
   pub fn observe_rect_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
     self.as_ref().observe_rect_before_paint(observer);
+  }
+
+  /// See [`ElementRef::add_rect_observer`].
+  pub fn add_rect_observer(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) -> RectObserver {
+    self.as_ref().add_rect_observer(observer)
+  }
+
+  /// See [`ElementRef::add_rect_observer_before_paint`].
+  pub fn add_rect_observer_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) -> RectObserver {
+    self.as_ref().add_rect_observer_before_paint(observer)
   }
 
   pub fn set_bounds(&self, rect: ElementRect) {

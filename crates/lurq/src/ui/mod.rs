@@ -30,6 +30,7 @@ mod bar_chart;
 mod bar_list;
 mod blockquote;
 mod breadcrumb;
+pub(crate) mod bulleted_list;
 mod button;
 mod button_group;
 mod calendar;
@@ -63,6 +64,8 @@ mod drawer;
 mod drop_zone;
 mod editable;
 mod empty_state;
+mod event_calendar;
+mod expandable_tile;
 mod fab;
 mod field;
 mod fieldset;
@@ -110,8 +113,8 @@ mod pagination;
 mod part_style;
 mod password_input;
 mod path_field;
-mod picture;
 mod persona;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -155,6 +158,7 @@ mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -212,6 +216,10 @@ pub use blockquote::{Blockquote, BlockquotePart, BlockquoteRenderer, BlockquoteS
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbVariant, BreadcrumbView,
+};
+pub use bulleted_list::{
+  BulletedList, BulletedListItem, BulletedListMarker, BulletedListPart, BulletedListRenderer, BulletedListState,
+  BulletedListView,
 };
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
@@ -304,6 +312,13 @@ pub use editable::{Editable, EditablePart, EditableRenderer, EditableState, Edit
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };
+pub use event_calendar::{
+  CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarForm, EventCalendarPart, EventCalendarPeriod,
+  EventCalendarRenderer, EventCalendarState, EventCalendarView, ShownEvent,
+};
+pub use expandable_tile::{
+  ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,
+};
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
@@ -318,6 +333,7 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
+pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 #[cfg(feature = "canvas")]
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 #[cfg(feature = "canvas")]
@@ -341,7 +357,6 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
-pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
@@ -411,12 +426,12 @@ pub use password_input::{
 pub use path_field::{
   PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
 };
+pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 pub use picture::{
   PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
-  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall,
-  PictureState, PictureView,
+  PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall, PictureState,
+  PictureView,
 };
-pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use play_button::{
@@ -535,6 +550,10 @@ pub use table::{
   SourceLabels, SourceRow, SummaryKind, SummaryLabels, Table, TableCell, TableColumn, TableCount, TableFilters,
   TableGroup, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState, TableSummary, TableTextError,
   TableView, TextMatch, in_tracks, to_csv, to_delimited, to_tsv,
+};
+pub use table_of_contents::{
+  TableOfContents, TableOfContentsEntry, TableOfContentsPart, TableOfContentsRenderer, TableOfContentsState,
+  TableOfContentsView,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
@@ -659,6 +678,7 @@ inspectable!(
   breadcrumb::BreadcrumbSeparator,
   button::ButtonShape,
   calendar::CalendarChoice,
+  event_calendar::EventCalendarForm,
   choice_card::ChoiceCardKind,
   color_picker::ColorFormat,
   color_swatch::ColorSwatchShape,

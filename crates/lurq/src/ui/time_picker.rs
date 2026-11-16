@@ -71,6 +71,9 @@ pub enum TimePickerState {
   FullWidth,
   /// The item is the hour, the minute or the half of the day of the time held.
   Selected,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// the time.
+  Fluid,
 }
 
 names!(TimePickerState {
@@ -82,6 +85,7 @@ names!(TimePickerState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Selected => "selected",
+  Fluid => "fluid",
 });
 
 /// The sizes of a time picker: an input's.
@@ -457,6 +461,7 @@ impl<V: FieldValue<Time>> TimePicker<V> {
     let is_open = open.get();
     let held = value.get();
     let disabled = self.boxed.disabled;
+    let fluid = self.boxed.fluid;
     let case = self
       .boxed
       .case(self.states.clone())
@@ -487,7 +492,10 @@ impl<V: FieldValue<Time>> TimePicker<V> {
       .full_width(self.full_width)
       .force(self.forced)
       .rules(&recipe.rules_for(TimePickerPart::Control, InputPart::Control))
-      .rules(&Recipe::new().base(InputPart::Root, |s| s.width(Length::Auto)));
+      // The root is as wide as the box, which the picker's recipe sizes: as wide as the field in a fluid one.
+      .rules(&Recipe::new().base(InputPart::Root, |s| {
+        s.width(if fluid { Length::Fill } else { Length::Auto })
+      }));
     input.boxed = self.boxed.clone();
     // The box says what it is to what reads the tree: a combobox that opens a dialog.
     input.boxed.role = Some("combobox");
@@ -566,6 +574,10 @@ impl<V: FieldValue<Time>> FieldControl for TimePicker<V> {
   fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
     self.boxed.in_field(field);
     self.mount(ctx)
+  }
+
+  fn has_fluid_form(&self) -> bool {
+    true
   }
 }
 
@@ -848,7 +860,7 @@ impl TimePickerView {
   }
 
   /// The field: the input's box, and the button over its start where the input draws its icon. What the panel opens
-  /// under.
+  /// under. In a fluid field the button is on the line of the time, under the field's label.
   pub fn field(&self) -> Stack {
     let [_, _, _, start] = self.input.part(InputPart::Control).rest().paddings();
     let spacing = self.theme().spacing();
@@ -865,11 +877,12 @@ impl TimePickerView {
       .child(
         Row::new()
           .padding_left((start - inset).max(0.0))
+          .padding_top(self.input.value_line())
           .align_items(Alignment::Center)
           .hit_test(HitTestBehavior::ContentOnly)
           .child(self.trigger()),
       );
-    if self.full_width {
+    if self.full_width || self.input.fluid() {
       field = field.width(Dimension::Pct(100.0));
     }
     field
@@ -1075,6 +1088,9 @@ impl TimePickerView {
         .spacing(gap)
         .child(self.field())
         .child(self.panel());
+      if self.input.fluid() {
+        root = root.width(Dimension::Pct(100.0));
+      }
       if let Some(key) = &self.key {
         root = root.key(key.clone());
       }
@@ -1085,7 +1101,7 @@ impl TimePickerView {
       .max_width(Dimension::Pct(100.0))
       .child(self.field())
       .child(self.panel());
-    if self.full_width {
+    if self.full_width || self.input.fluid() {
       root = root.width(Dimension::Pct(100.0));
     }
     if let Some(key) = &self.key {
@@ -1104,7 +1120,8 @@ impl<V: FieldValue<Time>> Themed for TimePicker<V> {
   /// panel opens 4 under it, 160 wide in the popover's colors, the large radius, 4 of padding and 4 between its
   /// columns: the hours and the minutes, 15 apart, items 30 high and 2 apart with the small radius, their numbers in
   /// the mono type at 13; the held one on the highlight at medium weight. Four items are seen of a column, which
-  /// scrolls.
+  /// scrolls. In a fluid field the box is the input's fluid one, as wide as the field, with the button on the line
+  /// of the time.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, Highlight, HighlightForeground, MutedForeground};
     use TimePickerPart::{Column as Lane, Control, Item, Panel, Trigger, TriggerIcon};
@@ -1114,6 +1131,10 @@ impl<V: FieldValue<Time>> Themed for TimePicker<V> {
         s.width(160.0).typography(TypographyStyle::Mono).font_size(14.0)
       })
       .state(TimePickerState::FullWidth, Control, |s| s.width(Length::Fill))
+      // A line of the mono type is higher than one of the body's: the box is 56, and not as high as what it holds.
+      .state(TimePickerState::Fluid, Control, |s| {
+        s.width(Length::Fill).height(super::text_box::FLUID_HEIGHT)
+      })
       .base(Trigger, |s| {
         fading(
           s.square(24.0)

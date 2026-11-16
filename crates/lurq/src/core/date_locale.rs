@@ -87,6 +87,12 @@ pub trait DateText: Send + Sync {
   /// What the head of a weekday's column says: `Th`.
   fn weekday_short(&self, day: Weekday) -> String;
 
+  /// The name of a day of the week as a day of an event calendar has it before its number: `Thu`. The first three
+  /// letters of its name unless the app says otherwise.
+  fn weekday_medium(&self, day: Weekday) -> String {
+    self.weekday_name(day).chars().take(3).collect()
+  }
+
   /// How a field writes a date: `Nov 12, 2026`.
   fn format(&self, date: Date) -> String;
 
@@ -119,6 +125,31 @@ pub trait DateText: Send + Sync {
   /// What the button that shows the month after is called: `Next month`.
   fn next_month_label(&self) -> String {
     "Next month".to_owned()
+  }
+
+  /// What the button of an event calendar that shows the week before is called: `Previous week`.
+  fn previous_week_label(&self) -> String {
+    "Previous week".to_owned()
+  }
+
+  /// What the button of an event calendar that shows the week after is called: `Next week`.
+  fn next_week_label(&self) -> String {
+    "Next week".to_owned()
+  }
+
+  /// What the button of an event calendar that shows the day before is called: `Previous day`.
+  fn previous_day_label(&self) -> String {
+    "Previous day".to_owned()
+  }
+
+  /// What the button of an event calendar that shows the day after is called: `Next day`.
+  fn next_day_label(&self) -> String {
+    "Next day".to_owned()
+  }
+
+  /// What the button of an event calendar that shows today says: `Today`.
+  fn today_label(&self) -> String {
+    "Today".to_owned()
   }
 
   /// What a date picker's button and panel are called: `Choose date`.
@@ -335,6 +366,9 @@ impl<T: DateText + ?Sized> DateText for Arc<T> {
   fn weekday_short(&self, day: Weekday) -> String {
     (**self).weekday_short(day)
   }
+  fn weekday_medium(&self, day: Weekday) -> String {
+    (**self).weekday_medium(day)
+  }
   fn format(&self, date: Date) -> String {
     (**self).format(date)
   }
@@ -355,6 +389,21 @@ impl<T: DateText + ?Sized> DateText for Arc<T> {
   }
   fn next_month_label(&self) -> String {
     (**self).next_month_label()
+  }
+  fn previous_week_label(&self) -> String {
+    (**self).previous_week_label()
+  }
+  fn next_week_label(&self) -> String {
+    (**self).next_week_label()
+  }
+  fn previous_day_label(&self) -> String {
+    (**self).previous_day_label()
+  }
+  fn next_day_label(&self) -> String {
+    (**self).next_day_label()
+  }
+  fn today_label(&self) -> String {
+    (**self).today_label()
   }
   fn choose_date_label(&self) -> String {
     (**self).choose_date_label()
@@ -498,10 +547,16 @@ pub struct DateLabels {
   pub previous_years: Arc<str>,
   pub next_years: Arc<str>,
   pub choose_time: Arc<str>,
+  /// What the button of an event calendar that shows today says.
+  pub today: Arc<str>,
+  pub previous_week: Arc<str>,
+  pub next_week: Arc<str>,
+  pub previous_day: Arc<str>,
+  pub next_day: Arc<str>,
 }
 
 impl DateLabels {
-  fn of(words: [&str; 10]) -> Self {
+  fn of(words: [&str; 15]) -> Self {
     let [
       previous_month,
       next_month,
@@ -513,6 +568,11 @@ impl DateLabels {
       previous_years,
       next_years,
       choose_time,
+      today,
+      previous_week,
+      next_week,
+      previous_day,
+      next_day,
     ] = words.map(Arc::from);
     Self {
       previous_month,
@@ -525,11 +585,16 @@ impl DateLabels {
       previous_years,
       next_years,
       choose_time,
+      today,
+      previous_week,
+      next_week,
+      previous_day,
+      next_day,
     }
   }
 
   /// English: `Previous month`, `Next month`, `Choose date`, `Choose dates`, `Clear`, `Previous year`, `Next year`,
-  /// `Previous years`, `Next years`, `Choose time`.
+  /// `Previous years`, `Next years`, `Choose time`, `Today`, `Previous week`, `Next week`, `Previous day`, `Next day`.
   pub fn english() -> Self {
     Self::of([
       "Previous month",
@@ -542,6 +607,11 @@ impl DateLabels {
       "Previous years",
       "Next years",
       "Choose time",
+      "Today",
+      "Previous week",
+      "Next week",
+      "Previous day",
+      "Next day",
     ])
   }
 }
@@ -624,6 +694,8 @@ pub struct DateLocale {
   pub weekdays: [Arc<str>; 7],
   /// The days of the week as the head of a calendar's column has them, from Monday: `Mo`.
   pub weekdays_short: [Arc<str>; 7],
+  /// The days of the week as a day of an event calendar has them before its number, from Monday: `Mon`.
+  pub weekdays_medium: [Arc<str>; 7],
   /// The order of the day, the month and the year.
   pub order: DateOrder,
   /// How a field writes a date: in numbers, by the month's short or long name, or as ISO 8601.
@@ -728,6 +800,7 @@ impl DateLocale {
         "Sunday",
       ]),
       weekdays_short: names(["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]),
+      weekdays_medium: names(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
       order: DateOrder::MonthDayYear,
       style: DateStyle::Short,
       separator: '/',
@@ -783,6 +856,7 @@ impl DateLocale {
           "неділя",
         ]),
         weekdays_short: names(["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]),
+        weekdays_medium: names(["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]),
         order: DateOrder::DayMonthYear,
         style: DateStyle::Numeric,
         separator: '.',
@@ -797,6 +871,11 @@ impl DateLocale {
           "Попередні роки",
           "Наступні роки",
           "Виберіть час",
+          "Сьогодні",
+          "Попередній тиждень",
+          "Наступний тиждень",
+          "Попередній день",
+          "Наступний день",
         ]),
         segments: SegmentWords::of(
           ["День", "Місяць", "Рік", "Година", "Хвилина", "Секунда", "Частина доби"],
@@ -832,6 +911,7 @@ impl DateLocale {
           "Sonntag",
         ]),
         weekdays_short: names(["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]),
+        weekdays_medium: names(["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]),
         order: DateOrder::DayMonthYear,
         style: DateStyle::Numeric,
         separator: '.',
@@ -846,6 +926,11 @@ impl DateLocale {
           "Vorherige Jahre",
           "Nächste Jahre",
           "Uhrzeit wählen",
+          "Heute",
+          "Vorherige Woche",
+          "Nächste Woche",
+          "Vorheriger Tag",
+          "Nächster Tag",
         ]),
         segments: SegmentWords::of(
           ["Tag", "Monat", "Jahr", "Stunde", "Minute", "Sekunde", "AM/PM"],
@@ -873,6 +958,7 @@ impl DateLocale {
         ]),
         weekdays: names(["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]),
         weekdays_short: names(["Lu", "Ma", "Me", "Je", "Ve", "Sa", "Di"]),
+        weekdays_medium: names(["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]),
         order: DateOrder::DayMonthYear,
         style: DateStyle::Numeric,
         separator: '/',
@@ -887,6 +973,11 @@ impl DateLocale {
           "Années précédentes",
           "Années suivantes",
           "Choisir une heure",
+          "Aujourd’hui",
+          "Semaine précédente",
+          "Semaine suivante",
+          "Jour précédent",
+          "Jour suivant",
         ]),
         segments: SegmentWords::of(
           ["Jour", "Mois", "Année", "Heure", "Minute", "Seconde", "AM/PM"],
@@ -914,6 +1005,7 @@ impl DateLocale {
         ]),
         weekdays: names(["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]),
         weekdays_short: names(["Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"]),
+        weekdays_medium: names(["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]),
         order: DateOrder::DayMonthYear,
         style: DateStyle::Numeric,
         separator: '/',
@@ -928,6 +1020,11 @@ impl DateLocale {
           "Años anteriores",
           "Años siguientes",
           "Elegir hora",
+          "Hoy",
+          "Semana anterior",
+          "Semana siguiente",
+          "Día anterior",
+          "Día siguiente",
         ]),
         segments: SegmentWords::of(
           ["Día", "Mes", "Año", "Hora", "Minuto", "Segundo", "AM/PM"],
@@ -963,6 +1060,7 @@ impl DateLocale {
           "niedziela",
         ]),
         weekdays_short: names(["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"]),
+        weekdays_medium: names(["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"]),
         order: DateOrder::DayMonthYear,
         style: DateStyle::Numeric,
         separator: '.',
@@ -977,6 +1075,11 @@ impl DateLocale {
           "Poprzednie lata",
           "Następne lata",
           "Wybierz godzinę",
+          "Dzisiaj",
+          "Poprzedni tydzień",
+          "Następny tydzień",
+          "Poprzedni dzień",
+          "Następny dzień",
         ]),
         segments: SegmentWords::of(
           ["Dzień", "Miesiąc", "Rok", "Godzina", "Minuta", "Sekunda", "AM/PM"],
@@ -1259,6 +1362,10 @@ impl DateText for DateLocale {
     self.weekdays_short[day.days_from_monday() as usize].to_string()
   }
 
+  fn weekday_medium(&self, day: Weekday) -> String {
+    self.weekdays_medium[day.days_from_monday() as usize].to_string()
+  }
+
   fn format(&self, date: Date) -> String {
     DateLocale::format(self, date)
   }
@@ -1285,6 +1392,26 @@ impl DateText for DateLocale {
 
   fn next_month_label(&self) -> String {
     self.labels.next_month.to_string()
+  }
+
+  fn previous_week_label(&self) -> String {
+    self.labels.previous_week.to_string()
+  }
+
+  fn next_week_label(&self) -> String {
+    self.labels.next_week.to_string()
+  }
+
+  fn previous_day_label(&self) -> String {
+    self.labels.previous_day.to_string()
+  }
+
+  fn next_day_label(&self) -> String {
+    self.labels.next_day.to_string()
+  }
+
+  fn today_label(&self) -> String {
+    self.labels.today.to_string()
   }
 
   fn choose_date_label(&self) -> String {
@@ -1574,5 +1701,34 @@ mod tests {
     assert_eq!(en.parse("13/12/2026"), None);
     assert_eq!(en.parse("Nov 12 2026 3"), None);
     assert_eq!(en.parse("Nob 12, 2026"), None);
+  }
+
+  #[test]
+  fn the_words_of_an_event_calendar_are_the_locales() {
+    let en = DateLocale::english();
+    assert_eq!(DateText::weekday_medium(&en, Weekday::Thursday), "Thu");
+    assert_eq!(DateText::today_label(&en), "Today");
+    assert_eq!(DateText::previous_week_label(&en), "Previous week");
+    assert_eq!(DateText::next_day_label(&en), "Next day");
+    let uk = DateLocale::for_tag("uk");
+    assert_eq!(DateText::weekday_medium(&uk, Weekday::Thursday), "Чт");
+    assert_eq!(DateText::today_label(&uk), "Сьогодні");
+    assert_eq!(DateText::previous_week_label(&uk), "Попередній тиждень");
+    assert_eq!(DateText::next_week_label(&uk), "Наступний тиждень");
+    assert_eq!(DateText::previous_day_label(&uk), "Попередній день");
+    assert_eq!(DateText::next_day_label(&uk), "Наступний день");
+    // Every language lurq has says them in its own words, and shared it says the same.
+    for tag in ["de", "fr", "es", "pl"] {
+      let locale = DateLocale::for_tag(tag);
+      assert_ne!(DateText::today_label(&locale), "Today", "{tag}");
+      assert_ne!(DateText::next_week_label(&locale), "Next week", "{tag}");
+      let shared: Arc<dyn DateText> = Arc::new(locale.clone());
+      assert_eq!(shared.today_label(), DateText::today_label(&locale), "{tag}");
+      assert_eq!(
+        shared.weekday_medium(Weekday::Monday),
+        DateText::weekday_medium(&locale, Weekday::Monday),
+        "{tag}"
+      );
+    }
   }
 }

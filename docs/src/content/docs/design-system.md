@@ -632,6 +632,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 | `info(&str)` | What the label needs explained: the mark of an [info label](#info-label) after the label, 6 after what is before it, with the words in a tooltip above it. The tooltip shows on a field that is mounted (`mount(ctx)`), and the mark is then the field's first stop of Tab; on one converted into an element the mark says the words to tooling alone |
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `fluid(bool)` | The label inside the box of the control, over what it holds: a [fluid field](#fluid-field) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 | `mount(ctx)` | The field built where it is declared, its control mounted: see below. Converting it (`.into()`) builds it with its control as it is |
 
@@ -651,13 +652,54 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - The field's description, or its error while it has one, is the control's description to what reads the tree (`a11y_description`), whatever the control: the field puts it on each outermost node in the control that says what it is (`a11y_role`) or takes the focus, so a radio group is described and not each radio in it. `lurq_inspect` reports it as `description`.
 - A press of the label focuses the control: the first node under what holds it that takes the focus (`.focuses(&ElementRef)` on the label, the ref on the row that holds the control). A control that is disabled is not focused, and a disabled field's label focuses nothing. A renderer that holds the control another way puts `view.focus` on what holds it.
 - An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
-- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
+- Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Fluid`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
 
 **In a narrow room.** A field whose label stands beside its control puts the label over the control where the
 field's own room, not the window's, is narrower than the two need side by side: the label is then as high as its
 text, and the control fills the row under it. With room again they stand side by side. The board draws the label beside its control (Fieldset, the horizontal field) and no narrow form of it: the label over the control is the form of its other fields.
 
+### Fluid Field
+
+A field whose label is inside the box of its control, over the value: the design's Fluid Field (`imRnW`), for a form whose fields stand edge to edge. It is a form of the field, `Field::fluid(true)`, for the controls that have a fluid form, which every text control a field holds has: an [input](#input), a [textarea](#textarea), a [select](#select), a [password input](#password-input), a [search field](#search-field), a [number input](#number-input), a [combobox](#combobox), a [multi select](#multi-select), a [date field](#date-field), a [time field](#time-field), a [date picker](#date-picker), a [date range picker](#date-range-picker), a [time picker](#time-picker), a [token input](#token-input), a [mentions field](#mentions) and a [color field](#color-field). A month picker and a year picker are panels of a grid, not boxes that hold a value: they have no fluid form.
+
+```rust
+use lurq::ui::{DatePicker, Field, Input, NumberInput, Select, Textarea};
+
+Field::new("Workspace name", Input::new(name.clone())).fluid(true);
+
+Field::new("Notes", Textarea::new(notes.clone()).rows(2, 5))
+  .fluid(true)
+  .description("Shown to everyone in the workspace.");
+
+Field::new("Theme", Select::new(theme.clone(), [("system", "System"), ("dark", "Dark")]))
+  .fluid(true)
+  .required(true);
+
+Field::new("Seats", NumberInput::new(seats.clone()).min(1)).fluid(true);
+
+// A control that keeps something between renders is mounted by the field, and has the form there too.
+Field::new("Due date", DatePicker::new(due.clone()).clearable(true))
+  .fluid(true)
+  .mount(ctx);
+```
+
+- The control is the box, as wide as the field: on `Muted`, round at its top (6) and square at its bottom, with a line of 1 in `Foreground` along its bottom and no edge on its other sides. The label lies over its top, 12 from its sides and 10 from its top, in a caption's type (12) and `MutedForeground`, on one line, cut with an ellipsis where the box is narrower; the mark of a required or an optional field is after it, and the mark that explains it (`Field::info`) after that, which alone of the label takes the pointer, for its tooltip: a press elsewhere on the label goes to the control. What the control holds is 4 under the label's line and 10 over the bottom: a control of one line is 56 high, a textarea as high as its rows and the 39 around them. The field is 240 wide, or as wide as what holds it (`full_width`).
+- The line says what the edge of a box says, where the board is silent: the ring's color under the pointer, `Destructive`, `Warning` or `Success` for the field's judgment (an error makes it destructive, as in any field), `Border` when the control is read only. The focus is a line of 2 inside the box, as an input's is. A disabled one is at half its opacity.
+- The description, or the error, is 6 under the box, as any field's. A press of the label goes to the control under it: an input takes the caret, a select opens.
+- What stands in the box beside the value stands on the line of the value, under the label, and not in the middle of the box: an input's icon, a password's eye, a search's clear button, a picker's button, a color's swatch. The board draws the form for an input alone; the others follow it, each with what is particular to it:
+  - A password input has its eye 12 from the end of the box; its meter and what the meter says are under the box, as wide as it.
+  - A search field is padded 12 at its start, so that its icon starts where the label does; its clear button, or the hint of its key while it is empty, is at its end.
+  - A number input has its buttons on the line of the number, where its layout has them: each 25 high with the small radius, from the label's line to 4 under the number's, and the lines beside them as high. Stacked, they are one over the other about the number's line, down to the line of the box.
+  - A combobox is a select's fluid trigger: what is typed, the cross that clears and the chevrons are on one line.
+  - A multi select is at least 56 high. A tag (24) is higher than a line of text, so its box is padded 26 over its tags and 6 under them, and 12 at its start: with one line of tags, or with none, it is 56, and each line more adds a tag and the 6 between lines.
+  - A date field and a time field are 56 high, their segments and their glyph on one line, padded 9 at the start so that the first segment's text starts where the label does.
+  - A date picker, a date range picker and a time picker are the input's fluid box, with the button that opens the panel, and a clearable date picker's cross, on the line of the value. A time picker, 160 wide on its own, is as wide as the field.
+  - A token input is padded 12 and 56 high on one line, its tokens in the middle of the line of its text; on rows it is as high as its rows (28 each) and the 39 around them.
+  - A mentions field is a token input on rows: its two rows of 21 and the 39 around them, and higher as its text takes more rows.
+  - A color field has its swatch and its eyedropper on the line of the hex; while its picker is open its line is in the ring's color.
+- A control says that it has the form with `FieldControl::has_fluid_form`, and takes it when the field tells it `InField::fluid`: a control of an app's own that wraps an input passes both on. A fluid field of a control that has none (a switch, a slider, a month picker) is drawn as any field, its label above the control. The label is always over the value: a fluid field's `orientation` is not read.
+- States: `FieldState::Fluid` on the field (its `Label` and its `Root`), and on the control the state `Fluid` of its own enum, named `fluid`: `InputState`, `TextareaState`, `SelectState`, `PasswordInputState`, `SearchFieldState`, `NumberInputState`, `ComboboxState` (a multi select's too), `DateFieldState` (a time field's too), `DatePickerState` (a date range picker's too), `TimePickerState`, `TokenInputState`, `MentionsState` and `ColorFieldState`. Its rules are on the part that is the box: the `Control`, the `Trigger` of a select, a combobox and a multi select, the `Root` of a date field and a time field. A renderer of a field has `view.fluid` and `view.fluid_label()`.
 ## Info Label
 
 What a field or a setting is called, with a mark after it that explains it: "API key", and that it is stored in the keychain.
@@ -1641,6 +1683,54 @@ room the marks and their lines need, the steps run down the page; the board draw
 are only built (converted into an element, or `build`) cannot measure: they stay a row, keep their marks whole and
 cut their titles.
 
+## Table of Contents
+
+The list of a page's sections, with the one being read marked: "On this page" beside an article, the outline of a document. It follows the scroll of the container the app names, and a press of an entry brings its section to the top.
+
+```rust
+use lurq::{core::ElementRef, ui::{TableOfContents, TableOfContentsEntry}};
+
+// In `create`: a ref for each section, and one for what scrolls them.
+let (page, theme, palette, roles) = (ElementRef::new(), ElementRef::new(), ElementRef::new(), ElementRef::new());
+
+// In `render`: each section has its ref on it (`.ref_element(theme.clone())`), the scroll has `page`.
+TableOfContents::new([("Runtime theme", &theme), ("Palette", &palette)])
+  .entry(TableOfContentsEntry::new("Extra roles", &roles).level(2))
+  .container(&page)
+  .on_change(|index| println!("reading section {index}"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `TableOfContents::new(entries)` | Its entries: `TableOfContentsEntry`s, or pairs of a label and the ref of a section |
+| `entry(..)`, `entries(..)` | Adds to them |
+| `mount(ctx)` | The list where it is declared: it follows the scroll and goes to a section when its entry is pressed. Converted (`.into()`) it is still: see below |
+| `container(&ElementRef)` | What scrolls the sections, by the ref the app gave it: the reading line is measured from its top. With none, from the top of the window |
+| `reading_line(impl Into<f32>)` | How far under the top of the container a section's top is when the section becomes the one read: 24 unless told |
+| `current(Signal<usize>)` | The entry marked, the app's: the list sets it as the page scrolls and as an entry is pressed, and marks what the app sets. Without it a mounted list keeps the entry itself |
+| `on_change(Fn(usize))` | Another section became the one read, by the scroll or by a press: after the signal is set, and not when the app sets it |
+| `on_select(Fn(usize))` | An entry was pressed, before the list goes to its section |
+| `title(&str)` | What the list is called over its entries, in place of "On this page"; drawn in capitals. An empty one draws no title |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the marked entry |
+
+| Entry | |
+| --- | --- |
+| `TableOfContentsEntry::new(&str, &ElementRef)` | What the section is called, and the ref on the section's element, or on its heading |
+| `level(usize)` | How deep the section is: 1 for a section of the page, 2 for a section of a section, which is set in |
+| `disabled(bool)` | It takes no input, and the keys pass it by |
+| `id`, `key` | Of the entry |
+
+- A mounted list marks the last entry whose section's top has come up to the reading line: at the top of a page the first, and each next one as its heading nears the top of the container. Where the container is scrolled to its end, with the last section all in view and the first gone up out of it, the last entry is marked, though its section's top cannot come up to the line; scrolled back, the entry of the section at the line again. It adds observers of its own to the refs of its sections (`ElementRef::add_rect_observer_before_paint`), so the entry is marked in the frame the scroll is drawn in, and an observer the app registered on one of those refs is kept; a new render replaces the list's observers, which go with it.
+- A press of an entry scrolls its section to the start of what scrolls it (`ctx.scroll_into_view_start`, clear of what sticks to the top), and marks the entry. A section near the end of the page cannot come up to the line, the page ends first: its entry is the marked one because it was pressed, until the page is scrolled again.
+- Converted into an element on its own it is the still form of itself: it marks what its signal says (the first entry with no signal), follows no scroll, and a press sets the signal and tells the handlers, and scrolls nothing. A list that is to stay in view while the page scrolls is in a container of the app's that sticks (`.sticky(Sticky::top(0.0))`).
+- To the keyboard it is one stop of Tab, at the marked entry. Up and Down move between the entries and do not wrap, Home and End go to the first and the last, Enter and Space go to the section; the focus stays on the entry. A label longer than the list is cut with an ellipsis on its one line.
+- To what reads the tree it is a `navigation`, called by its label or its title, of `link`s called by their labels; the marked one says it is the current location (`a11y_current`).
+- Parts: `TableOfContentsPart::Root` (the width, the room between the entries), `Title`, `Entry` (what is pressed: its height, the line at its start, the room before its label), `Indent` (its width is how far a level sets an entry in), `Label`. States, each an entry's own: `TableOfContentsState::Current`, `Disabled`.
+- In the design (`i7m0J`) it is 200 wide, its entries 2 apart under a title in the mono face at 11, in capitals a pixel apart, in `MutedForeground`, 12 in and 6 over the first entry. An entry is 28 high with a line of 1 in `Border` at its start and its label 12 after it, 13 in `MutedForeground`; one of the second level is 12 further in. The marked one has a line of 2 in `Primary` and its label in `Foreground` at medium weight. The board draws no pointer: a label is in `Foreground` under it, and the focus is a line of 2 in the ring's color inside the entry. An entry is a row and follows the density.
+- A renderer that draws another list has `view.root()`, `view.title()`, `view.entry(index)`, `view.entry_recipe(index)` and `view.render()`.
+
 ## Badge
 
 A short label of a state or a count, read and not operated: beta, passing, 3 unread.
@@ -1917,6 +2007,52 @@ Card::new()
 - A surface of the app's own is a card with its parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what it holds as the body. The settings card and the stat card of the design are components of their own: a [settings card](#settings-card) and a [stat card](#stat-card).
 - To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
 - A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
+
+## Expandable Tile
+
+A tile that is pressed to show more of itself: a fact with its details, a figure with where it comes from, a plan with what it includes.
+
+```rust
+use lurq::{components::Text, core::Signal, ui::{ExpandableTile, icons}};
+
+// The board's tile, open.
+ExpandableTile::text("Renderer", "wgpu 26 on DirectX 12. Frame time 6.9 ms median.").open(true);
+
+// Open while the signal is true, which a press of the tile turns.
+let open = Signal::new(false);
+ExpandableTile::text("Renderer", "wgpu 26 on DirectX 12.")
+  .bind(open.clone())
+  .on_open_change(|open| println!("open: {open}"));
+
+// What it always shows, over an element it opens.
+ExpandableTile::new("Team", Text::new("Unlimited seats, SSO, audit log."))
+  .child(Text::new("$12 a seat"))
+  .icon(icons::PLUS)
+  .open_icon(icons::MINUS);
+```
+
+| Builder | |
+| --- | --- |
+| `ExpandableTile::new(title, element)` | Its title, and what it shows while it is open |
+| `ExpandableTile::text(title, text)` | Its title, and a text it shows while it is open, in the detail's type |
+| `child(..)`, `children(..)` | What it always shows, under its header: a figure, a line, a chart |
+| `open(bool)` | Whether what it opens is shown |
+| `bind(Signal<bool>)` | Open while the signal is true; a press turns it |
+| `on_open_change(Fn(bool))` | Told of a press, with what the tile is to be: after the signal is set where it is bound, and not when the app sets it |
+| `icon(..)`, `open_icon(..)` | The icon of the chevron (`chevron-down`), and of the open tile's (`chevron-up`, or its `icon` where it was given one); `None` for no chevron |
+| `disabled(bool)` | It takes no input |
+| `full_width(bool)` | As wide as what holds it, in place of the design's 260 |
+| `label(&str)` | What it is called to tooling, in place of its title |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- The whole tile is pressed: by the pointer anywhere on it, and by Enter and Space once Tab has reached it. It does not keep whether it is open: the app says so (`open`), or binds it (`bind`). With neither a handler nor a signal a press does nothing.
+- A press of an element the app put in it (what `child` gave it, the element it opens) is that element's alone, and the controls in it are stops of Tab of their own, after the tile. A press of the text of `ExpandableTile::text` is the tile's.
+- What it opens opens and closes with its height over the theme's base duration and fades, as a [collapsible](#collapsible)'s does, at once where motion is reduced. While it is closed it is not there: the controls in it are not stops of Tab.
+- A long title goes on to the next line, and the chevron stays at the end of its first.
+- To what reads the tree it is a `button`, called by its label or its title, which says whether what it opens is open (`a11y_expanded`).
+- Parts: `ExpandableTilePart::Root` (what is pressed: the fill, the edge, the padding), `Header`, `Title`, `Chevron`, `Body` (what it always shows), `Panel` (what opens: its height), `Detail` (what the panel holds, and the type of its text). States: `ExpandableTileState::Open`, `Disabled`, `FullWidth`, `Body`.
+- In the design (`slE1t`) it is 260 wide on `Background` in an edge of 1 in `Border` with the large radius, padded 16; its title is 14 at medium weight, 8 before a chevron of 16 in `MutedForeground`; what it opens is 10 under the header, a text of 13 on lines of 1.5 in `MutedForeground`. The board draws it open and at rest: closed it has `chevron-down`, under the pointer its edge is in the ring's color, as a pressed [card](#card)'s is, the focus is the theme's ring around it, and what it always shows is 10 under its header.
+- A renderer that draws another tile has `view.root()`, `view.header()`, `view.title()`, `view.chevron()`, `view.body()`, `view.panel()` and `view.render()`.
 
 ## Scroll Area
 
@@ -3271,6 +3407,56 @@ Blockquote::new("")
 - Parts: `BlockquotePart::Root` (the line, the padding), `Label` (the text), `Body` (what it holds under its text). States: `BlockquoteState::Body`.
 - In the design it has a line of 2 in `Border` at its start, and is padded 16 after it and 4 above and below; its text is 14 in italics on lines of 1.5 in `MutedForeground`. The board draws no one who said it.
 - A renderer that draws another quote has `view.root()`, `view.label()`, `view.body()` and `view.render()`.
+
+## Bulleted List
+
+A list of lines, each with a mark before it: a bullet, a number, an icon or a mark of the app's own. The features of a plan, the steps of a recipe, what a release changed; Markdown's `-` and `1.` are drawn with the same numbers.
+
+```rust
+use lurq::ui::{BulletedList, BulletedListItem, BulletedListMarker, icons};
+
+BulletedList::new(["Semantic color roles", "Light and dark palettes"]);
+
+// Numbers, from 4, written as the app says.
+BulletedList::new(["Install", "Configure", "Run"])
+  .marker(BulletedListMarker::Number)
+  .start(4)
+  .number_text(|number| format!("{number})"));
+
+// An icon for every item: the name of one is a marker.
+BulletedList::new(["Signed", "Notarized"]).marker(icons::CHECK);
+
+// A list in an item, with a marker of its own.
+BulletedList::new(["Tokens"]).item(
+  BulletedListItem::new("Components")
+    .list(BulletedList::new(["Button", "Switch"]).marker(BulletedListMarker::Number)),
+);
+```
+
+| Builder | |
+| --- | --- |
+| `BulletedList::new(items)` | Its items: texts, or `BulletedListItem`s |
+| `item(..)`, `items(..)` | Adds to them |
+| `marker(impl Into<BulletedListMarker>)` | What stands before each item: `Bullet` (the default), `Number`, `Icon(name)`, or `None`, the lines alone. The name of an icon of the theme's set is a marker |
+| `start(u64)` | The number of the first item of a numbered list, in place of 1 |
+| `number_text(Fn(u64) -> String)` | How a numbered list writes a number, in place of `1.`: `a)`, a number in another script |
+| `label(&str)` | What it is called to tooling |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. What is said of a list is said of the lists in its items |
+
+| Item | |
+| --- | --- |
+| `BulletedListItem::new(&str)` | What it says, wrapping at the list's width. An empty text says nothing, for an item of elements alone |
+| `child(..)`, `children(..)` | Elements under its line, 6 apart: a paragraph, a block of code |
+| `list(BulletedList)` | A list in the item, under what it says and holds: set in to the item's text, its bullets rings, with the marker it was given |
+| `icon(name)` | An icon as this item's mark, in place of the list's |
+| `media(..)` | An element of the app's as this item's mark: a status dot, a picture |
+| `id`, `key` | Of the item's row |
+
+- It fills the width it is given. A mark stands in the middle of its item's first line, however many lines the item goes on to. It is read and not operated: no stop of Tab. To what reads the tree it is a `list` of `listitem`s, called by its label where it has one.
+- An icon or a mark of one item's own makes an icon's room before every item of that list, so that their lines start together; an item of it with neither keeps its bullet.
+- Parts: `BulletedListPart::Root` (the room between the items), `Item` (a mark and a body, and the room between them), `Mark` (the box a mark stands in, one line high: its width, and the type and color of a number), `Bullet`, `Label` (what an item says), `Body` (the line over what the item holds). States: `BulletedListState::Numbered`, `Icon`, `Nested` (it is in another list's item).
+- In the design (`btfDc`) its items are 6 apart, each a dot of 5 in `MutedForeground`, 10 before its text in the body's 14 in `Foreground`. Where the board is silent it has the Markdown document's lists: a number at the end of a width of 18 in `MutedForeground`, 8 before the text, a ring for the bullet of a list in an item, an icon of 14. The numbers of a Markdown document's lists (`ThemeMarkdown::list_item_spacing`, `bullet_size`, `bullet_gap`, `list_marker_gap`, `ordered_list_marker_width`) start from the same source, so the two are one look until a theme changes one.
+- A renderer that draws another list has `view.root()`, `view.item(index, item)`, `view.mark(index, icon, media)`, `view.label(text)`, `view.number(index)`, `view.line_height()` and `view.render()`.
 
 ## Empty State
 
@@ -6020,6 +6206,81 @@ DateRangePicker::new(period.clone())
 - In the calendar the first press starts the range, the pointer and the keys show where it would end, and the second press ends it and closes the calendar. Escape or a press outside drops a range half chosen. Neither end may be a day that cannot be chosen.
 - The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
 - A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
+
+## Event Calendar
+
+A calendar that shows events in its days: the days of a week side by side, the weeks of a month, or one day, each day with what is on it. The meetings of a team, the releases of a project, what is due.
+
+```rust
+use lurq::{
+  core::{Date, Signal},
+  ui::{CalendarEvent, CalendarEventVariant, EventCalendar, EventCalendarPeriod},
+};
+
+let chosen = Signal::new(None::<Date>);
+let events = vec![
+  CalendarEvent::new("standup", monday, "Standup"),
+  CalendarEvent::new("release", tuesday, "Release 0.60").variant(CalendarEventVariant::Success),
+  CalendarEvent::new("freeze", friday, "Deploy freeze").variant(CalendarEventVariant::Destructive),
+];
+
+// The design's week: five days, no header. Mounted, it keeps the week it shows.
+EventCalendar::new(chosen.clone(), events.clone())
+  .weekends(false)
+  .header(false)
+  .on_select(|event: &&str| open(event))
+  .mount(ctx);
+
+// A month, of which a day shows three events at most and "+2 more".
+EventCalendar::new(chosen.clone(), events)
+  .period(EventCalendarPeriod::Month)
+  .on_more(|date| show_day(date))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `EventCalendar::new(Signal<Option<Date>>, events)` | Bound to the chosen day, which a press of a day sets, with its events |
+| `EventCalendar::controlled(value, events, on_change)` | It shows `value` chosen and tells of a press, which it does not set |
+| `event(..)`, `events(..)` | Adds to its events |
+| `period(EventCalendarPeriod)` | What it shows at once: `Week` (the default, the design's), `Month`, or one `Day` |
+| `shown(Signal<Date>)` | The date whose week, month or day is shown, the app's: the buttons and the keys that leave the period set it. Without it a mounted calendar keeps it, starting at the chosen day, or today |
+| `weekends(bool)` | Whether Saturdays and Sundays are shown: they are unless told. Without them a week is the five days the design draws, and the keys pass a weekend by |
+| `header(bool)` | The row at its top: the buttons that show the period before and after, what the period is, and the button that shows today. It has it unless told |
+| `max_shown(usize)` | How many events of a day are shown at most: 4 in a week and 3 in a month unless told, all in a day. With more, one fewer are shown and "+N more" in the place of the last |
+| `on_change(Fn(Date))` | A person chose another day: a press or Enter on it, or a press of its "+N more". Not for the day chosen already, nor when the app sets the value |
+| `on_select(Fn(&T))` | An event was pressed, with what the event is to the app (the first argument of `CalendarEvent::new`), after the event's own handlers. A press of an event does not choose its day |
+| `on_more(Fn(Date))` | The "+N more" of a day was pressed, after the day is chosen: an app shows the day alone, or a list of what is on it |
+| `first_day(Weekday)`, `locale(..)`, `today(Date)` | The day weeks start on, the words of its dates and the day it marks as today, in place of the app's locale and the system's day |
+| `previous_label(&str)`, `next_label(&str)`, `today_label(&str)`, `more_text(Fn(usize) -> String)` | The names of its buttons, in place of the locale's, and what stands for the events not shown, in place of "+N more" |
+| `disabled(bool)` | It takes no input |
+| `label(&str)` | What its box is called to tooling, which is then a `group` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the calendar's id with its date after it (`team-2026-11-12`), the buttons with `-previous`, `-next` and `-today`, a day's "+N more" with `-more-` and the date |
+| `mount(ctx)` | The calendar where it is declared: it keeps the period it shows, and follows the chosen day to its period when the app sets it to a day that is not shown. Converted (`.into()`) it keeps nothing, and its buttons show no other period unless the app gives it `shown` |
+
+| Event | |
+| --- | --- |
+| `CalendarEvent::new(value, Date, &str)` | What it is to the app (its id, the record it is of), the day it is on, and its title |
+| `CalendarEvent::on(Date, &str)` | An event that is no value to the app: its own `on_select` hears its press |
+| `variant(impl Into<Name>)` | Its kind: `CalendarEventVariant::Neutral`, `Info` (the default), `Success`, `Warning`, `Destructive` |
+| `on_select(Fn())` | This event was pressed, before the calendar's `on_select` |
+| `disabled(bool)`, `id`, `key` | It takes no input; the id and the key of its element |
+
+- Its days are a [calendar](#calendar)'s: the weeks of a month are the same grid (`YearMonth::weeks`), filled with the days of the months beside it, and the keys are the same, from one function. The days are one stop of Tab, at the chosen day where it is shown, else today, else the first day shown. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and, with Shift, a year, into a period that is then shown. Enter and Space choose the focused day.
+- Tab goes on from the focused day into its events, each a stop, and then out of the days: an event is pressed with Enter or Space, and its press is its own. The arrows on an event move between the days.
+- A press anywhere on a day chooses it. A day of the month beside, in a month, is pressed to choose it and show its month, and is no stop of the keys.
+- An event's title is on one line in a week and a month, cut with an ellipsis where its day is narrower; in the day view, where the room is the day's, it wraps onto as many lines as it needs.
+- **In a narrow room.** Mounted, the calendar measures the room it is laid out in before the frame is painted, and takes the form that room holds from its first frame (`EventCalendarForm`, `view.form`); the room is its own, so a narrow panel of a wide window is a narrow room too:
+  - A week whose days would be narrower than `EventCalendar::WEEK_DAY_LEAST` (110) keeps them at that width, and they scroll sideways inside the calendar, under its header, which stands still (`Scrolling`).
+  - A week in a room under `EventCalendar::DAY_VIEW_BELOW` (330, three such days) shows one day of it (`OneDay`): the chosen day where it is in the week, else the day the week was shown by. Its title and its buttons are the day view's, and go a day; the keys are the same, and a press or Enter chooses as ever. With room again it shows the week of that day.
+  - A month whose days would be narrower than `EventCalendar::MONTH_DAY_LEAST` (80) shows each day's number and under it a dot of 6 for each of its events, in the ink of its kind (`Dots`); a press of a day chooses it and tells `on_more`, where an app shows what is on it.
+  - `EventCalendarForm::for_room(period, days, width)` is the form of a width. Converted into an element on its own the calendar has no room of its own to read, and keeps the full form.
+- An event is on one day. The events of a day are in the order the app gave them.
+- The names of the days and the months, the title of the header and the names of the buttons are the app's date locale's (`App::set_date_locale`, see [dates](../dates/)): a day of a week says `weekday_medium` and its number ("Thu 12"), the header a month's `month_title`, a week's `format_range` of its first and last day shown, or a day's `day_label`; the buttons say `previous_week_label`, `next_week_label`, `previous_day_label`, `next_day_label`, `today_label` and a month's `previous_month_label` and `next_month_label`.
+- To tooling the days are a `grid` called by the period shown, of `row`s of `gridcell`s called by their dates, which say whether they are chosen (`a11y_selected`) and today (`a11y_current`); a month's names of the days are `columnheader`s; an event and a "+N more" are `button`s.
+- Parts: `EventCalendarPart::Root`, `Header`, `Title`, `Nav` and `NavIcon` (rules over the buttons' root and icon), `Grid`, `Weekdays`, `Weekday`, `Week`, `Day` (what is pressed and focused), `Label` (the row at the top of a day), `Events`, `Event` (a pill, in its variant's fill and ink), `More`, `Dots` and `Dot` (a month's dots, in its variant's ink). States: `EventCalendarState::Month`, `Week`, `Day` (the period), `Header`, `Disabled`, `Compact` (a month of dots), `Scrolling` (a week that scrolls); a day's `Selected`, `Current`, `Outside`, `Last` (the last of its row, and a week the last of the calendar: no line after it); an event's `Unavailable`.
+- In the design (`eh5zV`) it is a box on `Background` in an edge of 1 in `Border` with the large radius, 150 high, its days side by side with a line of 1 after each but the last. A day's label is a row of 32 with a line under it, padded 10, its text 12 at medium weight in `MutedForeground`; today's is on `Highlight` (the board's accent) in `Foreground` at 600. The events are 6 from the day's sides and 4 apart, each a pill with the small radius padded 4 and 6, its title 11 at medium weight in the color of its kind on that kind's muted fill. The board draws a week of five days, and nothing else: the header (44 high, a calendar's buttons, the title at medium weight, an outline "Today"), the month (days at least 115 high under a row of the days' names, a day of the month beside at half its opacity), the chosen day (its label on `Primary`), "+N more" (an event's box in `MutedForeground`), the focus (a line of 2 in the ring's color inside a day or an event) and the event of no kind (`Muted`, `Foreground`) are lurq's.
+- A renderer that draws another calendar has `view.root()`, `view.header()`, `view.nav(by)`, `view.today_button()`, `view.title_text()`, `view.grid()`, `view.weekdays()`, `view.weeks()`, `view.week(days, last)`, `view.day(date, last)`, `view.day_text(date)`, `view.day_states(date, last)`, `view.events(date)`, `view.event(event)`, `view.more(date, count)`, `view.entry()`, `view.bounds()`, `view.within(date)`, `view.recipe_in(variant, states)` and `view.render()`.
 
 ## Color Picker
 

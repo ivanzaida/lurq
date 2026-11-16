@@ -70,12 +70,16 @@ pub enum MentionsState {
   Highlighted,
   /// The offer is shown and cannot be chosen.
   Disabled,
+  /// The field is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box,
+  /// over its text.
+  Fluid,
 }
 
 names!(MentionsState {
   Open => "open",
   Highlighted => "highlighted",
   Disabled => "disabled",
+  Fluid => "fluid",
 });
 
 /// What builds a mentions field's nodes: a theme's in place of the default one.
@@ -335,6 +339,8 @@ pub struct Mentions {
   read_only: bool,
   disabled: bool,
   full_width: bool,
+  /// Whether it is in a fluid field, which draws its label inside the box.
+  fluid: bool,
 }
 
 impl Mentions {
@@ -351,6 +357,7 @@ impl Mentions {
       read_only: false,
       disabled: false,
       full_width: false,
+      fluid: false,
     }
   }
 
@@ -515,7 +522,8 @@ impl Mentions {
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
-    };
+    }
+    .state(MentionsState::Fluid, self.fluid);
     let own = theme.resolve::<Mentions>(&base, Some(&self.rules));
     // The box's room and least height are the field's own, over the token input's.
     let control = own.part(MentionsPart::Control).rest();
@@ -661,8 +669,13 @@ impl FieldControl for Mentions {
   /// Named, judged and disabled by the field as a token input is.
   fn in_field(mut self, field: &InField) -> Element {
     self.disabled |= field.disabled;
+    self.fluid |= field.fluid;
     self.input = self.input.in_field(field);
     self.into()
+  }
+
+  fn has_fluid_form(&self) -> bool {
+    true
   }
 }
 
@@ -880,12 +893,14 @@ impl Themed for Mentions {
   /// trigger: 220 wide, in the popover's color with the large radius, an edge of 1 in the border's color, the
   /// medium shadow and 4 of padding. An offer is 36 high, padded 8, with the small radius and 8 between its avatar
   /// of 24 (or icon of 16, muted) and its label in the body's type; the active one is filled with the highlight,
-  /// as an offer under the pointer is.
+  /// as an offer under the pointer is. In a fluid field the box is the token input's fluid one, as wide as the field:
+  /// its rows with the 29 over them, where the field's label stands, and the 10 under.
   fn recipe() -> Recipe {
     use MentionsPart::{Control, Item, ItemAvatar, ItemIcon, ItemLabel, Panel, Root};
     use PaletteColor::{Foreground, Highlight, MutedForeground, Popover, PopoverForeground};
     Recipe::new()
       .base(Root, |s| s.width(280.0).max_width(Length::Fill))
+      .state(MentionsState::Fluid, Root, |s| s.width(Length::Fill))
       .base(Control, |s| {
         s.padding_x(12.0).padding_y(8.0).min_height(64.0).line_height(1.5)
       })

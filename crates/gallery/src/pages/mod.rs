@@ -18,6 +18,7 @@ mod banner;
 mod bar_chart;
 mod bar_list;
 mod blockquote;
+mod bulleted_list;
 mod breadcrumb;
 mod button;
 mod calendar;
@@ -46,6 +47,8 @@ mod drawer;
 mod drop_zone;
 mod editable;
 mod empty_state;
+mod event_calendar;
+mod expandable_tile;
 mod family;
 mod family_play;
 mod fieldset;
@@ -124,6 +127,7 @@ mod steps;
 mod swatch_picker;
 mod switch;
 mod table;
+mod table_of_contents;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -281,7 +285,7 @@ pub const PAGES: &[Page] = &[
     path: "/input",
     name: "Input",
     icon: Some("text-cursor"),
-    about: "input field text entry label description error hint required optional placeholder icon invalid read only form value size warning valid read_only disabled full_width on_input name control horizontal",
+    about: "input field text entry label description error hint required optional placeholder icon invalid read only form value size warning valid read_only disabled full_width on_input name control horizontal fluid fluid field label inside floating label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input::InputPage>(()),
   },
@@ -790,6 +794,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
   },
   Page {
+    path: "/table-of-contents",
+    name: "Table of Contents",
+    icon: Some("table-of-contents"),
+    about: "table of contents toc on this page outline sections headings anchors scroll spy scrollspy reading current section jump navigation article docs sticky new entry entries level container reading_line current on_change on_select title label mount disabled",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<table_of_contents::TableOfContentsPage>(()),
+  },
+  Page {
     path: "/tree-view",
     name: "Tree View",
     icon: Some("list-tree"),
@@ -1009,6 +1021,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
   },
   Page {
+    path: "/event-calendar",
+    name: "Event Calendar",
+    icon: Some("calendar-days"),
+    about: "event calendar events schedule scheduler agenda week month day planner meeting appointment today more weekdays weekends timetable new controlled event events period shown weekends header max_shown first_day locale today on_change on_select on_more more_text today_label previous_label next_label mount disabled variant",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<event_calendar::EventCalendarPage>(()),
+  },
+  Page {
     path: "/code-block",
     name: "Code Block",
     icon: Some("file-code"),
@@ -1023,6 +1043,22 @@ pub const PAGES: &[Page] = &[
     about: "blockquote quote citation passage prose markdown said line italic lockquote new child children label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<blockquote::BlockquotePage>(()),
+  },
+  Page {
+    path: "/bulleted-list",
+    name: "Bulleted List",
+    icon: Some("list"),
+    about: "bulleted list bullet bullets numbered ordered unordered number numbers ol ul li item items nested mark marker icon check media prose markdown typography new item items marker start number_text label list icon media child children",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<bulleted_list::BulletedListPage>(()),
+  },
+  Page {
+    path: "/expandable-tile",
+    name: "Expandable Tile",
+    icon: Some("panel-top-open"),
+    about: "expandable tile expand collapse open close more details disclosure card fold chevron press tile new text child children open bind on_open_change icon open_icon disabled full_width label",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<expandable_tile::ExpandableTilePage>(()),
   },
   Page {
     path: "/table",

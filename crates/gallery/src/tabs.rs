@@ -122,6 +122,8 @@ fn routes(focus_page: Arc<AtomicBool>) -> Routes {
       if focus_page.swap(false, Ordering::SeqCst) {
         ctx.focus(&main);
       }
+      // What scrolls the page, said to the page: the list of its sections follows it.
+      ctx.provide(crate::doc::PageScroll(main.clone()));
       // Each page has a scroll of its own: a page opened from another starts at its top, wherever the one before
       // it was scrolled to. It takes the focus but is no stop of Tab.
       let page = ScrollVertical::new(Outlet::mount(ctx))

@@ -794,21 +794,28 @@ impl Model {
 
   /// The date a key takes the focus to from `date`, where the key is one of the grid's.
   fn step(&self, date: Date, event: &KeyboardEvent) -> Option<Date> {
-    let target = match event.key.as_str() {
-      "ArrowLeft" => date.add_days(-1),
-      "ArrowRight" => date.add_days(1),
-      "ArrowUp" => date.add_days(-7),
-      "ArrowDown" => date.add_days(7),
-      "Home" => date.start_of_week(self.first_day),
-      "End" => date.end_of_week(self.first_day),
-      "PageUp" if event.shift => date.add_years(-1),
-      "PageDown" if event.shift => date.add_years(1),
-      "PageUp" => date.add_months(-1),
-      "PageDown" => date.add_months(1),
-      _ => return None,
-    };
-    Some(target.clamp_to(self.min, self.max))
+    Some(step_date(date, event, self.first_day)?.clamp_to(self.min, self.max))
   }
+}
+
+/// The date a key of a grid of days takes the focus to from `date`, in weeks that start on `first_day`: Left and
+/// Right a day, Up and Down a week, Home and End the ends of the week, PageUp and PageDown a month and, with Shift,
+/// a year. `None` for a key that is not the days'. The keys of a [`Calendar`] and of an
+/// [`EventCalendar`](super::EventCalendar), from one place.
+pub(crate) fn step_date(date: Date, event: &KeyboardEvent, first_day: Weekday) -> Option<Date> {
+  Some(match event.key.as_str() {
+    "ArrowLeft" => date.add_days(-1),
+    "ArrowRight" => date.add_days(1),
+    "ArrowUp" => date.add_days(-7),
+    "ArrowDown" => date.add_days(7),
+    "Home" => date.start_of_week(first_day),
+    "End" => date.end_of_week(first_day),
+    "PageUp" if event.shift => date.add_years(-1),
+    "PageDown" if event.shift => date.add_years(1),
+    "PageUp" => date.add_months(-1),
+    "PageDown" => date.add_months(1),
+    _ => return None,
+  })
 }
 
 /// The key of a day of the month it is shown in: what the keys move the focus to.

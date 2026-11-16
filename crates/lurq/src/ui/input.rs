@@ -70,6 +70,9 @@ pub enum InputState {
   FullWidth,
   /// It has an icon at its start.
   Icon,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what it holds.
+  Fluid,
 }
 
 names!(InputState {
@@ -80,6 +83,7 @@ names!(InputState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Icon => "icon",
+  Fluid => "fluid",
 });
 
 /// What builds an input's nodes: a theme's in place of the default one.
@@ -342,6 +346,10 @@ impl FieldControl for Input {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 impl From<Input> for Element {
@@ -526,6 +534,8 @@ impl InputView {
     Some(
       Row::new()
         .padding_left(padding)
+        // In a fluid field the icon stands on the line of the value, under the field's label.
+        .padding_top(self.value_line())
         .align_items(Alignment::Center)
         .pointer_events_none()
         .child(
@@ -553,6 +563,17 @@ impl InputView {
     self.padding(Side::Start)
   }
 
+  /// Whether the input is in a fluid field, and its box the fluid one.
+  pub(crate) fn fluid(&self) -> bool {
+    self.boxed.fluid
+  }
+
+  /// How far down what is laid over the middle of the box is moved to stand on the line of the value: nothing but in
+  /// a fluid field, where the value is under the field's label ([`text_box::value_line`]).
+  pub(crate) fn value_line(&self) -> f32 {
+    text_box::value_line(&self.part(InputPart::Control).rest(), self.theme())
+  }
+
   /// The room the control keeps at its end for what is `width` wide over it there: its own padding, the width, and
   /// the room an icon has before the text.
   pub(crate) fn end_room(&self, width: f32) -> f32 {
@@ -567,7 +588,8 @@ impl InputView {
 
   /// How a component made of an input builds it: `control` (this input's [`Self::control`], with what the
   /// component adds to it), its icon over its start, and `end` over its end, in from the control's padding there.
-  /// Only what is in `end` takes the pointer: around it the pointer reaches the control.
+  /// Only what is in `end` takes the pointer: around it the pointer reaches the control. In a fluid field both stand
+  /// on the line of the value.
   pub(crate) fn render_with_end(&self, control: components::TextInput, end: Option<Row>) -> Stack {
     let mut root = Stack::new()
       .stack_align(StackAlignment::CenterStart)
@@ -581,6 +603,7 @@ impl InputView {
         end
           .width(Dimension::Pct(100.0))
           .padding_right(self.padding(Side::End))
+          .padding_top(self.value_line())
           .align_items(Alignment::Center)
           .justify(Justify::End)
           .hit_test(HitTestBehavior::ContentOnly),
@@ -640,7 +663,8 @@ impl Themed for Input {
       .state(InputState::FullWidth, Root, |s| s.width(Length::Fill))
       .state(InputState::Valid, Icon, |s| s.foreground(Success));
     let recipe = text_box::box_sizes(recipe, Control, true);
-    text_box::box_rules(recipe, Root, Control, Placeholder)
+    let recipe = text_box::box_rules(recipe, Root, Control, Placeholder);
+    text_box::fluid_rules(recipe, Root, Control)
   }
 }
 

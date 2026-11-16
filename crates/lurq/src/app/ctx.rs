@@ -865,6 +865,8 @@ impl Timer {
 struct ElementRequests {
   focus: Option<ElementRef>,
   scroll_into_view: Option<ElementRef>,
+  /// An element to scroll to the start of what scrolls it.
+  scroll_into_view_start: Option<ElementRef>,
   /// A range of a text to scroll into view, in bytes of its content.
   scroll_range_into_view: Option<(ElementRef, std::ops::Range<usize>)>,
   blur: bool,
@@ -2594,6 +2596,20 @@ impl Ctx {
     self.wake_window();
   }
 
+  /// Scrolls an element to the start of what scrolls it after the current render is laid out: every scroll
+  /// container around it that scrolls down brings the element's top to the top of its viewport, as far as its
+  /// content lets it, and one that scrolls sideways moves by the smallest amount that shows it: the web's
+  /// `scrollIntoView({ block: "start", inline: "nearest" })`. What a list of a page's sections does when one of
+  /// them is pressed. The top it is brought to is clear of what sticks to the container's top, as
+  /// [`Ctx::scroll_into_view`] keeps clear of it.
+  ///
+  /// The ref may be attached by the render that follows this call. Requests for refs absent from that tree are
+  /// ignored. The last request wins.
+  pub fn scroll_into_view_start(&self, element: &ElementRef) {
+    self.element_requests.lock().scroll_into_view_start = Some(element.clone());
+    self.wake_window();
+  }
+
   /// Scrolls a range of a text into view after the current render is laid
   /// out, as [`Ctx::scroll_into_view`] scrolls an element: the lines bytes
   /// `range` of the text's content cover, and no more, are brought into
@@ -2633,6 +2649,7 @@ impl Ctx {
     let requests = self.element_requests.lock();
     requests.focus.is_some()
       || requests.scroll_into_view.is_some()
+      || requests.scroll_into_view_start.is_some()
       || requests.scroll_range_into_view.is_some()
       || requests.blur
       || requests.scroll_to_top
@@ -2723,6 +2740,10 @@ impl Ctx {
 
   pub(crate) fn take_scroll_into_view_request(&self) -> Option<ElementRef> {
     self.element_requests.lock().scroll_into_view.take()
+  }
+
+  pub(crate) fn take_scroll_into_view_start_request(&self) -> Option<ElementRef> {
+    self.element_requests.lock().scroll_into_view_start.take()
   }
 
   pub fn element_ref_mut(&mut self) -> ElementRefMut {

@@ -8,7 +8,7 @@ use super::{
   icons, names,
   part_style::{FontFamily, Length, Opacity, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  text_box::TextBoxSize,
+  text_box::{self, TextBoxSize},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -96,6 +96,9 @@ pub enum SelectState {
   FullWidth,
   /// Of an item, resolved on its parts: it is the one chosen. Its rules are for `Item` and `Check`.
   Selected,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its trigger, over
+  /// what is chosen.
+  Fluid,
 }
 
 names!(SelectState {
@@ -107,6 +110,7 @@ names!(SelectState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Selected => "selected",
+  Fluid => "fluid",
 });
 
 /// What builds a select's nodes: a theme's in place of the default one.
@@ -717,8 +721,15 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
   if let Some(color) = &style.background {
     part = part.background(color.clone());
   }
-  if let Some(border) = &style.border {
-    part = part.border_custom(Borders::all(border.clone()));
+  // A line along the bottom is laid over the border of every side, as on any part.
+  match (&style.border, &style.underline) {
+    (Some(border), None) => part = part.border_custom(Borders::all(border.clone())),
+    (border, Some(line)) => {
+      let mut borders = border.clone().map(Borders::all).unwrap_or_default();
+      borders.bottom = Some(line.clone());
+      part = part.border_custom(borders);
+    }
+    (None, None) => {}
   }
   if let Some(radius) = style.radius {
     part.border_radius = Some(radius);
@@ -748,7 +759,7 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
         .left(start.unwrap_or(none)),
     );
   }
-  if let Some(height) = px(style.height, theme) {
+  if let Some(height) = px(style.height, theme).or_else(|| px(style.min_height, theme)) {
     part = part.min_height(height);
   }
   if style.sets_text() {
@@ -870,7 +881,7 @@ impl<V: 'static> Themed for Select<V> {
           .cursor(CursorIcon::Default)
       });
     // A judgment keeps its color under the pointer, in the focus and while open.
-    [
+    let recipe = [
       (SelectState::Invalid, Destructive),
       (SelectState::Warning, PaletteColor::Warning),
       (SelectState::Valid, Success),
@@ -887,6 +898,37 @@ impl<V: 'static> Themed for Select<V> {
         })
         .when(Selector::new().state(state).state(SelectState::Open), Trigger, |s| {
           s.outline(ring(color))
+        })
+    });
+    // In a fluid field the trigger is the fluid box, what is chosen on the line under the field's label; its line
+    // says what its edge says.
+    let fluid = || Selector::new().state(SelectState::Fluid);
+    let recipe = recipe
+      .state(SelectState::Fluid, Trigger, |s| {
+        text_box::fluid_box(s)
+          .width(Length::Fill)
+          .height(text_box::FLUID_HEIGHT)
+      })
+      .when(fluid().hovered(), Trigger, |s| text_box::fluid_line(s, Ring))
+      .when(fluid().state(SelectState::ReadOnly), Trigger, |s| {
+        text_box::fluid_line(s, PaletteColor::Border)
+      })
+      .when(fluid().state(SelectState::ReadOnly).hovered(), Trigger, |s| {
+        text_box::fluid_line(s, PaletteColor::Border)
+      });
+    [
+      (SelectState::Invalid, Destructive),
+      (SelectState::Warning, PaletteColor::Warning),
+      (SelectState::Valid, Success),
+    ]
+    .into_iter()
+    .fold(recipe, |recipe, (state, color)| {
+      recipe
+        .when(fluid().state(state), Trigger, |s| {
+          text_box::fluid_line(s, color.clone())
+        })
+        .when(fluid().state(state).hovered(), Trigger, |s| {
+          text_box::fluid_line(s, color)
         })
     })
   }
@@ -905,6 +947,13 @@ impl<V: 'static> super::FieldControl for Select<V> {
       self.valid = field.judgment == Some(super::Judgment::Valid);
     }
     self.disabled |= field.disabled;
+    if field.fluid {
+      self = self.state(SelectState::Fluid, true);
+    }
     self.into()
+  }
+
+  fn has_fluid_form(&self) -> bool {
+    true
   }
 }

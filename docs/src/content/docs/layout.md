@@ -671,6 +671,26 @@ Column::new()
 
 `ui::Toolbar` with `overflow(true)` is built this way.
 
+**Several observers of one ref.** `observe_rect` and `observe_rect_before_paint` set the ref's own observer: a second
+registration replaces the first, so the owner of the element registers it in every render and has one. Code that
+watches a ref it was given (a list of a page's sections that follows their scroll, a tooltip on the app's button)
+adds an observer beside it with `ElementRef::add_rect_observer` or `add_rect_observer_before_paint`, and takes no
+observer away. Each is called while the `RectObserver` it gives is kept and is removed when that is dropped: a
+component that adds one in each render keeps the handles of its last render and drops those of the one before, and
+its observers go with it when it is unmounted. An added observer is called when the rect changes, not for the rect
+the element has when it is added.
+
+```rust
+use lurq::core::{ElementRef, RectObserver};
+
+// Kept on the component, `Mutex<Vec<RectObserver>>`: the observers of its last render.
+let added: Vec<RectObserver> = sections
+  .iter()
+  .map(|section: &ElementRef| section.add_rect_observer_before_paint(move |rect| watch(rect.y)))
+  .collect();
+*self.watching.lock().unwrap() = added; // those of the render before are removed here
+```
+
 ## Scroll
 
 ```rust
@@ -703,6 +723,17 @@ into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/
 ```rust
 // `details` is a ref retained by the component and attached with `.ref_element(details.clone())`.
 ctx.scroll_into_view(&details);
+```
+
+`ctx.scroll_into_view_start(&element_ref)` brings the element's top to the top of every container around it that
+scrolls down, as far as the content lets it, like the web's `scrollIntoView({ block: "start", inline: "nearest" })`:
+an element already in view moves to the top too. It is what a list of a page's sections does when one of them is
+pressed (`ui::TableOfContents`). The top is clear of what sticks to the container's top, and a container that scrolls
+sideways moves by the smallest amount that shows the element.
+
+```rust
+// The heading comes to the top of the page, under the header that sticks there.
+ctx.scroll_into_view_start(&heading);
 ```
 
 To take a container back to its top, as a button at the foot of a long page does, ask from a component with

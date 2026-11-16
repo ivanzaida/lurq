@@ -11,6 +11,7 @@ use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, pressable},
+  text_box::{Judgment, TextBoxState},
   theme::{Themed, current_date_locale, current_theme},
 };
 use crate::{
@@ -234,6 +235,16 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
     }
   }
 
+  /// Takes what the field it is in says: the field's label where the picker has no name of its own, invalid where
+  /// the field is, and disabled where it is. A panel of a grid has no fluid form: a fluid field draws it plain.
+  pub fn in_field(&mut self, field: &InField) {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(Judgment::Invalid);
+    self.disabled |= field.disabled;
+  }
+
   /// The view of the picker in `theme`, as the themed component `C` is drawn; `now` is this month or this year.
   pub fn view<C: Themed>(self, theme: &Theme, now: U) -> PeriodsView {
     let text = self.locale.clone().unwrap_or_else(current_date_locale);
@@ -263,7 +274,8 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(MonthPickerState::Disabled, self.disabled);
+    .state(MonthPickerState::Disabled, self.disabled)
+    .state(TextBoxState::Invalid, self.invalid);
     let recipe = theme.resolve::<C>(&case, Some(&self.rules));
     let resolve: Resolve = {
       let (theme, rules) = (theme.clone(), self.rules.clone());
@@ -677,7 +689,7 @@ pub(crate) fn periods_recipe() -> Recipe {
     })
     .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
     .state(Disabled, Cell, |s| s.cursor(CursorIcon::Default))
-    .state(super::text_box::TextBoxState::Invalid, Root, |s| {
+    .state(TextBoxState::Invalid, Root, |s| {
       s.border(Border::inside(BorderSize::Sm, Destructive))
     })
 }
@@ -902,21 +914,13 @@ impl<V: FieldValue<YearMonth>> FieldControl for MonthPicker<V> {
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled where it
   /// is.
   fn in_field(mut self, field: &InField) -> Element {
-    if self.core.label.is_none() {
-      self.core.label = Some(field.label.clone());
-    }
-    self.core.invalid |= field.judgment == Some(super::text_box::Judgment::Invalid);
-    self.core.disabled |= field.disabled;
+    self.core.in_field(field);
     self.into()
   }
 
   /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
   fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
-    if self.core.label.is_none() {
-      self.core.label = Some(field.label.clone());
-    }
-    self.core.invalid |= field.judgment == Some(super::text_box::Judgment::Invalid);
-    self.core.disabled |= field.disabled;
+    self.core.in_field(field);
     self.mount(ctx)
   }
 }

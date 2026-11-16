@@ -109,6 +109,9 @@ pub enum DateFieldState {
   Focused,
   /// The segment is empty, and shows what it is for: `dd`, `hh`.
   Placeholder,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// its segments.
+  Fluid,
 }
 
 names!(DateFieldState {
@@ -120,6 +123,7 @@ names!(DateFieldState {
   FullWidth => "full_width",
   Focused => "focused",
   Placeholder => "placeholder",
+  Fluid => "fluid",
 });
 
 /// The sizes of a date field and of a time field: an input's, the heights of the theme's controls.
@@ -878,7 +882,10 @@ fn segment_name(segment: DateSegment) -> &'static str {
   }
 }
 
-/// The recipe of a date field and of a time field: the box `width` wide at least.
+/// The recipe of a date field and of a time field: the box `width` wide at least. In a fluid field, which the board
+/// does not draw for them, the box is the fluid one, as wide as the field and 56 high, the segments and the glyph on
+/// one line under the field's label; it is padded 9 at its start, so that the first segment's text starts where the
+/// label does.
 pub(crate) fn segments_recipe(width: f32) -> Recipe {
   use DateFieldPart::{Icon as Glyph, Root, Segment, Segments, Separator};
   use PaletteColor::{Background, Border, Foreground, Input, Muted, MutedForeground, Ring, Selection};
@@ -936,7 +943,7 @@ pub(crate) fn segments_recipe(width: f32) -> Recipe {
     .size(TextBoxSize::Sm, Separator, |s| s.font_size(12.0))
     .size(TextBoxSize::Lg, Segment, |s| s.font_size(14.0))
     .size(TextBoxSize::Lg, Separator, |s| s.font_size(14.0));
-  [Judgment::Invalid, Judgment::Warning, Judgment::Valid]
+  let recipe = [Judgment::Invalid, Judgment::Warning, Judgment::Valid]
     .into_iter()
     .fold(recipe, |recipe, judgment| {
       let (state, color) = (TextBoxState::from(judgment), judgment.color());
@@ -945,7 +952,12 @@ pub(crate) fn segments_recipe(width: f32) -> Recipe {
         Root,
         |s| s.border(edge(color)),
       )
-    })
+    });
+  // The root is the box. A segment is higher than a line of text by its padding, so the box is 56 and not as high
+  // as what it holds: the segments stand in the middle of the value's line.
+  text_box::fluid_rules(recipe, Root, Root).state(TextBoxState::Fluid, Root, |s| {
+    s.height(text_box::FLUID_HEIGHT).padding_start(9.0)
+  })
 }
 
 /// The builder methods a date field and a time field share.
@@ -1215,6 +1227,10 @@ impl<V: FieldValue<Date>> FieldControl for DateField<V> {
   fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
     self.core.boxed.in_field(field);
     self.mount(ctx)
+  }
+
+  fn has_fluid_form(&self) -> bool {
+    true
   }
 }
 

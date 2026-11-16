@@ -118,6 +118,9 @@ pub enum ComboboxState {
   FullWidth,
   /// Of an item, resolved on its parts: it is the one chosen. Its rules are for `Item` and `Check`.
   Selected,
+  /// It is in a fluid field ([`Field::fluid`](super::Field::fluid)): the field's label is inside its box, over
+  /// what is typed.
+  Fluid,
 }
 
 names!(ComboboxState {
@@ -129,6 +132,7 @@ names!(ComboboxState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Selected => "selected",
+  Fluid => "fluid",
 });
 
 /// What builds a combobox's nodes: a theme's in place of the default one.
@@ -1099,6 +1103,10 @@ impl<V: 'static> FieldControl for Combobox<V> {
     self.boxed.in_field(field);
     self.into()
   }
+
+  fn has_fluid_form(&self) -> bool {
+    true
+  }
 }
 
 /// A combobox as a renderer sees it: what it was given, the style of its parts, and its behavior ready to be dressed.
@@ -1536,7 +1544,9 @@ impl<V: 'static> Themed for Combobox<V> {
   /// color, 8 round, with the middle shadow and 4 of padding; an item is 32 high, 8 in, 4 round, on the highlight
   /// under the pointer or the keys, the chosen one with a check of 16 at its end. After the options, a row of 32 in
   /// the muted foreground at 13 says there are none, or, with a spinner of 16 in the foreground 8 before it, that
-  /// more are loading. The cross that clears is 16, in the muted foreground, the foreground under the pointer.
+  /// more are loading. The cross that clears is 16, in the muted foreground, the foreground under the pointer. In a
+  /// fluid field the box is a select's fluid one: what is typed, the cross and the chevrons on one line under the
+  /// field's label.
   fn recipe() -> Recipe {
     let recipe = <select::Select as Themed>::recipe().base(ComboboxPart::Trigger, |s| s.cursor(CursorIcon::Text));
     clear_rules(status_rules(recipe))
