@@ -17,7 +17,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, line, props_table, segmented_fill, text},
+  kit::{FILL, fit, line, props_table, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -166,6 +166,20 @@ fn window(sidebar: Element, props: &Props, height: impl Into<Dimension>) -> Elem
     .into()
 }
 
+/// The least width of a window with the whole sidebar beside its page: the sidebar's own, and a page with room
+/// to say what it shows.
+const BESIDE: f32 = 480.0;
+
+/// A window on a stage with `room`: one whose sidebar stands whole beside its page keeps the width that takes,
+/// and scrolls sideways on a narrower stage. The rail and the sidebar over the page fit any stage.
+fn staged(key: &str, room: f32, props: &Props, window: Element) -> Element {
+  if props.narrow || props.collapsed.get() {
+    window
+  } else {
+    fit(key, room, BESIDE, window)
+  }
+}
+
 pub struct SidebarPage {
   frame: Frame,
   playground: Playground,
@@ -216,6 +230,7 @@ impl SidebarPage {
     let props = self.props();
     let record = self.playground.recorder();
     let shown = window(board(&props, record).mount(ctx), &props, PLAYED);
+    let shown = staged("played", self.frame.stage_room(), &props, shown);
 
     let mut code = vec![
       "// collapsed, open: Signal<bool>".to_owned(),
@@ -370,13 +385,15 @@ impl Component for SidebarPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let section = |ctx: &mut Ctx, signals: &(Signal<bool>, Signal<bool>, Signal<usize>), narrow: bool| {
+    let room = self.frame.stage_room();
+    let section = |ctx: &mut Ctx, key: &str, signals: &(Signal<bool>, Signal<bool>, Signal<usize>), narrow: bool| {
       let props = Self::section(signals, narrow);
-      window(board(&props, |_| {}).mount(ctx), &props, 460.0)
+      let shown = window(board(&props, |_| {}).mount(ctx), &props, 460.0);
+      staged(key, room, &props, shown)
     };
-    let beside = section(ctx, &self.beside, false);
-    let rail = section(ctx, &self.rail, false);
-    let over = section(ctx, &self.over, true);
+    let beside = section(ctx, "beside", &self.beside, false);
+    let rail = section(ctx, "rail", &self.rail, false);
+    let over = section(ctx, "over", &self.over, true);
     let rows = [
       (
         "header",

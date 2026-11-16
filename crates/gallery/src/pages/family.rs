@@ -31,8 +31,9 @@ const SIZES: [(ButtonSize, &str); 5] = [
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -913,8 +914,11 @@ impl Component for LinkPage {
         "focus-visible",
       ))
       .child(item(Link::new("Read the docs").disabled(true), "disabled"));
+    // The words that do not fit on the line go on to the next.
     let sentence = Row::new()
+      .width(FILL)
       .spacing(4.0)
+      .wrap()
       .align_items(Alignment::Center)
       .child(text(
         "By going on you agree to the",

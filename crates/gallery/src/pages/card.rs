@@ -16,13 +16,13 @@ use lurq::{
   node::{BoxShadowValue, Element},
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardPart, CardSize, CardVariant, Field, Input,
-    Interaction, Select, SelectSize, Switch, icons,
+    Interaction, Length, Select, SelectSize, Switch, icons,
   },
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, icon, mono, props_table, quiet, segmented_fill, text},
+  kit::{FILL, icon, mono, phone, props_table, quiet, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -42,8 +42,9 @@ const SIZES: [(CardSize, &str, &str); 2] = [
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(10.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -54,6 +55,16 @@ fn items() -> Row {
     .spacing(24.0)
     .wrap()
     .align_items(Alignment::Start)
+}
+
+/// A card at the width the board draws it, and no wider than what holds it. It cuts nothing off: a card's
+/// shadow falls outside it.
+fn held(width: f32, card: Card) -> Column {
+  Column::new()
+    .width(width)
+    .max_width(FILL)
+    .overflow_visible()
+    .child(card.width(Length::Fill))
 }
 
 /// A row of the content: what the setting is on the left, its switch at the end.
@@ -282,7 +293,6 @@ impl CardPage {
   /// The board's card: the appearance of the app, a field and a switch, and two buttons.
   fn appearance(&self) -> Card {
     Card::new()
-      .width(360.0)
       .title("Appearance")
       .description("How lurq looks on this device.")
       .child(
@@ -296,10 +306,11 @@ impl CardPage {
   /// A project the page opens on a press.
   fn project(&self, name: &str, about: &str) -> Element {
     let (opened, said) = (self.opened.clone(), name.to_owned());
-    // The column cuts nothing off: an elevated card's shadow falls outside it.
-    Column::new()
-      .flex(1.0)
-      .overflow_visible()
+    // The column cuts nothing off: an elevated card's shadow falls outside it. It takes its share of a row,
+    // and the stage's width where the cards are one under another.
+    let holder = Column::new().overflow_visible();
+    let holder = if phone() { holder.width(FILL) } else { holder.flex(1.0) };
+    holder
       .child(
         Card::new()
           .variant(CardVariant::Elevated)
@@ -315,7 +326,6 @@ impl CardPage {
   /// corners of `radius-lg` and no shadow.
   fn settings_card(&self) -> Card {
     Card::new()
-      .width(340.0)
       .style(CardPart::Root, |s| {
         s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none())
       })
@@ -420,20 +430,38 @@ impl Component for CardPage {
         "interactive · focus-visible",
       ));
     let opened = self.opened.get();
+    let cards = [
+      self.project("lurq", "A Rust UI toolkit with GPU-backed rendering."),
+      self.project("gallery", "Every component of the design system, a page each."),
+      self.project("devtools", "The tree, the styles and the timings of a running app."),
+    ];
+    // Side by side where each has room for its words, one under another in a window as narrow as a phone.
+    let together: Element = if phone() {
+      cards
+        .into_iter()
+        .fold(
+          Column::new().width(FILL).spacing(16.0).overflow_visible(),
+          |column, card| column.child(card),
+        )
+        .into()
+    } else {
+      cards
+        .into_iter()
+        .fold(
+          Row::new()
+            .width(FILL)
+            .spacing(16.0)
+            .overflow_visible()
+            .align_items(Alignment::Stretch),
+          |row, card| row.child(card),
+        )
+        .into()
+    };
     let projects = Column::new()
       .width(FILL)
       .spacing(12.0)
       .overflow_visible()
-      .child(
-        Row::new()
-          .width(FILL)
-          .spacing(16.0)
-          .overflow_visible()
-          .align_items(Alignment::Stretch)
-          .child(self.project("lurq", "A Rust UI toolkit with GPU-backed rendering."))
-          .child(self.project("gallery", "Every component of the design system, a page each."))
-          .child(self.project("devtools", "The tree, the styles and the timings of a running app.")),
-      )
+      .child(together)
       .child(quiet(
         &if opened.is_empty() {
           "nothing opened yet".to_owned()
@@ -443,7 +471,7 @@ impl Component for CardPage {
         12.0,
       ));
     let composed = items()
-      .child(item(self.settings_card(), "settings card"))
+      .child(item(held(340.0, self.settings_card()), "settings card"))
       .child(item(Self::stat_card(), "stat card"));
     let rows = [
       (
@@ -541,7 +569,7 @@ impl Component for CardPage {
            that is not pressed is read: Tab goes to each control in it.",
           self.frame.demo(
             0,
-            items().child(self.appearance()),
+            items().child(held(360.0, self.appearance())),
             "Card::new().title(..).description(..).child(..).footer(..)",
             &[
               "Card::new()",

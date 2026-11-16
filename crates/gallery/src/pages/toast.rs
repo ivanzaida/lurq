@@ -51,9 +51,10 @@ fn named<T: PartialEq + Copy>(table: &[(&'static str, T)], value: T) -> &'static
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   // Nothing here cuts: a toast's shadow reaches past its box on every side.
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 

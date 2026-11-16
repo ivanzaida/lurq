@@ -1070,13 +1070,21 @@ impl TimePickerView {
         .offset
         .unwrap_or_else(|| crate::app::theme::SpacingSize::Xs.into())
         .resolve(&self.theme().spacing(), 0.0);
-      let mut root = Column::new().spacing(gap).child(self.field()).child(self.panel());
+      let mut root = Column::new()
+        .max_width(Dimension::Pct(100.0))
+        .spacing(gap)
+        .child(self.field())
+        .child(self.panel());
       if let Some(key) = &self.key {
         root = root.key(key.clone());
       }
       return root.into();
     }
-    let mut root = Row::new().child(self.field()).child(self.panel());
+    // No wider than the room it has: the field in it is as wide as its recipe says at most.
+    let mut root = Row::new()
+      .max_width(Dimension::Pct(100.0))
+      .child(self.field())
+      .child(self.panel());
     if self.full_width {
       root = root.width(Dimension::Pct(100.0));
     }

@@ -10,16 +10,19 @@ use lurq::{
   core::Signal,
   node::{Element, dimension::Dimension},
   ui::{
-    Avatar, Button, ButtonSize, ButtonVariant, Card, Orientation, Splitter, SplitterPane, SplitterPart, Timeline,
-    TimelineAlign, TimelineItem, TimelinePart, TimelineSize, TimelineVariant,
+    Avatar, Button, ButtonSize, ButtonVariant, Card, Length, Orientation, Splitter, SplitterPane, SplitterPart,
+    Timeline, TimelineAlign, TimelineItem, TimelinePart, TimelineSize, TimelineVariant,
   },
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, segmented_fill},
+  kit::{fit, props_table, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
+
+/// The least width of the splitter's two panes: the history's 560, and the least of the notes beside it.
+const PANES: f32 = 700.0;
 
 /// What stands for the items' marks in the playground.
 #[derive(Clone, Copy, PartialEq)]
@@ -72,7 +75,7 @@ fn board() -> Timeline {
       .upcoming(true),
   ])
   .label("History")
-  .style(TimelinePart::Root, |s| s.width(300.0))
+  .style(TimelinePart::Root, |s| s.width(300.0).max_width(Length::Fill))
 }
 
 /// The releases of lurq, the oldest to come: a history read down the middle.
@@ -533,7 +536,7 @@ impl Component for TimelinePage {
       TimelineItem::new("Deploy").upcoming(true),
     ])
     .label("Deploy")
-    .style(TimelinePart::Root, |s| s.width(300.0));
+    .style(TimelinePart::Root, |s| s.width(300.0).max_width(Length::Fill));
     let activity = Timeline::new([
       TimelineItem::new("Olena Koval commented")
         .media(Avatar::new("Olena Koval").size("xs"))
@@ -556,7 +559,7 @@ impl Component for TimelinePage {
         ),
     ])
     .label("Activity")
-    .style(TimelinePart::Root, |s| s.width(420.0));
+    .style(TimelinePart::Root, |s| s.width(420.0).max_width(Length::Fill));
     let log = Timeline::new([
       TimelineItem::new("Deployed to every region").time("14:21"),
       TimelineItem::new("Smoke tests passed").time("14:17"),
@@ -571,11 +574,11 @@ impl Component for TimelinePage {
     .align(TimelineAlign::TimeColumn)
     .on_load_more(|| {})
     .more_label("Earlier")
-    .style(TimelinePart::Root, |s| s.width(360.0));
+    .style(TimelinePart::Root, |s| s.width(360.0).max_width(Length::Fill));
     let middle = releases()
       .label("Releases")
       .align(TimelineAlign::Alternate)
-      .style(TimelinePart::Root, |s| s.width(560.0))
+      .style(TimelinePart::Root, |s| s.width(560.0).max_width(Length::Fill))
       .mount(ctx);
     // The same history in the first pane of a splitter, whose divider folds its sides as it is dragged.
     let panel = Splitter::new()
@@ -599,6 +602,9 @@ impl Component for TimelinePage {
         .label("Notes"),
       )
       .style(SplitterPart::Root, |s| s.height(380.0));
+    // The history's pane of 560 with its notes beside it: in a narrower card the two scroll sideways, and the
+    // divider still has the room to fold the history and unfold it.
+    let panel = fit("panel", self.frame.stage_room(), PANES, panel);
     let order = Timeline::new([
       TimelineItem::new("Ordered").value(1u32).time("Nov 12, 09:14"),
       TimelineItem::new("Packed").value(2).time("Nov 12, 16:40"),

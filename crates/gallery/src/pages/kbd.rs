@@ -45,8 +45,9 @@ const PLATFORMS: [(KeyPlatform, &str, &str); 2] = [
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
-    .child(Row::new().child(shown))
+    .child(Row::new().max_width(FILL).child(shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -267,8 +268,11 @@ impl Component for KbdPage {
       .child(words("Press"))
       .child(Kbd::shortcut("Ctrl+K"))
       .child(words("to search the docs."));
+    // The end of the sentence goes on to the next line where the stage is narrower than it.
     let code = Row::new()
+      .width(FILL)
       .spacing(4.0)
+      .wrap()
       .align_items(Alignment::Center)
       .child(words("Read the theme with"))
       .child(InlineCode::new("ctx.theme()"))

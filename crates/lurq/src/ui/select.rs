@@ -513,6 +513,10 @@ impl SelectView {
     if let Some(width) = trigger.width.and_then(|width| width.resolve(&theme)) {
       NodeUpdate::width(&mut node, width);
     }
+    // Its width is the most it takes: in a narrower room it is as wide as the room.
+    if let Some(width) = trigger.max_width.and_then(|width| width.resolve(&theme)) {
+      NodeUpdate::max_width(&mut node, width);
+    }
     if let Some(height) = trigger.height.and_then(|height| height.resolve(&theme)) {
       NodeUpdate::height(&mut node, height);
     }
@@ -773,6 +777,7 @@ impl<V: 'static> Themed for Select<V> {
     let recipe = Recipe::new()
       .base(Trigger, |s| {
         s.width(260.0)
+          .max_width(Length::Fill)
           .height(ControlSize::Md)
           .padding_x(12.0)
           .gap(8.0)

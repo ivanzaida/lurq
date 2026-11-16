@@ -911,6 +911,7 @@ impl<V: 'static> Themed for MultiSelect<V> {
     let recipe = <select::Select as Themed>::recipe()
       .base(Trigger, |s| {
         s.width(280.0)
+          .max_width(Length::Fill)
           .padding_start(6.0)
           .padding_end(10.0)
           .padding_y(6.0)

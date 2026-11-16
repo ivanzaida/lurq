@@ -294,6 +294,7 @@ impl Themed for Fieldset {
     Recipe::new()
       .base(Root, |s| {
         s.width(400.0)
+          .max_width(Length::Fill)
           .padding_x(20.0)
           .padding_y(20.0)
           .gap(16.0)
@@ -737,6 +738,7 @@ impl Themed for ErrorSummary {
     Recipe::new()
       .base(Root, |s| {
         s.width(400.0)
+          .max_width(Length::Fill)
           .padding_x(14.0)
           .padding_y(12.0)
           .gap(10.0)

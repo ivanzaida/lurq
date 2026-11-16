@@ -889,7 +889,11 @@ impl ColorFieldView {
 
   /// How the default renderer builds a field: the field, and the panel that opens under it.
   pub fn render(self) -> Element {
-    let mut root = Row::new().child(self.field()).child(self.panel());
+    // No wider than the room it has: the field in it is as wide as its recipe says at most.
+    let mut root = Row::new()
+      .max_width(Dimension::Pct(100.0))
+      .child(self.field())
+      .child(self.panel());
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }

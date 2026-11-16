@@ -19,7 +19,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -41,6 +41,9 @@ const WIDTHS: [(&str, Option<f32>); 5] = [
   ("200", Some(200.0)),
   ("140", Some(140.0)),
 ];
+
+/// The least width of the table's bar: the search field and the filters, which stay in it, and its More button.
+const TABLE_BAR: f32 = 560.0;
 
 /// The marks of a text that are on, as the bars of the page hold them.
 #[derive(Clone)]
@@ -411,11 +414,17 @@ impl Component for ToolbarPage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let record = |_: String| {};
     let board = formatting(&self.marks, record).mount(ctx);
+    let room = self.frame.stage_room();
+    // A bar that has no room beside the others goes on to the next line.
     let mut narrow = Row::new()
+      .width(FILL)
       .spacing(32.0)
+      .wrap()
       .align_items(Alignment::Start)
       .overflow_visible();
-    for width in [280.0, 200.0, 140.0] {
+    for width in [280.0_f32, 200.0, 140.0] {
+      // On a stage narrower than a bar the bar is as wide as the stage, and says so.
+      let width = if room > 0.0 { width.min(room) } else { width };
       narrow = narrow.child(
         Column::new()
           .spacing(8.0)
@@ -595,7 +604,13 @@ impl Component for ToolbarPage {
            Export at the end. Narrow the window: the filters and Export go into the menu, the search stays.",
           self.frame.demo(
             3,
-            Column::new().width(FILL).overflow_visible().child(table),
+            // What stays in the bar has a width of its own: in a narrower card the bar scrolls sideways.
+            fit(
+              "table",
+              room,
+              TABLE_BAR,
+              Column::new().width(FILL).overflow_visible().child(table),
+            ),
             "ToolbarItem::element(search).stays(true)",
             &[
               "Toolbar::new()",

@@ -62,9 +62,10 @@ const MAXIMUMS: [(&str, usize); 3] = [("9", 9), ("99", 99), ("999", 999)];
 /// it is on is drawn whole.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .spacing(9.0)
     .overflow_visible()
-    .child(Row::new().overflow_visible().child(shown))
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
 

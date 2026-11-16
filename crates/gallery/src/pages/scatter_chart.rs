@@ -138,7 +138,7 @@ impl ScatterChartPage {
         Row::new()
           .width(FILL)
           .child(
-            Column::new().width(320.0).child(
+            Column::new().width(320.0).max_width(FILL).child(
               make()
                 .hidden(hidden.clone())
                 .on_hidden_change(move |hidden| hidden_to(format!("on_hidden_change({hidden:?})")))
@@ -358,7 +358,7 @@ impl Component for ScatterChartPage {
            line of the scenes' trend over them.",
           self.frame.demo(
             0,
-            Row::new().width(FILL).child(Column::new().width(300.0).child(board)),
+            Row::new().width(FILL).child(Column::new().width(300.0).max_width(FILL).child(board)),
             "ScatterChart::new([scenes, outliers]).trend(true)",
             &[
               "ScatterChart::new([",

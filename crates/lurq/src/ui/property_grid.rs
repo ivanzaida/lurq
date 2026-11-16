@@ -1755,6 +1755,7 @@ impl Themed for PropertyGrid {
     let recipe = Recipe::new()
       .base(Root, |s| {
         s.width(300.0)
+          .max_width(super::Length::Fill)
           .background(Background)
           .border(Edge::inside(1.0, PaletteColor::Border))
           .radius(RadiusSize::Lg)

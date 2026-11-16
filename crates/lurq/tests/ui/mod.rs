@@ -70,6 +70,7 @@ mod message_box;
 mod meter;
 mod month_picker;
 mod multi_select;
+mod narrow_room;
 mod navbar;
 mod navigation_menu;
 mod number_input;

@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, card, code, demo_card, icon, muted},
+  kit::{FILL, card, code, demo_card, fit, icon, muted},
 };
 
 pub struct Icons {
@@ -60,7 +60,8 @@ impl Icons {
   /// One icon at each size of the theme's scale.
   fn sizes(&self, ctx: &mut Ctx) -> Element {
     let theme = ctx.theme().clone();
-    let mut row = Row::new().spacing(32.0).align_items(Alignment::End);
+    // What does not fit beside the others goes on to the next line.
+    let mut row = Row::new().width(FILL).spacing(32.0).wrap().align_items(Alignment::End);
     for size in IconSize::all() {
       let value = theme.icon_size_value(*size);
       row = row.child(
@@ -76,7 +77,11 @@ impl Icons {
 
   /// An icon names no color: it is drawn in the foreground of what it is in.
   fn color(&self) -> Element {
-    let mut row = Row::new().spacing(16.0).align_items(Alignment::Center);
+    let mut row = Row::new()
+      .width(FILL)
+      .spacing(16.0)
+      .wrap()
+      .align_items(Alignment::Center);
     for (fill, ink) in [
       (PaletteColor::Background, PaletteColor::Foreground),
       (PaletteColor::Background, PaletteColor::MutedForeground),
@@ -116,7 +121,7 @@ impl Icons {
 
   /// How an app draws one, and how a theme changes what a name is drawn with.
   fn usage(&self) -> Element {
-    let mut lines = card().padding(20.0).spacing(2.0);
+    let mut lines = Column::new().spacing(2.0);
     for line in [
       "use lurq::ui::{Icon, icons};",
       "",
@@ -129,11 +134,18 @@ impl Icons {
       "theme.set_icon(\"rocket\", IconGlyph::new(\"brand icons\", '\\u{F135}'));",
       "Icon::new(\"rocket\")",
     ] {
-      lines = lines.child(code(line).height(18.0));
+      lines = lines.child(code(line).nowrap().height(18.0));
     }
-    lines.into()
+    // A line of code is not broken: in a card narrower than the longest the code scrolls sideways.
+    card()
+      .padding(20.0)
+      .child(fit("usage", (self.frame.room() - 42.0).max(0.0), USAGE, lines))
+      .into()
   }
 }
+
+/// How wide the longest line of the example is.
+const USAGE: f32 = 740.0;
 
 impl Component for Icons {
   type Props = ();

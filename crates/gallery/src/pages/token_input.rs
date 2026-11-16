@@ -48,6 +48,7 @@ fn first_tags() -> Vec<String> {
 /// A token input as wide as the board draws one, with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .width(WIDTH)
     .spacing(9.0)
     .child(shown)
@@ -396,7 +397,7 @@ impl Component for TokenInputPage {
       ));
     }
     let template = items().child(
-      Column::new().width(420.0).child(
+      Column::new().width(420.0).max_width(FILL).child(
         TokenInput::new(self.template.clone())
           .find_tokens(variables)
           .rows(2, 6)
@@ -429,7 +430,7 @@ impl Component for TokenInputPage {
         field.description(&format!("{count} recipient{}.", if count == 1 { "" } else { "s" }))
       }
     };
-    let in_field = items().child(Column::new().width(360.0).child(in_field));
+    let in_field = items().child(Column::new().width(360.0).max_width(FILL).child(in_field));
     let props = [
       (
         "TokenInput::list",
