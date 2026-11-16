@@ -15,7 +15,7 @@ use crate::{
     events::KeyboardEvent,
     theme::{BorderSize, Density, PaletteColor, TypographyStyle},
   },
-  components::{Row, Text},
+  components::{Row, Text, TextOverflow},
   core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
   node::{border::Border, dimension::Dimension},
@@ -188,6 +188,31 @@ fn text(content: &str, role: TypographyStyle, size: f32, weight: FontWeight) -> 
   style.font_size = theme.scaled(size);
   style.weight = weight;
   Text::styled(content, style).nowrap()
+}
+
+/// The board's mark of what records, before a toggle's label: a dot in the destructive color, and a square of
+/// it where a press stops the recording. It is as wide as an icon of the toggle is.
+pub(super) fn record_mark(stop: bool) -> Row {
+  let mark = Row::new().size(8.0, 8.0).background(PaletteColor::Destructive);
+  Row::new()
+    .size(14.0, 14.0)
+    .align_items(Alignment::Center)
+    .justify(crate::layout::layout_kind::Justify::Center)
+    .child(if stop {
+      mark.rounded(1.0)
+    } else {
+      mark.rounded(crate::app::theme::RadiusSize::Full)
+    })
+}
+
+/// A text of a row that is cut where the row has no room for all of it, `first` times as readily as one that
+/// gives way once: what a narrow window loses before its numbers and its buttons.
+pub(super) fn gives_way(text: Text, first: f32) -> Row {
+  Row::new()
+    .flex_shrink(first)
+    .min_width(0.0)
+    .clip()
+    .child(text.width(FILL).text_overflow(TextOverflow::Elipsis))
 }
 
 /// The line between two parts of the window.

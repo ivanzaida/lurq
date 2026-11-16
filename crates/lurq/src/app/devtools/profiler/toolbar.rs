@@ -9,28 +9,32 @@ use crate::{
   app::{
     devtools::{
       changes,
-      kit::{self, mono},
+      kit::{self, FILL, mono},
     },
     profiler::ProfilingHandle,
     theme::PaletteColor,
   },
-  components::{Row, Spacer},
+  components::Row,
   core::Signal,
-  layout::{Alignment, text_style::FontWeight},
-  ui::{Button, ButtonSize, ButtonVariant, Icon, Recipe, Separator, Toggle, TogglePart, ToggleSize, icons},
+  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  ui::{Button, ButtonSize, ButtonVariant, Icon, Separator, Toggle, ToggleSize, icons},
 };
+
+/// The width the board gives what the toolbar says went wrong.
+const ERROR_WIDTH: f32 = 360.0;
 
 pub(super) fn toolbar(state: &ProfilerState, tab: &ProfilerTab, handle: Option<ProfilingHandle>) -> Row {
   let recording = state.recording();
-  let mut row = kit::toolbar().child(record(recording, tab, handle));
-  row = match &state.recording {
-    Some(running) => row.child(
+  let group = || Row::new().spacing(8.0).align_items(Alignment::Center);
+  let mut takes = group().child(record(recording, tab, handle));
+  takes = match &state.recording {
+    Some(running) => takes.child(
       mono(&status_line(running), 12.0, FontWeight::Normal)
         .color(PaletteColor::Destructive)
         .id("devtools-profiler-status"),
     ),
     // What a recording takes is read when it starts: there is nothing to set while one runs.
-    None => row
+    None => takes
       .child(Separator::vertical().length(16.0))
       .child(option(
         "Include DevTools",
@@ -54,11 +58,11 @@ pub(super) fn toolbar(state: &ProfilerState, tab: &ProfilerTab, handle: Option<P
         &tab.state,
       )),
   };
-  row = match &state.error {
-    // It takes the room there is and is cut at its end: a long message moves no button.
-    Some(error) => row.child(
+  if let Some(error) = &state.error {
+    // It is no wider than the board has it, and cut at its end: a long message moves no button far.
+    takes = takes.child(
       Row::new()
-        .flex(1.0)
+        .max_width(ERROR_WIDTH)
         .padding_left(8.0)
         .spacing(6.0)
         .align_items(Alignment::Center)
@@ -75,27 +79,40 @@ pub(super) fn toolbar(state: &ProfilerState, tab: &ProfilerTab, handle: Option<P
           )
           .flex(1.0),
         ),
-    ),
-    None => row.child(Spacer::new().flex(1.0)),
-  };
+    );
+  }
   let (cleared, ticker) = (tab.state.clone(), tab.ticker.clone());
-  files(row, state, &tab.state).child(
+  let files = files(group(), state, &tab.state).child(
     button("Clear", icons::TRASH)
       .on_click(move |_| {
         ticker.stop();
         cleared.update(ProfilerState::clear);
       })
       .id("devtools-profiler-clear"),
-  )
+  );
+  // The toolbar of the other tabs, but one whose files go onto a row of their own where the window is too
+  // narrow for all of it: at its start what records, at its end the files.
+  Row::new()
+    .width(FILL)
+    .min_height(kit::TOOLBAR_HEIGHT)
+    .padding_horizontal(12.0)
+    .padding_vertical(8.0)
+    .spacing(8.0)
+    .align_items(Alignment::Center)
+    .justify(Justify::SpaceBetween)
+    .wrap()
+    .id("devtools-profiler-toolbar")
+    .child(takes)
+    .child(files)
 }
 
 /// Start recording, and Stop recording while one runs.
 fn record(recording: bool, tab: &ProfilerTab, handle: Option<ProfilingHandle>) -> Toggle {
   let (state, ticker) = (tab.state.clone(), tab.ticker.clone());
   Toggle::new(if recording { "Stop recording" } else { "Start recording" })
-    .icon(if recording { icons::SQUARE } else { icons::DOT_CIRCLE })
+    .leading(kit::record_mark(recording))
     .size(ToggleSize::Xs)
-    .rules(&record_toggle())
+    .rules(&changes::recording_toggle())
     .on(recording)
     .on_change(move |_| {
       if recording {
@@ -114,12 +131,6 @@ fn record(recording: bool, tab: &ProfilerTab, handle: Option<ProfilingHandle>) -
       }
     })
     .id("devtools-profiler-record")
-}
-
-/// The board's Start recording: the toolbar's toggle with its mark in the destructive color, all of it in that
-/// color on its muted fill while it records.
-fn record_toggle() -> Recipe {
-  changes::recording_toggle().base(TogglePart::Icon, |s| s.foreground(PaletteColor::Destructive))
 }
 
 /// One of the things a recording takes or leaves.

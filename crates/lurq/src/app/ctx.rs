@@ -1227,15 +1227,56 @@ fn update_debug_value_history(
   *current_value = next_value;
 }
 
+/// The moment a value changed, as DevTools writes it: by the clock and the zone of the system, where the
+/// engine can read the zone (`core::Time::now`), and in UTC where it cannot.
 #[cfg(feature = "devtools")]
 fn current_compact_timestamp() -> String {
   let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-  let millis = duration.subsec_millis();
-  let seconds_of_day = duration.as_secs() % 86_400;
+  compact_timestamp(
+    duration.as_secs(),
+    duration.subsec_millis(),
+    crate::core::Time::now().seconds(),
+  )
+}
+
+/// `utc_seconds` and `millis` since 1970 as a time of day in the zone where it is `local_seconds` after
+/// midnight now. The two clocks are read a moment apart, so the zone is taken to the quarter of an hour every
+/// zone is at, and the seconds and the milliseconds are those of one reading.
+#[cfg(feature = "devtools")]
+fn compact_timestamp(utc_seconds: u64, millis: u32, local_seconds: i64) -> String {
+  const DAY: i64 = 86_400;
+  const QUARTER: i64 = 900;
+  let utc_of_day = (utc_seconds % DAY as u64) as i64;
+  let zone = ((local_seconds - utc_of_day) as f64 / QUARTER as f64).round() as i64 * QUARTER;
+  let seconds_of_day = (utc_of_day + zone).rem_euclid(DAY);
   let hour = seconds_of_day / 3_600;
   let minute = seconds_of_day % 3_600 / 60;
   let second = seconds_of_day % 60;
   format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
+}
+
+#[cfg(all(test, feature = "devtools"))]
+mod timestamp_tests {
+  use super::compact_timestamp;
+
+  #[test]
+  fn a_change_is_timed_by_the_clock_of_the_zone() {
+    // 09:29:40.005 in UTC, read where it is two hours later.
+    let utc = 9 * 3_600 + 29 * 60 + 40;
+    assert_eq!(compact_timestamp(utc, 5, (utc + 2 * 3_600) as i64), "11:29:40.005");
+    // The zone's clock was read a second later: the seconds are still those of the first reading.
+    assert_eq!(compact_timestamp(utc, 5, (utc + 2 * 3_600 + 1) as i64), "11:29:40.005");
+    // A zone behind UTC, across midnight, and one at a quarter of an hour.
+    assert_eq!(compact_timestamp(3_600, 0, 20 * 3_600), "20:00:00.000");
+    assert_eq!(
+      compact_timestamp(utc, 0, (utc + 5 * 3_600 + 45 * 60) as i64),
+      "15:14:40.000"
+    );
+    // Where the zone is not read the clock is UTC's.
+    assert_eq!(compact_timestamp(utc, 250, utc as i64), "09:29:40.250");
+    // Days since 1970 do not matter.
+    assert_eq!(compact_timestamp(20_000 * 86_400 + utc, 0, utc as i64), "09:29:40.000");
+  }
 }
 
 #[cfg(feature = "devtools")]

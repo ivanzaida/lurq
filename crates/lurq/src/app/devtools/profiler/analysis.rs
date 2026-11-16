@@ -24,7 +24,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    devtools::kit::{FILL, mono},
+    devtools::kit::{FILL, gives_way, mono},
     profiler::{CallNode, CallSort, CallTree, ForestSpan, SpanForest, SpanTrack, forest_of},
     theme::PaletteColor,
   },
@@ -379,6 +379,8 @@ pub(crate) struct AnalysisState {
   pub view: Option<TimeRange>,
   pub hovered: Option<Hover>,
   pub selected_span: Option<u32>,
+  /// How far down its rows the chart is dragged, where it is higher than its room.
+  pub scroll_y: f32,
   pub(super) drag: Option<Drag>,
   /// Table rows opened or closed against their default, by table and track.
   toggled: HashSet<(bool, SpanTrack, u32)>,
@@ -393,9 +395,19 @@ pub(crate) struct Hover {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Drag {
+  /// Where in the chart the press was, along its time.
   pub(super) x: f32,
+  /// Where in the window the press was, down it: the chart moves under the pointer as it is dragged.
+  pub(super) y: f32,
   pub(super) view: TimeRange,
+  pub(super) scroll_y: f32,
   pub(super) moved: bool,
+}
+
+/// How far down a chart of `chart` rows' height is dragged at most in a room of `room`: until its last row is
+/// at the room's end.
+pub(super) fn scroll_limit(chart: f32, room: f32) -> f32 {
+  (chart - room).max(0.0)
 }
 
 impl crate::app::component::DevtoolsInspectable for AnalysisState {
@@ -504,7 +516,18 @@ fn clamp_view(start_ms: f64, duration_ms: f64, basis: TimeRange) -> TimeRange {
 pub(crate) struct ProfilerAnalysis {
   chart_width: Signal<f32>,
   chart: ElementRef,
+  /// The room the chart is drawn in, and how high it is: a chart of more rows is dragged down it.
+  room_height: Signal<f32>,
+  room: ElementRef,
   analysis: Mutex<Option<Arc<Analysis>>>,
+}
+
+/// Where a chart is drawn: the chart and its width, the room it is in and the room's height.
+pub(super) struct ChartRoom {
+  pub(super) chart: ElementRef,
+  pub(super) width: f32,
+  pub(super) room: ElementRef,
+  pub(super) height: f32,
 }
 
 impl ProfilerAnalysis {
@@ -546,9 +569,21 @@ impl Component for ProfilerAnalysis {
         }
       }
     });
+    let room_height = ctx.signal(0.0_f32);
+    let room = ElementRef::new();
+    room.observe_rect({
+      let room_height = room_height.clone();
+      move |rect| {
+        if room_height.get_untracked() != rect.height {
+          room_height.set(rect.height);
+        }
+      }
+    });
     Self {
       chart_width,
       chart,
+      room_height,
+      room,
       analysis: Mutex::new(None),
     }
   }
@@ -568,8 +603,12 @@ impl Component for ProfilerAnalysis {
         &state,
         props.state.clone(),
         props.picked.clone(),
-        self.chart_width.get(),
-        self.chart.clone(),
+        ChartRoom {
+          chart: self.chart.clone(),
+          width: self.chart_width.get(),
+          room: self.room.clone(),
+          height: self.room_height.get(),
+        },
         props.on_select_pass.clone(),
       ),
       AnalysisTab::CallTree => calls::table(ctx, &analysis, &state, props.state.clone(), props.picked.clone(), false),
@@ -640,11 +679,12 @@ fn header(analysis: &Analysis, state: &AnalysisState, signal: Signal<AnalysisSta
       .id("devtools-profiler-scope"),
     )
     .child(Spacer::new().flex(1.0))
-    .child(
+    .child(gives_way(
       mono(&summary, 12.0, FontWeight::Normal)
         .color(PaletteColor::MutedForeground)
         .id("devtools-profiler-analysed"),
-    )
+      1.0,
+    ))
 }
 
 #[cfg(test)]

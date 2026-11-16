@@ -53,6 +53,8 @@ The tab is the tree of the inspected window and, beside it, the inspector of the
 
 ## Component Search
 
+In the tree, the arrows up and down go from row to row, Left closes the selected row and Right opens it, as a press of its chevron does, and so do Enter and a double press.
+
 Ctrl+F (Cmd+F on macOS) goes to the search box from anywhere in the tab. The count under the tree says how many nodes the search found; the rows shown only because what it found is in them are drawn muted, and are not counted.
 
 The Components tab search box accepts plain text and a small query language.
@@ -148,7 +150,7 @@ let doubled = ctx.memo({
 });
 ```
 
-The engine keeps, for each signal and memo: its id, its type, its value as it is written, the component that owns it, how many subscribers it has, and its last 64 changes, each with the moment it happened, the value before and the value after.
+The engine keeps, for each signal and memo: its id, its type, its value as it is written, the component that owns it, how many subscribers it has, and its last 64 changes, each with the moment it happened (by the clock and the zone of the system; in UTC where the engine cannot read the zone), the value before and the value after.
 
 ## Inspectable Contexts
 
@@ -215,7 +217,7 @@ lurq = { version = "0.61.1", features = ["winit", "wgpu", "devtools"] }
 
 The Profiler tab records on the inspected tree's [profiling session service](../profiling/), the one `Tree::profiling_handle()` returns:
 
-The tab's controls are in a toolbar of its own under the tab bar: what starts and stops a recording, what a recording takes, and at its end the files and **Clear**. The last error is written in it, cut at its end where it is long.
+The tab's controls are in a toolbar of its own under the tab bar: what starts and stops a recording, what a recording takes, and at its end the files and **Clear**, which go onto a row of their own where the window is too narrow for all of it. The last error is written in it, cut at its end where it is long.
 
 1. **Start recording** starts a [recording session](../profiling/#two-session-modes) on it. Nothing is recorded before you press it, and the tab copies nothing while DevTools renders.
 2. While it runs, the toolbar shows beside **Stop recording** how long it has run, the memory its samples hold and how many it took, reread four times a second. A recording keeps every sample; at its 1 GiB ceiling it stops taking more and says so.
@@ -246,9 +248,11 @@ After Stop the tab shows:
   - **Input**: the inputs this frame presented, each with its interaction id, queue delay, dispatch time and input-to-present latency.
   - **Counters**: everything its sample holds, group by group: the pass timings and flags, its GPU time split into UI and Canvas, its present timing (interval, refresh interval, whether it continued a run), its counters (nodes, memory, cache sizes and allocations), Canvas text work, the nodes it laid out again per component and reason (in a detailed recording), and its frame profile's timings, counts, render (draw calls included), Canvas, Canvas asset upload, text and memory figures.
 
+In a window too low for the frames and the analysis, the frames scroll and the analysis keeps a height it can be read at; in a narrow one, what is said in a title gives way to its numbers and its buttons.
+
 Under the timeline, three views analyse the passes that start in the selected range (**Range**), or the selected pass alone (**Selected frame**):
 
-- **Flame chart**: every span to scale on a time axis. The passes' toolkit phases are on the UI track, each pass a root with its phases nested below it; [application scopes](../profiling/#synchronous-application-scopes) are on a track per lane (UI lane, worker lane), nested by their parent. The mouse wheel zooms around the pointer, a horizontal wheel or a drag pans, **Reset zoom** shows the whole range again. Hovering a span shows its name, total and self time and the pass it belongs to; clicking selects it (and its pass in the timeline), the line under the chart says what it took, what it is in and what it is (the pass, a phase, a component, a scope), and **Zoom to selection** fits the view to it. A span has the color of its phase along its top (the tree's phases, layout, what is made of the layout to draw, the drawing, and the app's own scopes, in the theme's five colors of a chart), and a component that of the phase it is in. The name of the selected span is picked out in the two tables and among the phases of the selected pass, and a row selected in a table is picked out the same way. Spans narrower than 3 px are merged into muted blocks until you zoom in, so a range of thousands of passes draws a few hundred elements. The wheel is the chart's, so the chart does not scroll: rows deeper than its room are cut. A recording keeps its last 128 application scopes; the bar says how many earlier ones it no longer holds.
+- **Flame chart**: every span to scale on a time axis. The passes' toolkit phases are on the UI track, each pass a root with its phases nested below it; [application scopes](../profiling/#synchronous-application-scopes) are on a track per lane (UI lane, worker lane), nested by their parent. The mouse wheel zooms around the pointer, a horizontal wheel or a drag pans, **Reset zoom** shows the whole range again. Hovering a span shows its name, total and self time and the pass it belongs to; clicking selects it (and its pass in the timeline), the line under the chart says what it took, what it is in and what it is (the pass, a phase, a component, a scope), and **Zoom to selection** fits the view to it. A span has the color of its phase along its top (the tree's phases, layout, what is made of the layout to draw, the drawing, and the app's own scopes, in the theme's five colors of a chart), and a component that of the phase it is in. The name of the selected span is picked out in the two tables and among the phases of the selected pass, and a row selected in a table is picked out the same way. Spans narrower than 3 px are merged into muted blocks until you zoom in, so a range of thousands of passes draws a few hundred elements. The wheel is the chart's, so the chart is in nothing that scrolls: where it has more rows than room, a drag moves it up and down as it moves it along its time. A recording keeps its last 128 application scopes; the bar says how many earlier ones it no longer holds.
 - **Call tree**: the spans of one track (Frames, or an application lane) merged by their path from the root, top-down, with total time, self time (total less its children), count, and both times as a percent of the track's total. For Frames that total is the pass time of the passes analysed. Rows open to the passes' phases; a row's chevron, Enter or a double press opens or closes it, and a press on a column title sorts by it, the longest and the most first, and again turns it. It is the design system's table, built for the rows in view, so it lists every row.
 - **Bottom-up**: a row per span name with its self time and its total time, and under it the names that called it, outward. A phase inside another of its name counts its total once. The rows' self times add up to the same total as the call tree.
 

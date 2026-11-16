@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
   app::{
-    devtools::kit::{FILL, line, mono, sans},
+    devtools::kit::{FILL, gives_way, line, mono, sans},
     events::MouseEvent,
     profiler::{ProfileSample, SampleData},
     theme::{BorderSize, PaletteColor},
@@ -61,7 +61,10 @@ fn zone_title(title: &str, said: &str) -> Row {
     .spacing(10.0)
     .align_items(Alignment::Center)
     .child(sans(title, 13.0, FontWeight::Medium))
-    .child(mono(said, 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
+    .child(gives_way(
+      mono(said, 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground),
+      1.0,
+    ))
 }
 
 fn quiet(text: &str) -> crate::components::Text {
@@ -194,14 +197,17 @@ pub(super) fn recording(capture: &ProfilerCapture, range: TimeRange, state: &Sig
     .child(
       title
         .child(Spacer::new().flex(1.0))
-        .child(quiet("Drag or shift-click to select a range"))
+        .child(gives_way(quiet("Drag or shift-click to select a range"), 100.0))
+        // The button keeps its width: what is said before it gives way.
         .child(
-          Button::new("Whole recording")
-            .variant(ButtonVariant::Outline)
-            .size(ButtonSize::Xs)
-            .icon(icons::REFRESH)
-            .on_click(move |_| whole_recording.update(ProfilerState::show_whole))
-            .id("devtools-profiler-whole"),
+          Row::new().flex_shrink(0.0).child(
+            Button::new("Whole recording")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Xs)
+              .icon(icons::REFRESH)
+              .on_click(move |_| whole_recording.update(ProfilerState::show_whole))
+              .id("devtools-profiler-whole"),
+          ),
         ),
     )
     .child(track(
@@ -700,9 +706,16 @@ impl View<'_> {
       .id("devtools-profiler-axis");
     for tick in 0..TICKS {
       let at = self.range.start_ms + self.range.duration_ms() * tick as f64 / TICKS as f64;
-      let mut part = Row::new().flex(1.0).child(time(at));
+      // A time gives way to the one after it where the track is too narrow for both.
+      let mut part = Row::new().flex(1.0).child(
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(0.0)
+          .clip()
+          .child(time(at)),
+      );
       if tick + 1 == TICKS {
-        part = part.child(Spacer::new().flex(1.0)).child(time(self.range.end_ms));
+        part = part.child(time(self.range.end_ms));
       }
       ticks = ticks.child(part);
     }
@@ -732,18 +745,25 @@ fn legend() -> Row {
       .child(Row::new().size(8.0, 8.0).rounded(2.0).background(color))
       .child(sans(label, 11.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
   };
+  // What it says of the bars goes onto a row of its own where the window is too narrow for one.
   Row::new()
     .width(FILL)
-    .height(24.0)
+    .min_height(24.0)
     .padding_horizontal(PADDING)
     .spacing(16.0)
     .align_items(Alignment::Center)
-    .child(Spacer::new().width(LABEL_WIDTH - 4.0))
-    .child(swatch(PaletteColor::Input, "within budget"))
-    .child(swatch(PaletteColor::Warning, "over budget"))
-    .child(swatch(PaletteColor::Destructive, "over 2× budget"))
-    .child(swatch(PaletteColor::Foreground, "selected"))
-    .child(Spacer::new().flex(1.0))
+    .justify(Justify::SpaceBetween)
+    .wrap()
+    .child(
+      Row::new()
+        .spacing(16.0)
+        .align_items(Alignment::Center)
+        .child(Spacer::new().width(LABEL_WIDTH - 4.0))
+        .child(swatch(PaletteColor::Input, "within budget"))
+        .child(swatch(PaletteColor::Warning, "over budget"))
+        .child(swatch(PaletteColor::Destructive, "over 2× budget"))
+        .child(swatch(PaletteColor::Foreground, "selected")),
+    )
     .child(
       sans(
         "faded: not presented · click a bar to inspect it",

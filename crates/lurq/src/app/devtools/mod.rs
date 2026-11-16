@@ -242,6 +242,158 @@ mod tests {
     components::{Column, Text},
   };
 
+  /// One thing a tree painted, as words: where, and what of.
+  fn said(quad: &crate::layout::quad::Quad) -> String {
+    use crate::layout::quad::QuadContent;
+    let what = match &quad.content {
+      QuadContent::Rect { color, gradient } => format!("rect {color:?} gradient {}", gradient.is_some()),
+      QuadContent::Text { text, style, .. } => format!(
+        "text {text:?} {} {} {:?} {:?}",
+        style.font_family, style.font_size, style.weight, style.color
+      ),
+      QuadContent::RichText { spans, .. } => format!("rich text of {}", spans.len()),
+      QuadContent::Backdrop { blur } => format!("backdrop {blur}"),
+      _ => "other".to_owned(),
+    };
+    format!(
+      "{:.1},{:.1} {:.1}x{:.1} @{:.2} {what} radius {:?} border {:?}",
+      quad.x, quad.y, quad.width, quad.height, quad.opacity, quad.border_radius, quad.border
+    )
+  }
+
+  /// What a tree paints once nothing in it is on its way to another look: a tab that was left fades for a
+  /// moment, by the clock, so the tree is painted until two paintings a moment apart are the same.
+  fn settled(tree: &mut crate::app::Tree, app: &mut App) -> Vec<String> {
+    let mut last = Vec::new();
+    for _ in 0..80 {
+      tree.pass_headless(app);
+      let now: Vec<String> = tree.painted_quads().iter().map(said).collect();
+      if now == last {
+        return now;
+      }
+      last = now;
+      std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    panic!("the tree did not come to rest");
+  }
+
+  /// A window to inspect that is the same at every run: a component over three elements, none of them timed.
+  fn fixed_snapshot() -> DevToolsSnapshot {
+    let ids = crate::core::IdGenerator::new();
+    let leaves = ["Row", "Text", "Button"]
+      .map(|tag| DevToolsNode::for_test(ids.next(), tag, DevToolsNodeKind::Element, vec![]))
+      .to_vec();
+    DevToolsSnapshot {
+      root: Some(DevToolsNode::for_test(
+        ids.next(),
+        "Root",
+        DevToolsNodeKind::Component,
+        leaves,
+      )),
+      frame: Default::default(),
+    }
+  }
+
+  /// What DevTools paints, tab after tab, in an app whose theme `dress` made its own; and what a button of the
+  /// app's own paints in that theme.
+  fn painted_in(dress: impl FnOnce(&Theme)) -> (Vec<(&'static str, Vec<String>)>, Vec<String>) {
+    use crate::app::events::MouseButton;
+    let mut app = App::new();
+    dress(app.theme());
+
+    let mut own = crate::app::Tree::new();
+    own.resize(400, 200);
+    own.set_root(Column::new().child(crate::ui::Button::new("Save")));
+    own.pass_headless(&mut app);
+    let own = own.painted_quads().iter().map(said).collect();
+
+    let mut tree = crate::app::Tree::new();
+    tree.resize(1440, 936);
+    tree.mount_root::<DevTools>(
+      &mut app,
+      DevToolsProps {
+        snapshot: fixed_snapshot(),
+        snapshot_revision: 1,
+        #[cfg(feature = "persistent_storage")]
+        persistent_storage_revision: 0,
+        picked_path: None,
+        picked_revision: 0,
+        system: SystemSettings::default(),
+        on_debug_overlay_path: None,
+        on_overlay_enabled: None,
+        on_pick_inspected: None,
+        on_selected_path: None,
+        on_save_node_screenshot: None,
+        profiling: None,
+      },
+    );
+    for _ in 0..2 {
+      tree.pass_headless(&mut app);
+    }
+    let mut tabs = Vec::new();
+    for tab in ["Components", "Profiler", "Signals", "Context"] {
+      let label = tree
+        .find_element(|element: crate::node::ElementRef<'_>| element.text_content() == Some(tab))
+        .map(|element| element.bounds())
+        .unwrap_or_else(|| panic!("no tab {tab}"));
+      let (x, y) = (label.x + label.width / 2.0, label.y + label.height / 2.0);
+      tree.mouse_down(x, y, MouseButton::Left);
+      tree.mouse_up(x, y, MouseButton::Left);
+      // The pointer is left where no tab is hovered.
+      tree.mouse_move(700.0, 500.0);
+      tabs.push((tab, settled(&mut tree, &mut app)));
+    }
+    (tabs, own)
+  }
+
+  #[test]
+  fn devtools_is_drawn_in_its_own_theme_whatever_the_app_made_of_its_own() {
+    use crate::{
+      app::theme::ThemeDefinition,
+      node::color::Color,
+      ui::{Badge, BadgePart, Button, ButtonPart, Recipe, Table, TablePart, Tabs, TabsPart, Toggle, TogglePart},
+    };
+    let (plain, plain_own) = painted_in(|_| {});
+    let (dressed, dressed_own) = painted_in(|theme| {
+      // Another look whole: its palette, its type, its radii, its shadows, its scroll bars.
+      theme.apply(ThemeDefinition::legacy());
+      // Roles of the app's own.
+      let red = Color::from_hex("#ff0000");
+      for role in [
+        PaletteColor::Background,
+        PaletteColor::Foreground,
+        PaletteColor::Card,
+        PaletteColor::Muted,
+        PaletteColor::MutedForeground,
+        PaletteColor::Border,
+        PaletteColor::Input,
+        PaletteColor::Primary,
+        PaletteColor::Highlight,
+        PaletteColor::Destructive,
+      ] {
+        theme.set_palette_color(role, red);
+      }
+      // Recipes of the app's own for what DevTools is built with.
+      theme.set_recipe::<Button>(Recipe::new().base(ButtonPart::Root, |s| s.background(red).radius(0.0).height(64.0)));
+      theme.set_recipe::<Toggle>(Recipe::new().base(TogglePart::Root, |s| s.background(red).height(64.0)));
+      theme.set_recipe::<Table<()>>(Recipe::new().base(TablePart::Row, |s| s.background(red).height(80.0)));
+      theme.set_recipe::<Tabs>(Recipe::new().base(TabsPart::Tab, |s| s.background(red).height(90.0)));
+      theme.set_recipe::<Badge>(Recipe::new().base(BadgePart::Root, |s| s.background(red)));
+      // And a renderer of the app's own.
+      theme.set_renderer::<Toggle>(std::sync::Arc::new(|_| Text::new("the app's toggle").into()));
+    });
+    // The dress is one that shows: the app's own button is not drawn as it was.
+    assert_ne!(plain_own, dressed_own, "the app's own tree takes the app's theme");
+    assert!(!plain.is_empty());
+    for ((tab, plain), (_, dressed)) in plain.iter().zip(&dressed) {
+      assert!(plain.len() > 20, "the {tab} tab paints {} things", plain.len());
+      for (at, (plain, dressed)) in plain.iter().zip(dressed).enumerate() {
+        assert_eq!(plain, dressed, "the {tab} tab, thing {at}");
+      }
+      assert_eq!(plain.len(), dressed.len(), "the {tab} tab");
+    }
+  }
+
   #[test]
   fn snapshot_collects_tree_nodes() {
     let mut app = App::new();

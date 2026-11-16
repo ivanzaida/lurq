@@ -445,6 +445,15 @@ struct Shown {
 /// `ProfilerAnalysis` mounted alone on `capture`'s whole range, with what is shown of it and the passes its
 /// clicks select.
 fn mounted(capture: Arc<ProfilerCapture>, selected: Option<u64>) -> (App, Tree, Shown, Arc<Mutex<Vec<u64>>>) {
+  mounted_at(capture, selected, 600)
+}
+
+/// As `mounted`, in a panel `height` high.
+fn mounted_at(
+  capture: Arc<ProfilerCapture>,
+  selected: Option<u64>,
+  height: u32,
+) -> (App, Tree, Shown, Arc<Mutex<Vec<u64>>>) {
   let picked = Arc::new(Mutex::new(Vec::new()));
   let state = Shown {
     analysis: Signal::new(AnalysisState::default()),
@@ -452,7 +461,7 @@ fn mounted(capture: Arc<ProfilerCapture>, selected: Option<u64>) -> (App, Tree, 
   };
   let mut app = App::new();
   let mut tree = Tree::new();
-  tree.resize(1000, 600);
+  tree.resize(1000, height);
   tree.mount_root::<ProfilerAnalysis>(
     &mut app,
     AnalysisProps {
@@ -563,6 +572,65 @@ fn the_chart_hovers_selects_zooms_and_pans() {
   tree.mouse_move(x, chart.y + chart.height + 40.0);
   tree.pass_headless(&mut app);
   assert!(bounds_of(&mut tree, TOOLTIP_ID).is_none());
+}
+
+#[test]
+fn a_chart_higher_than_its_room_is_dragged_down_its_rows() {
+  // Three tracks, the frames' four rows, the UI lane's one and the worker lane's two, in a panel too low for
+  // them.
+  let capture = Arc::new(synthetic_capture(100, 2));
+  let analysis = Analysis::new(&capture, AnalysisScope::Range, capture.whole(), None);
+  let height = ChartGeometry::of(&analysis).height;
+  let (mut app, mut tree, state, picked) = mounted_at(capture, None, 300);
+  let chart = bounds_of(&mut tree, CHART_ID).expect("the chart");
+  let end = bounds_of(&mut tree, SELECTION_ID).expect("the line under the chart").y;
+  assert!(chart.y + height > end + 10.0, "the chart is higher than its room");
+  let drag = |tree: &mut Tree, app: &mut App, from: f32, to: f32| {
+    let x = chart.x + 500.0;
+    tree.mouse_down(x, from, MouseButton::Left);
+    tree.mouse_move(x, (from + to) / 2.0);
+    tree.mouse_move(x, to);
+    tree.mouse_up(x, to, MouseButton::Left);
+    tree.pass_headless(app);
+    tree.pass_headless(app);
+  };
+
+  // Dragged up by 20, it is 20 higher, and shows all of its time as before.
+  let y = chart.y + 40.0;
+  drag(&mut tree, &mut app, y, y - 20.0);
+  let moved = bounds_of(&mut tree, CHART_ID).unwrap();
+  close(chart.y - moved.y, 20.0, "the chart goes up with the pointer");
+  assert_eq!(state.analysis.get_untracked().scroll_y, 20.0);
+  assert!(
+    state.analysis.get_untracked().view.is_none(),
+    "a drag straight up zooms nothing"
+  );
+  assert!(picked.lock().unwrap().is_empty(), "a drag selects nothing");
+
+  // Dragged further than it is high, it stops with its last row at the room's end.
+  drag(&mut tree, &mut app, y, y - 30.0);
+  let moved = bounds_of(&mut tree, CHART_ID).unwrap();
+  close(moved.y + height, end, "the last row at the room's end");
+  // What was under the room's end is hit now: the worker lane's `decode`, on its second row.
+  let geometry = ChartGeometry::of(&analysis);
+  let (worker_top, _) = geometry.tracks[2];
+  let x = chart.x + chart.width * 0.015;
+  tree.mouse_move(x, moved.y + worker_top + ROW_HEIGHT * 1.5);
+  tree.pass_headless(&mut app);
+  assert!(
+    texts_of(&mut tree, TOOLTIP_ID).concat().starts_with("decode"),
+    "{:?}",
+    texts_of(&mut tree, TOOLTIP_ID)
+  );
+
+  // And back down to its first row.
+  drag(&mut tree, &mut app, y, y + 60.0);
+  close(
+    bounds_of(&mut tree, CHART_ID).unwrap().y,
+    chart.y,
+    "back at its first row",
+  );
+  assert_eq!(state.analysis.get_untracked().scroll_y, 0.0);
 }
 
 fn shows(tree: &mut Tree, text: &str) -> bool {

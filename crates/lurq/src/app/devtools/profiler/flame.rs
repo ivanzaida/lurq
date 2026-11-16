@@ -5,15 +5,15 @@ use std::sync::Arc;
 
 use super::{
   analysis::{
-    Analysis, AnalysisState, BLOCK_HEIGHT, Block, ChartGeometry, Drag, Hover, MAX_TRACK_ROWS, PADDING, ROW_HEIGHT,
-    TRACK_HEADER_HEIGHT, TrackRows, hit, row_blocks,
+    Analysis, AnalysisState, BLOCK_HEIGHT, Block, ChartGeometry, ChartRoom, Drag, Hover, MAX_TRACK_ROWS, PADDING,
+    ROW_HEIGHT, TRACK_HEADER_HEIGHT, TrackRows, hit, row_blocks, scroll_limit,
   },
   capture::{TimeRange, format_ms, format_span},
   phase_color,
 };
 use crate::{
   app::{
-    devtools::kit::{FILL, line, mono, sans},
+    devtools::kit::{FILL, gives_way, line, mono, sans},
     events::{MouseEvent, ScrollEvent},
     profiler::{ApplicationLane, ForestSpan, PASS_SPAN_NAME, SpanTrack},
     theme::{PaletteColor, TypographyStyle},
@@ -45,15 +45,18 @@ pub(super) fn chart(
   state: &AnalysisState,
   signal: Signal<AnalysisState>,
   picked: Signal<Option<&'static str>>,
-  width: f32,
-  chart_ref: ElementRef,
+  room: ChartRoom,
   on_select_pass: Option<Arc<dyn Fn(u64) + Send + Sync>>,
 ) -> Element {
+  let (width, chart_ref, room_ref) = (room.width, room.chart, room.room);
   let view = state.view_of(analysis);
   let geometry = Arc::new(ChartGeometry::of(analysis));
+  // A chart higher than its room is moved up by as far as it was dragged, and no further than its last row.
+  let scroll_y = state.scroll_y.min(scroll_limit(geometry.height, room.height));
   let mut chart = Stack::new()
     .width(FILL)
     .height(geometry.height)
+    .offset(0.0, -scroll_y)
     .clip()
     .cursor(CursorIcon::Pointer)
     .ref_element(chart_ref.clone())
@@ -83,8 +86,13 @@ pub(super) fn chart(
   }
   let chart = chart
     .on_mouse_move({
-      let (analysis, geometry, signal, chart_ref) =
-        (analysis.clone(), geometry.clone(), signal.clone(), chart_ref.clone());
+      let (analysis, geometry, signal, chart_ref, room_ref) = (
+        analysis.clone(),
+        geometry.clone(),
+        signal.clone(),
+        chart_ref.clone(),
+        room_ref.clone(),
+      );
       move |event: MouseEvent| {
         let (x, y) = local(&chart_ref, &event);
         let width = chart_ref.width();
@@ -92,11 +100,18 @@ pub(super) fn chart(
           let state = state.for_analysis(&analysis);
           match state.drag {
             Some(drag) => {
-              let moved = drag.moved || (x - drag.x).abs() >= DRAG_THRESHOLD_PX;
+              let moved =
+                drag.moved || (x - drag.x).abs() >= DRAG_THRESHOLD_PX || (event.y - drag.y).abs() >= DRAG_THRESHOLD_PX;
               moved.then(|| {
                 let delta_ms = -f64::from(x - drag.x) * drag.view.duration_ms() / f64::from(width.max(1.0));
                 let mut next = state.clone();
-                next.pan(&analysis, drag.view, delta_ms);
+                // A drag straight down leaves the time the chart shows as it is: all of it, where it was.
+                if delta_ms != 0.0 {
+                  next.pan(&analysis, drag.view, delta_ms);
+                }
+                // Down the chart it is dragged by the pointer's way in the window, the chart moving under it.
+                next.scroll_y =
+                  (drag.scroll_y - (event.y - drag.y)).clamp(0.0, scroll_limit(geometry.height, room_ref.height()));
                 next.drag = Some(Drag { moved, ..drag });
                 next.hovered = None;
                 next
@@ -125,7 +140,9 @@ pub(super) fn chart(
           state.sync(analysis.key);
           state.drag = Some(Drag {
             x,
+            y: event.y,
             view: state.view_of(&analysis),
+            scroll_y: state.scroll_y,
             moved: false,
           });
         });
@@ -194,13 +211,15 @@ pub(super) fn chart(
     .width(FILL)
     .flex(1.0)
     .child(toolbar(analysis, state, view, signal))
-    // The wheel is the chart's, so the chart is in nothing that scrolls: rows there is no room for are cut.
+    // The wheel is the chart's, so the chart is in nothing that scrolls: rows there is no room for are reached
+    // by dragging the chart up, as its time is by dragging it along.
     .child(
       Row::new()
         .width(FILL)
         .flex(1.0)
         .padding_horizontal(PADDING)
         .clip()
+        .ref_element(room_ref)
         .child(chart),
     )
     .child(selection(analysis, state))
@@ -351,7 +370,7 @@ fn toolbar(analysis: &Arc<Analysis>, state: &AnalysisState, view: TimeRange, sig
     .padding_right(12.0)
     .spacing(12.0)
     .align_items(Alignment::Center)
-    .child(
+    .child(gives_way(
       mono(
         &format!(
           "{} – {} ({})",
@@ -363,31 +382,38 @@ fn toolbar(analysis: &Arc<Analysis>, state: &AnalysisState, view: TimeRange, sig
         FontWeight::Normal,
       )
       .id(VIEW_ID),
-    )
-    .child(
+      1.0,
+    ))
+    .child(gives_way(
       sans(
         "Wheel to zoom · drag to pan · click a span to select it",
         12.0,
         FontWeight::Normal,
       )
       .color(PaletteColor::MutedForeground),
-    )
+      100.0,
+    ))
     .child(Spacer::new().flex(1.0))
+    // The buttons keep their width: what is said before them gives way.
     .child(
-      quiet("Zoom to selection")
-        .disabled(selected.is_none())
-        .on_click(move |_| {
-          if let Some(index) = selected {
-            zoomed.update(|state| state.zoom_to(&zoom_to, index));
-          }
-        })
-        .id("devtools-profiler-zoom-to-selection"),
+      Row::new().flex_shrink(0.0).child(
+        quiet("Zoom to selection")
+          .disabled(selected.is_none())
+          .on_click(move |_| {
+            if let Some(index) = selected {
+              zoomed.update(|state| state.zoom_to(&zoom_to, index));
+            }
+          })
+          .id("devtools-profiler-zoom-to-selection"),
+      ),
     )
     .child(
-      quiet("Reset zoom")
-        .disabled(state.view.is_none())
-        .on_click(move |_| reset.update(|state| state.view = None))
-        .id("devtools-profiler-reset-zoom"),
+      Row::new().flex_shrink(0.0).child(
+        quiet("Reset zoom")
+          .disabled(state.view.is_none())
+          .on_click(move |_| reset.update(|state| state.view = None))
+          .id("devtools-profiler-reset-zoom"),
+      ),
     )
 }
 

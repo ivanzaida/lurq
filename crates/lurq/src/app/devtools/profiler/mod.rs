@@ -37,13 +37,17 @@ use crate::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{EmptyState, icons},
+  ui::{EmptyState, Length, ScrollArea, icons},
 };
 
 /// How often the status of a running recording is reread.
 pub(crate) const STATUS_INTERVAL: Duration = Duration::from_millis(250);
 /// Equal parts of the whole recording in the overview strip.
 const OVERVIEW_BUCKETS: usize = 120;
+/// The least the frames keep of a low window, and the least the analysis does: its header, the chart's bar, a
+/// track of a few rows and the selected span.
+const FRAMES_LEAST_HEIGHT: f32 = 120.0;
+const ANALYSIS_LEAST_HEIGHT: f32 = 220.0;
 /// How wide the board has what the tab says while it has nothing to show.
 const EMPTY_WIDTH: f32 = 440.0;
 // iOS has no file dialog to load a recording with.
@@ -376,10 +380,30 @@ fn body(ctx: &mut Ctx, tab: &ProfilerTab, state: &ProfilerState) -> Element {
   let main = Column::new()
     .height(FILL)
     .flex(1.0)
+    .min_width(0.0)
     .border_right(line())
     .child(timeline::recording(&capture, range, &tab.state))
-    .child(timeline::frames(&capture, range, state, &tab.state))
-    .child(analysis);
+    // In a window too low for the frames and the analysis, the frames give way and scroll: the analysis keeps
+    // a height it can be read at. The chart of the analysis is in nothing that scrolls, as its wheel zooms.
+    .child(
+      Column::new()
+        .width(FILL)
+        .flex_shrink(1.0)
+        .min_height(FRAMES_LEAST_HEIGHT)
+        .child(
+          ScrollArea::new()
+            .label("Frames")
+            .height(Length::Fill)
+            .child(timeline::frames(&capture, range, state, &tab.state)),
+        ),
+    )
+    // It grows from its least height and gives none of it up: the frames are what gives way.
+    .child(
+      Column::new()
+        .width(FILL)
+        .flex_full(1.0, 0.0, Some(ANALYSIS_LEAST_HEIGHT))
+        .child(analysis),
+    );
   Row::new()
     .size(FILL, FILL)
     .child(main)

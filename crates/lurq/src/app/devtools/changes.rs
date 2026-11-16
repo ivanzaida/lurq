@@ -119,7 +119,7 @@ pub(super) fn toolbar(state: &ListState, latest: u64, things: &str) -> Row {
   kit::toolbar()
     .child(
       Toggle::new(if on { "Recording..." } else { "Record" })
-        .icon(if on { icons::DOT_CIRCLE } else { icons::CIRCLE })
+        .leading(kit::record_mark(false))
         .size(ToggleSize::Xs)
         .rules(&recording_toggle())
         .on(on)

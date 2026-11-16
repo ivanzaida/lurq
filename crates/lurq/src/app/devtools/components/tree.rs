@@ -11,7 +11,7 @@ use crate::{
       kit::{self, FILL, line, mono, sans, short_tag},
       snapshot::{DevToolsNode, DevToolsNodeKind, DevToolsSnapshot},
     },
-    events::MouseEvent,
+    events::{KeyboardEvent, MouseEvent},
     theme::PaletteColor,
   },
   components::{Column, Row},
@@ -54,6 +54,17 @@ pub(crate) fn lines(snapshot: &DevToolsSnapshot, closed: &[NodeId], query: Optio
     collect(root, &mut Vec::new(), closed, query, &mut lines);
   }
   lines
+}
+
+/// The row an arrow opens or closes: Right opens the selected row where it is closed, Left closes it where it
+/// is open. `None` where the arrow has nothing to do: a row that holds nothing, or one that is as the arrow
+/// would leave it.
+///
+/// Going from a row to the one it is in is not here: the rows are gone along by the table, with the focus it
+/// keeps, and a row selected from outside the table does not take that focus.
+pub(crate) fn arrow(lines: &[Line], selected: &[usize], right: bool) -> Option<NodeId> {
+  let line = lines.iter().find(|line| line.path == selected)?;
+  (line.children > 0 && line.open != right).then_some(line.id)
 }
 
 /// Adds the node and what is shown of it, and says whether the search asked for any of it: a node the search
@@ -202,6 +213,7 @@ fn table(ctx: &mut Ctx, lines: Vec<Line>, searching: bool, state: &ComponentsSta
   // What a search found, without the rows shown only because what it found is in them.
   let found = lines.iter().filter(|line| line.found).count();
   let by_path: Arc<Vec<Line>> = Arc::new(lines);
+  let (shown, stepping) = (by_path.clone(), state.clone());
   let rows = by_path.clone();
   let columns = vec![
     TableColumn::new("node", "Node").cell({
@@ -250,7 +262,26 @@ fn table(ctx: &mut Ctx, lines: Vec<Line>, searching: bool, state: &ComponentsSta
     } else {
       "Nothing is mounted in the inspected window"
     });
-  kit::dense_table(tree).mount(ctx)
+  // Left and Right are heard here, on their way up from the table, which has the arrows along it.
+  Column::new()
+    .size(FILL, FILL)
+    .on_key_down(move |event: KeyboardEvent| {
+      let right = match event.key.as_str() {
+        "ArrowRight" => true,
+        "ArrowLeft" => false,
+        _ => return,
+      };
+      // A search shows every row it found open: there is nothing to close while it holds.
+      if searching || event.ctrl || event.alt || event.meta || event.shift {
+        return;
+      }
+      if let Some(id) = arrow(&shown, &stepping.selected_path.get_untracked(), right) {
+        stepping.toggle(id);
+        event.prevent_default();
+      }
+    })
+    .child(kit::dense_table(tree).mount(ctx))
+    .into()
 }
 
 /// The tree's cell of a row: its indent, its chevron where it holds something, its name and what is said of it.
@@ -319,6 +350,24 @@ fn kind_cell(component: bool) -> Element {
 mod tests {
   use super::*;
   use crate::core::IdGenerator;
+
+  #[test]
+  fn left_closes_the_selected_row_and_right_opens_it() {
+    let (snapshot, [root, child, _]) = family();
+    let open = lines(&snapshot, &[], None);
+    assert_eq!(arrow(&open, &[], false), Some(root));
+    assert_eq!(arrow(&open, &[0], false), Some(child));
+    // An open row is not opened again, and a row that holds nothing has nothing to open or close.
+    assert_eq!(arrow(&open, &[0], true), None);
+    assert_eq!(arrow(&open, &[0, 0], true), None);
+    assert_eq!(arrow(&open, &[0, 0], false), None);
+
+    let closed = lines(&snapshot, &[child], None);
+    assert_eq!(arrow(&closed, &[0], true), Some(child));
+    assert_eq!(arrow(&closed, &[0], false), None);
+    // A row that is not shown has no arrows.
+    assert_eq!(arrow(&closed, &[0, 0], false), None);
+  }
 
   /// `Root > Child > Grandchild`, and their ids.
   fn family() -> (DevToolsSnapshot, [NodeId; 3]) {
