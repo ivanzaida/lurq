@@ -789,9 +789,13 @@ unsafe fn play(shared: &Shared, opened: Opened, heard: bool) -> Result<()> {
               inner.ended = false;
               inner.at = 0.0;
             }
-            let mut inner = shared.inner();
-            inner.since = Instant::now();
-            inner.playing = true;
+            {
+              let mut inner = shared.inner();
+              inner.since = Instant::now();
+              inner.playing = true;
+            }
+            // Who draws it may have asked whether it plays before this thread heard the command.
+            shared.wake();
           }
           Command::Pause => {
             let mut inner = shared.inner();

@@ -6,6 +6,8 @@
 //!   asks for.
 //! - The app's [`Loader`] reads sources off the UI thread: it holds the resource root and what the network may do,
 //!   tells how far a load has come and why one failed, and makes one load of what is asked for twice.
+//! - Its [`MediaDiskCache`] keeps what was loaded from addresses in a folder the app gave, for the next run of the app.
+//!   It is off until the app gives the folder.
 //!
 //! A file, bytes and a resource are loaded by every build. An address needs the feature `http`, which adds the
 //! client and its TLS; a build without it says so in the load's error.
@@ -15,6 +17,7 @@
 
 #[cfg(feature = "http")]
 mod core;
+mod disk_cache;
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 mod http;
 mod loader;
@@ -29,6 +32,9 @@ mod thread_pool;
 #[cfg(feature = "http")]
 pub use core::{LoadResourceResult, ResourceConfig, ResourceError};
 
+#[cfg(feature = "media")]
+pub(crate) use disk_cache::WeakMediaDiskCache;
+pub use disk_cache::{DEFAULT_MEDIA_DISK_CACHE_BYTES, MediaDiskCache};
 pub use loader::{DEFAULT_LOAD_TIMEOUT, DEFAULT_MAX_LOAD_BYTES, Load, LoadError, LoadState, LoadWaker, Loader};
 pub use reader::{BytesReader, FileReader, Reader, read_all};
 #[cfg(feature = "http")]

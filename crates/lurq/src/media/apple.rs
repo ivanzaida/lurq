@@ -124,6 +124,9 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
             if player.play() {
               inner.since = Instant::now();
               inner.playing = true;
+              drop(inner);
+              // Who draws it may have asked whether it plays before this thread heard the command.
+              shared.wake();
             } else {
               drop(inner);
               shared.fail(MediaError::Other(Arc::from("the system's output would not start")));

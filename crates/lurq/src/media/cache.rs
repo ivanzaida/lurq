@@ -6,13 +6,19 @@
 //! its source's [`cache_key`](crate::resources::Source::cache_key). What is kept is what the server sent (an MP3
 //! is kept as an MP3), up to a number of bytes; over it, what was played longest ago is let go. A file and bytes
 //! are not kept: they are where they are.
+//!
+//! This is what an app has that turned nothing on: the sounds are kept in memory, for the run of the app. An app
+//! that gave a folder (`App::enable_media_disk_cache`) has them kept there as files by its loader's
+//! [`MediaDiskCache`], for its next run too, and a sound plays from its file: its bytes are then not kept in
+//! memory as well. [`sound_cache`] answers for both: whether a sound is kept, how much is, and what is forgotten.
+//! How much the folder may keep is told to the cache of the folder (`app.loader().media_disk_cache().budget(..)`).
 
 use std::{
   collections::HashMap,
   sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
 
-use crate::resources::Source;
+use crate::resources::{MediaDiskCache, Source, WeakMediaDiskCache};
 
 /// How many bytes of sounds are kept unless the app says: 64 MiB.
 pub const DEFAULT_SOUND_CACHE_BYTES: u64 = 64 * 1024 * 1024;
@@ -47,6 +53,8 @@ impl Kept {
 /// The sounds kept; see the [module](self). There is one for the process: [`sound_cache`].
 pub struct SoundCache {
   kept: Mutex<Kept>,
+  /// The caches on the disk of the apps of this process that turned one on: what they keep is kept too.
+  disks: Mutex<Vec<WeakMediaDiskCache>>,
 }
 
 impl SoundCache {
@@ -54,8 +62,30 @@ impl SoundCache {
     self.kept.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
   }
 
-  /// How many bytes of sounds are kept at most: 64 MiB unless told. With less than is kept now, what was played
-  /// longest ago is let go at once; with none, nothing is kept.
+  /// The caches on the disk that are followed, of the apps that are still there.
+  fn disks(&self) -> Vec<MediaDiskCache> {
+    let mut disks = self.disks.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    disks.retain(|disk| disk.upgrade().is_some());
+    disks.iter().filter_map(WeakMediaDiskCache::upgrade).collect()
+  }
+
+  /// Follows `disk` where it is on: what it keeps is then answered for here. An app's cache is followed when
+  /// the app turns it on, and a loader's when a sound is first opened with it.
+  pub(crate) fn follow(&self, disk: &MediaDiskCache) {
+    if !disk.is_on() || self.disks().iter().any(|followed| followed.same(disk)) {
+      return;
+    }
+    self
+      .disks
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .push(disk.downgrade());
+  }
+
+  /// How many bytes of sounds are kept in memory at most: 64 MiB unless told. With less than is kept now, what
+  /// was played longest ago is let go at once; with none, nothing is kept. How much the folder of an app that
+  /// turned the cache on the disk on may keep is another number, told to that cache
+  /// ([`MediaDiskCache::budget`]).
   pub fn budget(&self, bytes: u64) -> &Self {
     let mut kept = self.kept();
     kept.budget = bytes;
@@ -64,43 +94,57 @@ impl SoundCache {
     self
   }
 
-  /// How many bytes are kept now.
+  /// How many bytes are kept now: in memory, and in the folder of an app that turned the cache on the disk on.
+  /// The folder is counted whole: what the app's loader keeps there of anything it loaded from an address.
   pub fn bytes(&self) -> u64 {
-    self.kept().bytes
+    let memory = self.kept().bytes;
+    memory + self.disks().iter().map(MediaDiskCache::bytes).sum::<u64>()
   }
 
-  /// How many sounds are kept now.
+  /// How many sounds are kept now: in memory, and the files in the folder of the cache on the disk.
   pub fn len(&self) -> usize {
-    self.kept().sounds.len()
+    let memory = self.kept().sounds.len();
+    memory + self.disks().iter().map(MediaDiskCache::len).sum::<usize>()
   }
 
   pub fn is_empty(&self) -> bool {
     self.len() == 0
   }
 
-  /// Whether the sound of `source` is kept.
+  /// Whether the sound of `source` is kept: in memory, or as a file by the cache on the disk.
   pub fn holds(&self, source: &Source) -> bool {
-    self.kept().sounds.contains_key(&source.cache_key())
+    let memory = self.kept().sounds.contains_key(&source.cache_key());
+    memory || self.disks().iter().any(|disk| disk.holds(source))
   }
 
-  /// Lets go of the sound of `source`, so that it is loaded again when it is next played. `true` where it was
-  /// kept.
+  /// Lets go of the sound of `source`, so that it is loaded again when it is next played: from memory, and its
+  /// file where the cache on the disk keeps it. `true` where it was kept.
   pub fn forget(&self, source: &Source) -> bool {
-    let mut kept = self.kept();
-    match kept.sounds.remove(&source.cache_key()) {
-      Some((bytes, _)) => {
-        kept.bytes -= bytes.len() as u64;
-        true
+    let memory = {
+      let mut kept = self.kept();
+      match kept.sounds.remove(&source.cache_key()) {
+        Some((bytes, _)) => {
+          kept.bytes -= bytes.len() as u64;
+          true
+        }
+        None => false,
       }
-      None => false,
-    }
+    };
+    let disk = self.disks().iter().filter(|disk| disk.forget(source)).count() > 0;
+    memory || disk
   }
 
-  /// Lets go of every sound.
+  /// Lets go of every sound: in memory, and every file the cache on the disk keeps, which does not tell a sound
+  /// from anything else its loader loaded from an address.
   pub fn clear(&self) {
-    let mut kept = self.kept();
-    kept.sounds.clear();
-    kept.bytes = 0;
+    {
+      let mut kept = self.kept();
+      kept.sounds.clear();
+      kept.bytes = 0;
+    }
+    for disk in self.disks() {
+      disk.clear();
+    }
   }
 
   /// The sound kept under `key`, which is used by this.
@@ -148,6 +192,7 @@ pub fn sound_cache() -> &'static SoundCache {
       budget: DEFAULT_SOUND_CACHE_BYTES,
       turn: 0,
     }),
+    disks: Mutex::new(Vec::new()),
   })
 }
 
@@ -163,6 +208,7 @@ mod tests {
         budget,
         turn: 0,
       }),
+      disks: Mutex::new(Vec::new()),
     }
   }
 
@@ -198,5 +244,43 @@ mod tests {
     assert_eq!((cache.len(), cache.bytes()), (1, 3));
     cache.clear();
     assert_eq!((cache.len(), cache.bytes()), (0, 0));
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
+  #[test]
+  fn what_the_cache_on_the_disk_of_an_app_keeps_is_answered_for_too() {
+    let folder = std::env::temp_dir().join(format!("lurq-sound-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let cache = cache(10);
+    let loader = crate::resources::Loader::new();
+    // Off, it is not followed: there is nothing of it to answer for.
+    cache.follow(loader.media_disk_cache());
+    assert!(cache.disks().is_empty());
+    loader.enable_media_disk_cache(&folder);
+    cache.follow(loader.media_disk_cache());
+    cache.follow(loader.media_disk_cache());
+    assert_eq!(cache.disks().len(), 1, "followed once");
+
+    let (song, other) = (
+      Source::url("https://example.com/song.mp3"),
+      Source::url("https://example.com/other.mp3"),
+    );
+    let disk = loader.media_disk_cache();
+    disk.put(song.cache_key(), "https://example.com/song.mp3", &[0; 6]);
+    cache.put(other.cache_key(), Arc::from(vec![0_u8; 3]));
+    assert!(cache.holds(&song) && cache.holds(&other));
+    assert_eq!((cache.len(), cache.bytes()), (2, 9));
+    // The budget is of what is kept in memory: the file stays.
+    cache.budget(0);
+    assert!(cache.holds(&song) && !cache.holds(&other));
+    assert!(cache.forget(&song) && !cache.forget(&song));
+    assert!(!disk.holds(&song) && std::fs::read_dir(&folder).unwrap().next().is_none());
+    disk.put(song.cache_key(), "https://example.com/song.mp3", &[0; 6]);
+    cache.clear();
+    assert!(disk.is_empty());
+    // The app is gone: its cache is followed no more.
+    drop(loader);
+    assert!(cache.disks().is_empty());
+    let _ = std::fs::remove_dir_all(&folder);
   }
 }
