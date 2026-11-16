@@ -622,6 +622,7 @@ inspectable!(
   pagination::PageItem,
   picture::PictureFit,
   picture::PictureShape,
+  selection_marquee::Marquee,
   part_style::Length,
   part_style::Opacity,
   part_style::FontFamily,
