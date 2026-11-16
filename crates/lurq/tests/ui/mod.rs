@@ -81,6 +81,7 @@ mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
+mod persona;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;

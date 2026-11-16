@@ -78,6 +78,7 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod persona;
 mod pie_chart;
 mod play_button;
 mod popconfirm;
@@ -778,6 +779,14 @@ pub const PAGES: &[Page] = &[
     about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count name icon size shape vatar roup max label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
+  },
+  Page {
+    path: "/persona",
+    name: "Persona",
+    icon: Some("users"),
+    about: "persona person people user member avatar name description line presence online away busy offline size list menu header ersona",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<persona::PersonaPage>(()),
   },
   Page {
     path: "/separator",

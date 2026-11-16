@@ -1701,6 +1701,7 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 | `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
 | `shape(AvatarShape)` | `Circle` (the default), or `Square` with the corners of a control |
 | `presence(AvatarPresence)` | The dot at the bottom end of the face: `Online`, `Away`, `Busy`, `Offline`; `None` for none |
+| `presence_label(&str)` | What the dot says to tooling after the name, in place of the presence's own word: the app's word, or the word in another language |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
 
 - While a picture decodes and when it fails (a broken file, a format the decoder does not read), the avatar shows its initials or its icon: they are the image's placeholder and its error view. A picture with clear pixels shows the face's fill through them.
@@ -1708,7 +1709,8 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 - Parts: `AvatarPart::Root` (the face and the dot, as large as the face), `Face` (the shape: side, corners, fill, the ring of a group; it clips what it holds), `Initials`, `Icon` (its width is the icon's side), `Image`, `Presence` (the dot). States: `AvatarState::Square`, and the avatar's `AvatarPresence` under its own name (`.state(AvatarPresence::Away, AvatarPart::Presence, ..)`). Sizes: `AvatarSize`.
 - In the design an avatar is a circle of 32 in `Muted`, its initials 12 and medium in `Foreground`; at 20, 24, 40 and 56 they are 9, 10, 14 and 18. A square one has the corners of `RadiusSize::Md`. The icon is half the side, in `MutedForeground`. The dot is 10 on a face of 32 (6, 8, 12 and 14 on the others), at the face's bottom end corner, round, ringed 2 outside it in `Background`: `Success` online, `Warning` away, `Destructive` busy, `MutedForeground` offline.
 - The ring of the dot stands outside the avatar's box, as the rings of a group do: what holds an avatar at its edge clips them, as a container clips what is in it, unless it leaves 2 of room or is `overflow_visible()`.
-- A person with a name and a line under it (the board's Persona) is an avatar beside two texts, built where it is used: `Row::new().spacing(10.0).child(Avatar::new(name).presence(..)).child(Column::new().spacing(1.0).child(name).child(line))`, the name 14 and medium, the line 12 in `MutedForeground`.
+- The dot on its own, with no avatar under it, is `Presence::new(AvatarPresence::Online)`: before a word in a list of who is there, beside a name in a line of text. It is the `AvatarPart::Presence` of the avatar's recipe, in the color of its presence and at the side of the dot of an avatar of its `size(AvatarSize)` (10 unless told), so a theme that restyles an avatar's dot restyles it; it has no ring, with no face to part it from. `style` and `rules` name the avatar's parts, and `label(&str)` says what tooling calls it in place of the presence's word: it is an `img` called "online".
+- A person with a name and a line under it (the board's Persona) is a [persona](#persona).
 - A renderer that draws another avatar has `view.face()` (the shape in its style, clipped), `view.fallback()` (the initials or the icon), `view.presence_dot()` and `view.label()`; `view.image` is the picture the app gave, to put in the face.
 
 ## Avatar group
@@ -1745,6 +1747,39 @@ AvatarGroup::new(people.map(Avatar::new))
 - Parts: `AvatarGroupPart::Root` (the row: how far each avatar lies over the one before, as a gap below nothing), `Item` (laid over each avatar's `Face`: its ring), `More` (laid over the count's `Face`, after `Item`). Sizes: `AvatarSize`.
 - In the design avatars of 32 lie 8 over one another, each ringed 2 outside its face in `Background`, the color of the surface behind them; the count is in `Secondary`, its text as the initials. Smaller and larger avatars lie a quarter of their side over each other.
 - A renderer that draws another group has `view.avatars` (ready, with the group's size and rules), `view.hidden` and `view.more()`, the count as an avatar.
+
+## Persona
+
+A person in a list, a menu or a header: their avatar with the dot that says whether they are there, their name, and a line under it.
+
+```rust
+use lurq::ui::{Avatar, AvatarPresence, AvatarShape, Persona, PersonaSize, icons};
+
+Persona::new("Ivan Zaida").description("Available · Kyiv").presence(AvatarPresence::Online);
+Persona::new("Ivy Chen").description("Away · back at 15:00").presence(AvatarPresence::Away).size(PersonaSize::Lg);
+
+// An avatar of the app's own: a picture, an icon, a shape.
+Persona::new("Build bot")
+  .description("Runs on every push")
+  .avatar(Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square));
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | Who it is: the name beside the avatar, and the avatar's initials |
+| `description(&str)` | The line under the name, in the muted color |
+| `presence(AvatarPresence)` | The dot at the corner of the avatar; `None` leaves the avatar as it was given |
+| `presence_label(&str)` | What the dot says to tooling in place of the presence's own word, as an [avatar](#avatar)'s |
+| `avatar(Avatar)` | An avatar in place of the one the name gives, with a picture, an icon or a shape of its own. The persona gives it its size, and its presence where it has one |
+| `size(PersonaSize)` | The avatar's: `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, with the text to match. `PersonaSize` is `AvatarSize` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
+
+- A name or a description longer than the room there is ends in an ellipsis, each on its one line; the avatar keeps its size, and the persona is no wider than what holds it.
+- A persona is read, not operated: it takes no press and is no stop of Tab. To what reads the tree it is a `group` called by the name and described by the description, with its avatar, an `img`, in it.
+- Parts: `PersonaPart::Root` (the avatar and the text, side by side), `Avatar` (what the persona says of its avatar's face, laid over the theme's recipe for it), `Text` (the name over the description), `Name`, `Description`. State: `PersonaState::Description` (it has the line). Sizes: `PersonaSize`.
+- In the design a persona is an avatar of 32, 10 before a name in 14 and medium in `Foreground` with a line 1 under it in 12 of `MutedForeground`. The board draws that one size; the others follow the avatar's: at 20 and 24 the name is 12 and 13 over a line of 11, 6 and 8 from the avatar; at 40 and 56 it is 15 and 18 over a line of 13 and 14, 12 and 14 from it.
+- The ring of the avatar's dot stands outside the persona's box: what holds a persona at its edge leaves 2 of room or is `overflow_visible()`, as with an [avatar](#avatar).
+- A renderer that draws another persona has `view.root()`, `view.text()` and `view.avatar`, the avatar with the persona's size and presence, to build where it likes.
 
 ## Card
 

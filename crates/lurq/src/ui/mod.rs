@@ -99,6 +99,7 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+mod persona;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -177,7 +178,7 @@ pub use audio_queue::{
 };
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
-  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
+  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView, Presence,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
@@ -369,6 +370,7 @@ pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
 };
+pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use play_button::{
