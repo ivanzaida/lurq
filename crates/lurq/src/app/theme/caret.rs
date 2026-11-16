@@ -65,7 +65,11 @@ impl ThemeCaret {
 
   /// How wide the caret is, in logical pixels.
   pub fn width(&self) -> f32 {
-    if self.width.is_finite() { self.width.max(0.0) } else { 1.0 }
+    if self.width.is_finite() {
+      self.width.max(0.0)
+    } else {
+      1.0
+    }
   }
 
   pub fn set_width(&mut self, width: f32) {

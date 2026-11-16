@@ -10,8 +10,8 @@ use crate::{
     ctx::{ModalSpec, OverlaySpec},
     glyph_engine::GlyphEngine,
     theme::{
-      CaretHeight, CaretMode, PaletteColor, Theme, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii, ThemeShadows,
-      ThemeSpacing, ThemeTypography,
+      CaretHeight, CaretMode, PaletteColor, Theme, ThemeBorderSizes, ThemeCaret, ThemePalette, ThemeRadii,
+      ThemeShadows, ThemeSpacing, ThemeTypography,
     },
   },
   core::{ElementRect, ElementRef, NodeId},
@@ -1984,7 +1984,9 @@ impl LayoutEngine {
         let (caret_height, caret_leading) = match theme_caret.height() {
           CaretHeight::FontSize(share) => {
             let share = if share.is_finite() && share > 0.0 { share } else { 1.0 };
-            let height = (state.caret_font_size(style.font_size) * share).min(caret_room).max(1.0);
+            let height = (state.caret_font_size(style.font_size) * share)
+              .min(caret_room)
+              .max(1.0);
             (height, (caret_line_height - height) * 0.5)
           }
           CaretHeight::TextBand => {

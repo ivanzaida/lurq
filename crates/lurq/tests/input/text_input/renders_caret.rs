@@ -26,7 +26,12 @@ fn renders_caret_after_text_input_is_focused() {
   pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
 
-  assert!(snapshot.rects.iter().any(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0));
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
+  );
 }
 
 #[test]
@@ -445,7 +450,9 @@ fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
   quads
     .iter()
     .find_map(|quad| match quad.content {
-      QuadContent::Rect { color, .. } if quad.width == crate::support::caret_width() && quad.height > 0.0 => Some(color),
+      QuadContent::Rect { color, .. } if quad.width == crate::support::caret_width() && quad.height > 0.0 => {
+        Some(color)
+      }
       _ => None,
     })
     .expect("focused text input should render a caret")
@@ -473,7 +480,9 @@ fn has_caret_quad(runtime: &mut Tree, app: &mut App, color: Color) -> bool {
     .resolve_quads(runtime.last_layout().unwrap())
     .iter()
     .any(|quad| match quad.content {
-      QuadContent::Rect { color: rect_color, .. } => quad.width == crate::support::caret_width() && quad.height > 0.0 && rect_color == color,
+      QuadContent::Rect { color: rect_color, .. } => {
+        quad.width == crate::support::caret_width() && quad.height > 0.0 && rect_color == color
+      }
       _ => false,
     })
 }

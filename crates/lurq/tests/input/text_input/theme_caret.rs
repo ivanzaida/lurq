@@ -114,7 +114,10 @@ fn a_theme_says_how_wide_and_high_its_caret_is_and_how_thick_the_line() {
     .set_caret(ThemeCaret::default().with_height(CaretHeight::TextBand));
   let (_, band) = caret(&mut app);
   assert!(band > 14.0 && band <= 21.0, "the caret is {band} high");
-  assert!((band - 18.0).abs() > 0.01, "the band is the font's own, not a share of the size");
+  assert!(
+    (band - 18.0).abs() > 0.01,
+    "the band is the font's own, not a share of the size"
+  );
 
   // A share that would take it past the box of a single line stops at the box: the line is 21 in a box of 32.
   app
@@ -124,9 +127,7 @@ fn a_theme_says_how_wide_and_high_its_caret_is_and_how_thick_the_line() {
   assert!((capped - 32.0).abs() < 0.01, "the caret is {capped} high");
 
   // A theme with no line under a composition draws none.
-  app
-    .theme()
-    .set_caret(ThemeCaret::default().with_composition_line(0.0));
+  app.theme().set_caret(ThemeCaret::default().with_composition_line(0.0));
   assert!(composition_lines(&mut app).is_empty());
 }
 
@@ -136,8 +137,42 @@ fn the_mode_of_the_caret_changes_without_its_size() {
   app.theme().apply(ThemeDefinition::legacy());
   app.theme().set_caret_mode(CaretMode::Persistent);
   assert_eq!(caret(&mut app).0, 1.0);
-  assert_eq!(*app.theme().caret(), ThemeCaret::legacy().with_mode(CaretMode::Persistent));
+  assert_eq!(
+    *app.theme().caret(),
+    ThemeCaret::legacy().with_mode(CaretMode::Persistent)
+  );
 
   // The caret a mode alone makes is the design's.
   assert_eq!(ThemeCaret::new(CaretMode::Persistent).width(), 1.5);
+}
+
+#[test]
+fn a_caret_of_several_lines_stops_at_its_row() {
+  // The design's 18 in type of 14 on a line of 1: each row is 14 high, and the caret is no higher than its row.
+  let mut app = App::new();
+  let input = TextInput::styled(
+    Signal::new("ab\ncd".to_owned()),
+    TextStyle {
+      font_size: 14.0,
+      line_height: 1.0,
+      color: TEXT.into(),
+      ..TextStyle::default()
+    },
+  )
+  .multiline()
+  .caret_color(CARET)
+  .width(240.0)
+  .height(120.0);
+  let mut tree = Tree::new();
+  tree.set_root(Element::from(input).id(INPUT));
+  tree.pass_headless(&mut app);
+  tree.get_element_by_id_mut(INPUT).expect("the input").focus();
+  tree.pass_headless(&mut app);
+  let snapshot = render_pass_with_app(&mut tree, &mut app);
+  let caret = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == CARET)
+    .expect("a focused input draws its caret");
+  assert!((caret.height - 14.0).abs() < 0.01, "the caret is {} high", caret.height);
 }
