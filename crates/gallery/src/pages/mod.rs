@@ -118,6 +118,7 @@ mod time_picker;
 mod timeline;
 mod toast;
 mod toggletip;
+mod tour;
 mod tray_popover;
 mod token_input;
 mod tokens;
@@ -642,6 +643,14 @@ pub const PAGES: &[Page] = &[
     about: "teaching tip coach mark onboarding tour step next back guide callout feature discovery arrow anchor open mount title description media child primary secondary on_close close_button variant placement takes_focus width",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
+  },
+  Page {
+    path: "/tour",
+    name: "Tour",
+    icon: Some("list-numbered"),
+    about: "tour walkthrough onboarding steps step guide coach marks product tour next back skip done 2 of 4 count arrow keys focus escape Tour TourStep new controlled on_change on_finish on_dismiss skip_button skip_label back_label next_label done_label takes_focus placement variant mount",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<tour::TourPage>(()),
   },
   Page {
     path: "/notification",
