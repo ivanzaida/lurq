@@ -74,6 +74,7 @@ pub use form::{
 pub use gpu_viewport::GpuViewport;
 pub use grid::Grid;
 #[cfg(feature = "raster")]
+#[allow(deprecated)]
 pub use image::Image;
 #[cfg(feature = "router")]
 pub use link::Link;
@@ -137,7 +138,8 @@ pub use crate::{
 
 #[macro_export]
 macro_rules! impl_into_node {
-  ($struct_name:ident) => {
+  ($(#[$attribute:meta])* $struct_name:ident) => {
+    $(#[$attribute])*
     pub struct $struct_name {
       pub(crate) node: Box<$crate::node::Node>,
     }
@@ -280,6 +282,21 @@ macro_rules! impl_into_node {
 
       pub fn max_height(mut self, height: impl Into<$crate::node::dimension::Dimension>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::max_height(node, height));
+        self
+      }
+
+      /// The box's width over its height, as CSS `aspect-ratio`: `16.0 / 9.0` for a box of 16 by 9.
+      ///
+      /// It gives the axis that is auto from the one that is known: a width that is said, a percentage of
+      /// a parent whose size is known, or a size the parent fixes (a child that fills a row, a stretched
+      /// one). With neither axis known the box is as wide as the room it is given and its height follows;
+      /// where the width has no bound it is as high as the room and its width follows. With both axes
+      /// said, or both fixed by the parent, it does nothing. `min_*` and `max_*` still bound the axis it
+      /// gives. On an image it stands for the picture's own ratio, and holds the box of one whose pixels
+      /// are not there yet; the pixels are then placed by the image's fit. A ratio that is not a positive
+      /// number is ignored.
+      pub fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::aspect_ratio(node, ratio));
         self
       }
 
@@ -489,6 +506,44 @@ macro_rules! impl_into_node {
       /// negative or NaN `size` counts as 0.
       pub fn shrink_drop_below(mut self, size: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_drop_below(node, size));
+        self
+      }
+
+      /// Lays this child of a `Stack` out only while the stack is within `bounds`
+      /// ([`SizeBounds`](crate::layout::layout_kind::SizeBounds)); outside them it is dropped, as
+      /// [`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop) drops a child of a line: laid
+      /// out at zero size, neither drawn nor hit, with no Tab stop in it and no focus kept in it, while it
+      /// stays mounted and keeps its state. It is how a component is another thing at another size with
+      /// nothing measured and no frame in between: each form is a child with the bounds it lives in.
+      ///
+      /// The size asked is the stack's own, which its constraints and its other children make: a child with
+      /// bounds never makes its stack larger, and is laid out within the size the stack came to. In a
+      /// stack that holds only such children, that size is the least its constraints allow. On a child of
+      /// anything but a `Stack` it does nothing.
+      ///
+      /// ```
+      /// use lurq::{
+      ///   components::{Rect, Stack, Text},
+      ///   layout::layout_kind::SizeBounds,
+      /// };
+      ///
+      /// // A caption over a picture, on a picture wide enough to hold it.
+      /// let picture = Stack::new()
+      ///   .child(Rect::new(320.0, 180.0))
+      ///   .child(Text::new("The lake at dusk").drop_outside(SizeBounds::new().min_width(240.0)));
+      /// ```
+      pub fn drop_outside(mut self, bounds: $crate::layout::layout_kind::SizeBounds) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_outside(node, bounds));
+        self
+      }
+
+      /// Where the image the element draws (its own pixels, or its background image) is held in its box
+      /// where it is cut or does not fill it, as CSS `object-position`: `x` and `y` from 0, its start edge on
+      /// the box's, through 0.5, the middle and the default, to 1, its end edge on the box's. A cover that
+      /// cuts the top and the bottom keeps the top with `(0.5, 0.0)`; a contained image stands at the left
+      /// with `(0.0, 0.5)`. A stretched image fills its box and has nothing to hold.
+      pub fn image_anchor(mut self, x: f32, y: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::image_anchor(node, x, y));
         self
       }
 
@@ -1136,6 +1191,19 @@ macro_rules! impl_into_node {
 
       pub fn on_scroll(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_scroll(node, f));
+        self
+      }
+
+      /// A wheel or a trackpad turned over the element, before anything is scrolled by it and whether or
+      /// not anything can be (see `Node::on_wheel`): for an element the wheel is for something other than
+      /// scrolling, which takes it with `prevent_default`.
+      pub fn on_wheel(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_wheel(node, f));
+        self
+      }
+
+      pub fn off_wheel(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_wheel(node, f));
         self
       }
 

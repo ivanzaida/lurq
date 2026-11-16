@@ -509,6 +509,11 @@ def main():
           gallery.settle(4)
           root, size = gallery.tree()
           gallery.shoot(root, size, listed, args.shots, "%d_%s" % (width, route.strip("/") or "overview"))
+  except Exception:
+    # A gallery that ended says why on its way out: a panic, where it was.
+    time.sleep(0.5)
+    sys.stderr.write("the gallery said last:\n" + "".join(gallery.lines)[-3000:] + "\n")
+    raise
   finally:
     gallery.close()
 

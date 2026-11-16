@@ -75,6 +75,7 @@ pub struct Toggle {
   label: Arc<str>,
   size: Name,
   icon: Option<Name>,
+  leading: Option<Element>,
   icon_only: bool,
   on: bool,
   disabled: bool,
@@ -93,6 +94,7 @@ impl Toggle {
       label: Arc::from(label),
       size: ButtonSize::default().into(),
       icon: None,
+      leading: None,
       icon_only: false,
       on: false,
       disabled: false,
@@ -122,6 +124,13 @@ impl Toggle {
   /// An icon before the label, by its name in the theme's set.
   pub fn icon(mut self, name: impl Into<Name>) -> Self {
     self.icon = Some(name.into());
+    self
+  }
+
+  /// An element before the label, where an icon by name is not enough: the dot of a recording. It stands where
+  /// the icon would, before one that is given too.
+  pub fn leading(mut self, element: impl Into<Element>) -> Self {
+    self.leading = Some(element.into());
     self
   }
 
@@ -236,6 +245,7 @@ impl Toggle {
       label: self.label,
       size: self.size,
       icon: self.icon,
+      leading: self.leading,
       icon_only: self.icon_only,
       on: self.on,
       disabled: self.disabled,
@@ -266,6 +276,8 @@ pub struct ToggleView {
   pub size: Name,
   /// The name of its icon, if it has one.
   pub icon: Option<Name>,
+  /// The element it was given to stand before its label.
+  pub leading: Option<Element>,
   pub icon_only: bool,
   pub on: bool,
   pub disabled: bool,
@@ -323,8 +335,11 @@ impl ToggleView {
   }
 
   /// How the default renderer builds a toggle: the root, with its icon and its label.
-  pub fn render(self) -> Element {
+  pub fn render(mut self) -> Element {
     let mut root = self.root();
+    if let Some(leading) = self.leading.take() {
+      root = root.child(leading);
+    }
     if let Some(name) = self.icon {
       root = root.child(glyph(&self.part(TogglePart::Icon), name, false));
     }

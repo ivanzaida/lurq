@@ -35,6 +35,7 @@ Common modifiers:
 | `.min_size(width, height)` / `.max_size(width, height)`                 | Set minimum or maximum width and height                                |
 | `.min_width(width)` / `.max_width(width)`                               | Set a width bound                                                      |
 | `.min_height(height)` / `.max_height(height)`                           | Set a height bound                                                     |
+| `.aspect_ratio(ratio)`                                                  | Give the axis that is auto from the one that is known, by width over height |
 | `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingSize` |
 | `.background(color)`                                                    | Fill the element background from a concrete color or `PaletteColor`    |
 | `.rounded(radius)`                                                      | Set border radius from `f32` or `RadiusSize`                           |
@@ -51,6 +52,7 @@ Common modifiers:
 | `.shrink_order(order)` / `.shrink_limit(ShrinkLimit)`                   | When and how far a shrinking child gives way                           |
 | `.shrink_drop_below(size)`                                              | Shrink a child down to `size`, then drop it                            |
 | `.drop_marker(bool)`                                                    | Lay a child out only while another child of its line is dropped        |
+| `.drop_outside(SizeBounds)`                                             | Lay a child of a stack out only while the stack is within a range of sizes |
 
 Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
 sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
@@ -63,6 +65,41 @@ lurq::components::Spacer::new().width(Dimension::Pct(50.0))
 lurq::components::Spacer::new().width(Dimension::Auto)
 lurq::components::Spacer::new().min_width(160.0).max_height(240.0)
 lurq::components::Spacer::new().min_size(120.0, 80.0).max_size(320.0, 180.0)
+```
+
+### Aspect ratio
+
+`.aspect_ratio(ratio)` is CSS `aspect-ratio`: the box's width over its height, `16.0 / 9.0` for a box of 16 by 9. It
+gives the axis that is auto from the one that is known.
+
+```rust
+use lurq::{components::Spacer, node::dimension::Dimension};
+
+// 320 wide, so 180 high.
+Spacer::new().width(320.0).aspect_ratio(16.0 / 9.0)
+// As wide as the column it is in, and square.
+Spacer::new().width(Dimension::Pct(100.0)).aspect_ratio(1.0)
+```
+
+- An axis is known where it is said (`.width(...)`, `.height(...)`, a percentage of a parent whose size is known) or
+  where the parent fixes it: a child that fills a row with `.flex(1.0)`, a child stretched across a line.
+- With neither axis known, the box is as wide as the room it is given and its height follows. Where the width has no
+  bound (in a row that scrolls sideways) it is as high as the room and its width follows.
+- With both axes known it does nothing. `min_*` and `max_*` still bound the axis it gives.
+- A ratio that is not a positive number is ignored.
+
+An image has a ratio of its own, that of its pixels, which gives it the other axis when one is said. `.aspect_ratio`
+stands for that ratio: the box takes the ratio it is told, and the image's fit places the pixels in it. It is also
+what holds the box of an image whose pixels are not there yet. An image decoded at runtime or loaded from a resource
+has no size until it arrives, so a page that does not say one moves when it does, as a page does around an `<img>`
+with no size. Say the ratio and the box is right from the first frame:
+
+```rust
+use lurq::{components::Image, node::dimension::Dimension};
+
+Image::from_file("photos/lake.jpg")
+  .width(Dimension::Pct(100.0))
+  .aspect_ratio(3.0 / 2.0)
 ```
 
 ## Constraints Model
@@ -150,6 +187,45 @@ Stack layout:
 4. Positions absolute children at their explicit `(x, y)` offset.
 
 Absolute children do not contribute to stack size.
+
+#### A child for some sizes of its stack
+
+`.drop_outside(SizeBounds)` lays a child of a stack out only while the stack is within a range of sizes. Outside it
+the child is dropped, as `ShrinkLimit::Drop` drops a child of a line: laid out at zero size, neither drawn nor hit,
+with no Tab stop in it and no focus kept in it, while it stays mounted and keeps its state. It is how a component is
+another thing at another size with nothing measured, no state and no frame in between: each form is a child of the
+stack with the bounds it lives in, and layout shows the one that holds.
+
+```rust
+use lurq::{
+  components::{Rect, Stack},
+  layout::layout_kind::SizeBounds,
+  node::dimension::Dimension,
+};
+
+// A picture that fills its room, with a bar from 240 wide and a single button under that.
+Stack::new()
+  .width(Dimension::Pct(100.0))
+  .child(picture)
+  .child(bar.drop_outside(SizeBounds::new().min_width(240.0)))
+  .child(more_button.drop_outside(SizeBounds::new().below_width(240.0)))
+```
+
+- `min_width(w)` is at `w` and wider, `above_width(w)` wider than `w`; `max_width(w)` is at `w` and narrower,
+  `below_width(w)` narrower than `w`; the same four for the height. Bounds with nothing said hold at every size, and
+  bounds of two children that leave no size out and share none show exactly one of them.
+- The size asked is the stack's own, as its constraints and its other children make it. A child with bounds never
+  makes its stack larger: it is laid out once the stack has its size, within that size, and a share it takes
+  (`Dimension::Pct`) is a share of that size. In a stack that holds only such children the size is the least the
+  stack's constraints allow, which is the size the stack is given where it is told one.
+- So a stack sized by its content asks the bounds of that content, not of the room it was offered: a picture 200
+  wide in a column of 400 is asked at 200. This is what CSS container queries get from size containment, and why a
+  child with bounds cannot change the answer it is given.
+- It is decided in the same layout pass as everything else, and again whenever the stack is laid out: a stack that
+  becomes narrower drops what does not live there in the frame that makes it narrower.
+- On a child of a row, a column or a grid it does nothing.
+
+`ui::Picture` chooses what it shows at a small size this way where its size is not said.
 
 A size in percent of an absolute child (`Dimension::Pct`) is a share of what the stack is laid out in. Where that
 leaves a side unbounded (a stack as high as its content, in a column that scrolls), it is a share of the stack as its
@@ -550,6 +626,10 @@ bar.child(Button::new("More").tab_index(0).drop_marker(true))
 
 ### A form that follows its own room
 
+A form that only shows or hides parts by the size of its own box needs nothing of what follows: put the parts in a
+stack and give each `.drop_outside(...)` (see [Stack](#a-child-for-some-sizes-of-its-stack)). What follows is for a
+form that has to be built differently, which only a render can do.
+
 A component whose form depends on the room it is given, not on the window (a timeline whose two sides fold to one in
 a narrow panel), reads its width through an element ref. `ElementRef::observe_rect` calls its observer after layout,
 and a signal written there renders the component again in the next frame: the frame in between shows the old form.
@@ -623,6 +703,21 @@ into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/
 ```rust
 // `details` is a ref retained by the component and attached with `.ref_element(details.clone())`.
 ctx.scroll_into_view(&details);
+```
+
+To take a container back to its top, as a button at the foot of a long page does, ask from a component with
+`ctx.scroll_to_top_of(&scroll_state)`, given the `ScrollState` the container was built with (`with_scroll_state`), or
+call `tree.scroll_state_to_top(&scroll_state)`. The content goes there as a wheel's scroll goes: over the frames that
+follow, on the wheel's curve, with an `on_scroll` event of no delta for each step, and at once while motion is reduced
+or the theme's `smooth_scroll` is off. A notch of the wheel that comes meanwhile adds to where the content is going,
+and anything else that scrolls the container (`set_scroll`, a drag of the thumb, a finger) stops it there. A state
+that scrolls nothing in the tree, or is at its top already, asks for nothing. `ui::BackToTop` is the design system's
+button for it. (`ctx.scroll_to_top()`, with no state, is a phone's tap on its status bar: the page at the middle of the
+window.)
+
+```rust
+// `scroll` is the ScrollState the page's ScrollVertical was given.
+ctx.scroll_to_top_of(&scroll);
 ```
 
 `ctx.scroll_range_into_view(&text_ref, range)` does the same for a range of a text, in bytes of its content: the lines

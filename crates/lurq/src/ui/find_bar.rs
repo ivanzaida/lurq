@@ -6,10 +6,13 @@ use std::sync::{
   atomic::{AtomicBool, Ordering},
 };
 
+use parking_lot::Mutex;
+
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   icons,
   input::{Input, InputPart, InputSize},
+  menu::{Menu, MenuItem},
   names,
   part_style::{Length, PartAnimation},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -20,7 +23,7 @@ use crate::{
   animation::KeyframesId,
   app::{
     component::Component,
-    ctx::Ctx,
+    ctx::{Ctx, Placement},
     events::{KeyboardEvent, TextInputEvent},
     theme::{
       BorderSize, IconSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
@@ -29,7 +32,7 @@ use crate::{
   components::{Column, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
-  node::{Element, HitTestBehavior, NodeUpdate, border::Border, node::Node},
+  node::{Element, HitTestBehavior, NodeUpdate, border::Border, dimension::Dimension, node::Node},
 };
 
 /// The keyframes a toast comes in and leaves with from above, which every
@@ -175,6 +178,7 @@ struct Words {
   replace: Arc<str>,
   replace_all: Arc<str>,
   toggle_replace: Arc<str>,
+  options: Arc<str>,
   match_case_text: Arc<str>,
   whole_word_text: Arc<str>,
   regex_text: Arc<str>,
@@ -281,6 +285,7 @@ impl FindBar {
         replace: Arc::from("Replace"),
         replace_all: Arc::from("Replace all"),
         toggle_replace: Arc::from("Toggle replace"),
+        options: Arc::from("Search options"),
         match_case_text: Arc::from("Aa"),
         whole_word_text: Arc::from("ab"),
         regex_text: Arc::from(".*"),
@@ -516,6 +521,13 @@ impl FindBar {
     self
   }
 
+  /// What the button that opens the menu of the options is called, where the field has no room for them in it:
+  /// "Search options" by default.
+  pub fn options_label(mut self, label: &str) -> Self {
+    self.words.options = Arc::from(label);
+    self
+  }
+
   /// What the button that replaces the current match is called: "Replace" by default.
   pub fn replace_label(mut self, label: &str) -> Self {
     self.words.replace = Arc::from(label);
@@ -598,10 +610,10 @@ impl FindBar {
   /// Builds the bar in `theme`. Converting a bar into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    self.view(theme, ElementRef::new())
+    self.view(theme, ElementRef::new(), None)
   }
 
-  fn view(self, theme: &Theme, field: ElementRef) -> Element {
+  fn view(self, theme: &Theme, field: ElementRef, room: Option<Room>) -> Element {
     let open = self.is_open();
     let replacing = self.replace.is_some() && self.replace_open.as_ref().is_none_or(|open| open.get());
     let no_matches = self.matches.is_some_and(|(_, total)| total == 0) && !self.query.get().is_empty();
@@ -646,6 +658,7 @@ impl FindBar {
       previous: all(self.on_previous),
       dismiss,
       field,
+      room,
       bar: Bar {
         query: self.query,
         on_query: self.on_query,
@@ -700,6 +713,11 @@ impl PartialEq for FindBarProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for FindBarProps {}
 
+/// The room to read what is typed that a field keeps before the options in it, and the least it keeps before the
+/// one button they are behind: a few characters of 13.
+const TEXT_ROOM: f32 = 64.0;
+const TEXT_LEAST: f32 = 40.0;
+
 /// What a mounted bar keeps from one render to the next: whether the focus is
 /// in it, whether it was open, and its field, which it focuses as it opens.
 struct FindBarHost {
@@ -708,6 +726,20 @@ struct FindBarHost {
   /// Whether it was rendered before: a bar bound to the app's signal that is open from the start is not opening.
   rendered: AtomicBool,
   field: ElementRef,
+  room: Room,
+}
+
+/// The room of a mounted bar's field: what says whether the options stand in the field or behind one button.
+#[derive(Clone)]
+struct Room {
+  /// Whether the field has too little room for the options in it: they are in a menu.
+  narrow: Signal<bool>,
+  /// The box of the field, measured before the frame is painted, and the least it is wide with the options in it.
+  field: ElementRef,
+  least: Arc<Mutex<f32>>,
+  /// The button of the options, which their menu hangs from, and whether the menu is open.
+  anchor: ElementRef,
+  menu: Signal<bool>,
 }
 
 /// Has each stop of Tab in `node` say whether it has the focus in `focused`.
@@ -725,12 +757,29 @@ fn watch_focus(node: &mut Node, focused: &Arc<AtomicBool>) {
 impl Component for FindBarHost {
   type Props = FindBarProps;
 
-  fn create(_: &mut Ctx) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let room = Room {
+      narrow: ctx.signal(false),
+      field: ElementRef::new(),
+      least: Arc::new(Mutex::new(0.0)),
+      anchor: ElementRef::new(),
+      menu: ctx.signal(false),
+    };
+    // Written only where the field crosses the least width: a view dragged within one side of it renders
+    // nothing. The field is as wide in either form, so the form does not change what is measured.
+    let (narrow, least) = (room.narrow.clone(), room.least.clone());
+    room.field.observe_rect_before_paint(move |rect| {
+      let now = rect.width < *least.lock();
+      if narrow.get_untracked() != now {
+        narrow.set(now);
+      }
+    });
     Self {
       focused: Arc::new(AtomicBool::new(false)),
       was_open: AtomicBool::new(false),
       rendered: AtomicBool::new(false),
       field: ElementRef::new(),
+      room,
     }
   }
 
@@ -751,7 +800,9 @@ impl Component for FindBarHost {
       // It closes with the focus in it: the focus goes where the app said, and is not lost with the bar.
       ctx.focus(element);
     }
-    let mut element = bar.view(&current_theme(), self.field.clone());
+    // Reading it renders the bar again when the field crosses its least width.
+    let _ = self.room.narrow.get();
+    let mut element = bar.view(&current_theme(), self.field.clone(), Some(self.room.clone()));
     watch_focus(&mut element.node, &self.focused);
     element
   }
@@ -784,6 +835,8 @@ pub struct FindBarView {
   previous: Run,
   dismiss: Run,
   field: ElementRef,
+  /// The room of a mounted bar's field. A bar that is only built has none, and its options are in its field.
+  room: Option<Room>,
   bar: Bar,
   words: Words,
   disabled: bool,
@@ -852,8 +905,68 @@ impl FindBarView {
     Some(root.into())
   }
 
-  /// The options the app gave, in a row: match case, whole word, regular expression.
+  /// Whether the options are behind one button: the field of a mounted bar has too little room for them in it.
+  pub fn options_in_menu(&self) -> bool {
+    self.room.as_ref().is_some_and(|room| room.narrow.get_untracked()) && self.options_width() > 0.0
+  }
+
+  /// The one button the options are behind where the field has no room for them: it shows that one is on, and
+  /// opens a menu of them, each checked while it is on.
+  fn options_button(&self, room: &Room) -> Row {
+    let flags = [
+      (&self.bar.match_case, &self.words.match_case, "match-case"),
+      (&self.bar.whole_word, &self.words.whole_word, "whole-word"),
+      (&self.bar.regex, &self.words.regex, "regex"),
+    ];
+    let on = flags.iter().any(|(flag, ..)| flag.given && flag.on);
+    let part = self
+      .part(if on { FindBarPart::OptionOn } else { FindBarPart::Option })
+      .forced(self.forced);
+    let open = room.menu.clone();
+    let mut button = pressable(&part, self.disabled)
+      .describe("a11y_name", self.words.options.clone())
+      .describe("a11y_haspopup", "menu")
+      .describe("a11y_expanded", if room.menu.get() { "true" } else { "false" })
+      .on_click(move |_| open.update(|open| *open = !*open))
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .ref_element(room.anchor.clone())
+      .child(super::Icon::new(icons::SLIDERS).size(12.0).build(self.theme()));
+    if let Some(id) = self.sub_id("options") {
+      button = button.id(id);
+    }
+    let mut menu = Menu::new(room.menu.clone(), room.anchor.clone())
+      .label(&self.words.options)
+      .placement(Placement::BottomEnd);
+    if let Some(id) = self.sub_id("options-menu") {
+      menu = menu.id(id);
+    }
+    for (flag, label, suffix) in flags {
+      if !flag.given {
+        continue;
+      }
+      let press = flag.press();
+      let mut item = MenuItem::new(label)
+        .checked(flag.on)
+        .disabled(self.disabled)
+        .on_select(move || press());
+      if let Some(id) = self.sub_id(suffix) {
+        item = item.id(id);
+      }
+      menu = menu.item(item);
+    }
+    Row::new()
+      .part(&self.part(FindBarPart::Options))
+      .child(button)
+      .child(menu.build(self.theme()))
+  }
+
+  /// The options the app gave, in a row: match case, whole word, regular expression. Where the field of a mounted
+  /// bar has no room for them they are behind one button, in its menu.
   pub fn options(&self) -> Option<Row> {
+    if let Some(room) = self.room.as_ref().filter(|_| self.options_in_menu()) {
+      return Some(self.options_button(room));
+    }
     let options: Vec<Element> = [
       self.option(
         &self.bar.match_case,
@@ -899,7 +1012,7 @@ impl FindBarView {
       .width
       .and_then(|width| width.resolve(self.theme()))
       .map(|width| match width {
-        crate::node::dimension::Dimension::Px(px) => px,
+        Dimension::Px(px) => px,
         _ => 0.0,
       })
       .unwrap_or(0.0);
@@ -946,14 +1059,52 @@ impl FindBarView {
         }
       });
     let options = self.options();
+    // What the field is wide at least: its padding, room to read what is typed, and what stands at its end. With
+    // the options in it, more room to read, and the three of them; behind one button, the one.
+    let side = self.option_side();
+    let start = view.start_padding();
+    let with_options = start + TEXT_ROOM + view.end_room(self.options_width());
+    let with_button = start + TEXT_LEAST + view.end_room(side);
     if options.is_some() {
-      control = control.padding_right(view.end_room(self.options_width()));
+      control = control.padding_right(view.end_room(if self.options_in_menu() {
+        side
+      } else {
+        self.options_width()
+      }));
     }
-    Row::new()
-      .flex(1.0)
+    // A mounted bar's field gives way down to the least it has with one button, and under the least it has with
+    // the options in it they go behind that button; a bar that is only built keeps the options in the field, and
+    // room for them. Under its least the field has a line of its own, the count and the buttons under it.
+    let least = match (&self.room, options.is_some()) {
+      (Some(room), true) => {
+        *room.least.lock() = with_options;
+        with_button
+      }
+      (None, true) => with_options,
+      (_, false) => start + TEXT_LEAST + view.end_room(0.0),
+    };
+    let mut field = Row::new()
+      .flex_full(1.0, 1.0, Some(least))
+      .min_width(Dimension::Px(least))
       .align_items(Alignment::Stretch)
-      .child(view.render_with_end(control, options))
-      .into()
+      .child(view.render_with_end(control, options));
+    if let Some(room) = &self.room {
+      field = field.ref_element(room.field.clone());
+    }
+    field.into()
+  }
+
+  /// The side of an option, in pixels.
+  fn option_side(&self) -> f32 {
+    match self
+      .part(FindBarPart::Option)
+      .rest()
+      .width
+      .and_then(|width| width.resolve(self.theme()))
+    {
+      Some(Dimension::Px(px)) => px,
+      _ => 0.0,
+    }
   }
 
   /// What the bar says of the count, where the app gave one.
@@ -993,8 +1144,10 @@ impl FindBarView {
   /// The row of the field: the chevron of the replace row, the field, the
   /// count, the buttons to the match before and the next, and the close button.
   pub fn find_row(&self) -> Row {
+    // What has no room beside the field at its least goes on to a line under it.
     let mut row = Row::new()
       .part(&self.part(FindBarPart::FindRow))
+      .wrap()
       .align_items(Alignment::Center);
     if let Some(toggle) = self.toggle_replace() {
       row = row.child(toggle);
@@ -1053,14 +1206,17 @@ impl FindBarView {
         on_enter();
       }
     });
+    let least = view.start_padding() + TEXT_LEAST + view.end_room(0.0);
     let field: Element = Row::new()
-      .flex(1.0)
+      .flex_full(1.0, 1.0, Some(least))
+      .min_width(Dimension::Px(least))
       .align_items(Alignment::Stretch)
       .child(view.render_with_end(control, None))
       .into();
     Some(
       Row::new()
         .part(&self.part(FindBarPart::ReplaceRow))
+        .wrap()
         .align_items(Alignment::Center)
         .child(field)
         .child(self.button(&self.words.replace, icons::REPLACE, "replace", replace))
@@ -1175,8 +1331,8 @@ impl Themed for FindBar {
             MotionEasing::Exit,
           ))
       })
-      .base(FindRow, |s| s.gap(4.0).height(28.0))
-      .base(ReplaceRow, |s| s.gap(4.0).height(28.0))
+      .base(FindRow, |s| s.gap(4.0).min_height(28.0))
+      .base(ReplaceRow, |s| s.gap(4.0).min_height(28.0))
       .state(Expandable, ReplaceRow, |s| s.padding_start(28.0))
       .base(Field, |s| {
         s.height(28.0)

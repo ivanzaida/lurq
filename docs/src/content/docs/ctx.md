@@ -200,6 +200,8 @@ struct Locale(String);
 ctx.provide(Locale("en-US".into()));
 ```
 
+DevTools shows what the context holds where its type derives `lurq::DevtoolsInspectable`, and lists it with its value unknown where it does not: see [Inspectable Contexts](../devtools/#inspectable-contexts).
+
 Descendants can read the value by type:
 
 ```rust
@@ -539,6 +541,8 @@ flags.
 Request focus with `ctx.focus(&element_ref)` after retaining the ref in `create` or obtaining its render slot. The request runs after reconciliation, including for newly mounted fields; the last request wins, and absent targets are ignored. The focused element is then scrolled into view. `element_ref.focused()` tracks focus reactively during render; `focus_signal()` exposes the same state as a signal. `element_ref.focus_visible()` and `focus_visible_signal()` track [focus-visible](../focus-navigation/#focus-visible), the keyboard-only part of focus, the same way.
 
 `ctx.scroll_into_view(&element_ref)` scrolls every scroll container around the element by the smallest amount that shows it, without focusing it. It is applied once the render that holds the ref is laid out, and the frame drawn next shows the element; the last request wins, and absent targets are ignored. `ctx.scroll_range_into_view(&text_ref, range)` brings the lines a range of a text covers into view the same way. See [Scroll](../layout/#scroll).
+
+`ctx.scroll_to_top_of(&scroll_state)` takes the scroll container that state belongs to back to its top, after the current render: over the frames that follow, as a wheel's scroll goes, and at once while motion is reduced or the theme's smooth scroll is off. See [Scroll](../layout/#scroll).
 
 Refs created during render are retained by call position. Refs created in `create` must be stored on the component. Attach each ref to one live node.
 

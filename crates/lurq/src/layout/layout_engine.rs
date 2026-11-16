@@ -95,9 +95,9 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
 const DEFAULT_SELECT_WIDTH: f32 = 160.0;
 const DEFAULT_SELECT_HEIGHT: f32 = 32.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "resources")))]
+#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "resources")))]
+#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
 #[cfg(feature = "perf_profile")]
@@ -367,6 +367,7 @@ struct BackgroundImagePlacement {
 #[cfg(feature = "raster")]
 fn background_image_placement(
   size_mode: crate::node::BackgroundSize,
+  anchor: (f32, f32),
   box_width: f32,
   box_height: f32,
   image_width: f32,
@@ -385,39 +386,53 @@ fn background_image_placement(
     return full;
   }
 
+  // One axis of an image `shown` long in a box `room` long, held at `anchor`: where it starts in the box, how
+  // much of the box it takes, and the part of it that is drawn. What is longer than the box is cut at both
+  // ends by the anchor's shares; what is shorter leaves the box's room at both ends by the same shares.
+  let axis = |shown: f32, room: f32, anchor: f32| {
+    if shown > room {
+      let visible = room / shown;
+      let start = (1.0 - visible) * anchor;
+      (0.0, room, start, start + visible)
+    } else {
+      ((room - shown) * anchor, shown, 0.0, 1.0)
+    }
+  };
+  let placed = |width: f32, height: f32| {
+    let (x, shown_width, u_min, u_max) = axis(width, box_width, anchor.0);
+    let (y, shown_height, v_min, v_max) = axis(height, box_height, anchor.1);
+    BackgroundImagePlacement {
+      x,
+      y,
+      width: shown_width,
+      height: shown_height,
+      uv_min: [u_min, v_min],
+      uv_max: [u_max, v_max],
+    }
+  };
+
   match size_mode {
     crate::node::BackgroundSize::Stretch => full,
     crate::node::BackgroundSize::Contain => {
       let scale = (box_width / image_width).min(box_height / image_height);
-      let width = image_width * scale;
-      let height = image_height * scale;
-      BackgroundImagePlacement {
-        x: (box_width - width) * 0.5,
-        y: (box_height - height) * 0.5,
-        width,
-        height,
-        uv_min: [0.0, 0.0],
-        uv_max: [1.0, 1.0],
-      }
+      placed(image_width * scale, image_height * scale)
     }
     crate::node::BackgroundSize::Cover => {
-      let box_aspect = box_width / box_height;
-      let image_aspect = image_width / image_height;
-      let mut uv_min = [0.0, 0.0];
-      let mut uv_max = [1.0, 1.0];
-
-      if image_aspect > box_aspect {
-        let visible_u = box_aspect / image_aspect;
-        uv_min[0] = (1.0 - visible_u) * 0.5;
-        uv_max[0] = 1.0 - uv_min[0];
-      } else if image_aspect < box_aspect {
-        let visible_v = image_aspect / box_aspect;
-        uv_min[1] = (1.0 - visible_v) * 0.5;
-        uv_max[1] = 1.0 - uv_min[1];
-      }
-
-      BackgroundImagePlacement { uv_min, uv_max, ..full }
+      let scale = (box_width / image_width).max(box_height / image_height);
+      // The axis the scale comes from fills the box exactly: said so, where a rounding would cut a hair of it.
+      let width = if box_width / image_width >= box_height / image_height {
+        box_width
+      } else {
+        image_width * scale
+      };
+      let height = if box_width / image_width >= box_height / image_height {
+        image_height * scale
+      } else {
+        box_height
+      };
+      placed(width, height)
     }
+    crate::node::BackgroundSize::Natural => placed(image_width, image_height),
   }
 }
 
@@ -463,6 +478,7 @@ fn push_slider_part_quads(
   if let Some(ref bg_image) = style.background_image {
     let placement = background_image_placement(
       style.background_size,
+      (0.5, 0.5),
       rect.width,
       rect.height,
       bg_image.width() as f32,
@@ -558,6 +574,7 @@ fn push_checkbox_quads(
     let indicator_y = rect.y + (rect.height - indicator_height) * 0.5;
     let placement = background_image_placement(
       style.indicator_size,
+      (0.5, 0.5),
       indicator_width,
       indicator_height,
       indicator_image.width() as f32,
@@ -1432,6 +1449,7 @@ impl LayoutEngine {
       NodeKind::Image { data, fit } => {
         let placement = background_image_placement(
           *fit,
+          node.image_anchor(),
           result.size.width,
           result.size.height,
           data.width() as f32,
@@ -1447,6 +1465,7 @@ impl LayoutEngine {
       NodeKind::Video { data, fit } => {
         let placement = background_image_placement(
           *fit,
+          node.image_anchor(),
           result.size.width,
           result.size.height,
           data.width() as f32,
@@ -1462,7 +1481,7 @@ impl LayoutEngine {
       NodeKind::ResourceImage { .. } => QuadContent::None,
       #[cfg(feature = "svg")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
@@ -1806,6 +1825,7 @@ impl LayoutEngine {
           NodeKind::Image { data, fit } | NodeKind::Video { data, fit } => {
             let placement = background_image_placement(
               *fit,
+              node.image_anchor(),
               result.size.width,
               result.size.height,
               data.width() as f32,
@@ -1884,6 +1904,7 @@ impl LayoutEngine {
     if let Some(bg_image) = node.background_image.as_deref() {
       let placement = background_image_placement(
         node.background_size,
+        node.image_anchor(),
         result.size.width,
         result.size.height,
         bg_image.width() as f32,
@@ -3255,7 +3276,7 @@ impl LayoutEngine {
           reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       NodeKind::ResourceSvg { .. } => {
         let preferred = node
           .intrinsic_size
@@ -4214,7 +4235,17 @@ impl LayoutEngine {
     let children = node.children();
     let child_constraints = constraints.loosen_width().loosen_height();
     let mut child_layouts: Vec<ChildLayout> = Vec::with_capacity(children.len());
+    // A child laid out only at some sizes of the stack waits for that size: it is placed once the others made it.
+    let mut bounded = false;
     for (index, child) in children.iter().enumerate() {
+      if child.drop_outside_bounds().is_some() {
+        bounded = true;
+        child_layouts.push(ChildLayout {
+          offset: Offset::default(),
+          result: Self::unplaced_child(),
+        });
+        continue;
+      }
       let result = match child.position() {
         Position::Absolute { width, height, .. } => {
           let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
@@ -4240,7 +4271,9 @@ impl LayoutEngine {
     let (max_width, max_height) = children
       .iter()
       .zip(child_layouts.iter())
-      .filter(|(child, _)| !matches!(child.position(), Position::Absolute { .. }))
+      .filter(|(child, _)| {
+        !matches!(child.position(), Position::Absolute { .. }) && child.drop_outside_bounds().is_none()
+      })
       .fold((0.0_f32, 0.0_f32), |(width, height), (_, layout)| {
         (
           width.max(layout.result.size.width),
@@ -4248,6 +4281,34 @@ impl LayoutEngine {
         )
       });
     let size = constraints.constrain(Size::new(max_width, max_height));
+
+    if bounded {
+      let laid_out = Constraints::loose(size);
+      for (index, (layout, child)) in child_layouts.iter_mut().zip(children.iter()).enumerate() {
+        let Some(bounds) = child.drop_outside_bounds() else {
+          continue;
+        };
+        layout.result = if !bounds.holds(size) {
+          let zero = Constraints::tight(Size::default());
+          let mut dropped = self.layout_child_node(glyph_engine, child_overrides, index, child, zero);
+          Arc::make_mut(&mut dropped).size = Size::default();
+          Arc::make_mut(&mut dropped).dropped = true;
+          dropped
+        } else if let Position::Absolute { width, height, .. } = child.position() {
+          let positioned_constraints = Self::absolute_child_constraints(child, laid_out);
+          let mut result = self.layout_child_node(glyph_engine, child_overrides, index, child, positioned_constraints);
+          if let Some(width) = width.and_then(|width| Self::resolve_dimension(width, size.width)) {
+            Arc::make_mut(&mut result).size.width = width;
+          }
+          if let Some(height) = height.and_then(|height| Self::resolve_dimension(height, size.height)) {
+            Arc::make_mut(&mut result).size.height = height;
+          }
+          result
+        } else {
+          self.layout_child_node(glyph_engine, child_overrides, index, child, laid_out)
+        };
+      }
+    }
 
     // A share of the stack that its constraints left unbounded is a share of the stack as its other children make
     // it, as an absolutely placed box's is of its container's: a layer over what a stack holds, as high as that.
@@ -4301,6 +4362,20 @@ impl LayoutEngine {
       sticky_shifts: None,
       reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
+  }
+
+  /// What stands in a stack's results for a child with `.drop_outside(...)` until the stack's size is known.
+  fn unplaced_child() -> Arc<LayoutResult> {
+    Arc::new(LayoutResult {
+      size: Size::default(),
+      children: Vec::new(),
+      text_layout: None,
+      dropped: false,
+      holds: SubtreeHolds::UNKNOWN,
+      generation: 0,
+      sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
+    })
   }
 
   /// Where a child of `size` is, laid out at `offset`: moved by its own offset and by the shares of its size
@@ -4428,23 +4503,37 @@ impl LayoutEngine {
       c.max_height = height;
     }
 
+    // A ratio the box is given stands for the one its pixels have.
+    let aspect_ratio = frame.aspect_ratio.filter(|ratio| ratio.is_finite() && *ratio > 0.0);
+    if let Some(ratio) = aspect_ratio {
+      Self::apply_aspect_ratio(
+        node,
+        &mut c,
+        ratio,
+        (resolved_min_width, resolved_max_width),
+        (resolved_min_height, resolved_max_height),
+      );
+    }
+
     #[cfg(feature = "raster")]
-    if match node.node_kind() {
-      NodeKind::Image { .. } | NodeKind::Video { .. } => true,
-      #[cfg(feature = "image")]
-      NodeKind::ResourceImage { .. } => true,
-      _ => false,
-    } {
+    if aspect_ratio.is_none()
+      && match node.node_kind() {
+        NodeKind::Image { .. } | NodeKind::Video { .. } => true,
+        #[cfg(feature = "image")]
+        NodeKind::ResourceImage { .. } => true,
+        _ => false,
+      }
+    {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
-    #[cfg(all(feature = "svg", feature = "resources"))]
+    #[cfg(all(feature = "svg", feature = "http"))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
-    #[cfg(all(feature = "svg", not(feature = "resources")))]
+    #[cfg(all(feature = "svg", not(feature = "http")))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. });
 
     #[cfg(feature = "svg")]
-    if is_svg_media {
+    if is_svg_media && aspect_ratio.is_none() {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
@@ -4483,6 +4572,56 @@ impl LayoutEngine {
       value = value.min(max);
     }
     value
+  }
+
+  /// Fixes the axis of `constraints` that is not known yet from the one that is, by `ratio` (width over
+  /// height): a node's `.aspect_ratio(...)`. An axis is known where the constraints are tight on it, which a
+  /// size the node says and a size its parent fixes both make them. With neither known the box takes the
+  /// width of its own pixels where it has some, or else the width it is offered, and where that has no
+  /// bound the height it is offered. `min` and `max` of each axis are the node's own bounds.
+  fn apply_aspect_ratio(
+    node: &Node,
+    constraints: &mut Constraints,
+    ratio: f32,
+    width_bounds: (Option<f32>, Option<f32>),
+    height_bounds: (Option<f32>, Option<f32>),
+  ) {
+    let width_known = constraints.min_width == constraints.max_width && constraints.max_width.is_finite();
+    let height_known = constraints.min_height == constraints.max_height && constraints.max_height.is_finite();
+    let bound = |value: f32, (min, max): (Option<f32>, Option<f32>)| Self::clamp_resolved_dimension(value, min, max);
+    let (width, height) = match (width_known, height_known) {
+      (true, true) => return,
+      (true, false) => (
+        constraints.max_width,
+        bound(constraints.max_width / ratio, height_bounds),
+      ),
+      (false, true) => (
+        bound(constraints.max_height * ratio, width_bounds),
+        constraints.max_height,
+      ),
+      (false, false) => {
+        let own_width = node.intrinsic_size.map(|size| size.width).filter(|width| *width > 0.0);
+        if constraints.max_width.is_finite() {
+          let width = bound(
+            own_width.map_or(constraints.max_width, |own| own.min(constraints.max_width)),
+            width_bounds,
+          );
+          (width, bound(width / ratio, height_bounds))
+        } else if let Some(own) = own_width {
+          let width = bound(own, width_bounds);
+          (width, bound(width / ratio, height_bounds))
+        } else if constraints.max_height.is_finite() {
+          let height = bound(constraints.max_height, height_bounds);
+          (bound(height * ratio, width_bounds), height)
+        } else {
+          return;
+        }
+      }
+    };
+    constraints.min_width = width;
+    constraints.max_width = width;
+    constraints.min_height = height;
+    constraints.max_height = height;
   }
 
   #[cfg(any(feature = "raster", feature = "svg"))]
@@ -4558,6 +4697,16 @@ impl LayoutEngine {
       );
       let size = scroll_container_size(constraints, &child_result, &style, false, false);
       let viewport = reserved_viewport(size, &style, false, false);
+      let loose = scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height);
+      let child_result = self.fit_in_viewport(
+        glyph_engine,
+        node,
+        direction,
+        child_overrides,
+        loose,
+        viewport.width,
+        child_result,
+      );
       // Content that fills the viewport's width is laid out again at it, where it is narrower.
       let child_result = if fills_viewport_width(node, direction) && child_result.size.width < viewport.width {
         let mut filled =
@@ -4629,6 +4778,15 @@ impl LayoutEngine {
       within.min_width = viewport.width.min(within.max_width);
     }
     let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, within);
+    let child_result = self.fit_in_viewport(
+      glyph_engine,
+      node,
+      direction,
+      child_overrides,
+      within,
+      viewport.width,
+      child_result,
+    );
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
     state.set_reserved_across(across);
@@ -4660,6 +4818,60 @@ impl LayoutEngine {
       sticky_shifts: None,
       reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
+  }
+
+  /// The content of a scroll container that fits its content in the viewport's width
+  /// (`ScrollHorizontal::fit_width`), where `natural`, the content at its natural width, is wider than the
+  /// viewport: laid out again in the viewport's width, so that its line gives way there by its own rules, and
+  /// where something of it still ends past the viewport, as wide as that. What is returned is what the
+  /// container scrolls over.
+  #[allow(clippy::too_many_arguments)]
+  fn fit_in_viewport(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    direction: ScrollDirection,
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+    loose: Constraints,
+    viewport_width: f32,
+    natural: Arc<LayoutResult>,
+  ) -> Arc<LayoutResult> {
+    if direction == ScrollDirection::Vertical || !node.fits_viewport_width() || !viewport_width.is_finite() {
+      return natural;
+    }
+    let child = &node.children()[0];
+    let at = |width: f32| Constraints {
+      min_width: width,
+      max_width: width,
+      ..loose
+    };
+    if natural.size.width <= viewport_width + 0.5 {
+      // Content that fits and fills the viewport is laid out in exactly its width: a line that is given a width
+      // knows that it dropped nothing, and gives what stands for the dropped no room.
+      return if node.fills_viewport_width() {
+        self.layout_child_node(glyph_engine, child_overrides, 0, child, at(viewport_width))
+      } else {
+        natural
+      };
+    }
+    let fitted = self.layout_child_node(glyph_engine, child_overrides, 0, child, at(viewport_width));
+    // Where the last thing the line kept ends, with the line's own padding after it.
+    let reach = fitted
+      .children
+      .iter()
+      .filter(|held| !held.result.dropped)
+      .map(|held| held.offset.x + held.result.size.width)
+      .fold(0.0, f32::max)
+      + self.resolved_padding_for_size(child, fitted.size).right;
+    if reach <= viewport_width + 0.5 {
+      return fitted;
+    }
+    // The line stays as it gave way in the viewport, and is as wide as what it kept: laid out again in that
+    // width, it would take back what it gave up into the room of what stands for it.
+    // That may be wider than the content was at its natural width, by what stands for the dropped.
+    let mut kept = (*fitted).clone();
+    kept.size.width = reach;
+    Arc::new(kept)
   }
 
   fn layout_passthrough(

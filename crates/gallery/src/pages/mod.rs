@@ -6,11 +6,13 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
 mod action_bar;
+mod ai_label;
 mod alert;
 mod area_chart;
 mod audio_player;
 mod audio_queue;
 mod avatar;
+mod back_to_top;
 mod badge;
 mod banner;
 mod bar_chart;
@@ -52,10 +54,12 @@ mod gauge;
 mod heatmap;
 mod hover_card;
 mod icons;
+mod info_label;
 mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod lightbox;
 mod line_chart;
 mod list;
 mod listbox;
@@ -77,6 +81,8 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod picture;
+mod persona;
 mod pie_chart;
 mod play_button;
 mod popconfirm;
@@ -452,6 +458,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<editable::EditablePage>(()),
   },
   Page {
+    path: "/info-label",
+    name: "Info Label",
+    icon: Some("info"),
+    about: "info label field hint help tooltip mark explain explanation i icon more information placement arrow force_open nfo abel",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<info_label::InfoLabelPage>(()),
+  },
+  Page {
     path: "/calendar",
     name: "Calendar",
     icon: Some("calendar-days"),
@@ -660,6 +674,22 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
   },
   Page {
+    path: "/ai-label",
+    name: "AI Label",
+    icon: Some("sparkles"),
+    about: "ai label artificial intelligence generated model assistant sparkles mark badge suggestion draft text icon size abel",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<ai_label::AiLabelPage>(()),
+  },
+  Page {
+    path: "/back-to-top",
+    name: "Back To Top",
+    icon: Some("arrow-up"),
+    about: "back to top scroll up button page long list threshold floating return arrow smooth reduced motion on_click force_shown ack",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<back_to_top::BackToTopPage>(()),
+  },
+  Page {
     path: "/command-palette",
     name: "Command Palette",
     icon: Some("terminal"),
@@ -797,6 +827,14 @@ pub const PAGES: &[Page] = &[
     about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count name icon size shape vatar roup max label",
     group: Group::Data,
     mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
+  },
+  Page {
+    path: "/persona",
+    name: "Persona",
+    icon: Some("users"),
+    about: "persona person people user member avatar name description line presence online away busy offline size list menu header ersona",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<persona::PersonaPage>(()),
   },
   Page {
     path: "/separator",
@@ -1077,6 +1115,22 @@ pub const PAGES: &[Page] = &[
     about: "waveform audio voice message peaks bars loudness played unheard seek progress controlled at on_change on_change_end step disabled",
     group: Group::Media,
     mount: |ctx| ctx.mount::<waveform::WaveformPage>(()),
+  },
+  Page {
+    path: "/picture",
+    name: "Picture",
+    icon: Some("image"),
+    about: "picture image img photo figure caption alt thumbnail cover contain fill fit anchor aspect ratio skeleton loading progress error retry badge bar actions download menu select selected gallery bare overlay Picture PictureFit PictureSize PictureShape from_file from_bytes from_resource empty label width height size on_click on_download on_retry on_change mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<picture::PicturePage>(()),
+  },
+  Page {
+    path: "/lightbox",
+    name: "Lightbox",
+    icon: Some("zoom-in"),
+    about: "lightbox viewer gallery picture photo image zoom pan wheel pinch drag fit counter filmstrip thumbnails previous next arrows download close escape overlay modal inline Lightbox index zoom zoom_max wrap filmstrip counter on_index_change on_zoom_change on_download on_dismiss",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<lightbox::LightboxPage>(()),
   },
   Page {
     path: "/video-player",

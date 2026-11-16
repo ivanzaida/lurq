@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+
 use super::{
   icons, names,
   part_style::Length,
@@ -10,9 +12,13 @@ use super::{
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  app::{
+    component::Component,
+    ctx::Ctx,
+    theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  },
   components::{Column, Row},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::{
     Alignment,
     layout_kind::{Justify, ShrinkLimit},
@@ -23,6 +29,24 @@ use crate::{
 
 /// The least length of the room of a line between two steps in a row.
 const MIN_CONNECTOR: f32 = 24.0;
+/// The least a title is wide before the steps take another form: a few letters and an ellipsis.
+const TITLE_LEAST: f32 = 40.0;
+
+/// The form mounted steps in a row take in the room they have.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Shape {
+  /// Each title beside its mark.
+  #[default]
+  Beside,
+  /// Each title under its mark: the room is under what the titles need beside the marks.
+  Under,
+  /// The steps down the page: the room is under what the marks and their lines need in a row.
+  Down,
+}
+
+/// A signal's value is something DevTools can inspect: this one has nothing to show.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Shape {}
 
 /// The parts of steps a recipe styles. Each step's parts are styled in the
 /// states of that step: done, current or to come, in error, pressable.
@@ -87,6 +111,9 @@ pub enum StepsState {
   Horizontal,
   /// The steps run in a column.
   Vertical,
+  /// The steps run in a row with each title under its mark: mounted steps in a room too narrow for the titles
+  /// beside the marks.
+  Stacked,
 }
 
 names!(StepsState {
@@ -98,6 +125,7 @@ names!(StepsState {
   Disabled => "disabled",
   Horizontal => "horizontal",
   Vertical => "vertical",
+  Stacked => "stacked",
 });
 
 /// Which way the steps run: in a row, a line between each step and the
@@ -230,6 +258,7 @@ type Change = Arc<dyn Fn(usize) + Send + Sync>;
 /// a step that is done is pressed to go back to it, and a step to come only
 /// with [`Steps::ahead`]. Pressed steps are one stop of Tab, at the current
 /// step, and the arrow keys of their orientation move between them.
+#[derive(Clone)]
 pub struct Steps {
   current: CurrentStep,
   steps: Vec<Step>,
@@ -244,6 +273,8 @@ pub struct Steps {
   on_change: Vec<Change>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// The form the room gives steps in a row, where they are mounted.
+  shape: Shape,
 }
 
 impl Steps {
@@ -287,6 +318,7 @@ impl Steps {
       on_change: Vec::new(),
       id: None,
       key: None,
+      shape: Shape::default(),
     }
   }
 
@@ -386,7 +418,8 @@ impl Steps {
       states: self.states.clone(),
     }
     .state(StepsState::Horizontal, !vertical)
-    .state(StepsState::Vertical, vertical);
+    .state(StepsState::Vertical, vertical)
+    .state(StepsState::Stacked, !vertical && self.shape == Shape::Under);
     match step {
       // The whole is dimmed once, on its root; a step is dimmed on its own where it alone is disabled.
       None => case.state(StepsState::Disabled, self.disabled),
@@ -398,9 +431,61 @@ impl Steps {
     }
   }
 
+  /// The steps mounted where they are declared: steps in a row read the room they have, before the frame is
+  /// painted, and take the form it has room for. Where the titles have no room beside the marks, cut to a few
+  /// letters, each title is under its mark; where the marks and the lines between them have none in a row, the
+  /// steps run down the page. Steps that are only built are in a row whatever their room: their titles give way,
+  /// to nothing if they must, and their marks and lines never do.
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    match self.key.clone() {
+      Some(key) => ctx.mount_keyed::<StepsHost>(&key, StepsProps { steps: self }),
+      None => ctx.mount::<StepsHost>(StepsProps { steps: self }),
+    }
+  }
+
+  /// What steps in a row need of width with each title beside its mark, cut to its least, and with each title
+  /// under its mark: under the first they stack, and under the second they run down the page.
+  fn needs(&self, theme: &Theme) -> (f32, f32) {
+    let recipe = theme.resolve::<Steps>(&self.case(None), Some(&self.rules));
+    let spacing = theme.spacing();
+    let gap = |part: StepsPart| {
+      recipe
+        .part(part)
+        .rest()
+        .gap
+        .map(|gap| gap.resolve(&spacing, 0.0))
+        .unwrap_or(0.0)
+    };
+    let [_, end, _, start] = recipe.part(StepsPart::Step).rest().paddings();
+    let padding = [start, end]
+      .into_iter()
+      .flatten()
+      .map(|padding| padding.resolve(&spacing, 0.0))
+      .sum::<f32>();
+    let mark = match recipe
+      .part(StepsPart::Marker)
+      .rest()
+      .width
+      .and_then(|width| width.resolve(theme))
+    {
+      Some(Dimension::Px(px)) => px,
+      _ => 0.0,
+    };
+    let count = self.steps.len() as f32;
+    let lines = (count - 1.0).max(0.0) * (MIN_CONNECTOR + 2.0 * gap(StepsPart::Root));
+    (
+      count * (padding + mark + gap(StepsPart::Step) + TITLE_LEAST) + lines,
+      count * (padding + mark.max(TITLE_LEAST)) + lines,
+    )
+  }
+
   /// Builds the steps in `theme`. Converting steps into an element does this
   /// in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  pub fn build(mut self, theme: &Theme) -> Element {
+    // Down the page they are the steps of a column, in everything.
+    if self.shape == Shape::Down {
+      self.orientation = Orientation::Vertical;
+    }
     let current = match &self.current {
       CurrentStep::Index(index) | CurrentStep::Shown(index) => *index,
       CurrentStep::Signal(signal) => signal.get(),
@@ -453,6 +538,7 @@ impl Steps {
       steps,
       current,
       orientation: self.orientation,
+      stacked: self.orientation == Orientation::Horizontal && self.shape == Shape::Under,
       disabled: self.disabled,
       label: self.label,
       forced: self.forced,
@@ -481,6 +567,73 @@ impl From<Steps> for Element {
   }
 }
 
+#[derive(Clone)]
+struct StepsProps {
+  steps: Steps,
+}
+
+/// Steps are made anew by every render of what holds them, so props are never the same as before.
+impl PartialEq for StepsProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for StepsProps {}
+
+/// Mounted steps: the column that takes the room they are given, which it measures before the frame is painted,
+/// around the steps in the form that room has room for.
+struct StepsHost {
+  anchor: ElementRef,
+  shape: Signal<Shape>,
+  /// What the steps need of width for each of their two forms in a row, as they were last built.
+  needs: Arc<Mutex<(f32, f32)>>,
+}
+
+impl Component for StepsHost {
+  type Props = StepsProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let (anchor, shape) = (ElementRef::new(), ctx.signal(Shape::default()));
+    let needs = Arc::new(Mutex::new((0.0, 0.0)));
+    // Written only where the room crosses what a form needs: a panel dragged within one form renders nothing.
+    let (watch, needed) = (shape.clone(), needs.clone());
+    anchor.observe_rect_before_paint(move |rect| {
+      let (beside, under) = *needed.lock();
+      let now = if rect.width >= beside - 0.5 {
+        Shape::Beside
+      } else if rect.width >= under - 0.5 {
+        Shape::Under
+      } else {
+        Shape::Down
+      };
+      if watch.get_untracked() != now {
+        watch.set(now);
+      }
+    });
+    Self { anchor, shape, needs }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let mut steps = ctx.props::<StepsProps>().steps.clone();
+    let theme = current_theme();
+    // Steps the app runs down the page are so in any room.
+    if steps.orientation == Orientation::Horizontal {
+      *self.needs.lock() = steps.needs(&theme);
+      steps.shape = self.shape.get();
+    } else {
+      *self.needs.lock() = (0.0, 0.0);
+    }
+    Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .overflow_visible()
+      .ref_element(self.anchor.clone())
+      .child(steps.build(&theme))
+  }
+}
+
 /// One step as a renderer sees it: what the app gave it, what it is, and the
 /// style of its parts in its states.
 #[derive(Clone)]
@@ -501,6 +654,8 @@ pub struct StepsView {
   /// The index of the current step: past the last where every step is done.
   pub current: usize,
   pub orientation: StepsOrientation,
+  /// Whether each title is under its mark: steps in a row in a room too narrow for the titles beside the marks.
+  pub stacked: bool,
   pub disabled: bool,
   pub label: Option<Arc<str>>,
   /// The style of the parts of the whole: its root.
@@ -577,9 +732,11 @@ impl StepsView {
     } else {
       step.step.icon.clone()
     };
+    // A mark is whole in any room: what is beside it gives way.
     let mut marker = Row::new()
       .align_items(Alignment::Center)
       .justify(Justify::Center)
+      .flex_shrink(0.0)
       .part(&self.step_part(index, StepsPart::Marker));
     marker = match icon {
       Some(name) => marker.child(glyph(&self.step_part(index, StepsPart::Icon), name, false)),
@@ -605,12 +762,22 @@ impl StepsView {
       .flex_shrink(1.0)
       .shrink_limit(ShrinkLimit::ContentFirst)
       .min_width(Dimension::Px(0.0))
-      .child(
-        Row::new()
-          .align_items(Alignment::Center)
-          .part(&title)
-          .child(title.text(&step.title).nowrap().text_overflow(TextOverflow::Elipsis)),
-      );
+      .child({
+        let text = title.text(&step.title).nowrap().text_overflow(TextOverflow::Elipsis);
+        let row = Row::new().align_items(Alignment::Center).part(&title);
+        // Under its mark a title is no wider than its step, and gives way to it.
+        if self.stacked {
+          row
+            .max_width(Dimension::Pct(100.0))
+            .child(text.flex_full(0.0, 1.0, None).min_width(Dimension::Px(0.0)))
+        } else {
+          row.child(text)
+        }
+      });
+    // Under its mark the text is in the middle of the step, as the mark is.
+    if self.stacked {
+      body = body.align_items(Alignment::Center).max_width(Dimension::Pct(100.0));
+    }
     if let Some(description) = &step.description {
       let part = self.step_part(index, StepsPart::Description);
       let fill = Dimension::Pct(100.0);
@@ -676,6 +843,29 @@ impl StepsView {
     };
     let name = self.step_name(index);
     let horizontal = self.orientation == StepsOrientation::Horizontal;
+    // A step in a row is never narrower than its mark with the step's padding around it.
+    let least = if horizontal {
+      let rest = self.step_part(index, StepsPart::Step).rest();
+      let spacing = self.theme().spacing();
+      let [_, end, _, start] = rest.paddings();
+      let mark = match self
+        .step_part(index, StepsPart::Marker)
+        .rest()
+        .width
+        .and_then(|width| width.resolve(self.theme()))
+      {
+        Some(Dimension::Px(px)) => px,
+        _ => 0.0,
+      };
+      mark
+        + [start, end]
+          .into_iter()
+          .flatten()
+          .map(|padding| padding.resolve(&spacing, 0.0))
+          .sum::<f32>()
+    } else {
+      0.0
+    };
     let id = step
       .step
       .id
@@ -693,7 +883,7 @@ impl StepsView {
           .align_items(align)
           .flex_shrink(if horizontal { 1.0 } else { 0.0 })
           .shrink_limit(ShrinkLimit::ContentFirst)
-          .min_width(Dimension::Px(0.0))
+          .min_width(Dimension::Px(least))
           .describe("a11y_name", name)
           .with_children(content);
         if current {
@@ -733,6 +923,20 @@ impl StepsView {
     for index in 0..count {
       let last = index + 1 == count;
       match self.orientation {
+        // Each title under its mark: the two in a column in the middle of the step, which gives way with it.
+        StepsOrientation::Horizontal if self.stacked => {
+          let stack = Column::new()
+            .align_items(Alignment::Center)
+            .part(&self.step_part(index, StepsPart::Rail))
+            .flex_shrink(1.0)
+            .min_width(Dimension::Px(0.0))
+            .child(self.marker(index))
+            .child(self.text(index));
+          children.push(self.step(index, [stack.into()]));
+          if !last {
+            children.push(self.connector(index));
+          }
+        }
         StepsOrientation::Horizontal => {
           children.push(self.step(index, [self.marker(index).into(), self.text(index).into()]));
           if !last {
@@ -804,7 +1008,7 @@ impl Themed for Steps {
   fn recipe() -> Recipe {
     use PaletteColor::*;
     use StepsPart::{Connector, Description, Icon, Line, Marker, Number, Rail, Root, Step, Text, Title};
-    use StepsState::{Current, Disabled, Done, Horizontal, Invalid, Pressable, Upcoming, Vertical};
+    use StepsState::{Current, Disabled, Done, Horizontal, Invalid, Pressable, Stacked, Upcoming, Vertical};
     let filled = |s: super::PartStyle| s.background(Primary).foreground(PrimaryForeground);
     Recipe::new()
       .state(Horizontal, Root, |s| s.width(Length::Fill).gap(8.0))
@@ -819,6 +1023,8 @@ impl Themed for Steps {
       .base(Title, |s| s.height(24.0).typography(TypographyStyle::Label).foreground(Foreground))
       .base(Description, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
       .base(Rail, |s| s.gap(4.0))
+      // Under its mark a title is as high as its words: it is not level with the mark there.
+      .state(Stacked, Title, |s| s.height(Length::Auto))
       // In a row, as high as a step with its padding, so that the line is level with the middle of the mark.
       .state(Horizontal, Connector, |s| s.height(32.0))
       // In a column, as wide as the mark, and long enough to be seen between two steps without descriptions.
