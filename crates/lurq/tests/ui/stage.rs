@@ -82,9 +82,16 @@ impl Stage {
   #[cfg(feature = "canvas")]
   #[allow(dead_code)]
   pub fn software(scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
+    Self::software_in(App::new(), scene)
+  }
+
+  /// As [`Stage::software`], in `app`: for a theme's recipe that changes what a canvas draws.
+  #[cfg(feature = "canvas")]
+  #[allow(dead_code)]
+  pub fn software_in(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
     let mut tree = Tree::new();
     tree.set_software_canvases(true);
-    Self::with_tree(App::new(), tree, scene)
+    Self::with_tree(app, tree, scene)
   }
 
   pub fn in_app(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {

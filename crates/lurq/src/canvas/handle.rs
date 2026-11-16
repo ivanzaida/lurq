@@ -55,6 +55,66 @@ impl CanvasHandle {
     }
   }
 
+  /// A canvas of `width` by `height` logical pixels at `scale_factor` device pixels to one, in no window and drawn
+  /// on the CPU: what is drawn on its [`context_2d`](Self::context_2d) is in its pixels at once, read by
+  /// [`snapshot`](Self::snapshot) (ready when it returns) or as an [`ImageData`] by
+  /// [`to_image_data`](Self::to_image_data). For a picture made of a drawing: a signature to store, a chart to
+  /// save. It draws no text, since it has no window's fonts. `None` where the size is not a number, is nothing, or is
+  /// larger than a canvas can be.
+  pub fn offscreen(width: f32, height: f32, scale_factor: f32) -> Option<Self> {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+      scale_factor
+    } else {
+      1.0
+    };
+    let (pixel_width, pixel_height) = (
+      f64::from(width) * f64::from(scale),
+      f64::from(height) * f64::from(scale),
+    );
+    if !pixel_width.is_finite()
+      || !pixel_height.is_finite()
+      || pixel_width.ceil() < 1.0
+      || pixel_height.ceil() < 1.0
+      || pixel_width.ceil() > 16384.0
+      || pixel_height.ceil() > 16384.0
+      || pixel_width.ceil() * pixel_height.ceil() > MAX_PIXELS as f64
+    {
+      return None;
+    }
+    let (pixel_width, pixel_height) = (pixel_width.ceil() as u32, pixel_height.ceil() as u32);
+    let canvas = Self::new();
+    {
+      let mut s = canvas.inner.lock();
+      s.attached = true;
+      s.software = true;
+      s.metrics = CanvasMetrics {
+        size: Size::new(width, height),
+        pixel_width,
+        pixel_height,
+        scale_factor: scale,
+        revision: 1,
+      };
+      s.pixels = Some(Pixmap::new(pixel_width, pixel_height)?);
+    }
+    Some(canvas)
+  }
+
+  /// What the canvas shows, as an image of straight RGBA pixels: of a canvas drawn on the CPU (an
+  /// [`offscreen`](Self::offscreen) one), what is drawn on it now; `None` for one drawn on the GPU, which is read by
+  /// [`snapshot`](Self::snapshot), or one with no pixels yet.
+  pub fn to_image_data(&self) -> Option<ImageData> {
+    let s = self.inner.lock();
+    if !s.software || s.metrics.pixel_width == 0 || s.metrics.pixel_height == 0 {
+      return None;
+    }
+    s.pixels.as_ref()?;
+    Some(ImageData::from_rgba(
+      s.straight_pixels(),
+      s.metrics.pixel_width,
+      s.metrics.pixel_height,
+    ))
+  }
+
   /// Schedules an ordinary paint pass, including a retry after GPU presentation backpressure.
   pub fn request_paint(&self) {
     let mut s = self.inner.lock();

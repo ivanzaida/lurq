@@ -35,7 +35,8 @@ media = [
     "windows/Win32_System_Variant",
     "windows/Win32_UI_Shell",
 ]
-canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon"]
+# `png` writes a signature as a PNG file (`ui::Signature::to_png`).
+canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon", "dep:png"]
 i18n = []
 markdown = ["dep:pulldown-cmark", "dep:unicode-bidi", "dep:unicode-linebreak"]
 persistent_storage = ["dep:redb"]
@@ -240,6 +241,8 @@ wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
 criterion = { version = "0.5", features = ["html_reports"] }
 raw-window-handle = "0.6"
 taffy = "0.15.1"
+# Reads back the PNG a signature is written as (`tests/ui/signature_pad.rs`).
+png = "0.18"
 
 # Extra Win32 surface for the dx12_capture_check example's bare test window.
 [target.'cfg(windows)'.dev-dependencies]
