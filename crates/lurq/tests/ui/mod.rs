@@ -9,8 +9,8 @@ mod avatar;
 mod badge;
 #[cfg(feature = "canvas")]
 mod bar_chart;
-mod blockquote;
 mod bar_list;
+mod blockquote;
 mod breadcrumb;
 mod button;
 mod calendar;
@@ -47,12 +47,12 @@ mod empty_state;
 mod family;
 mod field_mount;
 mod fieldset;
-#[cfg(feature = "canvas")]
-mod gauge;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
 mod forced_on_one_item;
+#[cfg(feature = "canvas")]
+mod gauge;
 #[cfg(feature = "canvas")]
 mod heatmap;
 mod highlight;
@@ -100,17 +100,17 @@ mod scroll_area;
 mod seek_bar;
 mod select;
 mod separator;
-#[cfg(feature = "canvas")]
-mod sparkline;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod spinner;
-mod stat_card;
 mod splitter;
 mod stage;
+mod stat_card;
 mod status_bar;
 mod steps;
 mod swatch_picker;

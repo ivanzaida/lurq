@@ -490,6 +490,11 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `MarkdownBlock` | `Admonition { kind, blocks }`, `Details { summary, open, blocks }` | A `match` arm |
 | `MarkdownInline` | `Kbd(String)` | A `match` arm |
 | `MarkdownTextStyle` | `baseline_shift` | `..Default::default()` |
+| `SpanStyle` | `underline` | `SpanStyle::new()` and its methods, or `..SpanStyle::default()` |
+| `SelectionStyle` | `underline` | `..SelectionStyle::default()` |
+| `ThemeTextMarks` | `underline` | `..ThemeTextMarks::default()` |
+| `TextMark` | `Underline`; `TextMark::ALL` is five long | A `match` arm |
+| `StyledEdit` | `Paragraphs { range }` | A `match` arm: the kinds of the paragraphs changed, the text did not |
 | `ThemeMarkdown` | `task_item_spacing`, `bullet_gap`, `box_gap`, `bullet_indent`, `bullet_size`, `table_stripe`, `heading_2_rule`, `kbd`, `task_done`, `rule`, `image_box`, `image_height`, `image_caption`, `details_box`, `details_summary_box`, `details_summary`, `details_padding`, `footnote_reference`, `footnote`, `footnotes_rule_width` | `..ThemeMarkdown::default()` |
 | `TextHighlight` | `padding`, `border` | `TextHighlight::new(range, color)` |
 | `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end` | `..Default::default()` |

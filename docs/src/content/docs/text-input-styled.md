@@ -1,13 +1,15 @@
 ---
 title: Styled text inputs
-description: Bold, italic, inline code, strikethrough and links edited in place in a TextInput.
+description: Bold, italic, underline, inline code, strikethrough and links edited in place in a TextInput, with headings, lists, quotes and code blocks as kinds of its paragraphs.
 ---
 
 A `TextInput` bound to a spans signal edits styled text: the value stays the plain `Signal<String>`, and a
 `Signal<Vec<StyledSpan>>` holds the styled runs over it as UTF-8 byte ranges. The input draws each run with the
 theme's text marks, moves the spans with every edit, keeps them in its undo history and writes them back. The app
 owns the model: it loads one by setting both signals and hears every change the input makes. A rich editor (a
-block editor that stores Markdown, for example) builds on this; lurq parses and writes no Markdown itself.
+block editor that stores Markdown, for example) builds on this, and the design system's
+[`RichTextEditor`](../design-system/#rich-text-editor) is one. The input itself parses and writes no Markdown; a
+[`RichText`](#one-value-richtext) reads a document from Markdown and writes it.
 
 Styled inputs come with the `markdown` feature. Without it none of this API exists and a `TextInput` does no span
 work at all.
@@ -41,7 +43,7 @@ let spans = Signal::new(vec![
 ]);
 ```
 
-A `SpanStyle` has `bold`, `italic`, `code`, `strikethrough` and an optional `link` target. Spans the input reports
+A `SpanStyle` has `bold`, `italic`, `underline`, `code`, `strikethrough` and an optional `link` target. Spans the input reports
 are canonical: sorted, disjoint, styled only (plain text has no span), never splitting a character, with equal
 neighbours merged. `StyledText::new` puts any spans in that form, and `StyledText::runs` walks the whole text as
 runs of one style, plain runs included, which is the walk a Markdown writer needs.
@@ -76,6 +78,10 @@ The controller carries what a toolbar or a shortcut calls; each is one undo step
   the link target when the selection is one link; with nothing selected, the style typing would give.
 - `styled_text()` and `selected_styled_text()` read the model and the selection with its spans.
 
+- `undo()` and `redo()` take the last edit back and make it again, as Ctrl+Z and Ctrl+Y do, and `can_undo()` and
+  `can_redo()` say whether there is one: what an editor's undo button runs and is enabled by. They work on a plain
+  input too.
+
 lurq binds no shortcut to these: handle Ctrl+B in the input's `on_key_down` and call `prevent_default()`.
 
 ```rust
@@ -94,6 +100,90 @@ input.on_key_down(move |event: KeyboardEvent| {
 A toolbar button that should leave the keyboard focus in the input is built with `focusable(false)`. The
 controller keeps the selection when focus moves anyway.
 
+## Paragraphs
+
+A second signal gives a styled input kinds of paragraphs: a `Signal<Vec<ParagraphKind>>` with one kind for each hard
+paragraph of the value (the text between two line breaks), and a `ParagraphStyles` that says how each kind is drawn.
+
+```rust
+use lurq::{
+  app::theme::PaletteColor,
+  components::{ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, StyledSpan, TextInput},
+  core::Signal,
+  layout::text_style::FontWeight,
+};
+
+let value = Signal::new("Release notes\nBackdrop blur follows clips.\nFaster shaping".to_owned());
+let spans = Signal::new(Vec::<StyledSpan>::new());
+let kinds = Signal::new(vec![ParagraphKind::Heading(2), ParagraphKind::Body, ParagraphKind::Bullet]);
+let styles = ParagraphStyles::new()
+  .gap(10.0)
+  .with(
+    ParagraphKind::Heading(2),
+    ParagraphStyle::new().font_size(22.0).weight(FontWeight::SemiBold).line_height(1.2),
+  )
+  .with(
+    ParagraphKind::Bullet,
+    ParagraphStyle::new().indent(21.0).marker(ParagraphMarker::Dot {
+      size: 5.0,
+      gap: 10.0,
+      color: PaletteColor::MutedForeground.into(),
+    }),
+  );
+let editor = TextInput::new(value).spans(spans).paragraphs(kinds, styles).multiline();
+```
+
+A `ParagraphKind` is `Body`, `Heading(1..=6)`, `Bullet`, `Ordered`, `Quote` or `Code`. A `ParagraphStyle` gives a
+kind its type over the input's own (`font_size` or `font_size_scale`, `weight`, `line_height`, `font_family`,
+`color`), the room before its text (`indent`) and what stands in that room (`marker`): a `Dot` centred on the first
+row, a `Number` (the item's place in its run of numbered items, with a full stop) or a `Bar` down all its rows. A
+`background` is a fill behind the paragraph across the input, and `joined(true)` leaves no room between two
+paragraphs of the kind, as between the lines of a block of code. A run of paragraphs of one kind has one bar and
+one fill. `ParagraphStyles::gap` is the room between two paragraphs. A mark is drawn over the type of the paragraph
+it is in: bold in a heading is the heading's size.
+
+The input keeps the kinds in step with the text. A paragraph that an edit splits (Enter, a paste of several lines)
+gives its kind to both halves; paragraphs that an edit joins (Backspace at the start of one, a selection deleted)
+take the kind of the first. The kinds are part of the undo history, and of what `on_styled_change` reports:
+`StyledChange::paragraphs()` is what each paragraph is now, and an edit of the kinds alone is
+`StyledEdit::Paragraphs { range }`, the indices of the paragraphs it changed. The app loads a document by setting
+the three signals; a kinds signal shorter or longer than the text has paragraphs is read as one kind for each,
+`Body` where none was given.
+
+The controller's commands:
+
+- `set_paragraphs(kind)` makes every paragraph the selection touches a `kind` (the one the caret is in with nothing
+  selected), as one undo step.
+- `selected_paragraphs()` is what each paragraph the selection touches is, for a toolbar to show, and
+  `caret_paragraph()` the kind and the bytes of the paragraph the caret is in.
+- `rich_text()` is the text, its spans and its kinds as one [`RichText`](#one-value-richtext).
+
+What an editor does at the keys is the app's (or the design system's editor's): Enter in an empty item ending the
+list, a paragraph after a heading. The input's own rule is the split and the join above.
+
+Kinds are laid out where the input wraps its lines and its text is not justified. An empty input that shows its
+placeholder draws it as body text.
+
+## One value: `RichText`
+
+`RichText` holds what the three signals hold as one value: `text`, `spans` and `paragraphs`. `RichText::new` puts
+them in the form an input keeps, `plain(text)` is body text with no marks, `blocks()` walks the paragraphs with
+their kinds, and `word_count()` counts the words.
+
+```rust
+use lurq::components::{ParagraphKind, RichText};
+
+let notes = RichText::from_markdown("## Release notes\n\nBackdrop blur **follows clips**.\n\n- Faster shaping");
+assert_eq!(notes.paragraphs, [ParagraphKind::Heading(2), ParagraphKind::Body, ParagraphKind::Bullet]);
+assert_eq!(notes.to_markdown(), "## Release notes\n\nBackdrop blur **follows clips**.\n\n- Faster shaping");
+```
+
+`from_markdown` reads what a styled input can hold: paragraphs, headings, flat lists, quotes and code blocks, with
+bold, italic, strikethrough, inline code, links and `<u>` underlines. A line break inside a paragraph starts a new
+one, a nested list is flattened, an image is its alternative text linked to its source, and a table, a rule and
+raw HTML are left out. `to_markdown` writes a document that `from_markdown` reads back as the same one: marks
+nested, numbered items numbered, what would read as markup escaped, an underline as `<u>…</u>`.
+
 ## Copy, paste and links
 
 - `copy_format(f)` sets what Ctrl+C and Ctrl+X put on the clipboard: `f` gets the styled selection and returns the
@@ -107,9 +197,9 @@ controller keeps the selection when focus moves anyway.
 
 The theme's `ThemeTextMarks` (`theme.set_text_marks`) holds one `TextMarkStyle` per mark: font family, size scale,
 weight, style, features, a color and a background fill (palette roles or colors), and an underline or a line
-through. A run with several marks applies code, bold, italic, strikethrough, then link. The defaults are a bold
-weight, an italic style, the `monospace` family at 0.92 over the `SurfaceRaised` role, a line through, and the
-`Accent` role underlined.
+through. A run with several marks applies code, bold, italic, underline, strikethrough, then link. The defaults are
+a bold weight, an italic style, a line under, the `monospace` family at 0.92 over the `SurfaceRaised` role, a line
+through, and the `Accent` role underlined.
 
 ## Limits
 

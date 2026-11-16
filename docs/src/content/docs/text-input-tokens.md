@@ -61,6 +61,10 @@ is one undo step and follows the same validation as keyboard insertion. Its even
 code `InsertText` and has no physical key target. A masked input refuses controller metadata and edits;
 an active IME composition returns `Composing` and keeps the preedit intact.
 
+`undo()` and `redo()` take the last edit back and make it again, as Ctrl+Z and Ctrl+Y do, through the input's
+`on_input`; each returns `false` where there is none. `can_undo()` and `can_redo()` say whether there is one: what
+an undo button is enabled by.
+
 ## Measured raw-source pills
 
 Parse known expressions in the application and supply the exact current source and its ranges:

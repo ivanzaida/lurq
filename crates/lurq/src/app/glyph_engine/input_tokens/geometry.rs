@@ -41,6 +41,7 @@ impl DecoratedInputLayout {
       left: x,
       width: 0.0,
       rtl: false,
+      indent: 0.0,
     });
     self.size.height += height;
     self.line_height = self.line_height.max(height);
@@ -106,6 +107,7 @@ impl DecoratedInputLayout {
       left,
       width,
       rtl,
+      indent: 0.0,
     });
     self.size.width = self.size.width.max(width);
     self.size.height += height;

@@ -3,7 +3,7 @@
 use super::{InputEditError, TextInputController};
 use crate::{
   app::events::KeyboardEvent,
-  components::{SelectionStyle, SpanStyle, StyledText, TextMark},
+  components::{ParagraphKind, RichText, SelectionStyle, SpanStyle, StyledText, TextMark},
   core::NodeId,
 };
 
@@ -49,6 +49,35 @@ impl TextInputController {
   /// the caret.
   pub fn set_pending_style(&self, style: Option<SpanStyle>) -> Result<bool, InputEditError> {
     Ok(self.state()?.set_pending_style(style))
+  }
+
+  /// The text, its spans and the kinds of its paragraphs, as one value.
+  pub fn rich_text(&self) -> Result<Option<RichText>, InputEditError> {
+    let state = self.state()?;
+    Ok(state.styled_text().map(|styled| {
+      let kinds = state.current_paragraphs().map(|kinds| kinds.to_vec());
+      RichText::new(styled.text, styled.spans, kinds.unwrap_or_default())
+    }))
+  }
+
+  /// What each paragraph the selection touches is, in order: the one the
+  /// caret is in with nothing selected. `None` for an input without kinds
+  /// of paragraphs.
+  pub fn selected_paragraphs(&self) -> Result<Option<Vec<ParagraphKind>>, InputEditError> {
+    Ok(self.state()?.selected_paragraphs())
+  }
+
+  /// The paragraph the caret is in: its kind and the bytes of its text,
+  /// without its line break.
+  pub fn caret_paragraph(&self) -> Result<Option<(ParagraphKind, std::ops::Range<usize>)>, InputEditError> {
+    Ok(self.state()?.caret_paragraph().map(|(_, kind, range)| (kind, range)))
+  }
+
+  /// Makes every paragraph the selection touches a `kind` (the one the
+  /// caret is in with nothing selected), as one undo step. `false` where
+  /// they all are already.
+  pub fn set_paragraphs(&self, kind: ParagraphKind) -> Result<bool, InputEditError> {
+    Ok(self.state()?.set_paragraph_kind(kind))
   }
 
   /// Replaces the selection, or inserts at the caret, text that brings its

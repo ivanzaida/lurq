@@ -51,6 +51,7 @@ pub(crate) mod inline_links;
 pub(crate) mod inline_links;
 mod input_gutter;
 mod input_layout;
+mod input_marks;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
 #[cfg(feature = "perf_profile")]
@@ -1919,6 +1920,25 @@ impl LayoutEngine {
       && state.is_focused()
     {
       self.push_focused_text_input_ime_quads(node, state, style, result, (abs_x, abs_y), transform, clip, quads);
+    }
+    if let NodeKind::TextInput {
+      state,
+      style,
+      placeholder_style,
+    } = node.node_kind()
+    {
+      self.push_text_input_marks(
+        node,
+        state,
+        style,
+        placeholder_style.as_deref(),
+        result,
+        (abs_x, abs_y),
+        transform,
+        clip,
+        opacity,
+        quads,
+      );
     }
 
     match node.node_kind() {

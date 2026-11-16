@@ -14,6 +14,7 @@ use crate::support::{RenderSnapshot, render_pass_with_app};
 mod clipboard;
 mod editing;
 mod paint;
+mod paragraphs;
 
 pub(super) const ID: &str = "editor";
 

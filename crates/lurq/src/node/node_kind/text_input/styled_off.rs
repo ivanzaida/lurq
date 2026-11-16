@@ -19,6 +19,8 @@ pub(super) enum SpansBeforeEdit {}
 
 pub(super) type SnapshotSpans = Infallible;
 
+pub(super) type SnapshotParagraphs = Infallible;
+
 pub(super) enum InsertedText {}
 
 impl TextInputState {
@@ -51,6 +53,16 @@ impl TextInputState {
   #[inline]
   pub(super) fn restore_spans(&self, spans: SnapshotSpans) {
     match spans {}
+  }
+
+  #[inline]
+  pub(super) fn current_paragraphs(&self) -> Option<SnapshotParagraphs> {
+    None
+  }
+
+  #[inline]
+  pub(super) fn restore_paragraphs(&self, kinds: SnapshotParagraphs) {
+    match kinds {}
   }
 
   /// What copying the selection puts on the clipboard: the selected text. Nothing while the input is masked, as a

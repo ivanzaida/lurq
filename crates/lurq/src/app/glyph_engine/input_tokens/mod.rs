@@ -100,6 +100,51 @@ pub(crate) struct InputConfig {
   pub(crate) width: f32,
   pub(crate) min_width: f32,
   pub(crate) wrap: bool,
+  /// How each hard paragraph of a wrapped input is laid out, in order, where the input has kinds of paragraphs;
+  /// a paragraph past the end of it, and every one of an input without kinds, is laid out in `base` from the
+  /// start of the input.
+  pub(crate) paragraphs: Vec<ParagraphFormat>,
+}
+
+/// How one hard paragraph is laid out and what is drawn before it.
+#[derive(Clone, PartialEq)]
+pub(crate) struct ParagraphFormat {
+  /// The paragraph's type, in place of the input's.
+  pub(crate) base: TextStyle,
+  /// The room before its text.
+  pub(crate) indent: f32,
+  /// The room between it and the paragraph before.
+  pub(crate) gap_before: f32,
+  pub(crate) marker: ParagraphMark,
+  /// A fill behind the paragraph, across the input: its color and the radius of its corners.
+  pub(crate) fill: Option<(Color, f32)>,
+  /// Whether the paragraph before is of the same kind: a bar and a fill then go on from it as one.
+  pub(crate) continues: bool,
+}
+
+/// What stands in the room before a paragraph's text. Only a styled input has kinds of paragraphs, and those
+/// come with the `markdown` feature.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+pub(crate) enum ParagraphMark {
+  None,
+  /// A dot `size` across, centred on the first row, ending `gap` before the text.
+  Dot {
+    size: f32,
+    gap: f32,
+    color: Color,
+  },
+  /// A text in the paragraph's type, ending `gap` before the text.
+  Text {
+    text: Arc<str>,
+    gap: f32,
+    color: Color,
+  },
+  /// A bar `width` wide from the start of the input, as high as the paragraph.
+  Bar {
+    width: f32,
+    color: Color,
+  },
 }
 
 #[derive(Clone, Copy)]
@@ -164,6 +209,8 @@ struct InputRow {
   left: f32,
   width: f32,
   rtl: bool,
+  /// The room before the row's text that its paragraph keeps.
+  indent: f32,
 }
 
 impl DecoratedInputLayout {

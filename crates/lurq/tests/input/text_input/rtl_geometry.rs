@@ -13,6 +13,7 @@ fn layout(source: &str, width: f32) -> Arc<DecoratedInputLayout> {
     width,
     min_width: 0.0,
     wrap: true,
+    paragraphs: Vec::new(),
     styles: vec![TokenStyle {
       range: start..start + 14,
       text: base,
@@ -62,6 +63,7 @@ fn input_tokens_rtl_metrics_tracking_are_logical_pixels() {
       width: 500.0,
       min_width: 0.0,
       wrap: true,
+      paragraphs: Vec::new(),
       styles: vec![TokenStyle {
         range: 2..16,
         text: token,
@@ -251,6 +253,7 @@ fn input_tokens_rtl_justification_matches_public_whole_paragraph_glyph_oracle() 
       width: 90.0,
       min_width: 90.0,
       wrap: true,
+      paragraphs: Vec::new(),
     });
     let family = engine.resolve_family(&base);
     let attrs = attrs_for_style(&base, &family, engine.face_weight(&family, &base), base.font_size)
@@ -376,6 +379,7 @@ fn input_tokens_rtl_empty_controls_hard_endings_and_nonfinite_width_keep_raw_cov
         width,
         min_width: 0.0,
         wrap: true,
+        paragraphs: Vec::new(),
       });
       assert_eq!(output.carets[output.default_caret(source.len())].byte, source.len());
       assert!(
@@ -455,6 +459,7 @@ fn input_tokens_rtl_token_internal_blanks_and_negative_tracking_have_finite_raw_
       width: 100.0,
       min_width: 100.0,
       wrap: true,
+      paragraphs: Vec::new(),
       styles: vec![TokenStyle {
         range: start..end,
         text: base,

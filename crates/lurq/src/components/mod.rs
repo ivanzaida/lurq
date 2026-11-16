@@ -103,7 +103,8 @@ pub use stack_outlet::{
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{
-  LinkClick, MarkPresence, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+  LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, RichText, SelectionStyle,
+  SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
 };
 #[cfg(feature = "svg")]
 pub use svg::Svg;
@@ -112,7 +113,8 @@ pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowProps, SwipeRowStyle};
 pub use tabs::{TabBar, TabBarBuilder, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs};
 pub use text::{Text, TextOverflow};
 pub use text_input::{
-  ContentKind, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow, TextInputOverflowAnchor,
+  ContentKind, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow,
+  TextInputOverflowAnchor,
 };
 pub use text_input_controller::{InputCaretPoint, InputEditError, InputSelection, TextInputController};
 pub use text_input_tokens::{InputToken, InputTokenError, InputTokenIcon, InputTokenStyle, InputTokens};

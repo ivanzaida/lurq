@@ -969,6 +969,22 @@ A multiline input whose text needs more rows than its `rows(min, max)` allow scr
 
 Lines, the caret and selections follow the font's metrics, not the ink of the glyphs shown: a multi-line input's lines sit in line boxes of the style's `line_height` from the top of the content box (`VerticalAlign::LineBox`), so a line does not move when a taller glyph is typed. The caret is `font_size` tall and a selection covers the font's ascent and descent, both centered in the line box, so the leading of a relaxed `line_height` stays unpainted. The caret starts at its insertion point; at the start of a left-aligned line it ends there instead, so it never covers the first glyph of the value or the placeholder (unless an ancestor clips right at that edge). A focused input's caret blinks every 530 ms unless its `caret_mode` or the theme's is `CaretMode::Persistent`; an idle window wakes only at each toggle.
 
+An input draws two marks an app gives it beside its text. `squiggles(InputSquiggles::new(ranges))` draws a wavy line under each range of the text, bytes of the value as it is when the input is built: what a spelling checker marks. The lines are under the band of the text on every row a range is on, in the theme's `Destructive` unless `.color(..)` says another; the app finds the ranges again after an edit, and a masked input draws none. `ghost(InputGhost::new(text))` draws a suggestion after the end of what is typed, in the input's type and the placeholder's color (or `.color(..)`, at `.opacity(..)`), while the input has the focus, holds text, and has the caret at the end with nothing selected. It is no part of the value: the app puts it there when its key is pressed (`TextInputController::replace_selection`). An input with tokens or styled spans draws no ghost.
+
+```rust
+use lurq::{
+  app::theme::PaletteColor,
+  components::{InputGhost, InputSquiggles, TextInput},
+};
+
+TextInput::new(note.clone()).multiline().squiggles(InputSquiggles::new([2..10]));
+TextInput::new(command.clone())
+  .single_line()
+  .ghost(InputGhost::new("n --release").color(PaletteColor::MutedForeground).opacity(0.7));
+```
+
+`select_on_focus(true)` has all an input's text selected as it takes the focus, so that what is typed takes its place: a name being renamed, a cell being edited. A press that brings the focus puts the caret where it is, as in any input.
+
 Single-line inputs can align value and placeholder text inside their content box:
 
 ```rust

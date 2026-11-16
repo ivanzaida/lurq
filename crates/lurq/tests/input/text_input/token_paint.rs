@@ -31,6 +31,7 @@ fn fixture() -> (GlyphEngine, std::sync::Arc<DecoratedInputLayout>, Quad) {
     width: 150.0,
     min_width: 150.0,
     wrap: true,
+    paragraphs: Vec::new(),
   });
   let quad = Quad {
     x: 12.0,
