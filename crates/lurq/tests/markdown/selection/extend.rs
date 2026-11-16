@@ -127,6 +127,9 @@ fn a_double_click_selects_the_word_under_the_pointer_and_a_triple_click_its_line
   let mut page = page(MarkdownProps::new(TWO_PARAGRAPHS), 420.0);
   let (from, to) = page.inks_of("emphasis", 0);
   let (x, y) = page.before(from + 2);
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  page.tree.set_press_clock(Some(std::time::Instant::now()));
   page.click(x, y);
   page.click(x, y);
   assert_eq!(page.selected().as_deref(), Some("emphasis"));
@@ -144,6 +147,9 @@ fn a_double_click_in_inline_code_selects_the_code_word() {
   let mut page = page(MarkdownProps::new(REPORTED), 560.0);
   let (from, to) = page.inks_of("storage", 0);
   let (x, y) = page.before(from + 1);
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  page.tree.set_press_clock(Some(std::time::Instant::now()));
   page.click(x, y);
   page.click(x, y);
   assert_eq!(page.selected().as_deref(), Some("storage"));

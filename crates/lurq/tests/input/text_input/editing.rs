@@ -423,6 +423,9 @@ fn double_click_text_input_selects_clicked_word() {
   let y = rect.y + rect.height / 2.0;
   let x = rect.x + 46.0;
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
   runtime.key_down("X".to_owned(), "KeyX".to_owned(), false, false, false);
@@ -441,6 +444,9 @@ fn triple_click_single_line_text_input_selects_whole_line() {
   let y = rect.y + rect.height / 2.0;
   let x = rect.x + 46.0;
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
@@ -461,6 +467,9 @@ fn triple_click_multiline_text_input_selects_clicked_line() {
   let y = rect.y + line_height + 1.0;
   let x = rect.x + 46.0;
 
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  runtime.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);
   pointer_click(&mut runtime, x, y);

@@ -194,6 +194,8 @@ fn the_dark_theme_gives_the_view_its_roles() {
 fn a_press_ends_the_path_at_the_item_and_tells_the_new_path_once() {
   for mounted in [false, true] {
     let (mut stage, path, told) = board(&["crates", "lurq"], mounted);
+    // Every press at one time: two of an item in a row are a double press however slow the machine.
+    stage.presses_at(std::time::Duration::ZERO);
     stage.click("demo");
     assert_eq!(path.get(), ["crates", "demo"], "mounted: {mounted}");
     assert_eq!(
@@ -308,6 +310,8 @@ fn enter_and_a_double_press_activate_the_item() {
   assert_eq!(said(&told), ["activate lurq"]);
   let (x, y) = stage.center("Cargo.toml");
   stage.tree.mouse_move(x, y);
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   for _ in 0..2 {
     stage.tree.mouse_down(x, y, MouseButton::Left);
     stage.tree.mouse_up(x, y, MouseButton::Left);

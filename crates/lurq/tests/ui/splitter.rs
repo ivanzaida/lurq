@@ -204,7 +204,8 @@ fn a_collapsible_pane_closes_under_half_its_least_and_opens_again() {
   assert_eq!(width(&mut stage, "a"), 80.0, "opened at its least");
   drag(&mut stage, 80.5, 150.0, 30.0);
   assert_eq!(width(&mut stage, "a"), 0.0);
-  // A double press opens it to what it began with.
+  // A double press opens it to what it began with, its two presses at one time however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   for _ in 0..2 {
     stage.tree.mouse_down(0.5, 150.0, MouseButton::Left);
     stage.tree.mouse_up(0.5, 150.0, MouseButton::Left);
@@ -218,6 +219,8 @@ fn a_double_press_puts_the_divider_back_where_it_began() {
   let mut stage = Stage::new(|_| three().into());
   drag(&mut stage, 120.5, 150.0, 200.5);
   assert_eq!(width(&mut stage, "a"), 200.0);
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
   for _ in 0..2 {
     stage.tree.mouse_down(200.5, 150.0, MouseButton::Left);
     stage.tree.mouse_up(200.5, 150.0, MouseButton::Left);

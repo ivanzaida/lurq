@@ -266,6 +266,8 @@ fn an_open_row_has_its_chevron_down_and_its_open_icon_and_the_selected_one_is_hi
 #[test]
 fn a_press_selects_a_row_its_chevron_opens_it_and_a_double_press_activates_it() {
   let (mut stage, held) = board(&["crates"], None);
+  // Every press at one time: two of a row in a row are a double press however slow the machine.
+  stage.presses_at(Duration::ZERO);
   stage.click("Cargo.toml");
   assert_eq!(held.selected.get(), Some("Cargo.toml"));
   assert!(held.activated.lock().unwrap().is_empty(), "one press only selects");
