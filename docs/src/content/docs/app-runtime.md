@@ -237,7 +237,6 @@ Size, colour and spacing do not matter; one style per family, weight and slant i
 With `devtools` enabled:
 
 ```rust
-lurq::app::devtools::load_fonts(&mut app);
 tree.mount_devtools(&mut app);
 ```
 

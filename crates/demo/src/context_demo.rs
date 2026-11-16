@@ -12,7 +12,7 @@ const CONTENT_PAD: f32 = 32.0;
 const CARD_RADIUS: f32 = 8.0;
 const PANEL_RADIUS: f32 = 6.0;
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, lurq::DevtoolsInspectable)]
 struct LocaleContext {
   locale: &'static str,
   greeting: &'static str,

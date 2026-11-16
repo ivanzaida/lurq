@@ -101,6 +101,10 @@ impl Component for DemoApp {
     if let Some(handle) = MCP_HANDLE.get() {
       handle.set_navigator(router.navigator());
     }
+    // `--devtools` opens DevTools beside the demo as it starts.
+    if std::env::args().any(|arg| arg == "--devtools") {
+      ctx.window().open_devtools();
+    }
 
     Self { router }
   }
@@ -779,7 +783,6 @@ fn main() {
   app
     .set_persistent_storage_path(default_persistent_storage_path())
     .expect("open demo persistent storage");
-  lurq::app::devtools::load_fonts(&mut app);
   let renderer = set_selected_render_engine(&mut tree, &options.renderer);
   animation_demo::register_keyframes(&mut tree);
   engine_presence_demo::register_keyframes(&mut tree);
@@ -789,6 +792,8 @@ fn main() {
     let handle = tree.enable_mcp(
       McpConfig::new()
         .app_name("lurq-demo")
+        // DevTools is a window of the demo to what drives it: it is read and captured as the pages are.
+        .include_devtools(true)
         .scopes([Scope::Observe, Scope::Interact, Scope::Navigate])
         .scope(Scope::custom("demo"))
         .tool(

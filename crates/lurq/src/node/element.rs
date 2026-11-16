@@ -320,6 +320,11 @@ impl<'a> ElementRef<'a> {
   }
 
   #[cfg(feature = "devtools")]
+  pub(crate) fn component_render_debug(&self) -> Option<crate::app::ctx::ComponentRenderDebug> {
+    self.node.component_render_debug()
+  }
+
+  #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub(crate) fn debug_attrs(&self) -> std::borrow::Cow<'_, [(std::sync::Arc<str>, std::sync::Arc<str>)]> {
     self.node.debug_attrs()
