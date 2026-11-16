@@ -186,6 +186,7 @@ pub struct Lightbox {
   zoom: Option<Signal<f32>>,
   on_zoom_change: Vec<Told<f64>>,
   zoom_max: f32,
+  preload: usize,
   filmstrip: Option<bool>,
   counter: Option<bool>,
   counter_text: Option<Arc<dyn Fn(usize, usize) -> String + Send + Sync>>,
@@ -218,6 +219,7 @@ impl Lightbox {
       zoom: None,
       on_zoom_change: Vec::new(),
       zoom_max: 4.0,
+      preload: 1,
       filmstrip: None,
       counter: None,
       counter_text: None,
@@ -281,6 +283,13 @@ impl Lightbox {
   /// Called when the picture is brought closer or further, with how close it is.
   pub fn on_zoom_change(mut self, handler: impl Fn(f64) + Send + Sync + 'static) -> Self {
     self.on_zoom_change.push(Arc::new(handler));
+    self
+  }
+
+  /// How many pictures each way of the one shown are brought on once it is there, so that an arrow shows the
+  /// next at once: 1 unless told, 0 for none.
+  pub fn preload(mut self, preload: usize) -> Self {
+    self.preload = preload;
     self
   }
 
@@ -502,12 +511,27 @@ struct LightboxHost {
   stage: ElementRef,
   /// The stage's size the picture was last laid out for.
   room: Signal<(f32, f32)>,
+  /// The picture whose pixels came, by its place.
+  came: Signal<Option<usize>>,
+  /// The pictures about the one shown brought on ahead, by their places, with the loads held while they are
+  /// on their way.
+  ahead: parking_lot::Mutex<Vec<(usize, Option<crate::resources::Load>)>>,
+  /// Moves on when a load ahead ends: what decodes what it brought.
+  ahead_tick: Signal<u64>,
+  /// What a load ahead calls when it ends: one waker, which a load keeps once.
+  ahead_wake: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Component for LightboxHost {
   type Props = LightboxProps;
 
   fn create(ctx: &mut Ctx) -> Self {
+    // A load ahead that ends renders the lightbox again; one that only came further does not.
+    let ahead_tick = ctx.signal(0u64);
+    let ahead_wake: Arc<dyn Fn() + Send + Sync> = {
+      let tick = ahead_tick.clone();
+      Arc::new(move || tick.set(tick.get_untracked().wrapping_add(1)))
+    };
     Self {
       index: ctx.signal(0),
       zoom: ctx.signal(1.0),
@@ -516,6 +540,10 @@ impl Component for LightboxHost {
       news: Arc::default(),
       stage: ElementRef::new(),
       room: ctx.signal((0.0, 0.0)),
+      came: ctx.signal(None),
+      ahead: parking_lot::Mutex::new(Vec::new()),
+      ahead_tick,
+      ahead_wake,
     }
   }
 
@@ -585,8 +613,18 @@ impl Component for LightboxHost {
     // The picture in the room it has: laid out as large as the stage, where it fits whole, and drawn closer
     // from there by what scrolls it (`ZoomScroll`): the wheel about the pointer, two fingers about their
     // middle, a double click, a drag. Until the stage is laid out it has no size to be laid out at.
+    self.bring_on(ctx, &lightbox, index);
     let shown = lightbox.pictures.get(index).cloned().map(|picture| {
-      let picture: Element = picture.in_viewer().key(format!("picture-{index}")).into();
+      let came = self.came.clone();
+      let picture: Element = picture
+        .in_viewer()
+        .on_load(move || {
+          if came.get_untracked() != Some(index) {
+            came.set(Some(index));
+          }
+        })
+        .key(format!("picture-{index}"))
+        .into();
       if room.0 <= 0.0 || room.1 <= 0.0 {
         return picture;
       }
@@ -640,6 +678,56 @@ impl Component for LightboxHost {
     }
     let news = std::mem::take(&mut *self.news.lock());
     news.iter().for_each(|tell| tell());
+  }
+}
+
+impl LightboxHost {
+  /// Brings on the pictures about the one shown, once its own pixels are there: as many each way as the
+  /// lightbox says, round the ends where it wraps. A load that ends renders this again, which decodes what it
+  /// brought.
+  fn bring_on(&self, ctx: &Ctx, lightbox: &Lightbox, index: usize) {
+    let _ = self.ahead_tick.get();
+    let count = lightbox.pictures.len();
+    let open = lightbox.inline || lightbox.open.get();
+    if !open || lightbox.preload == 0 || self.came.get() != Some(index) {
+      return;
+    }
+    let mut places = Vec::new();
+    for step in 1..=lightbox.preload.min(count) {
+      let after = index + step;
+      let before = index.checked_sub(step);
+      let after = if after < count {
+        Some(after)
+      } else {
+        lightbox.wrap.then(|| after % count)
+      };
+      let before = before.or_else(|| lightbox.wrap.then(|| (index + count - step % count) % count));
+      for at in [after, before].into_iter().flatten() {
+        if at != index && !places.contains(&at) {
+          places.push(at);
+        }
+      }
+    }
+    #[cfg(feature = "image")]
+    {
+      let loader = ctx.app_handle().map(|app| app.loader().clone());
+      let mut ahead = self.ahead.lock();
+      let held = std::mem::take(&mut *ahead);
+      for at in places {
+        // Asked once: a load that is on its way is held, and decoded here once it has ended.
+        let load = match held.iter().find(|(place, _)| *place == at) {
+          Some((_, None)) => None,
+          Some((_, Some(load))) if load.state().is_loading() => Some(load.clone()),
+          _ => lightbox.pictures[at].fetch(loader.as_ref()),
+        };
+        if let Some(load) = &load {
+          load.wake_with(self.ahead_wake.clone());
+        }
+        ahead.push((at, load));
+      }
+    }
+    #[cfg(not(feature = "image"))]
+    let _ = (ctx, places);
   }
 }
 

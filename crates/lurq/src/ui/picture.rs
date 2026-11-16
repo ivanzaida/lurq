@@ -938,6 +938,42 @@ impl Picture {
 
   /// The picture as a viewer shows it: the pixels alone, whole, in all the room there is, with nothing over
   /// them and nothing a press does. What it is called and how it loads stay.
+  /// Starts bringing the picture's pixels on without showing it: a file and bytes are decoded, a resource and
+  /// an address asked of `loader` and decoded once their bytes are there. What a picture shown later then has
+  /// at once. The load to hold while it is on its way, where the loader reads it: a load nobody holds is let
+  /// go. Called again once it has ended, it decodes what it brought.
+  #[cfg(feature = "image")]
+  pub(crate) fn fetch(&self, loader: Option<&crate::resources::Loader>) -> Option<crate::resources::Load> {
+    use crate::{
+      images::{ImageKey, ImageSizeCap, ImageSource, decoded_images},
+      resources::{LoadState, SourceKind},
+    };
+    let Source::Encoded { source, cap } = &self.source else {
+      return None;
+    };
+    let key = ImageKey::new(source.cache_key());
+    let cap = cap.map(|(width, height)| ImageSizeCap::new(width, height));
+    let decode = |from: ImageSource| {
+      decoded_images().load(key, cap, || from, None);
+    };
+    match &source.kind {
+      SourceKind::Bytes(bytes) => decode(ImageSource::Bytes(bytes.clone())),
+      SourceKind::File(path) => decode(ImageSource::File(path.clone())),
+      SourceKind::Resource(_) | SourceKind::Url(_) => {
+        if decoded_images().state(key, cap).is_some() {
+          return None;
+        }
+        let load = loader?.load(source);
+        match load.state() {
+          LoadState::Loading { .. } => return Some(load),
+          LoadState::Ready(bytes) => decode(ImageSource::Bytes(bytes)),
+          LoadState::Failed(_) => {}
+        }
+      }
+    }
+    None
+  }
+
   pub(crate) fn in_viewer(mut self) -> Self {
     self = self.stripped();
     self.width = Some(Length::Fill);

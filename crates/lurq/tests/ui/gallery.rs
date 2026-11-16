@@ -191,7 +191,48 @@ fn a_gallery_wider_than_its_room_is_as_wide_as_the_room() {
   stage.pass();
   let (x, _, width, _) = stage.bounds("photos");
   assert_eq!((x, width), (0.0, 200.0));
-  // Four in a row still, each a quarter of what the gaps leave.
+  // Two in a row: four of 92 do not fit.
   let (_, _, cell, _) = stage.bounds("photos-0");
-  assert_eq!(cell, (200.0 - 3.0 * 8.0) / 4.0);
+  assert_eq!(cell, (200.0 - 8.0) / 2.0);
+}
+
+/// A gallery of eight pictures, at most six in a row, in a room `room` wide: how many stand in its first row, and
+/// how wide the first picture is, in the first frame and once it has settled.
+fn in_a_row_at(room: f32, gallery: impl Fn() -> Gallery + Send + Sync + 'static) -> [(usize, f32); 2] {
+  let mut stage = Stage::first_frame(1000.0, 600.0, move |_| {
+    Column::new()
+      .size(1000.0, 600.0)
+      .child(Row::new().width(room).child(gallery().id("photos")))
+      .into()
+  });
+  let mut read = |stage: &mut Stage| {
+    let (_, top, width, _) = stage.bounds("photos-0");
+    let in_a_row = (0..8)
+      .take_while(|at| stage.bounds(&format!("photos-{at}")).1 == top)
+      .count();
+    (in_a_row, width)
+  };
+  let first = read(&mut stage);
+  stage.pass();
+  [first, read(&mut stage)]
+}
+
+#[test]
+fn a_narrow_room_has_fewer_pictures_in_a_row_from_the_first_frame() {
+  let gallery = || Gallery::new(pictures(8)).columns(6);
+  for (room, in_a_row) in [(300.0, 3), (520.0, 5), (900.0, 6)] {
+    let [first, settled] = in_a_row_at(room, gallery);
+    let width = (room - (in_a_row - 1) as f32 * 8.0) / in_a_row as f32;
+    assert_eq!(settled.0, in_a_row, "at {room}");
+    assert!((settled.1 - width).abs() < 0.01, "at {room}: {} wide", settled.1);
+    assert_eq!(first, settled, "at {room}, the first frame is the settled one");
+  }
+}
+
+#[test]
+fn a_least_width_of_nothing_keeps_the_columns_in_any_room() {
+  let [_, settled] = in_a_row_at(300.0, || Gallery::new(pictures(8)).columns(6).min_picture_width(0.0));
+  assert_eq!(settled.0, 6);
+  let [_, settled] = in_a_row_at(300.0, || Gallery::new(pictures(8)).columns(6).min_picture_width(140.0));
+  assert_eq!(settled.0, 2);
 }

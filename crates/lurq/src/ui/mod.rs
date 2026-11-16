@@ -335,7 +335,7 @@ pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
 };
-pub use gallery::{Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
+pub use gallery::{GALLERY_LEAST_PICTURE, Gallery, GalleryKey, GalleryPart, GalleryRenderer, GalleryState, GalleryView};
 pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, LightboxView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
 #[cfg(feature = "canvas")]
