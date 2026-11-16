@@ -1,5 +1,5 @@
-//! A fieldset: fields under a legend, which it disables together. And an error summary: what is wrong in a form,
-//! at its top, with a link to each field.
+//! A fieldset: fields under a legend, which it disables together, as a box that holds its legend or, as a group
+//! box, under it. And an error summary: what is wrong in a form, at its top, with a link to each field.
 
 use std::sync::Arc;
 
@@ -29,6 +29,8 @@ pub enum FieldsetPart {
   Title,
   /// More of it, under the title, in the muted color.
   Description,
+  /// What it holds, one under another: in a group box, the box under the legend.
+  Body,
 }
 
 names!(FieldsetPart {
@@ -36,6 +38,23 @@ names!(FieldsetPart {
   Legend => "legend",
   Title => "title",
   Description => "description",
+  Body => "body",
+});
+
+/// Where a fieldset's edge is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FieldsetVariant {
+  /// Around the legend and the fields: the fieldset of a form.
+  #[default]
+  Boxed,
+  /// Around what it holds, under a small legend: the group box of a desktop dialog, a few checkboxes or radios
+  /// that go together.
+  GroupBox,
+}
+
+names!(FieldsetVariant {
+  Boxed => "boxed",
+  GroupBox => "group_box",
 });
 
 /// The states of a fieldset a recipe styles.
@@ -59,7 +78,7 @@ pub type FieldsetRenderer = Arc<dyn Fn(FieldsetView) -> Element + Send + Sync>;
 /// address of an order, the notifications a person is sent.
 ///
 /// ```
-/// use lurq::{core::Signal, ui::{Button, ButtonVariant, Field, Fieldset, Input}};
+/// use lurq::{core::Signal, ui::{Button, Checkbox, Field, Fieldset, FieldsetVariant, Input}};
 ///
 /// let name = Signal::new(String::new());
 /// let profile = Fieldset::new("Profile")
@@ -68,6 +87,11 @@ pub type FieldsetRenderer = Arc<dyn Fn(FieldsetView) -> Element + Send + Sync>;
 ///   .child(Button::new("Save profile"));
 /// // Every control in it takes no input, and the whole fieldset is dimmed.
 /// let locked = Fieldset::new("Billing").disabled(true);
+/// // A group box: a small legend over a box of options.
+/// let startup = Fieldset::new("Startup")
+///   .variant(FieldsetVariant::GroupBox)
+///   .child(Checkbox::new("Open at login").checked(true))
+///   .child(Checkbox::new("Restore windows"));
 /// ```
 ///
 /// What it holds is one under another, as wide as the fieldset: a [`Field`] given with [`Fieldset::field`] is made
@@ -77,6 +101,7 @@ pub struct Fieldset {
   legend: Arc<str>,
   description: Option<Arc<str>>,
   children: Vec<Element>,
+  variant: Name,
   disabled: bool,
   full_width: bool,
   states: Vec<Name>,
@@ -92,6 +117,7 @@ impl Fieldset {
       legend: Arc::from(legend),
       description: None,
       children: Vec::new(),
+      variant: FieldsetVariant::default().into(),
       disabled: false,
       full_width: false,
       states: Vec::new(),
@@ -99,6 +125,13 @@ impl Fieldset {
       id: None,
       key: None,
     }
+  }
+
+  /// A [`FieldsetVariant`], or a variant the theme's recipe names: `GroupBox` is a small legend over a box of
+  /// what it holds.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
+    self
   }
 
   /// More of what the fields are, under the legend, in the muted color.
@@ -131,7 +164,8 @@ impl Fieldset {
     self
   }
 
-  /// Whether the fieldset is as wide as what holds it, in place of the 400 the board gives it.
+  /// Whether the fieldset is as wide as what holds it, in place of the 400 the board gives it (250 as a group
+  /// box).
   pub fn full_width(mut self, full_width: bool) -> Self {
     self.full_width = full_width;
     self
@@ -174,7 +208,7 @@ impl Fieldset {
   /// being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let case = Case {
-      variant: None,
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
@@ -263,10 +297,20 @@ impl FieldsetView {
     root
   }
 
-  /// How the default renderer builds a fieldset: the legend and what it holds, one under another.
+  /// What it holds, one under another, each as wide as the fieldset: a group box's edge is around this.
+  pub fn body(&mut self) -> Column {
+    Column::new()
+      .align_items(Alignment::Stretch)
+      // The ring of a focused control is drawn outside it.
+      .overflow_visible()
+      .part(&self.part(FieldsetPart::Body))
+      .with_children(std::mem::take(&mut self.children))
+  }
+
+  /// How the default renderer builds a fieldset: the legend, and what it holds under it.
   pub fn render(mut self) -> Element {
-    let children = std::mem::take(&mut self.children);
-    self.root().child(self.legend()).with_children(children).into()
+    let body = self.body();
+    self.root().child(self.legend()).child(body).into()
   }
 }
 
@@ -287,32 +331,47 @@ impl Themed for Fieldset {
   /// The design's fieldset (`pencil/lurq-design-system.pen`, Fieldset): 400 wide, padded 20, with an edge of 1 of
   /// the border's color inside it and corners of `radius-lg`; the legend and the fields one under another, 16
   /// apart. The legend's title is 15 and semibold in the foreground, its description 4 under it in 13 of the
-  /// muted color. A disabled one is dimmed.
+  /// muted color. A disabled one is dimmed. As a group box (Group Box) it is 250 wide: the legend's title 12 and
+  /// semibold in the muted color, and 6 under it a box with the edge and corners of `radius-md`, padded 12, what it
+  /// holds 10 apart. The board gives a group box no description: it is 12, 2 under the title.
   fn recipe() -> Recipe {
-    use FieldsetPart::{Description, Legend, Root, Title};
+    use FieldsetPart::{Body, Description, Legend, Root, Title};
+    use FieldsetVariant::{Boxed, GroupBox};
     use PaletteColor::{Foreground, MutedForeground};
+    let edge = || Border::inside(BorderSize::Sm, PaletteColor::Border);
     Recipe::new()
-      .base(Root, |s| {
+      .base(Root, |s| s.max_width(Length::Fill).foreground(Foreground))
+      .variant(Boxed, Root, |s| {
         s.width(400.0)
-          .max_width(Length::Fill)
           .padding_x(20.0)
           .padding_y(20.0)
           .gap(16.0)
           .radius(RadiusSize::Lg)
-          .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
-          .foreground(Foreground)
+          .border(edge())
       })
+      .variant(GroupBox, Root, |s| s.width(250.0).gap(6.0))
       .base(Legend, |s| s.gap(4.0))
+      .variant(GroupBox, Legend, |s| s.gap(2.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(15.0)
           .weight(FontWeight::SemiBold)
           .foreground(Foreground)
       })
+      .variant(GroupBox, Title, |s| s.font_size(12.0).foreground(MutedForeground))
       .base(Description, |s| {
         s.typography(TypographyStyle::Description)
           .font_size(13.0)
           .foreground(MutedForeground)
+      })
+      .variant(GroupBox, Description, |s| s.font_size(12.0))
+      .base(Body, |s| s.gap(16.0))
+      .variant(GroupBox, Body, |s| {
+        s.padding_x(12.0)
+          .padding_y(12.0)
+          .gap(10.0)
+          .radius(RadiusSize::Md)
+          .border(edge())
       })
       .state(FieldsetState::FullWidth, Root, |s| s.width(Length::Fill))
       .state(FieldsetState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))

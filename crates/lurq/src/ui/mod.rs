@@ -280,7 +280,7 @@ pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
-  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
+  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetVariant, FieldsetView,
 };
 pub use file_upload::{
   FileUpload, FileUploadPart, FileUploadRenderer, FileUploadState, FileUploadView, UploadFile, UploadState,

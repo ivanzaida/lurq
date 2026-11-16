@@ -10,10 +10,10 @@ use lurq::{
   node::{Element, color::Color},
   ui::{
     AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker,
-    DropZone, ErrorSummary, Field, FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions, MentionsController,
-    MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress, ProgressDialog, Property,
-    PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast,
-    TokenInput, Waveform,
+    DropZone, ErrorSummary, Field, FieldError, Fieldset, FieldsetVariant, FileUpload, Input, InputGroup, Mentions,
+    MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome, PasswordInput, Progress,
+    ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea,
+    TimeField, TimePicker, Toast, TokenInput, Waveform,
   },
 };
 
@@ -135,6 +135,17 @@ fn a_fieldset_is_no_wider_than_a_narrow_room() {
   fits(|| {
     Fieldset::new("Profile")
       .description("What others see of you, wherever your name is shown.")
+      .child(Field::new("Display name", Input::new(text())))
+      .id("it")
+      .into()
+  });
+}
+
+#[test]
+fn a_group_box_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    Fieldset::new("Everything this app does when the computer starts")
+      .variant(FieldsetVariant::GroupBox)
       .child(Field::new("Display name", Input::new(text())))
       .id("it")
       .into()

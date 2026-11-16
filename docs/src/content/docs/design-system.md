@@ -2430,10 +2430,10 @@ RadioCard::new("Team")
 
 ## Fieldset
 
-Fields that go together, under a legend that says what they are: the profile of an account, the address of an order.
+Fields that go together, under a legend that says what they are: the profile of an account, the address of an order. As a group box, a few options of a desktop dialog under a small legend.
 
 ```rust
-use lurq::ui::{Button, Field, Fieldset, Input};
+use lurq::ui::{Button, Checkbox, Field, Fieldset, FieldsetVariant, Input};
 
 Fieldset::new("Profile")
   .description("Shown to people you share a workspace with.")
@@ -2441,20 +2441,28 @@ Fieldset::new("Profile")
   .field(Field::new("Bio", Input::new(bio).full_width(true)).optional(true))
   .child(Button::new("Save profile"))
   .disabled(locked.get());
+
+// A group box: the legend over a box of what it holds.
+Fieldset::new("Startup")
+  .variant(FieldsetVariant::GroupBox)
+  .child(Checkbox::new("Open at login").bind(login))
+  .child(Checkbox::new("Restore windows").bind(restore));
 ```
 
 | Builder | |
 | --- | --- |
+| `variant(..)` | `FieldsetVariant::Boxed` (the default: the edge around the legend and the fields) or `GroupBox` (a small legend over a box of what it holds), or a variant the theme's recipe names |
 | `description(&str)` | More of it, 4 under the legend, in the muted color |
 | `field(Field)` | Adds a field, made as wide as the fieldset (`Field::full_width`) |
 | `child(element)`, `children(..)` | Adds anything else under what is there: a row of buttons, a group of cards, an [error summary](#error-summary) |
 | `disabled(bool)` | Every control in it takes no input and Tab passes it by; the whole fieldset is dimmed |
-| `full_width(bool)` | As wide as what holds it, in place of 400 |
+| `full_width(bool)` | As wide as what holds it, in place of 400 (250 as a group box) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [field](#field) has them |
 
 - What it holds is one under another, 16 apart, and stretched to its width: a field keeps a width of its own unless it is made full width, which `field` does.
-- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`. States: `FieldsetState::Disabled`, `FullWidth`.
+- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`, `Body` (what it holds; a group box's edge is around it). States: `FieldsetState::Disabled`, `FullWidth`.
 - In the design the fieldset is 400 wide, padded 20, with an edge of 1 of `Border` inside it and the large radius. The legend's title is 15 and semibold in `Foreground`, its description 13 in `MutedForeground`.
+- The group box of the design (`Group Box`) is the `GroupBox` variant: 250 wide, the legend's title 12 and semibold in `MutedForeground`, and 6 under it a box with an edge of 1 of `Border` and the medium radius, padded 12, what it holds 10 apart. The board gives it no description: one is 12, 2 under the title. It names its group and disables it as the boxed fieldset does.
 - A disabled fieldset disables its root, and an element that is disabled takes everything in it out of input, whatever it is: a control the app built itself too. The fieldset is dimmed as a whole, so a control in it is not dimmed again by its own disabled state.
 - To what reads the tree it is a `group` called by its legend and described by its description.
 

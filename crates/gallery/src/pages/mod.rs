@@ -356,7 +356,7 @@ pub const PAGES: &[Page] = &[
     path: "/fieldset",
     name: "Fieldset",
     icon: Some("rows-4"),
-    about: "fieldset legend group fields disabled form error summary errors alert attention link focus description field child children full_width ield rror new focuses",
+    about: "fieldset legend group fields disabled form error summary errors alert attention link focus description field child children full_width ield rror new focuses group box groupbox frame options checkboxes radios variant boxed",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<fieldset::FieldsetPage>(()),
   },
