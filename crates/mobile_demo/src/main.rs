@@ -232,8 +232,28 @@ fn screen(ctx: &mut Ctx, path: &str, content: impl FnOnce(&mut Ctx) -> Element) 
     .into()
 }
 
+/// The folder the demo keeps what it loaded from addresses in, for its next run: its own, among the caches of the
+/// user: on a phone, `Library/Caches` of the app's own container, which the system may empty. The app chooses it; lurq
+/// picks none.
+fn cache_folder() -> std::path::PathBuf {
+  use std::{env::var_os, path::PathBuf};
+  let home = |under: &str| var_os("HOME").map(|home| PathBuf::from(home).join(under));
+  let caches = if cfg!(windows) {
+    var_os("LOCALAPPDATA").map(PathBuf::from)
+  } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+    home("Library/Caches")
+  } else {
+    var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| home(".cache"))
+  };
+  caches
+    .unwrap_or_else(std::env::temp_dir)
+    .join("lurq-mobile-demo")
+    .join("media")
+}
+
 fn main() {
-  let mut app = App::new();
+  // What the Sound screen loads from its address is kept on the disk, and is there the next time the app runs.
+  let mut app = App::new().enable_media_disk_cache(cache_folder());
   let mut tree = Tree::new();
   tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
   #[cfg(feature = "mcp")]
