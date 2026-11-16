@@ -1,16 +1,16 @@
 #[cfg(feature = "canvas")]
 mod canvas;
 mod extension;
-#[cfg(all(windows, feature = "raster"))]
-mod shared_nv12;
-#[cfg(all(test, windows, feature = "raster", feature = "media"))]
-mod shared_nv12_tests;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
 mod gradients;
 mod layers;
 #[cfg(test)]
 mod quad_tests;
+#[cfg(all(windows, feature = "raster"))]
+mod shared_nv12;
+#[cfg(all(test, windows, feature = "raster", feature = "media"))]
+mod shared_nv12_tests;
 mod surface_proxy;
 mod vertex;
 

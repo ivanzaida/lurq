@@ -71,8 +71,8 @@ fn drawn_from(device: &wgpu::Device, queue: &wgpu::Queue, image: &ImageData) -> 
     .expect("the frames of the card")
     .clone();
   let shown = frames.handles()[frames.shown()];
-  let texture = shared_nv12::open(device, shown, image.width(), image.height())
-    .expect("the renderer's device opens the frame");
+  let texture =
+    shared_nv12::open(device, shown, image.width(), image.height()).expect("the renderer's device opens the frame");
   drawn(device, queue, &texture, image.width(), image.height())
 }
 
@@ -116,7 +116,7 @@ fn drawn(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, wi
          let pixel = vec2<i32>(at.xy);
          return vec4(textureLoad(gray, pixel, 0).r, textureLoad(color, pixel / 2, 0).rg, 1.0);
        }"
-        .into(),
+      .into(),
     ),
   });
   let plane = |binding| wgpu::BindGroupLayoutEntry {
@@ -313,11 +313,21 @@ fn a_frame_decoded_and_drawn_on_the_card_is_the_frame_memory_gives() {
   }
   early.pause();
   let shown = moved.version() - before;
-  assert!((10..=22).contains(&shown), "about 18 frames of 30 a second in 0.6 s: {shown}");
-  assert_eq!(slots.len(), frames.handles().len(), "every texture took its turn: {slots:?}");
+  assert!(
+    (10..=22).contains(&shown),
+    "about 18 frames of 30 a second in 0.6 s: {shown}"
+  );
+  assert_eq!(
+    slots.len(),
+    frames.handles().len(),
+    "every texture took its turn: {slots:?}"
+  );
   let later = drawn_from(&device, &queue, &moved);
   let (gray, ..) = differing(&later, &memory, wide, high);
-  assert!(gray > wide * high / 100, "a frame half a second on is another picture: {gray} pixels differ");
+  assert!(
+    gray > wide * high / 100,
+    "a frame half a second on is another picture: {gray} pixels differ"
+  );
   assert_eq!(early.state().error, None);
   crate::images::set_shared_nv12_adapter(None);
 }

@@ -30,20 +30,18 @@ use windows::{
       },
     },
     Media::MediaFoundation::{
-      IMFDXGIBuffer, IMFDXGIDeviceManager, MF_SOURCE_READER_D3D_MANAGER, MFCreateDXGIDeviceManager,
-      IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM,
-      MF_E_INVALID_FILE_FORMAT,
-      MF_E_INVALID_FORMAT, MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE,
-      MF_E_UNSUPPORTED_FORMAT, MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE,
-      MF_MT_AUDIO_NUM_CHANNELS,
-      MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
-      MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-      MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+      IMFAttributes, IMFDXGIBuffer, IMFDXGIDeviceManager, IMFMediaType, IMFSample, IMFSourceReader,
+      MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM, MF_E_INVALID_FILE_FORMAT, MF_E_INVALID_FORMAT,
+      MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE, MF_E_UNSUPPORTED_FORMAT,
+      MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
+      MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE,
+      MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
+      MF_SOURCE_READER_D3D_MANAGER, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
       MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
       MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED, MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFAudioFormat_Float,
-      MFAudioFormat_PCM, MFCreateAttributes, MFCreateMFByteStreamOnStream, MFCreateMediaType,
-      MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video,
-      MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
+      MFAudioFormat_PCM, MFCreateAttributes, MFCreateDXGIDeviceManager, MFCreateMFByteStreamOnStream,
+      MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL, MFMediaType_Audio,
+      MFMediaType_Video, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
     },
     System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage::PROPVARIANT},
     UI::Shell::SHCreateMemStream,
@@ -340,10 +338,7 @@ impl OnCard {
       .ok()?;
       let (device, context) = (device?, context?);
       // The decoder uses the device from threads of its own.
-      let _ = device
-        .cast::<ID3D11Multithread>()
-        .ok()?
-        .SetMultithreadProtected(true);
+      let _ = device.cast::<ID3D11Multithread>().ok()?.SetMultithreadProtected(true);
       let (mut token, mut manager) = (0_u32, None);
       MFCreateDXGIDeviceManager(&mut token, &mut manager).ok()?;
       let manager = manager?;

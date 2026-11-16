@@ -124,14 +124,23 @@ impl Component for SoundScreen {
         Some(why) => format!("error: {why}"),
         None => "no error".to_owned(),
       }));
-    let pair = |one: Row, other: Row| Row::new().width(FILL).spacing(8.0).child(one.flex(1.0)).child(other.flex(1.0));
+    let pair = |one: Row, other: Row| {
+      Row::new()
+        .width(FILL)
+        .spacing(8.0)
+        .child(one.flex(1.0))
+        .child(other.flex(1.0))
+    };
     let address = Source::url(ADDRESS);
     let kept = sound_cache().holds(&address);
     let content = Column::new()
       .width(FILL)
       .padding(16.0)
       .spacing(12.0)
-      .child(caption("A media that is only heard, from the bytes of a track in the app. Its volume starts at a half.").width(FILL))
+      .child(
+        caption("A media that is only heard, from the bytes of a track in the app. Its volume starts at a half.")
+          .width(FILL),
+      )
       .child(card(said))
       .child(pair(
         button("Play", does(Media::play)),

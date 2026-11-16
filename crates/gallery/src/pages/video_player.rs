@@ -898,11 +898,7 @@ impl Component for VideoPlayerPage {
       let (waiting, ended, error) = (waiting.clone(), ended.clone(), error.clone());
       let source = source.clone();
       move || {
-        if !playing.get_untracked()
-          || waiting.get_untracked()
-          || error.get_untracked()
-          || source.get_untracked() != 0
-        {
+        if !playing.get_untracked() || waiting.get_untracked() || error.get_untracked() || source.get_untracked() != 0 {
           return;
         }
         let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();

@@ -28,11 +28,11 @@ use std::{
   time::{Duration, Instant},
 };
 
+pub use crate::core::MediaError;
 use crate::{
   images::ImageData,
   resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Source, SourceKind},
 };
-pub use crate::core::MediaError;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
@@ -441,7 +441,9 @@ impl Media {
       .name("lurq-media".to_owned())
       .spawn(move || live(&thread, asked, heard, mf::run));
     if spawned.is_err() {
-      shared.fail(MediaError::Other(Arc::from("a thread to decode on could not be started")));
+      shared.fail(MediaError::Other(Arc::from(
+        "a thread to decode on could not be started",
+      )));
     }
   }
 

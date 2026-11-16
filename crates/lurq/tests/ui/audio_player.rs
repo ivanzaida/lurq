@@ -609,7 +609,9 @@ fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   until(&mut stage, "playing", |stage| stage.paints("0:01"));
   // Sent on by the keys of its bar, it is there.
   stage.click("p-seek");
-  until(&mut stage, "sent to the middle", |stage| stage.paints("0:06") || stage.paints("0:07"));
+  until(&mut stage, "sent to the middle", |stage| {
+    stage.paints("0:06") || stage.paints("0:07")
+  });
   // Pause: it stands where it is.
   stage.click("p-play");
   assert_eq!(said(&log), ["playing true", "playing false"]);
@@ -638,7 +640,10 @@ fn given_a_source_it_plays_the_sound_and_its_controls_move_it() {
   until(&mut broken, "the error", |stage| {
     stage.tree.get_element_by_id_mut("p-retry").is_some()
   });
-  assert!(broken.paints("Unsupported format"), "a short line, in the locale's words");
+  assert!(
+    broken.paints("Unsupported format"),
+    "a short line, in the locale's words"
+  );
   assert!(broken.paints("Try again"));
 }
 
@@ -698,7 +703,11 @@ fn a_sound_at_an_address_is_loaded_when_it_is_first_played_and_not_for_being_dra
     stage.pass();
     std::thread::sleep(std::time::Duration::from_millis(40));
   }
-  assert_eq!(asked.load(Ordering::Relaxed), 0, "a player that is only drawn loads nothing");
+  assert_eq!(
+    asked.load(Ordering::Relaxed),
+    0,
+    "a player that is only drawn loads nothing"
+  );
   assert!(stage.paints("1:35"), "the length the app gave");
   assert!(!lurq::media::sound_cache().holds(&source));
 
@@ -852,12 +861,7 @@ fn it_speaks_in_the_apps_locale_and_in_its_own_where_it_is_given_one() {
   // With no locale of the app's and none of its own, it speaks English; a word told by itself is that word.
   let mut plain = Stage::new(move |_| Column::new().width(360.0).child(player()).into());
   assert!(plain.paints("Try again"));
-  let mut told = Stage::new(move |_| {
-    Column::new()
-      .width(360.0)
-      .child(player().retry_text("Again"))
-      .into()
-  });
+  let mut told = Stage::new(move |_| Column::new().width(360.0).child(player().retry_text("Again")).into());
   assert!(told.paints("Again") && !told.paints("Try again"));
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   assert_eq!(named(&mut own, "p-previous").as_deref(), Some("Wstecz"));
