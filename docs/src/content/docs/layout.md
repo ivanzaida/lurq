@@ -859,6 +859,11 @@ A frame costs what changed and what is in view, not what the tree holds. A frame
 - **Transitions tick what may have changed**: a subtree in which nothing runs is ticked clean, and not ticked again
   until it changes, a state of interaction (a hover, a press, the focus) or a theme changes anywhere, or a
   transition starts in it. Animations tick only where one plays.
+- **A component built again on its own costs itself and its way to the root**: its output is looked for only down
+  the subtrees that hold a component's output, the nodes it brought are numbered and take the disabled state of what
+  they are in, and the rest of the tree is not numbered again; the column it is in is patched where it changed, the
+  rest of the column not walked again. A component built again beside a document of 3,000 blocks takes 0.4 ms
+  where it took 0.9.
 
 `perf_profile` names these steps as [frame sections](../profiling/#frame-sections), to see where a frame goes.
 

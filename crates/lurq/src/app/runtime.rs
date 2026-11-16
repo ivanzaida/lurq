@@ -7352,10 +7352,6 @@ impl Tree {
       }
     }
 
-    if let Some(root) = &mut self.root {
-      crate::app::profile_support::frame_section!("refresh:assign_ids");
-      root.assign_tree_ids(&self.id_gen);
-    }
     {
       crate::app::profile_support::frame_section!("ul:begin_leaving");
       self.begin_leaving_children();
@@ -12244,7 +12240,13 @@ fn replace_live_component_slot_everywhere(
   id_gen: &IdGenerator,
 ) -> bool {
   let mut places = Vec::new();
-  find_live_component_slot(root, slot_id, &mut Vec::new(), &mut places);
+  // Only down the subtrees that hold a component's output: its way from the root, not the tree. Where that finds
+  // nothing, the whole tree is looked through: what a subtree knows of itself holds where its tracking is fresh,
+  // and this is the check of it.
+  find_live_component_slot(root, slot_id, true, &mut Vec::new(), &mut places);
+  if places.is_empty() {
+    find_live_component_slot(root, slot_id, false, &mut Vec::new(), &mut places);
+  }
   let mut replacement = Some(replacement);
   let count = places.len();
   for (index, path) in places.iter().enumerate() {
@@ -12257,8 +12259,30 @@ fn replace_live_component_slot_everywhere(
         .clone_boxed()
     };
     replace_live_component_root(live_node_at(root, path), fresh, id_gen);
+    // Numbered as it came in; disabled as what it is in is. The rest of the tree did not change: it is not
+    // numbered or synced again.
+    if crate::node::node::disabled_in_use()
+      && let Some(inherited) = disabled_above(root, path)
+    {
+      live_node_at(root, path).assign_ids_and_disabled(id_gen, inherited);
+    }
   }
   count > 0
+}
+
+/// Whether a node at `path` from `root` is in a disabled element: one of the nodes above it is. None where the way
+/// goes into a layer's node, which takes nothing from the node that declares it.
+fn disabled_above(root: &Node, path: &[LiveStep]) -> Option<bool> {
+  let mut node = root;
+  let mut disabled = false;
+  for step in path {
+    disabled |= node.is_disabled();
+    match step {
+      LiveStep::Child(index) => node = &node.children[*index],
+      LiveStep::Modal | LiveStep::Overlay => return None,
+    }
+  }
+  Some(disabled)
 }
 
 /// A step from a live node towards a component's root: into a child, or
@@ -12270,25 +12294,35 @@ enum LiveStep {
   Overlay,
 }
 
-/// The paths of the roots of component `slot_id` in the live tree.
-fn find_live_component_slot(node: &Node, slot_id: u64, path: &mut Vec<LiveStep>, places: &mut Vec<Vec<LiveStep>>) {
+/// The paths of the roots of component `slot_id` in the live tree. `pruned` passes by a subtree that holds no
+/// component's output (see [`Node::holds_no_component`]).
+fn find_live_component_slot(
+  node: &Node,
+  slot_id: u64,
+  pruned: bool,
+  path: &mut Vec<LiveStep>,
+  places: &mut Vec<Vec<LiveStep>>,
+) {
   if node.component_slot_id() == Some(slot_id) {
     places.push(path.clone());
     return;
   }
   for (index, child) in node.children.iter().enumerate() {
+    if pruned && child.holds_no_component() {
+      continue;
+    }
     path.push(LiveStep::Child(index));
-    find_live_component_slot(child, slot_id, path, places);
+    find_live_component_slot(child, slot_id, pruned, path, places);
     path.pop();
   }
   if let Some(spec) = node.modal_declaration.as_ref() {
     path.push(LiveStep::Modal);
-    find_live_component_slot(&spec.node, slot_id, path, places);
+    find_live_component_slot(&spec.node, slot_id, pruned, path, places);
     path.pop();
   }
   if let Some(spec) = node.overlay_declaration.as_ref() {
     path.push(LiveStep::Overlay);
-    find_live_component_slot(&spec.node, slot_id, path, places);
+    find_live_component_slot(&spec.node, slot_id, pruned, path, places);
     path.pop();
   }
 }

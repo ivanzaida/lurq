@@ -38,6 +38,7 @@ impl Node {
         || shrink.drop_below.is_some()
         || shrink.marker,
       animations: self.playing_animation().is_some(),
+      slots: self.component_slot_id().is_some(),
       ..LayoutSubtree::default()
     };
     match self.node_kind() {
@@ -87,6 +88,7 @@ impl Node {
       subtree.layers |= child.layers;
       subtree.droppable |= child.droppable;
       subtree.animations |= child.animations;
+      subtree.slots |= child.slots;
     }
     // A newly attached subtree must be inspected even if its old parent has
     // already consumed its dirty marks (the overlay host lays its base first).
@@ -98,5 +100,19 @@ impl Node {
     cache.set_subtree(subtree);
     cache.tracking_generation.set(watch.generation());
     subtree
+  }
+}
+
+impl Node {
+  /// Whether nothing under this node is the root of a component's output, as its tracking knows while it is fresh:
+  /// a component built again on its own is not looked for here. A node its tracking has not seen as it is now, or
+  /// that declares a layer (whose node is not among its children), may hold one.
+  pub(crate) fn holds_no_component(&self) -> bool {
+    let cache = &self.layout_cache;
+    if cache.tracking_generation.get() != cache.watch().generation() {
+      return false;
+    }
+    let subtree = cache.subtree();
+    !subtree.slots && !subtree.layers
   }
 }

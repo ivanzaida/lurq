@@ -71,10 +71,13 @@ pub(crate) struct LayoutSubtree {
   pub(crate) droppable: bool,
   /// It, or something under it, plays an animation: what the animation engine ticks.
   pub(crate) animations: bool,
+  /// It, or something under it, is the root of a component's output: where a component built again on its own is
+  /// looked for.
+  pub(crate) slots: bool,
 }
 
 impl LayoutSubtree {
-  fn flags(&self) -> [bool; 12] {
+  fn flags(&self) -> [bool; 13] {
     [
       self.text_input,
       self.select,
@@ -88,6 +91,7 @@ impl LayoutSubtree {
       self.layers,
       self.droppable,
       self.animations,
+      self.slots,
     ]
   }
 
@@ -114,6 +118,7 @@ impl LayoutSubtree {
       layers: on(9),
       droppable: on(10),
       animations: on(11),
+      slots: on(12),
     }
   }
 
@@ -279,6 +284,33 @@ impl LayoutCache {
 
   pub(crate) fn set_prepared(&self, prepared: Option<Box<PreparedServe>>) {
     self.prepared.set(prepared);
+  }
+
+  /// Whether `entry` is the one this node was last prepared from, or into, and no text's layout was written since
+  /// (`text_writes` is [`crate::node::node_kind::text_state_writes`] now): what is in it holds what it was
+  /// prepared with.
+  pub(crate) fn prepared_from(&self, entry: &Arc<LayoutResult>, text_writes: u64) -> bool {
+    let prepared = self.prepared.take();
+    let held = prepared.as_ref().is_some_and(|prepared| {
+      prepared.text_writes == text_writes
+        && (prepared.served == Arc::as_ptr(entry) as usize || Arc::ptr_eq(&prepared.result, entry))
+    });
+    self.prepared.set(prepared);
+    held
+  }
+
+  /// Notes `result` as prepared as it is, with `text_writes` written: served again with nothing written since, it is
+  /// not walked again. Only a tree with texts or scroll containers to walk is noted.
+  pub(crate) fn prepared_now(&self, result: &Arc<LayoutResult>, text_writes: u64) {
+    if !(result.holds.scroll || result.holds.text) {
+      self.prepared.set(None);
+      return;
+    }
+    self.prepared.set(Some(Box::new(PreparedServe {
+      served: Arc::as_ptr(result) as usize,
+      text_writes,
+      result: result.clone(),
+    })));
   }
 
   /// The node's watch, made here the first time anything reads or binds it.
@@ -971,15 +1003,15 @@ mod subtree_tests {
   #[test]
   fn every_flag_of_a_subtree_is_kept_as_it_was_set() {
     let cache = LayoutCache::default();
-    for at in 0..12 {
-      let mut flags = [false; 12];
+    for at in 0..13 {
+      let mut flags = [false; 13];
       flags[at] = true;
       let subtree = LayoutSubtree::unpack(1 << at);
       assert_eq!(subtree.flags(), flags, "flag {at}");
       cache.set_subtree(subtree);
       assert_eq!(cache.subtree().flags(), flags, "flag {at} kept");
     }
-    cache.set_subtree(LayoutSubtree::unpack(0xfff));
-    assert_eq!(cache.subtree().flags(), [true; 12]);
+    cache.set_subtree(LayoutSubtree::unpack(0x1fff));
+    assert_eq!(cache.subtree().flags(), [true; 13]);
   }
 }

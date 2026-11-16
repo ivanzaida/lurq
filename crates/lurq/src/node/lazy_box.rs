@@ -21,6 +21,7 @@ impl<T> LazyBox<T> {
   }
 
   /// The value, where one was ever written.
+  #[cfg(feature = "devtools")]
   pub(crate) fn get(&self) -> Option<&T> {
     self.0.as_deref()
   }

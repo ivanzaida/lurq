@@ -1019,7 +1019,14 @@ pub(crate) struct RareStyle {
 /// has a disabled state to keep.
 static DISABLED_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn disabled_in_use() -> bool {
+/// Whether any node of the process was ever built to take every key: until one is, no window looks for one.
+static KEY_CAPTURE_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn key_capture_in_use() -> bool {
+  KEY_CAPTURE_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn disabled_in_use() -> bool {
   DISABLED_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -1174,6 +1181,9 @@ impl NodeUpdate for Node {
   fn captures_keys(&mut self, captures: bool) {
     if self.rare_style.captures_keys != captures {
       self.rare_style.captures_keys = captures;
+    }
+    if captures {
+      KEY_CAPTURE_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
   }
 
@@ -4731,7 +4741,7 @@ impl Node {
     }
   }
 
-  fn assign_ids_and_disabled(&mut self, id_gen: &IdGenerator, inherited: bool) {
+  pub(crate) fn assign_ids_and_disabled(&mut self, id_gen: &IdGenerator, inherited: bool) {
     if !self.node_id.is_assigned() {
       self.node_id = id_gen.next();
     }

@@ -84,7 +84,10 @@ fn measure(sections: usize) -> (Duration, Duration, Duration) {
   #[cfg(feature = "perf_profile")]
   if std::env::var_os("LURQ_REBUILD_SECTIONS").is_some() {
     for (name, total, count) in lurq::app::profiler::take_frame_sections() {
-      println!("  {sections} sections, built again, {name}: {:.3} ms ({count} runs)", total.as_secs_f64() * 1000.0);
+      println!(
+        "  {sections} sections, built again, {name}: {:.3} ms ({count} runs)",
+        total.as_secs_f64() * 1000.0
+      );
     }
   }
 
@@ -121,6 +124,117 @@ fn measure(sections: usize) -> (Duration, Duration, Duration) {
   (first, again, frames[frames.len() / 2])
 }
 
+/// Tab taking the focus from one link of the document to the next, twenty times: the median frame. Nothing is built
+/// again; the focus moves.
+fn tab_through_links(sections: usize) -> Duration {
+  let source = Signal::new(document(sections));
+  let state = ScrollState::new();
+  SOURCE.with(|slot| *slot.borrow_mut() = Some((source.clone(), state.clone())));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(720.0, 900.0))));
+  tree.mount_root::<Long>(&mut app, ());
+  render_pass_with_app(&mut tree, &mut app);
+  render_pass_with_app(&mut tree, &mut app);
+  #[cfg(feature = "perf_profile")]
+  lurq::app::profiler::take_frame_sections();
+  let mut frames = Vec::new();
+  for _ in 0..20 {
+    let started = Instant::now();
+    tree.key_down("Tab".into(), "Tab".into(), false, false, false);
+    tree.key_up("Tab".into(), "Tab".into(), false, false, false);
+    render_pass_with_app(&mut tree, &mut app);
+    frames.push(started.elapsed());
+  }
+  #[cfg(feature = "perf_profile")]
+  if std::env::var_os("LURQ_COMPONENT_SECTIONS").is_some() {
+    for (name, total, count) in lurq::app::profiler::take_frame_sections() {
+      println!(
+        "  {sections} sections, a Tab, {name}: {:.3} ms a frame ({count} runs)",
+        total.as_secs_f64() * 1000.0 / 20.0
+      );
+    }
+  }
+  frames.sort();
+  frames[frames.len() / 2]
+}
+
+thread_local! {
+  static TICK: std::cell::RefCell<Option<Signal<u32>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A component of its own beside the document: it alone is built again when its signal changes.
+struct Ticker;
+
+impl Component for Ticker {
+  type Props = ();
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, _: &mut Ctx) -> impl Into<lurq::node::Element> {
+    let tick = TICK.with(|slot| slot.borrow().clone().expect("installed")).get();
+    lurq::components::Rect::new(40.0, 10.0 + (tick % 7) as f32)
+  }
+}
+
+/// The document with the ticker after it, in one scroll container.
+struct WithTicker;
+
+impl Component for WithTicker {
+  type Props = ();
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<lurq::node::Element> {
+    let (source, state) = SOURCE.with(|slot| slot.borrow().clone().expect("installed"));
+    let markdown = Markdown::mount(ctx, MarkdownProps::new(source.get()));
+    let ticker = ctx.mount::<Ticker>(());
+    ScrollVertical::new(lurq::components::Column::new().child(markdown).child(ticker))
+      .with_scroll_state(state)
+      .size(720.0, 900.0)
+  }
+}
+
+/// One component built again beside the document, twenty times: the median frame. The document is not built again;
+/// what is looked through, numbered and laid out again for it is what this measures.
+fn ticker_beside(sections: usize) -> Duration {
+  let source = Signal::new(document(sections));
+  let state = ScrollState::new();
+  let tick = Signal::new(0u32);
+  SOURCE.with(|slot| *slot.borrow_mut() = Some((source.clone(), state.clone())));
+  TICK.with(|slot| *slot.borrow_mut() = Some(tick.clone()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(720.0, 900.0))));
+  tree.mount_root::<WithTicker>(&mut app, ());
+  render_pass_with_app(&mut tree, &mut app);
+  render_pass_with_app(&mut tree, &mut app);
+  #[cfg(feature = "perf_profile")]
+  lurq::app::profiler::take_frame_sections();
+  let mut frames = Vec::new();
+  for frame in 0..20 {
+    let started = Instant::now();
+    tick.set(frame + 1);
+    render_pass_with_app(&mut tree, &mut app);
+    frames.push(started.elapsed());
+  }
+  #[cfg(feature = "perf_profile")]
+  if std::env::var_os("LURQ_COMPONENT_SECTIONS").is_some() {
+    for (name, total, count) in lurq::app::profiler::take_frame_sections() {
+      println!(
+        "  {sections} sections, a component beside it, {name}: {:.3} ms a frame ({count} runs)",
+        total.as_secs_f64() * 1000.0 / 20.0
+      );
+    }
+  }
+  frames.sort();
+  frames[frames.len() / 2]
+}
+
 #[test]
 #[ignore = "a measure, run by hand in release"]
 fn speed_of_a_long_document() {
@@ -136,6 +250,14 @@ fn speed_of_a_long_document() {
       millis(first),
       millis(again),
       millis(scroll)
+    );
+    let tab = (0..5).map(|_| tab_through_links(sections)).min().unwrap_or_default();
+    println!("{} blocks: a Tab through its links, {}", sections * 10, millis(tab));
+    let ticker = (0..5).map(|_| ticker_beside(sections)).min().unwrap_or_default();
+    println!(
+      "{} blocks: a component beside it built again, {}",
+      sections * 10,
+      millis(ticker)
     );
   }
 }
