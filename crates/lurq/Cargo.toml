@@ -407,6 +407,14 @@ required-features = ["screenshot", "wgpu", "dx12", "perf_profile"]
 name = "counting_allocator"
 required-features = ["counting_allocator"]
 
+[[example]]
+name = "lifecycle"
+required-features = ["winit", "wgpu"]
+
+[[example]]
+name = "video_probe"
+required-features = ["winit", "wgpu", "image"]
+
 [[bench]]
 name = "layout"
 harness = false

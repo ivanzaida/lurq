@@ -19,6 +19,9 @@ use crate::{
 };
 
 /// The board's document, its first page.
+/// The repository's README: a whole document, as the demo the gallery replaced showed it.
+const README: &str = include_str!("../../../../README.md");
+
 const PAGE_ONE: &str = "# Blur and frosted glass
 
 A node can blur itself, or blur whatever is painted behind it. Both follow transforms and rounded clips.
@@ -466,6 +469,26 @@ impl Component for MarkdownPage {
         ),
       ));
     }
+    // The demo's Markdown page was this: a real document of some length, the repository's README, as it is.
+    let readme = Column::new().width(FILL).max_width(720.0).child(Markdown::mount(
+      ctx,
+      MarkdownProps::styled(README, prose()).selectable(true),
+    ));
+    sections.push(Section::new(
+      "A whole document",
+      "The README of lurq's repository, read in when the gallery is built: a document of every day, with its \
+       headings, lists, code and links, in the theme's `ThemeMarkdown`.",
+      self.frame.demo(
+        BLOCKS.len() as u32 + 1,
+        readme,
+        "include_str!(\"README.md\")",
+        &[
+          "const README: &str = include_str!(\"../../../../README.md\");",
+          "",
+          "Markdown::mount(ctx, MarkdownProps::styled(README, prose).selectable(true))",
+        ],
+      ),
+    ));
     sections.push(Section::new(
       "Props",
       "What a document is given.",

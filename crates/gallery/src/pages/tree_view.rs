@@ -29,7 +29,7 @@ const WIDE: f32 = 220.0;
 /// How long the children of a lazy row take to come.
 const LOADING: Duration = Duration::from_millis(1200);
 
-/// What the playground's tree holds: `icons` with a folder's and a file's icons, `disabled` with the demo
+/// What the playground's tree holds: `icons` with a folder's and a file's icons, `disabled` with the mobile_demo
 /// crate's row disabled, `lazy` with a registry whose crates come when it is first opened, there once `loaded`,
 /// `action` with a button to add a file at the end of each folder's row, shown while the row is pointed at.
 #[derive(Clone, Copy)]
@@ -92,9 +92,9 @@ impl Shape {
           .item(self.file("crates/gallery/main.rs", "main.rs"))
           .item(self.file("crates/gallery/shell.rs", "shell.rs")),
         self
-          .folder("crates/demo", "demo")
+          .folder("crates/mobile_demo", "mobile_demo")
           .disabled(self.disabled)
-          .item(self.file("crates/demo/main.rs", "main.rs")),
+          .item(self.file("crates/mobile_demo/main.rs", "main.rs")),
       ]),
       self.folder("docs", "docs").item(self.file("docs/index.md", "index.md")),
     ];
@@ -272,7 +272,7 @@ impl TreeViewPage {
       "        {folder}(\"crates/gallery\", \"gallery\").items([..]),"
     ));
     code.push(format!(
-      "        {folder}(\"crates/demo\", \"demo\"){}.items([..]),",
+      "        {folder}(\"crates/mobile_demo\", \"mobile_demo\"){}.items([..]),",
       if shape.disabled { ".disabled(true)" } else { "" }
     ));
     code.push("    ]),".to_owned());

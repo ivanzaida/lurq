@@ -81,6 +81,7 @@ fn gallery(route: &str, width: u32) -> [Laid; 2] {
   let mut app = App::new();
   let mut tree = Tree::new();
   tree.resize(width, HEIGHT);
+  crate::pages::engine::prepare(&mut tree);
   tree.mount_root::<Gallery>(
     &mut app,
     GalleryProps {
@@ -261,12 +262,16 @@ fn measure(node: &Laid, held: &Held, found: &mut Vec<Found>) {
       held.bottom = edge(bottom);
     }
   }
-  // What scrolls holds what is larger than it, the way it scrolls.
-  if matches!(node.tag.as_str(), "ScrollHorizontal" | "ScrollBoth") {
+  // What scrolls holds what is larger than it, the way it scrolls. A component whose root is a scroll container
+  // gives that root its own tag: the engine's that do are named with the containers.
+  if matches!(node.tag.as_str(), "ScrollHorizontal" | "ScrollBoth" | "ZoomScroll") {
     held.left.at = f32::NEG_INFINITY;
     held.right.at = f32::INFINITY;
   }
-  if matches!(node.tag.as_str(), "ScrollVertical" | "ScrollBoth") {
+  if matches!(
+    node.tag.as_str(),
+    "ScrollVertical" | "ScrollBoth" | "ZoomScroll" | "VirtualizedList"
+  ) {
     held.top.at = f32::NEG_INFINITY;
     held.bottom.at = f32::INFINITY;
   }

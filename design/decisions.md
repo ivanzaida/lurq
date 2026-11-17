@@ -11,6 +11,37 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### The gallery shows how to style
+
+- **Question.** lurq styles at four levels — the theme's tokens, a component's recipe in the theme (parts by
+  variant, size, state, density, breakpoint), one instance (`.style(part, ..)`, `.rules`, `.state`, `.force`), a
+  renderer — and the gallery shows none of it: the props tables leave styling out, the playground has no view of a
+  component's parts, Getting Started has no page on it.
+- **Decision (Ivan).** A page of its own, **Styling**, in Getting Started: the four levels with live examples (a
+  palette role changes everything, a recipe patched changes every button, `.style` one button, a renderer of one's
+  own). And in every playground **a section of its own for styling**: the component's parts and states, a part
+  picked and restyled live (color, radius, padding, shadow…), the code beside it for one instance
+  (`.style(Part, ..)`) and for all of them (`theme.patch_recipe::<X>(..)`). Built once in
+  `crates/gallery/src/playground.rs` from the parts and states each component already declares.
+- **State.** Decided; to be built after the engine primitives' pages are merged (both touch the playground).
+
+### The gallery's Engine group replaces the demo
+
+- **Question.** The gallery was to replace `crates/demo`, but it had no page for the engine's primitives (layout,
+  scroll, paint, text, motion, the reactive model), which only the demo showed, as hand-made pages in a theme of
+  their own.
+- **Decision (Ivan).** The gallery gets a group of pages for the engine, built as its component pages are (a
+  playground first, then sections with their code), with every demo page's content and the primitives the demo
+  never showed (`Canvas`, `Svg`, `VirtualizedList`, `GpuViewport`, `ZoomScroll`, drag and drop, rich text, the
+  router and outlets, the engine's own controls and overlays). Then `crates/demo` is removed; `crates/mobile_demo`
+  stays. The group is named **Engine** (the session that built it chose, as the task left the name to it): its pages are not all primitives (signals, context, persistent storage and
+  events are the app's model, not boxes), the demo called itself the engine's, and a group's name in the side bar is
+  one short word, as Actions, Data and Desktop are. Its pages live under `/engine/…`, so a primitive and the design
+  system's component of the same name (`/slider`, `/engine/controls`) never share a route. What the demo's binary did
+  besides its pages moved: `--renderer dx12` and `--profile-log` to the gallery, the lifecycle window and the
+  continuous video probe to `lurq`'s examples.
+- **State.** Built (`claude/gallery-engine`, merged 2026-11-17); `crates/demo` is gone.
+
 ### Code highlighting is pluggable, its token names open, its colors the theme's
 
 - **Question.** `ui::CodeBlock` and Markdown color code with lurq's own scanner, which knows Rust alone, into seven

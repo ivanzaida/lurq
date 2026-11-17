@@ -11,7 +11,7 @@ The guides describe **0.62.0**. Migration guides and dated performance reports r
 
 The docs are organized around the questions that come up while building:
 
-- [Getting Started](./getting-started/) shows the feature flags, demo command, and the smallest app shape.
+- [Getting Started](./getting-started/) shows the feature flags, the gallery's command, and the smallest app shape.
 - [Design System](./design-system/) covers the components of `lurq::ui` and what a theme styles them with: recipes, renderers, a bare theme, and `Button`.
 - [Migration To v0.63](./migration-v0-63/) covers moving an app from 0.62: the design system's theme becoming the default and how to keep the 0.62 look, the renamed palette roles, Markdown on the theme's roles, and what changed in layout, scrolling, the title bar and presence.
 - [Migration To v0.13](./migration-v0-13/) covers replacing legacy modal APIs, popup workarounds, and overlay host assertions.

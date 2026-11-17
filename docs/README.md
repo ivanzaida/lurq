@@ -31,7 +31,7 @@ Ignored Rustdoc examples are not validated by `cargo test --doc`; guide fragment
 
 - Version, features, and dependency combinations: [crate manifest](../crates/lurq/Cargo.toml).
 - Public API and behavior: [source](../crates/lurq/src) and [regression tests](../crates/lurq/tests).
-- Demo commands: [demo manifest](../crates/demo/Cargo.toml) and [entry point](../crates/demo/src/main.rs).
+- The gallery: [manifest](../crates/gallery/Cargo.toml), [entry point](../crates/gallery/src/main.rs), and the engine's pages in [`pages/engine`](../crates/gallery/src/pages/engine/).
 - Release checks and publishing: [publish workflow](../.github/workflows/publish-crates.yml).
 - Deployment: [docs workflow](../.github/workflows/deploy-docs.yml).
 
