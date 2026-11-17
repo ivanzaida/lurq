@@ -518,6 +518,8 @@ mod tests {
     d.clear();
     assert!(c.status().pending_bytes < 1024);
   }
+  // `test_surface` is the GPU renderers', as the losses it tells of are.
+  #[cfg(any(feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
   #[test]
   fn a_canvas_whose_renderer_is_lost_tells_who_observes_it_and_forgets_the_loss() {
     use std::sync::atomic::{AtomicUsize, Ordering};
