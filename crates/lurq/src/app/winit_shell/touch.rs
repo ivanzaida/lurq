@@ -47,12 +47,10 @@ const TAP_SLOP: f64 = 10.0;
 /// touches.
 pub(super) const PRESS_DELAY: Duration = Duration::from_millis(150);
 /// How long what a tap landed on goes on showing as pressed, so that a quick tap shows.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(super) const TAP_HIGHLIGHT: Duration = Duration::from_millis(80);
 /// How long a finger rests over content that scrolls before it no longer scrolls it.
 pub(super) const LONG_PRESS: Duration = Duration::from_millis(500);
 /// The time between two steps of content springing back from past an end.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(super) const SPRING_STEP: Duration = Duration::from_millis(4);
 /// The time between two steps of momentum. Shorter than any display's frame, so every frame has a step.
 const FLING_STEP: Duration = Duration::from_millis(4);
@@ -152,7 +150,6 @@ impl Default for TouchPointer {
 
 impl TouchPointer {
   /// Takes the app's momentum; a scroll that is under way keeps going by it.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(super) fn set_momentum(&mut self, momentum: TouchMomentum) {
     self.momentum = momentum;
   }
@@ -447,7 +444,6 @@ impl TouchPointer {
 
   /// The fingers became a gesture's: whatever the pointer was doing ends, without a click and without momentum,
   /// and the fingers are no longer followed.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(super) fn abandon(&mut self) -> Vec<TouchAction> {
     self.fling = None;
     match std::mem::replace(&mut self.state, State::Idle) {
@@ -465,7 +461,6 @@ impl TouchPointer {
   }
 
   /// A handler took the long press the shell was just given: the finger clicks nothing when it lifts.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(super) fn long_press_taken(&mut self) {
     if let State::Dragging { taken, .. } = &mut self.state {
       *taken = true;
@@ -520,7 +515,6 @@ fn scroll(anchor: (f64, f64), delta: (f64, f64), phase: ScrollPhase) -> TouchAct
 }
 
 /// Whether the actions end a scroll: of a finger, or of its momentum.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(super) fn ends_scroll(actions: &[TouchAction]) -> bool {
   actions.iter().any(|action| {
     matches!(

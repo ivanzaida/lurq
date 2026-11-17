@@ -91,6 +91,9 @@ content padded by the safe area ends above it. The focused text input is scrolle
 
 ## Touch
 
+What follows holds wherever winit tells touches, not on iOS alone: Android, a Windows or Linux touch screen and the
+browser too (see [A Finger Or A Mouse](../styling-events/#a-finger-or-a-mouse)).
+
 One finger is the pointer. `on_click`, `on_mouse_down` and the rest fire as for a mouse, with these differences,
 which are the platform's:
 

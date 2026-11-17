@@ -656,8 +656,17 @@ a component is dressed for a finger (see [the touch form](../design-system/#the-
   primary pointer.
 - **Then it follows the last input**: a finger that touches the window makes it `Coarse`, a mouse or a trackpad that
   moves makes it `Fine`, and a pen leaves it as it is. Only the first input of the other kind changes it; a move of
-  the kind it is at costs nothing. On a desktop a touch screen's touches reach lurq as the mouse's, so there it
-  stays `Fine`; an iPad with a trackpad becomes `Fine` while the trackpad is used.
+  the kind it is at costs nothing. A laptop with a touch screen is `Coarse` after a finger and `Fine` after the
+  trackpad; an iPad with a trackpad the same.
+- **Where touches come from.** The shell gives a finger to the tree as a touch on every platform winit tells touches
+  on: iOS, Android, Windows (a touch screen), Linux (X11 and Wayland) and the browser (pointer events whose
+  `pointerType` is `touch`); macOS has no touch screen. Windows also makes mouse messages of every touch; the shell
+  drops them (they carry the system's mark, `MI_WP_SIGNATURE`), so a tap is one click and not two. A pen is told
+  where the platform tells it: an Apple Pencil on iOS (it has an angle), a pen on Windows (it comes as pointer input
+  with its pressure, a finger as `WM_TOUCH` with none), and a pen in the browser, which winit gives as the mouse and
+  the shell knows by the event's `pointerType`. On Android and Linux winit does not say a touch is a pen's: it is a
+  finger's there. A pen in the browser clicks and is `PointerKind::Pen`, but has no `on_tap`, since it reaches lurq
+  as the mouse.
 - **The app pins it** with `App::set_pointer(Pointer::Coarse)`: a kiosk with a touch screen, a preview of the phone's
   forms on a desktop. Input then does not move it. `App::follow_pointer(false)` keeps it where it is without
   pinning a value, and `follow_pointer(true)` follows input again, letting go of a pin.

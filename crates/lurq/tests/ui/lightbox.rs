@@ -778,12 +778,15 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
     "an app for a finger: the phone's form"
   );
   let (x, y) = stage.center("viewer-stage");
+  // The finger's time is the tree's clock of presses: 30 ms a step, slowly, since a throw down closes it however
+  // far it went.
+  let mut at = 0;
   let mut drag = |stage: &mut Stage, by: f32| {
-    let route = stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
-    eprintln!("PROBE route {route:?}");
+    stage.presses_at(std::time::Duration::from_millis(at));
+    stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
     for step in 1..=10 {
-      // Slowly: a throw down closes it however far it went.
-      std::thread::sleep(std::time::Duration::from_millis(30));
+      at += 30;
+      stage.presses_at(std::time::Duration::from_millis(at));
       stage
         .tree
         .touch_event(1, TouchPhase::Move, x, y + by * step as f32 / 10.0, None);
@@ -791,6 +794,7 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
     }
     stage.tree.touch_event(1, TouchPhase::End, x, y + by, None);
     settled(stage);
+    at += 1000;
   };
   drag(&mut stage, 40.0);
   assert!(open.get(), "not far enough");

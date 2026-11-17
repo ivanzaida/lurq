@@ -4050,7 +4050,7 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
     // A mouse or a trackpad that moves makes the pointer fine; what a finger or a pen moves as the pointer does not.
-    if !self.touch_pointer.down {
+    if !self.touch_pointer.down && !self.touch_pointer.mouse_pen {
       self.pointer_input(crate::app::Pointer::Fine);
     }
     self.track_pointer(x, y);

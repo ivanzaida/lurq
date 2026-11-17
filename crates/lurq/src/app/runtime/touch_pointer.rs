@@ -230,6 +230,9 @@ pub(super) struct TouchPointerState {
   last_tap: Option<LastTap>,
   /// What pressed for a click held back and told now.
   pub(super) replaying: Option<crate::app::events::PointerKind>,
+  /// The mouse's events come from a pen: a browser gives a pen's pointer events to winit as the mouse's, and the
+  /// shell says so from their `pointerType`.
+  pub(super) mouse_pen: bool,
   /// The elements a tap left showing as pressed, and until when.
   tap_highlight: Option<(Vec<NodeId>, Instant)>,
 }
@@ -250,6 +253,9 @@ impl Tree {
   /// Gives a finger's event to what the finger landed on: `on_touch_start` and the rest, bubbling from the
   /// innermost element out, and the pinch or rotation it makes with another finger. `x` and `y` are physical
   /// pixels. Tells whose the finger is: the shell makes it the pointer only when it is its own.
+  ///
+  /// It happens now, or at the time of the tree's clock of presses where one is set
+  /// ([`set_press_clock`](Self::set_press_clock)): a test gives a drag's speed by that clock, not by sleeping.
   pub fn touch_event(&mut self, id: u64, phase: TouchPhase, x: f32, y: f32, force: Option<f32>) -> TouchRoute {
     self.touch_event_by(id, phase, x, y, force, false)
   }
@@ -268,7 +274,8 @@ impl Tree {
     if phase == TouchPhase::Start {
       self.touch_pointer.pen = pen;
     }
-    self.touch_event_at(id, phase, x, y, force, Instant::now())
+    let now = self.press_clock.unwrap_or_else(Instant::now);
+    self.touch_event_at(id, phase, x, y, force, now)
   }
 
   /// What presses now as the pointer: a finger or a pen while one is down, else the mouse.
@@ -278,10 +285,18 @@ impl Tree {
       return kind;
     }
     match (self.touch_pointer.down, self.touch_pointer.pen) {
+      (false, _) if self.touch_pointer.mouse_pen => PointerKind::Pen,
       (false, _) => PointerKind::Mouse,
       (true, false) => PointerKind::Touch,
       (true, true) => PointerKind::Pen,
     }
+  }
+
+  /// Whether the mouse's events to come are a pen's, as a browser's `pointerType` says: they press as a pen
+  /// (`PointerKind::Pen`) and leave the app's pointer as it is.
+  #[cfg_attr(not(all(feature = "winit", target_arch = "wasm32")), allow(dead_code))]
+  pub(crate) fn set_mouse_is_pen(&mut self, pen: bool) {
+    self.touch_pointer.mouse_pen = pen;
   }
 
   /// Whether the press of the finger that is the pointer ends without a click: a second finger landed with it,

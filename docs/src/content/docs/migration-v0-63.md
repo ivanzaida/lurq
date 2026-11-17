@@ -439,7 +439,9 @@ A `match` on `PointerKind` with no `_` arm takes `Pen`.
 ### A Finger's Tap And Its Click
 
 `on_click` is the action from every input, and `on_tap` the finger's gesture: a finger's tap is told as `on_tap` first
-and `on_click` after, each once, as before. What is new, on a platform whose touches reach lurq as touches (iOS):
+and `on_click` after, each once, as before. A touch screen's touches reach lurq as touches on Windows, Android,
+Linux and in the browser now, as on iOS: on Windows they came as the mouse's (a tap clicked, with no `on_tap`), and
+now they are a finger's, with its gestures and a coarse pointer. What is new wherever touches come:
 
 - A tap a handler of `on_tap` takes (`prevent_default`) clicks nothing. It clicked as well.
 - A tap of two fingers or more clicks nothing. The first finger, which is the pointer, clicked.
