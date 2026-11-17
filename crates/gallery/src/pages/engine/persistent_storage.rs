@@ -649,9 +649,10 @@ mod desktop {
         ("remove_value", "&str", "", "Takes a key out of the store."),
         (
           "snapshot",
-          "Vec<PersistentStorageSnapshotEntry>",
+          "Vec<…SnapshotEntry>",
           "",
-          "Every key with its type, its value as it is written, and its size: what a tool shows.",
+          "Every key with its type, its value as it is written, and its size, a PersistentStorageSnapshotEntry \
+           each: what a tool shows.",
         ),
         (
           "revision",

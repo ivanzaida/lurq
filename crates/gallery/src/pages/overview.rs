@@ -140,7 +140,10 @@ impl Component for Overview {
           card().padding(20.0).child(
             muted(
               &format!(
-                "The Engine group at the end of the side bar has {engine} pages, one for each of the engine's                  primitives: rows, columns and stacks, grids, scrolling, paint, transforms, text, images, canvas,                  animation, the reactive model, the router. They are built as these pages are, with a playground                  first."
+                "The Engine group at the end of the side bar has {engine} pages, one for each of the engine's \
+                 primitives: rows, columns and stacks, grids, scrolling, paint, transforms, text, images, canvas, \
+                 animation, the reactive model, the router. They are built as these pages are, with a playground \
+                 first."
               ),
               TypographyStyle::Body,
             )

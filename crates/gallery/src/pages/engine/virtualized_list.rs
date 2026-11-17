@@ -292,10 +292,7 @@ impl VirtualizedListPage {
         shown: Shown::built(move |ctx| listed.build(ctx, items, record)),
         fill: true,
         forceable: false,
-        facts: format!(
-          "{} rows · {now} built now · {ever} built since the page opened",
-          listed.count
-        ),
+        facts: format!("{} rows · {now} built · {ever} in all", listed.count),
         event: "on_top_reached / on_bottom_reached",
         code: listed.code(),
         tree,

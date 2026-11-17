@@ -221,6 +221,17 @@ fn object_tile(object: &InlineObject) -> Element {
     .into()
 }
 
+/// The type of a styled input's plain text: the theme's body in its foreground. An input whose text has runs draws
+/// a run that names no color in the color of its own style, which is black unless it is given one: in a dark theme
+/// the text would be dark on dark.
+fn plain() -> TextStyle {
+  let theme = lurq::ui::current_theme();
+  TextStyle {
+    color: theme.palette_color(PaletteColor::Foreground),
+    ..theme.typography_style(lurq::app::theme::TypographyStyle::Body)
+  }
+}
+
 /// A styled input in a frame of the theme's roles, with its edge in the ring's color while it has the focus.
 fn framed(input: TextInput) -> TextInput {
   input
@@ -534,7 +545,7 @@ impl RichTextPage {
   fn links(&self) -> Column {
     let clicked = self.clicked.clone();
     let input = framed(
-      TextInput::new(self.linked.clone())
+      TextInput::styled(self.linked.clone(), plain())
         .spans(self.linked_spans.clone())
         .multiline()
         .on_link_click(move |link| {
@@ -607,7 +618,7 @@ impl RichTextPage {
       .child(redo);
     let (markdown, count) = (self.styled_markdown.clone(), self.span_count.clone());
     let input = framed(
-      TextInput::new(self.styled.clone())
+      TextInput::styled(self.styled.clone(), plain())
         .key("styled-input")
         .spans(self.styled_spans.clone())
         .controller(self.controller.clone())
@@ -633,7 +644,7 @@ impl RichTextPage {
   fn document(&self, theme: &Theme) -> Column {
     let markdown = self.document_markdown.clone();
     let input = framed(
-      TextInput::new(self.document.clone())
+      TextInput::styled(self.document.clone(), plain())
         .key("document")
         .spans(self.document_spans.clone())
         .paragraphs(self.document_kinds.clone(), paragraph_styles(theme))
@@ -747,7 +758,7 @@ impl Component for RichTextPage {
          them, and takes presses, the focus and Tab as any element does.",
       ),
       (
-        "TextInput::spans",
+        "spans",
         "Signal<Vec<StyledSpan>>",
         "",
         "Makes an input styled: the marks and links over its plain string, as byte ranges the input moves with \
@@ -760,28 +771,28 @@ impl Component for RichTextPage {
         "The marks of a span, drawn as the theme's text marks say. A link carries a target the app opens.",
       ),
       (
-        "TextInput::on_link_click",
+        "on_link_click",
         "impl Fn(&LinkClick)",
         "",
         "Called when a link is pressed with Ctrl, or Cmd on a Mac, with its target and its bytes. A plain press \
          places the caret.",
       ),
       (
-        "TextInput::on_styled_change",
+        "on_styled_change",
         "impl Fn(&StyledChange)",
         "",
         "Called after every change the input makes: what the edit was, and the spans, kinds and objects it holds \
          now.",
       ),
       (
-        "TextInput::paragraphs",
-        "(Signal<Vec<ParagraphKind>>, ParagraphStyles)",
+        "paragraphs",
+        "Signal<Vec<ParagraphKind>>, ParagraphStyles",
         "",
         "What each line of the text is, a heading, an item, a quote or code, and how each kind is drawn.",
       ),
       (
-        "TextInput::objects",
-        "(Signal<Vec<InlineObject>>, impl FnMut(&InlineObject) -> Element)",
+        "objects",
+        "Signal<Vec<InlineObject>>, impl FnMut(&InlineObject) -> Element",
         "",
         "The things in the text that are not text: each is one OBJECT_CHARACTER, drawn as the element the \
          function builds for its record.",
@@ -942,7 +953,8 @@ impl Component for RichTextPage {
         ),
         Section::new(
           "Props",
-          "What a paragraph of runs is built of, and what makes an input styled.",
+          "What a paragraph of runs is built of, and what makes an input styled: from spans on, the methods of \
+           TextInput.",
           props_table(&rows, &[], self.frame.room()),
         ),
       ],

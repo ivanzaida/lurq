@@ -287,7 +287,7 @@ fn absolute() -> Stack {
     .border(well_line())
     .child(quiet("Stack 400 × 280", 11.0).absolute_position(8.0, 8.0))
     .child(tile("absolute_position(20, 40)", 0, 200.0, 80.0).absolute_position(20.0, 40.0))
-    .child(tile("absolute(220, 160)", 1, 0.0, 0.0).absolute(220.0, 160.0, 160.0, 100.0))
+    .child(tile("absolute(220, 160)", 1, 160.0, 100.0).absolute(220.0, 160.0, 160.0, 100.0))
 }
 
 /// A stack for each of the nine points, with a box at it.

@@ -928,8 +928,8 @@ impl Component for TextPage {
         ),
         Section::new(
           "Wrapping and overflow",
-          "A text 260 wide, in a box that shows its width: it wraps under itself, stays on one line past it, ends \
-           in an ellipsis, or stops after two lines.",
+          "A text 260 wide, in a box that shows its width: it wraps under itself, stays on one line cut at its edge, \
+           ends in an ellipsis, or stops after two lines.",
           self.frame.demo(
             4,
             wrapping(&theme),

@@ -470,13 +470,14 @@ impl Component for MarkdownPage {
       ));
     }
     // The demo's Markdown page was this: a real document of some length, the repository's README, as it is.
-    let readme = Column::new()
-      .width(FILL)
-      .max_width(720.0)
-      .child(Markdown::mount(ctx, MarkdownProps::styled(README, prose()).selectable(true)));
+    let readme = Column::new().width(FILL).max_width(720.0).child(Markdown::mount(
+      ctx,
+      MarkdownProps::styled(README, prose()).selectable(true),
+    ));
     sections.push(Section::new(
       "A whole document",
-      "The README of lurq's repository, read in when the gallery is built: a document of every day, with its        headings, lists, code and links, in the theme's `ThemeMarkdown`.",
+      "The README of lurq's repository, read in when the gallery is built: a document of every day, with its \
+       headings, lists, code and links, in the theme's `ThemeMarkdown`.",
       self.frame.demo(
         BLOCKS.len() as u32 + 1,
         readme,

@@ -88,8 +88,10 @@ fn framed(input: TextInput) -> TextInput {
 
 /// The theme's body type at `size`.
 fn body(theme: &Theme, size: f32) -> TextStyle {
+  // The foreground named: an input with tokens draws the text between them in its style's own color.
   TextStyle {
     font_size: size,
+    color: theme.palette_color(PaletteColor::Foreground),
     ..theme.typography_style(TypographyStyle::Body)
   }
 }
