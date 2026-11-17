@@ -48,7 +48,7 @@ Breaking:
 - The feature `svg` is gone: SVG comes with `canvas`, which takes `usvg`. `cfg(feature = "svg")` in an app's code is `canvas`. `raster` and `render` are lurq's own, turned on by `image`, `canvas`, `media` and the renderers; an app does not name them.
 - The feature `i18n` is gone: `I18n`, `App::i18n` and `Ctx::t` with the rest are in every build. Translations read from JSON still need `serde`.
 - The feature `resources` is gone: it was the old name of `http`.
-- `RenderList` has no field `svgs`: an SVG has been drawn as a picture since `canvas` brought `raster`, and the renderers' path for an SVG made of triangles is gone with its shaders. A `RenderList` written out field by field drops the line.
+- An SVG is always rasterized at the size it is drawn. A build with `svg` and without `raster` tessellated it into triangles, sharp under a GPU transform or a zoom; that path is gone with its shaders, and `RenderList` has no field `svgs` (a `RenderList` written out field by field drops the line). See [Features](docs/src/content/docs/migration-v0-63.md#svg-is-canvas).
 - `screenshot` turns on the `image` feature (it took the `image` crate alone), so a build with `screenshot`, `devtools` or `mcp` has the decoders and `ui::Picture`'s loading.
 
 Deprecated:

@@ -85,6 +85,8 @@ lurq = { version = "0.62", features = ["winit", "wgpu", "svg"] }
 lurq = "0.63"
 ```
 
+An SVG is always rasterized at the size it is drawn, and drawn as a picture. A 0.62 build with `svg` and without `raster` tessellated it into triangles instead, which stayed sharp under a GPU transform or a zoom; that path is gone. An SVG drawn scaled up by a transform is drawn again at its new size where its layout changes, and stretched where only the transform does.
+
 `raster` and `render` are still features, but lurq's own: `image`, `canvas`, `media` and the renderers turn them on. An app that named `raster` for raw RGBA (`ImageData`, `StreamingImage`) names `image` instead, or any of `canvas` and `media` it has.
 
 ### `i18n` Is Gone
