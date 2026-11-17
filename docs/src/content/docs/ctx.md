@@ -780,8 +780,6 @@ See [Routing](../routing/) for route definitions, layouts, links, guards, and te
 
 ## Internationalization
 
-Requires the `i18n` feature.
-
 ```rust
 let label = ctx.t("hello");
 let greeting = ctx.t_args("welcome", [("name", "Ada")]);

@@ -1139,7 +1139,7 @@ Checkbox::new(enabled)
   })
 ```
 
-With `image` and `resources`, the indicator can come from the app resource loader:
+With `image`, the indicator can come from the app resource loader:
 
 ```rust
 Checkbox::new(enabled)
@@ -1397,7 +1397,7 @@ Slider::new(value)
   .thumb(|style| style.size(16.0, 16.0).background_image(thumb).background_cover())
 ```
 
-With `image` and `resources`, pass resource paths instead:
+With `image`, pass resource paths instead:
 
 ```rust
 Slider::new(value)

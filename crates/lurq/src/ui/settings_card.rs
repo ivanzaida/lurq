@@ -353,7 +353,6 @@ impl PartialEq for SettingsCardProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SettingsCardProps {}
 
 /// What keeps whether a mounted settings card is open: nothing until a person presses its row, and the card

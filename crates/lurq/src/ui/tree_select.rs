@@ -1174,7 +1174,6 @@ impl<T, V: ?Sized> PartialEq for TreeSelectProps<T, V> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T, V: ?Sized> crate::app::component::DevtoolsInspectable for TreeSelectProps<T, V> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("TreeSelect", format!("{} items at the top", self.select.items.len()));

@@ -98,11 +98,9 @@ fn paints_one_primitive(quad: &Quad) -> bool {
     QuadContent::RichText { spans, .. } => spans.first().is_none_or(|span| span.style.shadow.is_none()),
     #[cfg(feature = "raster")]
     QuadContent::Image { .. } | QuadContent::Video { .. } => true,
-    // Rasterized, an SVG is one image; tessellated, its paths overlap.
-    #[cfg(all(feature = "svg", feature = "raster"))]
+    // Rasterized, an SVG is one image.
+    #[cfg(feature = "canvas")]
     QuadContent::Svg { .. } => true,
-    #[cfg(all(feature = "svg", not(feature = "raster")))]
-    QuadContent::Svg { .. } => false,
     QuadContent::BoxShadow(_) | QuadContent::Backdrop { .. } | QuadContent::None => true,
   }
 }

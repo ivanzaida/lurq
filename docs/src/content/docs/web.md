@@ -31,12 +31,17 @@ builds it into `target/gallery-web` and serves it on `http://127.0.0.1:8123`. Se
 
 ### The manifest
 
-The app depends on lurq with `winit` and `wgpu`, as on a desktop, and on what its `main` needs of the browser
-when it is built for one:
+The app depends on lurq with a window and a renderer, as on a desktop, and on what its `main` needs of the browser
+when it is built for one. lurq's default features are the desktop set, which a page does not take: the app names
+its list for every target and takes the default on a desktop alone.
 
 ```toml
 [dependencies]
-lurq = { version = "0.62", features = ["winit", "wgpu"] }
+lurq = { version = "0.62", default-features = false, features = ["winit", "wgpu", "clipboard", "image", "canvas", "form", "router", "query"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The desktop set, the system's file dialog with it.
+lurq = "0.62"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WebGL2 for a browser without WebGPU; leave it out to draw through WebGPU alone.
@@ -347,11 +352,11 @@ gallery as it goes from page to page; `?backend=webgl` draws through WebGL2.
   reach a text input. A finger on a touch screen was not tried.
 - More than one window, and with it [DevTools](../devtools/). Native menus, file dialogs and file drags.
 - Features. The gallery's set runs in a browser: `winit`, `wgpu`, `webgl`, `router`, `clipboard`, `image`.
-  `markdown`, `svg`, `form`, `i18n` and `query` build for it and have not been run there. `canvas` does not
-  build yet: its uploads wait on a thread. `mcp`, `devtools`, `resources`, `persistent_storage`, `tokio`,
-  `screenshot` and `dx12` rest on threads, sockets, files or Direct3D and were not tried.
+  `markdown`, `canvas` (SVG with it), `form` and `query` build for it and have not all been run there. `mcp`,
+  `devtools`, `persistent_storage`, `tokio`, `screenshot` and `dx12` rest on threads, sockets, files or Direct3D
+  and were not tried.
 - Browsers. Chromium and Firefox were run, Safari was not. WebGL2 was run in Chromium by asking for it; no
-  browser without WebGPU was tried, and on WebGL2 the `svg` feature and video frames (NV12) were not looked
+  browser without WebGPU was tried, and on WebGL2 SVG and video frames (NV12) were not looked
   at.
 - The address is the fragment only: a path of the address itself (`/button`, which a server has to send
   the page for) is not followed, and the page's title does not change with the screen.

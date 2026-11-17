@@ -49,7 +49,6 @@ pub(crate) mod glyph_engine;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod gradient_readback_tests;
 pub(crate) mod hit_test;
-#[cfg(feature = "i18n")]
 pub mod i18n;
 #[cfg(all(target_os = "ios", feature = "raster"))]
 pub(crate) mod ios_symbol;

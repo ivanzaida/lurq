@@ -794,7 +794,6 @@ impl<T> PartialEq for TimelineHostProps<T> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T> crate::app::component::DevtoolsInspectable for TimelineHostProps<T> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("Timeline", format!("{} items", self.timeline.items.len()));

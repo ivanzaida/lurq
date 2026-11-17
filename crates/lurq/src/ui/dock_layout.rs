@@ -2241,7 +2241,6 @@ impl PartialEq for PanelProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PanelProps {}
 
 /// What a panel holds, mounted in the layout by the panel's id: wherever the panel is shown, it is this component,
@@ -2278,7 +2277,6 @@ impl PartialEq for OverlayProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for OverlayProps {}
 
 /// The layer of a drag: a component of its own, so that a move of the pointer draws it again and nothing else.
@@ -2344,7 +2342,6 @@ impl PartialEq for DockProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for DockProps {}
 
 /// A mounted layout.

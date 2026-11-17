@@ -3,13 +3,13 @@
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $commands = @(
-  @('test', '-p', 'lurq', '--features', 'markdown,canvas,query,tokio,svg,image,screenshot,form,router,i18n', '--no-fail-fast'),
+  @('test', '-p', 'lurq', '--features', 'markdown,tokio,screenshot', '--no-fail-fast'),
   # The profiler, DevTools and MCP are compiled out of the suite above.
   @('test', '-p', 'lurq', '--features', 'devtools,mcp,perf_profile,counting_allocator', '--no-fail-fast'),
   @('test', '-p', 'lurq', '--release', '--test', 'layout_stack_depth'),
   # The size budgets (`size_budget.rs`) are checked when the tests are built, and sizes grow with features: neither
   # suite above turns on the features of the other.
-  @('check', '-p', 'lurq', '--tests', '--features', 'markdown,canvas,query,tokio,svg,image,screenshot,form,router,i18n,devtools,mcp,perf_profile,counting_allocator')
+  @('check', '-p', 'lurq', '--tests', '--features', 'markdown,tokio,screenshot,devtools,mcp,perf_profile,counting_allocator')
 )
 Push-Location -LiteralPath $workspace
 try {

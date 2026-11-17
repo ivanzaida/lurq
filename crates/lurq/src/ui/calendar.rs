@@ -1363,7 +1363,6 @@ impl<V: Picked> PartialEq for CalendarProps<V> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<V: Picked> crate::app::component::DevtoolsInspectable for CalendarProps<V> {}
 
 /// What a mounted calendar keeps between renders.

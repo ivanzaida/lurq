@@ -581,7 +581,6 @@ impl PartialEq for LightboxProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for LightboxProps {}
 
 /// The component of a lightbox: what it keeps between renders.

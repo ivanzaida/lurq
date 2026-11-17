@@ -18,7 +18,6 @@ pub struct SearchMatches {
   pub current: Option<usize>,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SearchMatches {}
 
 /// A match: in the cell of a row, by its rank among those shown, and a column, by its place among those shown;

@@ -36,7 +36,7 @@ mod stack;
 pub(crate) mod stack_outlet;
 #[cfg(feature = "markdown")]
 pub(crate) mod styled_text;
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 mod svg;
 pub(crate) mod swipe_row;
 #[cfg(feature = "router")]
@@ -111,7 +111,7 @@ pub use styled_text::{
   InlineObject, LinkClick, MarkPresence, OBJECT_CHARACTER, ParagraphKind, ParagraphMarker, ParagraphStyle,
   ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
 };
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 pub use svg::Svg;
 pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowPart, SwipeRowProps, SwipeRowStyle};
 #[cfg(feature = "router")]

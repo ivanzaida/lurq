@@ -1393,7 +1393,6 @@ impl PartialEq for SplitterProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SplitterProps {}
 
 /// What keeps a mounted splitter's sizes, and renders it again when the app sets them.

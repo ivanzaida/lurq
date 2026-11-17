@@ -1182,7 +1182,6 @@ impl<V: FieldValue<Time>> PartialEq for PickerProps<V> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<V: FieldValue<Time>> crate::app::component::DevtoolsInspectable for PickerProps<V> {}
 
 /// What a mounted picker keeps between renders.

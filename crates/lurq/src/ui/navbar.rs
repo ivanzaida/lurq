@@ -622,7 +622,6 @@ impl PartialEq for NavbarProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for NavbarProps {}
 
 /// What a navbar keeps between renders.

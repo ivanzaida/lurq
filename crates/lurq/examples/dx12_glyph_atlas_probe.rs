@@ -133,8 +133,6 @@ fn main() {
         glyphs: vec![glyph(true), glyph(false)],
         #[cfg(feature = "raster")]
         images: vec![],
-        #[cfg(feature = "svg")]
-        svgs: vec![],
         layers: vec![],
         backdrops: Vec::new(),
         atlas: GlyphAtlas {

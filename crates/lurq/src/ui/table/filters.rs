@@ -20,7 +20,6 @@ pub enum TextMatch {
   Equals,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TextMatch {}
 
 /// What the filter of a column lets through.
@@ -122,7 +121,6 @@ pub struct TableFilters {
   filters: Vec<(Arc<str>, ColumnFilter)>,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TableFilters {}
 
 impl TableFilters {
@@ -194,7 +192,6 @@ pub struct GridQuery {
   pub search: String,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for GridQuery {}
 
 /// What a column is filtered by: its text, the values a function gives, a number, a date or a yes or no.

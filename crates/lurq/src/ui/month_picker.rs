@@ -973,7 +973,6 @@ impl<P> PartialEq for PeriodProps<P> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<P> crate::app::component::DevtoolsInspectable for PeriodProps<P> {}
 
 /// What a mounted picker keeps between renders.

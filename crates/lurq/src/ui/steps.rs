@@ -48,7 +48,6 @@ enum Shape {
 }
 
 /// A signal's value is something DevTools can inspect: this one has nothing to show.
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for Shape {}
 
 /// The parts of steps a recipe styles. Each step's parts are styled in the
@@ -606,7 +605,6 @@ impl PartialEq for StepsProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for StepsProps {}
 
 /// Mounted steps: the column that takes the room they are given, which it measures before the frame is painted,

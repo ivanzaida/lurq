@@ -864,7 +864,6 @@ impl PartialEq for DocumentTabsProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for DocumentTabsProps {}
 
 /// What mounted document tabs keep from one render to the next.

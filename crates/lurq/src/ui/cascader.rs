@@ -1139,7 +1139,6 @@ impl<T, V: ?Sized> PartialEq for CascaderProps<T, V> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T, V: ?Sized> crate::app::component::DevtoolsInspectable for CascaderProps<T, V> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("Cascader", format!("{} items at the top", self.cascader.items.len()));

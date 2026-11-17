@@ -71,8 +71,6 @@ fn list(rects: Vec<RectCmd>, layers: Vec<LayerCmd>, backdrops: Vec<BackdropCmd>)
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
-    svgs: Vec::new(),
     layers,
     backdrops,
     atlas: GlyphAtlas {

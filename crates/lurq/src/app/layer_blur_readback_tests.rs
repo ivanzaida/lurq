@@ -68,8 +68,6 @@ fn list(rects: Vec<RectCmd>, groups: &[OpacityGroup]) -> RenderList {
     &[],
     #[cfg(feature = "raster")]
     &[],
-    #[cfg(feature = "svg")]
-    &[],
     &mut layers,
   );
   RenderList {
@@ -78,8 +76,6 @@ fn list(rects: Vec<RectCmd>, groups: &[OpacityGroup]) -> RenderList {
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
-    svgs: Vec::new(),
     layers,
     backdrops: Vec::new(),
     atlas: GlyphAtlas {

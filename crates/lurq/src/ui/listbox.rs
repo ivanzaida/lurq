@@ -1037,7 +1037,6 @@ impl<T, V: ?Sized> PartialEq for ListboxHostProps<T, V> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T, V: ?Sized> crate::app::component::DevtoolsInspectable for ListboxHostProps<T, V> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("Listbox", format!("{} options", self.listbox.options.len()));
@@ -1233,7 +1232,6 @@ impl PartialEq for ListboxOptionProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ListboxOptionProps {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("ListboxOption", format!("option {}", self.index));
