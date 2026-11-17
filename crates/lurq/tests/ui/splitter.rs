@@ -729,3 +729,15 @@ fn a_splitter_in_a_pane_that_was_put_back_settles_in_the_first_frame_too() {
     assert_eq!(boxes(&mut stage, &ids), first, "frame {frame} is the first one");
   }
 }
+
+#[test]
+fn a_fingers_double_tap_puts_the_divider_back_as_a_double_press_does() {
+  let mut stage = Stage::new(|_| three().into());
+  drag(&mut stage, 120.5, 150.0, 200.5);
+  assert_eq!(width(&mut stage, "a"), 200.0);
+  // Two taps at one time: a double tap however slow the machine. A finger's double tap is no double click.
+  stage.presses_at(std::time::Duration::ZERO);
+  stage.tap_at(200.5, 150.0);
+  stage.tap_at(200.5, 150.0);
+  assert_eq!(width(&mut stage, "a"), 120.0);
+}

@@ -1125,12 +1125,19 @@ impl TreeRow {
       // first of a double press, and the focus with it. Space clicks the focused row: it selects too.
       let press = actions.clone();
       let (index, toggles) = (self.index, self.press_toggles);
+      // In the touch form a tap opens the row, as a double press does, and is never held back for a second one.
+      let touch = super::touch_form();
       row = row.on_click(move |event: MouseEvent| {
         if event.from_keyboard {
           (press.pick)(Pick::of(&event, multiple));
           return;
         }
         if event.button != MouseButton::Left {
+          return;
+        }
+        if touch && !toggles && event.pointer_kind != crate::app::events::PointerKind::Mouse {
+          (press.pick)(Pick::of(&event, false));
+          (press.activate)();
           return;
         }
         if toggles {

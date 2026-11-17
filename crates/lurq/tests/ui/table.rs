@@ -1721,3 +1721,20 @@ fn a_footer_too_narrow_for_its_count_and_its_pagination_puts_the_pagination_unde
     "the summary is in the table"
   );
 }
+
+#[test]
+fn in_the_touch_form_a_tap_opens_a_row_at_once() {
+  let (mut stage, selected, told) = selecting(&[]);
+  stage.tree.set_pointer(lurq::app::Pointer::Coarse);
+  stage.pass();
+  stage.tap("t-row-1");
+  assert_eq!(selected.get(), ["crates/lurq_macros"]);
+  assert_eq!(
+    *told.activated.lock().unwrap(),
+    ["crates/lurq_macros"],
+    "a tap does what a double press does, held back for nothing"
+  );
+  // A mouse is the mouse's, whatever the form: a press selects, a second activates.
+  stage.click("t-row-2");
+  assert_eq!(told.activated.lock().unwrap().len(), 1);
+}

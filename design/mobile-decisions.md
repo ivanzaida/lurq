@@ -57,6 +57,11 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 - **Why.** One handler for the action on every platform; gestures where only a finger has them; never twice; no
   delay of every click on a phone for the sake of a double tap only some elements want.
 - **State.** Decided; to be built with the pointer on `claude/touch-form`.
+- **Since (Ivan, 2026-11-17).** What listened only to `on_dblclick` answers a finger too: `components::Zoom`
+  (`2bb08839`), `ui::Splitter` (a double tap on the handle restores the size) and `ui::DocumentTabs` (a double tap
+  keeps a preview) listen to `on_double_tap` of one finger as well; `ui::Table` and `ui::TreeView` in the touch form
+  (`ui::touch_form()`) open a row at a single tap, with no double tap listened for, so a tap is never held back; on a
+  mouse as before. Built on `claude/gestures-769083`.
 
 ### Phone emulation on a desktop
 
