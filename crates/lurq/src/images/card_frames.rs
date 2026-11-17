@@ -66,6 +66,51 @@ pub struct CardCrop {
   pub height: u32,
 }
 
+/// Where in a texture `wide` by `high` the part `min` to `max` of a picture is, both as parts of one: the picture
+/// may be a part of its texture, the part `crop` says, or without it the part at the top left corner that is as
+/// large as `picture`. `rgba` says the texture is of red, green and blue, and not of gray and color.
+#[cfg(any(feature = "wgpu", feature = "dx12"))]
+pub(crate) fn part_of(
+  crop: Option<CardCrop>,
+  picture: (u32, u32),
+  (wide, high): (u32, u32),
+  rgba: bool,
+  min: [f32; 2],
+  max: [f32; 2],
+) -> ([f32; 2], [f32; 2]) {
+  let crop = crop.unwrap_or(CardCrop {
+    left: 0,
+    top: 0,
+    width: picture.0.min(wide),
+    height: picture.1.min(high),
+  });
+  if (crop.left, crop.top, crop.width, crop.height) == (0, 0, wide, high) || wide == 0 || high == 0 {
+    return (min, max);
+  }
+  // An edge of the picture inside the texture is drawn from a little within it: a sample at the very edge
+  // would be mixed with what lies past it, which is no part of the picture. The color is at half the size,
+  // and so a whole pixel is kept from.
+  let within = if rgba { 0.5 } else { 1.0 };
+  let edge = |at: u32, end: u32| if at > 0 && at < end { within } else { 0.0 };
+  let (left, top) = (
+    crop.left as f32 + edge(crop.left, wide),
+    crop.top as f32 + edge(crop.top, high),
+  );
+  let (right, bottom) = (crop.left + crop.width, crop.top + crop.height);
+  let (right, bottom) = (right as f32 - edge(right, wide), bottom as f32 - edge(bottom, high));
+  let (from, to) = (
+    [left / wide as f32, top / high as f32],
+    [right / wide as f32, bottom / high as f32],
+  );
+  let at = |part: [f32; 2]| {
+    [
+      from[0] + part[0] * (to[0] - from[0]),
+      from[1] + part[1] * (to[1] - from[1]),
+    ]
+  };
+  (at(min), at(max))
+}
+
 /// What is let go of when the card has finished with a frame.
 pub type CardLease = Arc<dyn Any + Send + Sync>;
 

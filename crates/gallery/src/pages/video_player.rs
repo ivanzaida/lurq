@@ -1110,7 +1110,7 @@ impl Component for VideoPlayerPage {
     #[cfg(windows)]
     let decoded: Element = if !self.decoding.get() {
       quiet(
-        "Nothing draws frames of the card in this run: it takes the wgpu renderer on Direct3D 12.",
+        "Nothing draws frames of the card in this run: it takes Direct3D 12 or Vulkan.",
         13.0,
       )
       .into()

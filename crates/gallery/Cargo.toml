@@ -10,6 +10,8 @@ default = []
 # Lets the running app be driven and captured over lurq's MCP server.
 mcp = ["lurq/mcp"]
 devtools = ["lurq/devtools"]
+# lurq's own Direct3D 12 renderer, to see the gallery through it: `--backend native-dx12`.
+dx12 = ["lurq/dx12"]
 
 [dependencies]
 lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "form", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas", "media"] }

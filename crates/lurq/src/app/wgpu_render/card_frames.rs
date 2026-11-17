@@ -45,7 +45,7 @@ use windows::Win32::{
 };
 
 use super::card_copies::{Copied, Readers};
-use crate::images::{CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface};
+use crate::images::{CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface};
 
 /// The leases of frames that are drawn no more, kept until the card has finished the work that drew them.
 #[derive(Clone, Default)]
@@ -582,37 +582,13 @@ impl Opened {
     let Some(((_, frame), (_, slot))) = self.drawn.as_ref().zip(self.drawn()) else {
       return (min, max);
     };
-    let (wide, high) = slot.size;
-    let crop = frame.crop.unwrap_or(CardCrop {
-      left: 0,
-      top: 0,
-      width: self.width.min(wide),
-      height: self.height.min(high),
-    });
-    if (crop.left, crop.top, crop.width, crop.height) == (0, 0, wide, high) || wide == 0 || high == 0 {
-      return (min, max);
-    }
-    // An edge of the picture inside the texture is drawn from a little within it: a sample at the very edge
-    // would be mixed with what lies past it, which is no part of the picture. The color is at half the size,
-    // and so a whole pixel is kept from.
-    let within = if self.is_rgba() { 0.5 } else { 1.0 };
-    let edge = |at: u32, end: u32| if at > 0 && at < end { within } else { 0.0 };
-    let (left, top) = (
-      crop.left as f32 + edge(crop.left, wide),
-      crop.top as f32 + edge(crop.top, high),
-    );
-    let (right, bottom) = (crop.left + crop.width, crop.top + crop.height);
-    let (right, bottom) = (right as f32 - edge(right, wide), bottom as f32 - edge(bottom, high));
-    let (from, to) = (
-      [left / wide as f32, top / high as f32],
-      [right / wide as f32, bottom / high as f32],
-    );
-    let at = |part: [f32; 2]| {
-      [
-        from[0] + part[0] * (to[0] - from[0]),
-        from[1] + part[1] * (to[1] - from[1]),
-      ]
-    };
-    (at(min), at(max))
+    crate::images::part_of(
+      frame.crop,
+      (self.width, self.height),
+      slot.size,
+      self.is_rgba(),
+      min,
+      max,
+    )
   }
 }

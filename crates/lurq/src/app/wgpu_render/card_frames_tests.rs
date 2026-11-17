@@ -51,8 +51,7 @@ use crate::{
   resources::{Loader, Source},
 };
 
-/// The tests of a media on the card run one at a time: which card draws is said once for the whole program.
-static ON_THE_CARD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+use crate::app::card_read::ON_THE_CARD;
 
 fn clip() -> std::path::PathBuf {
   std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4")

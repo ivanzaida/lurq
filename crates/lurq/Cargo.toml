@@ -63,7 +63,8 @@ wgpu = [
 # own implementation is neither in a browser unless told that the page has one thread, which a page built
 # without atomics has.
 webgl = ["wgpu", "wgpu/webgl", "wgpu/fragile-send-sync-non-atomic-wasm"]
-dx12 = ["render"]
+# It has Direct3D 11 to read the frames of a decoder that is on another card than the one it draws on.
+dx12 = ["render", "windows/Win32_Graphics_Direct3D11"]
 winit = ["dep:winit"]
 # Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of
 # the app are loaded by every build.
