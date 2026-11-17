@@ -1,6 +1,8 @@
 #[cfg(feature = "canvas")]
 mod canvas;
 #[cfg(all(windows, feature = "raster"))]
+mod card_copies;
+#[cfg(all(windows, feature = "raster"))]
 mod card_frames;
 #[cfg(all(test, windows, feature = "raster", feature = "media"))]
 mod card_frames_tests;
@@ -424,6 +426,9 @@ pub struct WgpuRenderEngine {
   /// The leases of the card's frames that are drawn no more, until the card has finished with them.
   #[cfg(all(feature = "raster", windows))]
   card_leases: card_frames::Leases,
+  /// A device on each of the machine's cards, for frames the renderer's own card does not open.
+  #[cfg(all(feature = "raster", windows))]
+  card_readers: card_copies::Readers,
   #[cfg(feature = "raster")]
   image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
@@ -710,6 +715,8 @@ impl WgpuRenderEngine {
       image_texture_cache: std::collections::HashMap::new(),
       #[cfg(all(feature = "raster", windows))]
       card_leases: card_frames::Leases::default(),
+      #[cfg(all(feature = "raster", windows))]
+      card_readers: card_copies::Readers::default(),
       #[cfg(feature = "raster")]
       image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
@@ -2073,7 +2080,8 @@ impl RenderEngine for WgpuRenderEngine {
     #[cfg(feature = "raster")]
     let _image_upload_start = profile_scope!();
     // The frames that stay on the card: their surfaces are opened once, and the frame to draw is taken now, for
-    // the part of its texture an image is drawn from is the frame's to say.
+    // the part of its texture an image is drawn from is the frame's to say. A frame of another card is sent
+    // from memory here, before anything is drawn.
     #[cfg(all(feature = "raster", windows))]
     if let (Some(image_bgl), Some(nv12_image_bgl), Some(image_sampler)) = (
       self.image_bgl.as_ref(),
@@ -2118,14 +2126,14 @@ impl RenderEngine for WgpuRenderEngine {
             }
           };
           let size = (img.image_width, img.image_height);
-          if let Some(opened) = card_frames::Opened::open(device, frames, size, &self.card_leases, bind) {
-            self
-              .image_texture_cache
-              .insert(img.image_id, CachedImageTexture::Card(opened));
-          }
+          // Kept though nothing opens them: they are not asked for again in each frame.
+          let opened = card_frames::Opened::open(device, frames, size, &self.card_leases, &mut self.card_readers, bind);
+          self
+            .image_texture_cache
+            .insert(img.image_id, CachedImageTexture::Card(opened));
         }
         if let Some(CachedImageTexture::Card(opened)) = self.image_texture_cache.get_mut(&img.image_id) {
-          opened.pick();
+          opened.pick(queue);
         }
       }
     }

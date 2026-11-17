@@ -9,12 +9,16 @@
 //! ([`CardFrame::crop`]), the value of a fence that tells when it is all written ([`CardFrame::ready_at`]),
 //! and something to be let go of once the card has finished drawing it ([`CardFrame::lease`]), which is how a
 //! decoder knows a texture is its own again.
+//!
+//! Where the card that draws is not the decoder's (a laptop with two), it cannot open the textures. They are
+//! opened on the decoder's card then, and each frame is copied through memory: it is still shown, at the price
+//! of a copy, and [`CardFrames::way`] says so.
 
 use std::{
   any::Any,
   sync::{
     Arc,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU8, AtomicU64, Ordering},
   },
 };
 
@@ -113,6 +117,18 @@ impl CardFrame {
   }
 }
 
+/// How a video's frames come to the screen, as what draws them found when it opened them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardFramesWay {
+  /// Drawn from where the decoder put them: nothing is copied.
+  Card,
+  /// The card that draws does not open the surfaces, and another does: the decoder is on another card. Each
+  /// frame is copied through memory to the card that draws.
+  Memory,
+  /// No card opens the surfaces, or they are not what they are said to be: nothing is drawn.
+  Nowhere,
+}
+
 /// The frames of a video that stay on the graphics card: a few textures, of which one holds the frame to show.
 ///
 /// Made into an image with [`NativeImageData::from_card_frames`](super::NativeImageData::from_card_frames),
@@ -128,6 +144,9 @@ struct State {
   /// The frame to show, and how many were shown before it.
   shown: Mutex<Option<(u64, CardFrame)>>,
   count: AtomicU64,
+  /// The way the frames come to the screen: nothing before they are opened, and then a [`CardFramesWay`] and
+  /// one.
+  way: AtomicU8,
 }
 
 impl Drop for State {
@@ -184,6 +203,7 @@ impl CardFrames {
         fence,
         shown: Mutex::new(None),
         count: AtomicU64::new(0),
+        way: AtomicU8::new(0),
       }),
     }
   }
@@ -226,6 +246,29 @@ impl CardFrames {
   /// frame is another one.
   pub(crate) fn latest(&self) -> Option<(u64, CardFrame)> {
     self.state.shown.lock().clone()
+  }
+
+  /// How the frames come to the screen, once what draws them has opened them: `None` before that. A decoder
+  /// that is told [`Memory`](CardFramesWay::Memory) may decode on the card that draws
+  /// ([`card_frames_adapter`]) to have the copy gone, and one that is told
+  /// [`Nowhere`](CardFramesWay::Nowhere) gives its frames another way.
+  pub fn way(&self) -> Option<CardFramesWay> {
+    match self.state.way.load(Ordering::Acquire) {
+      1 => Some(CardFramesWay::Card),
+      2 => Some(CardFramesWay::Memory),
+      3 => Some(CardFramesWay::Nowhere),
+      _ => None,
+    }
+  }
+
+  /// What draws the frames says how it found them.
+  pub(crate) fn found(&self, way: CardFramesWay) {
+    let way = match way {
+      CardFramesWay::Card => 1,
+      CardFramesWay::Memory => 2,
+      CardFramesWay::Nowhere => 3,
+    };
+    self.state.way.store(way, Ordering::Release);
   }
 
   /// Whether `other` is these same frames.

@@ -11,6 +11,9 @@
 //! is all written, by the decoder's fence where it has one, and the one before it until then. Nothing waits. The
 //! lease of a frame that is no longer drawn is kept until the card has done all the work that drew it
 //! ([`Leases`]).
+//!
+//! Where the renderer's device does not open the handles, for the decoder is on another card, the frames are
+//! copied through memory instead ([`Copied`]), and drawn the same way from textures of the renderer's own.
 
 use std::sync::Arc;
 
@@ -26,7 +29,8 @@ use windows::Win32::{
   },
 };
 
-use crate::images::{CardCrop, CardFrame, CardFrames, CardLease, CardSurface};
+use super::card_copies::{Copied, Readers};
+use crate::images::{CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface};
 
 /// The leases of frames that are drawn no more, kept until the card has finished the work that drew them.
 #[derive(Clone, Default)]
@@ -59,8 +63,8 @@ pub(super) struct Slot {
   /// The color, where the frame is gray and color.
   pub second: Option<wgpu::TextureView>,
   /// The size of the texture, which may be larger than the picture.
-  size: (u32, u32),
-  textures: Vec<wgpu::Texture>,
+  pub(super) size: (u32, u32),
+  pub(super) textures: Vec<wgpu::Texture>,
 }
 
 impl Slot {
@@ -173,12 +177,76 @@ fn fence(device: &wgpu::Device, handle: isize) -> Option<ID3D12Fence> {
   fence
 }
 
-/// What is kept to draw an image whose frames stay on the card: each of its surfaces opened, the fence that
-/// tells when a frame is written, and the frame that is drawn now.
+/// How the frames of an image come to the renderer.
+enum Way {
+  /// Each surface opened on the renderer's own device, and the fence that tells when a frame is written.
+  Card {
+    slots: Vec<Slot>,
+    fence: Option<ID3D12Fence>,
+  },
+  /// The surfaces are another card's: each frame is copied through memory.
+  Memory(Copied),
+  /// No card opens them: nothing is drawn.
+  Nowhere,
+}
+
+/// Each surface of `frames` opened on `device`, and their fence. `None` where a surface does not open (another
+/// card) or is not what it is said to be.
+fn on_the_card(
+  device: &wgpu::Device,
+  frames: &CardFrames,
+  bind: &impl Fn(&wgpu::TextureView, Option<&wgpu::TextureView>) -> wgpu::BindGroup,
+) -> Option<Way> {
+  let slots = frames
+    .surfaces()
+    .iter()
+    .map(|surface| {
+      let (first, second, size, textures) = match *surface {
+        CardSurface::Nv12(handle) => {
+          let (texture, size) = open(device, handle, &[wgpu::TextureFormat::NV12])?;
+          let (gray, color) = planes(&texture);
+          (gray, Some(color), size, vec![texture])
+        }
+        CardSurface::Planes { gray, color } => {
+          let (gray, size) = open(device, gray, &[wgpu::TextureFormat::R8Unorm])?;
+          let (color, _) = open(device, color, &[wgpu::TextureFormat::Rg8Unorm])?;
+          (
+            gray.create_view(&Default::default()),
+            Some(color.create_view(&Default::default())),
+            size,
+            vec![gray, color],
+          )
+        }
+        CardSurface::Rgba(handle) => {
+          let (texture, size) = open(
+            device,
+            handle,
+            &[wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Bgra8Unorm],
+          )?;
+          (texture.create_view(&Default::default()), None, size, vec![texture])
+        }
+      };
+      Some(Slot {
+        bind_group: bind(&first, second.as_ref()),
+        first,
+        second,
+        size,
+        textures,
+      })
+    })
+    .collect::<Option<Vec<_>>>()?;
+  let fence = match frames.fence() {
+    Some(handle) => Some(fence(device, handle)?),
+    None => None,
+  };
+  Some(Way::Card { slots, fence })
+}
+
+/// What is kept to draw an image whose frames are textures of a card: how they come to the renderer, and the
+/// frame that is drawn now.
 pub(super) struct Opened {
-  slots: Vec<Slot>,
+  way: Way,
   frames: CardFrames,
-  fence: Option<ID3D12Fence>,
   /// The frame that is drawn, and which one it is of those that were shown.
   drawn: Option<(u64, CardFrame)>,
   leases: Leases,
@@ -198,66 +266,52 @@ impl Drop for Opened {
 
 impl Opened {
   /// Opens each surface of `frames`, whose picture is `width` by `height`, and binds its views with `bind`:
-  /// the gray and the color, or the red, green and blue alone. `None` where a surface does not open or is not
-  /// what it is said to be, and nothing is drawn of the frames.
+  /// the gray and the color, or the red, green and blue alone. Where `device` does not open them, the card that
+  /// does is found among `readers`, and each frame is copied through memory; where none does, or a surface is
+  /// not what it is said to be, nothing is drawn of the frames. The frames are told which
+  /// ([`CardFrames::way`]).
   pub(super) fn open(
     device: &wgpu::Device,
     frames: &CardFrames,
-    (width, height): (u32, u32),
+    picture: (u32, u32),
     leases: &Leases,
+    readers: &mut Readers,
     bind: impl Fn(&wgpu::TextureView, Option<&wgpu::TextureView>) -> wgpu::BindGroup,
-  ) -> Option<Self> {
-    let slots = frames
-      .surfaces()
-      .iter()
-      .map(|surface| {
-        let (first, second, size, textures) = match *surface {
-          CardSurface::Nv12(handle) => {
-            let (texture, size) = open(device, handle, &[wgpu::TextureFormat::NV12])?;
-            let (gray, color) = planes(&texture);
-            (gray, Some(color), size, vec![texture])
-          }
-          CardSurface::Planes { gray, color } => {
-            let (gray, size) = open(device, gray, &[wgpu::TextureFormat::R8Unorm])?;
-            let (color, _) = open(device, color, &[wgpu::TextureFormat::Rg8Unorm])?;
-            (
-              gray.create_view(&Default::default()),
-              Some(color.create_view(&Default::default())),
-              size,
-              vec![gray, color],
-            )
-          }
-          CardSurface::Rgba(handle) => {
-            let (texture, size) = open(
-              device,
-              handle,
-              &[wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Bgra8Unorm],
-            )?;
-            (texture.create_view(&Default::default()), None, size, vec![texture])
-          }
-        };
-        Some(Slot {
-          bind_group: bind(&first, second.as_ref()),
-          first,
-          second,
-          size,
-          textures,
-        })
-      })
-      .collect::<Option<Vec<_>>>()?;
-    let fence = match frames.fence() {
-      Some(handle) => Some(fence(device, handle)?),
-      None => None,
-    };
-    Some(Self {
-      slots,
+  ) -> Self {
+    let way = on_the_card(device, frames, &bind)
+      .or_else(|| Copied::open(device, frames, readers, &bind).map(Way::Memory))
+      .unwrap_or(Way::Nowhere);
+    Self::by(way, frames, picture, leases)
+  }
+
+  /// As [`open`](Self::open), by a copy through memory though the frames be on the renderer's own card.
+  #[cfg(test)]
+  pub(super) fn through_memory(
+    device: &wgpu::Device,
+    frames: &CardFrames,
+    picture: (u32, u32),
+    leases: &Leases,
+    readers: &mut Readers,
+    bind: impl Fn(&wgpu::TextureView, Option<&wgpu::TextureView>) -> wgpu::BindGroup,
+  ) -> Self {
+    let way = Copied::open(device, frames, readers, &bind).map_or(Way::Nowhere, Way::Memory);
+    Self::by(way, frames, picture, leases)
+  }
+
+  fn by(way: Way, frames: &CardFrames, (width, height): (u32, u32), leases: &Leases) -> Self {
+    frames.found(match way {
+      Way::Card { .. } => CardFramesWay::Card,
+      Way::Memory(_) => CardFramesWay::Memory,
+      Way::Nowhere => CardFramesWay::Nowhere,
+    });
+    Self {
+      way,
       frames: frames.clone(),
-      fence,
       drawn: None,
       leases: leases.clone(),
       width,
       height,
-    })
+    }
   }
 
   /// Whether this is `frames` opened, for a picture of this size.
@@ -271,31 +325,58 @@ impl Opened {
   }
 
   /// Takes the frame that was shown last as the one to draw, once it is all written; the one drawn before it
-  /// stays until then. The lease of a frame that is no longer drawn goes to be let go of.
-  pub(super) fn pick(&mut self) {
+  /// stays until then. On the card, the lease of a frame that is no longer drawn goes to be let go of. Through
+  /// memory, a frame that is written is copied on its card, and is the one to draw once that is done and it is
+  /// sent to `queue`'s card; its lease is let go of then, for the decoder's texture is drawn by nothing.
+  pub(super) fn pick(&mut self, queue: &wgpu::Queue) {
+    if let Way::Memory(copied) = &mut self.way {
+      if let Some((count, mut frame)) = copied.arrived(queue) {
+        drop(frame.lease.take());
+        self.drawn = Some((count, frame));
+      }
+      if copied.is_copying() {
+        return;
+      }
+    }
     let Some((count, frame)) = self.frames.latest() else {
       return;
     };
-    if self.drawn.as_ref().is_some_and(|(drawn, _)| *drawn == count) || frame.surface >= self.slots.len() {
+    if self.drawn.as_ref().is_some_and(|(drawn, _)| *drawn == count) || frame.surface >= self.frames.surfaces().len() {
       return;
     }
-    let written = match (frame.ready, &self.fence) {
+    let reached = match &self.way {
       // SAFETY: the fence is read.
-      (Some(value), Some(fence)) => (unsafe { fence.GetCompletedValue() }) >= value,
+      Way::Card { fence, .. } => fence.as_ref().map(|fence| unsafe { fence.GetCompletedValue() }),
+      Way::Memory(copied) => copied.reached(),
+      Way::Nowhere => return,
+    };
+    let written = match (frame.ready, reached) {
+      (Some(value), Some(reached)) => reached >= value,
       _ => true,
     };
     if !written {
       return;
     }
-    if let Some((_, before)) = self.drawn.replace((count, frame)) {
-      self.leases.keep(before.lease);
+    match &mut self.way {
+      Way::Card { .. } => {
+        if let Some((_, before)) = self.drawn.replace((count, frame)) {
+          self.leases.keep(before.lease);
+        }
+      }
+      Way::Memory(copied) => copied.copy(count, frame),
+      Way::Nowhere => {}
     }
   }
 
-  /// The surface that is drawn now, by its number, where a frame was taken.
+  /// The surface that is drawn now, by its number, where a frame was taken. Through memory there is one, which
+  /// holds the frame that was read last.
   pub(super) fn drawn(&self) -> Option<(usize, &Slot)> {
     let (_, frame) = self.drawn.as_ref()?;
-    Some((frame.surface, self.slots.get(frame.surface)?))
+    match &self.way {
+      Way::Card { slots, .. } => Some((frame.surface, slots.get(frame.surface)?)),
+      Way::Memory(copied) => Some((0, copied.slot())),
+      Way::Nowhere => None,
+    }
   }
 
   /// Where in the drawn surface the part `min` to `max` of the picture is, both as parts of one: the picture

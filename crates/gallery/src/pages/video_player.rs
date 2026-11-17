@@ -368,6 +368,9 @@ pub struct VideoPlayerPage {
   /// Whether they run: they start once the window says which card it draws on, which is after this page is made.
   #[cfg(windows)]
   decoding: Signal<bool>,
+  /// How the frames of each come to the screen, as lurq found.
+  #[cfg(windows)]
+  ways: Signal<Vec<Option<lurq::images::CardFramesWay>>>,
   #[cfg(windows)]
   _decoders: Interval,
   _clock: Interval,
@@ -930,16 +933,29 @@ impl Component for VideoPlayerPage {
       ctx.signal(false),
     );
     #[cfg(windows)]
+    let ways = ctx.signal(Vec::<Option<lurq::images::CardFramesWay>>::new());
+    #[cfg(windows)]
     let decoders = ctx.create_interval(TICK, {
-      let (decoded, decoding) = (decoded.clone(), decoding.clone());
+      let (decoded, decoding, ways) = (decoded.clone(), decoding.clone(), ways.clone());
       move || {
         if decoding.get() {
+          // How each one's frames come is known once lurq has drawn them.
+          let found: Vec<_> = decoded
+            .lock()
+            .expect("the decoders of the page")
+            .iter()
+            .map(|(decoded, _)| decoded.way())
+            .collect();
+          if ways.get() != found {
+            ways.set(found);
+          }
           return;
         }
         let started: Vec<_> = [
           (crate::card_demo::Kind::Nv12, "one NV12 texture"),
           (crate::card_demo::Kind::Planes, "a texture of gray and one of color"),
           (crate::card_demo::Kind::Rgba, "one texture of red, green and blue"),
+          (crate::card_demo::Kind::OtherCard, "a decoder on another card"),
         ]
         .into_iter()
         .filter_map(|(kind, caption)| Some((crate::card_demo::start(kind)?, caption)))
@@ -987,6 +1003,8 @@ impl Component for VideoPlayerPage {
       decoded,
       #[cfg(windows)]
       decoding,
+      #[cfg(windows)]
+      ways,
       #[cfg(windows)]
       _decoders: decoders,
       _clock: clock,
@@ -1069,7 +1087,20 @@ impl Component for VideoPlayerPage {
     } else {
       // Side by side, as the tiles of a grid of streams are, each drawn smaller than its frames.
       let mut row = Row::new().width(FILL).spacing(16.0).wrap().overflow_visible();
-      for (decoded, caption) in self.decoded.lock().expect("the decoders of the page").iter() {
+      let ways = self.ways.get();
+      for (at, (decoded, caption)) in self
+        .decoded
+        .lock()
+        .expect("the decoders of the page")
+        .iter()
+        .enumerate()
+      {
+        let way = match ways.get(at).copied().flatten() {
+          Some(lurq::images::CardFramesWay::Card) => "drawn where the decoder put it",
+          Some(lurq::images::CardFramesWay::Memory) => "copied through memory",
+          Some(lurq::images::CardFramesWay::Nowhere) => "no card opens it",
+          None => "",
+        };
         row = row.child(
           Column::new()
             .width(208.0)
@@ -1079,7 +1110,8 @@ impl Component for VideoPlayerPage {
                 .stretch()
                 .size(Dimension::Px(208.0), Dimension::Px(117.0)),
             )
-            .child(quiet(caption, 12.0)),
+            .child(quiet(caption, 12.0))
+            .child(quiet(way, 12.0)),
         );
       }
       row.into()
@@ -1390,7 +1422,9 @@ impl Component for VideoPlayerPage {
            frames are in, and lurq draws them where they are: a frame is never in the memory of the program. \
            Here a thread of the gallery stands for such a decoder, in the three ways one gives a frame. Its \
            textures are larger than the picture, as a codec's are, and the rows past the picture are pink: \
-           none of it shows. Each is a plain picture, as a tile of a grid of streams is.",
+           none of it shows. Each is a plain picture, as a tile of a grid of streams is. The last decoder \
+           is on another card than the one the window is drawn on, as on a laptop with two: its frames \
+           are copied through memory, and frames.way() says so.",
           self.frame.demo(
             6,
             decoded,
