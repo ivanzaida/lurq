@@ -11,8 +11,12 @@ be able to replace every one of them in one place. That place is `lurq::core::Lo
 dates before it, and now is a part of it (`Locale::dates`).
 
 - **No literal in a component or in the engine for a word a person sees or a tool reads.** The word is a field of
-  `Locale`, in the part for its area (`dates`, `media`; a new area adds a part, as `core/media_words.rs` does).
-  English is the default, and the part has the languages lurq knows: `en`, `uk`, `de`, `fr`, `es`, `pl`.
+  `Locale`, in the part for its area: `dates`, `media`, `common` (what many components say alike: "Close", "More",
+  "No results", a count chosen), `fields`, `navigation` (windows, panels, tabs, pages, steps, notifications, the
+  Mac's menu of the app), `data` (tables, filters, sums, charts), `editing` (find, rich text, code, the command
+  palette, Markdown's notes) and `keys`. A word of a new area adds a part, as `core/media_words.rs` does; a word
+  of an area that has one goes into it. English is the default, and the part has the languages lurq knows: `en`,
+  `uk`, `de`, `fr`, `es`, `pl`.
 - **A component takes its words from `ui::current_locale()`** where it is built. The app sets its locale once
   (`App::set_locale(Locale::for_tag("uk"))`), and what read it is rendered again when it changes. Outside a render
   it is English.
@@ -21,10 +25,15 @@ dates before it, and now is a part of it (`Locale::dates`).
 - **What went wrong is a kind, not a sentence.** A failure is an enum (`core::MediaError`); the locale puts it
   into words (`MediaWords::error`), short enough for the line that shows it. What the system said in its own
   words is kept beside the kind for a log (`MediaError::detail`), and is never shown to a person.
-- **A sentence with a number in it** has a place for the number in the locale's word (`{status}`), or is a
-  function of the locale, as a date's format is.
+- **A sentence with a number in it** has a place for the number in the locale's word (`{status}`, `{at}` of
+  `{total}`, filled with `core::fill`), or is a function of the locale, as a date's format is. Where the word after
+  the number changes with it, the word is a `Plural` (one, few, many, other) and the locale says it
+  (`locale.count(&locale.data.rows, n)`): Ukrainian and Polish have three forms, French says 0 as it says 1. Never
+  an English-shaped "{n} items" or a `if n == 1`.
 
-Not there yet, and to be moved when a component is touched: every component outside the media ones still has its
-English words as literals in its constructor, behind its single-word methods (about 180 words in about 46 files
-of `crates/lurq/src/ui` and `crates/lurq/src/components`), and reads only how dates are written from the app
-(`ui::current_date_locale()`).
+What is left as a literal on purpose: the names of keys a handler matches (`"Enter"`, `"ArrowDown"`), the names of
+parts, states, roles and ids, the text forms of a state (a dock's, a table's), what a panic, a log, DevTools or a
+`DevtoolsInspectable` says (they are for the developer, and in English), the abbreviations of a color's formats
+(HEX, RGB, HSL, and the letters of its channels), `SummaryKind::label` (English, as its docs say), and the title of
+the eyedropper's overlay window on Windows, which nothing shows. Numbers are written with a point in every
+language: a number's format is not in the locale yet.

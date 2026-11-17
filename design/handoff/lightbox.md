@@ -49,7 +49,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `action(element)`, `actions(..)` | Buttons of the app's in the top row, before Download |
 | `inline(bool)`, `width(Length)`, `height(Length)` | Stands in the page where it is declared, open or not, in place of over the window: for a gallery, a screenshot, a test, a viewer that is part of a page. Its size there; the width is the most it takes |
 | `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)`, `close_button(bool)` | Told when a person closes it; and whether Escape, a press beside the picture and a Close button do |
-| `label`, `close_label`, `previous_label`, `next_label`, `zoom_in_label`, `zoom_out_label`, `fit_label`, `download_label` | Its words to tooling: "Pictures", "Close", "Previous picture", "Next picture", "Zoom in", "Zoom out", "Fit to the window", "Download" |
+| `label`, `close_label`, `previous_label`, `next_label`, `zoom_in_label`, `zoom_out_label`, `fit_label`, `download_label` | Its words to tooling, the app's locale's (`Locale::navigation` and `common`), in English "Pictures", "Close", "Previous picture", "Next picture", "Zoom in", "Zoom out", "Fit to the window", "Download" |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel; its parts are `<id>-close`, `-next`, `-previous`, `-zoom-in`, `-zoom-out`, `-level`, `-download`, `-stage` |
 
 - It is a component wherever it is put, as a [picture](#picture) is: it keeps which picture is shown, how close, and

@@ -48,7 +48,7 @@ Carousel::new(cards)
 | `arrows(bool)`, `dots(bool)` | The round buttons beside the slides and the dots under them: both show unless told. With one place there are no dots |
 | `autoplay(Duration)` | Turns to the next slide by itself, from the last to the first. It waits while the pointer is over it and while the focus is in it from the keyboard, and stops for good once a person turns it |
 | `width(Length)` | How wide it is, its buttons with it: all the room there is unless told, and never wider than its room. The slides share what the buttons leave |
-| `label(&str)`, `previous_label(&str)`, `next_label(&str)`, `slide_label(Fn(usize, usize) -> String)` | Its words to tooling: "Carousel", "Previous slide", "Next slide", "Slide 2 of 4" |
+| `label(&str)`, `previous_label(&str)`, `next_label(&str)`, `slide_label(Fn(usize, usize) -> String)` | Its words to tooling, the app's locale's (`Locale::navigation`: `carousel`, `previous_slide`, `next_slide`, `slide_of`), in English "Carousel", "Previous slide", "Next slide", "Slide 2 of 4"; what kind of thing it and a slide are (`carousel_role`, `slide_role`) are the locale's too |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the carousel; its parts are `<id>-previous`, `-next`, `-viewport`, `-slide-<n>`, `-dot-<n>` |
 
 - It is a component wherever it is put, as a [picture](#picture) is: it keeps which slide it is at.
