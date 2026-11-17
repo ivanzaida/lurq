@@ -540,6 +540,7 @@ Added:
 - `ui::BackToTop`: a round button that shows once the content of a `ScrollState` is scrolled past its `threshold` (300 unless told) and takes it back to its top (`new(&scroll)`, `label`, `icon`, `on_click`, which may refuse, `force_shown`, `disabled`, `mount(ctx)`). See [Back To Top](docs/src/content/docs/design-system.md#back-to-top).
 - `ui::PageLoader`: what stands in the place of a whole page while it starts, a ring of 28 over a title and a description in the middle of the room it is given (`new(title)`, `description`, `spinner(Spinner)`). See [Spinner](docs/src/content/docs/design-system.md#spinner).
 - `Ctx::scroll_to_top_of(&ScrollState)` and `Tree::scroll_state_to_top(&ScrollState)`: take a scroll container back to its top as a wheel's scroll goes, over the frames that follow, and at once while motion is reduced or the theme's smooth scroll is off. See [layout](docs/src/content/docs/layout.md#scroll).
+- A guide to `GpuViewport`, [Drawing With Your Own GPU Code](docs/src/content/docs/gpu-viewport.md): a box of the layout whose pixels the app draws with its own wgpu passes on lurq's device, through a `WgpuFrameExtension` and a `WgpuExternalImageSlot`, composited without a copy; its sizing, input, redraws, threads and a lost device, and where it draws (the `wgpu` renderer, not `dx12`). A whole app is `crates/lurq/examples/gpu_viewport.rs`.
 
 Fixes:
 
