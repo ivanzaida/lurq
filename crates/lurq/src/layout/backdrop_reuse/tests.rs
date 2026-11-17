@@ -87,8 +87,6 @@ fn list(rects: Vec<RectCmd>, backdrops: Vec<BackdropCmd>) -> RenderList {
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
-    svgs: Vec::new(),
     layers: Vec::new(),
     backdrops,
     atlas: GlyphAtlas {
@@ -133,10 +131,6 @@ impl Scene {
     #[cfg(feature = "raster")]
     for (index, image) in list.images.iter().enumerate() {
       draws.push((image.order, PaintedDraw::Image(index)));
-    }
-    #[cfg(feature = "svg")]
-    for (index, svg) in list.svgs.iter().enumerate() {
-      draws.push((svg.order, PaintedDraw::Svg(index)));
     }
     draws.sort_by_key(|(order, _)| *order);
     let mut plan = LayerPlan::default();

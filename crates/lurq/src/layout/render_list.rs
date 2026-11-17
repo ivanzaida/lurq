@@ -13,8 +13,6 @@ pub struct RenderList {
   pub glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "raster")]
   pub images: Vec<crate::images::ImageCmd>,
-  #[cfg(feature = "svg")]
-  pub svgs: Vec<crate::svg::SvgCmd>,
   /// Subtrees faded with `opacity < 1`, each painted into an offscreen layer
   /// and composited once at its opacity. Empty when nothing is faded.
   pub layers: Vec<crate::layout::opacity_layer::LayerCmd>,

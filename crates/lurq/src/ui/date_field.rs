@@ -1281,7 +1281,6 @@ impl<F> PartialEq for FieldProps<F> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<F> DevtoolsInspectable for FieldProps<F> {}
 
 /// What a mounted field keeps between renders.

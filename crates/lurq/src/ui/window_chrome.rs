@@ -1563,8 +1563,7 @@ mod tests {
     tree.pass_headless(&mut app);
     tree.pass_headless(&mut app);
     let _ = tree.window().take_commands();
-    #[cfg(any(feature = "mcp", feature = "devtools"))]
-    {
+    crate::node::with_tooling! {
       let name = tree
         .get_element_by_id_mut("bar-maximize")
         .and_then(|element| element.description("a11y_name"));

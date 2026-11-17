@@ -1010,7 +1010,6 @@ impl<T> PartialEq for TransferProps<T> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T> crate::app::component::DevtoolsInspectable for TransferProps<T> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("Transfer", format!("{} items", self.transfer.items.len()));

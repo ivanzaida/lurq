@@ -487,7 +487,6 @@ impl PartialEq for AudioQueueProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for AudioQueueProps {}
 
 /// The component of a queue given to a tree as it is: it has the `Ctx` the tooltips of the rows' "more" buttons

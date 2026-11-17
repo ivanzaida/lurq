@@ -534,6 +534,8 @@ pub(crate) trait NodeUpdate {
   /// Attach a semantic annotation surfaced to tooling (the devtools tree and
   /// the MCP `lurq_read_tree`). A no-op unless a tooling feature is enabled.
   fn describe(&mut self, name: Arc<str>, value: Arc<str>);
+  /// Takes back what the node said of itself to tooling under `name`. A no-op unless a tooling feature is enabled.
+  fn undescribe(&mut self, name: &str);
   fn child(&mut self, child: Node);
   fn id(&mut self, id: impl Into<Arc<str>>);
   fn class(&mut self, class: impl Into<Arc<str>>);
@@ -645,6 +647,8 @@ pub(crate) trait NodeUpdate {
   /// `Ctrl+Shift+P`.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   fn form_value(&mut self, value: Option<Arc<str>>);
+  /// What a selection over the node copies where it stands in a line of rich text, as an object of it.
+  fn copy_text(&mut self, text: Option<Arc<str>>);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
   fn within_style(&mut self, style: Style);
@@ -1048,6 +1052,8 @@ pub(crate) struct RareStyle {
   /// What the node gives a form under its name, where its kind gives nothing of its own; see
   /// `NodeUpdate::form_value`.
   pub(crate) form_value: Option<Arc<str>>,
+  /// What a selection over the node copies where it stands in a line of rich text; see `NodeUpdate::copy_text`.
+  pub(crate) copy_text: Option<Arc<str>>,
   /// A child removed from the node stays until its exit animation ends; see `node/presence.rs`.
   pub(crate) presence: bool,
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
@@ -1272,11 +1278,24 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn copy_text(&mut self, text: Option<Arc<str>>) {
+    if self.rare_style.copy_text != text {
+      self.rare_style.copy_text = text;
+    }
+  }
+
   fn describe(&mut self, name: Arc<str>, value: Arc<str>) {
     #[cfg(any(feature = "devtools", feature = "mcp"))]
     self.debug.debug_attrs.push((name, value));
     #[cfg(not(any(feature = "devtools", feature = "mcp")))]
     let _ = (name, value);
+  }
+
+  fn undescribe(&mut self, name: &str) {
+    #[cfg(any(feature = "devtools", feature = "mcp"))]
+    self.debug.debug_attrs.retain(|(said, _)| &**said != name);
+    #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+    let _ = name;
   }
 
   fn child(&mut self, child: Node) {
@@ -3393,14 +3412,14 @@ impl Node {
     )
   }
 
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   pub fn svg(data: crate::svg::SvgData) -> Self {
     let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Svg { data: data.clone() }, vec![]);
     node.intrinsic_size = Some(Size::new(data.viewbox_width(), data.viewbox_height()));
     node
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   pub fn resource_svg(path: &str) -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
   }
@@ -4567,14 +4586,38 @@ impl Node {
   }
 
   /// The bytes `range` of a rich text's `text`, without the spans it draws
-  /// as presentation (a link's isolate marks and trailing runs); `text`
-  /// itself for any other node.
-  #[cfg(feature = "markdown")]
+  /// as presentation (a link's isolate marks and trailing runs), and with what
+  /// each of its objects copies in place of its character (`copy_text`, or
+  /// nothing); `text` itself for any other node.
   pub(crate) fn rich_text_content(&self, text: &str, range: std::ops::Range<usize>) -> String {
     let NodeKind::RichText { spans, generated, .. } = self.node_kind() else {
       return text.get(range).unwrap_or_default().to_owned();
     };
-    crate::node::inline_link::content_without_generated(spans, generated, text, range)
+    let objects = crate::layout::layout_engine::text_objects::object_slots(self, spans);
+    if objects.is_empty() {
+      #[cfg(feature = "markdown")]
+      return crate::node::inline_link::content_without_generated(spans, generated, text, range);
+    }
+    let mut content = String::with_capacity(range.len());
+    let mut offset = 0;
+    for (index, span) in spans.iter().enumerate() {
+      let bytes = offset..offset + span.text.len();
+      offset = bytes.end;
+      let (start, end) = (bytes.start.max(range.start), bytes.end.min(range.end));
+      if start >= end || generated.iter().any(|generated| generated.contains(&index)) {
+        continue;
+      }
+      if let Some((_, child)) = objects.iter().find(|(span, _)| *span == index) {
+        if let Some(copied) = self.children().get(*child).and_then(Node::copy_text_within) {
+          content.push_str(&copied);
+        }
+        continue;
+      }
+      if let Some(part) = text.get(start..end) {
+        content.push_str(part);
+      }
+    }
+    content
   }
 
   #[cfg(any(feature = "mcp", feature = "devtools"))]
@@ -5296,6 +5339,13 @@ impl Node {
     std::borrow::Cow::Owned(attrs)
   }
 
+  /// What the node says of itself to tooling: nothing without a tooling feature, which keeps none of it.
+  #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+  #[allow(dead_code)]
+  pub fn debug_attrs(&self) -> std::borrow::Cow<'_, [(Arc<str>, Arc<str>)]> {
+    std::borrow::Cow::Borrowed(&[])
+  }
+
   pub(crate) fn node_kind(&self) -> &NodeKind {
     &self.node_kind
   }
@@ -5404,6 +5454,15 @@ impl Node {
   /// see [`InteractionState::is_disabled`](crate::node::interaction_state::InteractionState::is_disabled).
   pub(crate) fn is_disabled(&self) -> bool {
     self.rare_style.disabled
+  }
+
+  /// What a selection over the node copies, where the node stands in a line of rich text: the first node of its
+  /// subtree that says, depth first. See `NodeUpdate::copy_text`.
+  pub(crate) fn copy_text_within(&self) -> Option<Arc<str>> {
+    if let Some(text) = &self.rare_style.copy_text {
+      return Some(text.clone());
+    }
+    self.children().iter().find_map(Node::copy_text_within)
   }
 
   /// What the node gives a form under its name where its kind gives nothing: see `NodeUpdate::form_value`.
@@ -6504,9 +6563,9 @@ impl Node {
           fit: old_fit,
         },
       ) => path == old_path && fit == old_fit,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       (NodeKind::ResourceSvg { path }, NodeKind::ResourceSvg { path: old_path }) => path == old_path,
       _ => false,
     }

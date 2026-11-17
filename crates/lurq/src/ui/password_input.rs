@@ -434,7 +434,6 @@ impl PartialEq for PasswordProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PasswordProps {}
 
 /// What keeps whether a mounted password input's password is shown.

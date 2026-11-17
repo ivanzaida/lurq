@@ -1027,7 +1027,6 @@ impl PartialEq for RichTextEditorProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for RichTextEditorProps {}
 
 struct RichTextEditorHost {

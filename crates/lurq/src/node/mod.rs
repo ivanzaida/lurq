@@ -40,6 +40,24 @@ pub mod text_highlight;
 pub(crate) mod text_selection;
 pub mod transform;
 
+/// Whether what a node says of itself to tooling (`NodeUpdate::describe`) is kept: with the `devtools` or the `mcp`
+/// feature. Without either a component skips the work of saying it.
+pub(crate) const TOOLING: bool = cfg!(any(feature = "devtools", feature = "mcp"));
+
+/// The statements given, kept with the `devtools` or the `mcp` feature and nothing without either: what reads what a
+/// node says of itself to tooling where only such a build has it.
+#[allow(unused_macros)]
+macro_rules! with_tooling {
+  ($($body:tt)*) => {
+    #[cfg(any(feature = "devtools", feature = "mcp"))]
+    {
+      $($body)*
+    }
+  };
+}
+#[allow(unused_imports)]
+pub(crate) use with_tooling;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextTransformMode {
   #[default]

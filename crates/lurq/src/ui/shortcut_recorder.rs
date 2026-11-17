@@ -918,7 +918,6 @@ impl PartialEq for RecorderProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for RecorderProps {}
 
 /// What a mounted recorder keeps.

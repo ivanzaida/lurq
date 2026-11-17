@@ -442,7 +442,6 @@ impl PartialEq for EditableProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for EditableProps {}
 
 struct EditableHost {

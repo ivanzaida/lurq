@@ -597,7 +597,6 @@ impl PartialEq for ToggletipProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ToggletipProps {}
 
 /// What opens a toggletip's panel by its button, and shows it.

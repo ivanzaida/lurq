@@ -122,33 +122,28 @@ as_they_are!(Button, ButtonGroup, Fab, Link, Toggle, Row, Column, Stack);
 /// what it is (`a11y_role`) or takes the focus, so that a group is described and not each radio in it; on the root
 /// where there is none. Kept only where there is tooling to tell, as every `a11y_` attribute is.
 fn described(control: Element, description: Arc<str>) -> Element {
-  #[cfg(any(feature = "devtools", feature = "mcp"))]
-  {
-    use crate::node::{NodeUpdate, node::Node};
-    fn walk(node: &mut Node, description: &Arc<str>) -> bool {
-      let says = node.debug_attrs().iter().any(|(name, _)| &**name == "a11y_role");
-      if says || node.is_focusable() {
-        NodeUpdate::describe(node, Arc::from("a11y_description"), description.clone());
-        return true;
-      }
-      let mut any = false;
-      for child in &mut node.children {
-        any |= walk(child, description);
-      }
-      any
+  use crate::node::{NodeUpdate, TOOLING, node::Node};
+  fn walk(node: &mut Node, description: &Arc<str>) -> bool {
+    let says = node.debug_attrs().iter().any(|(name, _)| &**name == "a11y_role");
+    if says || node.is_focusable() {
+      NodeUpdate::describe(node, Arc::from("a11y_description"), description.clone());
+      return true;
     }
-    control.decorate_root(move |mut node| {
-      if !walk(&mut node, &description) {
-        NodeUpdate::describe(&mut node, Arc::from("a11y_description"), description.clone());
-      }
-      node
-    })
+    let mut any = false;
+    for child in &mut node.children {
+      any |= walk(child, description);
+    }
+    any
   }
-  #[cfg(not(any(feature = "devtools", feature = "mcp")))]
-  {
-    let _ = description;
-    control
+  if !TOOLING {
+    return control;
   }
+  control.decorate_root(move |mut node| {
+    if !walk(&mut node, &description) {
+      NodeUpdate::describe(&mut node, Arc::from("a11y_description"), description.clone());
+    }
+    node
+  })
 }
 
 /// What a field holds until it is built: the control, to be finished with what the field says, and mounted where the

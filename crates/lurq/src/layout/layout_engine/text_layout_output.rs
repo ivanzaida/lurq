@@ -52,8 +52,7 @@ pub(crate) struct TextOutput {
   /// A plain text that draws an underline or a line through it: where its
   /// lines lie.
   pub(super) decoration: Option<Arc<super::text_decorations::TextDecorationLayout>>,
-  /// Rich text that paints underlines or links: where its text lies.
-  #[cfg(feature = "markdown")]
+  /// Rich text that paints underlines, links or objects: where its text lies.
   pub(super) inline: Option<Arc<super::inline_links::InlineTextLayout>>,
 }
 
@@ -91,7 +90,6 @@ impl TextLayoutOutput {
 
 impl TextOutput {
   /// This output, painting underlines or links as `inline` lays them out.
-  #[cfg(feature = "markdown")]
   pub(super) fn with_inline(&self, inline: Arc<super::inline_links::InlineTextLayout>) -> Self {
     Self {
       display_text: self.display_text.clone(),
@@ -111,7 +109,6 @@ impl TextOutput {
       carets: self.carets.clone(),
       text_top: self.text_top,
       decoration: Some(decoration),
-      #[cfg(feature = "markdown")]
       inline: self.inline.clone(),
     }
   }
@@ -125,20 +122,12 @@ impl TextOutput {
       carets: Some(carets),
       text_top,
       decoration: self.decoration.clone(),
-      #[cfg(feature = "markdown")]
       inline: self.inline.clone(),
     }
   }
 
   fn inline_memory_bytes(&self) -> usize {
-    #[cfg(feature = "markdown")]
-    {
-      self.inline.as_ref().map_or(0, |inline| inline.estimated_memory_bytes())
-    }
-    #[cfg(not(feature = "markdown"))]
-    {
-      0
-    }
+    self.inline.as_ref().map_or(0, |inline| inline.estimated_memory_bytes())
   }
 
   fn apply(&self, state: &TextState) {

@@ -661,7 +661,6 @@ fn the_calendars_own_locale_wins_over_the_apps() {
 #[test]
 fn with_nothing_set_it_is_english() {
   let app = lurq::app::App::new();
-  #[cfg(feature = "i18n")]
   app.i18n().set_locale("uk");
   let value = Signal::new(Some(day(11, 12)));
   let stage = in_app(&app, &value, true);

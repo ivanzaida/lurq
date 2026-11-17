@@ -687,7 +687,6 @@ impl PartialEq for SelectionMarqueeProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SelectionMarqueeProps {}
 
 /// What a mounted selection marquee keeps between renders.

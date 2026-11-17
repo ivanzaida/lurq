@@ -426,16 +426,46 @@ impl Loader {
     drop(entries);
     let load = Load::of(&entry);
     if !matches!(source.kind, SourceKind::Bytes(_)) {
-      self.start(source, entry);
+      self.start(source, entry, None);
     }
     load
   }
 
-  /// Starts reading `source` into `entry`.
-  fn start(&self, source: &Source, entry: Arc<Entry>) {
+  /// Loads the first `bytes` bytes of `source`, or all of it where it has fewer, off the caller's thread: the
+  /// start of a page, which says what the page is about in its head. More than that is not read, and is no
+  /// error: the read stops there and the load is ready with what it read. It is a load of its own, kept and
+  /// joined as [`load`](Self::load)'s are, apart from a whole load of the same source, and the
+  /// [cache on the disk](Self::media_disk_cache) neither keeps nor gives it.
+  pub fn load_start(&self, source: &Source, bytes: u64) -> Load {
+    let key = {
+      let mut hasher = std::collections::hash_map::DefaultHasher::new();
+      std::hash::Hash::hash(&("start", source.cache_key(), bytes), &mut hasher);
+      std::hash::Hasher::finish(&hasher)
+    };
+    let mut entries = self.shared.entries.lock();
+    if let Some(entry) = entries.get(&key) {
+      return Load::of(entry);
+    }
+    let entry = match &source.kind {
+      SourceKind::Bytes(all) => Entry::new(LoadState::Ready(Arc::from(
+        &all[..all.len().min(usize::try_from(bytes).unwrap_or(usize::MAX))],
+      ))),
+      _ => Entry::new(LoadState::Loading { loaded: 0, total: None }),
+    };
+    entries.insert(key, entry.clone());
+    drop(entries);
+    let load = Load::of(&entry);
+    if !matches!(source.kind, SourceKind::Bytes(_)) {
+      self.start(source, entry, Some(bytes));
+    }
+    load
+  }
+
+  /// Starts reading `source` into `entry`: all of it, or its first `head` bytes.
+  fn start(&self, source: &Source, entry: Arc<Entry>, head: Option<u64>) {
     #[cfg(target_arch = "wasm32")]
     {
-      let _ = source;
+      let _ = (source, head);
       entry.finish(Err(LoadError::Unsupported(
         "a file or an address is not loaded in a browser yet",
       )));
@@ -463,21 +493,25 @@ impl Loader {
       let read = move || {
         let _unread = unread;
         let told = |loaded, total| entry.progress(loaded, total);
-        let result = match (path, &source.kind) {
-          (Some(path), _) => FileReader::open(&path)
+        let result = match (path, &source.kind, head) {
+          (Some(path), _, Some(head)) => FileReader::open(&path)
+            .and_then(|reader| read_start(&reader, head))
+            .map_err(LoadError::from),
+          (None, SourceKind::Url(address), Some(head)) => fetch(address, &source, timeout, head, true, told),
+          (Some(path), _, None) => FileReader::open(&path)
             .and_then(|reader| read_all(&reader, Some(max_bytes), told))
             .map_err(|error| match error.kind() {
               io::ErrorKind::FileTooLarge => LoadError::TooLarge { limit: max_bytes },
               _ => LoadError::from(error),
             }),
           // What the cache on the disk keeps of the address is read from there; what is fetched is kept.
-          (None, SourceKind::Url(address)) => match disk.read(source.cache_key(), max_bytes) {
+          (None, SourceKind::Url(address), None) => match disk.read(source.cache_key(), max_bytes) {
             Some(bytes) => Ok(bytes),
-            None => fetch(address, &source, timeout, max_bytes, told).inspect(|bytes| {
+            None => fetch(address, &source, timeout, max_bytes, false, told).inspect(|bytes| {
               disk.put(source.cache_key(), address, bytes);
             }),
           },
-          (None, _) => Err(LoadError::Unsupported("nothing reads this source")),
+          (None, ..) => Err(LoadError::Unsupported("nothing reads this source")),
         };
         entry.finish(result);
       };
@@ -566,16 +600,33 @@ impl Loader {
   }
 }
 
-/// Reads all of what is at `address`.
+/// The first `head` bytes of what `reader` holds, or all of it where it holds fewer.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_start(reader: &dyn Reader, head: u64) -> io::Result<Vec<u8>> {
+  let mut bytes = vec![0u8; usize::try_from(head).unwrap_or(usize::MAX).min(16 * 1024 * 1024)];
+  let mut filled = 0;
+  while filled < bytes.len() {
+    let read = reader.read_at(filled as u64, &mut bytes[filled..])?;
+    if read == 0 {
+      break;
+    }
+    filled += read;
+  }
+  bytes.truncate(filled);
+  Ok(bytes)
+}
+
+/// Reads all of what is at `address`, or its first `max_bytes` where `cut`.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn fetch(
   address: &str,
   source: &Source,
   timeout: Duration,
   max_bytes: u64,
+  cut: bool,
   told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
-  super::http::fetch(address, &source.headers, timeout, max_bytes, told)
+  super::http::fetch(address, &source.headers, timeout, max_bytes, cut, told)
 }
 
 /// A build without the feature `http` loads no address, and says so.
@@ -585,6 +636,7 @@ fn fetch(
   _source: &Source,
   _timeout: Duration,
   _max_bytes: u64,
+  _cut: bool,
   _told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
   static SAID: std::sync::Once = std::sync::Once::new();
@@ -706,6 +758,21 @@ mod tests {
       ended(&loader.load(&Source::file(&path))),
       LoadState::Failed(LoadError::TooLarge { limit: 1024 })
     ));
+  }
+
+  #[test]
+  fn the_start_of_a_source_is_read_and_no_more_and_is_no_error() {
+    let path = file("start.bin", &[1, 2, 3, 4, 5, 6]);
+    let loader = loader();
+    let source = Source::file(&path);
+    assert!(matches!(ended(&loader.load_start(&source, 4)), LoadState::Ready(bytes) if bytes[..] == [1, 2, 3, 4]));
+    assert!(
+      matches!(ended(&loader.load_start(&source, 100)), LoadState::Ready(bytes) if bytes[..] == [1, 2, 3, 4, 5, 6])
+    );
+    // A whole load of the same source is another load.
+    assert!(matches!(ended(&loader.load(&source)), LoadState::Ready(bytes) if bytes.len() == 6));
+    let bytes = Source::bytes(vec![7, 8, 9]);
+    assert!(matches!(loader.load_start(&bytes, 2).state(), LoadState::Ready(start) if start[..] == [7, 8]));
   }
 
   #[test]
@@ -879,6 +946,7 @@ mod tests {
       a_file_and_a_resource_under_the_root_are_read,
       a_file_that_is_not_there_fails_and_stays_failed_until_forgotten,
       a_file_over_the_limit_is_not_read_whole,
+      the_start_of_a_source_is_read_and_no_more_and_is_no_error,
       the_same_source_asked_twice_is_one_load_and_wakes_who_waits,
       what_nobody_holds_is_let_go_after_a_moment_and_a_failure_is_kept,
       an_address_the_app_does_not_allow_is_denied_and_nothing_reads_it,

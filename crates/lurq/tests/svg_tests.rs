@@ -2,7 +2,7 @@
 //! re-parsing the same source, the common per-render pattern), and repeated
 //! layout of the same SVG at the same size must not re-rasterize — an
 //! uncached full-viewport layer cost 40-70ms EVERY frame.
-#![cfg(feature = "svg")]
+#![cfg(feature = "canvas")]
 
 use lurq::svg::SvgData;
 

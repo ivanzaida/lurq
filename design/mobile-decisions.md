@@ -52,6 +52,9 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   6. A pen's tap is a click and a tap, as a finger's. A pen's hover is later.
 - **Why.** One handler for the action on every platform; gestures where only a finger has them; never twice; no
   delay of every click on a phone for the sake of a double tap only some elements want.
+- **What a double click did, for a finger (Ivan, the same day).** `Zoom`, `Splitter` and `DocumentTabs` listen to
+  `on_double_tap` too (a held-back single tap does not matter there); `Table` and `TreeView` open a row on a single
+  tap in the touch form, so a tap on a row is never delayed.
 - **State.** Decided; to be built with the pointer on `claude/touch-form`.
 
 ### Phone emulation on a desktop

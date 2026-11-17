@@ -822,6 +822,62 @@ Button::new("Undo")
   .on_click(move |_| edit.run(EditCommand::Undo))
 ```
 
+## Rich Text
+
+`Text::rich(spans)` is a paragraph of runs, each a `RichTextSpan` in a `TextStyle` of its own: a word in another
+weight, a run in another color. It is laid out, wrapped, drawn and selected as one text.
+
+```rust
+use lurq::{
+  components::Text,
+  layout::{quad::RichTextSpan, text_style::{FontWeight, TextStyle}},
+};
+
+let body = TextStyle { font_size: 14.0, ..TextStyle::default() };
+let bold = TextStyle { weight: FontWeight::Bold, ..body.clone() };
+Text::rich([
+  RichTextSpan::new("Saved ", body.clone()),
+  RichTextSpan::new("3 files", bold),
+  RichTextSpan::new(".", body),
+]);
+```
+
+### Elements in a line
+
+A rich text holds elements in its lines: a mention, a chip, a picture among the words, an inline link preview. Each is
+an object of the text, a span that is one `OBJECT_CHARACTER` (U+FFFC, `RichTextSpan::object(style)`), and the element
+the text is given for it with `.object(element)`: the first for the first object, in the order of the text
+(`.objects(elements)` gives several). It is in every build.
+
+```rust
+use lurq::{
+  components::Text,
+  layout::quad::RichTextSpan,
+  ui::{LinkPreview, LinkPreviewVariant},
+};
+
+Text::rich([
+  RichTextSpan::new("The gaps are explained in ", body.clone()),
+  RichTextSpan::object(body.clone()),
+  RichTextSpan::new(" — read it before the review.", body),
+])
+.object(LinkPreview::new(url).variant(LinkPreviewVariant::Inline));
+```
+
+- The element is laid out by itself, no wider than the paragraph, and the object takes its width in the line. It
+  breaks as a word does, before it and after it and never inside, so it goes to the next line with the words around
+  it.
+- The line keeps the height of its text, and the element stands on the middle of it: one taller than the line stands
+  over it and under it, and the paragraph draws it whole. An element that changes its size lays its line out again.
+- It is an element like any other, unlike an input's objects (`TextInput::objects`), which take neither the pointer
+  nor the focus: a press reaches what is in it, Tab stops at what it holds in the order of the text, and tooling reads
+  it. The object's character draws nothing.
+- A selection, and `Text::highlights`, go across an object as across a word: its carets are where it is drawn.
+  A copy of a selection over it gives what the element says it copies, `.copy_text("[Layout](https://lurq.dev)")`
+  on it or on anything in it (the first, depth first), and nothing where it says nothing: never its character. An
+  inline `ui::LinkPreview` copies `[title](url)`.
+- An object character the text is given no element for is a character like any other.
+
 ## Text Selection
 
 Plain text is not selectable by default. Opt in with `.selectable(true)`:
@@ -1090,7 +1146,7 @@ Checkbox::new(enabled)
   })
 ```
 
-With `image` and `resources`, the indicator can come from the app resource loader:
+With `image`, the indicator can come from the app resource loader:
 
 ```rust
 Checkbox::new(enabled)
@@ -1348,7 +1404,7 @@ Slider::new(value)
   .thumb(|style| style.size(16.0, 16.0).background_image(thumb).background_cover())
 ```
 
-With `image` and `resources`, pass resource paths instead:
+With `image`, pass resource paths instead:
 
 ```rust
 Slider::new(value)

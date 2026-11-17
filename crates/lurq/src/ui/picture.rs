@@ -621,6 +621,15 @@ impl Picture {
     self
   }
 
+  /// The key of what it shows, where it is read from a source: what tells one picture another's for a component
+  /// that holds it.
+  pub(crate) fn source_key(&self) -> Option<u64> {
+    match &self.source {
+      Source::Encoded { source, .. } => Some(source.cache_key()),
+      _ => None,
+    }
+  }
+
   /// What the picture is called: what it shows of itself where there are no pixels, and its name to tooling
   /// that reads the tree. An `alt` text.
   pub fn label(mut self, label: &str) -> Self {
@@ -1290,7 +1299,6 @@ impl Picture {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PictureProps {}
 
 /// What a picture keeps between renders.

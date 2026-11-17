@@ -61,7 +61,13 @@ impl LayoutEngine {
       }
       NodeKind::RichText { state, spans, .. } if state.measures_carets() => {
         let wrap = node.text_wrap && node.text_overflow == crate::node::node_kind::TextOverflow::Clip;
-        self.painted_rich_text(glyph_engine, spans, wrap, result.size)
+        // A paragraph's objects are as wide in its carets as in its paint: a selection and a highlight past one
+        // meet the words they cover.
+        let objects = self.object_spans(glyph_engine, node, spans, result.size.width);
+        let laid_out = objects
+          .as_ref()
+          .map_or(spans.as_slice(), |(widened, _)| widened.as_slice());
+        self.painted_rich_text(glyph_engine, laid_out, wrap, result.size)
       }
       _ => return,
     };
