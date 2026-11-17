@@ -1043,7 +1043,15 @@ impl DocumentTabsView {
         }
       });
       if entry.preview {
-        tab = tab.on_dblclick(move |_: MouseEvent| keep());
+        // A finger's double tap is no double click: it keeps the tab as one does.
+        let tapped = keep.clone();
+        tab = tab
+          .on_dblclick(move |_: MouseEvent| keep())
+          .on_double_tap(move |event: crate::app::events::TapEvent| {
+            if event.fingers == 1 {
+              tapped();
+            }
+          });
       }
       tab = tab.on_key_down(self.keys(index));
     }

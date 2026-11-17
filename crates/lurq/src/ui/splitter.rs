@@ -1260,6 +1260,15 @@ impl SplitterView {
           let shared = shared.clone();
           move |_: MouseEvent| shared.step_to(shared.restored(index))
         })
+        // A finger's double tap is no double click: it restores the size as one does.
+        .on_double_tap({
+          let shared = shared.clone();
+          move |event: crate::app::events::TapEvent| {
+            if event.fingers == 1 {
+              shared.step_to(shared.restored(index));
+            }
+          }
+        })
         .on_key_down({
           let shared = shared.clone();
           move |event: KeyboardEvent| shared.key(index, &event)

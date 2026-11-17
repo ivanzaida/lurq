@@ -4820,7 +4820,17 @@ impl TableRow {
       // it, until it knows it is not the first of a double press.
       let press = actions.clone();
       let index = self.index;
+      // In the touch form a tap opens the row, as a double press does, and is never held back for a second one.
+      let touch = super::touch_form();
       row = row.on_click(move |event: MouseEvent| {
+        let tapped = touch && event.pointer_kind != crate::app::events::PointerKind::Mouse && !event.from_keyboard;
+        if tapped {
+          if press.selectable {
+            (press.pick)(Pick::Only);
+          }
+          (press.activate)();
+          return;
+        }
         if second_press(index, &event) {
           (press.activate)();
           return;

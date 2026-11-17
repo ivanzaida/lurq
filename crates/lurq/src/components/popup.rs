@@ -123,6 +123,18 @@ impl Popup {
     self
   }
 
+  /// [`Overlay::at_placed`](crate::app::ctx::Overlay::at_placed).
+  pub(crate) fn at_placed(mut self, placement: Placement) -> Self {
+    self.overlay = self.overlay.at_placed(placement);
+    self
+  }
+
+  /// [`Overlay::keep_clear`](crate::app::ctx::Overlay::keep_clear).
+  pub(crate) fn keep_clear(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    self.overlay = self.overlay.keep_clear(top, right, bottom, left);
+    self
+  }
+
   /// Whether the anchor is this popup's trigger, which a left press opens.
   /// While another dropdown is open, a press on a trigger closes it and goes
   /// on to the trigger, so one press switches dropdowns. Defaults to `true`;

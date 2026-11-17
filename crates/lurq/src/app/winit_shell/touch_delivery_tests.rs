@@ -11,7 +11,7 @@ use winit::{
   event::{DeviceId, Force, Touch, TouchPhase},
 };
 
-use super::{deliver_touch, is_pen, promoted_from_touch, touch::TouchPointer};
+use super::{deliver_touch, is_pen, promoted_from_touch};
 use crate::{
   app::{
     App, Pointer, Tree,
@@ -77,10 +77,10 @@ fn tree() -> (Tree, App, Log) {
 
 /// What a finger (or a pen, by its force) does landing and lifting, delivered as the shell delivers it.
 fn tap(tree: &mut Tree, force: Option<Force>) {
-  let (mut pointer, mut cursor) = (TouchPointer::default(), (0.0, 0.0));
+  let mut cursor = (0.0, 0.0);
   let now = Instant::now();
   for phase in [TouchPhase::Started, TouchPhase::Ended] {
-    deliver_touch(tree, &mut pointer, &mut cursor, &touch(3, phase, force), now);
+    deliver_touch(tree, &mut cursor, &touch(3, phase, force), now);
   }
 }
 

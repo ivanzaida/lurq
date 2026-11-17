@@ -87,6 +87,11 @@ mod ime;
 mod lost_engine_tests;
 pub use ime::{AutofillPeer, KeyboardTraits, TextInputGeometry, TextInputSnapshot};
 mod edit;
+pub(crate) mod finger;
+#[cfg(test)]
+mod finger_tests;
+#[cfg(test)]
+mod gestures_tests;
 #[cfg(all(test, feature = "markdown"))]
 mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
@@ -118,6 +123,7 @@ pub(crate) use paste::copied_rich;
 pub use paste::{ClipboardReader, ClipboardWriter};
 pub use touch::TouchMomentum;
 pub use touch_pointer::TouchRoute;
+pub(crate) mod mouse_fingers;
 #[cfg(test)]
 mod refresh_layout_tests;
 #[cfg(all(test, feature = "devtools"))]
@@ -136,6 +142,7 @@ mod touch_pointer;
 mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
+mod touch_text;
 mod typeahead;
 mod wheel_scroll;
 mod window_controls;
@@ -508,7 +515,7 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
     let mut element: Element = self.component.render(ctx).into();
     // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
     element.node.mount_declared_components(ctx);
-    element
+    with_edit_menu(ctx, element)
   }
 
   fn after_layout(&self) {
@@ -526,6 +533,40 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn tag_name(&self) -> Arc<str> {
     component_tag_name::<C>()
   }
+}
+
+/// The app's root with the menu of editing commands a finger opened declared in it, while one is open: a layer of
+/// the window lurq shows by itself, hung from the root. A root that holds no children has none.
+fn with_edit_menu(ctx: &Ctx, mut element: Element) -> Element {
+  let Some(window) = ctx.window_untracked().cloned() else {
+    return element;
+  };
+  if window.edit_menu().is_none() || !holds_children(&element.node) {
+    return element;
+  }
+  let anchor = match &element.node.element_ref {
+    Some(anchor) => anchor.clone(),
+    None => {
+      let anchor = crate::core::ElementRef::new();
+      NodeUpdate::ref_element(&mut *element.node, anchor.clone());
+      anchor
+    }
+  };
+  if let Some(menu) = crate::ui::edit_menu::edit_menu_layer(&window, anchor) {
+    element.node.children.push(*menu.node);
+  }
+  element
+}
+
+/// Whether a node lays out children: where a layer declared among them is found.
+fn holds_children(node: &Node) -> bool {
+  matches!(
+    node.layout_kind(),
+    crate::layout::layout_kind::LayoutKind::Row { .. }
+      | crate::layout::layout_kind::LayoutKind::Column { .. }
+      | crate::layout::layout_kind::LayoutKind::Stack { .. }
+      | crate::layout::layout_kind::LayoutKind::Grid(_)
+  )
 }
 
 /// A frame capture waiting for the next rendered frame.
@@ -881,6 +922,12 @@ pub struct Tree {
   touch_scroll: touch::TouchScroll,
   touch_momentum: TouchMomentum,
   touch_pointer: touch_pointer::TouchPointerState,
+  /// The finger that is the pointer, as a touch screen's shell gives it; see [`finger`].
+  finger: finger::TouchPointer,
+  /// Text by touch: the caret's loupe and the selection's handles; see [`touch_text`].
+  touch_text: touch_text::TouchText,
+  /// Dots drawn where fingers the mouse stands for are; see [`Tree::set_touch_marks`].
+  touch_marks: Vec<(f32, f32)>,
   /// Where the sensitive text of the last full render list was painted, for
   /// captures made for inspection (`app::capture_redaction`).
   #[cfg(feature = "screenshot")]
@@ -1359,6 +1406,9 @@ impl Tree {
       touch_scroll: touch::TouchScroll::default(),
       touch_momentum: TouchMomentum::default(),
       touch_pointer: touch_pointer::TouchPointerState::default(),
+      finger: finger::TouchPointer::default(),
+      touch_text: touch_text::TouchText::default(),
+      touch_marks: Vec::new(),
       #[cfg(feature = "screenshot")]
       capture_redactions: Vec::new(),
       #[cfg(feature = "screenshot")]
@@ -3760,6 +3810,8 @@ impl Tree {
     };
     #[cfg(not(feature = "screenshot"))]
     let perf_overlay = self.perf_overlay_enabled.then_some(self.perf_overlay_stats);
+    self.push_touch_text_marks(&mut rects, &mut glyphs, quad_count + 21_000, scale);
+    self.push_touch_marks(&mut rects, quad_count * 2 + 30_000, scale);
     self.push_autoscroll_mark(&mut rects, quad_count + 19_000, scale);
     push_perf_meter(
       &mut rects,
@@ -7510,6 +7562,11 @@ impl Tree {
     self.press_clock = now;
   }
 
+  /// The clock of presses [`set_press_clock`](Self::set_press_clock) set, if one is.
+  pub fn press_clock(&self) -> Option<Instant> {
+    self.press_clock
+  }
+
   /// The clock of presses: the one [`Self::set_press_clock`] set, or the wall clock.
   fn press_now(&self) -> Instant {
     self.press_clock.unwrap_or_else(Instant::now)
@@ -9214,6 +9271,8 @@ fn build_overlay_node(
     offset_y: spec.offset_y,
     collision: spec.collision,
     at: spec.at,
+    at_placement: spec.at_placement,
+    clear: spec.clear,
   };
   let (node, bounds) = place_overlay(
     node,
@@ -9239,6 +9298,10 @@ pub(super) struct OverlayPlacing {
   collision: CollisionStrategy,
   /// The point of the window it stands at in place of its anchor (`Overlay::at`).
   at: Option<(f32, f32)>,
+  /// Where it stands by that point (`Overlay::at_placed`).
+  at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of (`Overlay::keep_clear`).
+  clear: [f32; 4],
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -9261,6 +9324,8 @@ fn place_overlay(
     offset_y,
     collision,
     at,
+    at_placement,
+    clear,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -9278,16 +9343,43 @@ fn place_overlay(
     invalidate_layout_cache_recursive(&node);
   }
   let overlay_size = measured.size;
-  let (x, y) = match at {
-    Some(point) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
-    None => {
+  let (x, y) = match (at, at_placement) {
+    // By the point as by an anchor of no size there, flipped where the window less what it keeps clear of has no
+    // room that way.
+    (Some(point), Some(placement)) => {
+      let [top, right, bottom, left] = clear;
+      let (px, py) = (point.0 - left, point.1 - top);
+      let anchor = ElementRect {
+        x: px,
+        y: py,
+        relative_x: px,
+        relative_y: py,
+        width: 0.0,
+        height: 0.0,
+      };
+      let room = Size::new(
+        (viewport.width - left - right).max(0.0),
+        (viewport.height - top - bottom).max(0.0),
+      );
+      let placement = resolve_overlay_collision(placement, anchor, overlay_size, room, offset_x, offset_y, collision);
+      let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
+      (x + left, y + top)
+    }
+    (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
+    (None, _) => {
       let placement =
         resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
       overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
     }
   };
   let (x, y) = if matches!(collision, CollisionStrategy::Clamp | CollisionStrategy::FlipThenClamp) {
-    clamp_overlay_position(x, y, overlay_size, viewport)
+    let [top, right, bottom, left] = clear;
+    let room = Size::new(
+      (viewport.width - left - right).max(overlay_size.width.min(viewport.width)),
+      (viewport.height - top - bottom).max(overlay_size.height.min(viewport.height)),
+    );
+    let (x, y) = clamp_overlay_position(x - left, y - top, overlay_size, room);
+    clamp_overlay_position(x + left, y + top, overlay_size, viewport)
   } else {
     (x, y)
   };

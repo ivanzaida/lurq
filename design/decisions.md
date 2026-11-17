@@ -27,7 +27,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
      registered for a language and its aliases (`App::register_tokenizer("sql", ..)`); registering one for a
      language that has one replaces it (lurq's own included). A language with none registered is plain text. A block
      may still take its own (`.tokenizer(..)`) over the registry. It is named a tokenizer, not a highlighter (Ivan):
-     it splits code into named tokens and colors nothing. lurq's own becomes a
+     it splits code into named tokens and colors nothing. A tokenizer may keep state between renders and may
+     be incremental (Ivan, the same day): by line, with an opaque state at each line's start so an edit re-tokenizes
+     only from the changed line until the state agrees again; a handle to tell lurq its tokens are stale; and edit
+     hints (tree-sitter's shape) for incremental parsers. All optional: a function stays one line. lurq's own becomes a
      table-driven scanner with a public language table (Rust, TOML, JSON, JS/TS, shell, Python, CSS, HTML/XML, YAML,
      SQL, Markdown), no dependency, wasm-safe. **No `syntect` or tree-sitter adapter in lurq**: the gallery crate
      shows one as an example of plugging a tokenizer in.

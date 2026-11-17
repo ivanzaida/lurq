@@ -4893,7 +4893,7 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 | `SplitterPane::new(content)` | A pane holding `content`, laid out in its whole width from its top: a height of `Dimension::Pct(100.0)` fills it |
 | `SplitterPane::length(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
 | `SplitterPane::min(px)`, `max(px)` | The least and the most it is |
-| `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider or Enter. The pane that takes the rest does not close |
+| `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider (a finger's double tap) or Enter. The pane that takes the rest does not close |
 | `SplitterPane::label(&str)`, `id(..)`, `key(..)` | What it is called: the divider after it is called so to tooling. The id of the pane's element, and what tells it apart where panes come and go |
 | `SplitterPane::disabled(bool)` | It keeps its size: no divider beside it moves it, by the pointer or the keys, and it does not close |
 | `sizes(Signal<Vec<f32>>)` | The sizes of the panes, the app's: pixels along the splitter as a divider last left them, 0 for a closed pane, written as a divider moves and once it is first laid out |
@@ -5021,7 +5021,7 @@ DocumentTabs::new(shown.clone(), files.iter().map(|file| {
 | `on_reorder(Fn(usize, usize))` | Told that a person moved the tab at the first index to the second, both counted in the tabs as they are before and after: `tabs.insert(to, tabs.remove(from))`. By a drag along the bar, and by Ctrl+Shift+PageUp and PageDown on a focused tab. A pinned tab moves among the pinned ones, another among the others. The bar moves nothing itself |
 | `on_drag_away(Fn(&T, &DragEvent))` | Told while a person drags a tab away from the bar (farther from it than it is high, or outside the window), of mounted tabs: each move, and the release, whose `drop_result` is `Some`. While it is away the bar marks no place and moves nothing; where it goes is the app's, as a [dock layout](#dock-layout) docks it. Each call adds |
 | `on_add(Fn())` | A press of the new tab button after the tabs, which is there once this is given |
-| `on_keep(Fn(&T))` | A double press of a preview: the app keeps the document open as a tab that is no preview |
+| `on_keep(Fn(&T))` | A double press of a preview, or a finger's double tap: the app keeps the document open as a tab that is no preview |
 | `context_menu(Fn(&T) -> Vec<MenuItem>)` | The commands of a tab's [context menu](#context-menu), opened by a press of the secondary button, a long press, the Menu key or Shift+F10 on a mounted bar |
 | `label(&str)` | What the tabs are called to what reads the tree: a `tablist` of that name |
 | `close_label(&str)`, `add_label(&str)`, `more_label(&str)` | What the close control is called before the tab's name ("Close blur.rs"), the new tab button and the More button: "Close", "New tab" and "Show the hidden tabs" unless told |
@@ -5746,7 +5746,7 @@ TreeView::new(selected, items)
 | `guides(bool)` | A line down each level, under the chevron of the row it is in |
 | `label(&str)` | What the tree is called, to what reads the tree. It draws nothing |
 | `on_change(handler)` | Told the row a click or Space selects (`&T`), or, of a tree of any number, the whole new selection (`&[T]`) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it. The tree is `TreeView<T, OneSelected>` or `TreeView<T, ManySelected>`, so a handler of another type does not compile |
-| `on_activate(handler)` | Told of the row a double click or Enter activates: open the file. A row that opens opens or closes as well |
+| `on_activate(handler)` | Told of the row a double click or Enter activates, or in the touch form (`ui::touch_form()`) a tap, never held back for a second: open the file. A row that opens opens or closes as well |
 | `on_open_change(handler)` | Told of each row a press or a key opens or closes, `(&value, open)`: where a lazy row's children are brought |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws the row Tab stops on so, the first selected, else the first that is not disabled |
 | `mount(ctx)` | In place of converting it: the tree in the engine's virtual list, for thousands of rows. Give it a height |
@@ -5915,7 +5915,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `on_selection_change(\|keys: &[K]\|)` | Told the whole new selection after a press or a key that changes it, bound or not; not for one that leaves it as it is, nor when the app sets the signal |
 | `checkboxes(bool)` | Whether a table whose rows are selected has the column of checkboxes; without it a press of a row selects it |
 | `reveal(key, request)` | A mounted table brings the row of `key` into view, once for each new `request`: for a row the app selects from outside the table. It scrolls the least that shows the row and makes it the row Tab stops on; asking again with the same number does nothing |
-| `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter |
+| `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter; in the touch form (`ui::touch_form()`) a tap selects and activates the row at once, never held back for a second |
 | `density(Density)` | Rows of 36 compact, 44 at the default, 52 comfortable and touch |
 | `height(..)`, `max_height(..)` | The table's height: the header stays and the rows scroll under it |
 | `empty(element)`, `empty_text(&str)` | What stands under the header where there are no rows: by default an empty state that says "No rows", or the app's words |

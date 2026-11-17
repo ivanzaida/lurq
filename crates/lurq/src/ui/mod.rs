@@ -66,6 +66,7 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+pub(crate) mod edit_menu;
 mod editable;
 mod empty_state;
 pub(crate) mod engine_look;

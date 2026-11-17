@@ -157,7 +157,8 @@ pub(super) fn inspect_node(
   depth: usize,
   path: &[String],
 ) -> Option<serde_json::Value> {
-  if ctx.visited >= ctx.max_nodes {
+  // A search looks at every node, at any depth, and keeps `max_nodes` matches; an outline stops at `max_nodes`.
+  if !ctx.searching() && ctx.visited >= ctx.max_nodes {
     ctx.truncated = true;
     return None;
   }
@@ -222,7 +223,7 @@ pub(super) fn inspect_node(
     child_path.push(format!("{role} {label:?}"));
   }
   let mut children = Vec::new();
-  if depth < ctx.max_depth {
+  if depth < ctx.max_depth && !(ctx.searching() && ctx.matches.len() >= ctx.max_nodes) {
     children.extend(canvas_items::inspect_items(ctx, node, &child_path));
     for (index, child) in node.children().iter().enumerate() {
       let child_layout = layout.and_then(|layout| layout.children.get(index));
@@ -268,11 +269,17 @@ pub(super) fn inspect_tool(tree: &mut Tree, state: &McpState, args: &serde_json:
       .and_then(|value| value.as_str())
       .map(str::to_lowercase),
     role: args.get("role").and_then(|value| value.as_str()).map(str::to_owned),
+    // An outline goes 12 deep unless told; a search (`query`, `role`) goes to any depth unless told, so an element
+    // deep in a page (a playground's toolbar) is found by its name or id.
     max_depth: args
       .get("max_depth")
       .and_then(|value| value.as_u64())
-      .unwrap_or(12)
-      .clamp(1, 100) as usize,
+      .map(|depth| depth.clamp(1, 1000) as usize)
+      .unwrap_or(if args.get("query").is_some() || args.get("role").is_some() {
+        usize::MAX
+      } else {
+        12
+      }),
     max_nodes: args
       .get("max_nodes")
       .and_then(|value| value.as_u64())
