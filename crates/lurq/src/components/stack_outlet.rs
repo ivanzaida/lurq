@@ -1252,7 +1252,7 @@ impl Component for StackOutlet {
           title: under_part.item.title.clone(),
           says: match over_part.label_fit {
             LabelFit::Whole => over_part.back_label.clone().unwrap_or_default(),
-            LabelFit::Short => bar.back.clone(),
+            LabelFit::Short => back_word(&bar.back),
             LabelFit::Arrow => String::new(),
           },
           large: (large.0 - origin.0, large.1 - origin.1, large.2, large.3),
@@ -1606,11 +1606,19 @@ enum LabelFit {
 }
 
 /// What the way back to a screen says.
+/// The word for going back: the bar's own, or the app's locale's where the bar leaves it empty.
+fn back_word(back: &str) -> String {
+  if back.is_empty() {
+    crate::ui::current_locale().common.back.to_string()
+  } else {
+    back.to_owned()
+  }
+}
+
 fn back_label_of(under: &NavigationItem, back: &str) -> String {
   match &under.back_title {
     Some(title) => title.clone(),
-    None if under.title.is_empty() && back.is_empty() => crate::ui::current_locale().common.back.to_string(),
-    None if under.title.is_empty() => back.to_owned(),
+    None if under.title.is_empty() => back_word(back),
     None => under.title.clone(),
   }
 }
@@ -1775,9 +1783,10 @@ fn bar_item(
     );
   } else if let Some(label) = &part.back_label {
     let navigator = navigator.clone();
+    let short = back_word(&bar.back);
     let says = match part.label_fit {
       LabelFit::Whole => label.as_str(),
-      LabelFit::Short => bar.back.as_str(),
+      LabelFit::Short => short.as_str(),
       LabelFit::Arrow => "",
     };
     sides = sides.child(
@@ -1830,7 +1839,7 @@ fn bar_item(
       Row::new().opacity(0.0).pointer_events_none().child(
         Row::new()
           .ref_element(part.short_probe.clone())
-          .child(text(&bar.back, FontWeight::Normal, bar.tint)),
+          .child(text(&short, FontWeight::Normal, bar.tint)),
       ),
     );
     whole =
