@@ -513,11 +513,14 @@ Text that goes somewhere when it is pressed. It has no box, so it sits in a line
 use lurq::ui::Link;
 
 Link::new("Read the docs").external(true).on_click(move |_| navigator.push("/docs"));
+// A page on the web: a press opens it in the browser.
+Link::new("lurq.dev").href("https://lurq.dev").external(true);
 ```
 
 | Builder | |
 | --- | --- |
 | `on_click(handler)` | A click, and Enter and Space while it is focused. Where the link goes is what its press does |
+| `href(&str)` | The address a press opens in the browser ([`open_url`](../ctx/#opening-an-address)), after the `on_click` handlers are told, unless one of them calls `event.prevent_default()`. An app with a router gives none, and goes to its route in `on_click` |
 | `trailing_icon(name)`, `external(bool)` | An icon after the text; `external(true)` is the arrow of a link that leaves the app, where it has no trailing icon of its own |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
 
@@ -8009,6 +8012,52 @@ Watermark::new("lurq").media(logo).child(report);
 - A mark's glyphs are drawn at its angle (`TextTransformMode::Rasterized`), so it is sharp at every scale. Its color is `Foreground` at 0.12: dark on the light look, light on the dark one.
 - Parts: `WatermarkPart::Root` (what holds the content and the layer), `Layer`, `Mark` (its type, color and faintness). State: `WatermarkState::Media`. The board's numbers are `WATERMARK_GAP`, `WATERMARK_ANGLE`, `WATERMARK_OFFSET` and `WATERMARK_STAGGER`.
 - In the design the marks are "lurq internal" in the sans of 12, medium, in `foreground` at 0.12, turned 20 degrees counter-clockwise, 96 apart along a row and 44 from row to row, every other row 40 further along, over a card of 220 by 120 with an edge and `radius-lg` corners. The card is the content it covers, not the watermark's: a watermark draws no box of its own.
+
+## Link Preview
+
+What a link says about itself, shown before it is followed: the site with its icon, the title, a line of the description and the picture, as one link. A card, a row for lists and messages, and a link of 24 that stands in a sentence.
+
+```rust
+use lurq::ui::{LinkPreview, LinkPreviewVariant};
+
+// What the page says, fetched.
+LinkPreview::new("https://lurq.dev/docs/layout");
+// The app's own title over the page's; the rest is fetched.
+LinkPreview::new(url).title("Layout, the guide");
+// Everything given: nothing is fetched.
+LinkPreview::new(url).title("Layout in lurq").description("Rows, columns and gaps.").site("lurq.dev").no_image().no_icon();
+// A row, and a link in a sentence.
+LinkPreview::new(url).variant(LinkPreviewVariant::Compact);
+LinkPreview::new(url).variant(LinkPreviewVariant::Inline);
+// In a message being written: a close drops it.
+LinkPreview::new(url).on_remove(move || draft.drop_preview());
+```
+
+| Builder | |
+| --- | --- |
+| `LinkPreview::new(url)` | The address. What the page says about itself is fetched and shown, the skeleton while it is read |
+| `title(&str)`, `description(&str)`, `site(&str)` | Shown in place of the page's, one by one; what is not given is still fetched. The site is the domain of the address (no `www.`) where neither names one |
+| `image(..)`, `icon(..)` | The picture and the site's icon in place of the page's: an address, a `resources::Source`, or a `ui::Picture` (`LinkImage`) |
+| `no_image()`, `no_icon()`, `no_site()` | None of it, whatever the page has: the text alone, the link mark, the title alone |
+| `video(seconds)` | A video, its length in seconds where it is known: the play mark and the length over its picture. A page that gives `og:video` or a kind of `video.*` is one by itself |
+| `variant(LinkPreviewVariant)` | `Card` (360, the default), `Compact` (a row of 432), `Inline` (24 high) |
+| `fetcher(impl LinkFetcher)` | What fetches the page for this preview, in place of the app's (`resources::set_link_fetcher`) and of lurq's own: any `Fn(&str) -> LinkFetch`. `shared_fetcher(Arc<dyn LinkFetcher>)` shares one |
+| `on_open(Fn(&str))` | Told the address on a click, Enter or Space, in place of opening it in the browser |
+| `on_remove(Fn())` | Gives it a close button, a stop of Tab of its own after the link: the app takes the preview out of what it shows |
+| `return_focus(&ElementRef)` | Where the focus goes once the close is pressed: the draft's input. Without one it goes on to what follows the preview in the order of Tab, or to what comes before it where nothing follows ([`FocusHandle::focus_onward`](../ctx/#moving-the-focus-from-a-handler)), never to nothing |
+| `width(length)` | A width of its own in place of the form's; never wider than its room |
+| `loading(bool)` | The skeleton, whatever is known: an app that reads the page itself and has nothing to give yet |
+| `label(&str)`, `no_preview_text(&str)`, `remove_label(&str)`, `locale(&Locale)` | What tooling calls it in place of its title; "No preview for this page." and "Remove preview", which are `Locale::display`'s unless told |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the link's; the close button is `{id}-remove` |
+
+- **It works from the address alone.** As it renders it asks its fetcher for the page's `resources::LinkMeta` and is drawn again when the fetch comes further. When every field the form shows is given (the title, the description and the site, the picture and the icon given or said to be none; an inline one shows no description and no picture) the fetcher is not asked. lurq's own fetcher reads the start of the page through the app's loader and keeps what it found in memory by the address ([link previews](../resources-media/#link-previews)); it needs the feature `http`. The gallery gives its previews a fetcher of its own and fetches nothing unless told.
+- **A page that tells nothing** (no title, no description, no picture), one that could not be read, and every page in a build without `http` or in a browser, is its address (without the scheme), the link mark, and a line under it: "No preview for this page.", or what went wrong in the locale's words (`DisplayWords::link_error`: "The page was not found.", "The site answered 503."). What the app gave stands over it. A page read that names no icon has its site's `/favicon.ico` tried, through the same loader and kept by it as any load; a picture or an icon that does not load is left out, and the link mark stands for the icon.
+- **It is one link.** A click, Enter and Space open the address with [`open_url`](../ctx/#opening-an-address), unless `on_open` is given; a disabled one is no stop of Tab and opens nothing. To tooling it is a `link` named by its title (or its label) and described by its site, its description and, for a video, "Video, 4:10". Under the pointer it lifts (a card to the medium shadow) on the hover's veil and its title is underlined; from the keyboard it has the ring.
+- **Its text has a rule for its room**: in a card the title and the description each end in an ellipsis after two lines, in a row after one; an inline one's title ends in an ellipsis and its site keeps its room. Each form is as wide as the board draws it and never wider than its room; the skeleton's lines are no wider than it.
+- **In a sentence**, an inline one is an object of a rich text ([elements in a line](../styling-events/#elements-in-a-line)): `Text::rich([.., RichTextSpan::object(body), ..]).object(LinkPreview::new(url).variant(LinkPreviewVariant::Inline))`. It is as wide as it is, wraps with the words, and the line keeps its height. A selection over it copies `[title](url)` (`LinkPreviewView::copy_text`), its address alone where the page told nothing.
+- It is a component of its own, mounted where it is converted into an element (`mount(ctx)` mounts it at once): it keeps the fetch, whether the pointer is on it, and a picture that did not load. `build(theme)` is the still picture of what it was given, with nothing fetched, for a test.
+- Parts: `LinkPreviewPart::Root` (the link), `Media` (the box of the picture), `Play`, `PlayIcon`, `Length`, `Text` (the column of the site, the title and the description), `Site`, `Icon`, `Domain`, `Title`, `Description`, `Skeleton`, `Close`, `CloseIcon`. States: `LinkPreviewState::Loading`, `Media`, `Video`, `Empty`, `Removable`, `Disabled`.
+- In the design a card is 360 in `Card` with an edge of `Border`, `radius-xl` corners and the small shadow; its picture is 360 by 188 (`LINK_PREVIEW_PICTURE_RATIO`) with a line under it, its text padded 12, 16, 14 and 16 with 6 between: the site in 12 of `MutedForeground` after its icon of 16 (`radius-sm`), the title 14/500 at 1.4, the description 13 of `MutedForeground` at 1.5. A video has the play mark of 48 (a glyph of 20, white on black at 0.6) in the middle of its picture and its length in mono 11 on a dark tag 8 from the lower end; the close of a card in a composer is a disc of 28 on its picture, 8 from the top end. The compact row is 432, padded 12 with 12 between, the text (4 at its start, 4 between) beside a picture of 72 (`radius-md`); the inline link is 24 high with `radius-md` corners, padded 5 and 8 with 6 between, its title 13/500 in `Foreground` and its site 12 of `MutedForeground`. While the page is read the skeleton's lines stand for the text: 88 by 10, the width by 14, the width by 12 and 168 by 12 in a card, 88, 232 and 168 in a row, 10 apart; a square of 14 and a line of 96 in a sentence.
 
 ## Action Sheet
 

@@ -98,6 +98,8 @@ pub use window::{
 mod device;
 pub use device::Device;
 pub mod menu;
+pub mod open_url;
+pub use open_url::{OpenUrlError, open_url};
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
 #[cfg(all(feature = "winit", target_os = "macos"))]
 mod macos_menu;
