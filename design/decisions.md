@@ -11,6 +11,29 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### Code highlighting is pluggable, its token names open, its colors the theme's
+
+- **Question.** `ui::CodeBlock` and Markdown color code with lurq's own scanner, which knows Rust alone, into seven
+  fixed kinds painted in the palette's roles; an app can neither bring its own tokenizer nor color code apart from
+  the rest of its interface.
+- **Decision (Ivan).**
+  1. Token kinds are **open names with a dotted hierarchy** (`keyword`, `keyword.control`, `string.escape`,
+     `function.macro`, …), as TextMate and tree-sitter name them; a color is looked up dropping the tail
+     (`keyword.control.rust` → `keyword.control` → `keyword` → plain). `CodeTokenKind` as a closed enum goes.
+  2. **A code palette in the theme**: a name → color map of its own, for the light and the dark scheme, defaulting to
+     the roles used now (so a theme left alone looks as today); `set_code_color`, a whole scheme, and a block's own
+     `.token_style(name, ..)` (color, weight, italic) override it.
+  3. **A tokenizer is pluggable, one per language**: a `Highlighter` trait (or any `Fn(&str) -> Vec<CodeToken>`) is
+     registered for a language and its aliases (`App::register_highlighter("sql", ..)`); registering one for a
+     language that has one replaces it (lurq's own included). A language with none registered is plain text. A block
+     may still take its own (`.highlighter(..)`) over the registry. lurq's own becomes a
+     table-driven scanner with a public language table (Rust, TOML, JSON, JS/TS, shell, Python, CSS, HTML/XML, YAML,
+     SQL, Markdown), no dependency, wasm-safe. **No `syntect` or tree-sitter adapter in lurq**: the gallery crate
+     shows one as an example of plugging a tokenizer in.
+- **With it.** A cache of tokens by code, language and tokenizer; a long block draws the lines in view; `InlineCode`
+  takes a language; the editable text's tokens use the same highlighter and colors.
+- **State.** Decided; to be built in a session of its own.
+
 ### Link Preview works from the link alone; every field overrides
 
 - **Question.** Where does a link preview's site, title, description and picture come from?
@@ -34,7 +57,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   pictures and drawing: `image` (codecs) and `canvas` (drawing, with `svg` folded in); `raster` and `render`
   internal; `screenshot` uses `image`; one `png`. `resources` goes. `devtools` and `perf_profile` stay, their
   call-site cfgs behind macros. The browser keeps an explicit list. Tests: seven runs (A–G) in place of five feature
-  combinations.
+  combinations. SVG is always rasterized at the size it is drawn: the tessellation an `svg`-only build had is removed
+  (Ivan, the same day), as no build has it once `canvas` brings `raster`.
 - **State.** In work in the session "Clean up lurq's Cargo features" (`feature-cleanup`); first merges the 0.62.0
   release from `master`.
 
