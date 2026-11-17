@@ -23,10 +23,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   2. **A code palette in the theme**: a name → color map of its own, for the light and the dark scheme, defaulting to
      the roles used now (so a theme left alone looks as today); `set_code_color`, a whole scheme, and a block's own
      `.token_style(name, ..)` (color, weight, italic) override it.
-  3. **A tokenizer is pluggable, one per language**: a `Highlighter` trait (or any `Fn(&str) -> Vec<CodeToken>`) is
-     registered for a language and its aliases (`App::register_highlighter("sql", ..)`); registering one for a
+  3. **A tokenizer is pluggable, one per language**: a `Tokenizer` trait (or any `Fn(&str) -> Vec<CodeToken>`) is
+     registered for a language and its aliases (`App::register_tokenizer("sql", ..)`); registering one for a
      language that has one replaces it (lurq's own included). A language with none registered is plain text. A block
-     may still take its own (`.highlighter(..)`) over the registry. lurq's own becomes a
+     may still take its own (`.tokenizer(..)`) over the registry. It is named a tokenizer, not a highlighter (Ivan):
+     it splits code into named tokens and colors nothing. lurq's own becomes a
      table-driven scanner with a public language table (Rust, TOML, JSON, JS/TS, shell, Python, CSS, HTML/XML, YAML,
      SQL, Markdown), no dependency, wasm-safe. **No `syntect` or tree-sitter adapter in lurq**: the gallery crate
      shows one as an example of plugging a tokenizer in.
