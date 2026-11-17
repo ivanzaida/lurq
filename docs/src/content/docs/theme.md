@@ -904,7 +904,7 @@ The form theme names the palette roles of lurq 0.61, which are [deprecated](#dep
 Form theme roles require the `form` feature:
 
 ```toml
-lurq = { version = "0.61.1", features = ["form"] }
+lurq = { version = "0.62.0", features = ["form"] }
 ```
 
 `FormTheme` groups compound form styling into semantic roles:
