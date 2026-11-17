@@ -59,7 +59,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 - **What a double click did, for a finger (Ivan, the same day).** `Zoom`, `Splitter` and `DocumentTabs` listen to
   `on_double_tap` too (a held-back single tap does not matter there); `Table` and `TreeView` open a row on a single
   tap in the touch form, so a tap on a row is never delayed.
-- **State.** Decided; to be built with the pointer on `claude/touch-form`.
+- **State.** Built (`claude/touch-form`, merged 2026-11-17).
 - **Since (Ivan, 2026-11-17).** What listened only to `on_dblclick` answers a finger too: `components::Zoom`
   (`2bb08839`), `ui::Splitter` (a double tap on the handle restores the size) and `ui::DocumentTabs` (a double tap
   keeps a preview) listen to `on_double_tap` of one finger as well; `ui::Table` and `ui::TreeView` in the touch form
@@ -107,7 +107,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   another density.
 - **Replaces.** The first idea of the same day: `Density::Touch` decides the form and is the default on phones (a WIP
   commit `8e653322` on `claude/touch-form`).
-- **State.** In work on `claude/touch-form`.
+- **State.** Built (`claude/touch-form`, merged 2026-11-17).
 
 ## Before 2026-11-17 (from the plan and the handoffs)
 
@@ -116,7 +116,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 - **Decision (plan, phase 7).** A theme at `Density::Touch` has a finger's sizes (rows of 44–48, larger targets);
   `TabBar`, `NavigationBar` and `Sheet` go on recipes, their iOS look kept as a renderer rather than hard-coded.
 - **Since 2026-11-17.** Density is sizes only; it does not choose a component's phone form (see the pointer above).
-- **State.** The density is built; the three components on recipes are in work on `claude/legacy-styled`.
+- **State.** Built: the density, and the three components on recipes (`claude/legacy-styled`, merged 2026-11-17).
 
 ### The board's Mobile frames wait for phase 7
 
