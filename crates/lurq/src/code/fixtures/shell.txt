@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Builds the gallery.
+set -euo pipefail
+export NAME="lurq ${VERSION}"
+if [ -n "$1" ]; then
+  cargo build -p gallery --features mcp && ./target/debug/gallery.exe --route /code-block
+fi
+for file in *.rs; do echo "$file" | grep -c 'fn'; done
+echo a#b # a comment

@@ -1,0 +1,10 @@
+/* The page. */
+@media (max-width: 640px) {
+  .card > a:hover, #main::before {
+    color: #fff;
+    margin: -10px 0 1.5em;
+    background: rgb(0 0 0 / 50%) !important;
+    --gap: 4px;
+    font-family: "Inter", sans-serif;
+  }
+}

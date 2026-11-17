@@ -68,6 +68,12 @@ impl LayoutEngine {
         .and_then(|role| self.typography.borrow().try_get(role))
         .unwrap_or_else(|| base.clone())
     });
+    if let Some(weight) = look.weight {
+      text.weight = weight;
+    }
+    if let Some(style) = look.font_style {
+      text.style = style;
+    }
     let palette = self.palette.borrow();
     text.color = look
       .foreground

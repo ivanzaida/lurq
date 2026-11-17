@@ -12,6 +12,7 @@ use crate::{
 mod border;
 mod breakpoints;
 mod caret;
+mod code;
 mod definition;
 #[cfg(feature = "form")]
 mod form;
@@ -32,6 +33,7 @@ mod typography;
 pub use border::{BorderSize, ThemeBorderSizes};
 pub use breakpoints::{Breakpoint, ThemeBreakpoints};
 pub use caret::{CaretHeight, CaretMode, ThemeCaret};
+pub use code::{CodeScheme, CodeStyle};
 pub use definition::ThemeDefinition;
 // Kept so that a program written for 0.62 compiles: nothing reads them.
 #[cfg(feature = "form")]
@@ -89,6 +91,8 @@ struct ThemeInner {
   focus_ring: ThemeFocusRing,
   /// What each name of an icon is drawn with.
   icons: ThemeIcons,
+  /// The colors of code.
+  code: code::ThemeCode,
   /// What the theme says about components: recipes and renderers.
   ui: crate::ui::UiDefinition,
   /// The styles as they are used: `set_typography`'s, at `text_scale`.
@@ -184,6 +188,10 @@ impl Theme {
         blurs: definition.blurs,
         focus_ring: definition.focus_ring,
         icons: definition.icons,
+        code: code::ThemeCode {
+          light: Arc::new(definition.code),
+          dark: definition.code_dark.map(Arc::new),
+        },
         ui: definition.ui,
         typography: definition.typography.clone(),
         base_typography: definition.typography,

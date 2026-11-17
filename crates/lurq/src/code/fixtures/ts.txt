@@ -1,0 +1,5 @@
+interface Note { title: string; count: number }
+type Id = string | number;
+enum Mode { Light, Dark }
+export const notes: Note[] = [];
+function first<T>(items: readonly T[]): T | undefined { return items[0]; }

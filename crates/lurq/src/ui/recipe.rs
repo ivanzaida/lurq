@@ -485,6 +485,11 @@ impl ResolvedRecipe {
     &self.theme
   }
 
+  /// Whether a rule styles `part`: a part of a name no rule gives anything is no part of this recipe's.
+  pub fn has(&self, part: impl Into<Name>) -> bool {
+    self.styles.parts.contains_key(&part.into())
+  }
+
   fn styles(&self, part: Name) -> &PartStyles {
     self.styles.parts.get(&part).unwrap_or(&self.styles.nothing)
   }
