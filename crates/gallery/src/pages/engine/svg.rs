@@ -151,7 +151,7 @@ fn colored() -> lurq::components::Row {
 /// The chart read from a file of the app's resources, on a desktop.
 #[cfg(not(target_arch = "wasm32"))]
 fn from_resource() -> Element {
-  match super::images::resource("line-chart-parallel-svgrepo-com.svg") {
+  match super::backgrounds::resource("line-chart-parallel-svgrepo-com.svg") {
     Some(path) => sample(
       well()
         .width(320.0)

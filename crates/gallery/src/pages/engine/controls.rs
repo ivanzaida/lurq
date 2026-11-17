@@ -1,11 +1,11 @@
 //! The page of the engine's own controls: the slider node, the unstyled button, the select of one value or of
-//! several, the checkbox node (deprecated for `ui::Checkbox`), and the form they give their values to. Its
-//! playground is a slider whose props are the panel's controls; its sections are the demo's Inputs page less its
-//! text fields (the Text Input page has those): a form, two checkboxes, three sliders, four selects, and what they
-//! all hold.
+//! several, and the form they give their values to. Its playground is a slider whose props are the panel's
+//! controls; its sections are the demo's Inputs page less its text fields (the Text Input page has those) and its
+//! checkboxes (the engine's checkbox is deprecated; the Checkbox page shows `ui::Checkbox`): a form, three sliders,
+//! four selects, and what they all hold.
 //!
-//! The design system's controls are built on these, and the gallery's Form page shows the form's own `ui`
-//! controls; this page shows what is under them.
+//! Many of the design system's controls are built on these, and the gallery's Form page shows the form's own `ui`
+//! controls; this page shows the engine's.
 
 use std::sync::Arc;
 
@@ -20,6 +20,7 @@ use lurq::{
   images::ImageData,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, SelectPartStyle, SelectStyle, color::Color, padding::Padding},
+  ui::Checkbox,
 };
 
 use super::kit::{controls, named};
@@ -40,8 +41,8 @@ const ORIENTATIONS: [(&str, usize); 2] = [("Horizontal", 0), ("Vertical", 1)];
 const LENGTH: f32 = 280.0;
 const THICKNESS: f32 = 24.0;
 
-/// A color of the theme as the slider's and the checkbox's part styles take it: a color, not a role. Read where
-/// the control is built, in the theme of what is being built.
+/// A color of the theme as the slider's part styles take it: a color, not a role. Read where the control is
+/// built, in the theme of what is being built.
 fn role(color: PaletteColor) -> Color {
   lurq::ui::current_theme().palette_color(color)
 }
@@ -152,33 +153,6 @@ fn dressed(button: Button, primary: bool) -> Button {
       .hovered(move |style| style.background(over))
       .active(|style| style.background(PaletteColor::Secondary))
   }
-}
-
-/// The engine's checkbox in the theme's colors, beside its name and a line under it.
-#[allow(deprecated)] // The engine's checkbox node, which `ui::Checkbox` replaces: shown as what is under it.
-fn checkbox_row(label: &str, detail: &str, value: Signal<bool>) -> Row {
-  Row::new()
-    .width(FILL)
-    .min_height(42.0)
-    .spacing(12.0)
-    .align_items(Alignment::Center)
-    .child(
-      lurq::components::Checkbox::new(value)
-        .size(20.0, 20.0)
-        .border_inside(1.0, PaletteColor::Input)
-        .rounded(4.0)
-        .cursor(CursorIcon::Pointer)
-        .tab_index(0)
-        .focused(|style| style.border_inside(2.0, PaletteColor::Ring)),
-    )
-    .child(
-      Column::new()
-        .flex(1.0)
-        .min_width(0.0)
-        .spacing(2.0)
-        .child(text(label, 14.0, FontWeight::SemiBold))
-        .child(quiet(detail, 12.0)),
-    )
 }
 
 /// A slider of the demo's: its name and its value over it, the track's fill and shape given on the node.
@@ -383,8 +357,6 @@ pub struct ControlsPage {
   last_submit: Signal<String>,
   /// What the form said when it was submitted with a field it does not take.
   refused: Signal<String>,
-  notifications: Signal<bool>,
-  beta_access: Signal<bool>,
   volume: Signal<i32>,
   priority: Signal<i32>,
   styled_gain: Signal<i32>,
@@ -664,14 +636,6 @@ impl ControlsPage {
       Some(error) => text(&error, 12.0, FontWeight::Normal).color(PaletteColor::Destructive),
       None => quiet(" ", 12.0),
     };
-    #[allow(deprecated)] // The engine's checkbox node, which `ui::Checkbox` replaces: the form takes its value.
-    let newsletter_box = lurq::components::Checkbox::new(newsletter.clone())
-      .name("newsletter")
-      .size(20.0, 20.0)
-      .border_inside(1.0, PaletteColor::Input)
-      .rounded(4.0)
-      .cursor(CursorIcon::Pointer)
-      .focused(|style| style.border_inside(2.0, PaletteColor::Ring));
     let fields = ctx.form_view(form.clone(), move |_| {
       Column::new()
         .width(FILL)
@@ -685,11 +649,9 @@ impl ControlsPage {
             .child(error_line(email_error.clone())),
         ))
         .child(
-          Row::new()
-            .spacing(10.0)
-            .align_items(Alignment::Center)
-            .child(newsletter_box)
-            .child(text("The newsletter", 14.0, FontWeight::Normal)),
+          Checkbox::new("The newsletter")
+            .bind(newsletter.clone())
+            .name("newsletter"),
         )
         .child(
           Row::new()
@@ -717,24 +679,6 @@ impl ControlsPage {
         ("user", if user_dirty { "changed" } else { "as it was" }.to_owned()),
         ("email", if email_dirty { "changed" } else { "as it was" }.to_owned()),
         ("newsletter", on_off(form.bool("newsletter").get()).to_owned()),
-      ]))
-      .into()
-  }
-
-  /// The demo's two checkboxes and what they hold.
-  fn selection(&self) -> Element {
-    Column::new()
-      .width(FILL)
-      .spacing(14.0)
-      .child(checkbox_row(
-        "Notifications",
-        "Account updates",
-        self.notifications.clone(),
-      ))
-      .child(checkbox_row("Beta access", "Early features", self.beta_access.clone()))
-      .child(pills(vec![
-        ("notifications", on_off(self.notifications.get()).to_owned()),
-        ("beta", on_off(self.beta_access.get()).to_owned()),
       ]))
       .into()
   }
@@ -815,8 +759,7 @@ impl ControlsPage {
       ("form email", shown_text(&form.string("email").get()).to_owned()),
       ("form submits", self.submits.get().to_string()),
       ("form last", self.last_submit.get()),
-      ("notifications", on_off(self.notifications.get()).to_owned()),
-      ("beta", on_off(self.beta_access.get()).to_owned()),
+      ("form newsletter", on_off(form.bool("newsletter").get()).to_owned()),
       ("volume", self.volume.get().to_string()),
       ("priority", self.priority.get().to_string()),
       ("styled", self.styled_gain.get().to_string()),
@@ -889,8 +832,6 @@ impl Component for ControlsPage {
       submits,
       last_submit,
       refused,
-      notifications: ctx.signal(true),
-      beta_access: ctx.signal(false),
       volume: ctx.signal(42),
       priority: ctx.signal(3),
       styled_gain: ctx.signal(68),
@@ -961,12 +902,6 @@ impl Component for ControlsPage {
         "Select: what can be chosen, what the box says with nothing chosen, and the style of each part.",
       ),
       (
-        "Checkbox::new",
-        "Signal<bool>",
-        "",
-        "Checkbox (deprecated for ui::Checkbox): a box bound to a value, with no label.",
-      ),
-      (
         "ctx.form",
         "FormOptions",
         "",
@@ -984,7 +919,7 @@ impl Component for ControlsPage {
         "name",
         "&str",
         "",
-        "On a text input, a checkbox, a slider or a select: the field of the form the control gives its value to.",
+        "On a text input, a slider, a select or a ui::Checkbox: the field of the form the control gives its value to.",
       ),
     ];
     let playground = self.play(ctx);
@@ -995,9 +930,9 @@ impl Component for ControlsPage {
         breadcrumb: &["Engine", "Controls"],
         title: "Controls",
         description: "The engine's own controls: a slider, a button with no look of its own, a select of one \
-                      value or of several, a checkbox, and the form they give their values to. The design \
-                      system's controls are built on them; an app normally wants those.",
-        import: Some("use lurq::components::{Button, FormOptions, Select, Slider};"),
+                      value or of several, and the form they give their values to. Many of the design system's \
+                      controls are built on them; an app normally wants those.",
+        import: Some("use lurq::{components::{Button, FormOptions, Select, Slider}, ui::Checkbox};"),
         status: Some("Stable"),
         since: None,
         source: file!(),
@@ -1037,7 +972,7 @@ impl Component for ControlsPage {
         ),
         Section::new(
           "Form",
-          "A form of two named fields, a box, and buttons that clear the fields, put them back and submit. \
+          "A form of two named fields, a checkbox, and buttons that clear the fields, put them back and submit. \
            Enter in a field submits it too. Empty the user or spoil the email and submit: the form refuses and \
            says why under the field.",
           self.frame.demo(
@@ -1061,28 +996,9 @@ impl Component for ControlsPage {
               "    Column::new()",
               "        .child(TextInput::new(form.string(\"user\")).name(\"user\"))",
               "        .child(TextInput::new(form.string(\"email\")).name(\"email\"))",
-              "        .child(Checkbox::new(form.bool(\"newsletter\")).name(\"newsletter\"))",
+              "        .child(Checkbox::new(\"The newsletter\").bind(form.bool(\"newsletter\")).name(\"newsletter\"))",
               "        .child(Button::new(\"Submit\").submit())",
               "})",
-            ],
-          ),
-        ),
-        Section::new(
-          "Selection",
-          "The engine's checkbox node: a box bound to a value, with no label of its own. It is deprecated for \
-           apps, which use ui::Checkbox, the design's checkbox with its label; it is shown as what that is built \
-           on, and under #[allow(deprecated)].",
-          self.frame.demo(
-            2,
-            self.selection(),
-            "Checkbox::new(notifications.clone())",
-            &[
-              "#[allow(deprecated)]",
-              "Checkbox::new(notifications.clone())",
-              "    .size(20.0, 20.0)",
-              "    .border_inside(1.0, PaletteColor::Input)",
-              "    .rounded(4.0)",
-              "    .focused(|s| s.border_inside(2.0, PaletteColor::Ring))",
             ],
           ),
         ),
@@ -1091,7 +1007,7 @@ impl Component for ControlsPage {
           "Three sliders: a volume from 0 to 100, a priority from 1 to 5, and one whose track and thumb are \
            painted with pictures, others under the pointer.",
           self.frame.demo(
-            3,
+            2,
             self.sliders(),
             "Slider::new(volume.clone()).range(0, 100)",
             &[
@@ -1114,7 +1030,7 @@ impl Component for ControlsPage {
           "A select of one value and one of several, each in a plain style and a strong one. A select of several \
            stays open while options are chosen, and says how many are.",
           self.frame.demo(
-            4,
+            3,
             self.selects(),
             "Select::multiple(tags.clone()).options(languages)",
             &[
@@ -1133,7 +1049,7 @@ impl Component for ControlsPage {
           "What the controls hold",
           "A snapshot of the state: the value of every control on this page, read from its signal.",
           self.frame.demo(
-            5,
+            4,
             self.snapshot(),
             "volume.get()",
             &["// Each line reads the signal its control is bound to.", "volume.get()"],
@@ -1141,7 +1057,7 @@ impl Component for ControlsPage {
         ),
         Section::new(
           "Props",
-          "What the engine's slider, button, select and checkbox are given, and what a form is.",
+          "What the engine's slider, button and select are given, and what a form is.",
           props_table(&rows, &[], self.frame.room()),
         ),
       ],

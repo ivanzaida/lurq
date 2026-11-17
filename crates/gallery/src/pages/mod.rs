@@ -1603,12 +1603,12 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<engine::theme::ThemePage>(()),
   },
   Page {
-    path: "/engine/images",
-    name: "Images",
-    icon: Some("image"),
-    about: "engine primitive image node ImageData fit cover contain sized intrinsic background image animated gif webp frames resource Image",
+    path: "/engine/backgrounds",
+    name: "Backgrounds",
+    icon: Some("layers"),
+    about: "engine primitive background image picture box under children ImageData BackgroundSize fit cover contain stretch natural animated gif webp frames resource path set_resource_root background_image background_size",
     group: Group::Engine,
-    mount: |ctx| ctx.mount::<engine::images::ImagesPage>(()),
+    mount: |ctx| ctx.mount::<engine::backgrounds::BackgroundsPage>(()),
   },
   Page {
     path: "/engine/svg",
