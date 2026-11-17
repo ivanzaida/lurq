@@ -27,6 +27,7 @@ mod chart_motion;
 mod checkbox;
 mod choice_card;
 mod code_block;
+mod code_tokenizer;
 mod collapsible;
 mod color_field;
 mod color_picker;

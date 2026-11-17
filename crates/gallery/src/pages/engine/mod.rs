@@ -3,6 +3,7 @@
 //! pages of the demo the gallery replaced, with the primitives the demo never showed.
 
 pub mod animation;
+pub mod backgrounds;
 pub mod borders;
 pub mod canvas;
 pub mod components;
@@ -13,7 +14,6 @@ pub mod events;
 pub mod glyph_atlas;
 pub mod gpu_viewport;
 pub mod grid;
-pub mod images;
 pub mod kit;
 pub mod layout;
 pub mod overlays;

@@ -427,7 +427,7 @@ The document draws every block of the design's (`pencil/lurq-design-system.pen`,
 
 - **Headings** in the theme's type scale (`TypographyStyle::Heading1` to `Heading6`): 30 bold, 24 with a line under it, 20, 16, 14, and 12 in capitals in the muted foreground.
 - **Lists**: a number at the end of a column of 18 in the muted foreground; a bullet of 5, a dot at the first level and a ring under it (a selection over a bulleted item still copies its `-`). **Tasks** (`- [ ]`, `- [x]`) are the checkbox's look, a done one's words in the muted foreground. A task's box is read only, taking neither the pointer nor the focus, unless the app takes its change: `.on_task_change(|index, checked| ..)` is told the task's index among the document's tasks and whether it is checked now, and the app writes that into its source.
-- **Quotes** are `ui::Blockquote`: a line of 2 at their start, their words 14 in italics in the muted foreground. **Code blocks** are `ui::CodeBlock`: a bar named by the language, with the button that copies the code, over the code in the family of code, colored by what each word is where it knows the language. Both look as the theme's `blockquote` and `code_block` recipes say, one look wherever they are.
+- **Quotes** are `ui::Blockquote`: a line of 2 at their start, their words 14 in italics in the muted foreground. **Code blocks** are `ui::CodeBlock`: a bar named by the language, with the button that copies the code, over the code in the family of code, told apart by its language's tokenizer and colored in the theme's code colors (see [Highlighting code](#highlighting-code)). Both look as the theme's `blockquote` and `code_block` recipes say, one look wherever they are.
 - **Tables**: a box of the middle radius, the header on the muted fill, every other body row striped, a line between two columns, the columns of one width and each aligned as its delimiter row says.
 - **The rule** (`---`): a line of 1 in the border's color. **An image** that stands alone: the image where the app draws images (`image`), or else a box of its place, with its caption under it: its title, or its words.
 - **Admonitions**, GitHub's: `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]` on a quote's first line. Each is a `ui::Callout` with a bar, in the tone of its kind: info, success, neutral, warning, destructive.
@@ -464,6 +464,141 @@ Column::new()
 ### Code blocks
 
 A code block (`ui::CodeBlock`) never wraps its lines. A line wider than the block's box scrolls sideways inside it: the box, its bar and the document keep their width, and the block's scroll area shows its bar over the code while it overflows. Shift+wheel and a trackpad's sideways swipe scroll the block; a plain or slightly slanted vertical wheel over it scrolls the page around it, as it always did, so a chat's follow-to-end is not caught by a block that only overflows sideways. The block's own scroll is kept across renders, keyed by the block's ordinal among the document's code blocks and its language: a streaming reply and paragraphs added around it keep its place (a code block inserted above it shifts the ordinals). A math block (`$$`) scrolls the same way. A block whose lines fit has no scrollbar. Selection and copy cross a scrolled block like any other block, the lines out of view included, and its language with them; the glyphs of the document's controls (the copy button, a task's check, an admonition's icon) are never part of what a selection copies.
+
+### Highlighting code
+
+A code block, Markdown's fenced code, `ui::InlineCode` given a language and a code field color their code the same way: a **tokenizer** tells the code's tokens apart and names each, and the theme's **code colors** draw each name. Neither needs the `markdown` feature (`lurq::code`).
+
+A token's name is dotted, as TextMate and tree-sitter name them: `keyword`, `keyword.control`, `string`, `string.escape`, `number`, `comment`, `comment.doc`, `type`, `function`, `function.macro`, `variable`, `variable.builtin`, `constant`, `property`, `attribute`, `operator`, `punctuation`, `tag`, `regex`, `namespace`, `label` (`lurq::code::token` has them as constants), and any other a tokenizer gives. A name the colors have nothing for is looked up dropping its tail: `keyword.control.rust`, then `keyword.control`, then `keyword`, then the code's own color.
+
+**One tokenizer for each language.** lurq registers its own at start, for Rust (`rust`, `rs`), TOML, JSON (`jsonc`), JavaScript (`js`, `jsx`), TypeScript (`ts`, `tsx`), shells (`sh`, `bash`, `zsh`, `console`), Python (`py`), CSS (`scss`, `less`), HTML (`htm`, `vue`), XML (`svg`), YAML (`yml`), SQL (`postgres`, `mysql`, `sqlite`) and Markdown (`md`). A language with none is plain text. An app registers its own for any language; one for a language that has one replaces it, lurq's included, under each of its names, and whatever shows that language's code is drawn again:
+
+```rust
+use lurq::code::{CodeToken, token};
+
+// Any Fn(&str) -> Vec<CodeToken> is a tokenizer: here, every word that starts with `$` is a variable.
+app.register_tokenizer("dollars", |code: &str| {
+  let mut found = Vec::new();
+  let mut at = 0;
+  for word in code.split(' ') {
+    if word.starts_with('$') {
+      found.push(CodeToken::new(at..at + word.len(), token::VARIABLE));
+    }
+    at += word.len() + 1;
+  }
+  found
+});
+
+// Other names of the language, which a fence (```psql) may use.
+app.register_tokenizer_with_aliases("sql", &["psql", "postgres"], my_sql_tokenizer);
+```
+
+- A tokenizer is a `lurq::code::Tokenizer` (any `Fn(&str) -> Vec<CodeToken>` is one): its tokens are in bytes of the code, and need not cover it; what none covers is plain. Tokens that are empty, out of the code, off a character's boundary or over another are left out.
+- `CodeTokenizer::new(h)` makes one to keep and clone: `CodeBlock::tokenizer(h.clone())` gives a block its own over the registry's, and what it gave for a code is not asked again. `lurq::code::register_tokenizer`, `remove_tokenizer`, `tokenizer(language)`, `knows(language)`, `languages()` and `tokens(code, language)` are the registry itself; it is the process's, as an app is one. `App::register_tokenizer` says the same.
+- What a tokenizer gave is kept, by the tokenizer and the code (a few hundred codes, a few megabytes of them): a render that changes nothing of a block's code does not tokenize it again, and a tokenizer registered in place of another forgets what the other gave.
+- A Markdown fence's info string is read up to its first space or comma: ```` ```rust,ignore ```` is Rust.
+
+**lurq's own are tables.** One scanner reads every language from a `CodeLanguage`: its names and aliases, its words by name (`.words(token::KEYWORD_CONTROL, &["if", "else"])`, in any case for SQL), line comments and block comments (nested, and documenting ones), forms of strings (prefixes, raw strings with their `#`s, three quotes, escapes, a quote doubled), the forms of numbers, what makes a type (a capital), a namespace (a name before `::`), a call (a name before `(`), a macro (`name!`), an attribute or a decorator (`#[`, `@`), a key (before `:` or `=`), a section (`[table]`), a variable (`$HOME`), a command, a tag. It reads line by line, from the state a line starts in (inside a block comment or a string an earlier line opened: `CodeLanguage::states`, `line_tokens`), so a long text can be read from any line. It has no dependency and builds for the browser. An app describes a language of its own with the same table, or changes one of lurq's:
+
+```rust
+use lurq::code::{CodeLanguage, KeyRule, StringForm, token};
+
+let ini = CodeLanguage::new("ini")
+  .line_comments(&[";", "#"])
+  .strings(vec![StringForm::new("\"", "\"")])
+  .words(token::CONSTANT_LANGUAGE, &["true", "false"])
+  .keys(KeyRule::Equals)
+  .sections(true);
+app.register_tokenizer("ini", ini);
+app.register_tokenizer("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
+```
+
+**A tokenizer of another crate** is plugged in by an adapter that names its runs. The gallery does it with `syntect` (`crates/gallery/src/syntect_code.rs`), which lurq does not depend on: syntect's scopes (`keyword.control.rust`, `string.quoted.double`, `entity.name.function`) mapped to lurq's names, registered for Go, C and Java, and given to one block of the Code Block page in place of lurq's Rust.
+
+#### A tokenizer with state
+
+A tokenizer may keep what it needs between calls: it is registered once (`register_tokenizer` takes the value, and keeps it), and a struct with a cache, a loaded grammar or a parser is as much a tokenizer as a function. Three things make one fast and correct, each a method of `Tokenizer` with a default, so a function stays one line:
+
+```rust
+use std::sync::{Arc, OnceLock};
+
+use lurq::code::{CodeToken, LineState, Tokenizer, TokenizerHandle, token};
+
+/// A tokenizer whose grammar loads after the app starts. Until it has, its code is plain.
+struct Lazy {
+  grammar: Arc<OnceLock<Vec<String>>>,
+}
+
+/// What a line of it starts in: inside a `"""` string or not.
+#[derive(Clone, PartialEq)]
+struct InString(bool);
+
+impl Lazy {
+  /// The tokens of one line, from the state it starts in; `state` is the next line's after.
+  fn line(&self, line: &str, state: &mut InString) -> Vec<CodeToken> {
+    let mut found = Vec::new();
+    if line.matches("\"\"\"").count() % 2 == 1 {
+      state.0 = !state.0;
+    }
+    if state.0 || line.contains("\"\"\"") {
+      found.push(CodeToken::new(0..line.len(), token::STRING));
+    } else if let Some(words) = self.grammar.get() {
+      let mut at = 0;
+      for word in line.split(' ') {
+        if words.iter().any(|known| known == word) {
+          found.push(CodeToken::new(at..at + word.len(), token::KEYWORD));
+        }
+        at += word.len() + 1;
+      }
+    }
+    found
+  }
+}
+
+impl Tokenizer for Lazy {
+  fn tokens(&self, code: &str) -> Vec<CodeToken> {
+    let mut state = InString(false);
+    let mut at = 0;
+    let mut found = Vec::new();
+    for line in code.split('\n') {
+      found.extend(self.line(line, &mut state).into_iter().map(|token| {
+        CodeToken::new(token.range.start + at..token.range.end + at, token.kind)
+      }));
+      at += line.len() + 1;
+    }
+    found
+  }
+
+  /// Line by line: an edit is tokenized again from its line until a line starts as it did.
+  fn tokens_from(&self, lines: &[&str], start: &LineState) -> Option<Vec<(Vec<CodeToken>, LineState)>> {
+    let mut state = start.get::<InString>().cloned().unwrap_or(InString(false));
+    Some(
+      lines
+        .iter()
+        .map(|line| (self.line(line, &mut state), LineState::new(state.clone())))
+        .collect(),
+    )
+  }
+}
+
+let grammar = Arc::new(OnceLock::new());
+let handle: TokenizerHandle = app.register_tokenizer("notes", Lazy { grammar: grammar.clone() });
+// Later, when the grammar has loaded: what showed "notes" plain is drawn again with its keywords.
+grammar.set(vec!["note".to_owned(), "due".to_owned()]).ok();
+handle.invalidate();
+```
+
+- **By line** (`tokens_from`): the tokens of a few lines from the state the first starts in, and the state each next one starts in. The state is a `LineState`, any value that is `Clone + PartialEq + Send + Sync`: a small enum (lurq's own scanner keeps its `ScanState`), or a parser's stack (the gallery's syntect keeps its `ParseState` and `ScopeStack`). lurq compares two of them, so a number would not hold a parser's stack, and a value it cannot compare would let no edit stop early. lurq keeps the state each line starts in, for a code field's text and for a mounted code block's code (a Markdown fence streamed in): an edit is tokenized again from its first changed line until a line starts in the state it started in before, and the lines after are taken as they were. One character typed in ten thousand lines tokenizes a batch of 32 lines, and the tokens are those of the whole text tokenized again. A tokenizer that does not go line by line is asked for the whole text, and what it gave is kept by the code.
+- **Stale** (`TokenizerHandle`): `register_tokenizer` gives it back, and `CodeTokenizer::handle()` gives one before a tokenizer is registered (to hand to what loads its grammar). `invalidate()` forgets what the tokenizer gave and draws again whatever shows a language it serves, or has it as a block's own: a grammar loaded later, a setting changed.
+- **Edits** (`tokens_in`, `edited`, `dropped`): for an incremental parser such as tree-sitter, which keeps a tree for each text and is told how it changed. A code field is a buffer (`BufferId`); each change of its value is told to its tokenizer in order, before the tokens after it are asked, as a `CodeEdit` in tree-sitter's `InputEdit` shape (`start_byte`, `old_end_byte`, `new_end_byte`, and the same as `CodePoint` rows and byte columns), typed, deleted, pasted and undone alike. A change of a run of the same character (a second `a` typed after an `a`) is told at the run's end. `tokens_in(buffer, code)` asks the tokens of that buffer's text, and `dropped(buffer)` says it is gone, once its field has left the tree and the focus has left it.
+
+The gallery's syntect example is a tokenizer with state: syntect's parser goes line by line from where the line before left it, which is `tokens_from` (`crates/gallery/src/syntect_code.rs`).
+
+**The colors are the theme's**: a `CodeScheme`, a style (color, weight, leaning) for each name, one for the light appearance and one for the dark ([Code](../theme/#code)). `CodeScheme::lurq()` is the theme's unless told, in the palette's roles, so code looks as the rest of the theme does in both appearances. A block styles a name over them with `.token_style(name, |s| s.foreground(..).bold().italic())`, or draws in a scheme of its own with `.code_scheme(..)`.
+
+**A long block**: a code block of more than 400 lines lays out and paints the lines in view and a chunk around them, whatever its length: in its own room where it has a greatest height, and in the window where it has none, as a long fence of a document has. Such a fence is selected on its own (select all takes its code whole) and is not one text with the document's highlights. Ten thousand lines of Rust take what a screen of them takes: the frame paints ten quads and some 13 KB of text, where it painted 140 009 quads and all 600 KB before. See [Code Block](../design-system/#code-block).
+
+**A code field** colors its value by the same names, colors, weights and leaning, in its own type, again after every edit: `TextInput::code_language("sql")`, or `.code_tokenizer(h)`. It is built on `TextInput::tokens_with(f)`, tokens asked of each value the input holds ([Source-backed input tokens](../text-input-tokens/)).
 
 ### Links
 

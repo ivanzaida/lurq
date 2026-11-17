@@ -26,6 +26,7 @@ mod shell;
 #[cfg(test)]
 mod speed;
 mod styling;
+mod syntect_code;
 mod tabs;
 #[cfg(target_arch = "wasm32")]
 mod web;
@@ -193,6 +194,8 @@ fn main() {
 
 /// Opens the gallery's window on `route`, drawn by the engines `engine` makes.
 fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> + 'static) {
+  // The languages lurq has no tokenizer of its own for, by syntect's grammars.
+  syntect_code::register(&app);
   let mut tree = Tree::new();
   tree.set_render_engine_factory(engine);
   pages::engine::prepare(&mut tree);

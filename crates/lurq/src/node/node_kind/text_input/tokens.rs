@@ -38,15 +38,37 @@ impl TextInputState {
     self.mark_layout_dirty_keeping_scroll();
   }
 
+  /// Gives the input `source`, asked for the tokens of each value it holds; what it gave is kept while the value
+  /// is the same.
+  pub(crate) fn set_token_source(&self, source: super::TokenSource) {
+    let mut inner = self.inner.lock();
+    inner.token_source = Some(source);
+    inner.tokens = None;
+    inner.token_layout = None;
+    inner.token_affinity = None;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
   pub(crate) fn tokens(&self) -> Option<InputTokens> {
-    let inner = self.inner.lock();
-    if inner.mask.is_some() || inner.composition.is_some() {
-      return None;
-    }
-    inner
-      .tokens
-      .clone()
-      .filter(|tokens| tokens.source.as_ref() == self.value())
+    let value = self.value();
+    let source = {
+      let inner = self.inner.lock();
+      if inner.mask.is_some() || inner.composition.is_some() {
+        return None;
+      }
+      if let Some(tokens) = inner.tokens.as_ref().filter(|tokens| tokens.source.as_ref() == value) {
+        return Some(tokens.clone());
+      }
+      inner.token_source.clone()?
+    };
+    // Asked with the input let go: what gives the tokens may read anything.
+    let tokens = source(&value);
+    let mut inner = self.inner.lock();
+    inner.tokens = Some(tokens.clone());
+    inner.token_layout = None;
+    inner.token_affinity = None;
+    Some(tokens).filter(|tokens| tokens.source.as_ref() == value)
   }
 
   pub(crate) fn set_token_layout(&self, layout: Option<Arc<TokenLayout>>) {

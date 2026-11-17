@@ -39,20 +39,31 @@ impl MountCode for std::cell::RefCell<&mut Ctx> {
   }
 }
 
-pub(super) struct MountedCode;
+/// A mounted code block, which keeps what was tokenized of its lines: a block streamed in is re-tokenized from its
+/// first changed line.
+pub(super) struct MountedCode {
+  lines: Arc<std::sync::Mutex<crate::code::LineCache>>,
+}
 
 impl Component for MountedCode {
   type Props = MountedCodeProps;
 
   fn create(_ctx: &mut Ctx) -> Self {
-    Self
+    Self { lines: Arc::default() }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<MountedCodeProps>().clone();
-    let mut block = CodeBlock::new(&props.code).selectable(false);
+    let mut block = CodeBlock::new(&props.code)
+      .selectable(false)
+      .kept_lines(self.lines.clone());
     if let Some(language) = &props.language {
       block = block.language(language);
+    }
+    // A long block lays out the lines in the window alone, as a block of its own: its lines are not one text the
+    // document's highlights and selection run through, so it is selectable by itself, and as wide as the document.
+    if props.code.bytes().filter(|byte| *byte == b'\n').count() >= crate::ui::CODE_BLOCK_WINDOWED_LINES {
+      return block.selectable(props.selectable).mount(ctx);
     }
     let mut element = block.build(ctx.theme());
     if !props.highlights.is_empty()

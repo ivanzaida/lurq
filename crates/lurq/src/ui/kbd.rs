@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use super::{
+  code_tokens::{TokenStyles, code_tokens},
   names,
   part_style::PartStyle,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -14,10 +15,11 @@ use crate::{
     Accelerator,
     theme::{BorderSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
+  code::{CodeToken, CodeTokenizer},
   components::Row,
   core::KeyWords,
   layout::Alignment,
-  node::{Element, border::Border as Line},
+  node::{Element, Node, TextColor, border::Border as Line},
 };
 
 /// How a key is drawn.
@@ -647,10 +649,13 @@ pub type InlineCodeRenderer = Arc<dyn Fn(InlineCodeView) -> Element + Send + Syn
 /// let call = InlineCode::new("ctx.theme()");
 /// ```
 ///
-/// It is read and not operated, and is not cut: it is as wide as its text. To what reads the tree it is `code`,
-/// called by its text.
+/// It is read and not operated, and is not cut: it is as wide as its text. Given a [`language`](Self::language), its
+/// words are colored as a code block colors them: told apart by the language's tokenizer, in the theme's code colors.
+/// To what reads the tree it is `code`, called by its text.
 pub struct InlineCode {
   text: Arc<str>,
+  language: Option<Arc<str>>,
+  tokenizer: Option<CodeTokenizer>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -662,11 +667,38 @@ impl InlineCode {
   pub fn new(text: &str) -> Self {
     Self {
       text: Arc::from(text),
+      language: None,
+      tokenizer: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
       key: None,
     }
+  }
+
+  /// The language of the text (`rust`, `sql`): its words are told apart by the language's tokenizer and drawn in the
+  /// theme's code colors, as in a code block. Plain where the language has no tokenizer.
+  ///
+  /// ```
+  /// use lurq::ui::InlineCode;
+  ///
+  /// let call = InlineCode::new("ctx.theme().set_mode(Mode::Dark)").language("rust");
+  /// ```
+  pub fn language(mut self, language: &str) -> Self {
+    self.language = Some(Arc::from(language));
+    self
+  }
+
+  /// Tells the tokens of the text apart with `tokenizer`, in place of its language's.
+  pub fn tokenizer(mut self, tokenizer: impl Into<CodeTokenizer>) -> Self {
+    self.tokenizer = Some(tokenizer.into());
+    self
+  }
+
+  /// Styles the tokens named `name` over the theme's code colors, as a code block's
+  /// [`token_style`](super::CodeBlock::token_style) does.
+  pub fn token_style(self, name: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.style(name, style)
   }
 
   /// Puts it in a state the theme's recipe names, or takes it out.
@@ -710,8 +742,12 @@ impl InlineCode {
       breakpoint: super::current_breakpoint(),
       states: self.states,
     };
+    let colored = self.language.is_some() || self.tokenizer.is_some();
+    let tokens = code_tokens(&self.text, self.language.as_deref(), self.tokenizer.as_ref());
     let view = InlineCodeView {
       text: self.text,
+      language: self.language,
+      tokens: colored.then_some(tokens),
       recipe: theme.resolve::<InlineCode>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -732,6 +768,9 @@ impl From<InlineCode> for Element {
 /// A text of code as a renderer sees it.
 pub struct InlineCodeView {
   pub text: Arc<str>,
+  pub language: Option<Arc<str>>,
+  /// The tokens of the text, where it has a language or a tokenizer.
+  pub tokens: Option<Arc<[CodeToken]>>,
   /// The style of each part.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -764,10 +803,27 @@ impl InlineCodeView {
     root
   }
 
+  /// The text, in the label's style, its tokens in theirs where it has a language.
+  pub fn label(&self) -> Element {
+    let part = self.part(InlineCodePart::Label);
+    let Some(tokens) = &self.tokens else {
+      return part.text(&self.text).nowrap().into();
+    };
+    let rest = part.rest();
+    let mut base = rest.text.resolve(self.theme());
+    base.color = match rest.foreground.unwrap_or(PaletteColor::Foreground.into()) {
+      TextColor::Color(color) => color,
+      TextColor::Palette(role) => self.theme().palette_color(role),
+    };
+    let styles = TokenStyles::new(&self.recipe, &["root", "label"], base, None);
+    let spans = styles.spans(&self.text, 0..self.text.len(), tokens);
+    Element::from_node(Node::rich_text(spans).text_wrap(false))
+  }
+
   /// How the default renderer builds it: the text on its fill.
   pub fn render(self) -> Element {
-    let part = self.part(InlineCodePart::Label);
-    self.root().child(part.text(&self.text).nowrap()).into()
+    let label = self.label();
+    self.root().child(label).into()
   }
 }
 

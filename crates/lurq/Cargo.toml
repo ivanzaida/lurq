@@ -415,6 +415,10 @@ required-features = ["winit", "wgpu"]
 name = "video_probe"
 required-features = ["winit", "wgpu", "image"]
 
+[[example]]
+name = "gpu_viewport"
+required-features = ["winit", "wgpu", "image"]
+
 [[bench]]
 name = "layout"
 harness = false

@@ -1,0 +1,14 @@
+/** Adds two numbers. */
+import { readFile } from "node:fs";
+// A line comment.
+export async function add(a, b = 10n) {
+  const re = /a+b[/]c/gi;
+  const ratio = a / b / 2;
+  const text = `sum: ${a + b}
+second line`;
+  if (a === null) return undefined;
+  this.total = new Map();
+  return Math.max(a, b) ?? 0x1f;
+}
+class Point extends Base {}
+@decorated

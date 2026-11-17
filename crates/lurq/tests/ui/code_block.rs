@@ -1,16 +1,25 @@
 //! `ui::CodeBlock`: the design's Code Block (`kyzrV`), its colors, its lines, its copy button and its scrolling.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+  Arc, Mutex,
+  atomic::{AtomicUsize, Ordering},
+};
 
 use lurq::{
   app::{
     App,
-    theme::{PaletteColor, ThemePalette},
+    events::ScrollPhase,
+    theme::{CodeScheme, PaletteColor, ThemePalette},
   },
+  code::{CodeToken, CodeTokenizer, token},
   components::Column,
-  layout::quad::{Quad, QuadContent, RichTextSpan},
-  node::color::Color,
-  ui::{CodeBlock, CodeBlockPart},
+  core::Signal,
+  layout::{
+    quad::{Quad, QuadContent, RichTextSpan},
+    text_style::{FontStyle, FontWeight},
+  },
+  node::{Element, color::Color},
+  ui::{CodeBlock, InlineCode, Length, ScrollArea},
 };
 
 use super::stage::Stage;
@@ -23,6 +32,15 @@ fn light(role: PaletteColor) -> Color {
 
 /// A stage in the light palette, whatever the system's appearance.
 fn staged(scene: impl Fn() -> CodeBlock + Send + Sync + 'static) -> Stage {
+  let app = App::new();
+  app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Light));
+  Stage::in_app(app, move |_| Column::new().width(420.0).child(scene()).into())
+}
+
+/// A stage in the light palette of an element built on it.
+fn staged_element(scene: impl Fn() -> Element + Send + Sync + 'static) -> Stage {
   let app = App::new();
   app
     .theme()
@@ -116,10 +134,10 @@ fn the_words_of_rust_are_in_the_colors_of_their_roles() {
   let code = run(&stage, " main");
   assert_eq!(code.style.color, light(PaletteColor::Foreground));
   assert_eq!(code.style.font_size, 13.0);
-  // A language the block does not know is one run in the code's color.
+  // A language with no tokenizer is one run in the code's color.
   let stage = staged(|| {
-    CodeBlock::new("[package]\nname = \"lurq\"")
-      .language("toml")
+    CodeBlock::new("IDENTIFICATION DIVISION.\nPROGRAM-ID. NOTES.")
+      .language("cobol")
       .selectable(false)
   });
   assert_eq!(runs(&stage).iter().flatten().count(), 1);
@@ -131,7 +149,7 @@ fn a_theme_colors_a_kind_of_word_otherwise() {
     CodeBlock::new("let x = 1;")
       .language("rust")
       .selectable(false)
-      .style(CodeBlockPart::Keyword, |s| s.foreground(PaletteColor::Destructive))
+      .token_style("keyword", |s| s.foreground(PaletteColor::Destructive))
   });
   assert_eq!(run(&stage, "let").style.color, light(PaletteColor::Destructive));
 }
@@ -482,4 +500,288 @@ fn a_block_without_its_frame_and_with_rows_of_its_own() {
   // Four rows of 24, and the board's 14 above and below less what a row takes past the code's own line.
   let leading = (24.0 - 13.0 * 1.3) / 2.0;
   assert!((height - (4.0 * 24.0 + 2.0 * (14.0 - leading))).abs() < 0.6, "{height}");
+}
+
+#[test]
+fn a_token_takes_the_style_of_its_less_particular_name() {
+  // `if` is a `keyword.control`: with no style of that name, it takes the block's style of a keyword.
+  let stage = staged(|| {
+    CodeBlock::new("if x { let y = 1; } // done")
+      .language("rust")
+      .selectable(false)
+      .token_style("keyword", |s| s.foreground(PaletteColor::Destructive))
+      .token_style("comment", |s| s.italic().bold())
+  });
+  assert_eq!(run(&stage, "if").style.color, light(PaletteColor::Destructive));
+  assert_eq!(run(&stage, "let").style.color, light(PaletteColor::Destructive));
+  let comment = run(&stage, "// done").style;
+  assert_eq!(
+    comment.color,
+    light(PaletteColor::MutedForeground),
+    "the theme's color, under the block's style"
+  );
+  assert_eq!((comment.weight, comment.style), (FontWeight::Bold, FontStyle::Italic));
+  // The theme's color for the particular name: `if` in it, `let` in the keywords' own.
+  let app = App::new();
+  app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Light));
+  app.theme().set_code_color("keyword.control", PaletteColor::Warning);
+  let stage = Stage::in_app(app, |_| {
+    Column::new()
+      .width(420.0)
+      .child(CodeBlock::new("if x { let y = 1; }").language("rust").selectable(false))
+      .into()
+  });
+  assert_eq!(run(&stage, "if").style.color, light(PaletteColor::Warning));
+  assert_eq!(run(&stage, "let").style.color, light(PaletteColor::Info));
+}
+
+#[test]
+fn a_theme_with_no_code_colors_draws_code_in_one() {
+  let app = App::new();
+  app.theme().set_code_scheme(CodeScheme::new());
+  let stage = Stage::in_app(app, |_| {
+    Column::new()
+      .width(420.0)
+      .child(CodeBlock::new("fn main() {}").language("rust").selectable(false))
+      .into()
+  });
+  assert_eq!(runs(&stage).iter().flatten().count(), 1);
+}
+
+#[test]
+fn an_apps_tokenizer_for_a_language_colors_what_shows_it_and_a_new_one_draws_it_again() {
+  const LANGUAGE: &str = "lang-of-the-block-tests";
+  let mut stage = staged(|| CodeBlock::new("alpha beta").language(LANGUAGE).selectable(false));
+  assert_eq!(runs(&stage).iter().flatten().count(), 1, "plain while it has none");
+  lurq::code::register_tokenizer(LANGUAGE, |_: &str| vec![CodeToken::new(0..5, token::KEYWORD)]);
+  stage.pass();
+  assert_eq!(run(&stage, "alpha").style.color, light(PaletteColor::Info));
+  // Registered again, in place of the first: what showed it is drawn by the new one.
+  stage
+    .app
+    .register_tokenizer(LANGUAGE, |_: &str| vec![CodeToken::new(6..10, token::STRING)]);
+  stage.pass();
+  assert_eq!(run(&stage, "beta").style.color, light(PaletteColor::Success));
+  assert_eq!(run(&stage, "alpha ").style.color, light(PaletteColor::Foreground));
+}
+
+#[test]
+fn a_blocks_own_tokenizer_is_over_its_languages_and_what_it_gave_is_kept() {
+  let asked = Arc::new(AtomicUsize::new(0));
+  let counter = asked.clone();
+  let own = CodeTokenizer::new(move |code: &str| {
+    counter.fetch_add(1, Ordering::SeqCst);
+    vec![CodeToken::new(0..code.find(' ').unwrap_or(code.len()), token::STRING)]
+  });
+  let tick = Signal::new(0);
+  let seen = tick.clone();
+  let mut stage = staged(move || {
+    let _ = seen.get();
+    CodeBlock::new("fn main() {}")
+      .language("rust")
+      .tokenizer(own.clone())
+      .selectable(false)
+  });
+  assert_eq!(
+    run(&stage, "fn").style.color,
+    light(PaletteColor::Success),
+    "the block's own"
+  );
+  // Rendered again with the same code, the block does not ask its tokenizer again.
+  for next in 1..4 {
+    tick.set(next);
+    stage.pass();
+  }
+  assert_eq!(asked.load(Ordering::SeqCst), 1);
+}
+
+/// The lines of code a frame paints, by the numbers in their names (`step_12`).
+fn painted_steps(stage: &Stage) -> Vec<usize> {
+  let mut steps: Vec<usize> = runs(stage)
+    .into_iter()
+    .flatten()
+    .flat_map(|span| {
+      span
+        .text
+        .split("step_")
+        .skip(1)
+        .filter_map(|rest| rest.split(|ch: char| !ch.is_ascii_digit()).next()?.parse().ok())
+        .collect::<Vec<usize>>()
+    })
+    .collect();
+  steps.sort_unstable();
+  steps.dedup();
+  steps
+}
+
+/// Ten thousand lines of Rust.
+fn long_code() -> String {
+  (0..10_000)
+    .map(|index| format!("fn step_{index}(ctx: &mut Ctx) -> u32 {{ {index} * 2 }} // step"))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+#[test]
+fn a_long_block_lays_out_and_paints_the_lines_in_view() {
+  let code = long_code();
+  let mut stage = staged(move || {
+    CodeBlock::new(&code)
+      .language("rust")
+      .line_numbers(true)
+      .max_height(400.0)
+      .id("block")
+  });
+  // The block is as high as its greatest height; what it scrolls is as high as every line.
+  let (x, y, width, height) = stage.bounds("block");
+  assert!((height - 400.0).abs() < 0.6, "{height}");
+  let (.., code_height) = stage.bounds("block-code");
+  assert!((code_height - (10_000.0 * 21.0 + 24.0)).abs() < 1.0, "{code_height}");
+  // A frame lays out and paints its first lines and a chunk past them, not the ten thousand.
+  let shown = painted_steps(&stage);
+  assert_eq!(shown.first(), Some(&0));
+  assert!(shown.len() <= 3 * 64, "{} lines painted", shown.len());
+  assert!(stage.quads().len() < 200, "{} quads", stage.quads().len());
+  // Scrolled half way down, it paints the lines there.
+  stage
+    .tree
+    .scroll(x + width / 2.0, y + height / 2.0, 0.0, -105_000.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  let shown = painted_steps(&stage);
+  assert!(
+    shown.iter().any(|step| (4_990..5_020).contains(step)),
+    "{:?}..{:?}",
+    shown.first(),
+    shown.last()
+  );
+  assert!(!shown.contains(&0));
+  assert!(shown.len() <= 4 * 64, "{} lines painted", shown.len());
+}
+
+#[test]
+fn inline_code_in_a_language_is_colored_as_a_block_is() {
+  let stage = staged_element(|| InlineCode::new("let n = 42;").language("rust").into());
+  assert_eq!(run(&stage, "let").style.color, light(PaletteColor::Info));
+  assert_eq!(run(&stage, "42").style.color, light(PaletteColor::Warning));
+  // Without a language it is one text, as it was.
+  let stage = staged_element(|| InlineCode::new("let n = 42;").into());
+  assert!(runs(&stage).is_empty());
+  assert_eq!(stage.text("let n = 42;").0, light(PaletteColor::Foreground));
+}
+
+/// A page of a window of 800 by 600 that scrolls down: a heading, `block`, and room after it.
+fn page_with(block: impl Fn() -> CodeBlock + Send + Sync + 'static) -> Stage {
+  let app = App::new();
+  app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Light));
+  let mut stage = Stage::first_frame_in(app, 800.0, 600.0, move |_| {
+    ScrollArea::new()
+      .width(Length::Fill)
+      .height(600.0)
+      .id("page")
+      .child(
+        Column::new()
+          .width(780.0)
+          .child(Column::new().height(300.0))
+          .child(block())
+          .child(Column::new().height(300.0)),
+      )
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_long_block_with_no_greatest_height_paints_the_lines_in_the_window() {
+  let code = long_code();
+  let mut stage = page_with(move || CodeBlock::new(&code).language("rust").id("block"));
+  // As high as every line, on a page that scrolls past it.
+  let (.., height) = stage.bounds("block");
+  assert!(height > 10_000.0 * 21.0, "{height}");
+  let shown = painted_steps(&stage);
+  assert_eq!(shown.first(), Some(&0));
+  assert!(shown.len() <= 3 * 64, "{} lines painted", shown.len());
+  // The page scrolled down to the middle of the block: the lines there are painted, and the first are not.
+  stage.tree.scroll(400.0, 300.0, 0.0, -105_000.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  let shown = painted_steps(&stage);
+  assert!(
+    shown.iter().any(|step| (4_970..5_030).contains(step)),
+    "{:?}..{:?}",
+    shown.first(),
+    shown.last()
+  );
+  assert!(!shown.contains(&0));
+  assert!(shown.len() <= 4 * 64, "{} lines painted", shown.len());
+}
+
+#[test]
+fn a_long_wrapped_blocks_first_frame_is_its_settled_one() {
+  let code: String = (0..2_000)
+    .map(|index| format!("let line_{index} = \"{}\";", "word ".repeat(30)))
+    .collect::<Vec<_>>()
+    .join("\n");
+  let scene = move |_: &mut lurq::app::ctx::Ctx| -> Element {
+    Column::new()
+      .width(420.0)
+      .child(
+        CodeBlock::new(&code)
+          .language("rust")
+          .wrap(true)
+          .selectable(false)
+          .max_height(400.0)
+          .id("block"),
+      )
+      .into()
+  };
+  let mut stage = Stage::first_frame(420.0, 600.0, scene);
+  let first = stage.bounds("block-code");
+  let first_picture = stage.picture();
+  stage.frame();
+  assert_eq!(
+    stage.bounds("block-code"),
+    first,
+    "the column of the lines is as high in both"
+  );
+  assert_eq!(stage.picture(), first_picture);
+  // Each line wraps at the room's width: the column counts more rows than lines.
+  assert!(first.3 > 2_000.0 * 21.0 * 2.0, "{}", first.3);
+}
+
+#[test]
+fn a_long_block_selected_whole_from_the_keyboard_copies_all_of_it() {
+  let code = long_code();
+  let whole = code.clone();
+  let mut stage = staged(move || CodeBlock::new(&code).language("rust").max_height(400.0).id("block"));
+  let written = Arc::new(Written::default());
+  stage.tree.set_clipboard_writer(Some(written.clone()));
+  // Tab reaches its room, Ctrl+A takes the code whole and Ctrl+C copies all ten thousand lines.
+  stage.key("Tab");
+  stage.tree.key_down("a".into(), "KeyA".into(), false, true, false);
+  stage.tree.key_up("a".into(), "KeyA".into(), false, true, false);
+  stage.pass();
+  assert!(
+    !fills(&stage, light(PaletteColor::Selection)).is_empty(),
+    "the lines on the selection's color"
+  );
+  stage.tree.key_down("c".into(), "KeyC".into(), false, true, false);
+  stage.tree.key_up("c".into(), "KeyC".into(), false, true, false);
+  stage.pass();
+  assert_eq!(written.0.lock().unwrap().last(), Some(&whole));
+  // A press in the code lets the whole go.
+  let (x, y, ..) = stage.bounds("block-code");
+  stage
+    .tree
+    .mouse_down(x + 40.0, y + 30.0, lurq::app::events::MouseButton::Left);
+  stage
+    .tree
+    .mouse_up(x + 40.0, y + 30.0, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert!(fills(&stage, light(PaletteColor::Selection)).is_empty());
 }

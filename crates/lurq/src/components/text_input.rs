@@ -209,6 +209,42 @@ impl TextInput {
     self
   }
 
+  /// Draws tokens that follow the value: `tokens` is asked for the tokens of each value the input holds, after every
+  /// edit and when the app sets the value, and what it gave for a value is kept while the value is the same. A
+  /// render that gives the input another asks it again. What an editable code field is colored by:
+  /// [`code_language`](Self::code_language) gives it the tokens of a language's tokenizer.
+  ///
+  /// ```
+  /// use lurq::{
+  ///   components::{InputToken, InputTokenStyle, InputTokens, TextInput},
+  ///   core::Signal,
+  ///   node::color::Color,
+  /// };
+  ///
+  /// // Every `#tag` in red.
+  /// let note = TextInput::new(Signal::new(String::new())).tokens_with(|value: &str| {
+  ///   let red = InputTokenStyle::new(Color::from_hex("#dc2626"), Color::new(0, 0, 0, 0));
+  ///   let mut tokens = Vec::new();
+  ///   let mut at = 0;
+  ///   for word in value.split(' ') {
+  ///     if word.len() > 1 && word.starts_with('#') && !word.contains('\n') {
+  ///       tokens.push(InputToken::new(at..at + word.len(), red.clone()));
+  ///     }
+  ///     at += word.len() + 1;
+  ///   }
+  ///   InputTokens::new(value, tokens).unwrap_or_else(|_| InputTokens::new(value, Vec::new()).unwrap())
+  /// });
+  /// ```
+  pub fn tokens_with(mut self, tokens: impl Fn(&str) -> super::InputTokens + Send + Sync + 'static) -> Self {
+    let source: std::sync::Arc<dyn Fn(&str) -> super::InputTokens + Send + Sync> = std::sync::Arc::new(tokens);
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_token_source(source);
+      }
+    });
+    self
+  }
+
   /// Makes this a styled input: `spans` holds the styled runs of the value
   /// as UTF-8 byte ranges ([`super::StyledSpan`]). The input draws them with
   /// the theme's text marks, moves them with every edit, keeps them in its
@@ -398,6 +434,17 @@ impl TextInput {
 
   pub fn new(value: Signal<String>) -> Self {
     Self::from_node(crate::node::Node::text_input(value))
+  }
+
+  /// The signal it is bound to.
+  pub(crate) fn value_signal(&mut self) -> Option<Signal<String>> {
+    let mut value = None;
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        value = Some(state.value_signal());
+      }
+    });
+    value
   }
 
   pub fn styled(value: Signal<String>, style: TextStyle) -> Self {

@@ -1,0 +1,6 @@
+{
+  "name": "lurq",
+  "version": 1.5e2,
+  "tags": ["ui", "gpu"],
+  "nested": {"ok": true, "none": null, "escaped": "a\"b\u00e9"}
+}

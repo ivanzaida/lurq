@@ -39,6 +39,7 @@ export default defineConfig({
                         'mcp',
                         'resources-media',
                         'canvas',
+                        'gpu-viewport',
                         'testing',
                         'text-pipeline-optimization',
                     ],

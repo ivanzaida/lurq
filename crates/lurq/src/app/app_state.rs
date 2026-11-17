@@ -299,6 +299,36 @@ impl App {
     self.shared.locale.get()
   }
 
+  /// Registers `tokenizer` for `language`: the code of that language is told apart by it, and drawn in the theme's code
+  /// colors, in every code block, Markdown document, inline code and code field, and what shows it now is drawn
+  /// again. A language that has one, lurq's own included, has this one in its place under each of its names. Any
+  /// `Fn(&str) -> Vec<CodeToken>` is a tokenizer, and so is a [`CodeLanguage`](crate::code::CodeLanguage) table; see
+  /// [`crate::code`].
+  ///
+  /// ```
+  /// use lurq::{app::App, code::{CodeLanguage, token}};
+  ///
+  /// let app = App::new();
+  /// app.register_tokenizer("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
+  /// ```
+  pub fn register_tokenizer(
+    &self,
+    language: &str,
+    tokenizer: impl Into<crate::code::CodeTokenizer>,
+  ) -> crate::code::TokenizerHandle {
+    crate::code::register_tokenizer(language, tokenizer)
+  }
+
+  /// As [`Self::register_tokenizer`], with other names of the language: `("sql", &["psql"], ..)`.
+  pub fn register_tokenizer_with_aliases(
+    &self,
+    language: &str,
+    aliases: &[&str],
+    tokenizer: impl Into<crate::code::CodeTokenizer>,
+  ) -> crate::code::TokenizerHandle {
+    crate::code::register_tokenizer_with_aliases(language, aliases, tokenizer)
+  }
+
   /// What the person points with: a finger ([`Pointer::Coarse`](super::Pointer::Coarse)) or a mouse, a trackpad or
   /// a pen ([`Pointer::Fine`](super::Pointer::Fine)). It starts as the platform says
   /// ([`Pointer::platform_default`](super::Pointer::platform_default)) and, unless the app pins it, follows the
