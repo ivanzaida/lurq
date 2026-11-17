@@ -78,6 +78,42 @@ impl WheelPointer {
   }
 }
 
+/// Whether the pointer the page last heard is a pen: winit gives a pen's pointer events as the mouse's, and the
+/// tree is told from their `pointerType` that they are a pen's.
+pub(super) struct PenPointer {
+  pen: std::rc::Rc<std::cell::Cell<bool>>,
+  _listeners: Vec<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::PointerEvent)>>,
+}
+
+impl PenPointer {
+  pub(super) fn watch(window: &Window) -> Option<Self> {
+    let canvas = window.canvas()?;
+    let pen = std::rc::Rc::new(std::cell::Cell::new(false));
+    let mut listeners = Vec::new();
+    for kind in ["pointerdown", "pointermove", "pointerup"] {
+      let heard = pen.clone();
+      let listener =
+        wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::PointerEvent)>::new(move |event: web_sys::PointerEvent| {
+          heard.set(event.pointer_type() == "pen")
+        });
+      // Capturing listeners of the canvas run before winit's own.
+      canvas
+        .add_event_listener_with_callback_and_bool(kind, listener.as_ref().unchecked_ref(), true)
+        .ok()?;
+      listeners.push(listener);
+    }
+    Some(Self {
+      pen,
+      _listeners: listeners,
+    })
+  }
+
+  /// Whether the pointer event being handled is a pen's.
+  pub(super) fn is_pen(&self) -> bool {
+    self.pen.get()
+  }
+}
+
 /// The canvas's size in physical pixels as the page lays it out now. winit learns the size from an observer,
 /// which has not run yet when the window is made.
 pub(super) fn canvas_size(window: &Window) -> Option<PhysicalSize<u32>> {

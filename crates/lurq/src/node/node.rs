@@ -747,6 +747,8 @@ pub(crate) trait NodeUpdate {
   fn off_rotate(&mut self, f: impl IntoRotateEventHandler);
   fn on_tap(&mut self, f: impl IntoTapEventHandler);
   fn off_tap(&mut self, f: impl IntoTapEventHandler);
+  fn on_double_tap(&mut self, f: impl IntoTapEventHandler);
+  fn off_double_tap(&mut self, f: impl IntoTapEventHandler);
   fn on_swipe(&mut self, f: impl IntoSwipeEventHandler);
   fn off_swipe(&mut self, f: impl IntoSwipeEventHandler);
   fn on_pan(&mut self, f: impl IntoPanEventHandler);
@@ -1011,6 +1013,7 @@ pub struct EventHandlers {
   pub on_pinch: Vec<Callback<PinchEvent>>,
   pub on_rotate: Vec<Callback<RotateEvent>>,
   pub on_tap: Vec<Callback<TapEvent>>,
+  pub on_double_tap: Vec<Callback<TapEvent>>,
   pub on_swipe: Vec<Callback<SwipeEvent>>,
   pub on_pan: Vec<Callback<PanEvent>>,
   pub on_edge_pan: Vec<Callback<EdgePanEvent>>,
@@ -2326,6 +2329,18 @@ impl NodeUpdate for Node {
   fn off_tap(&mut self, f: impl IntoTapEventHandler) {
     let handler = f.into_event_handler();
     self.events.on_tap.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_double_tap(&mut self, f: impl IntoTapEventHandler) {
+    self.events.on_double_tap.push(f.into_event_handler());
+  }
+
+  fn off_double_tap(&mut self, f: impl IntoTapEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_double_tap
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
   fn on_swipe(&mut self, f: impl IntoSwipeEventHandler) {
@@ -4152,6 +4167,18 @@ impl Node {
 
   pub fn off_tap(mut self, f: impl IntoTapEventHandler) -> Self {
     NodeUpdate::off_tap(&mut self, f);
+    self
+  }
+
+  /// Two taps in a row on this element; see [`TapEvent`]. While it listens, a tap's click is held back for the
+  /// time of a double tap.
+  pub fn on_double_tap(mut self, f: impl IntoTapEventHandler) -> Self {
+    NodeUpdate::on_double_tap(&mut self, f);
+    self
+  }
+
+  pub fn off_double_tap(mut self, f: impl IntoTapEventHandler) -> Self {
+    NodeUpdate::off_double_tap(&mut self, f);
     self
   }
 

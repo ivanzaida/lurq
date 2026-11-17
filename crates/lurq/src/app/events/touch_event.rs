@@ -98,14 +98,22 @@ pub struct RotateEvent {
   pub(crate) control: EventControl,
 }
 
-/// One or more fingers touched an element and lifted without travelling: `on_tap`. A tap of one finger is a
-/// click as well; `fingers` tells a tap of two or three from it. All the fingers landed on the element or
-/// inside it, stayed within a few points and lifted within a third of a second. The event bubbles from the
-/// innermost element all the fingers are on to its ancestors.
+/// One or more fingers touched an element and lifted without travelling: `on_tap`, the gesture, from a finger or
+/// a pen only. All the fingers landed on the element or inside it, stayed within a few points and lifted within
+/// half a second. The event bubbles from the innermost element all the fingers are on to its ancestors.
+///
+/// A tap of one finger is a click as well, told after the tap: an action is `on_click`, which a mouse, a key and a
+/// finger all reach, and an element with both runs each once. A handler that takes the tap (`prevent_default`)
+/// leaves it without a click, and a tap of two fingers or more never clicks. The second of two taps in a row is
+/// `on_double_tap` too, and an element that listens for it has its single click held back for the time of a
+/// double tap; a double tap is not `on_dblclick`.
 #[derive(Debug, Clone)]
 pub struct TapEvent {
   /// How many fingers were down at once.
   pub fingers: u32,
+  /// Which tap of a row this is: 1, then 2 and 3 for taps of as many fingers in the same place, each within the
+  /// time of a double click (`Tree::set_double_click_interval`) of the one before.
+  pub count: u32,
   /// The middle of where the fingers landed, in logical pixels in the window.
   pub x: f32,
   pub y: f32,

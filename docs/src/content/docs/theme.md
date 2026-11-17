@@ -662,6 +662,7 @@ let row = theme.density_value(theme.density());
 - A recipe has rules for a density, which hold while the theme is at it: see [Density](../design-system/#density).
 - The density is a setting of the theme, not of the window: a theme for a subtree ([`Ctx::in_theme`](../design-system/#one-instance-one-place-one-subtree)) can be at another, for a dense inspector beside a roomy page.
 - `Button` does not change with the density: a control has its sizes (`ControlSize`). A theme that wants its controls to follow the density says so in rules.
+- The density is how large things are, not which form a component takes: a lightbox's phone viewer, a picture's phone form and a video player's touch form follow the person's pointer, [`app::Pointer`](../styling-events/#a-finger-or-a-mouse), at any density. Every theme starts at `Default`, on a phone too; an app for a finger that wants its rows taller sets `Touch`.
 
 ## Motion
 

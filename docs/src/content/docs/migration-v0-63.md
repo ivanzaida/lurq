@@ -14,6 +14,7 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - The Markdown theme. Its colors are `TextColor`s, eight of its fields are gone, and `MarkdownProps::on_link_click` is `on_link_select`: see [Text And Markdown](#text-and-markdown).
 - A struct written out field by field, or a `match` with no `_` arm, over a type that gained a field or a variant: see [the table](#types-that-gained-a-variant-or-a-field).
 - With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
+- `MouseEvent::pointer`, which is `pointer_kind`: see [What Pressed](#what-pressed).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
 
@@ -30,7 +31,7 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - The form controls (`FormTextInput`, `FormCheckboxInput`, `FormSliderInput`, the two form buttons), which are the design system's field, input, checkbox, slider and buttons, styled by their recipes and no longer by `FormTheme`: see [The Form Controls](#the-form-controls).
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
-- A notch of a mouse's wheel, which is animated: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
+- A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
@@ -479,6 +480,36 @@ app.theme().set_smooth_scroll(false);
 
 It is the app's setting and not part of a `ThemeDefinition`: applying one leaves it. See [The mouse wheel](../styling-events/#the-mouse-wheel).
 
+### What Pressed
+
+`MouseEvent::pointer` is `MouseEvent::pointer_kind`, and `PointerKind` has a third variant, `Pen`: a pen on a touch
+screen, which taps and clicks as a finger does. The name keeps `Pointer` for what the person points with
+(`app::Pointer`, fine or coarse).
+
+```rust
+// 0.62
+if event.pointer == PointerKind::Touch { .. }
+// 0.63
+if event.pointer_kind != PointerKind::Mouse { .. }
+```
+
+A `match` on `PointerKind` with no `_` arm takes `Pen`.
+
+### A Finger's Tap And Its Click
+
+`on_click` is the action from every input, and `on_tap` the finger's gesture: a finger's tap is told as `on_tap` first
+and `on_click` after, each once, as before. A touch screen's touches reach lurq as touches on Windows, Android,
+Linux and in the browser now, as on iOS: on Windows they came as the mouse's (a tap clicked, with no `on_tap`), and
+now they are a finger's, with its gestures and a coarse pointer. What is new wherever touches come:
+
+- A tap a handler of `on_tap` takes (`prevent_default`) clicks nothing. It clicked as well.
+- A tap of two fingers or more clicks nothing. The first finger, which is the pointer, clicked.
+- Two taps in a row are no double click: `on_dblclick` hears a mouse's only, and an element that wants a finger's
+  double tap listens with `on_double_tap` (or reads `TapEvent::count`). On an element that does, a tap's click is
+  held back for the time of a double click, as a mouse's is on an element with `on_dblclick`.
+
+See [A Click Is The Action, A Tap Is The Gesture](../styling-events/#a-click-is-the-action-a-tap-is-the-gesture).
+
 ### A Disabled Element Hears The Pointer Come And Go
 
 The `on_mouse_enter` and `on_mouse_leave` of a disabled element run as the pointer comes onto it and leaves it, so a tooltip can say why it is disabled. They did not run. Nothing else of the pointer reaches it: it is not hovered, and no press, click or drop reaches it.
@@ -733,7 +764,8 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `StyledEdit` | `Paragraphs { range }` | A `match` arm: the kinds of the paragraphs changed, the text did not |
 | `ThemeMarkdown` | `task_item_spacing`, `bullet_gap`, `box_gap`, `bullet_indent`, `bullet_size`, `table_stripe`, `heading_2_rule`, `kbd`, `task_done`, `rule`, `image_box`, `image_height`, `image_caption`, `details_box`, `details_summary_box`, `details_summary`, `details_padding`, `footnote_reference`, `footnote`, `footnotes_rule_width` | `..ThemeMarkdown::default()` |
 | `TextHighlight` | `padding`, `border` | `TextHighlight::new(range, color)` |
-| `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end` | `..Default::default()` |
+| `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end`, `on_double_tap` | `..Default::default()` |
+| `PointerKind` | `Pen` | A `match` arm |
 | `SelectTriggerState` | `input` | `input: None` |
 | `DragEvent` | `outside_window` | `outside_window: false` |
 | `DevToolsNode` (`devtools`) | `render` | `render: None` |
