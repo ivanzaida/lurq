@@ -495,7 +495,7 @@ impl<R: 'static> TableColumn<R> {
   /// called "Actions" to what reads the tree), it is as wide as what is in it, its cells sit at its end, and a
   /// press in them is theirs, not the row's.
   pub fn actions(id: &str, cell: impl Fn(&R) -> Element + Send + Sync + 'static) -> Self {
-    let mut column = Self::new(id, "Actions")
+    let mut column = Self::new(id, &crate::ui::current_locale().data.actions_column)
       .fit()
       .align(ColumnAlign::End)
       .controls(true)
@@ -783,9 +783,10 @@ pub struct SourceLabels {
 
 impl Default for SourceLabels {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      failed: "These rows could not be loaded".into(),
-      retry: "Retry".into(),
+      failed: locale.data.rows_failed.to_string(),
+      retry: locale.common.retry.to_string(),
     }
   }
 }
@@ -794,10 +795,11 @@ type GroupLabelFn = Arc<dyn Fn(&str, &str, usize) -> String + Send + Sync>;
 
 impl Default for Words {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      empty: Arc::from("No rows"),
-      select_all: Arc::from("Select all"),
-      select_row: Arc::from("Select row"),
+      empty: locale.data.no_rows.clone(),
+      select_all: locale.common.select_all.clone(),
+      select_row: locale.data.select_row.clone(),
       count: None,
       resize: None,
       menu: Arc::default(),
@@ -2431,7 +2433,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             let value = line.key.values.last().map_or("", String::as_str);
             match &self.words.group {
               Some(label) => label(&title, value, line.count),
-              None => format!("{title}: {value}, {} {}", line.count, rows_word(line.count)),
+              None => {
+                let locale = crate::ui::current_locale();
+                format!("{title}: {value}, {}", locale.count(&locale.data.rows, line.count))
+              }
             }
           },
           id: id_of(&format!("group-{position}")),
@@ -3104,11 +3109,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               .then(|| (self.filters.get(&column.id).is_some(), !self.filters.is_empty())),
             filter_labels: self.words.filter.clone(),
             export: export_link.clone(),
-            trigger_label: self
-              .words
-              .menu_trigger
-              .as_ref()
-              .map_or_else(|| format!("{} column menu", column.title), |label| label(&column.title)),
+            trigger_label: self.words.menu_trigger.as_ref().map_or_else(
+              || {
+                crate::core::fill(
+                  &crate::ui::current_locale().data.column_menu,
+                  &[("column", &column.title)],
+                )
+              },
+              |label| label(&column.title),
+            ),
           })
         });
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
@@ -3159,11 +3168,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               start: Mutex::new(0.0),
               on_resize: self.on_column_resize.clone(),
               on_resize_end: self.on_column_resize_end.clone(),
-              label: self
-                .words
-                .resize
-                .as_ref()
-                .map_or_else(|| format!("Resize {}", column.title), |label| label(&column.title)),
+              label: self.words.resize.as_ref().map_or_else(
+                || {
+                  crate::core::fill(
+                    &crate::ui::current_locale().data.resize_column,
+                    &[("column", &column.title)],
+                  )
+                },
+                |label| label(&column.title),
+              ),
             })
           });
         TableHeader {
@@ -3226,13 +3239,33 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         total,
         selected: selectable.then_some(selected_count),
       }),
-      None if shown_count != total && selectable => format!(
-        "{shown_count} of {total} {} · {selected_count} selected",
-        rows_word(total)
-      ),
-      None if shown_count != total => format!("{shown_count} of {total} {}", rows_word(total)),
-      None if selectable => format!("{selected_count} of {total} {} selected", rows_word(total)),
-      None => format!("{total} {}", rows_word(total)),
+      None => {
+        let locale = crate::ui::current_locale();
+        let words = &locale.data;
+        let fill = crate::core::fill;
+        let shown = || {
+          fill(
+            locale.form(&words.shown_rows, total),
+            &[("shown", &shown_count.to_string()), ("count", &total.to_string())],
+          )
+        };
+        if shown_count != total && selectable {
+          format!(
+            "{} · {}",
+            shown(),
+            locale.count(&locale.common.selected, selected_count)
+          )
+        } else if shown_count != total {
+          shown()
+        } else if selectable {
+          fill(
+            locale.form(&words.selected_rows, total),
+            &[("selected", &selected_count.to_string()), ("count", &total.to_string())],
+          )
+        } else {
+          locale.count(&words.rows, total)
+        }
+      }
     };
 
     let body_window = window.as_ref().map(|window| BodyWindow {
@@ -3329,10 +3362,6 @@ fn column_text<R>(column: &TableColumn<R>, row: &R) -> String {
     Some(EditorKind::Checkbox(checked)) => checked(row).to_string(),
     None => String::new(),
   }
-}
-
-fn rows_word(count: usize) -> &'static str {
-  if count == 1 { "row" } else { "rows" }
 }
 
 /// The numbers of the recipe a table lays its tracks out with, in pixels.
@@ -4161,7 +4190,7 @@ impl TableHeader {
     let hidden = link.columns.iter().any(|(_, _, shown)| !shown);
     let shown = link.columns.iter().filter(|(_, _, shown)| *shown).count();
     let columns = Menu::new(link.host.submenu_open.clone(), link.host.submenu_anchor.clone())
-      .label("Columns")
+      .label(&crate::ui::current_locale().data.columns)
       .items(link.columns.iter().map(|(id, title, on)| {
         MenuItem::new(title)
           .checked(*on)
@@ -4336,7 +4365,10 @@ impl TableHeader {
           .align_items(Alignment::Center)
           .flex_full(0.0, 1.0, None)
           .min_width(Dimension::Px(0.0))
-          .describe("a11y_name", format!("Sort by {}", self.title))
+          .describe(
+            "a11y_name",
+            crate::core::fill(&crate::ui::current_locale().data.sort_by, &[("column", &self.title)]),
+          )
           .on_click(move |event: MouseEvent| press(event.shift));
         if let Some(title) = title {
           button = button.child(title);

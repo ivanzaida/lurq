@@ -274,17 +274,18 @@ pub struct ColumnMenuLabels {
 
 impl Default for ColumnMenuLabels {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      sort_ascending: "Sort ascending".into(),
-      sort_descending: "Sort descending".into(),
-      clear_sort: "Clear sort".into(),
-      pin_start: "Pin to start".into(),
-      pin_end: "Pin to end".into(),
-      unpin: "Unpin".into(),
-      size_to_fit: "Size to fit".into(),
-      hide: "Hide column".into(),
-      columns: "Columns".into(),
-      show_all: "Show all columns".into(),
+      sort_ascending: locale.data.sort_ascending.to_string(),
+      sort_descending: locale.data.sort_descending.to_string(),
+      clear_sort: locale.data.clear_sort.to_string(),
+      pin_start: locale.data.pin_start.to_string(),
+      pin_end: locale.data.pin_end.to_string(),
+      unpin: locale.data.unpin.to_string(),
+      size_to_fit: locale.data.size_to_fit.to_string(),
+      hide: locale.data.hide_column.to_string(),
+      columns: locale.data.columns.to_string(),
+      show_all: locale.data.show_all_columns.to_string(),
     }
   }
 }

@@ -365,14 +365,14 @@ impl CommandPalette {
   pub fn new(open: Signal<bool>) -> Self {
     Self {
       open,
-      placeholder: Arc::from("Type a command or search"),
+      placeholder: super::current_locale().editing.command_placeholder.clone(),
       groups: Vec::new(),
       filter: None,
       on_query: Vec::new(),
       query: None,
       loading: false,
-      empty_text: Arc::from("No results"),
-      loading_text: Arc::from("Loading…"),
+      empty_text: super::current_locale().common.no_results.clone(),
+      loading_text: super::current_locale().common.loading_text.clone(),
       key_hints: false,
       inline: false,
       label: None,
@@ -909,7 +909,7 @@ impl CommandPaletteView {
           .align_items(Alignment::Center)
           .child(self.input()),
       )
-      .child(self.key("Esc"))
+      .child(self.key(&super::current_locale().keys.esc))
   }
 
   /// The text over a group of commands.
@@ -1069,6 +1069,7 @@ impl CommandPaletteView {
 
   /// The row at the bottom with the keys that work in the palette, under a line.
   pub fn footer_row(&self) -> Element {
+    let locale = super::current_locale();
     let hint = |keys: &[&str], says: &str| {
       let part = self.part(CommandPalettePart::FooterHint);
       let gap = self.part(CommandPalettePart::Footer).rest().gap.unwrap_or_default();
@@ -1088,9 +1089,9 @@ impl CommandPaletteView {
         Row::new()
           .align_items(Alignment::Center)
           .part(&self.part(CommandPalettePart::Footer))
-          .child(hint(&["↑", "↓"], "to move"))
-          .child(hint(&["Enter"], "to run"))
-          .child(hint(&["Esc"], "to close")),
+          .child(hint(&["↑", "↓"], &locale.editing.to_move))
+          .child(hint(&[&locale.keys.enter], &locale.editing.to_run))
+          .child(hint(&[&locale.keys.esc], &locale.editing.to_close)),
       )
       .into()
   }

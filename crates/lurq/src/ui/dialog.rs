@@ -167,7 +167,7 @@ impl Dialog {
       alert: false,
       label: None,
       described: None,
-      close_label: Arc::from("Close"),
+      close_label: super::current_locale().common.close.clone(),
       forced: None,
       inline: false,
       states: Vec::new(),

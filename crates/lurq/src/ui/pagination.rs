@@ -184,11 +184,11 @@ impl Pagination {
       siblings: 1,
       compact: false,
       disabled: false,
-      label: Arc::from("Pagination"),
+      label: super::current_locale().navigation.pagination.clone(),
       summary_text: None,
-      previous_label: Arc::from("Previous page"),
-      next_label: Arc::from("Next page"),
-      page_label: Arc::from("Page"),
+      previous_label: super::current_locale().navigation.previous_page.clone(),
+      next_label: super::current_locale().navigation.next_page.clone(),
+      page_label: super::current_locale().navigation.page.clone(),
       page_size: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -441,13 +441,26 @@ impl Pagination {
       self.current.clamp(1, self.pages)
     };
     let summary = self.summary_text.clone().unwrap_or_else(|| {
+      let locale = super::current_locale();
+      let fill = crate::core::fill;
       Arc::from(match self.items {
         Some((total, page_size)) if current > 0 => {
           let first = (current - 1) * page_size + 1;
-          format!("{first}–{} of {total}", (current * page_size).min(total))
+          let last = (current * page_size).min(total);
+          fill(
+            &locale.navigation.range_of,
+            &[
+              ("first", &first.to_string()),
+              ("last", &last.to_string()),
+              ("total", &total.to_string()),
+            ],
+          )
         }
-        Some((total, _)) => format!("0 of {total}"),
-        None => format!("Page {current} of {}", self.pages),
+        Some((total, _)) => fill(&locale.common.place_of, &[("at", "0"), ("total", &total.to_string())]),
+        None => fill(
+          &locale.navigation.page_of,
+          &[("at", &current.to_string()), ("total", &self.pages.to_string())],
+        ),
       })
     });
     PaginationView {

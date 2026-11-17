@@ -51,31 +51,34 @@ pub struct FilterLabels {
   pub placeholder: String,
   /// What an empty filter of numbers or days says in the filter row: how a range is written.
   pub range_placeholder: String,
-  /// What the filter row's choice of values says where several are ticked: `{count}` is how many.
-  pub several: String,
+  /// What the filter row's choice of values says where several are ticked: `{count}` is how many, in the form
+  /// the locale's language gives the word after it (a plain sentence, `"{count} chosen".into()`, is the same
+  /// after every number).
+  pub several: crate::core::Plural,
 }
 
 impl Default for FilterLabels {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      filter: "Filter…".into(),
-      clear_filter: "Clear filter".into(),
-      clear_all: "Clear all filters".into(),
-      contains: "Contains".into(),
-      starts_with: "Starts with".into(),
-      equals: "Equals".into(),
-      at_least: "At least".into(),
-      at_most: "At most".into(),
-      from: "From".into(),
-      to: "To".into(),
-      all: "All".into(),
-      yes: "Yes".into(),
-      no: "No".into(),
-      select_all: "Select all".into(),
-      select_none: "Select none".into(),
-      placeholder: "Filter".into(),
+      filter: locale.data.filter_placeholder.to_string(),
+      clear_filter: locale.data.clear_filter.to_string(),
+      clear_all: locale.data.clear_all_filters.to_string(),
+      contains: locale.data.contains.to_string(),
+      starts_with: locale.data.starts_with.to_string(),
+      equals: locale.data.equals.to_string(),
+      at_least: locale.data.at_least.to_string(),
+      at_most: locale.data.at_most.to_string(),
+      from: locale.data.from.to_string(),
+      to: locale.data.to.to_string(),
+      all: locale.data.all.to_string(),
+      yes: locale.common.yes.to_string(),
+      no: locale.common.no.to_string(),
+      select_all: locale.common.select_all.to_string(),
+      select_none: locale.data.select_none.to_string(),
+      placeholder: locale.data.filter.to_string(),
       range_placeholder: "5..20".into(),
-      several: "{count} values".into(),
+      several: locale.data.values.clone(),
     }
   }
 }
@@ -369,7 +372,12 @@ impl FilterLink {
           _ => None,
         };
         let options = std::iter::once((None, labels.all.clone()))
-          .chain(several.map(|count| (Some(usize::MAX), labels.several.replace("{count}", &count.to_string()))))
+          .chain(several.map(|count| {
+            (
+              Some(usize::MAX),
+              crate::ui::current_locale().count(&labels.several, count),
+            )
+          }))
           .chain(values.iter().enumerate().map(|(at, value)| (Some(at), value.clone())));
         let values = values.clone();
         Select::controlled(chosen, options, move |at: &Option<usize>| {

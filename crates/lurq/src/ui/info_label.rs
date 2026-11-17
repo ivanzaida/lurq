@@ -60,9 +60,6 @@ names!(InfoLabelState {
 /// When its tooltip shows stays the label's.
 pub type InfoLabelRenderer = Arc<dyn Fn(InfoLabelView) -> Element + Send + Sync>;
 
-/// What the mark is called to tooling when the app gives it no name.
-const MORE: &str = "More information";
-
 /// An info label: what a field or a setting is called, with a mark after it
 /// that explains it. "API key", and that it is stored in the keychain.
 ///
@@ -113,7 +110,7 @@ impl InfoLabel {
     Self {
       label: Arc::from(label),
       info: None,
-      info_label: Arc::from(MORE),
+      info_label: super::current_locale().fields.more_information.clone(),
       icon: Name::new(icons::INFO),
       placement: Placement::TopStart,
       offset: None,

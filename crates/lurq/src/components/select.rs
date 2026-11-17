@@ -438,7 +438,10 @@ where
     let label = match selected_labels.as_slice() {
       [] => self.placeholder.clone(),
       [label] => Some(label.clone()),
-      many => Some(Arc::from(format!("{} selected", many.len()))),
+      many => {
+        let locale = crate::ui::current_locale();
+        Some(Arc::from(locale.count(&locale.common.selected, many.len())))
+      }
     };
     let single = match (multiple, selected.as_slice()) {
       (false, [index]) => Some(*index),

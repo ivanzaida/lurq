@@ -117,7 +117,7 @@ pub(crate) fn close_control(part: &ResolvedPart, handlers: &[Arc<dyn Fn() + Send
   let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
   let mut close = pressable(part, false)
     .describe("a11y_role", "button")
-    .describe("a11y_name", "Close")
+    .describe("a11y_name", super::current_locale().common.close.clone())
     .child(Icon::new(icons::CLOSE).size(side).build(part.theme()));
   if !handlers.is_empty() {
     let handlers = handlers.to_vec();

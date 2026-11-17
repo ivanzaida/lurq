@@ -438,7 +438,10 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       previous_label: None,
       next_label: None,
       today_label: None,
-      more_text: Arc::new(|count| format!("+{count} more")),
+      more_text: {
+        let locale = super::current_locale();
+        Arc::new(move |count| locale.count(&locale.common.plus_more, count))
+      },
       forced: None,
       states: Vec::new(),
       rules: Recipe::new(),

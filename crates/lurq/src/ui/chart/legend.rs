@@ -277,7 +277,9 @@ impl ChartLegend {
       orientation: self.orientation,
       write: self.write_hidden,
       heard: self.on_hidden_change,
-      label: self.label.unwrap_or_else(|| Arc::from("Legend")),
+      label: self
+        .label
+        .unwrap_or_else(|| crate::ui::current_locale().data.legend.clone()),
       forced: self.forced,
       id: self.id,
       key: self.key,

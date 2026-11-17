@@ -485,8 +485,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       label: None,
       overflow: false,
       words: Words {
-        back: Arc::from("Scroll back"),
-        on: Arc::from("Scroll on"),
+        back: super::current_locale().navigation.scroll_back.clone(),
+        on: super::current_locale().navigation.scroll_on.clone(),
         more: None,
       },
       states: Vec::new(),
@@ -1126,7 +1126,10 @@ impl TabsView {
     let label = self.part(TabsPart::MoreLabel);
     let (says, name) = match &self.words.more {
       Some(words) => (words.clone(), words.clone()),
-      None => (Arc::from("More"), Arc::from("More tabs")),
+      None => {
+        let locale = super::current_locale();
+        (locale.common.more.clone(), locale.navigation.more_tabs.clone())
+      }
     };
     let mut button = pressable(&self.part(TabsPart::More), self.disabled)
       .ref_element(overflow.anchor.clone())

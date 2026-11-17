@@ -203,10 +203,10 @@ impl<V: ShortcutValue> ShortcutRecorder<V> {
         ..BoxStates::default()
       },
       full_width: false,
-      placeholder: Arc::from("Record shortcut"),
-      recording_text: Arc::from("Press shortcut…"),
-      clear_label: Arc::from("Clear shortcut"),
-      modifier_text: Arc::from("Hold Ctrl, Alt, Shift or the system key with it."),
+      placeholder: super::current_locale().fields.record_shortcut.clone(),
+      recording_text: super::current_locale().fields.press_shortcut.clone(),
+      clear_label: super::current_locale().fields.clear_shortcut.clone(),
+      modifier_text: super::current_locale().fields.shortcut_needs_modifier.clone(),
       #[cfg(feature = "form")]
       name: None,
       states: Vec::new(),
@@ -532,7 +532,11 @@ impl Core {
       read_only: self.boxed.read_only,
       disabled: self.boxed.disabled,
       judgment: self.boxed.judgment(),
-      label: self.boxed.label.clone().unwrap_or_else(|| Arc::from("Shortcut")),
+      label: self
+        .boxed
+        .label
+        .clone()
+        .unwrap_or_else(|| super::current_locale().fields.shortcut.clone()),
       size: self.boxed.size.clone(),
       recipe,
       core: self,
@@ -579,12 +583,14 @@ fn function_key(key: &str) -> bool {
 fn spoken(shortcut: &Accelerator, platform: KeyPlatform) -> String {
   let mac = platform == KeyPlatform::Mac;
   let m = shortcut.modifiers;
+  let locale = super::current_locale();
+  let keys = &locale.keys;
   let mut words: Vec<&str> = Vec::new();
   for (held, word, mac_word) in [
-    (m.ctrl, "Ctrl", "Control"),
-    (m.alt, "Alt", "Option"),
-    (m.shift, "Shift", "Shift"),
-    (m.meta, "Meta", "Cmd"),
+    (m.ctrl, &keys.ctrl, &keys.control),
+    (m.alt, &keys.alt, &keys.option),
+    (m.shift, &keys.shift, &keys.shift),
+    (m.meta, &keys.meta, &keys.cmd),
   ] {
     if held {
       words.push(if mac { mac_word } else { word });

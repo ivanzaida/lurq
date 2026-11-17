@@ -253,6 +253,7 @@ pub struct FindBar {
 impl FindBar {
   /// The bar of what is typed in `query`: the app finds it, and gives the bar the count.
   pub fn new(query: Signal<String>) -> Self {
+    let locale = super::current_locale();
     Self {
       query,
       on_query: Vec::new(),
@@ -273,19 +274,19 @@ impl FindBar {
       return_focus: None,
       disabled: false,
       words: Words {
-        label: Arc::from("Find"),
-        placeholder: Arc::from("Find"),
-        replace_placeholder: Arc::from("Replace"),
-        previous: Arc::from("Previous match"),
-        next: Arc::from("Next match"),
-        close: Arc::from("Close"),
-        match_case: Arc::from("Match case"),
-        whole_word: Arc::from("Match whole word"),
-        regex: Arc::from("Use regular expression"),
-        replace: Arc::from("Replace"),
-        replace_all: Arc::from("Replace all"),
-        toggle_replace: Arc::from("Toggle replace"),
-        options: Arc::from("Search options"),
+        label: locale.editing.find.clone(),
+        placeholder: locale.editing.find.clone(),
+        replace_placeholder: locale.editing.replace.clone(),
+        previous: locale.editing.previous_match.clone(),
+        next: locale.editing.next_match.clone(),
+        close: locale.common.close.clone(),
+        match_case: locale.editing.match_case.clone(),
+        whole_word: locale.editing.match_whole_word.clone(),
+        regex: locale.editing.use_regex.clone(),
+        replace: locale.editing.replace.clone(),
+        replace_all: locale.editing.replace_all.clone(),
+        toggle_replace: locale.editing.toggle_replace.clone(),
+        options: locale.editing.search_options.clone(),
         match_case_text: Arc::from("Aa"),
         whole_word_text: Arc::from("ab"),
         regex_text: Arc::from(".*"),
@@ -632,8 +633,11 @@ impl FindBar {
     }
     let count_text = self.matches.map(|(current, total)| match &self.count_text {
       Some(text) => Arc::from(text(current, total)),
-      None if total == 0 => Arc::from("No results"),
-      None => Arc::from(format!("{current} of {total}")),
+      None if total == 0 => super::current_locale().common.no_results.clone(),
+      None => Arc::from(crate::core::fill(
+        &super::current_locale().common.place_of,
+        &[("at", &current.to_string()), ("total", &total.to_string())],
+      )),
     });
     let dismiss = {
       let (open, handlers, changes) = (self.open.clone(), self.on_dismiss.clone(), self.on_open_change.clone());

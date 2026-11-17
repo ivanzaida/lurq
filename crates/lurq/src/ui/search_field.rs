@@ -123,7 +123,7 @@ impl SearchField {
       input,
       value,
       shortcut: None,
-      clear_label: Arc::from("Clear search"),
+      clear_label: super::current_locale().fields.clear_search.clone(),
       clearable: true,
       read_only: false,
       disabled: false,

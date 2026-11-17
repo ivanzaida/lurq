@@ -737,18 +737,26 @@ impl StepsView {
   /// its title and its state. "Step 2 of 4, Billing, current".
   pub fn step_name(&self, index: usize) -> String {
     let step = &self.steps[index];
+    let locale = super::current_locale();
+    let words = &locale.navigation;
     let status = match step.status {
-      StepsState::Done => "done",
-      StepsState::Current => "current",
-      _ => "to come",
+      StepsState::Done => &words.step_done,
+      StepsState::Current => &words.step_current,
+      _ => &words.step_to_come,
     };
-    let error = if step.step.invalid { ", error" } else { "" };
-    format!(
-      "Step {} of {}, {}, {status}{error}",
-      index + 1,
-      self.steps.len(),
-      step.step.title
-    )
+    let place = crate::core::fill(
+      &words.step_of,
+      &[
+        ("at", &(index + 1).to_string()),
+        ("total", &self.steps.len().to_string()),
+      ],
+    );
+    let mut name = format!("{place}, {}, {status}", step.step.title);
+    if step.step.invalid {
+      name.push_str(", ");
+      name.push_str(&words.step_error);
+    }
+    name
   }
 
   fn child_id(&self, index: usize, suffix: &str) -> Option<String> {
@@ -952,9 +960,16 @@ impl StepsView {
   /// of 4 · Billing", and that every step is done once they are.
   pub fn summary(&self) -> String {
     let count = self.steps.len();
+    let locale = super::current_locale();
     match self.steps.get(self.current) {
-      Some(step) => format!("Step {} of {count} · {}", self.current + 1, step.step.title),
-      None => format!("{count} of {count} steps done"),
+      Some(step) => {
+        let place = crate::core::fill(
+          &locale.navigation.step_of,
+          &[("at", &(self.current + 1).to_string()), ("total", &count.to_string())],
+        );
+        format!("{place} · {}", step.step.title)
+      }
+      None => locale.count(&locale.navigation.steps_done, count),
     }
   }
 

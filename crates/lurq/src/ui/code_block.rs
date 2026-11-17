@@ -184,8 +184,8 @@ impl CodeBlock {
       min_height: None,
       max_height: None,
       copy_button: true,
-      copy_label: Arc::from("Copy code"),
-      copied_text: Arc::from("Copied"),
+      copy_label: super::current_locale().editing.copy_code.clone(),
+      copied_text: super::current_locale().editing.copied.clone(),
       on_copy: Vec::new(),
       selectable: true,
       framed: true,
@@ -477,7 +477,7 @@ impl CodeBlockView {
       .clone()
       .or_else(|| self.title.clone())
       .or_else(|| self.language.clone())
-      .unwrap_or_else(|| Arc::from("Code"))
+      .unwrap_or_else(|| super::current_locale().editing.code.clone())
   }
 
   /// What the bar shows: the title, or the language.
