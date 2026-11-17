@@ -152,3 +152,36 @@ fn the_engines_of_the_trees_other_windows_are_let_go_of_with_its_own() {
   assert!(other.render_engine.as_ref().is_some_and(|engine| !engine.lost()));
   assert!(other.needs_redraw, "the other window is to be drawn again");
 }
+
+#[cfg(feature = "canvas")]
+#[test]
+fn a_canvas_is_drawn_again_by_its_painter_once_its_renderer_is_lost() {
+  use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  };
+
+  let (mut tree, mut app, told) = tree(false);
+  let painted = Arc::new(AtomicUsize::new(0));
+  tree.set_root(crate::components::Canvas::new().width(100.0).height(50.0).paint(7, {
+    let painted = painted.clone();
+    move |_| {
+      painted.fetch_add(1, Ordering::SeqCst);
+    }
+  }));
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(painted.load(Ordering::SeqCst), 1);
+  // Drawn once: a frame for which nothing of it changed does not draw it again.
+  tree.request_redraw();
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(painted.load(Ordering::SeqCst), 1);
+
+  // What it held was on the device that is lost: it is drawn again for the engine that takes the place.
+  told.lost.set(true);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(told.made.get(), 2);
+  assert_eq!(painted.load(Ordering::SeqCst), 2, "the painter draws the canvas again");
+  tree.request_redraw();
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(painted.load(Ordering::SeqCst), 2);
+}

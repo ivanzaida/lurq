@@ -164,7 +164,9 @@ impl CanvasHandle {
     }
   }
 
-  /// Receives the current metrics immediately, then committed size/scale changes.
+  /// Receives the current metrics immediately, then committed size/scale changes; and the metrics again, as
+  /// they are, where what was drawn is gone with the graphics device it was on (the card was reset): what
+  /// draws the canvas when its size changes draws it again then.
   pub fn observe_metrics(&self, callback: impl Fn(CanvasMetrics) + Send + Sync + 'static) -> CanvasObserver {
     let callback: Arc<MetricsCallback> = Arc::new(callback);
     let metrics = {
@@ -336,6 +338,34 @@ impl CanvasHandle {
   pub(crate) fn downgrade(&self) -> CanvasWeak {
     CanvasWeak {
       inner: Arc::downgrade(&self.inner),
+    }
+  }
+  /// What the canvas held is gone with the renderer that drew it: its graphics device was lost, and another
+  /// renderer draws the window now, with an empty surface for this canvas. A canvas that has a painter is
+  /// drawn again by it at the tree's next pass, and who observes the canvas's metrics is told them again, to
+  /// draw as when the size changes. One drawn on the CPU has lost nothing.
+  pub(crate) fn content_lost(&self) {
+    let (metrics, observers) = {
+      let mut s = self.inner.lock();
+      if !s.attached || s.software {
+        return;
+      }
+      s.painted = None;
+      if s.error == Some(CanvasError::RendererLost) {
+        s.error = None;
+      }
+      // What was on its way to the lost renderer is not waited for, as when the canvas is of another size.
+      s.presentation_pixels = None;
+      s.next_artwork_pixels = None;
+      s.presentation = None;
+      s.presentation_refused = false;
+      s.presentation_serial = s.presentation_serial.saturating_add(1);
+      s.pending_paint = true;
+      let observers: Vec<_> = s.observers.iter().filter_map(Weak::upgrade).collect();
+      (s.metrics, observers)
+    };
+    for observer in observers {
+      observer(metrics);
     }
   }
   pub(crate) fn dirty(&self) -> bool {

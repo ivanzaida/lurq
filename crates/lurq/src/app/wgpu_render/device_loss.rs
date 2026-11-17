@@ -7,9 +7,11 @@
 //! of its own.
 //!
 //! Direct3D 12 has one device for a card in a program, whatever asks for it: the engines of all the windows
-//! lose it together, and the card gives no other while anything holds the lost one. So after a loss a device
-//! that is not given is asked for again later ([`happened`]) and ends nothing, as it does where the program
-//! starts on a machine with no card that can draw.
+//! lose it together. Direct3D says that the card gives no other while anything holds the lost one; a card
+//! this was run on gave one all the same. Both are taken: a tree lets go of the lost engines of all its
+//! windows before another device is asked for, and after a loss a device that is not given is asked for
+//! again later ([`happened`]) and ends nothing, as it does where the program starts on a machine with no
+//! card that can draw.
 
 use std::sync::{
   Arc,
@@ -140,5 +142,77 @@ mod tests {
     let _view = texture.create_view(&Default::default());
     queue.submit([device.create_command_encoder(&Default::default()).finish()]);
     let _ = device.poll(wgpu::PollType::Poll);
+  }
+
+  /// Run by itself, as the test above: it removes the card's device.
+  #[test]
+  #[ignore = "removes the card's device from the whole test program: run alone, with --ignored"]
+  fn a_device_made_ahead_is_made_again_for_all_that_share_it() {
+    let Ok(given) = pollster::block_on(super::super::WgpuDevice::request_with(wgpu::Backends::DX12)) else {
+      eprintln!("skipped: no card with Direct3D 12 here");
+      return;
+    };
+    let shared = given.clone();
+    let first = given.current().expect("the device that was asked for");
+    assert!(!super::is_lost(&first.device, &first.lost));
+    // SAFETY: the device of this test's own is removed, as a card that is reset removes it.
+    unsafe {
+      first
+        .device
+        .as_hal::<wgpu::hal::api::Dx12>()
+        .expect("a device of Direct3D 12")
+        .raw_device()
+        .cast::<ID3D12Device5>()
+        .expect("a device that can be removed")
+        .RemoveDevice();
+    }
+    assert!(super::is_lost(&first.device, &first.lost));
+    // Asked for while the lost one is held still: Direct3D says the card gives none then, and this one may
+    // give one all the same. Nothing ends, and what is given is not the lost one.
+    if let Some(held) = shared.current() {
+      assert!(!super::is_lost(&held.device, &held.lost));
+    }
+    drop(first);
+    // Let go of, another is made, once: what shares the device has the same one.
+    let again = shared
+      .current()
+      .expect("another device, once the lost one is let go of");
+    assert!(!super::is_lost(&again.device, &again.lost));
+    let same = given.current().expect("the device, for what shares it");
+    assert!(
+      std::sync::Arc::ptr_eq(&again.lost, &same.lost),
+      "one device for all that share it"
+    );
+    // And it draws: a texture is made and written.
+    let texture = again.device.create_texture(&wgpu::TextureDescriptor {
+      label: None,
+      size: wgpu::Extent3d {
+        width: 4,
+        height: 4,
+        depth_or_array_layers: 1,
+      },
+      mip_level_count: 1,
+      sample_count: 1,
+      dimension: wgpu::TextureDimension::D2,
+      format: wgpu::TextureFormat::Rgba8Unorm,
+      usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+      view_formats: &[],
+    });
+    again.queue.write_texture(
+      texture.as_image_copy(),
+      &[7_u8; 64],
+      wgpu::TexelCopyBufferLayout {
+        offset: 0,
+        bytes_per_row: Some(16),
+        rows_per_image: None,
+      },
+      texture.size(),
+    );
+    again.queue.submit([]);
+    again
+      .device
+      .poll(wgpu::PollType::wait_indefinitely())
+      .expect("the card answers");
+    assert!(!super::is_lost(&again.device, &again.lost));
   }
 }

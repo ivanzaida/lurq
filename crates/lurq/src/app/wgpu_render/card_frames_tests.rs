@@ -51,6 +51,9 @@ use crate::{
   resources::{Loader, Source},
 };
 
+/// The tests of a media on the card run one at a time: which card draws is said once for the whole program.
+static ON_THE_CARD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 fn clip() -> std::path::PathBuf {
   std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4")
 }
@@ -298,6 +301,7 @@ fn a_frame_decoded_and_drawn_on_the_card_is_the_frame_memory_gives() {
     eprintln!("skipped: this card has no Direct3D 12 device with NV12 textures");
     return;
   };
+  let _alone = ON_THE_CARD.lock();
   // Nothing draws on a card yet: the frame goes through memory, as it always did.
   crate::images::set_card_frames_adapter(None);
   let early = opened();
@@ -1077,4 +1081,87 @@ fn the_frames_of_a_decoder_on_another_card_come_through_memory() {
   assert_eq!(drawn_grays(&soft, &soft_queue, &opened), Some(((123, 123), (45, 45))));
   frames.show(CardFrame::of(0).ready_at(ready + 1));
   assert!(other_returned.load(Ordering::SeqCst));
+}
+
+/// Waits until `is` holds, for at most ten seconds; whether it came to hold.
+fn becomes(mut is: impl FnMut() -> bool) -> bool {
+  let started = Instant::now();
+  while started.elapsed() < Duration::from_secs(10) {
+    if is() {
+      return true;
+    }
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  false
+}
+
+#[test]
+fn a_media_whose_card_is_reset_is_opened_again_where_it_was() {
+  let Some((device, queue)) = device() else {
+    eprintln!("skipped: this card has no Direct3D 12 device with NV12 textures");
+    return;
+  };
+  let _alone = ON_THE_CARD.lock();
+  card_frames::announce(&device);
+  let media = opened();
+  let first = first_frame(&media, true);
+  let frames_of = |image: &ImageData| {
+    image
+      .native()
+      .and_then(|native| native.payload::<CardFrames>())
+      .expect("the frames of the card")
+      .clone()
+  };
+  let before = frames_of(&first);
+  // Sent on, paused: the frame there is shown.
+  media.seek(5.0);
+  assert!(
+    becomes(|| before.count() >= 2),
+    "the frame it was sent to is never shown"
+  );
+  let there = drawn_from(&device, &queue, &first);
+
+  // The card is reset: the device the media decodes on is removed, which the next frame it shows finds.
+  crate::media::lose_card_for_test();
+  media.seek(5.0);
+  // It is opened again on another device, with other textures, and shows the frame where it was.
+  assert!(
+    becomes(|| {
+      media.frame().is_some_and(|image| {
+        image.native().map(|native| native.backend()) == Some(NativeImageBackend::CardFrames)
+          && !frames_of(&image).same(&before)
+          && frames_of(&image).shown().is_some()
+      })
+    }),
+    "the media is not opened again: {:?}",
+    media.state()
+  );
+  assert_eq!(media.state().error, None);
+  let state = media.state();
+  assert!(
+    (state.position - 5.0).abs() < 0.2 && !state.playing,
+    "it is where it was, paused as it was: {state:?}"
+  );
+  let again = drawn_from(
+    &device,
+    &queue,
+    &media.frame().expect("the image of the media opened again"),
+  );
+  let differ = again.iter().zip(&there).filter(|(now, was)| now != was).count();
+  assert_eq!(
+    (again.len(), differ),
+    (there.len(), 0),
+    "the frame shown after the reset is the frame that was shown before it"
+  );
+  // And it plays on.
+  let shown = frames_of(&media.frame().unwrap());
+  let count = shown.count();
+  media.play();
+  assert!(
+    becomes(|| shown.count() > count + 5),
+    "it does not play after the reset"
+  );
+  media.pause();
+  assert_eq!(media.state().error, None);
+  crate::images::set_card_frames_adapter(None);
 }

@@ -2666,8 +2666,9 @@ impl Tree {
     }
     self.render_engine_replaced = Some(Instant::now());
     // The lost one first: it holds the window's surface, which the next one takes. And those of this tree's
-    // other windows with it, though nothing draws them now: a card gives no device to a program in which
-    // anything holds the one that was lost, and an engine asks for its device when it first draws.
+    // other windows with it, though nothing draws them now: they lost the same device, and Direct3D says a
+    // card gives no other to a program in which anything holds the lost one. An engine asks for its device
+    // when it first draws.
     self.render_engine = None;
     for window in &mut self.secondary_windows {
       window.tree.replace_lost_render_engine();
@@ -2678,6 +2679,15 @@ impl Tree {
       self.viewport_physical.height as u32,
     );
     self.render_engine = Some(engine);
+    // What the canvases held was on the lost device: each is drawn again, by its painter in this pass, which
+    // goes over them as after a resize, and by who observes it.
+    #[cfg(feature = "canvas")]
+    {
+      for canvas in &self.canvas_registry {
+        canvas.content_lost();
+      }
+      self.invalidate_viewport_layout();
+    }
     self.request_redraw();
     self.window.wake();
   }
