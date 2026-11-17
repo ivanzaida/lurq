@@ -281,7 +281,10 @@ impl EventsPage {
           flag("on_mouse_down, on_mouse_up", &self.down_up),
           flag("on_mouse_enter, on_mouse_leave", &self.enter_leave),
           flag("on_mouse_move", &self.moves),
-          flag("hovered, active", &self.states),
+          // Not handlers: the styles of the states the engine keeps for the box, which change how it looks and
+          // tell the Events tab nothing.
+          divider(),
+          flag("hovered(..), active(..) styles", &self.states),
         ],
         changed: [cursor_at != 0, !click, !dblclick, down_up, enter_leave, moves, !states]
           .into_iter()
