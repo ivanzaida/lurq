@@ -12,6 +12,7 @@ use crate::{Gallery, GalleryProps};
 fn measure(route: &str) -> (Duration, Duration, usize) {
   let mut app = App::new();
   let mut tree = Tree::new();
+  crate::pages::engine::prepare(&mut tree);
   tree.resize(1440, 900);
   let started = Instant::now();
   tree.mount_root::<Gallery>(
@@ -56,6 +57,7 @@ fn speed_of_the_longest_pages() {
 fn select_row() -> Option<Duration> {
   let mut app = App::new();
   let mut tree = Tree::new();
+  crate::pages::engine::prepare(&mut tree);
   tree.resize(1440, 900);
   tree.mount_root::<Gallery>(
     &mut app,
