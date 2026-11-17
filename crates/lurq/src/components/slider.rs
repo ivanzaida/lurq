@@ -4,9 +4,42 @@ use crate::{
   node::{SliderOrientation, SliderPartStyle},
 };
 
-impl_into_node!(Slider);
+impl_into_node!(
+  /// The engine's slider: a track, its fill and a thumb bound to a value, dragged, pressed and moved with the keys.
+  /// It is what [`ui::Slider`](crate::ui::Slider) dresses with the design system's recipe, and what an app normally
+  /// wants; with no style of its own this one fills its track and thumb as the recipe the theme keeps for it says
+  /// (`engine_slider`).
+  Slider
+);
+
+/// What the engine's slider node fills its track and its thumb with where its style sets no fill comes from the
+/// theme, through this recipe, by the parts of [`ui::Slider`](crate::ui::Slider): `SliderPart::Track`'s fill and
+/// `SliderPart::Thumb`'s.
+impl crate::ui::Themed for Slider {
+  const NAME: &'static str = "engine_slider";
+  type Renderer = ();
+
+  /// The design's roles for 0.62's look: the track in the border's color, the thumb in the primary color.
+  fn recipe() -> crate::ui::Recipe {
+    use crate::app::theme::PaletteColor::{Border, Primary};
+    fills(Border, Primary)
+  }
+}
+
+fn fills(track: crate::app::theme::PaletteColor, thumb: crate::app::theme::PaletteColor) -> crate::ui::Recipe {
+  use crate::ui::{Recipe, SliderPart};
+  Recipe::new()
+    .base(SliderPart::Track, |s| s.background(track))
+    .base(SliderPart::Thumb, |s| s.background(thumb))
+}
 
 impl Slider {
+  /// 0.62's roles: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the slider node.
+  pub(crate) fn legacy_recipe() -> crate::ui::Recipe {
+    use crate::layout::layout_engine::control_fill::legacy;
+    fills(legacy::TRACK, legacy::THUMB)
+  }
+
   pub fn new(value: Signal<i32>) -> Self {
     Self::from_node(crate::node::Node::slider(value))
   }

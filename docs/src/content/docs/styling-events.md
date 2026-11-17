@@ -1013,10 +1013,12 @@ let volume = ctx.signal(50);
 let name = ctx.signal(String::new());
 
 Column::new()
-  .child(lurq::components::Checkbox::new(checked.clone()))
+  .child(lurq::ui::Checkbox::new("Subscribe").bind(checked.clone()))
   .child(lurq::components::Slider::new(volume.clone()).range(0, 100))
   .child(lurq::components::TextInput::new(name.clone()).placeholder("Name"))
 ```
+
+These are the engine's controls, with no look but the theme's roles; the design system's (`lurq::ui::Slider`, `lurq::ui::Input`, see [Design System](../design-system/)) are built on them and are what an app normally wants.
 
 Input updates write back to their signals, which rerenders the owning component.
 
@@ -1036,9 +1038,11 @@ TextInput::new(command.clone())
 
 ### Checkbox Styling
 
+This is the engine's checkbox node, `lurq::components::Checkbox`, which is deprecated for an app since 0.63 in favour of `lurq::ui::Checkbox`, themed by its recipe: see [the migration guide](../migration-v0-63/#components-that-moved-to-lurqui). It still compiles, with a warning.
+
 Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click), checked or not; it changes paint only.
 
-A checkbox the app has not styled takes its fill from the theme: the box is `SurfaceInput` and the checked box `Accent`. A part the app styles without a fill paints none, like a button or text input without a background: `.box_part(...)` without `background` leaves the unchecked box unfilled, and `.checked_box(...)` without one the checked box (its border and indicator still paint). A checked box whose `checked_box` part the app did not set keeps the unchecked part's fill, or the theme's `Accent`. Generic `.background()` still fills the unchecked box.
+A checkbox the app has not styled takes its fill from the theme, through the recipe the theme keeps for the engine's checkbox (`engine_checkbox`, by `ui::CheckboxPart::Box` and `ui::CheckboxState::Checked`): the box is `Background` and the checked box `Primary`, and under `ThemeDefinition::legacy()` the roles of 0.62, `SurfaceInput` and `Accent`. A part the app styles without a fill paints none, like a button or text input without a background: `.box_part(...)` without `background` leaves the unchecked box unfilled, and `.checked_box(...)` without one the checked box (its border and indicator still paint). A checked box whose `checked_box` part the app did not set keeps the unchecked part's fill, or the theme's checked fill. Generic `.background()` still fills the unchecked box.
 
 ```rust
 use lurq::{components::Checkbox, core::Signal, node::color::Color};
@@ -1262,7 +1266,7 @@ TextInput::new(draft.clone())
 
 `Slider::new` uses `Signal<i32>`. Pointer input maps the track position into the range, and the default keyboard step is `1`. Use `Slider::new_f32` with `Signal<f32>` and `.range_f32(min, max)` for fractional values; `.step(value)` controls snapping and keyboard increments.
 
-An unstyled slider takes its fills from the theme: the track `Border`, the thumb `Accent` (generic `.background()` fills the track). A `.track(...)` or `.thumb(...)` part without a `background` paints no fill for that part.
+An unstyled slider takes its fills from the theme, through the recipe the theme keeps for the engine's slider (`engine_slider`, by `ui::SliderPart::Track` and `Thumb`): the track `Border`, the thumb `Primary`, and under `ThemeDefinition::legacy()` the thumb in 0.62's `Accent` (generic `.background()` fills the track). `theme.ui.patch::<Slider>(..)` restyles every unstyled slider. A `.track(...)` or `.thumb(...)` part without a `background` paints no fill for that part.
 
 ```rust
 let gain = lurq::core::Signal::new(0.5_f32);
@@ -1453,7 +1457,10 @@ The highlighted option scrolls into view, and opening scrolls the selected optio
 
 A select is identified across re-renders by the signal it binds, like a `TextInput`: its open menu, keyboard highlight and focus stay with it when siblings are inserted, removed or reordered, and never pass to another select. Create the signal once (in `create` or as a field), not per render; a new signal each render is a new select, so its menu closes on every re-render. The highlight survives a re-render only while its row shows the same enabled option; when options are replaced it is cleared, so `Enter` closes without a change.
 
-`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles:
+`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles.
+
+`SelectStyle::new()` takes its colors from the theme, through the recipe the theme keeps for the engine's select (`engine_select`, by the parts and states of `ui::Select`: `SelectPart::Trigger`, `Panel`, `Item`, `Detail`, `Hint`, `Group`, `Separator`, and `SelectState::Open` and `Selected`). The design's is the trigger on `Background` in an edge of `Border`, `Ring` under the pointer, focused and open; the menu on `Card`; an option on `Canvas` under the pointer and on `Primary` while chosen; what is muted in `MutedForeground`. `ThemeDefinition::legacy()` gives the roles of 0.62. A theme restyles every engine select with `theme.ui.patch::<SelectStyle>(..)`; the design system's `ui::Select` has its own recipe. A style written out:
+
 
 ```rust
 use lurq::{
@@ -1506,7 +1513,7 @@ SelectStyle::new()
 - The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
 - Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown before the label, or in a multi-select, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift; a single-select's trailing checkmark takes its room on the selected row only, so the other rows' labels and trailing elements run to the row's end. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
 - `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection, and a single-select's selected option's `leading` and `trailing` elements.
-- The trigger's fill is its part's `background`: the theme's `SurfaceInput` in the default `SelectStyle`. A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
+- The trigger's fill is its part's `background`: the theme's `Background` in the default `SelectStyle` (`SurfaceInput` under `ThemeDefinition::legacy()`). A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
 
 ## Programmatic Interaction
 

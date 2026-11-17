@@ -1,6 +1,7 @@
 //! Run with `cargo run -p demo --bin lifecycle --features mcp`.
 use std::sync::{Arc, Mutex};
 
+#[allow(deprecated)]
 use lurq::{
   app::{
     Accelerator, App, ApplicationMenu, CloseRequest, Menu, MenuAction, MenuBar, Tree, component::Component, ctx::Ctx,
@@ -92,6 +93,7 @@ impl Component for Lifecycle {
       pending,
     }
   }
+  #[allow(deprecated)]
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let window = ctx.window();
     let drawn_close = window.clone();

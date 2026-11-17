@@ -58,7 +58,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   type is an engine primitive (stays, its doc names the `ui` component an app wants), a styled duplicate (deprecated
   in favour of `ui::X`, as `components::Image` is for `ui::Picture`), or styled with hard-coded colors (`new()` /
   `dark()` become recipes). Each break in `migration-v0-63.md`.
-- **State.** In work on `claude/legacy-form` and `claude/legacy-styled`.
+- **State.** The old styled components: built (`claude/legacy-styled`, merged 2026-11-17: `Checkbox` and `ActivityIndicator` deprecated for `ui::Checkbox` and `ui::Spinner`; the phone pieces, `SelectStyle`, the stack's shades and the unstyled checkbox and slider nodes on recipes, the legacy theme keeping 0.62's look). The phone pieces as real `ui` components (Tab Bar, App Bar, Large Title, Bottom Sheet, Swipe Row, Pull To Refresh, as the board draws them) are not built. The form controls: in work on `claude/legacy-form`.
 
 ### Words lurq writes are in the locale
 

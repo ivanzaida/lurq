@@ -23,6 +23,9 @@ const RESIZE_HANDLE_SIZE: f32 = 3.0;
 const TITLEBAR_DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const TITLEBAR_DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 
+/// The engine's custom frame of a window: its title bar, the edges it is resized by and what the platform does
+/// with them. It is drawn in the theme's roles. [`ui::WindowChrome`](crate::ui::WindowChrome) mounts it with the
+/// design system's title bar, and is what an app normally wants.
 #[derive(Clone)]
 pub struct WindowChrome {
   props: WindowChromeProps,

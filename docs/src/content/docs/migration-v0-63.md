@@ -20,6 +20,8 @@ The palette roles of 0.62 still compile. Each gives a deprecation warning that n
 
 `lurq::components::Image` and the Cargo feature `resources` still compile too, the first with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
 
+The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appearance(..)` of the phone's sheet, tab bar, navigation bar and pull to refresh, still compile, each with a warning that names what to write: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
+
 **What changes with no build error**
 
 - The look: the palette, a dark look on a system that is dark, body text of 14, radii, shadows, the scroll bar, the color a window is cleared to. See [The Theme And Palette](#the-theme-and-palette).
@@ -27,6 +29,7 @@ The palette roles of 0.62 still compile. Each gives a deprecation warning that n
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
 - A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
+- The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
 
@@ -141,7 +144,7 @@ What to know while both sets exist:
 
 - **Two roles became one.** `TextSecondary` and `TextMuted` are both `MutedForeground`, and `SurfaceBase` and `SurfaceInput` are both `Background`. An app that gave the two different colors keeps a name of its own for one of them: `PaletteColor::extra("text-secondary")`.
 - **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.62.
-- **Setting a role sets the deprecated roles it replaces.** `Select`, the form controls, and a checkbox or a slider with no style of its own still read the deprecated roles, and follow a theme set through the new ones this way.
+- **Setting a role sets the deprecated roles it replaces.** The form controls still read the deprecated roles, and follow a theme set through the new ones this way. The engine's `Select`, and a checkbox or a slider node with no style of its own, read the new roles through their recipes, and the deprecated ones only under `ThemeDefinition::legacy()`: see [The Engine's Select Takes Its Colors From A Recipe](#the-engines-select-takes-its-colors-from-a-recipe).
 - **Setting a deprecated role sets only that role.** An app that sets `Accent` and uses a role's replacement elsewhere sets `Primary`.
 
 ### A Color Set Once
@@ -550,6 +553,102 @@ What is different:
 - **The fit is `Cover` unless told**, where `Image` stretched. `fit(PictureFit::Fill)` is the old default.
 - **`placeholder(element)` and `error_view(..)` are the picture's own**: the skeleton's sheen, or `PicturePlaceholder::Blur(..)`, and a line that says it did not load with a button that asks again. `on_load` and `on_error` tell the app.
 - **A resource and an address are read by `app.loader()`**, with a time limit, a size limit and the addresses it allows, where `Image::from_resource` polled the old `ResourceLoader`.
+
+## Components That Moved To `lurq::ui`
+
+The design system's components (`lurq::ui`, see [Design System](../design-system/)) are what an app builds with. What the engine has under them stays in `lurq::components`: the layout (`Column`, `Row`, `Stack`, `Grid`, `Scroll*`, `VirtualizedList`), `Text`, `Canvas`, `Svg`, drag and drop, the router's outlets, and the unstyled `Button`, `TextInput`, `Link`, `Popup`, `Select` and `Slider` the design system builds on. The engine's own styled components either moved to `lurq::ui`, where the design system has them, or take their colors from the theme.
+
+### `components::Checkbox` Is `ui::Checkbox`
+
+`lurq::components::Checkbox` is deprecated: it compiles, with a warning that names `lurq::ui::Checkbox`. The design's checkbox draws its label, has an indeterminate state and an invalid one, and is themed by its recipe, where the engine's took a `CheckboxStyle` for each state.
+
+```rust
+// 0.62
+Row::new()
+  .child(Checkbox::new(remember.clone()).box_style(CheckboxStyle::new().background("#ffffff")))
+  .child(Text::new("Remember me"))
+// 0.63
+use lurq::ui::{Checkbox, CheckboxPart};
+
+Checkbox::new("Remember me").bind(remember.clone())
+// a box of the app's own color, for this one; `theme.ui.patch::<Checkbox>(..)` for every one
+Checkbox::new("Remember me")
+  .bind(remember.clone())
+  .style(CheckboxPart::Box, |s| s.background(Color::from_hex("#ffffff")))
+```
+
+Not bound to a signal, it is `Checkbox::new(label).checked(value).on_change(|checked| ..)`. A box with no label of its own, beside a row's text, is `.label_hidden(true)`.
+
+### `components::ActivityIndicator` Is `ui::Spinner`
+
+`lurq::components::ActivityIndicator` is deprecated: it compiles, with a warning that names `lurq::ui::Spinner`, the design's spinner, drawn in the color of the text around it.
+
+```rust
+// 0.62
+ActivityIndicator::mount(ctx, ActivityIndicatorProps::new().size(20.0))
+// 0.63
+Spinner::new().size(SpinnerSize::Md).label("Loading")
+```
+
+`PullToRefresh` still draws the platform's spokes over a list, in the theme's colors.
+
+### The Phone's Pieces Are In The Theme's Colors
+
+`SheetStyle`, `SheetHostStyle`, `TabBar`, `NavigationBar`, `PullToRefreshStyle` and `SwipeAction` started from the platform's light colors, and `dark()` (or `for_appearance(..)`) gave the dark ones. In 0.63 `new()` reads the theme where it is made, through a recipe the theme keeps for each, in the design's roles: light or dark as the theme is.
+
+| | 0.62 | 0.63 |
+| --- | --- | --- |
+| `SheetStyle` | white, a grabber of `rgba(60,60,67,0.3)`, black at 0.3 behind | `Background`, a grabber of `Input`, `Scrim` (its own alpha) behind |
+| `TabBar` | translucent white, `#007AFF` for the active tab, `#999999` for the others, a red badge | `Background` over a line of `Border`, `Foreground`, `MutedForeground`, a `Destructive` badge |
+| `NavigationBar` | translucent white, a black title, a `#007aff` way back | `Background` over a line of `Border`, `Foreground` for the title and the way back |
+| `PullToRefreshStyle` | spokes of `rgba(60,60,67,0.6)` | `MutedForeground` |
+| `SwipeAction::new`, `destructive` | white on `#8E8E93`, on `#FF3B30` | `Background` on `MutedForeground`; `DestructiveForeground` on `Destructive` |
+
+`dark()` and `for_appearance(..)` are deprecated: they compile, with a warning, and give 0.62's colors.
+
+```rust
+// 0.62
+let bar = TabBar::for_appearance(ctx.window().system.appearance);
+let sheet = SheetStyle::dark().grabber(true);
+// 0.63: the theme's appearance chooses
+let bar = TabBar::new();
+let sheet = SheetStyle::new().grabber(true);
+```
+
+`ThemeDefinition::legacy()` gives them the light colors of 0.62 back. A field set on a style is that color whatever the theme; to restyle every one, patch its recipe:
+
+```rust
+use lurq::{app::theme::PaletteColor, components::{TabBar, TabBarPart}};
+
+theme.ui.patch::<TabBar>(|rules| rules.base(TabBarPart::SelectedItem, |s| s.foreground(PaletteColor::Primary)));
+```
+
+The parts are `SheetNode`, `SheetHostPart`, `TabBarPart`, `NavigationBarPart`, `PullToRefreshPart` and `SwipeRowPart`: see [Colors from the theme](../ios/#colors-from-the-theme).
+
+### The Engine's Select Takes Its Colors From A Recipe
+
+`SelectStyle::new()` named the roles of 0.61 (`SurfaceInput`, `BorderFocus`, `Accent`, …). It reads its colors from a recipe now, in the design's roles, by the parts and states of `ui::Select`. In the design's palettes the look is the same, since each old role had the color of its replacement there. What changes: an app that colors its select by setting a deprecated role (`set_palette_color(PaletteColor::Accent, ..)`) sets the new one (`Primary`), or patches the recipe:
+
+```rust
+use lurq::{app::theme::PaletteColor, node::SelectStyle, ui::SelectPart};
+
+theme.ui.patch::<SelectStyle>(|rules| rules.base(SelectPart::Trigger, |s| s.background(PaletteColor::Muted)));
+```
+
+Under `ThemeDefinition::legacy()` it names the roles of 0.61 as before. The design system's `ui::Select` is drawn by its own recipe and is what an app normally wants.
+
+The checkbox and the slider nodes are the same: where the app gives no fill, the box is `Background` (checked `Primary`), the track `Border` and the thumb `Primary`, through the recipes `engine_checkbox` and `engine_slider` (`theme.ui.patch::<Slider>(|rules| rules.base(SliderPart::Thumb, ..))`). They were `SurfaceInput`, `Accent`, `Border` and `Accent`, which `ThemeDefinition::legacy()` keeps.
+
+### A Stack's Shades Are The Scrim
+
+The shade over the screen under one that slides in or out, and the one behind the list of screens a long press on the way back opens, were black, at the move's `dim` and at a fifth. They are the theme's `Scrim`, which carries its own alpha (0.4 light, 0.6 dark): the shade under a moving screen at the move's `dim` times that, the one behind the list all of it. `ThemeDefinition::legacy()` keeps 0.62's black. The recipe is `phone_stack`, its parts `StackPart::Shade` and `MenuShade`:
+
+```rust
+use lurq::{components::{StackMotion, StackPart}, node::color::Color};
+
+// 0.62's shade under a moving screen on any theme
+theme.ui.patch::<StackMotion>(|rules| rules.base(StackPart::Shade, |s| s.background(Color::from_hex("#000000"))));
+```
 
 ## DevTools
 

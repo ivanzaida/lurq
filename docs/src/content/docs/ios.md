@@ -235,10 +235,10 @@ PullToRefresh::mount(
 - Around a stack screen's list the state is `StackOutlet::screen_scroll(ctx)`, and `.top(StackOutlet::bar_inset(ctx))`
   puts the spinner under the navigation bar.
 - `PullToRefreshStyle`: `threshold` (100), how far the list is pulled before it asks; `hold` (60), how far
-  down it stays meanwhile; `spinner_size`, `spinner_color`, `duration` and `haptic`. `dark()` has the dark
-  spinner.
-- `ActivityIndicator` is the spinner by itself: `ActivityIndicator::mount(ctx, ActivityIndicatorProps::new())`.
-  It draws frames only while it goes round.
+  down it stays meanwhile; `spinner_size`, `spinner_color`, `duration` and `haptic`. The spinner's color is the
+  theme's `MutedForeground`, light or dark as the theme is (see [Colors from the theme](#colors-from-the-theme)).
+- A spinner by itself is `lurq::ui::Spinner`. The platform's spokes, `ActivityIndicator`, are deprecated for an
+  app since 0.63; the pull to refresh still draws them.
 
 ### Swipe actions
 
@@ -267,6 +267,34 @@ SwipeRow::mount_keyed(
 - `SwipeRowProps::open(signal)` says which side is open (-1 trailing, 0, 1 leading), for a list that closes
   the other rows when one opens.
 - The content paints its own background: the actions are behind it.
+- An action is in the theme's colors: `SwipeAction::new` on `MutedForeground` with the `Background`'s ink,
+  `SwipeAction::destructive` in `Destructive` and `DestructiveForeground`. `background` and `color` set others.
+
+### Colors from the theme
+
+The sheet, the tab bar, the navigation bar, the pull to refresh and the swipe row take their colors from the
+theme, where their styles are made: `SheetStyle::new()`, `TabBar::new()`, `NavigationBar::new()`,
+`PullToRefreshStyle::new()` and `SwipeAction::new(..)` read the recipe the theme keeps for each (`phone_sheet`,
+`phone_tab_bar`, `phone_navigation_bar`, `phone_pull_to_refresh`, `phone_swipe_row`), which names the design's
+roles. Built in a dark theme they are dark: there is no `dark()` to choose any more (it is deprecated, with the
+colors of 0.62). `ThemeDefinition::legacy()` gives them the colors they had in 0.62. A field set on a style is
+that color whatever the theme; a theme restyles every one of them with a patch:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, ThemeDefinition},
+  components::{TabBar, TabBarPart},
+};
+
+let mut theme = ThemeDefinition::neutral();
+// The active tab in the brand's color, in every tab bar of the app.
+theme.ui.patch::<TabBar>(|rules| rules.base(TabBarPart::SelectedItem, |s| s.foreground(PaletteColor::Primary)));
+```
+
+The parts are `SheetNode` (`Panel`, `Grabber`, `Backdrop`, whose opacity is the sheet's `dim`), `SheetHostPart`,
+`TabBarPart`, `NavigationBarPart`, `PullToRefreshPart` and `SwipeRowPart`. The board draws design-system
+components for a phone (a tab bar, an app bar, a bottom sheet, a swipe row, a pull to refresh) that `lurq::ui`
+does not have yet; these are the engine's, in the board's roles.
 
 ## Text inputs
 

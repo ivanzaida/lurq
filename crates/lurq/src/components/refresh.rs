@@ -1,6 +1,7 @@
 //! Pulling a list down to load it anew, and the spinner that says something is being waited for.
 //!
-//! [`ActivityIndicator`] is the platform's spinner: spokes around a centre that light one after another.
+//! [`ActivityIndicator`] is the platform's spinner: spokes around a centre that light one after another. It is
+//! deprecated for an app, which wants [`ui::Spinner`](crate::ui::Spinner); the pull to refresh still draws it.
 //! [`PullToRefresh`] goes around a list: pulled down past its top far enough, the list asks for a refresh and
 //! stays down, with the spinner over it, until the app says the refresh is done.
 
@@ -23,6 +24,7 @@ use crate::{
   core::Signal,
   layout::layout_kind::{Justify, ScrollState},
   node::{Element, color::Color, dimension::Dimension, transform::Transform2D},
+  ui::{Recipe, Themed, engine_look::EngineLook, names},
 };
 
 const FILL: Dimension = Dimension::Pct(100.0);
@@ -44,10 +46,11 @@ pub struct ActivityIndicatorProps {
 }
 
 impl Default for ActivityIndicatorProps {
+  /// The spinner in the color the theme gives a pull to refresh's ([`PullToRefreshStyle`]).
   fn default() -> Self {
     Self {
       size: 20.0,
-      color: Color::new(60, 60, 67, 153),
+      color: spinner_color(),
       animating: true,
       shown: 1.0,
     }
@@ -80,19 +83,26 @@ impl crate::app::component::DevtoolsInspectable for ActivityIndicatorProps {
   fn write_info(&self, _buffer: &mut Vec<crate::app::component::ComponentInfo>) {}
 }
 
-/// The platform's spinner.
+/// The platform's spinner, as 0.62 drew it.
+#[deprecated(
+  since = "0.63.0",
+  note = "use `lurq::ui::Spinner`: the design's spinner, in the color of the text around it, with a size and a label"
+)]
 pub struct ActivityIndicator {
   step: Signal<usize>,
   turns: Interval,
   turning: AtomicBool,
 }
 
+// The pull to refresh draws it, and it is still there for an app that names it.
+#[allow(deprecated)]
 impl ActivityIndicator {
   pub fn mount(ctx: &mut Ctx, props: ActivityIndicatorProps) -> Element {
     ctx.mount::<Self>(props)
   }
 }
 
+#[allow(deprecated)]
 impl Component for ActivityIndicator {
   type Props = ActivityIndicatorProps;
 
@@ -157,7 +167,9 @@ impl Component for ActivityIndicator {
   }
 }
 
-/// How a [`PullToRefresh`] looks and when it asks.
+/// How a [`PullToRefresh`] looks and when it asks. The spinner's color comes from the theme, through the recipe
+/// it keeps under the name `phone_pull_to_refresh` ([`PullToRefreshPart`]): the design's role, light or dark as
+/// the theme is, and the color of 0.62 in [`ThemeDefinition::legacy`](crate::app::theme::ThemeDefinition::legacy).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PullToRefreshStyle {
   /// How far the list is pulled down past its top before it asks for a refresh.
@@ -172,13 +184,43 @@ pub struct PullToRefreshStyle {
   pub haptic: bool,
 }
 
+/// The parts of the recipe of [`PullToRefreshStyle`]'s colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PullToRefreshPart {
+  /// The spinner over the list: its foreground is the color of its spokes.
+  Spinner,
+}
+
+names!(PullToRefreshPart { Spinner => "spinner" });
+
+/// The spokes' color of 0.62: what the legacy theme gives, and what a theme with no recipe keeps.
+const LEGACY_SPINNER: Color = Color::new(60, 60, 67, 153);
+
+/// The color of the spinner over a list, in the theme of what is being built.
+fn spinner_color() -> Color {
+  EngineLook::of::<PullToRefreshStyle>(&[]).foreground(PullToRefreshPart::Spinner, LEGACY_SPINNER)
+}
+
+impl Themed for PullToRefreshStyle {
+  const NAME: &'static str = "phone_pull_to_refresh";
+  type Renderer = ();
+
+  /// The design's (`pencil/lurq-design-system.pen`, Mobile/Pull To Refresh): what says the list is being loaded
+  /// is in the muted foreground.
+  fn recipe() -> Recipe {
+    Recipe::new().base(PullToRefreshPart::Spinner, |s| {
+      s.foreground(crate::app::theme::PaletteColor::MutedForeground)
+    })
+  }
+}
+
 impl Default for PullToRefreshStyle {
   fn default() -> Self {
     Self {
       threshold: 100.0,
       hold: 60.0,
       spinner_size: 22.0,
-      spinner_color: Color::new(60, 60, 67, 153),
+      spinner_color: spinner_color(),
       duration: Duration::from_millis(300),
       haptic: true,
     }
@@ -186,11 +228,21 @@ impl Default for PullToRefreshStyle {
 }
 
 impl PullToRefreshStyle {
+  /// The pull to refresh in the colors of the theme of what is being built.
   pub fn new() -> Self {
     Self::default()
   }
 
-  /// The platform's dark spinner.
+  /// 0.62's color: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the pull to refresh.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Recipe::new().base(PullToRefreshPart::Spinner, |s| s.foreground(LEGACY_SPINNER))
+  }
+
+  /// The platform's dark spinner of 0.62.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the dark color: `PullToRefreshStyle::new()` built in a dark theme is dark"
+  )]
   pub fn dark() -> Self {
     Self {
       spinner_color: Color::new(235, 235, 245, 153),
@@ -259,7 +311,8 @@ impl PullToRefreshProps {
   }
 }
 
-/// A list that is pulled down to load it anew.
+/// A list that is pulled down to load it anew: the phone's. The board draws a design system's one (Mobile/Pull To
+/// Refresh) that `lurq::ui` does not have yet; this one takes the theme's colors through [`PullToRefreshStyle`].
 pub struct PullToRefresh {
   /// How far the list is pulled down past its top.
   pull: Signal<f32>,
@@ -310,6 +363,7 @@ impl Component for PullToRefresh {
     for child in ctx.children() {
       list = list.child(child.clone());
     }
+    #[allow(deprecated)]
     let spinner = ActivityIndicator::mount(
       ctx,
       ActivityIndicatorProps {
