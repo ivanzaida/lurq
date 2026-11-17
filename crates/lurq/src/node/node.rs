@@ -11,9 +11,9 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{
-      CopyEvent, DragEvent, DropEvent, EdgePanEvent, EditEvent, FileDragEvent, FileDropEvent, HistorySwipeEvent,
-      KeyboardEvent, LongPressEvent, MouseButton, MouseButtonMask, MouseEvent, PanEvent, PasteEvent, PinchEvent,
-      RotateEvent, ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
+      CopyEvent, DragEvent, DropEvent, EdgePanEvent, EditEvent, FileDragEvent, FileDropEvent, HistoryEvent,
+      HistoryMover, HistorySwipeEvent, KeyboardEvent, LongPressEvent, MouseButton, MouseButtonMask, MouseEvent,
+      PanEvent, PasteEvent, PinchEvent, RotateEvent, ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
     },
     theme::{CaretMode, TypographyStyle},
   },
@@ -194,6 +194,25 @@ where
   F: Fn(FileDropEvent) + Send + Sync + 'static,
 {
   fn into_event_handler(self) -> EventHandler<FileDropEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoHistoryEventHandler {
+  fn into_event_handler(self) -> EventHandler<HistoryEvent>;
+}
+
+impl IntoHistoryEventHandler for EventHandler<HistoryEvent> {
+  fn into_event_handler(self) -> EventHandler<HistoryEvent> {
+    self
+  }
+}
+
+impl<F> IntoHistoryEventHandler for F
+where
+  F: Fn(HistoryEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<HistoryEvent> {
     EventHandler::from_event(self)
   }
 }
@@ -735,6 +754,10 @@ pub(crate) trait NodeUpdate {
   fn off_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler);
   fn on_history_swipe(&mut self, f: impl IntoHistorySwipeEventHandler);
   fn off_history_swipe(&mut self, f: impl IntoHistorySwipeEventHandler);
+  fn on_history_back(&mut self, f: impl IntoHistoryEventHandler);
+  fn off_history_back(&mut self, f: impl IntoHistoryEventHandler);
+  fn on_history_forward(&mut self, f: impl IntoHistoryEventHandler);
+  fn off_history_forward(&mut self, f: impl IntoHistoryEventHandler);
   fn on_touch_start(&mut self, f: impl IntoTouchEventHandler);
   fn off_touch_start(&mut self, f: impl IntoTouchEventHandler);
   fn on_touch_move(&mut self, f: impl IntoTouchEventHandler);
@@ -1009,6 +1032,12 @@ pub struct EventHandlers {
   pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_bottom: Vec<Callback<ScrollEvent>>,
   pub on_history_swipe: Vec<Callback<HistorySwipeEvent>>,
+  /// Going back on the focused element or one in it, or under the pointer: see `Node::on_history_back`.
+  pub on_history_back: Vec<Callback<HistoryEvent>>,
+  /// Going forward: see `Node::on_history_forward`.
+  pub on_history_forward: Vec<Callback<HistoryEvent>>,
+  /// The router mounted in the node, which goes back or forward where its handlers did not.
+  pub(crate) history_mover: Option<HistoryMover>,
   pub on_touch_start: Vec<Callback<TouchEvent>>,
   pub on_touch_move: Vec<Callback<TouchEvent>>,
   pub on_touch_end: Vec<Callback<TouchEvent>>,
@@ -2257,6 +2286,30 @@ impl NodeUpdate for Node {
     self
       .events
       .on_history_swipe
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_history_back(&mut self, f: impl IntoHistoryEventHandler) {
+    self.events.on_history_back.push(f.into_event_handler());
+  }
+
+  fn off_history_back(&mut self, f: impl IntoHistoryEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_history_back
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_history_forward(&mut self, f: impl IntoHistoryEventHandler) {
+    self.events.on_history_forward.push(f.into_event_handler());
+  }
+
+  fn off_history_forward(&mut self, f: impl IntoHistoryEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_history_forward
       .retain(|existing| !existing.same_handler(&handler));
   }
 
@@ -4089,7 +4142,8 @@ impl Node {
     self
   }
 
-  /// A trackpad swipe between pages ended over this element; see [`HistorySwipeEvent`].
+  /// A swipe between pages ended over this element: a trackpad's, or a finger's from the edge; see
+  /// [`HistorySwipeEvent`]. Its default is going back or forward, as `on_history_back` hears it.
   pub fn on_history_swipe(mut self, f: impl IntoHistorySwipeEventHandler) -> Self {
     NodeUpdate::on_history_swipe(&mut self, f);
     self
@@ -4097,6 +4151,39 @@ impl Node {
 
   pub fn off_history_swipe(mut self, f: impl IntoHistorySwipeEventHandler) -> Self {
     NodeUpdate::off_history_swipe(&mut self, f);
+    self
+  }
+
+  /// Going back on this element focused, or on one in it, or under the pointer: Alt+← (Cmd+[ on a Mac), the mouse's
+  /// back button, a swipe, Android's back, a browser's back, `Ctx::history_back`. The handler goes back from what is
+  /// its own (a dialog closes); one with nothing to do calls `event.pass_on()`, and the command goes on out to the
+  /// elements around and the router; see [`HistoryEvent`].
+  pub fn on_history_back(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::on_history_back(&mut self, f);
+    self
+  }
+
+  pub fn off_history_back(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::off_history_back(&mut self, f);
+    self
+  }
+
+  /// Going forward, as [`on_history_back`](Self::on_history_back) goes back: Alt+→ (Cmd+] on a Mac), the mouse's
+  /// forward button, a swipe, a browser's forward, `Ctx::history_forward`.
+  pub fn on_history_forward(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::on_history_forward(&mut self, f);
+    self
+  }
+
+  pub fn off_history_forward(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::off_history_forward(&mut self, f);
+    self
+  }
+
+  /// Mounts the router `mover` in this node: it goes back or forward where the node's handlers did not.
+  #[cfg_attr(not(feature = "router"), allow(dead_code))]
+  pub(crate) fn history_mover(mut self, mover: HistoryMover) -> Self {
+    self.events.history_mover = Some(mover);
     self
   }
 

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{EditCommand, EventControl};
+use super::{EditCommand, EventControl, NavigationCommand};
 use crate::core::NodeId;
 
 #[derive(Clone)]
@@ -80,6 +80,19 @@ impl KeyboardEvent {
   /// `on_redo`, `on_select_all`, `on_copy`, `on_paste`), and a component never matches them itself.
   pub fn edit_command(&self) -> Option<EditCommand> {
     EditCommand::of_key(self)
+  }
+
+  /// Going back or forward, if the key is one, on the platform lurq is built for: Alt+← is
+  /// [`NavigationCommand::Back`] and Alt+→ [`NavigationCommand::Forward`], or Cmd+[ and Cmd+] on Apple's platforms,
+  /// where Option and an arrow move the caret by a word. A bracket is read as the key says it, and by the key's place
+  /// where it says a letter of another alphabet. A keyboard's own Back and Forward keys, and Android's back, are the
+  /// commands on every platform.
+  ///
+  /// This is the one place lurq knows these keys: lurq runs the command on what has the focus (`on_history_back`,
+  /// `on_history_forward`, then the router), and a component never matches them itself. A text input does not take
+  /// Alt and an arrow on Windows and Linux (its word moves are Ctrl's), so they go back in it too, as in a browser.
+  pub fn navigation_command(&self) -> Option<NavigationCommand> {
+    NavigationCommand::of_key(self)
   }
 
   pub fn prevent_default(&self) {

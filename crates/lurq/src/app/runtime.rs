@@ -85,6 +85,7 @@ mod hover_devtools_tests;
 mod ime;
 #[cfg(all(test, feature = "screenshot", feature = "raster"))]
 mod lost_engine_tests;
+mod navigation;
 pub use ime::{AutofillPeer, KeyboardTraits, TextInputGeometry, TextInputSnapshot};
 mod edit;
 pub(crate) mod finger;
@@ -2885,6 +2886,7 @@ impl Tree {
     self.set_app_ref(app);
     self.write_requested_copies();
     self.run_requested_edits();
+    self.run_requested_navigations();
     let pass_started_at = Instant::now();
     {
       crate::app::profile_support::frame_section!("setup:scheduled_redraw");
@@ -4277,6 +4279,19 @@ impl Tree {
     }
     self.dispatch_mouse(x, y, button, MouseEventKind::Up, modifiers);
     self.synthesize_click(x, y, button, modifiers);
+    // The mouse's side buttons go back and forward on their release, from what is under the pointer. In a browser
+    // they are the browser's, and its move comes back as the command through the router that follows the address.
+    if let Some(command) = crate::app::events::NavigationCommand::of_button(button)
+      && !cfg!(target_arch = "wasm32")
+    {
+      let scale = self.scale_factor();
+      self.dispatch_navigation(
+        command,
+        crate::app::events::NavigationSource::Mouse,
+        &crate::app::window::NavigationOrigin::Point(x / scale, y / scale),
+      );
+      self.apply_reactive_updates_after_event();
+    }
   }
 
   /// Ends a press the OS took over, for example to run a native window move or resize loop.
@@ -4515,8 +4530,18 @@ impl Tree {
       // A command of editing first (undo, redo, cut, copy, paste, select all), on the focused element and out from
       // it (`runtime/edit.rs`): a key that is one is no other key, whether or not something took it.
       let edit = evt.edit_command();
+      // Then going back or forward (`runtime/navigation.rs`), from the focused element: Alt+← in a text input too,
+      // which moves by a word with Ctrl. A key that is one is no other key either.
+      let navigation = edit.is_none().then(|| evt.navigation_command()).flatten();
       let handled = if let Some(command) = edit {
         self.dispatch_edit(command, Some(&evt), false)
+      } else if let Some(command) = navigation {
+        self.dispatch_navigation(
+          command,
+          crate::app::events::NavigationSource::Key,
+          &crate::app::window::NavigationOrigin::Focus,
+        );
+        true
       } else if self.dispatch_select_key(select_key) {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
@@ -4554,7 +4579,7 @@ impl Tree {
 
       if handled || self.dismiss_top_overlay_on_escape(&key, &code) {
         self.needs_redraw = true;
-      } else if edit.is_none() {
+      } else if edit.is_none() && navigation.is_none() {
         let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
         let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
         if blurred_text_input || cleared_text_selection || self.dispatch_text_input(&evt) {
@@ -7317,6 +7342,12 @@ impl Tree {
     // A command an Edit menu's item or a tool asked for runs on what has the focus once the event is done and the
     // focus it moved is where it goes (a menu that closed gave it back), and what it changed is rendered.
     if self.run_requested_edits() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+      self.apply_focus_request();
+    }
+    // Going back or forward, asked for without input (a menu's item, a stack's back button), as an edit is.
+    if self.run_requested_navigations() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       crate::app::profile_support::frame_section!("ul:rebuild");
       self.rebuild_if_dirty();
       self.apply_focus_request();

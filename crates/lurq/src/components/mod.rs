@@ -1070,8 +1070,10 @@ macro_rules! impl_into_node {
         self
       }
 
-      /// A trackpad swipe between pages ended over this element: two fingers moved sideways that nothing under the
-      /// pointer scrolled with. Go back or forward by the event's `direction`, as a browser does.
+      /// A swipe between pages ended over this element: two fingers moved sideways on a trackpad that nothing under
+      /// the pointer scrolled with, or a finger came in from the left or the right edge. Its default is going back or
+      /// forward by the event's `direction` (`on_history_back` hears it); a handler that does something else with the
+      /// swipe calls `prevent_default`. See [`HistorySwipeEvent`]($crate::app::events::HistorySwipeEvent).
       pub fn on_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_history_swipe(node, f));
         self
@@ -1079,6 +1081,35 @@ macro_rules! impl_into_node {
 
       pub fn off_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_history_swipe(node, f));
+        self
+      }
+
+      /// Going back on the focused element, or on one in it, or under the pointer: Alt+← (Cmd+[ on a Mac), the
+      /// mouse's back button, a trackpad's swipe or a finger from the left edge, Android's back, a browser's back, or
+      /// the app's `Ctx::history_back`. The handler goes back from what is its own (a dialog closes, a wizard steps
+      /// back); one that has nothing to do calls `event.pass_on()`, and the command goes on out to the elements
+      /// around, innermost first, and the router mounted there, to the first that takes it. Which keys and buttons
+      /// go back is lurq's to know (`KeyboardEvent::navigation_command`): a component never matches them itself.
+      /// See [`HistoryEvent`]($crate::app::events::HistoryEvent).
+      pub fn on_history_back(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_history_back(node, f));
+        self
+      }
+
+      pub fn off_history_back(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_history_back(node, f));
+        self
+      }
+
+      /// Going forward: Alt+→ (Cmd+] on a Mac), the mouse's forward button, a swipe the other way, a browser's
+      /// forward, `Ctx::history_forward`. As [`on_history_back`](Self::on_history_back).
+      pub fn on_history_forward(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_history_forward(node, f));
+        self
+      }
+
+      pub fn off_history_forward(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_history_forward(node, f));
         self
       }
 

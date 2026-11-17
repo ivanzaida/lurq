@@ -9,6 +9,7 @@ mod pattern {
 
 mod navigation {
   mod back_forward;
+  mod command;
   mod push;
   mod replace;
 }
@@ -63,5 +64,6 @@ mod tabs {
 
 mod stack {
   mod custom_bar;
+  mod history;
   mod screens;
 }

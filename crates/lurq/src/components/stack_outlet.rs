@@ -32,7 +32,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Timeout},
-    events::{EdgePanEvent, GesturePhase, LongPressEvent, ScreenEdge},
+    events::{EdgePanEvent, GesturePhase, LongPressEvent, NavigationCommand, NavigationSource, ScreenEdge},
     window::SafeAreaInsets,
   },
   components::{Column, KeyboardKind, ReturnKey, Row, ScrollVertical, Stack, Text, TextInput, TextOverflow},
@@ -922,7 +922,14 @@ pub struct StackOutlet {
   origin: ElementRef,
   /// The list of the screens under the top one, which a long press on the way back opens.
   menu: BackMenu,
+  /// The top screen as it is laid out: where going back from the way back or a finger from the edge starts, so that
+  /// the screen hears it first (`on_history_back`).
+  screen: ElementRef,
 }
+
+/// Goes back from the stack's top screen, as Alt+← does from the focus: the screen's `on_history_back` first, then
+/// the router ([`NavigationCommand`]).
+type GoBack = Arc<dyn Fn() + Send + Sync>;
 
 impl Component for StackOutlet {
   type Props = StackOutletProps;
@@ -974,6 +981,7 @@ impl Component for StackOutlet {
       begin,
       settle,
       origin: ElementRef::default(),
+      screen: ElementRef::default(),
       menu: BackMenu {
         open: Signal::new(false),
         opened_at: Arc::default(),
@@ -988,6 +996,11 @@ impl Component for StackOutlet {
     let depth = ctx.use_context::<OutletDepth>().unwrap_or(OutletDepth(0)).0 + 1;
     let Some(navigator) = ctx.use_context::<Navigator>() else {
       return ctx.children().first().cloned().unwrap_or_else(Element::new);
+    };
+    let history = ctx.history_runner();
+    let go_back: GoBack = {
+      let (history, screen) = (history.clone(), self.screen.clone());
+      Arc::new(move || history.run_in(&screen, NavigationCommand::Back))
     };
     // Rendered again when the history moves, a move takes its next step or a finger drags.
     let _ = navigator.path().get();
@@ -1186,6 +1199,11 @@ impl Component for StackOutlet {
         .size(FILL, FILL)
         .padding_top(clear)
         .child(content)
+        .ref_element(if shown.layers.last().is_some_and(|last| std::ptr::eq(last, layer)) {
+          self.screen.clone()
+        } else {
+          ElementRef::default()
+        })
         .opacity(if reduce_motion && id == front { 1.0 - out } else { 1.0 })
         .transform(Transform2D::translate(offset, 0.0));
       if let Some(background) = props.background {
@@ -1204,7 +1222,13 @@ impl Component for StackOutlet {
 
     let screens = screens.on_edge_pan({
       let (shown, drag, changed) = (self.shown.clone(), self.drag.clone(), self.changed.clone());
-      let (navigator, settle) = (navigator.clone(), self.settle.clone());
+      let shown_all = self.shown.clone();
+      let (navigator, settle, history, screen) = (
+        navigator.clone(),
+        self.settle.clone(),
+        history.clone(),
+        self.screen.clone(),
+      );
       move |event: EdgePanEvent| {
         if event.edge != ScreenEdge::Left {
           return;
@@ -1243,9 +1267,27 @@ impl Component for StackOutlet {
               0.0
             };
             if far {
-              // The screen goes on out from where the finger left it: the drag is let go once that has started.
+              // The screen goes on out from where the finger left it, as the stack goes back: the drag is let go once
+              // that has started. Going back runs as from any other source, from the top screen: where the screen
+              // takes it (something unsaved, a question first) or nothing moves this stack, the screen comes back.
               drop(shown);
-              navigator.back();
+              let before = navigator.handle.current_entry();
+              let (navigator, shown, drag, settle, changed) = (
+                navigator.clone(),
+                shown_all.clone(),
+                drag.clone(),
+                settle.clone(),
+                changed.clone(),
+              );
+              history.run_in_then(&screen, NavigationCommand::Back, NavigationSource::Edge, move |_| {
+                if navigator.handle.current_entry() != before {
+                  return;
+                }
+                shown.lock().motion = Motion::Returning;
+                drag.set(NO_DRAG);
+                settle.restart();
+                changed.update(|version| *version += 1);
+              });
             } else {
               shown.motion = Motion::Returning;
               drop(shown);
@@ -1484,7 +1526,7 @@ impl Component for StackOutlet {
     if let Some(part) = back_part {
       items = items.child(bar_item(
         &bar,
-        &navigator,
+        &go_back,
         part,
         out,
         if reduce_motion {
@@ -1502,7 +1544,7 @@ impl Component for StackOutlet {
     if let Some(part) = front_part {
       items = items.child(bar_item(
         &bar,
-        &navigator,
+        &go_back,
         part,
         1.0 - out,
         if reduce_motion { 0.0 } else { out * width * 0.5 },
@@ -1870,7 +1912,7 @@ struct BarPart {
 /// the end. `shift` is how far the title is from the middle.
 fn bar_item(
   bar: &NavigationBar,
-  navigator: &Navigator,
+  go_back: &GoBack,
   part: BarPart,
   opacity: f32,
   shift: f32,
@@ -1928,7 +1970,7 @@ fn bar_item(
         .child(leading.clone()),
     );
   } else if let Some(label) = &part.back_label {
-    let navigator = navigator.clone();
+    let go_back = go_back.clone();
     let short = back_word(bar);
     let says = match part.label_fit {
       LabelFit::Whole => label.as_str(),
@@ -1965,7 +2007,7 @@ fn bar_item(
           move |_| {
             // The lift of the press that opened the list is not a tap.
             if !menu.open.get_untracked() {
-              navigator.back();
+              go_back();
             }
           }
         })
