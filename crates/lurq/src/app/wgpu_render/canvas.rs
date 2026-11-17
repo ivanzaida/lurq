@@ -99,7 +99,10 @@ impl Renderer {
       .get(&id)
       .map(|(_, b)| b)
       .or_else(|| self.surfaces.get(&id))?;
+    // The renderer's own: which device it is of is not asked.
     Some(crate::images::WgpuExternalImageSnapshot {
+      of: None,
+      given: 0,
       view: b.image.view.clone(),
       width: b.image.texture.width(),
       height: b.image.texture.height(),
