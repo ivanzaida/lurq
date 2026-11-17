@@ -658,7 +658,7 @@ on a desktop.
 | Long press | A context menu; in text, the caret with the loupe | `on_long_press` | Hold still half a second | Hold the button still | `long_press` (`duration_ms`) |
 | Pan | Drag what follows the fingers; scroll | `on_pan`, and the scroll with momentum | Drag | Drag | `pan` (`dx`, `dy`, or `direction` and `distance`) |
 | Swipe | A flick: next, previous, dismiss | `on_swipe` (`direction`, `fingers`, `velocity`) | Flick and lift | Drag quickly and let go | `swipe` (`direction`, `distance`, `speed`, `fingers`) |
-| Edge pan | Back (from the left) or forward (from the right) | `on_edge_pan`, then `on_history_swipe` | Drag in from an edge | Drag in from the window's edge | `edge_pan` (`edge`, `distance`) |
+| Edge pan | Back (from the left) or forward (from the right) | `on_edge_pan`, then `on_history_swipe`, then [going back](#going-back-and-forward) | Drag in from an edge | Drag in from the window's edge | `edge_pan` (`edge`, `distance`) |
 | Pinch | Zoom | `on_pinch` (`scale`) | Two fingers apart or together | **Alt**+drag away from or toward where it began | `pinch` (`scale`) |
 | Rotate | Turn | `on_rotate` (`rotation`) | Two fingers turning | **Alt**+drag around where it began | `rotate` (`angle`) |
 | One-finger zoom | Zoom with one hand | `on_pinch` (down zooms in) | Tap, then land again, hold and drag | Click, then press again and drag | `zoom` (`scale`) |
@@ -870,6 +870,80 @@ Button::new("Undo")
   .focusable(false)
   .on_click(move |_| edit.run(EditCommand::Undo))
 ```
+
+### Going back and forward
+
+Going back is one command, as an edit is: `NavigationCommand::Back` and `NavigationCommand::Forward`, whatever asked
+for it. lurq knows its sources in one place, and runs the command on the elements and then on the
+[router](../routing/#going-back-and-forward); a component or an app never matches a button or a key for it.
+
+| Source | Back | Forward | Starts at |
+| --- | --- | --- | --- |
+| Keys (`KeyboardEvent::navigation_command()`) | Alt+← (Cmd+[ on macOS and iOS) | Alt+→ (Cmd+]) | the focus |
+| A keyboard's own keys, Android's back | Back (`BrowserBack`) | Forward (`BrowserForward`) | the focus |
+| The mouse's side buttons, on their release | `MouseButton::Back` | `MouseButton::Forward` | under the pointer |
+| A trackpad's swipe between pages (`on_history_swipe`'s default) | fingers to the right | to the left | under the pointer |
+| A finger in from the edge (`on_edge_pan`, `on_history_swipe`) | from the left | from the right | where it landed |
+| A browser's buttons (the router that [follows the address](../routing/#the-address-of-a-page)) | Back | Forward | the focus |
+| The app: `ctx.history_back()`, `WindowHandle::history_back()`, a stack's way back, MCP | | | the focus |
+
+A bracket is read as the key says it, and by its place where the layout puts a letter of another alphabet there
+(a Ukrainian Mac says "х" for Cmd+[). Shift held is no command (Cmd+Shift+[ is a browser's tab before). Alt and an
+arrow go back in a text input too, as in a browser: a text input's word moves are Ctrl's on Windows and Linux, and on
+Apple's platforms, where Option and an arrow move by a word, the keys are Cmd's. A key goes to every `on_key_down`
+handler before it is a command: one that prevents its default keeps it from being one, and a key that is the command
+is no other key. `NavigationCommand::accelerator()` is the combination to show beside a menu's Back. In a browser the
+mouse's side buttons are the browser's: what it does with them comes back as its back and forward.
+
+The command goes from where it starts out to the root, innermost first. Each element's `on_history_back` or
+`on_history_forward` handlers are told a `HistoryEvent` (its `command()`, its `source()`, `target_id` and the
+`origin_id` it started at); a handler with nothing to do calls `event.pass_on()`, and where every handler of an
+element passed it on, it goes on to the element around. A router mounted in an element on the way goes back after the
+element's own handlers, where it can. With nothing on the way taking it, the routers mounted elsewhere in the window
+are asked, the innermost first (the last in the tree's order): a side bar beside the router has the focus, and the
+router still goes back.
+
+- **From the focus**: the focused element, or with nothing focused the last element in the tree's order that has a
+  handler for the command, which is the topmost of what is open (a dialog over the page).
+- **From under the pointer**: the innermost element there, then from the focus where nothing there took it.
+- **From a part of the window** (`HistoryRunner::run_in(&element_ref, command)`, a stack's way back): the focused
+  element where it is in that part, otherwise the last element of the part that has a handler, or the part.
+
+```rust
+use lurq::{app::events::HistoryEvent, ui::Dialog};
+
+// A dialog takes going back instead of leaving the page. With it closed, the router goes back.
+Dialog::new(open.clone()).child(
+  Column::new()
+    .on_history_back(move |_: HistoryEvent| open.set(false))
+    .child(content),
+)
+
+// A viewer goes to the picture before, and on the first one lets the page go back.
+viewer.on_history_back(move |event: HistoryEvent| {
+  if !pictures.previous() {
+    event.pass_on();
+  }
+})
+```
+
+A button, a menu's item or a toolbar runs the command without input: `ctx.history_back()` and
+`ctx.history_forward()` in a render, the `HistoryRunner` of `ctx.history_runner()` in a handler (`back()`,
+`forward()`, `run(command)`, `run_in(&part, command)`), and `WindowHandle::history_back()` where there is no `Ctx`.
+It runs once the event that asked is handled, on what has the focus then, as a key would: a dialog open over the page
+closes on it. `Navigator::back()` and `RouterHandle::back()` move the router alone, past whatever on the page would
+have taken it.
+
+```rust
+let history = ctx.history_runner();
+Button::new("Back").on_click(move |_| history.back())
+```
+
+`on_history_swipe` is the swipe's own event, told before the command with its `direction`: a handler that does
+something else with the swipe calls `prevent_default`, and the command does not follow. One that only goes back
+handles `on_history_back`, which hears every source alike. On a phone, a finger in from the left or the right edge
+is taken as the gesture wherever something hears going back: a handler on the way, or a router anywhere in the
+window.
 
 ## Rich Text
 

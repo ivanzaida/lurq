@@ -24,7 +24,20 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   outward, a handler that does nothing passing it on (a dialog may close on back instead of leaving the page). With
   none taking it, the mounted router goes back or forward. `Ctx` runs the same from a menu or a button; MCP and the
   emulator too. `on_history_swipe` and `StackOutlet` move onto it.
-- **State.** Decided; to be built in a session of its own.
+- **State.** Built on `claude/history-nav-9fccc7` (2026-11-17), to be merged: `NavigationCommand` and
+  `NavigationSource`, `KeyboardEvent::navigation_command` (Alt+←/→, Cmd+[/] on Apple by the bracket or its place,
+  `BrowserBack`/`BrowserForward` for a keyboard's keys and Android's back), `MouseButton::Back`/`Forward` on their
+  release, `on_history_back`/`on_history_forward` with `HistoryEvent::pass_on`, the router as the default (on the
+  way, then elsewhere in the window, innermost first), `on_history_swipe`'s default, a browser's `popstate` to the
+  entry beside through the command (put back where something else took it), `Ctx::history_back`/`history_forward`/
+  `history_runner`, `WindowHandle::history_back`/`history_forward`, MCP's `history_back`/`history_forward` and
+  buttons `back`/`forward`, the emulator's side buttons as the phone's back, and `StackOutlet`'s way back and edge
+  from its top screen. Decided in the session where the decision left it open: a key and a request start at the
+  focus, with nothing focused at the last element that hears the command; a pointer's source starts under the
+  pointer, then the focus; Alt+arrows go back in a text input too (its word moves are Ctrl's; Apple's keys are
+  Cmd's); in a browser the side buttons are the browser's. Not built: Android's back with nothing taking it does not
+  leave the app (winit takes the key), and `ui`'s overlays do not close on going back by themselves (an app's
+  handler does it).
 
 ### The gallery shows how to style
 
