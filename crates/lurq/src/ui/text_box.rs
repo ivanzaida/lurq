@@ -174,10 +174,10 @@ impl BoxStates {
     .state(TextBoxState::Fluid, self.fluid)
   }
 
-  /// Takes what the field it is in says: the field's label where the box has no name of its own, the field's
-  /// judgment where the app judged the box itself in none, and the field's being disabled.
+  /// Takes what the field it is in says: the field's label where the box has no name of its own and the field has
+  /// a label, the field's judgment where the app judged the box itself in none, and the field's being disabled.
   pub fn in_field(&mut self, field: &super::InField) {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     if self.judgment().is_none() {

@@ -12,7 +12,7 @@ mcp = ["lurq/mcp"]
 devtools = ["lurq/devtools"]
 
 [dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas", "media"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "form", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas", "media"] }
 # The tokenizer of another crate the Code Block page plugs into lurq, as an app would (`src/syntect_code.rs`): the
 # gallery's alone, never lurq's. Its grammars are read by its own regular expressions, which build for the browser.
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
@@ -37,7 +37,7 @@ windows = { version = "0.62.2", features = [
 # The gallery as a page: `scripts/gallery-web.py`. What it asks the browser for is in `src/web.rs`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # A browser without WebGPU draws the gallery through WebGL2.
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["webgl", "regex", "markdown", "canvas"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["webgl", "form", "regex", "markdown", "canvas"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

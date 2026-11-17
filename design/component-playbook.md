@@ -206,6 +206,11 @@ an alias.
   `on_key_down`: which keys they are, in every layout and on a Mac, is `KeyboardEvent::edit_command()`'s alone, and
   an Edit menu runs the same handlers (`Ctx::edit`). Its own buttons for them call what the handlers call. A key of
   its own that also takes back (Backspace on a pad) stays in its `on_key_down`.
+- **An action is `on_click`; a gesture is `on_tap`/`on_swipe`/`on_pinch`/`on_long_press`.** A mouse, a finger, a
+  pen and a key all reach `on_click`, which is where a component does what it is for; a gesture is what only a finger
+  does, and a component that has one takes its desktop twin too (a long press and a right click, a pinch and the
+  wheel). Never an `on_tap` beside an `on_click` for the same action: the element would run twice. What tells a
+  finger from a mouse reads `MouseEvent::pointer_kind`.
 - **While it moves and when it ends: `on_change` and `on_change_end`**, on what is dragged or stepped: Slider,
   RangeSlider, NumberInput. (A splitter's are `on_resize` and `on_resize_end`: it holds no value.)
 - **Is this one on**: `checked` for a box that is ticked, `on` for a switch or a toggle, `selected` for one of
@@ -531,6 +536,14 @@ components of its own.
   page), measured before paint (`ElementRef::observe_rect_before_paint`), not by the window's breakpoint: a narrow
   panel of a wide window is a narrow room too. A page's `kit::fit` is for a scene that is a picture of a desktop
   window, not for a component that could not get narrower.
+- **A phone's form is chosen by `ui::touch_form()`, never by the width, never by the density.** Whether a
+  component is dressed for a finger (swipes, targets of 44, dots for arrows, a phone's chrome) is the person's
+  pointer, `app::Pointer::Coarse`, and nothing else: `variant: None => ui::touch_form()`, with the component's own
+  prop (`variant(..)`, `touch(bool)`) over it. A narrow window of a desktop is a narrow room: the desktop's form laid
+  out in it; a density is how large rows are. What is open keeps the form it opened in until it closes, so it does
+  not change under the finger that landed on it. Its test takes the touch form in a wide window under
+  `Pointer::Coarse` (`App::set_pointer`, `Tree::set_pointer`) and the desktop's at 320 under `Fine`; its page shows
+  the touch form by the prop, and every stage shows it under the playground's hand.
 - **Nothing is hidden and no text is made smaller to fit**, and the wide form stays as it is: a change for a narrow
   window is a greatest width, a wrap that a wide window never reaches, or a branch on `phone()` or on a measured
   room.

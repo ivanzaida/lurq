@@ -3,6 +3,9 @@
 //! and what a wrapper such as `Draggable` puts on the root of the child it is
 //! given (`Element::decorate_root`).
 //!
+//! A theme for a subtree whose root is the component (`Ctx::in_theme` around `mount`, or `.theme(..)` on what
+//! `mount` returns) is such a decoration too: the scope is on the root the component's own renders replace.
+//!
 //! The component's root node holds them in the mounting component's rendered
 //! tree, but the component's own render knows nothing of them. When the
 //! component renders again by itself (a dirty refresh, which does not render
@@ -61,6 +64,8 @@ pub(crate) struct OuterDecoration {
   key: Option<Arc<str>>,
   classes: Vec<Arc<str>>,
   decorations: Vec<NodeDecoration>,
+  /// The theme of the subtree the root begins: `Node::theme_scope` put on it from outside.
+  theme: Option<crate::app::theme::Theme>,
   /// The component the node stands for until a render's output is searched: `Element::component`.
   declared: Option<DeclaredComponent>,
 }
@@ -188,6 +193,13 @@ impl Node {
     }
   }
 
+  /// Records the theme of a subtree put on a component's root by the code that mounted it.
+  pub(crate) fn record_outer_theme(&mut self, theme: &crate::app::theme::Theme) {
+    if let Some(outer) = self.outer_decoration_mut() {
+      outer.theme = Some(theme.clone());
+    }
+  }
+
   /// Records a decoration put on a component's root by a wrapper of it.
   pub(crate) fn record_outer_decoration(&mut self, decorate: &NodeDecoration) {
     if let Some(outer) = self.outer_decoration_mut() {
@@ -202,7 +214,7 @@ impl Node {
     fn plain(node: &Node) -> Option<Plain<'_>> {
       match node.outer_decoration.as_deref() {
         None => Some((None, None, &[])),
-        Some(outer) if outer.decorations.is_empty() && outer.declared.is_none() => {
+        Some(outer) if outer.decorations.is_empty() && outer.declared.is_none() && outer.theme.is_none() => {
           Some((outer.id.as_ref(), outer.key.as_ref(), outer.classes.as_slice()))
         }
         Some(_) => None,
@@ -229,6 +241,9 @@ impl Node {
     }
     for decorate in &outer.decorations {
       *self = decorate(std::mem::take(self));
+    }
+    if let Some(theme) = &outer.theme {
+      self.theme_scope = Some(Box::new(theme.clone()));
     }
     self.outer_decoration = Some(Box::new(outer.clone()));
   }

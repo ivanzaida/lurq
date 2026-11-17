@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 #[cfg(feature = "form")]
+#[allow(deprecated)]
 use super::FormTheme;
 use super::{
   CodeScheme, Density, ThemeBlurs, ThemeBorderSizes, ThemeBreakpoints, ThemeCaret, ThemeControlSizes, ThemeDensities,
@@ -75,7 +76,15 @@ pub struct ThemeDefinition {
   pub markdown: ThemeMarkdown,
   #[cfg(feature = "markdown")]
   pub text_marks: ThemeTextMarks,
+  /// The styles of the form controls of 0.62, which nothing reads.
   #[cfg(feature = "form")]
+  #[deprecated(
+    since = "0.63.0",
+    note = "the form controls are the design system's components: their recipes are in `ui`, \
+            `UiDefinition::patch::<ui::Field>(..)` and those of `ui::Input`, `ui::Textarea`, `ui::Checkbox`, \
+            `ui::Slider` and `ui::Button`"
+  )]
+  #[allow(deprecated)]
   pub form: FormTheme,
 }
 
@@ -143,6 +152,7 @@ impl ThemeDefinition {
       #[cfg(feature = "markdown")]
       text_marks: ThemeTextMarks::default(),
       #[cfg(feature = "form")]
+      #[allow(deprecated)]
       form: FormTheme::default(),
     }
   }
@@ -233,6 +243,7 @@ impl ThemeInner {
       self.text_marks = Arc::new(definition.text_marks);
     }
     #[cfg(feature = "form")]
+    #[allow(deprecated)]
     {
       self.form = definition.form;
     }
@@ -273,6 +284,7 @@ impl ThemeInner {
       #[cfg(feature = "markdown")]
       text_marks: (*self.text_marks).clone(),
       #[cfg(feature = "form")]
+      #[allow(deprecated)]
       form: self.form.clone(),
     }
   }

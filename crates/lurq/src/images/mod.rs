@@ -9,8 +9,7 @@ mod wgpu_external;
 
 #[cfg(windows)]
 pub use card_frames::{
-  CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface, card_frames_adapter,
-  set_card_frames_adapter,
+  CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface, card_frames_adapter, set_card_frames_adapter,
 };
 #[cfg(feature = "image")]
 pub use decoded::{
@@ -26,4 +25,6 @@ pub(crate) use render::ImageCmd;
 #[cfg(feature = "wgpu")]
 pub use wgpu_external::WgpuExternalImageSlot;
 #[cfg(feature = "wgpu")]
-pub(crate) use wgpu_external::{WgpuExternalImageSnapshot, WgpuExternalImageState};
+pub(crate) use wgpu_external::{
+  WgpuExternalImageSnapshot, WgpuExternalImageState, WgpuExternalImageWeak, for_device, next_in_order,
+};

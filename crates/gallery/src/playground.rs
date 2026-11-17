@@ -14,6 +14,7 @@ use std::sync::{
 
 use lurq::{
   app::{
+    Pointer,
     component::Component,
     ctx::Ctx,
     theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
@@ -411,6 +412,9 @@ impl Playground {
       );
     }
     let other = self.other.clone();
+    // What the gallery is pointed with, for every stage: under a finger a component takes its touch form.
+    let app = ctx.app_ref().clone();
+    let finger = lurq::ui::current_pointer() == Pointer::Coarse;
     let (opener, make, title) = (ctx.window_opener(), spec.make.clone(), spec.title);
     let mounted = self.mounted.clone();
     let bar = bar.child(
@@ -425,6 +429,22 @@ impl Playground {
             .icon_only(true)
             .on(self.other.get())
             .on_change(move |on| other.set(on)),
+        )
+        .child(
+          Toggle::new("Point with a finger: the touch forms")
+            .size(ButtonSize::Sm)
+            .icon(icons::HAND_POINTER)
+            .icon_only(true)
+            .on(finger)
+            .on_change(move |on| {
+              if on {
+                app.set_pointer(Pointer::Coarse);
+              } else {
+                // Back to what the hand on the machine says, which is a mouse that moves.
+                app.set_pointer(Pointer::Fine);
+                app.follow_pointer(true);
+              }
+            }),
         )
         .child(
           Button::new("Open in a window of its own")

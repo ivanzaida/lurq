@@ -818,3 +818,74 @@ fn the_first_frame_of_a_slider_in_a_narrow_room_is_the_settled_one() {
     assert_eq!(first, stage.picture(), "at {room}");
   }
 }
+
+#[cfg(feature = "form")]
+mod in_a_form {
+  use std::sync::{Arc, Mutex};
+
+  use lurq::{
+    app::{component::Component, ctx::Ctx},
+    components::{Column, FormHandle, FormOptions, FormValues},
+    node::Element,
+    ui::{Button, RangeSlider, Slider},
+  };
+
+  use super::Stage;
+
+  #[derive(Clone, Default)]
+  struct Sent(Arc<Mutex<Option<FormValues>>>);
+
+  #[cfg(feature = "devtools")]
+  impl lurq::app::component::DevtoolsInspectable for Sent {
+    fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+  }
+
+  impl PartialEq for Sent {
+    fn eq(&self, other: &Self) -> bool {
+      Arc::ptr_eq(&self.0, &other.0)
+    }
+  }
+
+  struct Mixer {
+    form: FormHandle,
+  }
+
+  impl Component for Mixer {
+    type Props = Sent;
+
+    fn create(ctx: &mut Ctx) -> Self {
+      let sent = ctx.props::<Sent>().0.clone();
+      let form = ctx
+        .form(FormOptions::new().field("volume", 40.0).field("band", (20, 80)))
+        .on_submit(move |values| *sent.lock().unwrap() = Some(values));
+      // The fields are the form's number and range, which it reads from what the sliders give it.
+      form.number("volume");
+      form.range("band");
+      Self { form }
+    }
+
+    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+      // Not the form's defaults: what is submitted is what the sliders give.
+      let (volume, band) = (ctx.signal(65), ctx.signal((30, 70)));
+      ctx.form_view(self.form.clone(), |_| {
+        Column::new()
+          .padding(10.0)
+          .spacing(8.0)
+          .child(Slider::new(volume).name("volume"))
+          .child(RangeSlider::new(band).name("band"))
+          .child(Button::new("Save").submit(true).id("save"))
+      })
+    }
+  }
+
+  #[test]
+  fn a_named_slider_gives_the_form_its_value_and_a_range_slider_its_two() {
+    let sent = Sent::default();
+    let probe = sent.clone();
+    let mut stage = Stage::new(move |ctx| ctx.mount::<Mixer>(probe.clone()));
+    stage.click("save");
+    let values = sent.0.lock().unwrap().clone().expect("submitted");
+    assert_eq!(values.get_number("volume"), Some(65.0));
+    assert_eq!(values.get_range("band"), Some((30.0, 70.0)));
+  }
+}

@@ -18,6 +18,7 @@ mod inspect;
 mod interact;
 mod lookup;
 mod navigate;
+mod pointer;
 mod read_tree;
 mod resolve;
 mod screenshot;
@@ -46,6 +47,7 @@ use inspect::{act_tool, inspect_tool};
 use interact::interact_tool;
 use lookup::{find_by_class_tool, find_by_id_tool};
 use navigate::navigate_tool;
+use pointer::pointer_tool;
 pub(crate) use read_tree::format_ref_line;
 use read_tree::read_tree_tool;
 use screenshot::screenshot_tool;
@@ -142,6 +144,9 @@ fn execute_builtin(
       let _ = reply.send(set_value_tool(tree, state, &args));
     }
     BuiltinTool::Resize => resize_tool(tree, state, &args, reply),
+    BuiltinTool::Pointer => {
+      let _ = reply.send(pointer_tool(app, &args));
+    }
     BuiltinTool::Navigate => {
       let _ = reply.send(navigate_tool(state, &args));
     }

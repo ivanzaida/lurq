@@ -1172,6 +1172,18 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Two taps in a row on this element; see [`TapEvent`](crate::app::events::TapEvent). While it listens, a
+      /// tap's click is held back for the time of a double tap.
+      pub fn on_double_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_double_tap(node, f));
+        self
+      }
+
+      pub fn off_double_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_double_tap(node, f));
+        self
+      }
+
       /// Fingers flicked across this element; see [`SwipeEvent`](crate::app::events::SwipeEvent).
       pub fn on_swipe(mut self, f: impl $crate::node::IntoSwipeEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_swipe(node, f));

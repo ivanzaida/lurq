@@ -100,6 +100,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. A range slider takes `[low, high]` and sets both; one number moves its nearer thumb. |
 | `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
+| `lurq_pointer` | interact | Read or set what the person points with, `fine` or `coarse` ([a finger or a mouse](../styling-events/#a-finger-or-a-mouse)): under `coarse` the components with a touch form take it. Set, it is pinned unless `pin` is false, so the agent's own mouse moves leave it; `follow` turns following input on or off. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
 
 ### Coordinates and refs

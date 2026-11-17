@@ -11,7 +11,7 @@ Requires the `form` feature flag.
 lurq = { version = "0.61.1", features = ["form"] }
 ```
 
-Compound form controls read their defaults from `theme.form()`. See [Theme](../theme/#form-theme) for the strict form field, input, checkbox, slider, and button roles.
+The form's own controls, `FormTextInput`, `FormCheckboxInput`, `FormSliderInput`, `FormRangeSliderInput` and the two form buttons, are the design system's components bound to a field of the form, and the theme styles them by those components' recipes: see [Form Controls](#form-controls).
 
 ## Creating A Form
 
@@ -305,6 +305,75 @@ For advanced composition outside form context, create explicit descriptors from 
 let email = form.string_control("email");
 let age = form.number_control("age");
 let active = form.bool_control("active");
+```
+
+## Form Controls
+
+The form controls are the design system's components (see [Design System](../design-system/)) bound to a form's control: a field of the form with its label, its hint and the error the form shows of it, mounted where the form is rendered.
+
+```rust
+use lurq::components::{
+  Column, FormCheckboxInput, FormCheckboxInputProps, FormPrimaryButton, FormPrimaryButtonProps,
+  FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps, FormTextInput,
+  FormTextInputProps,
+};
+
+ctx.form_view(self.form.clone(), |ctx| {
+  Column::new()
+    .width(320.0)
+    .spacing(16.0)
+    .child(ctx.mount::<FormTextInput>(
+      FormTextInputProps::new(self.form.string_control("email").required(true))
+        .label("Email")
+        .hint("We never share it.")
+        .placeholder("you@example.com"),
+    ))
+    .child(ctx.mount::<FormCheckboxInput>(
+      FormCheckboxInputProps::new(self.form.bool_control("terms")).label("I accept the terms"),
+    ))
+    .child(ctx.mount::<FormSliderInput>(
+      FormSliderInputProps::new(self.form.number_control("volume")).label("Volume").range(0, 100),
+    ))
+    .child(ctx.mount::<FormPrimaryButton>(FormPrimaryButtonProps::new("Create account")))
+    .child(ctx.mount::<FormSecondaryButton>(FormSecondaryButtonProps::new("Cancel")))
+})
+```
+
+| Control | What it is |
+| --- | --- |
+| `FormTextInput` | A `ui::Field` holding a `ui::Input` bound to a string control, or a `ui::Textarea` where it is `multiline()`. The box is 36 high unless `height(..)` says otherwise. An edit clears the field's error |
+| `FormCheckboxInput` | A `ui::Checkbox` bound to a boolean control, its label beside the box, in a `ui::Field` with no label above it and the hint under it. A checked box gives the form `on`; the form judges the field when the box loses the focus |
+| `FormSliderInput` | A `ui::Field` holding a `ui::Slider` bound to a number control, in whole steps over `range(min, max)`. The form judges the field when the slider loses the focus |
+| `FormRangeSliderInput` | The same with a `ui::RangeSlider`, bound to a range control |
+| `FormPrimaryButton` | A `ui::Button` of the variant `Primary` that submits the form, unless it is made `button()` |
+| `FormSecondaryButton` | A `ui::Button` of the variant `Outline` that submits nothing, unless it is made `submit()` |
+| `FormControlField<T>` | A `ui::Field` around what it is mounted with (`ctx.mount_with`), told by the form what it says of the control |
+
+- What the form says of a control, the field shows: the error the form shows of it ([`ErrorVisibility`](#submit-state)) in the place of the hint, in `Destructive`, and the control judged invalid with it; the field's `*` after the label of a control that is `required(true)`; a control that is `disabled(true)`, or one of a form that is submitting, disabled.
+- Each control and its field are as wide as what holds them, the buttons too.
+- They are styled by the theme's recipes for `ui::Field`, `ui::Input`, `ui::Textarea`, `ui::Checkbox`, `ui::Slider` and `ui::Button`, as every one of those components is: `theme.patch_recipe::<ui::Input>(..)` changes the box of a form's text field and of every other input. The deprecated `FormTheme` is read by nothing: see [Form Theme](../theme/#form-theme).
+- The focus is drawn as those components draw it: a ring in `Ring` around a button, a checkbox's box and a slider's thumb from the keyboard, and a line of 2 inside a text box for any focus. A press of a field's label focuses its control.
+
+A form control has the props above and no more. For what it does not have (a size, an icon, a fluid field, a description beside an error), build the field of the design system's components, bound to the control the same way:
+
+```rust
+use lurq::ui::{Field, Input, InputSize, icons};
+
+let email = ctx.string_control("email");
+let error = email.visible_error();
+let mut field = Field::new(
+  "Email",
+  Input::new(email.value())
+    .name(email.name())
+    .icon(icons::MAIL)
+    .size(InputSize::Lg)
+    .full_width(true),
+)
+.full_width(true)
+.required(email.is_required());
+if let Some(error) = error.as_deref() {
+  field = field.error(error);
+}
 ```
 
 ## Keyboard Navigation

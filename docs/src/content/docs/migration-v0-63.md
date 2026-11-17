@@ -14,8 +14,11 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - The Markdown theme. Its colors are `TextColor`s, eight of its fields are gone, and `MarkdownProps::on_link_click` is `on_link_select`: see [Text And Markdown](#text-and-markdown).
 - A struct written out field by field, or a `match` with no `_` arm, over a type that gained a field or a variant: see [the table](#types-that-gained-a-variant-or-a-field).
 - With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
+- `MouseEvent::pointer`, which is `pointer_kind`: see [What Pressed](#what-pressed).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
+
+`FormTheme`, `theme.form()` and `theme.set_form(..)` still compile, with a warning: nothing reads them, since the form controls are the design system's components: see [The Form Controls](#the-form-controls).
 
 `lurq::components::Image` and the Cargo feature `resources` still compile too, the first with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
 
@@ -25,9 +28,10 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 
 - The look: the palette, a dark look on a system that is dark, body text of 14, radii, shadows, the scroll bar, the color a window is cleared to. See [The Theme And Palette](#the-theme-and-palette).
 - A Markdown document: its colors, its type, its code blocks and quotes, footnotes, bullets and task boxes.
+- The form controls (`FormTextInput`, `FormCheckboxInput`, `FormSliderInput`, the two form buttons), which are the design system's field, input, checkbox, slider and buttons, styled by their recipes and no longer by `FormTheme`: see [The Form Controls](#the-form-controls).
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
-- A notch of a mouse's wheel, which is animated: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
+- A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
@@ -143,7 +147,7 @@ What to know while both sets exist:
 
 - **Two roles became one.** `TextSecondary` and `TextMuted` are both `MutedForeground`, and `SurfaceBase` and `SurfaceInput` are both `Background`. An app that gave the two different colors keeps a name of its own for one of them: `PaletteColor::extra("text-secondary")`.
 - **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.62.
-- **Setting a role sets the deprecated roles it replaces.** The form controls still read the deprecated roles, and follow a theme set through the new ones this way. The engine's `Select`, and a checkbox or a slider node with no style of its own, read the new roles through their recipes, and the deprecated ones only under `ThemeDefinition::legacy()`: see [The Engine's Select Takes Its Colors From A Recipe](#the-engines-select-takes-its-colors-from-a-recipe).
+- **Setting a role sets the deprecated roles it replaces.** The form controls do not read the deprecated roles: they are the design system's components, on the new roles (see [The Form Controls](#the-form-controls)). The engine's `Select`, and a checkbox or a slider node with no style of its own, read the new roles through their recipes, and the deprecated ones only under `ThemeDefinition::legacy()`: see [The Engine's Select Takes Its Colors From A Recipe](#the-engines-select-takes-its-colors-from-a-recipe).
 - **Setting a deprecated role sets only that role.** An app that sets `Accent` and uses a role's replacement elsewhere sets `Primary`.
 
 ### A Color Set Once
@@ -401,6 +405,62 @@ TextHighlight { range: 4..9, color: yellow.into(), radius: 3.0 }
 TextHighlight::new(4..9, yellow).radius(3.0)
 ```
 
+## The Form Controls
+
+The form controls of `lurq::components` (feature `form`) are the design system's components bound to a form's control. Every one of them compiles as it was written for 0.62, props and all; what each draws and how a theme styles it changed.
+
+| 0.62 | 0.63 |
+| --- | --- |
+| `FormTextInput` | A `ui::Field` holding a `ui::Input`, or a `ui::Textarea` where it is `multiline()` |
+| `FormCheckboxInput` | A `ui::Checkbox` with its label beside the box, in a `ui::Field` with no label above it |
+| `FormSliderInput`, `FormRangeSliderInput` | A `ui::Field` holding a `ui::Slider` or a `ui::RangeSlider` as wide as it |
+| `FormPrimaryButton` | A `ui::Button` of the variant `Primary` |
+| `FormSecondaryButton` | A `ui::Button` of the variant `Outline` |
+| `FormControlField` | A `ui::Field` around what it is mounted with |
+
+### `FormTheme` Styles Nothing
+
+`FormTheme` and its parts (`FormFieldTheme`, `FormInputTheme`, `FormCheckboxStyle`, `FormSliderStyle`, `FormButtonTheme`, `FormButtonRole`, `FormTextRole`), `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form` are deprecated and read by nothing: a form set with `set_form` changes nothing on the screen. The controls take the recipes of the components they are, as every one of those components does. Each role of the form theme is a part or a state of a recipe ([Form Theme](../theme/#form-theme) has the table):
+
+```rust
+// 0.62
+let mut form = app.theme().form().clone();
+form.field.label = FormTextRole { typography: TypographyStyle::Label, color: PaletteColor::MutedForeground };
+form.input.radius = RadiusSize::Lg;
+form.button.primary.background = PaletteColor::Success;
+app.theme().set_form(form);
+
+// 0.63
+use lurq::ui::{self, ButtonPart, ButtonVariant, FieldPart, InputPart};
+
+let theme = app.theme();
+theme.patch_recipe::<ui::Field>(|recipe| {
+  recipe.base(FieldPart::Label, |s| {
+    s.typography(TypographyStyle::Label).foreground(PaletteColor::MutedForeground)
+  })
+});
+theme.patch_recipe::<ui::Input>(|recipe| recipe.base(InputPart::Control, |s| s.radius(RadiusSize::Lg)));
+theme.patch_recipe::<ui::Button>(|recipe| {
+  recipe.variant(ButtonVariant::Primary, ButtonPart::Root, |s| s.background(PaletteColor::Success))
+});
+```
+
+A recipe styles every input, checkbox or button of the app, not only a form's. To style a form's alone, render the form in a theme of its own (`ctx.in_theme(&theme, |ctx| ..)`), or build its fields of the components with `style(..)` on each (see [Forms](../forms/#form-controls)).
+
+### What They Look Like
+
+- **The design's look.** A text field is the design's input: 36 high, `Background` in an edge of 1 in `Input`, the label 6 above it in a field label's type and `Foreground`, the hint 6 under it in a caption's and `MutedForeground`. The checkbox is a box of 16 edged in `Input`, filled in `Primary` when checked. The slider's track is `Secondary`, its fill `Primary` and its thumb `Background` edged in `Primary`. The primary button is `Primary`; the secondary one is an outline button, `Background` in an edge of `Input`, where 0.62 drew it in `SurfaceInput` with a `BorderStrong` edge.
+- **The checkbox's label is beside its box**, with the hint under both, where 0.62 drew the label above the box as a text field's.
+- **An error** is the edge of the box in `Destructive` and the message in its place under it. 0.62 also filled the text box in `DangerMuted`.
+- **The focus** of a text field is a line of 2 inside its box in `Ring`, for any focus. The buttons, the checkbox's box and the slider's thumb have the theme's ring around them from the keyboard, where 0.62 drew an edge of 1 in `BorderFocus`.
+- **Under `ThemeDefinition::legacy()`** the colors are 0.62's where the legacy palette's roles keep them: the primary button and a checked box in the accent `#2563eb` with white on it, an error in `#dc2626`, the focus in `#2563eb`. The rest is the design's in the legacy palette: the text box's edge is `Input` (`#94a3b8`, 0.62's strong border, where it was `#e2e8f0`), and a label is black, the legacy foreground, where it was `#0f172a`.
+
+### What They Do
+
+- **A disabled control takes no input.** A control made `disabled(true)`, and every control of a form that is submitting, is disabled: it takes no typing, no press and no focus, and its label focuses nothing. In 0.62 a disabled text field was only drawn on `SurfacePanel` and could still be typed in.
+- **A required control has a mark.** A control made `required(true)` has the field's `*` after its label, in `Destructive`.
+- **The checkbox is no engine `Checkbox`.** It is the design system's, a pressable box, and gives the form `on` while it is checked as the engine's did: what the form submits is as it was. A test that looked the checkbox up by its tag (`"Checkbox"`) finds it by its label or, with `mcp`, by its role (`a11y_role` `checkbox`).
+
 ## Focus, Keys And Pointer
 
 ### The Mouse Wheel Is Animated
@@ -419,6 +479,36 @@ app.theme().set_smooth_scroll(false);
 ```
 
 It is the app's setting and not part of a `ThemeDefinition`: applying one leaves it. See [The mouse wheel](../styling-events/#the-mouse-wheel).
+
+### What Pressed
+
+`MouseEvent::pointer` is `MouseEvent::pointer_kind`, and `PointerKind` has a third variant, `Pen`: a pen on a touch
+screen, which taps and clicks as a finger does. The name keeps `Pointer` for what the person points with
+(`app::Pointer`, fine or coarse).
+
+```rust
+// 0.62
+if event.pointer == PointerKind::Touch { .. }
+// 0.63
+if event.pointer_kind != PointerKind::Mouse { .. }
+```
+
+A `match` on `PointerKind` with no `_` arm takes `Pen`.
+
+### A Finger's Tap And Its Click
+
+`on_click` is the action from every input, and `on_tap` the finger's gesture: a finger's tap is told as `on_tap` first
+and `on_click` after, each once, as before. A touch screen's touches reach lurq as touches on Windows, Android,
+Linux and in the browser now, as on iOS: on Windows they came as the mouse's (a tap clicked, with no `on_tap`), and
+now they are a finger's, with its gestures and a coarse pointer. What is new wherever touches come:
+
+- A tap a handler of `on_tap` takes (`prevent_default`) clicks nothing. It clicked as well.
+- A tap of two fingers or more clicks nothing. The first finger, which is the pointer, clicked.
+- Two taps in a row are no double click: `on_dblclick` hears a mouse's only, and an element that wants a finger's
+  double tap listens with `on_double_tap` (or reads `TapEvent::count`). On an element that does, a tap's click is
+  held back for the time of a double click, as a mouse's is on an element with `on_dblclick`.
+
+See [A Click Is The Action, A Tap Is The Gesture](../styling-events/#a-click-is-the-action-a-tap-is-the-gesture).
 
 ### A Disabled Element Hears The Pointer Come And Go
 
@@ -674,7 +764,8 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `StyledEdit` | `Paragraphs { range }` | A `match` arm: the kinds of the paragraphs changed, the text did not |
 | `ThemeMarkdown` | `task_item_spacing`, `bullet_gap`, `box_gap`, `bullet_indent`, `bullet_size`, `table_stripe`, `heading_2_rule`, `kbd`, `task_done`, `rule`, `image_box`, `image_height`, `image_caption`, `details_box`, `details_summary_box`, `details_summary`, `details_padding`, `footnote_reference`, `footnote`, `footnotes_rule_width` | `..ThemeMarkdown::default()` |
 | `TextHighlight` | `padding`, `border` | `TextHighlight::new(range, color)` |
-| `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end` | `..Default::default()` |
+| `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end`, `on_double_tap` | `..Default::default()` |
+| `PointerKind` | `Pen` | A `match` arm |
 | `SelectTriggerState` | `input` | `input: None` |
 | `DragEvent` | `outside_window` | `outside_window: false` |
 | `DevToolsNode` (`devtools`) | `render` | `render: None` |

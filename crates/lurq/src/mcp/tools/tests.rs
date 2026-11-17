@@ -547,3 +547,54 @@ fn set_value_takes_two_numbers_for_a_range_slider_and_one_for_its_nearer_thumb()
   json(set(&volume_ref, serde_json::json!(55)));
   assert_eq!(volume.get(), 55);
 }
+
+#[test]
+fn lurq_pointer_reads_and_pins_what_the_person_points_with() {
+  use crate::app::Pointer;
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  app.shared.pointer.tell(Pointer::Fine, false);
+
+  let read = json(call(&mut tree, &mut app, &state, "lurq_pointer", serde_json::json!({})));
+  assert_eq!(read["pointer"], "fine");
+  assert_eq!(read["touch_form"], false);
+  assert_eq!(read["pinned"], false);
+  assert_eq!(read["follows"], true);
+
+  let set = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_pointer",
+    serde_json::json!({"pointer": "coarse"}),
+  ));
+  assert_eq!(set["pointer"], "coarse");
+  assert_eq!(set["touch_form"], true);
+  assert_eq!(set["pinned"], true, "pinned unless told");
+  // The agent's own mouse moves leave a pinned pointer.
+  app.shared.pointer.input(Pointer::Fine);
+  assert_eq!(app.pointer(), Pointer::Coarse);
+
+  let followed = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_pointer",
+    serde_json::json!({"follow": true}),
+  ));
+  assert_eq!(followed["pinned"], false, "following lets go of the pin");
+  app.shared.pointer.input(Pointer::Fine);
+  assert_eq!(app.pointer(), Pointer::Fine);
+
+  assert!(
+    call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_pointer",
+      serde_json::json!({"pointer": "thumb"})
+    )
+    .is_err()
+  );
+}
