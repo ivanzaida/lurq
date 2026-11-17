@@ -28,7 +28,7 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
 - A notch of a mouse's wheel, which is animated: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
-- The phone's sheet, tab bar, navigation bar, pull to refresh and swipe row, and the engine's `Select`, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
+- The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
 
@@ -143,7 +143,7 @@ What to know while both sets exist:
 
 - **Two roles became one.** `TextSecondary` and `TextMuted` are both `MutedForeground`, and `SurfaceBase` and `SurfaceInput` are both `Background`. An app that gave the two different colors keeps a name of its own for one of them: `PaletteColor::extra("text-secondary")`.
 - **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.62.
-- **Setting a role sets the deprecated roles it replaces.** The form controls, and a checkbox or a slider with no style of its own still read the deprecated roles, and follow a theme set through the new ones this way. The engine's `Select` reads the new roles through its recipe, and the deprecated ones only under `ThemeDefinition::legacy()`: see [The Engine's Select Takes Its Colors From A Recipe](#the-engines-select-takes-its-colors-from-a-recipe).
+- **Setting a role sets the deprecated roles it replaces.** The form controls still read the deprecated roles, and follow a theme set through the new ones this way. The engine's `Select`, and a checkbox or a slider node with no style of its own, read the new roles through their recipes, and the deprecated ones only under `ThemeDefinition::legacy()`: see [The Engine's Select Takes Its Colors From A Recipe](#the-engines-select-takes-its-colors-from-a-recipe).
 - **Setting a deprecated role sets only that role.** An app that sets `Accent` and uses a role's replacement elsewhere sets `Primary`.
 
 ### A Color Set Once
@@ -607,6 +607,19 @@ theme.ui.patch::<SelectStyle>(|rules| rules.base(SelectPart::Trigger, |s| s.back
 ```
 
 Under `ThemeDefinition::legacy()` it names the roles of 0.61 as before. The design system's `ui::Select` is drawn by its own recipe and is what an app normally wants.
+
+The checkbox and the slider nodes are the same: where the app gives no fill, the box is `Background` (checked `Primary`), the track `Border` and the thumb `Primary`, through the recipes `engine_checkbox` and `engine_slider` (`theme.ui.patch::<Slider>(|rules| rules.base(SliderPart::Thumb, ..))`). They were `SurfaceInput`, `Accent`, `Border` and `Accent`, which `ThemeDefinition::legacy()` keeps.
+
+### A Stack's Shades Are The Scrim
+
+The shade over the screen under one that slides in or out, and the one behind the list of screens a long press on the way back opens, were black, at the move's `dim` and at a fifth. They are the theme's `Scrim`, which carries its own alpha (0.4 light, 0.6 dark): the shade under a moving screen at the move's `dim` times that, the one behind the list all of it. `ThemeDefinition::legacy()` keeps 0.62's black. The recipe is `phone_stack`, its parts `StackPart::Shade` and `MenuShade`:
+
+```rust
+use lurq::{components::{StackMotion, StackPart}, node::color::Color};
+
+// 0.62's shade under a moving screen on any theme
+theme.ui.patch::<StackMotion>(|rules| rules.base(StackPart::Shade, |s| s.background(Color::from_hex("#000000"))));
+```
 
 ## DevTools
 

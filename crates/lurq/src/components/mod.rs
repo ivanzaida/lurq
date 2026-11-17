@@ -104,7 +104,7 @@ pub use stack::Stack;
 #[cfg(feature = "router")]
 pub use stack_outlet::{
   NavigationBar, NavigationBarBuilder, NavigationBarPart, NavigationBarScreen, NavigationBarState, NavigationItem,
-  NavigationSearch, StackMotion, StackOutlet, StackOutletProps,
+  NavigationSearch, StackMotion, StackOutlet, StackOutletProps, StackPart,
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{

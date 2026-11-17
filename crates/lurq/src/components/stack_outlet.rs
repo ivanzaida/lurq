@@ -91,6 +91,69 @@ impl Default for StackMotion {
   }
 }
 
+/// The parts of the recipe of the shades a [`StackOutlet`] draws, kept under the name `phone_stack` with
+/// [`StackMotion`]: each has a fill and an opacity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackPart {
+  /// What darkens the screen under the one that moves in or out, at the move's [`StackMotion::dim`] times the
+  /// part's opacity.
+  Shade,
+  /// What darkens the stack behind the list of the screens under, which a long press on the way back opens.
+  MenuShade,
+}
+
+names!(StackPart {
+  Shade => "shade",
+  MenuShade => "menu_shade",
+});
+
+/// 0.62's shades: black, the one under a moving screen at the move's dim and the one behind the list at a fifth.
+const LEGACY_SHADE: Color = Color::new(0, 0, 0, 255);
+
+impl Themed for StackMotion {
+  const NAME: &'static str = "phone_stack";
+  type Renderer = ();
+
+  /// The design's: both shades in the scrim, which carries its own alpha, light or dark as the theme is; the one
+  /// behind the list all of it.
+  fn recipe() -> Recipe {
+    use crate::app::theme::PaletteColor::Scrim;
+    Recipe::new()
+      .base(StackPart::Shade, |s| s.background(Scrim).opacity(1.0))
+      .base(StackPart::MenuShade, |s| s.background(Scrim).opacity(1.0))
+  }
+}
+
+impl StackMotion {
+  /// 0.62's shades: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the stack.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Recipe::new()
+      .base(StackPart::Shade, |s| s.background(LEGACY_SHADE).opacity(1.0))
+      .base(StackPart::MenuShade, |s| s.background(LEGACY_SHADE).opacity(MENU_DIM))
+  }
+}
+
+/// The shades a stack draws, in the theme of what is being built.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StackShades {
+  pub(crate) shade: Color,
+  pub(crate) shade_opacity: f32,
+  pub(crate) menu: Color,
+  pub(crate) menu_opacity: f32,
+}
+
+impl StackShades {
+  pub(crate) fn current() -> Self {
+    let look = EngineLook::of::<StackMotion>(&[]);
+    Self {
+      shade: look.background(StackPart::Shade, LEGACY_SHADE),
+      shade_opacity: look.opacity(StackPart::Shade, 1.0),
+      menu: look.background(StackPart::MenuShade, LEGACY_SHADE),
+      menu_opacity: look.opacity(StackPart::MenuShade, MENU_DIM),
+    }
+  }
+}
+
 /// A frame is painted with the screens where the move starts before they are sent on their way: a transition
 /// goes from what was last painted.
 const BEGIN: Duration = Duration::from_millis(1);
@@ -921,6 +984,7 @@ impl Component for StackOutlet {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<StackOutletProps>().clone();
     let motion = props.motion;
+    let shades = StackShades::current();
     let depth = ctx.use_context::<OutletDepth>().unwrap_or(OutletDepth(0)).0 + 1;
     let Some(navigator) = ctx.use_context::<Navigator>() else {
       return ctx.children().first().cloned().unwrap_or_else(Element::new);
@@ -1130,8 +1194,8 @@ impl Component for StackOutlet {
       if id == back {
         let shade = Row::new()
           .size(FILL, FILL)
-          .background(Color::from_hex("#000000"))
-          .opacity(motion.dim * (1.0 - out))
+          .background(shades.shade)
+          .opacity(motion.dim * shades.shade_opacity * (1.0 - out))
           .pointer_events_none();
         holder = holder.child(shade.transition(fade.clone()));
       }
@@ -1568,8 +1632,8 @@ impl Component for StackOutlet {
         .child(
           Row::new()
             .size(FILL, FILL)
-            .background(Color::from_hex("#000000"))
-            .opacity(if menu_open { MENU_DIM } else { 0.0 })
+            .background(shades.menu)
+            .opacity(if menu_open { shades.menu_opacity } else { 0.0 })
             .transition(Transition::opacity().duration(MENU_MOVE))
             .on_click(move |_| {
               // The list came up under the finger that opened it, whose lift is not a tap beside the list.

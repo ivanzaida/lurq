@@ -86,3 +86,109 @@ fn slider_part_without_a_fill_paints_none() {
     .thumb(|style| style.size(10.0, 10.0));
   assert_eq!(fills(thumb), hex(&[BORDER]), "only the unstyled track");
 }
+
+/// Opaque rect fills painted by `root` in a theme made from `definition`, in `appearance`, with nothing set.
+fn fills_in(
+  definition: lurq::app::theme::ThemeDefinition,
+  appearance: lurq::app::window::Appearance,
+  root: impl Into<Element>,
+) -> Vec<Color> {
+  let mut app = App::new();
+  app.theme().apply(definition);
+  app.theme().set_appearance(appearance);
+  let mut tree = Tree::new();
+  tree.set_root(root.into());
+  tree.pass_headless(&mut app);
+  tree
+    .painted_quads()
+    .iter()
+    .filter_map(|quad| match quad.content {
+      QuadContent::Rect { color, .. } if color.a() > 0 => Some(color),
+      _ => None,
+    })
+    .collect()
+}
+
+#[test]
+#[allow(deprecated)]
+fn unstyled_controls_take_the_design_roles_light_and_dark() {
+  use lurq::app::{theme::ThemeDefinition, window::Appearance};
+  for appearance in [Appearance::Light, Appearance::Dark] {
+    let definition = ThemeDefinition::neutral();
+    let palette = definition.palette(appearance).clone();
+    let role = |role: PaletteColor| palette.get(role);
+    assert_eq!(
+      fills_in(definition.clone(), appearance, Checkbox::new(Signal::new(false))),
+      [role(PaletteColor::Background)],
+      "{appearance:?}"
+    );
+    assert_eq!(
+      fills_in(definition.clone(), appearance, Checkbox::new(Signal::new(true))),
+      [role(PaletteColor::Primary)],
+      "{appearance:?}"
+    );
+    assert_eq!(
+      fills_in(
+        definition,
+        appearance,
+        Slider::new(Signal::new(5)).range(0, 10).width(100.0)
+      ),
+      [role(PaletteColor::Border), role(PaletteColor::Primary)],
+      "{appearance:?}: track, then thumb"
+    );
+  }
+  let light = ThemeDefinition::neutral()
+    .palette(Appearance::Light)
+    .get(PaletteColor::Primary);
+  let dark = ThemeDefinition::neutral()
+    .palette(Appearance::Dark)
+    .get(PaletteColor::Primary);
+  assert_ne!(light, dark, "the dark appearance is another fill");
+}
+
+#[test]
+#[allow(deprecated)]
+fn the_legacy_theme_keeps_the_controls_of_0_62() {
+  use lurq::app::{theme::ThemeDefinition, window::Appearance};
+  let legacy = ThemeDefinition::legacy();
+  let palette = legacy.palette(Appearance::Light).clone();
+  // 0.62 painted the roles of 0.61, which keep their own colors in the legacy palette.
+  assert_eq!(
+    fills_in(legacy.clone(), Appearance::Light, Checkbox::new(Signal::new(false))),
+    [palette.get(PaletteColor::SurfaceInput)]
+  );
+  assert_eq!(
+    fills_in(legacy.clone(), Appearance::Dark, Checkbox::new(Signal::new(true))),
+    [palette.get(PaletteColor::Accent)]
+  );
+  assert_eq!(
+    fills_in(
+      legacy,
+      Appearance::Light,
+      Slider::new(Signal::new(5)).range(0, 10).width(100.0)
+    ),
+    [palette.get(PaletteColor::Border), palette.get(PaletteColor::Accent)]
+  );
+}
+
+#[test]
+fn an_apps_patch_reaches_the_slider_node() {
+  use lurq::{
+    app::{theme::ThemeDefinition, window::Appearance},
+    ui::SliderPart,
+  };
+  let mut definition = ThemeDefinition::neutral();
+  definition
+    .ui
+    .patch::<Slider>(|rules| rules.base(SliderPart::Thumb, |s| s.background(PaletteColor::Destructive)));
+  let destructive = definition.palette(Appearance::Light).get(PaletteColor::Destructive);
+  let track = definition.palette(Appearance::Light).get(PaletteColor::Border);
+  assert_eq!(
+    fills_in(
+      definition,
+      Appearance::Light,
+      Slider::new(Signal::new(5)).range(0, 10).width(100.0)
+    ),
+    [track, destructive]
+  );
+}

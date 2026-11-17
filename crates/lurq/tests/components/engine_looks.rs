@@ -341,3 +341,55 @@ fn the_engines_select_takes_its_colors_from_its_recipe() {
     role(&neutral(Appearance::Light), PaletteColor::Muted)
   );
 }
+
+/// The fill and the opacity a theme gives a part of the stack's shades, as the outlet reads them.
+#[cfg(feature = "router")]
+fn shade(theme: &Theme, part: lurq::components::StackPart) -> (Color, f32) {
+  use lurq::{
+    components::StackMotion,
+    node::BackgroundColor,
+    ui::{Case, Opacity},
+  };
+  let style = theme.resolve::<StackMotion>(&Case::new(), None).part(part).rest();
+  let color = match style.background.expect("a fill") {
+    BackgroundColor::Color(color) => color,
+    BackgroundColor::Palette(role) => theme.palette_color(role),
+    BackgroundColor::CurrentForeground => panic!("no fill of its own"),
+  };
+  let opacity = match style.opacity.expect("an opacity") {
+    Opacity::Value(value) => value,
+    Opacity::Level(level) => theme.opacities().try_get(level).expect("a level of the theme"),
+  };
+  (color, opacity)
+}
+
+#[cfg(feature = "router")]
+#[test]
+fn a_stacks_shades_are_the_scrim_light_and_dark() {
+  use lurq::components::StackPart;
+  for appearance in [Appearance::Light, Appearance::Dark] {
+    let theme = neutral(appearance);
+    let scrim = role(&theme, PaletteColor::Scrim);
+    assert_eq!(shade(&theme, StackPart::Shade), (scrim, 1.0), "{appearance:?}");
+    assert_eq!(shade(&theme, StackPart::MenuShade), (scrim, 1.0), "{appearance:?}");
+  }
+  assert_ne!(
+    role(&neutral(Appearance::Light), PaletteColor::Scrim),
+    role(&neutral(Appearance::Dark), PaletteColor::Scrim),
+    "the dark scrim is darker"
+  );
+}
+
+#[cfg(feature = "router")]
+#[test]
+fn the_legacy_theme_keeps_the_stacks_black_shades_of_0_62() {
+  use lurq::components::StackPart;
+  let theme = legacy(Appearance::Dark);
+  let black = Color::from_hex("#000000");
+  assert_eq!(
+    shade(&theme, StackPart::Shade),
+    (black, 1.0),
+    "at the move's dim, as 0.62"
+  );
+  assert_eq!(shade(&theme, StackPart::MenuShade), (black, 0.2));
+}

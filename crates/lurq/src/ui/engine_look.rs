@@ -22,7 +22,11 @@ pub(crate) struct EngineLook {
 impl EngineLook {
   /// The recipe of `C` in the theme of what is being built, with `states` on.
   pub(crate) fn of<C: Themed>(states: &[Name]) -> Self {
-    let theme = current_theme();
+    Self::in_theme::<C>(&current_theme(), states)
+  }
+
+  /// The recipe of `C` in `theme`, with `states` on: for what reads a theme outside a render, as layout does.
+  pub(crate) fn in_theme<C: Themed>(theme: &crate::app::theme::Theme, states: &[Name]) -> Self {
     let mut case = Case::new();
     for state in states {
       case = case.state(*state, true);
