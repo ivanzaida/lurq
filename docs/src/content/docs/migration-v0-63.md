@@ -16,6 +16,7 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
 - `MouseEvent::pointer`, which is `pointer_kind`: see [What Pressed](#what-pressed).
 - The Cargo features `svg`, `i18n` and `resources`, which are gone: see [Features](#features).
+- `WgpuExternalImageSlot::set_texture_view`, which returns a `Result`: see [Drawing With Your Own GPU Code](#drawing-with-your-own-gpu-code).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
 
@@ -38,6 +39,7 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
+- A `GpuViewport` with no size, the device the windows of an app draw with, and the DevTools window, which runs none of the app's frame extensions: see [Drawing With Your Own GPU Code](#drawing-with-your-own-gpu-code).
 
 **The quickest way to keep the 0.62 look**
 
@@ -803,6 +805,44 @@ The DevTools window is drawn in the design system's theme, light or dark with th
 
 `ComponentContextDebug` can no longer be written out: beside `kind` and `type_name` it has `reactive`, and what a provided context holds and how that changed, read with `value()` and `history()`. Code that built one takes it from a snapshot instead: `DevToolsNode::contexts`, of `DevToolsSnapshot::from_tree(&tree)`. See [Inspectable Contexts](../devtools/#inspectable-contexts).
 
+## Drawing With Your Own GPU Code
+
+### `set_texture_view` Returns A Result
+
+`WgpuExternalImageSlot::set_texture_view` checks the texture it is given and returns `Result<u64, WgpuTextureError>`, where it returned the slot's version. A texture lurq cannot sample (made without `TextureUsages::TEXTURE_BINDING`, not 2D, multisampled, or of an integer, depth or 32-bit float format) is refused, with a line in the log, and the slot keeps the view it had: it drew nothing before, and said nothing.
+
+```rust
+// 0.62
+self.slot.set_texture_view(view, width, height);
+
+// 0.63
+self.slot
+  .set_texture_view(view, width, height)
+  .expect("a 2D texture to be sampled, in a format lurq reads");
+```
+
+An sRGB and a linear format both show the colors they hold: see [The Texture](../gpu-viewport/#the-texture).
+
+### wgpu Comes From lurq
+
+`lurq::wgpu` is the wgpu lurq draws with. An app that pinned `wgpu = "=29.0.4"` to match lurq can drop the line and write `use lurq::wgpu;`; one that keeps it compiles as before, while the versions agree.
+
+### A Viewport With No Size
+
+A `GpuViewport` given no size is 300 by 150 logical pixels, as a `Canvas` is. It was one pixel square, so an app that gave it no size saw nothing; one given a width or a height alone keeps the other at the canvas's, where it took the square's shape. A viewport given both sides is as it was.
+
+### One Device For The Windows
+
+The `wgpu` engines of an app's windows share one device: an engine takes the device of another window's engine on its thread that was asked for with the same backends, features and limits. Each had a device of its own, so a view of one window's device was drawn in no other. Nothing is to be written for it. A window that must keep a device apart is made with `WgpuRenderEngine::new().with_own_device()`.
+
+The engine of lurq's DevTools window, which the factory makes too, no longer runs the app's frame extensions: they were initialized and prepared for it as for a window of the app's.
+
+### The Rest Of The GPU Changes
+
+- A wgpu call of the app's that wgpu finds invalid no longer ends the program: lurq logs it and tells the extension (`WgpuFrameExtension::error`). An app that counted on the panic reads the log or implements `error`.
+- lurq's `dx12` renderer leaves a `GpuViewport`'s box empty, where a frame with one in it failed whole.
+- `SharedWgpuContext` has a field of lurq's own and can no longer be written out field by field; an extension is given one, as before.
+
 ## Types That Gained A Variant Or A Field
 
 A `match` with no `_` arm must take a new variant. A struct written out field by field must add a new field, or end with the rest from a default.
@@ -841,3 +881,4 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `DevToolsProps` (`devtools`) | `system` | The inspected window's settings, `window.info().system` |
 | `ComponentValueChangeDebug` (`devtools`) | `sequence` | `sequence: 0` |
 | `PersistentStorageSnapshotEntry` | `fields` | `fields: Vec::new()` |
+| `AppEvent` | `GraphicsDeviceLost` | A `match` arm: the window's graphics device was lost, and lurq draws it with another |

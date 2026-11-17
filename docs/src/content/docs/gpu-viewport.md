@@ -14,7 +14,7 @@ Everything else about the box is lurq's: it is sized and placed by the layout, c
 faded and transformed like an image, and takes the pointer, the wheel, the keys and drags through the same
 handlers as any element.
 
-It draws with the `wgpu` renderer only. See [Where It Draws](#where-it-draws).
+It is drawn by the `wgpu` renderer. See [Where It Draws](#where-it-draws).
 
 ## The Pieces
 
@@ -25,7 +25,8 @@ It draws with the `wgpu` renderer only. See [Where It Draws](#where-it-draws).
 | `app::wgpu_render::WgpuFrameExtension` | The app's renderer: a trait whose methods lurq's wgpu renderer calls around each frame. |
 | `WgpuRenderEngine::with_frame_extension(ext)` | Gives the extension to the renderer, in the [render engine factory](../app-runtime/#render-engine-factory). |
 | `app::wgpu_render::SharedWgpuContext` | lurq's wgpu instance, adapter, device, queue and surface format, given to the extension. |
-| `WgpuFrameInfo::viewport(slot.image_id())` | Where the viewport is in the frame being drawn, in physical pixels. |
+| `WgpuFrameInfo` | The frame being prepared: where the viewport is (`viewport`, `visible_viewport`), the window's `scale_factor` and its surface's size. |
+| `lurq::wgpu` | wgpu itself, at the version lurq draws with. |
 
 An app writes:
 
@@ -36,18 +37,17 @@ An app writes:
    (`slot.set_texture_view(view, width, height)`), renders into it and submits on lurq's queue.
 3. The render engine factory, which makes a `WgpuRenderEngine` with an extension of its own each time it is
    called.
-4. A `GpuViewport::new(slot)` in the UI, with a size.
+4. A `GpuViewport::new(slot)` in the UI, sized as any box is.
 
 ## Dependencies
 
 `GpuViewport` needs the `wgpu` renderer and pictures (`image`, or `canvas`), which the default features have.
-lurq does not re-export wgpu: the app depends on it itself, at the version lurq uses, or its `wgpu::Device` is
-another crate's type and nothing compiles.
+lurq re-exports the wgpu it draws with as `lurq::wgpu`: the app writes `use lurq::wgpu;` and its `wgpu::Device` is
+lurq's, with no version of wgpu to keep in step in its own `Cargo.toml`.
 
 ```toml
 [dependencies]
-lurq = "0.62.0"
-wgpu = "=29.0.4"
+lurq = "0.63"
 ```
 
 ## A Complete Example
@@ -66,16 +66,18 @@ use lurq::{
     component::{Component, DevtoolsInspectable},
     ctx::Ctx,
     events::{DragEvent, MouseButtonMask},
-    wgpu_render::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuRenderEngine},
+    wgpu_render::{SharedWgpuContext, WgpuAppError, WgpuFrameExtension, WgpuFrameInfo, WgpuRenderEngine},
     winit_shell::WinitWindow,
   },
   components::{Column, GpuViewport, Text},
   core::Signal,
   images::WgpuExternalImageSlot,
   node::Element,
+  wgpu,
 };
 
-/// lurq samples the texture as sRGB-encoded color, as it does its own pictures.
+/// The texture's format: the card encodes what the shader writes as a picture's colors are, and decodes it as lurq
+/// samples it. A linear format (`Rgba8Unorm`, `Rgba16Float`) would show the same colors.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 const SHADER: &str = r#"
@@ -218,11 +220,13 @@ impl WgpuFrameExtension for Triangle {
           usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
           view_formats: &[],
         });
-        // The viewport shows this texture from now on, without a copy.
+        // The viewport shows this texture from now on, without a copy. The slot refuses a texture lurq cannot
+        // sample, which this is not.
         self
           .scene
           .slot
-          .set_texture_view(texture.create_view(&Default::default()), width, height);
+          .set_texture_view(texture.create_view(&Default::default()), width, height)
+          .expect("a 2D texture to be sampled, in a format lurq reads");
         made.texture.insert(texture)
       }
     };
@@ -260,6 +264,11 @@ impl WgpuFrameExtension for Triangle {
     // Submitted before lurq's own pass, on the same queue: this frame shows it.
     gpu.queue.submit([encoder.finish()]);
     made.drawn = Some((width, height, angle));
+  }
+
+  fn error(&mut self, error: &WgpuAppError) {
+    // A wgpu call of this extension failed, which ends nothing: lurq has logged it, and what failed draws nothing.
+    eprintln!("the triangle's renderer: {error}");
   }
 
   fn device_lost(&mut self) {
@@ -331,7 +340,7 @@ before the root component exists. They reach the component as its props.
 
 ## The Frame, Step By Step
 
-`WgpuFrameExtension` has five methods, all with empty defaults:
+`WgpuFrameExtension` has six methods, all with empty defaults:
 
 - **`initialize(&mut self, gpu)`** runs once for each engine, at its first frame, after lurq has made its device
   and before the first `prepare`. Make pipelines, buffers and samplers here, with `gpu.device`. Never make an
@@ -339,10 +348,11 @@ before the root component exists. They reach the component as its props.
 - **`prepare(&mut self, gpu, frame)`** runs before every frame the window draws, before lurq encodes its UI pass.
   `frame.viewport(slot.image_id())` is where the viewport is in this frame (`WgpuViewportRect`, in physical
   pixels), or `None` when the frame does not show it. Render into the texture, then `gpu.queue.submit(..)`: the
-  work goes on the queue before lurq's own, so the frame that is being drawn shows it.
-  `frame.surface_width` and `frame.surface_height` are the window surface's size in pixels.
+  work goes on the queue before lurq's own, so the frame that is being drawn shows it. The frame also says the
+  window's `scale_factor` and its surface's size, `surface_width` and `surface_height`, in pixels.
 - **`wants_redraw(&self)`** keeps the window drawing frames while it returns `true`. See
   [When lurq Draws](#when-lurq-draws).
+- **`error(&mut self, error)`** is told of a wgpu call of the app's that failed. See [Errors](#errors).
 - **`device_lost(&mut self)`** says that the device the extension was given is lost. See
   [A Lost Device](#a-lost-device).
 - **`shutdown(&mut self)`** runs when the engine is dropped: its window closed, the app ended, or its device
@@ -351,19 +361,29 @@ before the root component exists. They reach the component as its props.
 The slot is told about a texture with `slot.set_texture_view(view, width, height)`, once for each texture, not
 once for each frame: what is rendered into the texture later is shown without telling the slot again. The slot
 holds the view, and so the texture, until another view is given or `slot.clear()` empties it; an empty slot
-draws nothing, and what is under the viewport shows through. `set_texture_view` and `clear` return the slot's
-version, which `slot.version()` also reads.
+draws nothing, and what is under the viewport shows through. `set_texture_view` returns the slot's version, or
+an error for a texture lurq cannot sample (see [The Texture](#the-texture)); `clear` returns the version too, and
+`slot.version()` reads it.
 
 ## The Texture
 
-- **Made with `gpu.device`**, a 2D texture with `TEXTURE_BINDING` in its usage, and whatever else the app
-  draws with: `RENDER_ATTACHMENT` for a render pass, `COPY_DST` for `queue.write_texture`, `STORAGE_BINDING`
-  for a compute shader.
-- **Its format is sampled as filterable floats.** Use `Rgba8UnormSrgb`, the format of lurq's own pictures:
-  lurq reads the texture as linear color and encodes it for the window, so an sRGB format shows the colors the
-  shader wrote. `Rgba8Unorm` would be taken for linear values and look washed out. A float format
-  (`Rgba16Float`) works too, clamped to 0 to 1. Integer and depth formats cannot be sampled by lurq's image
-  shader.
+- **Made with `gpu.device`**, a 2D texture of one sample with `TEXTURE_BINDING` in its usage, and whatever else
+  the app draws with: `RENDER_ATTACHMENT` for a render pass, `COPY_DST` for `queue.write_texture`,
+  `STORAGE_BINDING` for a compute shader. A multisampled scene is resolved into a texture of one sample, which
+  the slot is given.
+- **Its format is one lurq reads as filtered color**, and each such format shows the colors it holds:
+  - An sRGB format (`Rgba8UnormSrgb`, `Bgra8UnormSrgb`) holds color encoded as a picture's is. A shader that
+    writes into it writes linear color, which the card encodes; bytes written with `queue.write_texture` are a
+    picture's bytes. lurq's own pictures are `Rgba8UnormSrgb`.
+  - A linear format (`Rgba8Unorm`, `Bgra8Unorm`, `Rgb10a2Unorm`, `Rgba16Float`, `R8Unorm`) holds linear color,
+    which is what a shader writes into it. A linear format of 8 bits keeps less of the dark tones than an sRGB
+    one; `Rgba16Float` keeps them, clamped to 0 to 1. Bytes encoded as a picture's (a frame of a video, a file)
+    are written into an sRGB texture, or into a texture made with `view_formats: &[Rgba8UnormSrgb]` and given
+    as a view of that format.
+- **A texture lurq cannot sample is refused.** `set_texture_view` returns `Err(WgpuTextureError)` and says so in
+  the log, and the slot keeps the view it had: `NotSampled` (no `TEXTURE_BINDING`), `NotTwoDimensional`,
+  `Multisampled`, and `Format` for an integer, depth or stencil format, or one of 32-bit floats, which lurq
+  does not filter (`Rgba16Float` is filtered).
 - **Its alpha is straight**, not premultiplied, and the viewport is blended over what is under it. An opaque
   scene writes an alpha of 1.
 - **It fills the viewport's box**, stretched if it is another size, with filtering. A texture of the
@@ -371,18 +391,22 @@ version, which `slot.version()` also reads.
 
 ## Size And The Scale Factor
 
-A `GpuViewport` is laid out as any box is: `.size(..)`, `.width(..)` and `.height(..)`, percentages, flex.
-Give it a size: on its own it is one logical pixel square.
+A `GpuViewport` is laid out as any box is: `.size(..)`, `.width(..)` and `.height(..)`, percentages, flex. Given
+no size it is 300 by 150 logical pixels, as a [`Canvas`](../canvas/) is and as a browser's `<canvas>` is; given
+one side, the other is still the canvas's, since there is no picture whose shape it keeps. A viewport that fills
+what holds it is `.size(Dimension::Pct(100.0), Dimension::Pct(100.0))`, or `.flex(1.0)` in a column or a row.
 
 Layout and events are in logical pixels; `frame.viewport(..)` is in the physical pixels of the window's surface,
-counted from its top left corner. At a scale of 150% a viewport of 480 by 270 is a rectangle of 720 by 405, and
-its corners may fall between pixels, which is why the example rounds the size. The scale factor is not part of
-`WgpuFrameInfo`; where the app needs it (to draw a line one point wide), it divides the rectangle's width by the
-element's logical width, which `ElementRef::rect()` gives after layout.
+counted from its top left corner. `frame.scale_factor` is how many of those make a logical pixel: at 150% a
+viewport of 480 by 270 is a rectangle of 720 by 405, and its corners may fall between pixels, which is why the
+example rounds the size. A line one logical pixel wide is `frame.scale_factor` pixels of the texture.
 
-The rectangle is the whole box, before clipping: a viewport scrolled half out of its container still gives
-its whole size, and lurq clips it as it samples. Rounded corners (`.rounded(..)`), `.opacity(..)`, the clips of
-its parents and transforms apply to it as to an image.
+`frame.viewport(..)` is the whole box, before its transform and whatever clips it: a viewport scrolled half out
+of its container still gives its whole size, and lurq clips it as it samples, under its rounded corners
+(`.rounded(..)`), `.opacity(..)`, its parents' clips and transforms, as an image's. `frame.visible_viewport(..)`
+is the part of it that is shown: the box moved by its transform, cut by the clips of its parents and by the
+window's edges, or `None` when none of it is. A renderer that is expensive per pixel draws that part alone,
+with a scissor rectangle or a smaller viewport of its pass; the texture is still mapped to the whole box.
 
 **Resizing.** When the window or the layout changes the viewport's size, the next frame's `prepare` sees the
 new rectangle before the UI pass, so the app can make a texture of the new size and give its view in time for
@@ -440,10 +464,25 @@ one of the device drawing at that moment.
 
 ## Errors
 
+A wgpu call of the app's that wgpu finds invalid (a texture of no pixels, a write past a buffer's end, a shader
+that does not compile) ends nothing. lurq says what failed in the log and tells the extension, with a
+`WgpuAppError`: its `kind` (`wgpu::ErrorFilter::Validation`, `OutOfMemory` or `Internal`) and wgpu's `message`,
+which is for a log and not for a person. What failed does nothing: an invalid pipeline or texture draws
+nothing, and the app may make it again.
+
+- What `initialize`, `prepare`, `device_lost` and `shutdown` cause is told to that extension's `error`, right
+  after the call that caused it.
+- What the app causes elsewhere, outside an error scope of its own (a thread of its own, a handler of the UI), is
+  told to the extensions of the next window that draws with the device, before its next `prepare`.
+
+An app that wants an answer at once, a shader the user wrote for one, wraps the call in
+`gpu.device.push_error_scope(..)` and reads what its scope returns, as wgpu has it.
+
 lurq watches the device with wgpu's device-lost callback and its handler of uncaptured errors. Do not set
-either: yours would replace lurq's. A validation error that the app's wgpu calls cause outside an error scope
-ends the program, as one of lurq's own would. Wrap what can fail, a shader the user wrote for one, in
-`gpu.device.push_error_scope(..)` and check what its scope returns.
+either: yours would replace lurq's. An error of lurq's own drawing is a fault of lurq's, and ends the program.
+
+In a browser, the browser tells an error later, out of the call that made it: there the extension's own calls are
+told apart as on a desktop, and an error the app makes outside them ends the program as one of lurq's does.
 
 ## A Lost Device
 
@@ -456,15 +495,18 @@ the UI thread, before its next frame:
    card may give no new device in its place.
 2. empties the slots that held views of the lost device. The viewport draws nothing until a view of the new
    device is given.
-3. calls `shutdown` and lets go of the engine.
-4. asks the render engine factory for a new engine, with an extension of its own, and draws the window again.
-   The new extension's `initialize` gets the new device, and its first `prepare` makes the texture again and
-   gives the slot its view.
+3. calls `shutdown` and lets go of the engine, and of the engines of the app's other windows, which drew with
+   the same device.
+4. asks the render engine factory for a new engine for each window, with an extension of its own, and draws
+   the windows again. The new extension's `initialize` gets the new device, and its first `prepare` makes the
+   texture again and gives the slot its view.
+5. tells each window's handler of the app's events, `ctx.window().on_app_event(..)`, with
+   `AppEvent::GraphicsDeviceLost`. A part of the app that keeps something of the device outside an extension
+   lets go of it there, and makes it again with the device the new extensions are given.
 
 So the app does not mend the old extension: it makes the extension in the factory, as the example does, and
-keeps what must outlive the device (the scene, the camera, the angle) outside it. The engines of the app's
-other windows are replaced with it. An app that gives its engines a `WgpuDevice` gets a new device from it after
-a loss on a desktop; in a browser it is not made again.
+keeps what must outlive the device (the scene, the camera, the angle) outside it. An app that gives its engines a
+`WgpuDevice` gets a new device from it after a loss on a desktop; in a browser it is not made again.
 
 ## Where It Draws
 
@@ -472,17 +514,32 @@ a loss on a desktop; in a browser it is not made again.
 | --- | --- |
 | `wgpu` on a desktop (Direct3D 12, Vulkan or Metal, as wgpu picks) | Drawn. This is what the example and the gallery use. |
 | `wgpu` in a browser (WebGPU, or WebGL2 with the `webgl` feature) | Drawn by the same code path. The extension keeps to the device's limits: no storage buffers and no compute on WebGL2, and a shader that branches before a derivative needs `diagnostic(off, derivative_uniformity);` ([Web](../web/#webgpu-and-webgl), [Shaders](../web/#shaders)). The gallery's browser build has no extension, so its page shows an empty slot there. |
-| `dx12`, lurq's own Direct3D 12 renderer | Not drawn. It cannot sample a wgpu texture, and a frame with a `GpuViewport` in it fails with an error in the log. Do not show one under that renderer. |
+| `dx12`, lurq's own Direct3D 12 renderer | Its box is left empty, what is under it showing through, and the rest of the window is drawn; the log says once that this renderer draws no viewport. It has no extensions, and a wgpu texture is not its device's. An app that draws its own GPU code takes the `wgpu` renderer. |
 
 `GpuViewport` and `WgpuExternalImageSlot` exist only in a build with the `wgpu` feature, and the viewport with
 pictures (`image` or `canvas`) as well.
 
-**Several windows.** The factory makes an engine for every window, DevTools included, and each calls
-`initialize` on an extension of its own. An engine made without a shared `WgpuDevice` has a device of its own,
-and a view is drawn only by the engine of the device it was made with. A viewport shown in one window works
-as the example does, since only that window's extension finds it in `prepare`; one slot shown in two windows at
-once does not. An extension that wants nothing made for windows that never show its viewport makes its
-pipelines in the first `prepare` that finds the viewport instead of in `initialize`.
+## Several Windows
+
+The `wgpu` engines of an app's windows draw with one device. An engine made without a device of its own takes
+the device of another window's engine on its thread, asked for among the same backends with the same optional
+features and limits, while one draws; the first window's engine asks for it. So:
+
+- **One slot can be shown in several windows.** Each viewport draws the slot's one view, stretched to its own
+  box. Each window's engine has an extension of its own, made by the factory, and each is called with the
+  frames of its own window: an app that shows one slot in two windows renders it in one of them (the one whose
+  `prepare` finds the viewport first, or the larger), or keeps the texture in a value both extensions share,
+  so that the second finds it made and draws nothing again.
+- **`initialize` runs for each window of the app**, each with the same device. An extension that wants nothing
+  made for a window that never shows its viewport makes its pipelines in the first `prepare` that finds the
+  viewport instead.
+- **lurq's DevTools window runs none of the app's extensions.** Its engine is made by the same factory, and
+  lets go of the extensions it was given before its first frame.
+- **A window can keep a device of its own**: `WgpuRenderEngine::new().with_own_device()`, for a window that must
+  not wait on the others' work. A view of the shared device is not drawn there.
+
+An app that gives its engines a `WgpuDevice` (`with_device`, as a browser app does) shares that device among
+them, as before.
 
 ## Performance
 
@@ -490,8 +547,9 @@ pipelines in the first `prepare` that finds the viewport instead of in `initiali
   pass through the CPU and are never copied on the GPU; the cost is one textured quad.
 - **No work for frames that change nothing.** Skip rendering in `prepare` when the picture's inputs did not
   change. A window that is idle draws no frames, and `prepare` does not run.
-- **A size in pixels.** A texture of the rectangle's size renders no more pixels than are shown. A scene that
-  is expensive per pixel may render at a lower resolution and let lurq scale it, as the gallery does.
+- **A size in pixels.** A texture of the rectangle's size renders no more pixels than are shown, and
+  `visible_viewport` is the part of them that is seen. A scene that is expensive per pixel may render at a lower
+  resolution and let lurq scale it, as the gallery does.
 - **`wants_redraw` costs a frame per refresh** for the whole window, not only the viewport. Turn it off when
   the scene is still.
 
