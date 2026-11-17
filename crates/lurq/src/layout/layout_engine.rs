@@ -952,6 +952,16 @@ impl LayoutEngine {
     self.native_text_selection.set(native);
   }
 
+  /// The theme's colors, as the frame is painted with them.
+  pub(crate) fn palette(&self) -> std::cell::Ref<'_, crate::app::theme::ThemePalette> {
+    self.palette.borrow()
+  }
+
+  /// Whether the platform draws the focused input's caret and its handles; see `set_native_text_selection`.
+  pub(crate) fn native_text_selection(&self) -> bool {
+    self.native_text_selection.get()
+  }
+
   /// The rectangles the platform shows the focused input's selection as, in the window. While the
   /// platform draws the caret the input paints its highlight over these and not over its own selection: a
   /// handle being dragged moves the platform's selection, and the input's only when it is let go.

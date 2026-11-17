@@ -2436,6 +2436,11 @@ impl Ctx {
 
   /// Current window geometry/state plus platform window commands.
   /// Reading this subscribes the component to window resize/move/scale changes.
+  /// The window of the tree being rendered, untracked; `None` where none is set.
+  pub(crate) fn window_untracked(&self) -> Option<&crate::app::window::Window> {
+    self.window.as_ref()
+  }
+
   pub fn window(&self) -> crate::app::window::WindowHandle {
     let window = self.window.as_ref().expect("window not set");
     window.track_access();

@@ -44,10 +44,10 @@ pub mod events;
 )]
 pub(crate) mod frame_capture;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
-mod gradient_readback_tests;
-#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod glyph_batch_readback_tests;
 pub(crate) mod glyph_engine;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod gradient_readback_tests;
 pub(crate) mod hit_test;
 #[cfg(feature = "i18n")]
 pub mod i18n;
@@ -77,10 +77,10 @@ pub(crate) mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
 pub mod window;
-#[cfg(feature = "winit")]
-pub mod winit_shell;
 #[cfg(all(feature = "winit", windows))]
 mod window_control_hits;
+#[cfg(feature = "winit")]
+pub mod winit_shell;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
 pub use pointer::Pointer;
@@ -92,10 +92,12 @@ pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers
 #[cfg(feature = "screenshot")]
 pub use window::ScreenshotRegion;
 pub use window::{
-  CloseRequest, CloseRequestSource, Window, WindowBorderColor, WindowCornerRadius, WindowHandle, WindowIcon,
-  WindowInfo, WindowResizeDirection,
+  CloseRequest, CloseRequestSource, EditMenuRequest, Window, WindowBorderColor, WindowCornerRadius, WindowHandle,
+  WindowIcon, WindowInfo, WindowResizeDirection,
 };
 
+mod device;
+pub use device::Device;
 pub mod menu;
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
 #[cfg(all(feature = "winit", target_os = "macos"))]

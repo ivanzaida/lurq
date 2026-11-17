@@ -164,6 +164,8 @@ pub(crate) struct AppShared {
   pub(crate) locale: crate::core::AppLocale,
   /// What the person points with: [`App::pointer`].
   pub(crate) pointer: super::pointer::AppPointer,
+  /// The phone or tablet the app is run as on a desktop: [`App::emulate`].
+  pub(crate) emulated: Mutex<Option<super::Device>>,
   pub(crate) window_opener: WindowOpener,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
@@ -198,6 +200,7 @@ impl App {
         dates: crate::core::AppDateText::new(),
         locale: crate::core::AppLocale::new(),
         pointer: super::pointer::AppPointer::new(),
+        emulated: Mutex::new(None),
         window_opener: WindowOpener::default(),
         #[cfg(feature = "i18n")]
         i18n: I18n::new(),
@@ -323,6 +326,39 @@ impl App {
   /// ```
   pub fn set_pointer(&self, pointer: super::Pointer) {
     self.shared.pointer.tell(pointer, true);
+  }
+
+  /// Runs the app on a desktop as it would be on `device`, a phone or a tablet, to try its touch forms and its
+  /// gestures: the window takes the device's logical size, the device's safe area reaches what reads it
+  /// ([`Ctx::safe_area`](super::ctx::Ctx::safe_area)), the pointer is pinned [`Coarse`](super::Pointer::Coarse),
+  /// and the mouse is fingers. Called before the app's window opens; `LURQ_DEVICE=phone` (or `tablet`) in the
+  /// environment does the same for any app that did not call it.
+  ///
+  /// The mouse reaches the app only as fingers, through the same path a touch screen's take, so an app tries on a
+  /// desktop the handlers it writes once: a click is a tap (`on_tap`, then `on_click`), a double click a double
+  /// tap, a drag a pan, a swipe or a scroll with its momentum, a drag from an edge of the window an edge pan, a
+  /// press held still a long press. **Alt** and a drag is a pinch and a rotation, the second finger mirrored about
+  /// where the drag began; **Alt+Shift** and a drag two fingers side by side; **Alt+Shift+Ctrl** and a drag three
+  /// fingers side by side. The fingers are drawn while a modifier is held. A finger hovers nothing, so nothing
+  /// shows its hovered style; the wheel still scrolls and the keyboard types.
+  ///
+  /// ```
+  /// use lurq::app::{App, Device, Pointer};
+  ///
+  /// let app = App::new();
+  /// app.emulate(Device::phone());
+  /// assert_eq!(app.pointer(), Pointer::Coarse);
+  /// assert_eq!(app.emulated(), Some(Device::phone()));
+  /// ```
+  pub fn emulate(&self, device: super::Device) {
+    self.set_pointer(super::Pointer::Coarse);
+    *self.shared.emulated.lock() = Some(device);
+  }
+
+  /// The phone or tablet the app is run as ([`emulate`](Self::emulate)), if any. `LURQ_DEVICE` is read when the
+  /// window opens, and is not here before.
+  pub fn emulated(&self) -> Option<super::Device> {
+    self.shared.emulated.lock().clone()
   }
 
   /// Whether the last input moves the pointer: on unless told. `false` keeps it where it is; `true` follows input
