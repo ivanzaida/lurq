@@ -81,11 +81,24 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
         // What is only heard has no frames to keep anywhere.
         let mut card = if heard { None } else { OnCard::new() };
         let mut before = None;
+        // When it was last opened again for a card that was reset.
+        let mut reset: Option<Instant> = None;
         loop {
+          let device = card.as_ref().map(OnCard::watch);
           match play(shared, opened.clone(), heard, card.take(), before.take()) {
             Ok(Next::Done) => break,
             // Something draws on a card now: it is opened again with that card's device, where it was.
             Ok(Next::Again(found, shown)) => (card, before) = (Some(found), Some(shown)),
+            // The card it decoded on was reset (a driver that hung or was updated), and its device and the
+            // textures of its frames went with it: it is opened again where it was, on a device made anew,
+            // or through memory where nothing draws on a card now. Once: what fails again at once fails.
+            Err(_)
+              if device.is_some_and(|device| device.removed()) && reset.is_none_or(|at| at.elapsed() > RESET_AGAIN) =>
+            {
+              reset = Some(Instant::now());
+              card = OnCard::new();
+              before = Some(None);
+            }
             Err(error) => {
               shared.fail(failed(&error));
               break;
@@ -291,6 +304,27 @@ const FRAMES: usize = 3;
 /// How long a copy on the card is waited for before its frame is shown all the same.
 const COPIED_WITHIN: Duration = Duration::from_millis(100);
 
+/// A media that fails again this soon after it was opened again for a card that was reset fails.
+const RESET_AGAIN: Duration = Duration::from_secs(2);
+
+/// Has the next frame a media shows on a card find its device removed, as a card that is reset removes it:
+/// a device of Direct3D 11 cannot be removed by a test, and the way from there is the one a real loss takes.
+#[cfg(test)]
+pub(super) static LOSE_CARD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Tells whether the device a media decodes on was removed, after the media let go of it.
+struct Watch {
+  device: ID3D11Device,
+  gone: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Watch {
+  fn removed(&self) -> bool {
+    // SAFETY: the device is asked a question.
+    self.gone.load(std::sync::atomic::Ordering::Acquire) || unsafe { self.device.GetDeviceRemovedReason() }.is_err()
+  }
+}
+
 /// What decodes on the graphics card the renderer draws on: the device the system's decoder is given, and the
 /// textures its frames are copied into, which the renderer opens by their handles.
 struct OnCard {
@@ -300,6 +334,8 @@ struct OnCard {
   /// What tells when the card has done what it was told: a copy is finished before its frame is shown.
   done: ID3D11Query,
   held: Option<Held>,
+  /// Whether the device was found removed.
+  gone: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// The textures of a video's frames, of one size, and the frames an image draws from.
@@ -359,8 +395,35 @@ impl OnCard {
         manager,
         done: done?,
         held: None,
+        gone: Arc::default(),
       })
     }
+  }
+
+  /// What tells, after this is let go of, whether its device was removed.
+  fn watch(&self) -> Watch {
+    Watch {
+      device: self.device.clone(),
+      gone: self.gone.clone(),
+    }
+  }
+
+  /// An error where the device was removed: a copy on such a device does nothing and says nothing, and the
+  /// frame before it would stay for ever.
+  unsafe fn alive(&self) -> Result<()> {
+    #[cfg(test)]
+    if LOSE_CARD.swap(false, std::sync::atomic::Ordering::AcqRel) {
+      self.gone.store(true, std::sync::atomic::Ordering::Release);
+    }
+    if self.gone.load(std::sync::atomic::Ordering::Acquire) {
+      return Err(windows::Win32::Graphics::Dxgi::DXGI_ERROR_DEVICE_REMOVED.into());
+    }
+    // SAFETY: the device is asked a question.
+    let asked = unsafe { self.device.GetDeviceRemovedReason() };
+    if asked.is_err() {
+      self.gone.store(true, std::sync::atomic::Ordering::Release);
+    }
+    asked
   }
 
   /// The textures of frames `width` by `height`, each shared by a handle.
@@ -427,6 +490,7 @@ impl OnCard {
   /// anew (the first frame, another size), and an image is to be made of them.
   unsafe fn show(&mut self, sample: &IMFSample, shape: &Shape) -> Result<Option<Option<CardFrames>>> {
     unsafe {
+      self.alive()?;
       let Ok(buffer) = sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>() else {
         return Ok(None);
       };

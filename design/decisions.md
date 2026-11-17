@@ -4,45 +4,12 @@ What was decided about lurq, by whom and why, newest first. A decision is writte
 the work on it starts, so that the work, its review and a later session read the same thing. The design system's
 first decisions (D1–D13: where components live, palette roles, recipes, breakpoints) are in
 [design-system-plan.md](design-system-plan.md#3-decisions) and are not repeated; a decision here that changes one of
-them says so.
+them says so. Decisions about phones and tablets are in [mobile-decisions.md](mobile-decisions.md).
 
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
 ## 2026-11-17
-
-### Phone emulation on a desktop
-
-- **Question.** How does a person on a PC run a lurq app as it would be on a phone, to try its touch forms and
-  gestures?
-- **Proposed, not yet decided.** One switch for any app, `LURQ_DEVICE=phone` (and `App::emulate(Device::phone())`,
-  `--device phone` in the gallery): the pointer is `Coarse`, the mouse is fingers (a click a tap, a drag a pan and a
-  swipe, a drag from an edge an edge pan, a held press a long press, Alt+drag a pinch and a rotation mirrored about
-  where it began, Alt+Shift+drag two fingers side by side), the fingers are drawn while Alt is held, the window is
-  390×844 with a safe area. MCP gets touch actions (tap, swipe, long press, pinch, rotate) through `Tree::touch_event`,
-  so agents test gestures without real input. A Device panel in DevTools later, on `feat/devtools`.
-- **Why.** The engine already recognizes every gesture from touch events (`app/runtime/touch_pointer.rs`); on a
-  desktop nothing feeds it. A `Coarse` pointer without the mouse acting as a finger shows the phone's forms but none
-  of their gestures work.
-- **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
-- **State.** Waiting for Ivan's go; to follow the Pointer work on `claude/touch-form`.
-
-### The pointer, not the density, decides a component's phone form
-
-- **Question.** What makes a component take its touch form (swipes, dots for arrows, the phone's chrome of a
-  lightbox or a picture)? Lightbox took it from a window narrower than `Sm`, Picture from `Density::Touch`.
-- **Decision (Ivan).** A signal of its own, `lurq::app::Pointer { Fine, Coarse }`, read by one function,
-  `ui::touch_form()`. It starts from the platform (iOS and Android `Coarse`, a desktop `Fine`, a browser by
-  `pointer: coarse`), follows the last input by default (a touch makes it `Coarse`, a mouse `Fine`; an open lightbox
-  keeps its form until it closes), and `App::set_pointer` pins it, `App::follow_pointer(false)` stops the following.
-  An explicit `variant(..)` or `touch(bool)` on a component wins. **Density is about sizes only** and starts at
-  `Default` on every platform. The window's width decides only a component's narrow layout.
-- **Why.** Density decided two things that part: an iPad with a trackpad, a laptop with a touch screen, a dense
-  phone app that wants `Compact` rows and still its swipes. Deciding the form by density, a phone app could not pick
-  another density.
-- **Replaces.** The first idea of the same day: `Density::Touch` decides the form and is the default on phones (a WIP
-  commit `8e653322` on `claude/touch-form`).
-- **State.** In work on `claude/touch-form`.
 
 ### Link Preview works from the link alone; every field overrides
 

@@ -5,6 +5,10 @@
 // And the frames of a decoder that is not lurq's: a Direct3D 11 device of this test's stands for one. It keeps
 // textures of each kind, writes them, signals its fence, and is given each texture back once the card has
 // finished with it.
+//
+// And the frames of a decoder on another card than the one that draws: they are copied through memory. The copy
+// is run on one card, which every machine has, and then with the system's card of software as the one that
+// draws, which opens nothing of the real card's.
 
 use std::{
   sync::{
@@ -37,14 +41,18 @@ use windows::{
   core::{Interface, PCWSTR},
 };
 
-use super::card_frames;
+use super::{card_copies, card_frames};
 use crate::{
   images::{
-    CardCrop, CardFrame, CardFrames, CardSurface, ImageData, ImagePixelFormat, NativeImageBackend, NativeImageData,
+    CardCrop, CardFrame, CardFrames, CardFramesWay, CardSurface, ImageData, ImagePixelFormat, NativeImageBackend,
+    NativeImageData,
   },
   media::Media,
   resources::{Loader, Source},
 };
+
+/// The tests of a media on the card run one at a time: which card draws is said once for the whole program.
+static ON_THE_CARD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 fn clip() -> std::path::PathBuf {
   std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4")
@@ -293,6 +301,7 @@ fn a_frame_decoded_and_drawn_on_the_card_is_the_frame_memory_gives() {
     eprintln!("skipped: this card has no Direct3D 12 device with NV12 textures");
     return;
   };
+  let _alone = ON_THE_CARD.lock();
   // Nothing draws on a card yet: the frame goes through memory, as it always did.
   crate::images::set_card_frames_adapter(None);
   let early = opened();
@@ -573,14 +582,20 @@ fn opened_frames(
     label: None,
     entries: &[],
   });
-  card_frames::Opened::open(device, frames, picture, leases, |_, _| {
+  let mut readers = card_copies::Readers::default();
+  let opened = card_frames::Opened::open(device, frames, picture, leases, &mut readers, |_, _| {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
       label: None,
       layout: &layout,
       entries: &[],
     })
-  })
-  .expect("the renderer's device opens the decoder's surfaces")
+  });
+  assert_eq!(
+    frames.way(),
+    Some(CardFramesWay::Card),
+    "the renderer's device opens the decoder's surfaces"
+  );
+  opened
 }
 
 const WIDE: u32 = 256;
@@ -635,7 +650,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   };
 
   // Nothing was shown: nothing is drawn.
-  opened.pick();
+  opened.pick(&queue);
   assert!(opened.drawn().is_none());
 
   // The first frame: written, and shown with the value its fence has once it is.
@@ -644,7 +659,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   frames.show(CardFrame::of(0).ready_at(ready).lease(first));
   assert!(
     comes(&device, || {
-      opened.pick();
+      opened.pick(&queue);
       opened.drawn().is_some()
     }),
     "the first frame is never drawn"
@@ -656,7 +671,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   let (second, second_returned) = lease();
   frames.show(CardFrame::of(1).ready_at(ready + 1).lease(second));
   for _ in 0..20 {
-    opened.pick();
+    opened.pick(&queue);
     std::thread::sleep(Duration::from_millis(5));
   }
   assert_eq!(
@@ -669,7 +684,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   assert_eq!(write(&mut decoder, 1, 200, 90), ready + 1);
   assert!(
     comes(&device, || {
-      opened.pick();
+      opened.pick(&queue);
       opened.drawn().is_some_and(|(surface, _)| surface == 1)
     }),
     "the second frame is never drawn"
@@ -707,7 +722,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   decoder.signal();
   decoder.signal();
   frames.show(CardFrame::of(0).crop(crop).lease(cropped));
-  opened.pick();
+  opened.pick(&queue);
   assert_eq!(opened.drawn().map(|(surface, _)| surface), Some(0));
   let (from, to) = opened.part([0.5, 0.0], [1.0, 1.0]);
   let (left, right) = (17.0 / 256.0, 143.0 / 256.0);
@@ -734,7 +749,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   let frames = unsafe { CardFrames::new(vec![CardSurface::Nv12(handle)]) };
   frames.show(CardFrame::of(0));
   let mut opened = opened_frames(&device, &frames, (WIDE, HIGH), &leases);
-  opened.pick();
+  opened.pick(&queue);
   let (_, slot) = opened.drawn().expect("the NV12 frame is drawn");
   let pixels = drawn(&device, &queue, &slot.textures()[0], WIDE, HIGH);
   assert!(
@@ -755,7 +770,7 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
   assert_eq!(image.format(), ImagePixelFormat::Rgba8);
   frames.show(CardFrame::of(0));
   let mut opened = opened_frames(&device, &frames, (WIDE, HIGH), &leases);
-  opened.pick();
+  opened.pick(&queue);
   assert!(opened.is_rgba());
   let (_, slot) = opened.drawn().expect("the frame of red, green and blue is drawn");
   assert!(slot.second.is_none());
@@ -765,4 +780,388 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
     "the red, green and blue of the frame: {:?}",
     &pixels[..4]
   );
+}
+
+/// A device on the system's card of software, which every Windows has beside its real ones; `None` where wgpu
+/// makes none on it.
+fn software_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+  let instance = wgpu::Instance::new(super::instance_descriptor(wgpu::Backends::DX12));
+  let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+    force_fallback_adapter: true,
+    ..Default::default()
+  }))
+  .ok()?;
+  pollster::block_on(adapter.request_device(&super::device_descriptor(
+    &adapter,
+    wgpu::Features::empty(),
+    &wgpu::Limits::default(),
+  )))
+  .ok()
+}
+
+/// The card `device` is on.
+fn card_of(device: &wgpu::Device) -> (u32, i32) {
+  // SAFETY: the card of wgpu's device is read.
+  let card = unsafe {
+    device
+      .as_hal::<wgpu::hal::api::Dx12>()
+      .expect("a device of Direct3D 12")
+      .raw_device()
+      .GetAdapterLuid()
+  };
+  (card.LowPart, card.HighPart)
+}
+
+/// The frames opened to be copied through memory though `device` could open them itself, bound to nothing.
+fn copied_frames(
+  device: &wgpu::Device,
+  frames: &CardFrames,
+  picture: (u32, u32),
+  leases: &card_frames::Leases,
+  readers: &mut card_copies::Readers,
+) -> card_frames::Opened {
+  let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[],
+  });
+  card_frames::Opened::through_memory(device, frames, picture, leases, readers, |_, _| {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: None,
+      layout: &layout,
+      entries: &[],
+    })
+  })
+}
+
+/// The least and the greatest byte of the gray that is drawn, and of the color.
+fn drawn_grays(
+  device: &wgpu::Device,
+  queue: &wgpu::Queue,
+  opened: &card_frames::Opened,
+) -> Option<((u8, u8), (u8, u8))> {
+  let (_, slot) = opened.drawn()?;
+  let (gray, color) = (
+    read(device, queue, &slot.textures()[0], 1),
+    read(device, queue, &slot.textures()[1], 2),
+  );
+  Some((
+    (*gray.iter().min().unwrap(), *gray.iter().max().unwrap()),
+    (*color.iter().min().unwrap(), *color.iter().max().unwrap()),
+  ))
+}
+
+#[test]
+fn the_frames_of_a_decoder_on_another_card_come_through_memory() {
+  let Some((device, queue)) = device() else {
+    eprintln!("skipped: this card has no Direct3D 12 device with NV12 textures");
+    return;
+  };
+  let mut decoder = Decoder::on_the_card_of(&device);
+  let leases = card_frames::Leases::default();
+  let mut readers = card_copies::Readers::default();
+
+  // Two surfaces of gray and color apart, with a fence, copied through memory.
+  let surfaces: Vec<_> = (0..2)
+    .map(|_| {
+      let (gray, gray_handle) = decoder.texture(DXGI_FORMAT_R8_UNORM, WIDE, HIGH);
+      let (color, color_handle) = decoder.texture(DXGI_FORMAT_R8G8_UNORM, WIDE / 2, HIGH / 2);
+      (
+        gray,
+        color,
+        CardSurface::Planes {
+          gray: gray_handle,
+          color: color_handle,
+        },
+      )
+    })
+    .collect();
+  // SAFETY: the handles are of textures and of a fence made to be shared, of one kind and size, given away.
+  let frames = unsafe { CardFrames::with_fence(surfaces.iter().map(|surface| surface.2).collect(), decoder.fence()) };
+  assert_eq!(frames.way(), None, "nothing has opened the frames yet");
+  let mut opened = copied_frames(&device, &frames, (WIDE, PICTURE), &leases, &mut readers);
+  assert_eq!(frames.way(), Some(CardFramesWay::Memory));
+  let write = |decoder: &mut Decoder, surface: usize, gray: u8, color: u8| {
+    decoder.write(&surfaces[surface].0, &vec![gray; (WIDE * HIGH) as usize], WIDE);
+    decoder.write(&surfaces[surface].1, &vec![color; (WIDE * HIGH / 2) as usize], WIDE);
+    decoder.signal()
+  };
+
+  // Nothing was shown: nothing is drawn.
+  opened.pick(&queue);
+  assert!(opened.drawn().is_none());
+
+  // The first frame is read from its card and is what the renderer's textures hold.
+  let (first, first_returned) = lease();
+  let ready = write(&mut decoder, 0, 10, 20);
+  frames.show(CardFrame::of(0).ready_at(ready).lease(first));
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      opened.drawn().is_some()
+    }),
+    "the first frame never comes"
+  );
+  assert_eq!(drawn_grays(&device, &queue, &opened), Some(((10, 10), (20, 20))));
+  assert!(!first_returned.load(Ordering::SeqCst), "it is the frame to show still");
+
+  // The second is shown before it is written. The first is on the screen from the renderer's own textures, and
+  // nothing draws the decoder's: it has its texture back at once, with no card to wait for.
+  let (second, second_returned) = lease();
+  frames.show(CardFrame::of(1).ready_at(ready + 1).lease(second));
+  assert!(
+    first_returned.load(Ordering::SeqCst),
+    "the first is read: its texture is the decoder's again"
+  );
+  for _ in 0..20 {
+    opened.pick(&queue);
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  assert_eq!(
+    drawn_grays(&device, &queue, &opened),
+    Some(((10, 10), (20, 20))),
+    "a frame that is not written yet is not copied"
+  );
+  // Written, it comes.
+  assert_eq!(write(&mut decoder, 1, 200, 90), ready + 1);
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      drawn_grays(&device, &queue, &opened) == Some(((200, 200), (90, 90)))
+    }),
+    "the second frame never comes"
+  );
+  assert!(!second_returned.load(Ordering::SeqCst));
+  // The picture is a part of its texture as it is on the card.
+  assert_eq!(opened.part([0.0, 0.0], [1.0, 1.0]), ([0.0, 0.0], [1.0, 5.0 / 8.0]));
+  // A frame another takes the place of is let go of: at once where its copy was not begun, and once it is read
+  // where it was.
+  let (third, third_returned) = lease();
+  let ready = write(&mut decoder, 0, 30, 40);
+  frames.show(CardFrame::of(0).ready_at(ready).lease(third));
+  assert!(second_returned.load(Ordering::SeqCst));
+  opened.pick(&queue);
+  frames.show(CardFrame::of(1).ready_at(ready));
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      third_returned.load(Ordering::SeqCst)
+    }),
+    "the third is never given back"
+  );
+  drop(opened);
+
+  // One NV12 texture: its gray and its color are read from the one texture.
+  let (nv12, handle) = decoder.texture(DXGI_FORMAT_NV12, WIDE, HIGH);
+  let mut bytes = vec![77_u8; (WIDE * HIGH) as usize];
+  bytes.extend((0..WIDE * HIGH / 4).flat_map(|_| [90_u8, 160]));
+  decoder.write(&nv12, &bytes, WIDE);
+  decoder.signal();
+  // SAFETY: the handle is of an NV12 texture made to be shared, given away.
+  let frames = unsafe { CardFrames::new(vec![CardSurface::Nv12(handle)]) };
+  frames.show(CardFrame::of(0));
+  let mut opened = copied_frames(&device, &frames, (WIDE, HIGH), &leases, &mut readers);
+  assert_eq!(frames.way(), Some(CardFramesWay::Memory));
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      opened.drawn().is_some()
+    }),
+    "the NV12 frame never comes"
+  );
+  assert_eq!(drawn_grays(&device, &queue, &opened), Some(((77, 77), (90, 160))));
+  let (_, slot) = opened.drawn().unwrap();
+  let color = read(&device, &queue, &slot.textures()[1], 2);
+  assert!(
+    color.chunks(2).all(|pair| pair == [90, 160]),
+    "the color: {:?}",
+    &color[..4]
+  );
+  drop(opened);
+
+  // One texture of red, green and blue.
+  let (rgba, handle) = decoder.texture(DXGI_FORMAT_R8G8B8A8_UNORM, WIDE, HIGH);
+  let bytes: Vec<u8> = (0..WIDE * HIGH).flat_map(|_| [10_u8, 20, 30, 255]).collect();
+  decoder.write(&rgba, &bytes, WIDE * 4);
+  decoder.signal();
+  // SAFETY: the handle is of a texture of red, green, blue and alpha made to be shared, given away.
+  let frames = unsafe { CardFrames::new(vec![CardSurface::Rgba(handle)]) };
+  frames.show(CardFrame::of(0));
+  let mut opened = copied_frames(&device, &frames, (WIDE, HIGH), &leases, &mut readers);
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      opened.drawn().is_some()
+    }),
+    "the frame of red, green and blue never comes"
+  );
+  let (_, slot) = opened.drawn().unwrap();
+  assert!(slot.second.is_none());
+  let pixels = read(&device, &queue, &slot.textures()[0], 4);
+  assert!(
+    pixels.chunks(4).all(|pixel| pixel == [10, 20, 30, 255]),
+    "the red, green and blue of the frame: {:?}",
+    &pixels[..4]
+  );
+  drop(opened);
+
+  // A handle that is no texture is opened by no card: nothing is drawn, and the frames say so.
+  // SAFETY: the handle is one made to be shared and given away; that it is a fence's is what is tried.
+  let frames = unsafe { CardFrames::new(vec![CardSurface::Nv12(decoder.fence())]) };
+  frames.show(CardFrame::of(0));
+  let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[],
+  });
+  let nothing = |device: &wgpu::Device| {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: None,
+      layout: &layout,
+      entries: &[],
+    })
+  };
+  let mut opened = card_frames::Opened::open(&device, &frames, (WIDE, HIGH), &leases, &mut readers, |_, _| {
+    nothing(&device)
+  });
+  assert_eq!(frames.way(), Some(CardFramesWay::Nowhere));
+  opened.pick(&queue);
+  assert!(opened.drawn().is_none());
+  drop(opened);
+
+  // Really another card: the system's card of software draws, and the decoder is on the real one. The device
+  // that draws opens nothing of the decoder's; the real card's does, and the frame comes through memory.
+  let Some((soft, soft_queue)) = software_device() else {
+    eprintln!("not run: no device on the system's card of software");
+    return;
+  };
+  if card_of(&soft) == card_of(&device) {
+    eprintln!("not run: the only card here is the card of software");
+    return;
+  }
+  let (gray, gray_handle) = decoder.texture(DXGI_FORMAT_R8_UNORM, WIDE, HIGH);
+  let (color, color_handle) = decoder.texture(DXGI_FORMAT_R8G8_UNORM, WIDE / 2, HIGH / 2);
+  // SAFETY: the handles are of textures and of a fence made to be shared, given away.
+  let frames = unsafe {
+    CardFrames::with_fence(
+      vec![CardSurface::Planes {
+        gray: gray_handle,
+        color: color_handle,
+      }],
+      decoder.fence(),
+    )
+  };
+  let soft_layout = soft.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[],
+  });
+  let mut readers = card_copies::Readers::default();
+  let mut opened = card_frames::Opened::open(&soft, &frames, (WIDE, PICTURE), &leases, &mut readers, |_, _| {
+    soft.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: None,
+      layout: &soft_layout,
+      entries: &[],
+    })
+  });
+  assert_eq!(
+    frames.way(),
+    Some(CardFramesWay::Memory),
+    "the card that draws opens nothing of another card's, and the other card does"
+  );
+  decoder.write(&gray, &vec![123; (WIDE * HIGH) as usize], WIDE);
+  decoder.write(&color, &vec![45; (WIDE * HIGH / 2) as usize], WIDE);
+  let ready = decoder.signal();
+  let (other, other_returned) = lease();
+  frames.show(CardFrame::of(0).ready_at(ready).lease(other));
+  assert!(
+    comes(&soft, || {
+      opened.pick(&soft_queue);
+      opened.drawn().is_some()
+    }),
+    "the frame of the other card never comes"
+  );
+  assert_eq!(drawn_grays(&soft, &soft_queue, &opened), Some(((123, 123), (45, 45))));
+  frames.show(CardFrame::of(0).ready_at(ready + 1));
+  assert!(other_returned.load(Ordering::SeqCst));
+}
+
+/// Waits until `is` holds, for at most ten seconds; whether it came to hold.
+fn becomes(mut is: impl FnMut() -> bool) -> bool {
+  let started = Instant::now();
+  while started.elapsed() < Duration::from_secs(10) {
+    if is() {
+      return true;
+    }
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  false
+}
+
+#[test]
+fn a_media_whose_card_is_reset_is_opened_again_where_it_was() {
+  let Some((device, queue)) = device() else {
+    eprintln!("skipped: this card has no Direct3D 12 device with NV12 textures");
+    return;
+  };
+  let _alone = ON_THE_CARD.lock();
+  card_frames::announce(&device);
+  let media = opened();
+  let first = first_frame(&media, true);
+  let frames_of = |image: &ImageData| {
+    image
+      .native()
+      .and_then(|native| native.payload::<CardFrames>())
+      .expect("the frames of the card")
+      .clone()
+  };
+  let before = frames_of(&first);
+  // Sent on, paused: the frame there is shown.
+  media.seek(5.0);
+  assert!(
+    becomes(|| before.count() >= 2),
+    "the frame it was sent to is never shown"
+  );
+  let there = drawn_from(&device, &queue, &first);
+
+  // The card is reset: the device the media decodes on is removed, which the next frame it shows finds.
+  crate::media::lose_card_for_test();
+  media.seek(5.0);
+  // It is opened again on another device, with other textures, and shows the frame where it was.
+  assert!(
+    becomes(|| {
+      media.frame().is_some_and(|image| {
+        image.native().map(|native| native.backend()) == Some(NativeImageBackend::CardFrames)
+          && !frames_of(&image).same(&before)
+          && frames_of(&image).shown().is_some()
+      })
+    }),
+    "the media is not opened again: {:?}",
+    media.state()
+  );
+  assert_eq!(media.state().error, None);
+  let state = media.state();
+  assert!(
+    (state.position - 5.0).abs() < 0.2 && !state.playing,
+    "it is where it was, paused as it was: {state:?}"
+  );
+  let again = drawn_from(
+    &device,
+    &queue,
+    &media.frame().expect("the image of the media opened again"),
+  );
+  let differ = again.iter().zip(&there).filter(|(now, was)| now != was).count();
+  assert_eq!(
+    (again.len(), differ),
+    (there.len(), 0),
+    "the frame shown after the reset is the frame that was shown before it"
+  );
+  // And it plays on.
+  let shown = frames_of(&media.frame().unwrap());
+  let count = shown.count();
+  media.play();
+  assert!(
+    becomes(|| shown.count() > count + 5),
+    "it does not play after the reset"
+  );
+  media.pause();
+  assert_eq!(media.state().error, None);
+  crate::images::set_card_frames_adapter(None);
 }
