@@ -84,6 +84,7 @@ mod kbd;
 mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
+mod link_preview;
 mod list_item;
 mod listbox;
 mod locale;
