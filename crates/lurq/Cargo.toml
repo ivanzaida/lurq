@@ -46,7 +46,16 @@ serde = ["dep:serde_json"]
 tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
 render = ["dep:bytemuck"]
-wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:objc2-metal", "dep:wgpu-hal", "dep:core-video-sys"]
+# On Windows it has Direct3D 11 to read the frames of a decoder that is on another card than the one it draws on.
+wgpu = [
+    "render",
+    "dep:wgpu",
+    "dep:pollster",
+    "dep:objc2-metal",
+    "dep:wgpu-hal",
+    "dep:core-video-sys",
+    "windows/Win32_Graphics_Direct3D11",
+]
 # In a browser without WebGPU the `wgpu` renderer draws through WebGL2. It adds wgpu's own implementation and its
 # shader translator to the page's binary, so an app asks for it. Nothing changes outside a browser.
 #

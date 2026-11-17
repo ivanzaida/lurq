@@ -1086,5 +1086,6 @@ System". `None`, the default, is "System".
 - `TabOutlet`'s bar: solid with transparency reduced or contrast increased, when the tabs that are not chosen
   also stand out more; it goes and comes at once with motion reduced.
 - `Sheet`: with motion reduced it fades in where it stands, and out.
-- `NavigationBar::for_appearance(..)`, `TabBar::for_appearance(..)` and `SheetStyle::for_appearance(..)` are
-  the platform's light or dark ones: `NavigationBar::for_appearance(ctx.window().system.appearance)`.
+- `NavigationBar::new()`, `TabBar::new()` and `SheetStyle::new()` are in the theme's colors, light or dark as the
+  theme is ([Colors from the theme](../ios/#colors-from-the-theme)). Their `for_appearance(..)` and `dark()`,
+  0.62's colors, are deprecated.

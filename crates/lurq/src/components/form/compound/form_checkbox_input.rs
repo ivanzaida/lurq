@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
   app::ctx::Ctx,
-  components::{Checkbox, Control, FormControlField, FormFieldProps},
+  components::{Control, FormControlField, FormFieldProps},
   node::Element,
 };
 
@@ -49,7 +49,9 @@ impl crate::app::component::Component for FormCheckboxInput {
     let palette = ctx.theme().palette().clone();
     let blur_control = control.clone();
 
-    let checkbox = Checkbox::new(control.value())
+    // The engine's checkbox node is deprecated for apps; the form's control is rebuilt on `ui::Checkbox` apart.
+    #[allow(deprecated)]
+    let checkbox = crate::components::Checkbox::new(control.value())
       .name(control.name())
       .box_style(checkbox_style.box_style(&palette))
       .checked_box_style(checkbox_style.checked_box_style(&palette))

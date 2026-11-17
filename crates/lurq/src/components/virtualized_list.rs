@@ -27,7 +27,8 @@ const REVEAL_EPSILON: f32 = 0.5;
 
 /// `LURQ_VLIST_DEBUG=1` paints diagnostics over every virtualized list: row
 /// wrappers are tinted by the window-build generation (a stale reused subtree
-/// keeps its old tint), and a stats panel shows the live windowing state.
+/// keeps its old tint), and a stats panel shows the live windowing state. It is for the developer, so its colors
+/// are literals and not the theme's: they must stand out on any theme.
 fn debug_overlay_enabled() -> bool {
   static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
   *ENABLED.get_or_init(|| {

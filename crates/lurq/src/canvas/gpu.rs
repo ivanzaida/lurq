@@ -518,6 +518,40 @@ mod tests {
     d.clear();
     assert!(c.status().pending_bytes < 1024);
   }
+  // `test_surface` is the GPU renderers', as the losses it tells of are.
+  #[cfg(any(feature = "wgpu", all(feature = "dx12", target_os = "windows")))]
+  #[test]
+  fn a_canvas_whose_renderer_is_lost_tells_who_observes_it_and_forgets_the_loss() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let c = CanvasHandle::test_surface(8, 8, 1.0, false);
+    let told = Arc::new(AtomicUsize::new(0));
+    let _observer = c.observe_metrics({
+      let told = told.clone();
+      move |metrics| {
+        assert_eq!((metrics.pixel_width, metrics.pixel_height), (8, 8));
+        told.fetch_add(1, Ordering::SeqCst);
+      }
+    });
+    assert_eq!(told.load(Ordering::SeqCst), 1, "the metrics as they are, at once");
+    c.set_gpu_error(CanvasError::RendererLost);
+    c.content_lost();
+    assert_eq!(told.load(Ordering::SeqCst), 2, "and again, for what was drawn is gone");
+    assert_eq!(c.status().error, None);
+    assert!(c.dirty());
+
+    // One drawn on the CPU has lost nothing, and tells nobody.
+    let software = CanvasHandle::test_surface(8, 8, 1.0, true);
+    let told = Arc::new(AtomicUsize::new(0));
+    let _observer = software.observe_metrics({
+      let told = told.clone();
+      move |_| {
+        told.fetch_add(1, Ordering::SeqCst);
+      }
+    });
+    software.content_lost();
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+  }
+
   #[test]
   fn readback_limit_includes_inflight_work_and_clear_keeps_barriers() {
     let c = canvas();

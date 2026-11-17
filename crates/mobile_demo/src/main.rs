@@ -109,7 +109,7 @@ impl Component for MobileDemo {
     // The whole app draws back behind a sheet that takes all the room.
     let tabs = self.tabs.clone();
     SheetHost::mount(ctx, move |ctx| {
-      let bar = TabBar::dark()
+      let bar = TabBar::new()
         // A bar that floats over the content, as the newest system's does, and gets out of the way of a
         // list that is being read.
         .floating()
@@ -171,7 +171,7 @@ fn routes() -> Routes {
 /// the right edge, or a trackpad's swipe, the history moves as the event says.
 pub(crate) fn shell(ctx: &mut Ctx) -> Element {
   let navigator = ctx.navigator();
-  let bar = NavigationBar::dark()
+  let bar = NavigationBar::new()
     // Not all there: a list that goes on under the bar shows through it, blurred.
     .background(Color::new(30, 41, 59, 190))
     .tint(Color::from_hex(PRIMARY))

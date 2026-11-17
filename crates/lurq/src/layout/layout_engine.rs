@@ -40,7 +40,7 @@ use crate::{
 };
 
 mod box_shadow_quads;
-mod control_fill;
+pub(crate) mod control_fill;
 mod flex_shrink;
 mod foreground;
 mod grid_layout;
@@ -84,13 +84,6 @@ use flex_shrink::{DroppedRoom, FlexShrinkLine, FreeRoom, LineOverflow, main_size
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
-/// What a checked box and a slider fill with when nothing styles them, and what an unchecked box does. The
-/// roles are those of lurq 0.61, which an app may still set: each follows the role that replaces it
-/// (`app/theme/palette.rs`).
-#[allow(deprecated)]
-const CONTROL_FILL: PaletteColor = PaletteColor::Accent;
-#[allow(deprecated)]
-const CONTROL_BLANK: PaletteColor = PaletteColor::SurfaceInput;
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
 const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
@@ -313,6 +306,8 @@ pub(crate) struct LayoutEngine {
   /// laid out at: see `theme_scope`.
   theme_scopes: RefCell<Vec<(Theme, u64)>>,
   palette: RefCell<ThemePalette>,
+  /// What a checkbox and a slider node fill with when nothing styles them: see `control_fill`.
+  control_fills: RefCell<control_fill::ControlFills>,
   border_sizes: RefCell<ThemeBorderSizes>,
   spacing: RefCell<ThemeSpacing>,
   radii: RefCell<ThemeRadii>,
@@ -638,6 +633,7 @@ impl LayoutEngine {
       theme_seen: RefCell::new(None),
       theme_scopes: RefCell::new(Vec::new()),
       palette: RefCell::new(ThemePalette::default()),
+      control_fills: RefCell::new(control_fill::ControlFills::default()),
       border_sizes: RefCell::new(ThemeBorderSizes::default()),
       spacing: RefCell::new(ThemeSpacing::default()),
       radii: RefCell::new(ThemeRadii::default()),
@@ -717,6 +713,7 @@ impl LayoutEngine {
       return;
     }
     *self.palette.borrow_mut() = theme.palette().clone();
+    *self.control_fills.borrow_mut() = control_fill::ControlFills::of(theme);
     *self.border_sizes.borrow_mut() = theme.border_sizes().clone();
     *self.spacing.borrow_mut() = theme.spacing().clone();
     *self.radii.borrow_mut() = theme.radii().clone();
@@ -2143,12 +2140,12 @@ impl LayoutEngine {
         let color = if checked {
           style
             .color
-            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), CONTROL_FILL))
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), |fills| fills.checked.clone()))
         } else {
           style
             .color
             .or_else(|| node.resolved_color(&self.palette.borrow()))
-            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), CONTROL_BLANK))
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), |fills| fills.checkbox.clone()))
         };
         push_checkbox_quads(
           quads,
@@ -2188,7 +2185,7 @@ impl LayoutEngine {
         let track_color = track_style
           .color
           .or_else(|| node.resolved_color(&self.palette.borrow()))
-          .unwrap_or_else(|| self.default_control_fill(state.track_styled(), PaletteColor::Border));
+          .unwrap_or_else(|| self.default_control_fill(state.track_styled(), |fills| fills.track.clone()));
         let track_radius = track_style
           .border_radius
           .map(|radius| radius.resolve(&self.radii.borrow()))
@@ -2276,7 +2273,7 @@ impl LayoutEngine {
             &thumb_style,
             thumb_style
               .color
-              .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), CONTROL_FILL)),
+              .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), |fills| fills.thumb.clone())),
             Some(thumb_radius),
             thumb_style
               .border

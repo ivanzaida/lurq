@@ -67,6 +67,7 @@ mod drawer;
 mod drop_zone;
 mod editable;
 mod empty_state;
+pub(crate) mod engine_look;
 mod event_calendar;
 mod expandable_tile;
 mod fab;
@@ -151,9 +152,9 @@ mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
+mod sidebar;
 #[cfg(feature = "canvas")]
 mod signature_pad;
-mod sidebar;
 mod skeleton;
 mod slider;
 mod sortable_list;
@@ -191,8 +192,8 @@ mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
-mod waveform;
 mod watermark;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -246,8 +247,8 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
-pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
+pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 #[cfg(feature = "canvas")]
 pub use chart::ChartLabel;
 #[cfg(feature = "canvas")]
@@ -475,9 +476,7 @@ pub use property_grid::{
   CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
   PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
 };
-pub use qr_code::{
-  QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect,
-};
+pub use qr_code::{QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect};
 #[cfg(feature = "canvas")]
 pub use radar_chart::{RadarChart, RadarChartPart};
 pub use radio::{
@@ -527,14 +526,14 @@ pub use shortcut_recorder::{
   ShortcutCheck, ShortcutRecorder, ShortcutRecorderPart, ShortcutRecorderRenderer, ShortcutRecorderSize,
   ShortcutRecorderState, ShortcutRecorderView, ShortcutValue,
 };
+pub use sidebar::{
+  Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
+  SidebarState, SidebarTrigger, SidebarView,
+};
 #[cfg(feature = "canvas")]
 pub use signature_pad::{
   Signature, SignaturePad, SignaturePadPart, SignaturePadRenderer, SignaturePadState, SignaturePadView, SignaturePoint,
   SignatureStroke,
-};
-pub use sidebar::{
-  Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
-  SidebarState, SidebarTrigger, SidebarView,
 };
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{
@@ -644,11 +643,11 @@ pub use video_player::{
   VideoPlayerMenu, VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerTouch,
   VideoPlayerView,
 };
-pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use watermark::{
   WATERMARK_ANGLE, WATERMARK_GAP, WATERMARK_OFFSET, WATERMARK_STAGGER, Watermark, WatermarkPart, WatermarkRenderer,
   WatermarkState, WatermarkView,
 };
+pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,
