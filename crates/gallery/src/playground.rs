@@ -123,6 +123,8 @@ struct DetachedProps {
   make: Make,
   #[devtools_ignore]
   mounted: Option<MakeMounted>,
+  /// The window's title, in its own title bar.
+  title: String,
 }
 
 impl PartialEq for DetachedProps {
@@ -133,10 +135,12 @@ impl PartialEq for DetachedProps {
         (None, None) => true,
         _ => false,
       }
+      && self.title == other.title
   }
 }
 
-/// A window with the component of a playground alone on the canvas, to see it at any size of window.
+/// A window with the component of a playground alone on the canvas, to see it at any size of window: in the
+/// design's own chrome, as the gallery's window is, with no frame of the system's.
 struct Detached;
 
 impl Component for Detached {
@@ -148,19 +152,26 @@ impl Component for Detached {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<DetachedProps>();
-    let (make, mounted) = (props.make.clone(), props.mounted.clone());
+    let (make, mounted, title) = (props.make.clone(), props.mounted.clone(), props.title.clone());
     let shown = match mounted {
       Some(mounted) => mounted(ctx),
       None => make(),
     };
-    Column::new()
+    let content = Column::new()
       .size(FILL, FILL)
       .padding(32.0)
       .align_items(Alignment::Center)
       .justify(Justify::Center)
       .background(PaletteColor::Canvas)
       .foreground(PaletteColor::Foreground)
-      .child(shown)
+      .child(shown);
+    lurq::ui::WindowChrome::new()
+      .title(&title)
+      .border(lurq::components::ChromeBorderPolicy::Visible {
+        size: 1.0,
+        color: PaletteColor::Border.into(),
+      })
+      .content(content)
   }
 }
 
@@ -455,8 +466,9 @@ impl Playground {
             .on_click(move |_| {
               let make = make.clone();
               let mounted = mounted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-              opener.open(format!("{title} · lurq gallery"), 520, 360, move |app, tree| {
-                tree.mount_root::<Detached>(app, DetachedProps { make, mounted });
+              let title = format!("{title} · lurq gallery");
+              opener.open_undecorated(title.clone(), 520, 360, move |app, tree| {
+                tree.mount_root::<Detached>(app, DetachedProps { make, mounted, title });
               });
             }),
         ),

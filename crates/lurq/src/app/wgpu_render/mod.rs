@@ -516,6 +516,39 @@ fn instance_descriptor(backends: WgpuBackends) -> wgpu::InstanceDescriptor {
   descriptor
 }
 
+/// The instances of wgpu the program has, by the backends each was made among.
+#[cfg(not(target_arch = "wasm32"))]
+static INSTANCES: std::sync::Mutex<Vec<(WgpuBackends, wgpu::Instance)>> = std::sync::Mutex::new(Vec::new());
+
+/// The instance of wgpu among `backends`: one for the program, which every engine and every device made
+/// ahead shares.
+///
+/// Each engine had its own, and so each window. Under Vulkan a program with two of them alive ended with an
+/// access violation when one was let go of, on the card this was run on, each time it was tried; one
+/// instance with a device for each window does not. Under Direct3D 12 either way holds.
+#[cfg(not(target_arch = "wasm32"))]
+fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+  let mut instances = INSTANCES.lock().unwrap();
+  if let Some((_, instance)) = instances.iter().find(|(among, _)| *among == backends) {
+    return instance.clone();
+  }
+  let instance = wgpu::Instance::new(instance_descriptor(backends));
+  instances.push((backends, instance.clone()));
+  instance
+}
+
+/// After a device is lost, an instance of Direct3D 12 alone is made anew for what takes the device's place,
+/// as it was before the instance was shared: what it knows of the cards is from before the loss. One that
+/// may draw through Vulkan is kept, for a second one beside it is what ends the program there.
+#[cfg(not(target_arch = "wasm32"))]
+fn forget_instances_after_a_loss() {
+  INSTANCES
+    .lock()
+    .unwrap()
+    .retain(|(among, _)| among.contains(WgpuBackends::VULKAN));
+}
+
+#[cfg(target_arch = "wasm32")]
 fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
   wgpu::Instance::new(instance_descriptor(backends))
 }
@@ -539,7 +572,10 @@ fn device_descriptor(
 ) -> wgpu::DeviceDescriptor<'static> {
   // A frame of a video that stays on the card is an NV12 texture, where the card has them.
   #[cfg(all(windows, feature = "raster"))]
-  let optional_features = optional_features | wgpu::Features::TEXTURE_FORMAT_NV12;
+  let optional_features = optional_features
+    | wgpu::Features::TEXTURE_FORMAT_NV12
+    // Under Vulkan such a frame is a texture of Direct3D given to it by its handle.
+    | wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32;
   #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
   let mut required_features = adapter.features() & optional_features;
   // Measures GPU time while a profiling session is active.
@@ -1056,7 +1092,7 @@ impl WgpuRenderEngine {
 
   fn release_gpu_resources(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::PollType::Poll);
+      device_loss::asked(device, Some(&self.lost), wgpu::PollType::Poll);
     }
 
     // An engine whose device is lost is let go of before it draws again: its extensions are told here.
@@ -1383,7 +1419,9 @@ impl WgpuRenderEngine {
     }
     // What decodes a video decodes on the card this draws on, and its frames stay there.
     #[cfg(all(windows, feature = "raster"))]
-    card_frames::announce(&device);
+    if !card_frames::announce(&device) {
+      card_frames::announce_vulkan(&device, &adapter);
+    }
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
@@ -3332,7 +3370,7 @@ impl RenderEngine for WgpuRenderEngine {
 
     #[cfg(feature = "screenshot")]
     if let Some(frame_capture) = frame_capture {
-      frame_capture.start(device.clone());
+      frame_capture.start(device.clone(), self.lost.clone());
     }
 
     let _present_start = profile_scope!();
@@ -3341,6 +3379,14 @@ impl RenderEngine for WgpuRenderEngine {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderPresent));
+    // A device may be lost while its frame is drawn: what it was given to do tells. wgpu neither presents nor
+    // discards a frame of a lost device, and keeps it; let go of with that frame out, the surface ends the
+    // program under Vulkan (`Trying to destroy a SwapchainAcquireSemaphore that is still in use by a
+    // SurfaceTexture`), and the engine that is to take this one's place never comes. The frame's texture is
+    // destroyed first, which is what gives the frame back.
+    if self.device_is_lost() {
+      output.texture().destroy();
+    }
     output.present();
     let _present_dur = profile_elapsed!(_present_start);
     #[cfg(feature = "perf_profile")]
@@ -3404,7 +3450,7 @@ impl RenderEngine for WgpuRenderEngine {
 
   fn release_window_surface(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::PollType::Poll);
+      device_loss::asked(device, Some(&self.lost), wgpu::PollType::Poll);
     }
     self.surface_config = None;
     self.surface = None;
@@ -3457,14 +3503,19 @@ struct WgpuFrameCaptureReadback {
 
 #[cfg(feature = "screenshot")]
 impl WgpuFrameCaptureReadback {
-  fn start(self, device: wgpu::Device) {
+  fn start(self, device: wgpu::Device, lost: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     std::thread::spawn(move || {
       let slice = self.buffer.slice(..);
       let (sender, receiver) = std::sync::mpsc::channel();
       slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = sender.send(result);
       });
-      let _ = device.poll(wgpu::PollType::wait_indefinitely());
+      // A device that is lost gives no pixels, and asking it would end this thread with nothing said to
+      // whoever waits for the screenshot.
+      if !device_loss::asked(&device, Some(&lost), wgpu::PollType::wait_indefinitely()) {
+        self.capture.target.fail("the graphics device was lost");
+        return;
+      }
       match receiver.recv() {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
@@ -4284,6 +4335,17 @@ fn canvas_image_flag(native: &Option<crate::images::NativeImageData>) -> f32 {
   if native
     .as_ref()
     .is_some_and(|n| n.backend() == crate::images::NativeImageBackend::Canvas)
+  {
+    return 1.;
+  }
+  // A card's frame of red, green and blue is in a texture whose format does not say that its bytes are encoded
+  // as a screen's are, which they are, as a canvas's: taken for bytes of linear light, the frame was drawn
+  // lighter than it is (a red of 255, 24, 0 as 255, 86, 0).
+  #[cfg(windows)]
+  if native
+    .as_ref()
+    .and_then(|n| n.payload::<crate::images::CardFrames>())
+    .is_some_and(crate::images::CardFrames::is_rgba)
   {
     return 1.;
   }

@@ -153,6 +153,47 @@ fn the_engines_of_the_trees_other_windows_are_let_go_of_with_its_own() {
   assert!(other.needs_redraw, "the other window is to be drawn again");
 }
 
+#[test]
+fn a_loss_that_another_window_finds_lets_go_of_this_windows_engine_too() {
+  // The second engine, the other window's, is the one that says the device is lost: the main window's is not
+  // drawn, and has not found it. They hold the same device all the same.
+  let told = Rc::new(Told::default());
+  let mut tree = Tree::new();
+  tree.set_render_engine_factory({
+    let told = told.clone();
+    move || {
+      told.made.set(told.made.get() + 1);
+      Box::new(Engine {
+        number: told.made.get(),
+        size: (0, 0),
+        told: told.clone(),
+        loses: told.made.get() == 2,
+      })
+    }
+  });
+  tree.resize(300, 120);
+  tree.set_root(Text::new("abc"));
+  let mut app = App::new();
+  tree.push_secondary_window(SecondaryWindow::new("other", 200, 100, Tree::new()));
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!((told.made.get(), told.dropped.get()), (2, 0));
+
+  // What the shell asks of the main window's tree before it draws the other window.
+  told.lost.set(true);
+  assert!(tree.render_engine.as_ref().is_some_and(|engine| !engine.lost()));
+  tree.replace_lost_render_engine();
+  assert_eq!(
+    told.dropped.get(),
+    2,
+    "the main window's engine is let go of with the lost one: it holds the lost device"
+  );
+  assert_eq!(told.made.get(), 4, "and another is made for each window");
+  assert!(tree.needs_redraw, "the main window is to be drawn again");
+  let other = &tree.secondary_windows[0].tree;
+  assert!(other.render_engine.as_ref().is_some_and(|engine| !engine.lost()));
+  assert!(other.needs_redraw, "and the other window");
+}
+
 #[cfg(feature = "canvas")]
 #[test]
 fn a_canvas_is_drawn_again_by_its_painter_once_its_renderer_is_lost() {

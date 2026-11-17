@@ -1,15 +1,14 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #[cfg(feature = "canvas")]
 mod canvas;
+#[cfg(feature = "raster")]
+mod card_frames;
 mod layers;
 
 #[cfg(feature = "raster")]
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "raster")]
-use std::sync::{
-  Arc, Mutex,
-  atomic::{AtomicBool, AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
   ffi::c_void,
   mem::ManuallyDrop,
@@ -19,15 +18,7 @@ use std::{
 
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
 #[cfg(feature = "raster")]
-use windows::Win32::Graphics::{
-  Direct3D12::{D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_STATE_COMMON},
-  Dxgi::{
-    Common::{DXGI_FORMAT_NV12, DXGI_FORMAT_R8G8_UNORM},
-    IDXGIKeyedMutex,
-  },
-};
-#[cfg(feature = "raster")]
-use windows::core::PCWSTR;
+use windows::Win32::Graphics::{Direct3D12::D3D12_RESOURCE_STATE_COMMON, Dxgi::Common::DXGI_FORMAT_R8G8_UNORM};
 use windows::{
   Win32::{
     Foundation::{CloseHandle, FALSE, HANDLE, HWND, RECT, TRUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
@@ -160,16 +151,9 @@ const SWAPCHAIN_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DX
 const RENDER_TARGET_FORMAT: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = SWAPCHAIN_FORMAT;
 
 #[cfg(feature = "raster")]
-static DX12_NATIVE_IMAGE_DRAW_COUNT: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "raster")]
 static DX12_IMAGE_MOD_NOT_FOUND_LOGGED: AtomicBool = AtomicBool::new(false);
 #[cfg(feature = "raster")]
 static DX12_IMAGE_DRAWS_DISABLED: AtomicBool = AtomicBool::new(false);
-
-#[cfg(feature = "raster")]
-fn dx12_native_image_log(message: impl std::fmt::Display) {
-  crate::app::profile_support::video_log!(debug, "[dx12/native-image] {message}");
-}
 
 fn duration_ms(duration: Duration) -> f64 {
   duration.as_secs_f64() * 1000.0
@@ -243,37 +227,9 @@ impl Dx12RenderCadence {
   }
 }
 
-#[cfg(feature = "raster")]
-fn acquire_native_nv12_mutex(
-  mutex: Option<&IDXGIKeyedMutex>,
-  image_id: u64,
-  version: u64,
-  plane: &'static str,
-) -> bool {
-  let Some(mutex) = mutex else {
-    return false;
-  };
-
-  let started_at = Instant::now();
-  let result = unsafe { mutex.AcquireSync(1, 5) };
-  let elapsed = started_at.elapsed();
-  let acquired = result.is_ok();
-  if !acquired || elapsed >= Duration::from_millis(2) {
-    crate::app::profile_support::video_log!(debug,
-      target: "video::watch::lurq",
-      "watched stream native texture mutex image_id={} version={} plane={} acquired={} wait_ms={:.2} error={:?}",
-      image_id,
-      version,
-      plane,
-      acquired,
-      duration_ms(elapsed),
-      result.err()
-    );
-  }
-  acquired
-}
-
 pub struct Dx12RenderEngine {
+  /// Whether the device was found lost, and the engine waits for the tree to make another in its place.
+  lost: bool,
   #[cfg(feature = "canvas")]
   canvases: Vec<crate::canvas::CanvasHandle>,
   #[cfg(feature = "canvas")]
@@ -288,35 +244,7 @@ pub struct Dx12RenderEngine {
   last_profile: RenderProfile,
   #[cfg(feature = "perf_profile")]
   profile_context: Option<crate::app::profiler::ProfileContext>,
-  #[cfg(feature = "raster")]
-  video_surfaces: Option<Dx12VideoSurfaceAllocator>,
 }
-
-#[cfg(feature = "raster")]
-#[derive(Clone, Default)]
-pub struct Dx12VideoSurfaceAllocator {
-  device: Arc<Mutex<Option<ID3D12Device>>>,
-}
-
-#[cfg(feature = "raster")]
-pub struct Dx12Nv12Surface {
-  native: crate::images::NativeImageData,
-  _y_texture: ID3D12Resource,
-  _uv_texture: ID3D12Resource,
-  y_shared_handle: HANDLE,
-  uv_shared_handle: Option<HANDLE>,
-  y_allocation_size: u64,
-  uv_allocation_size: u64,
-  adapter_luid_low: u32,
-  adapter_luid_high: i32,
-  owns_shared_handles: bool,
-  packed_nv12: bool,
-}
-
-#[cfg(feature = "raster")]
-unsafe impl Send for Dx12Nv12Surface {}
-#[cfg(feature = "raster")]
-unsafe impl Sync for Dx12Nv12Surface {}
 
 impl Default for Dx12RenderEngine {
   fn default() -> Self {
@@ -327,6 +255,7 @@ impl Default for Dx12RenderEngine {
 impl Dx12RenderEngine {
   pub fn new() -> Self {
     Self {
+      lost: false,
       state: None,
       #[cfg(feature = "canvas")]
       canvases: Vec::new(),
@@ -341,8 +270,6 @@ impl Dx12RenderEngine {
       last_profile: RenderProfile::default(),
       #[cfg(feature = "perf_profile")]
       profile_context: None,
-      #[cfg(feature = "raster")]
-      video_surfaces: None,
     }
   }
 
@@ -378,14 +305,6 @@ impl Dx12RenderEngine {
     self
   }
 
-  #[cfg(feature = "raster")]
-  pub fn with_video_surface_allocator(video_surfaces: Dx12VideoSurfaceAllocator) -> Self {
-    Self {
-      video_surfaces: Some(video_surfaces),
-      ..Self::new()
-    }
-  }
-
   fn ensure_initialized(&mut self, window: WindowHandle<'_>) -> Result<()> {
     if self.state.is_some() {
       return Ok(());
@@ -398,10 +317,9 @@ impl Dx12RenderEngine {
     {
       state.canvas_asset_budget = self.canvas_asset_budget;
     }
+    // What decodes a video decodes on this card, and gives its frames where they are.
     #[cfg(feature = "raster")]
-    if let Some(video_surfaces) = &self.video_surfaces {
-      video_surfaces.set_device(Some(state.device.clone()));
-    }
+    card_frames::announce(&state.device);
     self.state = Some(state);
     Ok(())
   }
@@ -457,241 +375,6 @@ impl Dx12RenderEngine {
   }
 }
 
-#[cfg(feature = "raster")]
-impl Dx12VideoSurfaceAllocator {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  pub fn create_nv12_surface(&self, width: u32, height: u32) -> Result<Option<Dx12Nv12Surface>> {
-    if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
-      return Err(Error::from_win32());
-    }
-    let device = self
-      .device
-      .lock()
-      .expect("dx12 video surface allocator lock poisoned")
-      .clone();
-    let Some(device) = device else {
-      return Ok(None);
-    };
-
-    unsafe {
-      let (adapter_luid_low, adapter_luid_high) = device_adapter_luid_parts(&device);
-      let (y_texture, y_shared_handle, y_allocation_size) =
-        create_shared_texture(&device, width, height, DXGI_FORMAT_R8_UNORM)?;
-      let (uv_texture, uv_shared_handle, uv_allocation_size) =
-        create_shared_texture(&device, width / 2, height / 2, DXGI_FORMAT_R8G8_UNORM)?;
-      let native = crate::images::NativeImageData::from_dx12_nv12(width, height, y_texture.clone(), uv_texture.clone());
-      Ok(Some(Dx12Nv12Surface {
-        native,
-        _y_texture: y_texture,
-        _uv_texture: uv_texture,
-        y_shared_handle,
-        uv_shared_handle: Some(uv_shared_handle),
-        y_allocation_size,
-        uv_allocation_size,
-        adapter_luid_low,
-        adapter_luid_high,
-        owns_shared_handles: true,
-        packed_nv12: false,
-      }))
-    }
-  }
-
-  pub fn open_shared_nv12_surface(
-    &self,
-    width: u32,
-    height: u32,
-    shared_handle_raw: isize,
-  ) -> Result<Option<Dx12Nv12Surface>> {
-    if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) || shared_handle_raw == 0 {
-      return Err(Error::from_win32());
-    }
-    let device = self
-      .device
-      .lock()
-      .expect("dx12 video surface allocator lock poisoned")
-      .clone();
-    let Some(device) = device else {
-      return Ok(None);
-    };
-
-    unsafe {
-      let (adapter_luid_low, adapter_luid_high) = device_adapter_luid_parts(&device);
-      let mut texture = None;
-      device.OpenSharedHandle(HANDLE(shared_handle_raw as *mut c_void), &mut texture)?;
-      let texture: ID3D12Resource = texture.ok_or_else(Error::from_win32)?;
-      let desc = texture.GetDesc();
-      if desc.Format != DXGI_FORMAT_NV12 || desc.Width != u64::from(width) || desc.Height != height {
-        return Err(Error::from_win32());
-      }
-      let allocation_size = device
-        .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
-        .SizeInBytes;
-      let native = crate::images::NativeImageData::from_dx12_nv12_texture(width, height, texture.clone());
-      Ok(Some(Dx12Nv12Surface {
-        native,
-        _y_texture: texture.clone(),
-        _uv_texture: texture,
-        y_shared_handle: HANDLE(shared_handle_raw as *mut c_void),
-        uv_shared_handle: None,
-        y_allocation_size: allocation_size,
-        uv_allocation_size: allocation_size,
-        adapter_luid_low,
-        adapter_luid_high,
-        owns_shared_handles: false,
-        packed_nv12: true,
-      }))
-    }
-  }
-
-  pub fn open_shared_nv12_planes_surface(
-    &self,
-    width: u32,
-    height: u32,
-    y_shared_handle_raw: isize,
-    uv_shared_handle_raw: isize,
-  ) -> Result<Option<Dx12Nv12Surface>> {
-    if width == 0
-      || height == 0
-      || !width.is_multiple_of(2)
-      || !height.is_multiple_of(2)
-      || y_shared_handle_raw == 0
-      || uv_shared_handle_raw == 0
-    {
-      return Err(Error::from_win32());
-    }
-    let device = self
-      .device
-      .lock()
-      .expect("dx12 video surface allocator lock poisoned")
-      .clone();
-    let Some(device) = device else {
-      return Ok(None);
-    };
-
-    unsafe {
-      let (adapter_luid_low, adapter_luid_high) = device_adapter_luid_parts(&device);
-      let mut y_texture = None;
-      device.OpenSharedHandle(HANDLE(y_shared_handle_raw as *mut c_void), &mut y_texture)?;
-      let y_texture: ID3D12Resource = y_texture.ok_or_else(Error::from_win32)?;
-      let y_desc = y_texture.GetDesc();
-      if y_desc.Format != DXGI_FORMAT_R8_UNORM || y_desc.Width != u64::from(width) || y_desc.Height != height {
-        return Err(Error::from_win32());
-      }
-
-      let mut uv_texture = None;
-      device.OpenSharedHandle(HANDLE(uv_shared_handle_raw as *mut c_void), &mut uv_texture)?;
-      let uv_texture: ID3D12Resource = uv_texture.ok_or_else(Error::from_win32)?;
-      let uv_desc = uv_texture.GetDesc();
-      if uv_desc.Format != DXGI_FORMAT_R8G8_UNORM
-        || uv_desc.Width != u64::from(width / 2)
-        || uv_desc.Height != height / 2
-      {
-        return Err(Error::from_win32());
-      }
-
-      let y_allocation_size = device
-        .GetResourceAllocationInfo(0, std::slice::from_ref(&y_desc))
-        .SizeInBytes;
-      let uv_allocation_size = device
-        .GetResourceAllocationInfo(0, std::slice::from_ref(&uv_desc))
-        .SizeInBytes;
-      let native = crate::images::NativeImageData::from_dx12_nv12(width, height, y_texture.clone(), uv_texture.clone());
-      Ok(Some(Dx12Nv12Surface {
-        native,
-        _y_texture: y_texture,
-        _uv_texture: uv_texture,
-        y_shared_handle: HANDLE(y_shared_handle_raw as *mut c_void),
-        uv_shared_handle: Some(HANDLE(uv_shared_handle_raw as *mut c_void)),
-        y_allocation_size,
-        uv_allocation_size,
-        adapter_luid_low,
-        adapter_luid_high,
-        owns_shared_handles: false,
-        packed_nv12: false,
-      }))
-    }
-  }
-
-  fn set_device(&self, device: Option<ID3D12Device>) {
-    *self.device.lock().expect("dx12 video surface allocator lock poisoned") = device;
-  }
-}
-
-#[cfg(feature = "raster")]
-impl Dx12Nv12Surface {
-  pub fn image_data(&self) -> crate::images::ImageData {
-    self.native.image_data()
-  }
-
-  pub fn native_image_data(&self) -> crate::images::NativeImageData {
-    self.native.clone()
-  }
-
-  pub fn dx12_nv12_image(&self) -> crate::images::Dx12Nv12Image {
-    crate::images::Dx12Nv12Image {
-      y_texture: self._y_texture.clone(),
-      uv_texture: self._uv_texture.clone(),
-      y_plane_slice: 0,
-      uv_plane_slice: if self.packed_nv12 { 1 } else { 0 },
-      frame_number: None,
-    }
-  }
-
-  pub fn y_shared_handle_raw(&self) -> isize {
-    self.y_shared_handle.0 as isize
-  }
-
-  pub fn uv_shared_handle_raw(&self) -> isize {
-    self.uv_shared_handle.unwrap_or(self.y_shared_handle).0 as isize
-  }
-
-  pub fn y_allocation_size(&self) -> u64 {
-    self.y_allocation_size
-  }
-
-  pub fn uv_allocation_size(&self) -> u64 {
-    self.uv_allocation_size
-  }
-
-  pub fn adapter_luid_low(&self) -> u32 {
-    self.adapter_luid_low
-  }
-
-  pub fn adapter_luid_high(&self) -> i32 {
-    self.adapter_luid_high
-  }
-
-  pub fn is_packed_nv12(&self) -> bool {
-    self.packed_nv12
-  }
-}
-
-#[cfg(feature = "raster")]
-fn native_dx12_nv12_image(native: &crate::images::NativeImageData) -> Option<crate::images::Dx12Nv12Image> {
-  native.payload::<crate::images::Dx12Nv12Image>().cloned().or_else(|| {
-    native
-      .payload::<crate::images::Dx12Nv12ImageSlot>()
-      .map(crate::images::Dx12Nv12ImageSlot::image)
-  })
-}
-
-#[cfg(feature = "raster")]
-impl Drop for Dx12Nv12Surface {
-  fn drop(&mut self) {
-    if self.owns_shared_handles {
-      unsafe {
-        let _ = CloseHandle(self.y_shared_handle);
-        if let Some(uv_shared_handle) = self.uv_shared_handle {
-          let _ = CloseHandle(uv_shared_handle);
-        }
-      }
-    }
-  }
-}
-
 impl RenderEngine for Dx12RenderEngine {
   fn profile_backend(&self) -> &'static str {
     "dx12"
@@ -723,7 +406,22 @@ impl RenderEngine for Dx12RenderEngine {
     self.height = height.max(1);
   }
 
+  /// The device is lost: it was found so while a frame was drawn, or it says so itself, which an engine of a
+  /// window that is not drawn finds no other way. The tree makes another engine in the place of every
+  /// window's at once: a card has one device for a program, and gives it again whole only once nothing holds
+  /// the lost one.
+  fn lost(&self) -> bool {
+    self.lost
+      || self.state.as_ref().is_some_and(|state| {
+        // SAFETY: the device is asked a question.
+        state.device_lost || unsafe { state.device.GetDeviceRemovedReason() }.is_err()
+      })
+  }
+
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
+    // Asked to draw though it said it is lost: nothing makes another in its place (a tree with no factory),
+    // and it makes its device again by itself.
+    self.lost = false;
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
@@ -760,7 +458,8 @@ impl RenderEngine for Dx12RenderEngine {
         self.height
       );
       if let Err(err) = unsafe { state.resize(self.width, self.height) } {
-        if is_dxgi_device_lost(&err) {
+        let lost = is_dxgi_device_lost(&err);
+        if lost {
           let reason = unsafe { state.device_removed_reason_code() };
           tracing::warn!(
             "native dx12 device lost while resizing swapchain; resetting renderer: error={err:?} removed_reason={}",
@@ -778,6 +477,7 @@ impl RenderEngine for Dx12RenderEngine {
           );
         }
         self.state = None;
+        self.lost = lost;
         return false;
       }
     }
@@ -793,6 +493,7 @@ impl RenderEngine for Dx12RenderEngine {
     let _render_profile = match unsafe { state.render(list, _profile_context) } {
       Ok(profile) => profile,
       Err(err) => {
+        let lost = is_dxgi_device_lost(&err);
         if is_dx12_frame_not_ready(&err) {
           tracing::trace!("native dx12 frame skipped while waiting for previous GPU work: {err:?}");
           return false;
@@ -811,13 +512,8 @@ impl RenderEngine for Dx12RenderEngine {
         } else {
           tracing::error!("failed to render native dx12 frame: {err:?}");
         }
-        #[cfg(feature = "raster")]
-        {
-          if let Some(video_surfaces) = &self.video_surfaces {
-            video_surfaces.set_device(None);
-          }
-        }
         self.state = None;
+        self.lost = lost;
         return false;
       }
     };
@@ -859,12 +555,6 @@ impl RenderEngine for Dx12RenderEngine {
   }
 
   fn release_window_surface(&mut self) {
-    #[cfg(feature = "raster")]
-    {
-      if let Some(video_surfaces) = &self.video_surfaces {
-        video_surfaces.set_device(None);
-      }
-    }
     self.state = None;
   }
 
@@ -906,8 +596,17 @@ struct Dx12State {
   glyph_atlas: Option<GlyphAtlasTexture>,
   #[cfg(feature = "raster")]
   image_textures: HashMap<u64, CachedImageTexture>,
+  /// The images whose frames are textures of the card, opened, by the image's id.
   #[cfg(feature = "raster")]
-  native_image_draw_cadence: HashMap<u64, NativeImageDrawCadence>,
+  card_frames: HashMap<u64, card_frames::Opened>,
+  /// The leases of frames that are drawn no more, by the frame of the renderer they were let go of in: the
+  /// card has done the work that drew them once that frame is waited for.
+  #[cfg(feature = "raster")]
+  card_leases: [Vec<crate::images::CardLease>; FRAME_COUNT],
+  /// A device on each card of the machine, which reads the frames of a decoder that is on another card than
+  /// this renderer's.
+  #[cfg(feature = "raster")]
+  card_readers: crate::app::card_read::Readers,
   #[cfg(feature = "raster")]
   next_srv_index: usize,
   frame_arenas: [UploadArena; FRAME_COUNT],
@@ -961,33 +660,6 @@ struct FrameCaptureReadback {
   frame_index: usize,
 }
 
-#[cfg(feature = "raster")]
-struct NativeImageDrawCadence {
-  started_at: Instant,
-  draws: u32,
-  version_changes: u32,
-  repeated_draws: u32,
-  skipped_versions: u64,
-  last_version: Option<u64>,
-  stream_frame_changes: u32,
-  repeated_stream_frames: u32,
-  backward_stream_frames: u32,
-  skipped_stream_frames: u64,
-  max_stream_frame_delta: u32,
-  last_stream_frame: Option<u32>,
-  last_draw_at: Option<Instant>,
-  max_draw_delta: Duration,
-  max_version_delta: u64,
-  last_width: u32,
-  last_height: u32,
-}
-
-#[cfg(feature = "raster")]
-fn stream_frame_after(frame_number: u32, previous_frame_number: u32) -> bool {
-  let delta = frame_number.wrapping_sub(previous_frame_number);
-  delta != 0 && delta < (u32::MAX / 2)
-}
-
 struct StaticQuadBuffers {
   _vertex_buffer: UploadBuffer,
   _index_buffer: UploadBuffer,
@@ -1028,6 +700,21 @@ struct GlyphAtlasUploadStats {
   dedicated_uploads: usize,
 }
 
+/// A frame of a card as an image draws it: where its textures are described, the textures, and the part of
+/// them that is the picture.
+#[cfg(feature = "raster")]
+struct CardFrameDraw {
+  descriptor_index: usize,
+  first: ID3D12Resource,
+  second: Option<ID3D12Resource>,
+  /// Whether the frame is red, green and blue, kept as sRGB says.
+  rgba: bool,
+  /// Whether the textures are another device's, shared with this one, and not this renderer's own.
+  shared: bool,
+  uv_min: [f32; 2],
+  uv_max: [f32; 2],
+}
+
 #[cfg(feature = "raster")]
 enum CachedImageTexture {
   Rgba {
@@ -1047,18 +734,6 @@ enum CachedImageTexture {
     frame_index: usize,
     version: u64,
   },
-  NativeNv12 {
-    _y_texture: ID3D12Resource,
-    _uv_texture: ID3D12Resource,
-    y_keyed_mutex: Option<IDXGIKeyedMutex>,
-    uv_keyed_mutex: Option<IDXGIKeyedMutex>,
-    descriptor_indices: [Option<usize>; FRAME_COUNT],
-    descriptor_versions: [u64; FRAME_COUNT],
-    descriptor_stream_frames: [Option<u32>; FRAME_COUNT],
-    width: u32,
-    height: u32,
-    version: u64,
-  },
 }
 
 #[cfg(feature = "raster")]
@@ -1068,7 +743,6 @@ impl CachedImageTexture {
       Self::Rgba { descriptor_index, .. } | Self::Nv12 { descriptor_index, .. } => {
         *descriptor_index = None;
       }
-      Self::NativeNv12 { .. } => {}
     }
   }
 
@@ -1077,21 +751,6 @@ impl CachedImageTexture {
       Self::Rgba { descriptor_index, .. } | Self::Nv12 { descriptor_index, .. } => {
         *descriptor_index = Some(index);
       }
-      Self::NativeNv12 { .. } => {}
-    }
-  }
-
-  fn set_native_descriptor_index(&mut self, frame_index: usize, index: usize, version: u64, stream_frame: Option<u32>) {
-    if let Self::NativeNv12 {
-      descriptor_indices,
-      descriptor_versions,
-      descriptor_stream_frames,
-      ..
-    } = self
-    {
-      descriptor_indices[frame_index] = Some(index);
-      descriptor_versions[frame_index] = version;
-      descriptor_stream_frames[frame_index] = stream_frame;
     }
   }
 }
@@ -2186,56 +1845,6 @@ unsafe fn create_r8_texture(device: &ID3D12Device, width: u32, height: u32) -> R
 }
 
 #[cfg(feature = "raster")]
-unsafe fn create_shared_texture(
-  device: &ID3D12Device,
-  width: u32,
-  height: u32,
-  format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
-) -> Result<(ID3D12Resource, HANDLE, u64)> {
-  const GENERIC_ALL: u32 = 0x10000000;
-  let heap_properties = D3D12_HEAP_PROPERTIES {
-    Type: D3D12_HEAP_TYPE_DEFAULT,
-    CPUPageProperty: D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-    MemoryPoolPreference: D3D12_MEMORY_POOL_UNKNOWN,
-    CreationNodeMask: 1,
-    VisibleNodeMask: 1,
-  };
-  let desc = D3D12_RESOURCE_DESC {
-    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-    Alignment: 0,
-    Width: width as u64,
-    Height: height,
-    DepthOrArraySize: 1,
-    MipLevels: 1,
-    Format: format,
-    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-    Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-    Flags: D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
-  };
-  let allocation_size = device
-    .GetResourceAllocationInfo(0, std::slice::from_ref(&desc))
-    .SizeInBytes;
-  let mut resource = None;
-  device.CreateCommittedResource(
-    &heap_properties,
-    D3D12_HEAP_FLAG_SHARED,
-    &desc,
-    D3D12_RESOURCE_STATE_COMMON,
-    None,
-    &mut resource,
-  )?;
-  let resource: ID3D12Resource = resource.ok_or_else(Error::from_win32)?;
-  let shared_handle = device.CreateSharedHandle(&resource, None, GENERIC_ALL, PCWSTR::null())?;
-  Ok((resource, shared_handle, allocation_size))
-}
-
-#[cfg(feature = "raster")]
-unsafe fn device_adapter_luid_parts(device: &ID3D12Device) -> (u32, i32) {
-  let luid = device.GetAdapterLuid();
-  (luid.LowPart, luid.HighPart)
-}
-
-#[cfg(feature = "raster")]
 unsafe fn create_r8g8_texture(device: &ID3D12Device, width: u32, height: u32) -> Result<ID3D12Resource> {
   let heap_properties = D3D12_HEAP_PROPERTIES {
     Type: D3D12_HEAP_TYPE_DEFAULT,
@@ -2671,7 +2280,11 @@ impl Dx12State {
       #[cfg(feature = "raster")]
       image_textures: HashMap::new(),
       #[cfg(feature = "raster")]
-      native_image_draw_cadence: HashMap::new(),
+      card_frames: HashMap::new(),
+      #[cfg(feature = "raster")]
+      card_leases: std::array::from_fn(|_| Vec::new()),
+      #[cfg(feature = "raster")]
+      card_readers: Default::default(),
       #[cfg(feature = "raster")]
       next_srv_index: 1,
       frame_arenas,
@@ -2750,6 +2363,10 @@ impl Dx12State {
     self.frame_index = self.swapchain.GetCurrentBackBufferIndex() as usize;
     dx12_context(self.wait_for_frame(self.frame_index), "wait for dx12 frame")?;
     self.frame_uploads[self.frame_index].clear();
+    // The frame drawn last with this slot is done, and with it every frame before it: what they drew of a
+    // card's frames is given back.
+    #[cfg(feature = "raster")]
+    self.card_leases[self.frame_index].clear();
     #[cfg(feature = "canvas")]
     self.canvas_retired[self.frame_index].clear();
     #[cfg(feature = "screenshot")]
@@ -3416,134 +3033,6 @@ impl Dx12State {
   }
 
   #[cfg(feature = "raster")]
-  fn record_native_image_draw(&mut self, image: &crate::images::ImageCmd, stream_frame: Option<u32>) {
-    let now = Instant::now();
-    let stats = self
-      .native_image_draw_cadence
-      .entry(image.image_id)
-      .or_insert_with(|| NativeImageDrawCadence {
-        started_at: now,
-        draws: 0,
-        version_changes: 0,
-        repeated_draws: 0,
-        skipped_versions: 0,
-        last_version: None,
-        stream_frame_changes: 0,
-        repeated_stream_frames: 0,
-        backward_stream_frames: 0,
-        skipped_stream_frames: 0,
-        max_stream_frame_delta: 0,
-        last_stream_frame: None,
-        last_draw_at: None,
-        max_draw_delta: Duration::ZERO,
-        max_version_delta: 0,
-        last_width: image.image_width,
-        last_height: image.image_height,
-      });
-
-    stats.draws += 1;
-    if let Some(last_draw_at) = stats.last_draw_at {
-      stats.max_draw_delta = stats.max_draw_delta.max(now.duration_since(last_draw_at));
-    }
-    stats.last_draw_at = Some(now);
-    stats.last_width = image.image_width;
-    stats.last_height = image.image_height;
-    match stats.last_version {
-      Some(last_version) if last_version == image.version => {
-        stats.repeated_draws += 1;
-      }
-      Some(last_version) => {
-        let version_delta = image.version.saturating_sub(last_version);
-        stats.max_version_delta = stats.max_version_delta.max(version_delta);
-        stats.version_changes += 1;
-        stats.skipped_versions += version_delta.saturating_sub(1);
-        stats.last_version = Some(image.version);
-      }
-      None => {
-        stats.version_changes += 1;
-        stats.last_version = Some(image.version);
-      }
-    }
-    if let Some(stream_frame) = stream_frame {
-      match stats.last_stream_frame {
-        Some(last_stream_frame) if last_stream_frame == stream_frame => {
-          stats.repeated_stream_frames += 1;
-        }
-        Some(last_stream_frame) if stream_frame_after(stream_frame, last_stream_frame) => {
-          let frame_delta = stream_frame.wrapping_sub(last_stream_frame);
-          stats.max_stream_frame_delta = stats.max_stream_frame_delta.max(frame_delta);
-          stats.skipped_stream_frames += u64::from(frame_delta.saturating_sub(1));
-          stats.stream_frame_changes += 1;
-          stats.last_stream_frame = Some(stream_frame);
-        }
-        Some(last_stream_frame) => {
-          stats.backward_stream_frames += 1;
-          crate::app::profile_support::video_log!(debug,
-            target: "video::watch::lurq",
-            "dx12 native image frame order image={} drawn_frame={} previous_drawn_frame={} backwards=true image_version={} size={}x{}",
-            image.image_id,
-            stream_frame,
-            last_stream_frame,
-            image.version,
-            image.image_width,
-            image.image_height
-          );
-          stats.last_stream_frame = Some(stream_frame);
-        }
-        None => {
-          stats.stream_frame_changes += 1;
-          stats.last_stream_frame = Some(stream_frame);
-        }
-      }
-    }
-
-    if now.duration_since(stats.started_at) < Duration::from_secs(1) {
-      return;
-    }
-
-    crate::app::profile_support::video_log!(debug,
-      target: "video::watch::lurq",
-      "dx12 native image cadence image={} size={}x{} draws={} version_changes={} repeated_draws={} skipped_versions={} max_draw_delta_ms={:.2} max_version_delta={} last_version={:?} stream_frame_changes={} repeated_stream_frames={} backward_stream_frames={} skipped_stream_frames={} max_stream_frame_delta={} last_stream_frame={:?}",
-      image.image_id,
-      stats.last_width,
-      stats.last_height,
-      stats.draws,
-      stats.version_changes,
-      stats.repeated_draws,
-      stats.skipped_versions,
-      duration_ms(stats.max_draw_delta),
-      stats.max_version_delta,
-      stats.last_version,
-      stats.stream_frame_changes,
-      stats.repeated_stream_frames,
-      stats.backward_stream_frames,
-      stats.skipped_stream_frames,
-      stats.max_stream_frame_delta,
-      stats.last_stream_frame
-    );
-
-    *stats = NativeImageDrawCadence {
-      started_at: now,
-      draws: 0,
-      version_changes: 0,
-      repeated_draws: 0,
-      skipped_versions: 0,
-      last_version: stats.last_version,
-      stream_frame_changes: 0,
-      repeated_stream_frames: 0,
-      backward_stream_frames: 0,
-      skipped_stream_frames: 0,
-      max_stream_frame_delta: 0,
-      last_stream_frame: stats.last_stream_frame,
-      last_draw_at: stats.last_draw_at,
-      max_draw_delta: Duration::ZERO,
-      max_version_delta: 0,
-      last_width: image.image_width,
-      last_height: image.image_height,
-    };
-  }
-
-  #[cfg(feature = "raster")]
   unsafe fn draw_image(&mut self, image: &crate::images::ImageCmd) -> Result<()> {
     let refreshed_native_image = image.native.as_ref().and_then(|native| {
       let version = native.version();
@@ -3585,99 +3074,33 @@ impl Dx12State {
     };
     #[cfg(not(feature = "canvas"))]
     let canvas_descriptor: Option<usize> = None;
+    // A frame of the card is drawn where the decoder put it. Until one is written, or where this device does
+    // not open its textures, nothing is drawn of the image.
+    let card = match image
+      .native
+      .as_ref()
+      .and_then(|native| native.payload::<crate::images::CardFrames>())
+    {
+      Some(frames) => match self.card_frame(image, frames)? {
+        Some(card) => Some(card),
+        None => return Ok(()),
+      },
+      None => None,
+    };
     let descriptor_index = if let Some(index) = canvas_descriptor {
       index
+    } else if let Some(card) = &card {
+      card.descriptor_index
     } else {
       self.ensure_image_texture(image)?
     };
-    let native_nv12_mutexes = match self.image_textures.get(&image.image_id) {
-      Some(CachedImageTexture::NativeNv12 {
-        y_keyed_mutex,
-        uv_keyed_mutex,
-        ..
-      }) => Some((y_keyed_mutex.clone(), uv_keyed_mutex.clone())),
-      _ => None,
-    };
-    let native_nv12_resources = match self.image_textures.get(&image.image_id) {
-      Some(CachedImageTexture::NativeNv12 {
-        _y_texture,
-        _uv_texture,
-        y_keyed_mutex,
-        uv_keyed_mutex,
-        ..
-      }) => Some((
-        _y_texture.clone(),
-        if y_keyed_mutex.is_some() && uv_keyed_mutex.is_none() {
-          None
-        } else {
-          Some(_uv_texture.clone())
-        },
-      )),
-      _ => None,
-    };
-    let native_stream_frame = image
-      .native
+    // The textures of a card's frame are another device's, shared with this one: they are read for this
+    // draw alone.
+    let shared_textures = card
       .as_ref()
-      .and_then(native_dx12_nv12_image)
-      .and_then(|native| native.frame_number);
-    let descriptor_stream_frame = match self.image_textures.get(&image.image_id) {
-      Some(CachedImageTexture::NativeNv12 {
-        descriptor_stream_frames,
-        ..
-      }) => descriptor_stream_frames[self.frame_index],
-      _ => None,
-    };
-    if native_stream_frame != descriptor_stream_frame {
-      crate::app::profile_support::video_log!(debug,
-        target: "video::watch::lurq",
-        "dx12 native image descriptor frame mismatch image={} live_frame={:?} descriptor_frame={:?} image_version={} frame_index={} descriptor={}",
-        image.image_id,
-        native_stream_frame,
-        descriptor_stream_frame,
-        image.version,
-        self.frame_index,
-        descriptor_index
-      );
-    }
-    if native_nv12_resources.is_some() {
-      self.record_native_image_draw(image, native_stream_frame);
-    }
-    let y_keyed_mutex_acquired = acquire_native_nv12_mutex(
-      native_nv12_mutexes.as_ref().and_then(|(mutex, _)| mutex.as_ref()),
-      image.image_id,
-      image.version,
-      "y",
-    );
-    let uv_keyed_mutex_acquired = acquire_native_nv12_mutex(
-      native_nv12_mutexes.as_ref().and_then(|(_, mutex)| mutex.as_ref()),
-      image.image_id,
-      image.version,
-      "uv",
-    );
-    if native_nv12_resources.is_some() {
-      let draw_count = DX12_NATIVE_IMAGE_DRAW_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-      if draw_count == 1 || draw_count.is_multiple_of(120) {
-        dx12_native_image_log(format_args!(
-          "draw #{} image={} version={} stream_frame={:?} y_keyed={} y_acquired={} uv_keyed={} uv_acquired={} descriptor={}",
-          draw_count,
-          image.image_id,
-          image.version,
-          native_stream_frame,
-          native_nv12_mutexes
-            .as_ref()
-            .and_then(|(mutex, _)| mutex.as_ref())
-            .is_some(),
-          y_keyed_mutex_acquired,
-          native_nv12_mutexes
-            .as_ref()
-            .and_then(|(_, mutex)| mutex.as_ref())
-            .is_some(),
-          uv_keyed_mutex_acquired,
-          descriptor_index
-        ));
-      }
-    }
-    if let Some((y_texture, uv_texture)) = &native_nv12_resources {
+      .filter(|card| card.shared)
+      .map(|card| (card.first.clone(), card.second.clone()));
+    if let Some((y_texture, uv_texture)) = &shared_textures {
       self.transition_resource(
         y_texture,
         D3D12_RESOURCE_STATE_COMMON,
@@ -3705,11 +3128,20 @@ impl Dx12State {
     let instance = ImageInstance {
       pos: [image.x, image.y],
       size: [image.width, image.height],
-      opacity: [image.opacity, if canvas_image.is_some() { 1. } else { 0. }, 0.0, 0.0],
+      opacity: [
+        image.opacity,
+        if canvas_image.is_some() || card.as_ref().is_some_and(|card| card.rgba) {
+          1.
+        } else {
+          0.
+        },
+        0.0,
+        0.0,
+      ],
       transform: image.transform,
       xf_origin: image.transform_origin,
-      uv_min: image.uv_min,
-      uv_max: image.uv_max,
+      uv_min: card.as_ref().map_or(image.uv_min, |card| card.uv_min),
+      uv_max: card.as_ref().map_or(image.uv_max, |card| card.uv_max),
       radii: image.radii,
     };
     let instance_upload = self.upload_frame_pod_slice(&[instance], 16)?;
@@ -3738,13 +3170,7 @@ impl Dx12State {
       .command_list
       .DrawIndexedInstanced(QuadVertex::INDICES.len() as u32, 1, 0, 0, 0);
     profile_if! { self.draw_calls += 1; }
-    if uv_keyed_mutex_acquired && let Some((_, Some(mutex))) = native_nv12_mutexes.as_ref() {
-      let _ = mutex.ReleaseSync(0);
-    }
-    if y_keyed_mutex_acquired && let Some((Some(mutex), _)) = native_nv12_mutexes.as_ref() {
-      let _ = mutex.ReleaseSync(0);
-    }
-    if let Some((y_texture, uv_texture)) = &native_nv12_resources {
+    if let Some((y_texture, uv_texture)) = &shared_textures {
       self.transition_resource(
         y_texture,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
@@ -3945,9 +3371,148 @@ impl Dx12State {
     self
       .image_textures
       .retain(|image_id, _| live_image_ids.contains(image_id));
+    // An image that is drawn no more: the frame it drew last may still be drawn by the card.
+    let gone: Vec<u64> = self
+      .card_frames
+      .keys()
+      .filter(|image_id| !live_image_ids.contains(image_id))
+      .copied()
+      .collect();
+    for image_id in gone {
+      self.close_card_frames(image_id);
+    }
     for texture in self.image_textures.values_mut() {
       texture.clear_descriptor_index();
     }
+  }
+
+  /// Ends the drawing of the card's frames of the image `image_id`: the lease of the frame it drew last is kept
+  /// until the card has done this frame of the renderer.
+  #[cfg(feature = "raster")]
+  fn close_card_frames(&mut self, image_id: u64) {
+    if let Some(lease) = self.card_frames.remove(&image_id).and_then(card_frames::Opened::closed) {
+      self.card_leases[self.frame_index].push(lease);
+    }
+  }
+
+  /// The frame `image` draws now of `frames`, which are textures of the card: the textures, where they are
+  /// described for the pipeline, and the part of them that is the picture. `None` where no frame is written
+  /// yet, or this device does not open the textures.
+  #[cfg(feature = "raster")]
+  unsafe fn card_frame(
+    &mut self,
+    image: &crate::images::ImageCmd,
+    frames: &crate::images::CardFrames,
+  ) -> Result<Option<CardFrameDraw>> {
+    let picture = (image.image_width, image.image_height);
+    if self
+      .card_frames
+      .get(&image.image_id)
+      .is_some_and(|opened| !opened.is_of(frames, picture))
+    {
+      self.close_card_frames(image.image_id);
+    }
+    let device = self.device.clone();
+    let readers = &mut self.card_readers;
+    let picked = self
+      .card_frames
+      .entry(image.image_id)
+      .or_insert_with(|| card_frames::Opened::open(&device, frames, picture, readers))
+      .pick();
+    if let Some(lease) = picked.lease {
+      self.card_leases[self.frame_index].push(lease);
+    }
+    // A frame of another card came through memory: it is sent to this renderer's own textures.
+    if let Some(arrived) = picked.arrived {
+      let mut sent = Ok(());
+      for part in &arrived.parts {
+        sent = self.upload_texture_rows(
+          &part.texture,
+          &part.bytes,
+          part.wide,
+          part.high,
+          part.bytes.len() / part.high.max(1) as usize,
+          part.format,
+          if arrived.written {
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+          } else {
+            D3D12_RESOURCE_STATE_COPY_DEST
+          },
+        );
+        if sent.is_err() {
+          break;
+        }
+      }
+      if let Some(opened) = self.card_frames.get_mut(&image.image_id) {
+        opened.sent(arrived, sent.is_ok());
+      }
+      dx12_context(
+        sent,
+        format_args!(
+          "send a frame of another card to its textures: image id={}",
+          image.image_id
+        ),
+      )?;
+    }
+    let drawn = self.card_frames.get(&image.image_id).and_then(|opened| {
+      let slot = opened.drawn()?;
+      let (uv_min, uv_max) = opened.part(image.uv_min, image.uv_max);
+      Some((
+        slot.first.clone(),
+        slot.second.clone(),
+        slot.kind,
+        opened.is_shared(),
+        uv_min,
+        uv_max,
+      ))
+    });
+    let Some((first, second, kind, shared, uv_min, uv_max)) = drawn else {
+      return Ok(None);
+    };
+    let descriptor_index = match kind {
+      card_frames::Kind::Nv12 | card_frames::Kind::Planes => {
+        let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
+        // The gray and the color: the two planes of one NV12 texture, or a texture of each.
+        self.write_plane_srvs(
+          &first,
+          second.as_ref().unwrap_or(&first),
+          u32::from(kind == card_frames::Kind::Nv12),
+          descriptor_index,
+        );
+        descriptor_index
+      }
+      card_frames::Kind::Rgba(format) => {
+        let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 1)?;
+        // As the texture says its red, green and blue are kept: the shader takes them out of sRGB, as it
+        // does a canvas's.
+        let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+          Format: format,
+          ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+          Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+          Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_SRV {
+              MostDetailedMip: 0,
+              MipLevels: 1,
+              PlaneSlice: 0,
+              ResourceMinLODClamp: 0.0,
+            },
+          },
+        };
+        self
+          .device
+          .CreateShaderResourceView(&first, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index));
+        descriptor_index
+      }
+    };
+    Ok(Some(CardFrameDraw {
+      descriptor_index,
+      first,
+      second,
+      rgba: matches!(kind, card_frames::Kind::Rgba(_)),
+      shared,
+      uv_min,
+      uv_max,
+    }))
   }
 
   #[cfg(feature = "raster")]
@@ -4028,8 +3593,16 @@ impl Dx12State {
     );
   }
 
+  /// Describes the gray of `gray` and the color of `color` for the NV12 pipeline: `color_plane` is 1 where
+  /// they are the two planes of one NV12 texture, and 0 where the color is a texture of its own.
   #[cfg(feature = "raster")]
-  unsafe fn write_native_nv12_image_srvs(&self, dx12: &crate::images::Dx12Nv12Image, descriptor_index: usize) {
+  unsafe fn write_plane_srvs(
+    &self,
+    gray: &ID3D12Resource,
+    color: &ID3D12Resource,
+    color_plane: u32,
+    descriptor_index: usize,
+  ) {
     let y_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
       Format: DXGI_FORMAT_R8_UNORM,
       ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
@@ -4038,7 +3611,7 @@ impl Dx12State {
         Texture2D: D3D12_TEX2D_SRV {
           MostDetailedMip: 0,
           MipLevels: 1,
-          PlaneSlice: dx12.y_plane_slice,
+          PlaneSlice: 0,
           ResourceMinLODClamp: 0.0,
         },
       },
@@ -4051,18 +3624,16 @@ impl Dx12State {
         Texture2D: D3D12_TEX2D_SRV {
           MostDetailedMip: 0,
           MipLevels: 1,
-          PlaneSlice: dx12.uv_plane_slice,
+          PlaneSlice: color_plane,
           ResourceMinLODClamp: 0.0,
         },
       },
     };
+    self
+      .device
+      .CreateShaderResourceView(gray, Some(&y_srv_desc), self.srv_heap.cpu_handle(descriptor_index));
     self.device.CreateShaderResourceView(
-      &dx12.y_texture,
-      Some(&y_srv_desc),
-      self.srv_heap.cpu_handle(descriptor_index),
-    );
-    self.device.CreateShaderResourceView(
-      &dx12.uv_texture,
+      color,
       Some(&uv_srv_desc),
       self.srv_heap.cpu_handle(descriptor_index + 1),
     );
@@ -4262,169 +3833,21 @@ impl Dx12State {
     Ok(descriptor_index)
   }
 
+  /// An image that is not a picture of memory has no texture kept here: a canvas and a card's frames are
+  /// drawn from where they are before one is asked for, and this renderer draws no other.
   #[cfg(feature = "raster")]
   unsafe fn ensure_native_image_texture(&mut self, image: &crate::images::ImageCmd) -> Result<usize> {
-    let Some(native) = &image.native else {
-      return Err(dx12_invalid_arg(format!(
+    Err(dx12_invalid_arg(match &image.native {
+      Some(native) => format!(
+        "dx12 renderer keeps no texture of an image of {:?}: image id={}",
+        native.backend(),
+        image.image_id
+      ),
+      None => format!(
         "dx12 native image command missing native payload: image id={}",
         image.image_id
-      )));
-    };
-    match native.backend() {
-      #[cfg(feature = "canvas")]
-      crate::images::NativeImageBackend::Canvas => {
-        return Err(dx12_invalid_arg("canvas backing unavailable".to_owned()));
-      }
-      crate::images::NativeImageBackend::Dx12Nv12 => {}
-      // Frames a media keeps on the card for the wgpu renderer, which alone says it draws them: none come here.
-      crate::images::NativeImageBackend::CardFrames => {
-        return Err(dx12_invalid_arg(format!(
-          "dx12 renderer is not given a video's shared frames: image id={}",
-          image.image_id
-        )));
-      }
-      #[cfg(feature = "wgpu")]
-      crate::images::NativeImageBackend::WgpuExternalRgba => {
-        return Err(dx12_invalid_arg(format!(
-          "dx12 renderer cannot sample a wgpu external image: image id={}",
-          image.image_id
-        )));
-      }
-    }
-    if image.image_format != crate::images::ImagePixelFormat::Nv12
-      || !image.image_width.is_multiple_of(2)
-      || !image.image_height.is_multiple_of(2)
-    {
-      return Err(dx12_invalid_arg(format!(
-        "dx12 native image must be even-sized nv12: image id={} format={:?} size={}x{}",
-        image.image_id, image.image_format, image.image_width, image.image_height
-      )));
-    }
-
-    if let Some(cached) = self.image_textures.get(&image.image_id) {
-      match cached {
-        CachedImageTexture::NativeNv12 {
-          descriptor_indices,
-          descriptor_versions,
-          descriptor_stream_frames: _,
-          width,
-          height,
-          version,
-          ..
-        } if *width == image.image_width && *height == image.image_height => {
-          let frame_index = self.frame_index;
-          let cached_descriptor_index = descriptor_indices[frame_index];
-          let cached_descriptor_version = descriptor_versions[frame_index];
-          let version = *version;
-          let Some(dx12) = native_dx12_nv12_image(native) else {
-            return Err(dx12_invalid_arg(format!(
-              "dx12 native image payload type mismatch: image id={}",
-              image.image_id
-            )));
-          };
-
-          if version != image.version {
-            dx12_native_image_log(format_args!(
-              "refresh SRV image={} version={} previous_version={} descriptor={:?} y_plane={} uv_plane={}",
-              image.image_id, image.version, version, cached_descriptor_index, dx12.y_plane_slice, dx12.uv_plane_slice
-            ));
-            if let Some(CachedImageTexture::NativeNv12 {
-              _y_texture,
-              _uv_texture,
-              y_keyed_mutex,
-              uv_keyed_mutex,
-              version,
-              ..
-            }) = self.image_textures.get_mut(&image.image_id)
-            {
-              *_y_texture = dx12.y_texture.clone();
-              *_uv_texture = dx12.uv_texture.clone();
-              let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
-              *y_keyed_mutex = if packed_nv12 {
-                dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
-              } else {
-                None
-              };
-              *uv_keyed_mutex = None;
-              *version = image.version;
-            }
-          }
-
-          let descriptor_index = match cached_descriptor_index {
-            Some(descriptor_index) => {
-              self.next_srv_index = self.next_srv_index.max(descriptor_index + 2);
-              descriptor_index
-            }
-            None => {
-              let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
-              if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
-                cached.set_native_descriptor_index(frame_index, descriptor_index, 0, None);
-              }
-              descriptor_index
-            }
-          };
-          if cached_descriptor_version != image.version {
-            self.write_native_nv12_image_srvs(&dx12, descriptor_index);
-            if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
-              cached.set_native_descriptor_index(frame_index, descriptor_index, image.version, dx12.frame_number);
-            }
-          }
-          return Ok(descriptor_index);
-        }
-        _ => {
-          self.image_textures.remove(&image.image_id);
-        }
-      }
-    }
-
-    let Some(dx12) = native_dx12_nv12_image(native) else {
-      return Err(dx12_invalid_arg(format!(
-        "dx12 native image payload type mismatch: image id={}",
-        image.image_id
-      )));
-    };
-
-    let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 2)?;
-    dx12_native_image_log(format_args!(
-      "create SRV image={} version={} descriptor={} size={}x{} y_plane={} uv_plane={}",
-      image.image_id,
-      image.version,
-      descriptor_index,
-      image.image_width,
-      image.image_height,
-      dx12.y_plane_slice,
-      dx12.uv_plane_slice
-    ));
-    self.write_native_nv12_image_srvs(&dx12, descriptor_index);
-    let packed_nv12 = dx12.y_plane_slice == 0 && dx12.uv_plane_slice == 1;
-    let y_keyed_mutex = if packed_nv12 {
-      dx12.y_texture.cast::<IDXGIKeyedMutex>().ok()
-    } else {
-      None
-    };
-    let uv_keyed_mutex = None;
-    let mut descriptor_indices = [None; FRAME_COUNT];
-    descriptor_indices[self.frame_index] = Some(descriptor_index);
-    let mut descriptor_versions = [0; FRAME_COUNT];
-    descriptor_versions[self.frame_index] = image.version;
-    let mut descriptor_stream_frames = [None; FRAME_COUNT];
-    descriptor_stream_frames[self.frame_index] = dx12.frame_number;
-    self.image_textures.insert(
-      image.image_id,
-      CachedImageTexture::NativeNv12 {
-        _y_texture: dx12.y_texture.clone(),
-        _uv_texture: dx12.uv_texture.clone(),
-        y_keyed_mutex,
-        uv_keyed_mutex,
-        descriptor_indices,
-        descriptor_versions,
-        descriptor_stream_frames,
-        width: image.image_width,
-        height: image.image_height,
-        version: image.version,
-      },
-    );
-    Ok(descriptor_index)
+      ),
+    }))
   }
 
   #[cfg(feature = "raster")]

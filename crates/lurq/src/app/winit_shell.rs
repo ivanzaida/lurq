@@ -2164,6 +2164,8 @@ impl WinitHandler {
   }
 
   fn present_dirty_secondaries(&mut self) {
+    // A window that is drawn while the main one is not may be the one that finds the device lost.
+    self.main.tree.replace_lost_render_engine();
     for position in 0..self.secondaries.len() {
       let index = self.secondaries[position].index();
       let should_present = self
@@ -2379,6 +2381,10 @@ impl ApplicationHandler for WinitHandler {
       let mut closed = false;
       #[cfg(target_os = "ios")]
       let drawn = matches!(event, WindowEvent::RedrawRequested);
+      // As in `present_dirty_secondaries`: the window may be asked to draw by the system.
+      if matches!(event, WindowEvent::RedrawRequested) {
+        self.main.tree.replace_lost_render_engine();
+      }
       if let Some(secondary) = self.main.tree.secondary_window_mut(index) {
         self.secondaries[position].handle_event(&mut self.app, event_loop, event, secondary.tree_mut());
         closed = self.secondaries[position].close_requested();

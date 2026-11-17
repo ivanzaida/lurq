@@ -1962,6 +1962,7 @@ fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ct
     live,
     ctx,
     form,
+    shown,
   };
   let touch = (player.is_touch() && player.controls).then(|| make.touch(landscape));
   let bar = (has_bar && !player.is_touch()).then(|| make.bar(narrow));
@@ -2031,6 +2032,8 @@ struct Make<'a, 'c> {
   live: &'a Live,
   ctx: Option<&'c mut Ctx>,
   form: VideoPlayerSize,
+  /// Whether the controls show, or have faded out while it plays.
+  shown: bool,
 }
 
 /// The controls of the touch form, made: a renderer lays them out.
@@ -2095,14 +2098,19 @@ impl Make<'_, '_> {
     self.player.id.as_ref().map(|id| format!("{id}-{suffix}"))
   }
 
-  /// `element` with a tooltip of `text` and `keys` over it, where the player is mounted.
+  /// `element` with a tooltip of `text` and `keys` over it, where the player is mounted. The tooltip goes with
+  /// the controls when they fade out: the pointer that rested on a button rests there still, and a tooltip over
+  /// a button that is not seen says a thing of nothing. It hears the pointer all the while, and is back with the
+  /// controls where the pointer is on its button still.
   fn tip(&mut self, element: Element, text: &str, keys: &str) -> Element {
+    let faded = (!self.shown).then_some(false);
     match self.ctx.as_deref_mut() {
       Some(ctx) => Tooltip::new(text)
         .shortcut(keys)
         .placement(Placement::Top)
         .arrow(true)
         .offset(4.0)
+        .force_open(faded)
         .mount(ctx, element),
       None => element,
     }
@@ -2341,6 +2349,7 @@ impl Make<'_, '_> {
     };
     // The tooltip is the button's: over the slider it would say "Mute" of what sets the volume.
     let recipe = self.recipe;
+    let faded = (!self.shown).then_some(false);
     match self.ctx.as_deref_mut() {
       Some(ctx) => volume.build_with(recipe.theme(), &mut |button| {
         Tooltip::new(&text)
@@ -2348,6 +2357,7 @@ impl Make<'_, '_> {
           .placement(Placement::Top)
           .arrow(true)
           .offset(4.0)
+          .force_open(faded)
           .mount(ctx, button)
       }),
       None => volume.build(recipe.theme()),

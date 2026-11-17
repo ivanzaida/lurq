@@ -258,7 +258,7 @@ impl GpuTimer {
     if self.in_flight.is_empty() {
       return;
     }
-    let _ = device.poll(wgpu::PollType::Poll);
+    super::device_loss::asked(device, None, wgpu::PollType::Poll);
     let period_ns = self.period_ns;
     let spare = &mut self.spare;
     self

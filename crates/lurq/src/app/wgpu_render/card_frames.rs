@@ -12,25 +12,40 @@
 //! lease of a frame that is no longer drawn is kept until the card has done all the work that drew it
 //! ([`Leases`]).
 //!
+//! Under Vulkan the same holds: a texture Direct3D shares is given to Vulkan by its handle
+//! (`VK_KHR_external_memory_win32`), and drawn where it is; one NV12 texture on some cards alone
+//! ([`vulkan_takes_nv12`]). Vulkan cannot ask the texture what it is, nor a
+//! fence of Direct3D how far it is: a Direct3D 11 device of the same card is asked both ([`Readers`]).
+//!
 //! Where the renderer's device does not open the handles, for the decoder is on another card, the frames are
 //! copied through memory instead ([`Copied`]), and drawn the same way from textures of the renderer's own.
 
-use std::sync::Arc;
+use std::{
+  sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  },
+  time::{Duration, Instant},
+};
 
 use parking_lot::Mutex;
 use windows::Win32::{
   Foundation::HANDLE,
   Graphics::{
+    Direct3D11::ID3D11Fence,
     Direct3D12::{ID3D12Fence, ID3D12Resource},
-    Dxgi::Common::{
-      DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM,
-      DXGI_FORMAT_R8G8B8A8_UNORM,
+    Dxgi::{
+      Common::{
+        DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+      },
+      CreateDXGIFactory1, IDXGIFactory1,
     },
   },
 };
 
 use super::card_copies::{Copied, Readers};
-use crate::images::{CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface};
+use crate::images::{CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface};
 
 /// The leases of frames that are drawn no more, kept until the card has finished the work that drew them.
 #[derive(Clone, Default)]
@@ -78,17 +93,219 @@ impl Slot {
 /// Says that `device` draws frames of the card, and on which card, where it can: on Direct3D 12 with NV12
 /// textures. What decodes a video asks ([`card_frames_adapter`](crate::images::card_frames_adapter)) and decodes
 /// on that card; where nothing said so, a frame goes through memory, as before.
-pub(super) fn announce(device: &wgpu::Device) {
+pub(super) fn announce(device: &wgpu::Device) -> bool {
   if !device.features().contains(wgpu::Features::TEXTURE_FORMAT_NV12) {
-    return;
+    return false;
   }
   // SAFETY: the device's own handle is read and nothing of it is changed.
   let Some(hal) = (unsafe { device.as_hal::<wgpu::hal::api::Dx12>() }) else {
-    return;
+    return false;
   };
   // SAFETY: as above.
   let card = unsafe { hal.raw_device().GetAdapterLuid() };
   crate::images::set_card_frames_adapter(Some((card.LowPart, card.HighPart)));
+  crate::images::set_card_frames_nv12(true);
+  true
+}
+
+/// AMD's, as a card says who made it.
+const AMD: u32 = 0x1002;
+/// A device lost this soon after Vulkan was given an NV12 texture is taken to be lost for it.
+const LOST_FOR_NV12_WITHIN: Duration = Duration::from_secs(5);
+/// When Vulkan was last given an NV12 texture.
+static NV12_GIVEN: Mutex<Option<Instant>> = Mutex::new(None);
+/// Whether a device of Vulkan was lost for an NV12 texture in this program: none is given one again.
+static NV12_LOST: AtomicBool = AtomicBool::new(false);
+
+/// Whether one NV12 texture is given to `device`, of Vulkan.
+///
+/// Vulkan has the format, and what a card does with such a texture of Direct3D is its driver's: of the two
+/// this was run on, an RTX 5080 lost its device for it, at once and each time, and the Radeon of a
+/// processor took it and drew it. So it is given to a card of AMD's and to no other, and to none once a
+/// device was lost soon after it was given ([`a_device_is_lost`]): another driver of AMD's may lose its
+/// device as the RTX did, and the program is not to lose one device after another for it.
+fn vulkan_takes_nv12(device: &wgpu::Device) -> bool {
+  device.features().contains(wgpu::Features::TEXTURE_FORMAT_NV12)
+    && nv12_is_tried_on(device.adapter_info().vendor)
+    && !NV12_LOST.load(Ordering::Acquire)
+}
+
+/// Whether a card of the maker `vendor` is one an NV12 texture is tried on.
+pub(super) fn nv12_is_tried_on(vendor: u32) -> bool {
+  vendor == AMD
+}
+
+/// A device is lost. Where Vulkan was given an NV12 texture a moment ago, it is taken to be lost for that,
+/// and no device is given one again in this program: their frames come through memory, as on a card that
+/// is known not to take them.
+pub(super) fn a_device_is_lost() {
+  if NV12_GIVEN
+    .lock()
+    .is_some_and(|given| given.elapsed() < LOST_FOR_NV12_WITHIN)
+  {
+    NV12_LOST.store(true, Ordering::Release);
+    crate::images::set_card_frames_nv12(false);
+  }
+}
+
+/// For a test: says when Vulkan was given an NV12 texture, or that it was not.
+#[cfg(test)]
+pub(super) fn nv12_was_given(at: Option<Instant>) {
+  *NV12_GIVEN.lock() = at;
+}
+
+/// For a test: whether a device was lost for an NV12 texture.
+#[cfg(test)]
+pub(super) fn nv12_is_lost() -> bool {
+  NV12_LOST.load(Ordering::Acquire)
+}
+
+/// For a test: nothing was lost for an NV12 texture, as when the program starts.
+#[cfg(test)]
+pub(super) fn forget_the_lost_nv12() {
+  NV12_LOST.store(false, Ordering::Release);
+  *NV12_GIVEN.lock() = None;
+}
+
+/// Says the same of a device of Vulkan that is given the textures Direct3D shares: on which card it draws,
+/// found among the system's cards by what wgpu says of `adapter`. Whether it said so.
+pub(super) fn announce_vulkan(device: &wgpu::Device, adapter: &wgpu::Adapter) -> bool {
+  if !device.features().contains(wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32) {
+    return false;
+  }
+  let info = adapter.get_info();
+  if info.backend != wgpu::Backend::Vulkan {
+    return false;
+  }
+  // SAFETY: the system is asked for its cards, and what each says of itself is read.
+  let card = unsafe {
+    let Ok(cards) = CreateDXGIFactory1::<IDXGIFactory1>() else {
+      return false;
+    };
+    (0..)
+      .map_while(|index| cards.EnumAdapters1(index).ok())
+      .filter_map(|card| card.GetDesc1().ok())
+      .find(|said| said.VendorId == info.vendor && said.DeviceId == info.device)
+      .map(|said| said.AdapterLuid)
+  };
+  let Some(card) = card else {
+    return false;
+  };
+  crate::images::set_card_frames_adapter(Some((card.LowPart, card.HighPart)));
+  // Where one NV12 texture is not given to Vulkan, what decodes into one gives red, green and blue instead.
+  crate::images::set_card_frames_nv12(vulkan_takes_nv12(device));
+  true
+}
+
+/// The format of a texture of the card, as wgpu names it; `None` for one no frame is in.
+fn format_of(said: DXGI_FORMAT) -> Option<wgpu::TextureFormat> {
+  Some(match said {
+    DXGI_FORMAT_NV12 => wgpu::TextureFormat::NV12,
+    DXGI_FORMAT_R8_UNORM => wgpu::TextureFormat::R8Unorm,
+    DXGI_FORMAT_R8G8_UNORM => wgpu::TextureFormat::Rg8Unorm,
+    DXGI_FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
+    DXGI_FORMAT_B8G8R8A8_UNORM => wgpu::TextureFormat::Bgra8Unorm,
+    _ => return None,
+  })
+}
+
+/// What a texture of the card is said to be to wgpu, whichever of its backends opened it.
+fn described(format: wgpu::TextureFormat, size: wgpu::Extent3d) -> wgpu::TextureDescriptor<'static> {
+  wgpu::TextureDescriptor {
+    label: Some("lurq_card_frame"),
+    size,
+    mip_level_count: 1,
+    sample_count: 1,
+    dimension: wgpu::TextureDimension::D2,
+    format,
+    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+    view_formats: &[],
+  }
+}
+
+/// The texture behind `handle`, given to a `device` of Vulkan, with its size. `None` where the device is not
+/// one of Vulkan that takes textures Direct3D shares, no card opens the handle to say what it is, it is not
+/// a texture of one of `formats`, it is an NV12 one and the card is not given those
+/// ([`vulkan_takes_nv12`]), or Vulkan does not take it (another card).
+fn open_in_vulkan(
+  device: &wgpu::Device,
+  readers: &mut Readers,
+  handle: isize,
+  formats: &[wgpu::TextureFormat],
+) -> Option<(wgpu::Texture, (u32, u32))> {
+  if !device.features().contains(wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32) {
+    return None;
+  }
+  // SAFETY: the device's own handle is used to take a texture, which changes nothing of the device.
+  let hal = unsafe { device.as_hal::<wgpu::hal::api::Vulkan>() }?;
+  let (said, width, height) = readers.said_of(handle)?;
+  let format = format_of(said)?;
+  // Gray and color apart, and red, green and blue, are taken by any card; one NV12 texture by some.
+  let nv12 = format == wgpu::TextureFormat::NV12;
+  if !formats.contains(&format) || (nv12 && !vulkan_takes_nv12(device)) {
+    return None;
+  }
+  if nv12 {
+    *NV12_GIVEN.lock() = Some(Instant::now());
+  }
+  let size = wgpu::Extent3d {
+    width,
+    height,
+    depth_or_array_layers: 1,
+  };
+  // SAFETY: the handle is one of a shared texture of Direct3D 11 of this format and size, as the card it is
+  // on said, kept open by the frames this is asked for.
+  let texture = unsafe {
+    hal.texture_from_d3d11_shared_handle(
+      HANDLE(handle as _),
+      &wgpu::hal::TextureDescriptor {
+        label: Some("lurq_card_frame"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUses::RESOURCE | wgpu::TextureUses::COPY_SRC,
+        memory_flags: wgpu::hal::MemoryFlags::empty(),
+        view_formats: Vec::new(),
+      },
+    )
+  }
+  .ok()?;
+  drop(hal);
+  // SAFETY: the texture was taken by this device, is as the descriptor says, and holds a frame or what it
+  // was made with: nothing reads what was never written.
+  let texture = unsafe { device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(texture, &described(format, size)) };
+  Some((texture, (width, height)))
+}
+
+/// The texture behind `handle` as `device` draws it, with its size: opened by Direct3D 12, or given to
+/// Vulkan.
+fn opened(
+  device: &wgpu::Device,
+  readers: &mut Readers,
+  handle: isize,
+  formats: &[wgpu::TextureFormat],
+) -> Option<(wgpu::Texture, (u32, u32))> {
+  open(device, handle, formats).or_else(|| open_in_vulkan(device, readers, handle, formats))
+}
+
+/// What tells how far a decoder's fence is: the renderer's own device where it is of Direct3D 12, and a
+/// Direct3D 11 device of the decoder's card where the renderer draws through Vulkan.
+enum Fence {
+  Own(ID3D12Fence),
+  Read(ID3D11Fence),
+}
+
+impl Fence {
+  /// The value the fence has reached.
+  fn reached(&self) -> u64 {
+    // SAFETY: the fence is read.
+    match self {
+      Self::Own(fence) => unsafe { fence.GetCompletedValue() },
+      Self::Read(fence) => unsafe { fence.GetCompletedValue() },
+    }
+  }
 }
 
 /// The frames of `image`, where they are frames of the card.
@@ -111,14 +328,7 @@ pub(super) fn open(
   let resource = resource?;
   // SAFETY: the resource was just opened; its description is read.
   let said = unsafe { resource.GetDesc() };
-  let format = match said.Format {
-    DXGI_FORMAT_NV12 => wgpu::TextureFormat::NV12,
-    DXGI_FORMAT_R8_UNORM => wgpu::TextureFormat::R8Unorm,
-    DXGI_FORMAT_R8G8_UNORM => wgpu::TextureFormat::Rg8Unorm,
-    DXGI_FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
-    DXGI_FORMAT_B8G8R8A8_UNORM => wgpu::TextureFormat::Bgra8Unorm,
-    _ => return None,
-  };
+  let format = format_of(said.Format)?;
   if !formats.contains(&format) {
     return None;
   }
@@ -134,21 +344,7 @@ pub(super) fn open(
   drop(hal);
   // SAFETY: the texture was opened on this device, is as the descriptor says, and holds a frame or what it was
   // made with: nothing reads what was never written.
-  let texture = unsafe {
-    device.create_texture_from_hal::<wgpu::hal::api::Dx12>(
-      texture,
-      &wgpu::TextureDescriptor {
-        label: Some("lurq_card_frame"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-      },
-    )
-  };
+  let texture = unsafe { device.create_texture_from_hal::<wgpu::hal::api::Dx12>(texture, &described(format, size)) };
   Some((texture, (width, height)))
 }
 
@@ -180,10 +376,7 @@ fn fence(device: &wgpu::Device, handle: isize) -> Option<ID3D12Fence> {
 /// How the frames of an image come to the renderer.
 enum Way {
   /// Each surface opened on the renderer's own device, and the fence that tells when a frame is written.
-  Card {
-    slots: Vec<Slot>,
-    fence: Option<ID3D12Fence>,
-  },
+  Card { slots: Vec<Slot>, fence: Option<Fence> },
   /// The surfaces are another card's: each frame is copied through memory.
   Memory(Copied),
   /// No card opens them: nothing is drawn.
@@ -195,6 +388,7 @@ enum Way {
 fn on_the_card(
   device: &wgpu::Device,
   frames: &CardFrames,
+  readers: &mut Readers,
   bind: &impl Fn(&wgpu::TextureView, Option<&wgpu::TextureView>) -> wgpu::BindGroup,
 ) -> Option<Way> {
   let slots = frames
@@ -203,13 +397,13 @@ fn on_the_card(
     .map(|surface| {
       let (first, second, size, textures) = match *surface {
         CardSurface::Nv12(handle) => {
-          let (texture, size) = open(device, handle, &[wgpu::TextureFormat::NV12])?;
+          let (texture, size) = opened(device, readers, handle, &[wgpu::TextureFormat::NV12])?;
           let (gray, color) = planes(&texture);
           (gray, Some(color), size, vec![texture])
         }
         CardSurface::Planes { gray, color } => {
-          let (gray, size) = open(device, gray, &[wgpu::TextureFormat::R8Unorm])?;
-          let (color, _) = open(device, color, &[wgpu::TextureFormat::Rg8Unorm])?;
+          let (gray, size) = opened(device, readers, gray, &[wgpu::TextureFormat::R8Unorm])?;
+          let (color, _) = opened(device, readers, color, &[wgpu::TextureFormat::Rg8Unorm])?;
           (
             gray.create_view(&Default::default()),
             Some(color.create_view(&Default::default())),
@@ -218,8 +412,9 @@ fn on_the_card(
           )
         }
         CardSurface::Rgba(handle) => {
-          let (texture, size) = open(
+          let (texture, size) = opened(
             device,
+            readers,
             handle,
             &[wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Bgra8Unorm],
           )?;
@@ -236,7 +431,10 @@ fn on_the_card(
     })
     .collect::<Option<Vec<_>>>()?;
   let fence = match frames.fence() {
-    Some(handle) => Some(fence(device, handle)?),
+    Some(handle) => Some(match fence(device, handle) {
+      Some(own) => Fence::Own(own),
+      None => Fence::Read(readers.fence_of(frames.surfaces().first()?.handles().0, handle)?),
+    }),
     None => None,
   };
   Some(Way::Card { slots, fence })
@@ -278,7 +476,7 @@ impl Opened {
     readers: &mut Readers,
     bind: impl Fn(&wgpu::TextureView, Option<&wgpu::TextureView>) -> wgpu::BindGroup,
   ) -> Self {
-    let way = on_the_card(device, frames, &bind)
+    let way = on_the_card(device, frames, readers, &bind)
       .or_else(|| Copied::open(device, frames, readers, &bind).map(Way::Memory))
       .unwrap_or(Way::Nowhere);
     Self::by(way, frames, picture, leases)
@@ -345,8 +543,7 @@ impl Opened {
       return;
     }
     let reached = match &self.way {
-      // SAFETY: the fence is read.
-      Way::Card { fence, .. } => fence.as_ref().map(|fence| unsafe { fence.GetCompletedValue() }),
+      Way::Card { fence, .. } => fence.as_ref().map(Fence::reached),
       Way::Memory(copied) => copied.reached(),
       Way::Nowhere => return,
     };
@@ -385,37 +582,13 @@ impl Opened {
     let Some(((_, frame), (_, slot))) = self.drawn.as_ref().zip(self.drawn()) else {
       return (min, max);
     };
-    let (wide, high) = slot.size;
-    let crop = frame.crop.unwrap_or(CardCrop {
-      left: 0,
-      top: 0,
-      width: self.width.min(wide),
-      height: self.height.min(high),
-    });
-    if (crop.left, crop.top, crop.width, crop.height) == (0, 0, wide, high) || wide == 0 || high == 0 {
-      return (min, max);
-    }
-    // An edge of the picture inside the texture is drawn from a little within it: a sample at the very edge
-    // would be mixed with what lies past it, which is no part of the picture. The color is at half the size,
-    // and so a whole pixel is kept from.
-    let within = if self.is_rgba() { 0.5 } else { 1.0 };
-    let edge = |at: u32, end: u32| if at > 0 && at < end { within } else { 0.0 };
-    let (left, top) = (
-      crop.left as f32 + edge(crop.left, wide),
-      crop.top as f32 + edge(crop.top, high),
-    );
-    let (right, bottom) = (crop.left + crop.width, crop.top + crop.height);
-    let (right, bottom) = (right as f32 - edge(right, wide), bottom as f32 - edge(bottom, high));
-    let (from, to) = (
-      [left / wide as f32, top / high as f32],
-      [right / wide as f32, bottom / high as f32],
-    );
-    let at = |part: [f32; 2]| {
-      [
-        from[0] + part[0] * (to[0] - from[0]),
-        from[1] + part[1] * (to[1] - from[1]),
-      ]
-    };
-    (at(min), at(max))
+    crate::images::part_of(
+      frame.crop,
+      (self.width, self.height),
+      slot.size,
+      self.is_rgba(),
+      min,
+      max,
+    )
   }
 }

@@ -158,7 +158,7 @@ fn a_window_that_is_not_in_front_has_grey_lights_on_macos_and_a_muted_title() {
 }
 
 #[test]
-fn a_bar_with_tabs_is_higher_has_no_title_and_no_line_under_it() {
+fn a_bar_with_tabs_is_higher_has_its_title_before_the_tabs_and_no_line_under_it() {
   for (platform, height) in [
     (WindowPlatform::Windows, 40.0),
     (WindowPlatform::Macos, 40.0),
@@ -167,9 +167,20 @@ fn a_bar_with_tabs_is_higher_has_no_title_and_no_line_under_it() {
   ] {
     let mut stage = stage(move || on(platform).tabs(Rect::new(200.0, 32.0).id("tabs")));
     assert_eq!(stage.bounds("bar").3, height, "{platform:?}");
-    assert!(!stage.paints("lurq demo"), "{platform:?}: no title");
+    // The title stands before the tabs, on one line, centred on the bar's height.
+    let title = stage
+      .text_quad("lurq demo")
+      .unwrap_or_else(|| panic!("{platform:?}: the title"));
+    let (tabs_x, y, _, tab_height) = stage.bounds("tabs");
+    assert!(
+      title.x + title.width <= tabs_x,
+      "{platform:?}: the title before the tabs"
+    );
+    assert!(
+      ((title.y + title.height / 2.0) - height / 2.0).abs() <= 2.0,
+      "{platform:?}: centred on the bar"
+    );
     // The tabs stand on the bar's bottom edge.
-    let (_, y, _, tab_height) = stage.bounds("tabs");
     assert_eq!(y + tab_height, height, "{platform:?}");
     let border = light(PaletteColor::Border);
     let lines = stage

@@ -169,6 +169,23 @@ fn a_group_joins_its_buttons_in_one_line_around_them() {
   assert_eq!(stage.fill_color("how"), Some(light(PaletteColor::Primary)));
   assert_eq!(how.0 - (action.0 + action.2), 1.0);
   assert!(stage.border("merge").is_none());
+  // A button of the group that is an icon alone keeps its square, its icon in the middle: the group pads the
+  // others, not it.
+  assert_eq!(how.2, how.3, "square");
+  let glyph = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(quad.content, lurq::layout::quad::QuadContent::Text { .. })
+        && quad.x >= how.0
+        && quad.x + quad.width <= how.0 + how.2 + 0.5
+    })
+    .expect("the icon");
+  let (middle, icon_middle) = (how.0 + how.2 / 2.0, glyph.x + glyph.width / 2.0);
+  assert!(
+    (icon_middle - middle).abs() <= 1.0,
+    "the icon in the middle: {icon_middle} of {middle}"
+  );
 }
 
 #[test]

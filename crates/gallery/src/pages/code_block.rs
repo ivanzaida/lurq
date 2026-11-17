@@ -10,7 +10,6 @@ use lurq::{
     ctx::Ctx,
     theme::{CodeScheme, CodeStyle},
   },
-  code::CodeTokenizer,
   components::Column,
   core::Signal,
   node::{Element, color::Color},
