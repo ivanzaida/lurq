@@ -230,6 +230,7 @@ pub struct LinkPreview {
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
   site: Option<Arc<str>>,
+  site_shown: bool,
   image: Given<LinkImage>,
   icon: Given<LinkImage>,
   video: Option<Option<f64>>,
@@ -258,6 +259,7 @@ impl Clone for LinkPreview {
       title: self.title.clone(),
       description: self.description.clone(),
       site: self.site.clone(),
+      site_shown: self.site_shown,
       image: self.image.clone(),
       icon: self.icon.clone(),
       video: self.video,
@@ -289,6 +291,7 @@ impl LinkPreview {
       title: None,
       description: None,
       site: None,
+      site_shown: true,
       image: Given::Fetched,
       icon: Given::Fetched,
       video: None,
@@ -339,6 +342,12 @@ impl LinkPreview {
   /// No picture, whatever the page has: the text alone.
   pub fn no_image(mut self) -> Self {
     self.image = Given::None;
+    self
+  }
+
+  /// No name of the site beside its icon: the title alone in a sentence. Tooling still reads it.
+  pub fn no_site(mut self) -> Self {
+    self.site_shown = false;
     self
   }
 
@@ -487,7 +496,7 @@ impl LinkPreview {
   pub fn needs_nothing_fetched(&self) -> bool {
     let inline = self.variant == Name::from(LinkPreviewVariant::Inline);
     self.title.is_some()
-      && self.site.is_some()
+      && (self.site.is_some() || !self.site_shown)
       && self.icon.decided()
       && (inline || (self.description.is_some() && self.image.decided()))
   }
@@ -603,6 +612,7 @@ impl LinkPreview {
       title,
       description,
       site,
+      site_shown: self.site_shown,
       image: shown_image.map(|(picture, _)| picture),
       icon: if empty { None } else { icon.map(|(picture, _)| picture) },
       video: if empty { None } else { video },
@@ -762,6 +772,8 @@ pub struct LinkPreviewView {
   pub description: Option<Arc<str>>,
   /// The name of the site, or its domain.
   pub site: Arc<str>,
+  /// Whether the name of the site is drawn beside its icon.
+  pub site_shown: bool,
   /// The picture, where it shows one.
   pub image: Option<Picture>,
   /// The site's icon; none is the link mark.
@@ -856,20 +868,23 @@ impl LinkPreviewView {
   /// The row of the site's icon and its name.
   pub fn site(&self) -> Row {
     let part = self.part(LinkPreviewPart::Domain);
-    Row::new()
+    let row = Row::new()
       .part(&self.part(LinkPreviewPart::Site))
       .align_items(Alignment::Center)
       .min_width(0.0)
-      .child(self.icon())
-      .child(
-        Row::new().flex_shrink(1.0).min_width(0.0).child(
-          part
-            .text(&self.site)
-            .nowrap()
-            .text_overflow(TextOverflow::Elipsis)
-            .part(&part),
-        ),
-      )
+      .child(self.icon());
+    if !self.site_shown {
+      return row;
+    }
+    row.child(
+      Row::new().flex_shrink(1.0).min_width(0.0).child(
+        part
+          .text(&self.site)
+          .nowrap()
+          .text_overflow(TextOverflow::Elipsis)
+          .part(&part),
+      ),
+    )
   }
 
   /// The title, underlined under the pointer: as many lines as its part allows, the last cut with an ellipsis.
@@ -923,7 +938,18 @@ impl LinkPreviewView {
   /// The lines that stand for the site, the title and the description while the page is read.
   pub fn skeleton(&self) -> Column {
     let part = self.part(LinkPreviewPart::Skeleton);
-    let line = |width: Length, height: f32| Skeleton::line().width(width).height(height).build(self.theme());
+    // A line of the board's width, or of the room where there is less: a skeleton keeps the width it is given.
+    let line = |width: Length, height: f32| -> Element {
+      let room = match width {
+        Length::Px(width) => Dimension::Px(width),
+        _ => Dimension::Pct(100.0),
+      };
+      Row::new()
+        .width(room)
+        .max_width(Dimension::Pct(100.0))
+        .child(Skeleton::line().width(Length::Fill).height(height).build(self.theme()))
+        .into()
+    };
     let fill = Length::Fill;
     let lines: Vec<Element> = match self.variant {
       LinkPreviewVariant::Card => vec![
@@ -938,11 +964,10 @@ impl LinkPreviewView {
         line(Length::Px(168.0), 12.0),
       ],
     };
-    Column::new().part(&part).width(Dimension::Pct(100.0)).with_children(
-      lines
-        .into_iter()
-        .map(|line| Row::new().max_width(Dimension::Pct(100.0)).child(line)),
-    )
+    Column::new()
+      .part(&part)
+      .width(Dimension::Pct(100.0))
+      .with_children(lines)
   }
 
   /// The column of the site, the title and the description, or of the skeleton.
@@ -1152,7 +1177,7 @@ impl LinkPreviewView {
             .child(Skeleton::line().width(96.0).height(10.0).build(self.theme()));
         } else {
           root = root.child(self.icon()).child(self.title());
-          if !self.empty {
+          if !self.empty && self.site_shown {
             let part = self.part(LinkPreviewPart::Domain);
             root = root.child(
               Row::new()

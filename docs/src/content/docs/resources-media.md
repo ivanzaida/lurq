@@ -326,6 +326,51 @@ A `LoadError` says why: `NotFound`, `Denied`, `Status(code)`, `TooLarge { limit 
 feature `http` is one: it compiles, and fails at run time with the reason and one warning in the log. In a browser
 a file and an address are not loaded yet.
 
+## Link Previews
+
+What a page says about itself, its title, description, site, picture and icon, is read from the start of its HTML
+and given to a link preview (`ui::LinkPreview`) as a `LinkMeta`. A preview asks a `LinkFetcher` for it as it renders,
+and is woken when the fetcher has more.
+
+```rust
+use lurq::resources::{LinkFetch, LinkMeta, LinkPreviewError, set_link_fetcher};
+
+// What a page says, read from its bytes by a scanner of its head of lurq's own.
+let meta = LinkMeta::from_html("https://lurq.dev/docs/layout", &bytes);
+
+// The app's own fetcher, for every preview that has none: any `Fn(&str) -> LinkFetch`.
+set_link_fetcher(|url: &str| match known_previews(url) {
+  Some((title, site)) => LinkFetch::ready(LinkMeta::new(url).title(&title).site(&site)),
+  None => LinkFetch::Failed(LinkPreviewError::NotFound),
+});
+```
+
+- `LinkMeta::from_html(url, bytes)` finds the `<title>`, OpenGraph's `og:title`, `og:description`, `og:image`,
+  `og:site_name`, `og:type`, `og:video` and `og:video:duration` (and `video:duration`, or a schema.org `duration` such
+  as `PT4M10S`), a Twitter Card's `twitter:title`, `twitter:description` and `twitter:image`, the plain
+  `<meta name="description">`, the `<link rel="icon">` and `apple-touch-icon`, and a `<base>`. OpenGraph comes before
+  the Twitter Card, which comes before the plain title and description. Every address in it is made whole from the
+  page's (`//`, `/`, `../`). It stops at the end of the head or at the body, passes comments, scripts and styles by,
+  and takes in its stride what a page gets wrong: attributes without quotes, tags in capitals, a head with no end, a
+  tag cut by the end of what was read. It reads UTF-8, and the charset a `<meta charset>` or a `Content-Type` meta
+  names where it is Windows-1252 (ISO 8859-1), Windows-1251, KOI8-R or KOI8-U; any other is read as UTF-8.
+  `LinkMeta::is_empty()` says the page told nothing a preview shows.
+- `PageFetcher` is lurq's own fetcher, one for the process: it reads the first 512 KiB of a page (`head_bytes(..)`,
+  `DEFAULT_LINK_HEAD_BYTES`) through the app's loader with `loader.load_start(&source, bytes)`, which reads the start
+  of a source and ends there with no error, finds what the page says, and keeps that in memory by the address: a page
+  shown in many previews is read once. A page that failed stays failed until `forget(url)`; `clear()` forgets every
+  one. The loader's `allow` and `timeout` hold for it as for any load, and its disk cache neither keeps nor gives the
+  start of a page. A text that is not an address is a resource of the app.
+- A preview's fetcher is its own (`LinkPreview::fetcher`), else the app's (`set_link_fetcher`, `reset_link_fetcher`),
+  else lurq's; `link_fetcher()` gives the one in use. A fetcher is a type of the trait, told a `LinkRequest` (the
+  address, the app's loader, and the waker to call once it has more), or a function of the address that answers at
+  once.
+- What went wrong is a `LinkPreviewError`: `NotFound`, `Denied`, `TimedOut`, `Server(status)`, `Network`,
+  `Unavailable` (a build without `http`, a browser) and `Other`; `detail()` is what the connection said, for a log.
+  `Locale::display` puts each in words (`DisplayWords::link_error`).
+- Fetching a page needs the feature `http`. Without it, and in a browser, every page is `Unavailable`, and a preview
+  shows what it was given and the address.
+
 ## Resource Loader
 
 `ResourceLoader` is the loader before `app.loader()`, which the feature `http` keeps: it is polled, and a resource

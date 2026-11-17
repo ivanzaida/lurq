@@ -70,6 +70,7 @@ mod input_otp;
 mod kbd;
 mod lightbox;
 mod line_chart;
+mod link_preview;
 mod list;
 mod listbox;
 mod markdown;
@@ -1474,6 +1475,14 @@ pub const PAGES: &[Page] = &[
     about: "watermark stamp confidential draft internal shared screen mark repeated pattern faint turned angle rotate gap offset stagger opacity media picture logo over content tooling Watermark Repeat",
     group: Group::Media,
     mount: |ctx| ctx.mount::<watermark::WatermarkPage>(()),
+  },
+  Page {
+    path: "/link-preview",
+    name: "Link Preview",
+    icon: Some("link"),
+    about: "link preview unfurl url address page site favicon domain title description picture thumbnail opengraph og twitter card video play length skeleton loading nothing to show compact row inline sentence composer close remove open browser fetcher fetch cache LinkPreview LinkPreviewVariant LinkMeta LinkFetcher PageFetcher set_link_fetcher on_open on_remove no_image no_icon no_site video",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<link_preview::LinkPreviewPage>(()),
   },
 ];
 

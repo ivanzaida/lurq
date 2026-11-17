@@ -487,6 +487,32 @@ window.inject_inputs(SyntheticInput::text("hello"));
 entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations. A wheel scroll is a notch of a mouse's wheel and is
 [animated](../styling-events/#the-mouse-wheel) as one: the content is where it was sent some frames later.
 
+## Opening An Address
+
+```rust
+use lurq::app::open_url;
+
+ctx.open_url("https://lurq.dev/docs")?;
+// In a handler, which has no `Ctx`:
+Button::new("Open the docs").on_click(|_| {
+  let _ = open_url("https://lurq.dev/docs");
+});
+```
+
+`open_url(url)` hands an address to the system, which opens it in the app it keeps for its scheme: a web page in the
+browser, `mailto:` in the mail app. It returns once the address is handed on. `Ctx::open_url` and `App::open_url`
+are the same call. It is what `ui::LinkPreview` and `ui::Link::href` do when they are followed.
+
+- Windows: `ShellExecuteW`. macOS: `NSWorkspace`'s `openURL:`. iOS: `UIApplication`'s
+  `openURL:options:completionHandler:`. Linux and the other Unix systems: `xdg-open`. A browser: `window.open` in a
+  new tab. Any other platform answers `OpenUrlError::Unsupported`.
+- Only an address with a scheme is opened (`https:`, `mailto:`, `tel:`, an app's own), never a path or a `file:`
+  address: `OpenUrlError::NotAnAddress`, and nothing is asked of the system. A text from a stranger does not start a
+  program on the person's machine.
+- A test, or a tool that drives the app, puts a stand-in in place of the system for the thread the app's handlers run
+  on: `let _held = open_url::stand_in(|url| opened.lock().unwrap().push(url.to_owned()));`. Nothing leaves the app
+  while it is held.
+
 ## Slot Children
 
 Parents pass slot children with `mount_with` or `mount_keyed_with`:

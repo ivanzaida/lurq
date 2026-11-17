@@ -364,6 +364,15 @@ fn the_compact_row_and_the_inline_form_are_the_boards() {
   assert_eq!(stage.text("Layout in lurq"), (light(PaletteColor::Foreground), 13.0));
   assert!(stage.paints("lurq.dev"));
   assert!(!stage.paints(DESCRIPTION), "an inline one shows no description");
+  // The title alone.
+  let stage = stage_of(|| {
+    LinkPreview::new(URL)
+      .variant(LinkPreviewVariant::Inline)
+      .title("Layout in lurq")
+      .no_site()
+      .fetcher(|_: &str| LinkFetch::ready(page()))
+  });
+  assert!(stage.paints("Layout in lurq") && !stage.paints("lurq.dev"));
 }
 
 #[test]
