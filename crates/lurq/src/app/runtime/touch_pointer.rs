@@ -220,6 +220,8 @@ pub(super) struct TouchPointerState {
   press: Option<Press>,
   /// A finger is the pointer: nothing is hovered.
   pub(super) down: bool,
+  /// The touch that is a pen's, while it is down: it moves the pointer neither way.
+  pub(super) pen: Option<u64>,
   /// The elements a tap left showing as pressed, and until when.
   tap_highlight: Option<(Vec<NodeId>, Instant)>,
 }
@@ -230,6 +232,31 @@ impl Tree {
   /// pixels. Tells whose the finger is: the shell makes it the pointer only when it is its own.
   pub fn touch_event(&mut self, id: u64, phase: TouchPhase, x: f32, y: f32, force: Option<f32>) -> TouchRoute {
     self.touch_event_at(id, phase, x, y, force, Instant::now())
+  }
+
+  /// [`touch_event`](Self::touch_event) of a finger or, where `pen`, of a pen: a finger makes the app's pointer
+  /// coarse ([`App::pointer`](crate::app::App::pointer)), a pen leaves it as it is.
+  // The shell hears touches as such on iOS; elsewhere a touch screen's come as the mouse's.
+  #[cfg_attr(not(all(feature = "winit", target_os = "ios")), allow(dead_code))]
+  pub(crate) fn touch_event_by(
+    &mut self,
+    id: u64,
+    phase: TouchPhase,
+    x: f32,
+    y: f32,
+    force: Option<f32>,
+    pen: bool,
+  ) -> TouchRoute {
+    match (phase, pen) {
+      (TouchPhase::Start, true) => self.touch_pointer.pen = Some(id),
+      (TouchPhase::End | TouchPhase::Cancel, _) if self.touch_pointer.pen == Some(id) => {
+        let route = self.touch_event(id, phase, x, y, force);
+        self.touch_pointer.pen = None;
+        return route;
+      }
+      _ => {}
+    }
+    self.touch_event(id, phase, x, y, force)
   }
 
   /// [`touch_event`](Self::touch_event) at a time of the caller's, for tests of what depends on how fast
@@ -246,6 +273,9 @@ impl Tree {
     let scale = self.scale_factor();
     let (lx, ly) = (x / scale, y / scale);
     if phase == TouchPhase::Start {
+      if self.touch_pointer.pen != Some(id) {
+        self.pointer_input(crate::app::Pointer::Coarse);
+      }
       self.rebuild_if_dirty();
       let mut targets = Vec::new();
       if let (Some(root), Some(layout)) = (&self.root, &self.last_layout) {

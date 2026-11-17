@@ -798,10 +798,10 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
   assert!(!open.get(), "far enough: it closed");
 }
 
-/// An app whose theme is at the density of a finger, as an app on a phone starts.
+/// An app a finger points in, as an app on a phone starts: pinned, so that the stage's own clicks leave it.
 fn for_a_finger() -> lurq::app::App {
   let app = lurq::app::App::new();
-  app.theme().set_density(lurq::app::theme::Density::Touch);
+  app.set_pointer(lurq::app::Pointer::Coarse);
   app
 }
 
@@ -896,6 +896,64 @@ fn a_narrow_window_of_a_desktop_has_the_desktops_form_laid_out_to_fit() {
     settled(&mut stage);
     assert!(phones(&mut stage));
   }
+}
+
+#[test]
+fn the_density_is_how_large_things_are_and_not_which_form() {
+  use lurq::app::{Pointer, theme::Density};
+  for (density, pointer, phone) in [
+    (Density::Compact, Pointer::Coarse, true),
+    (Density::Touch, Pointer::Fine, false),
+  ] {
+    let app = lurq::app::App::new();
+    app.set_pointer(pointer);
+    app.theme().set_density(density);
+    let mut stage = Stage::first_frame_in(app, 1000.0, 700.0, move |_| {
+      Column::new()
+        .size(1000.0, 700.0)
+        .child(Lightbox::new(Signal::new(true), pictures()).id("viewer"))
+        .into()
+    });
+    settled(&mut stage);
+    assert_eq!(phones(&mut stage), phone, "{density:?} with a {pointer:?} pointer");
+  }
+}
+
+#[test]
+fn an_open_lightbox_keeps_its_form_under_the_finger_that_lands_on_it_until_it_closes() {
+  use lurq::app::{Pointer, events::TouchPhase};
+  let open = Signal::new(false);
+  let shown = open.clone();
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
+      .into()
+  });
+  stage.tree.set_pointer(Pointer::Fine);
+  open.set(true);
+  settled(&mut stage);
+  assert!(!phones(&mut stage), "opened under a mouse");
+
+  // A finger lands on it: the pointer is coarse, and the lightbox stays as it opened.
+  let (x, y) = stage.center("viewer-stage");
+  stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
+  stage.tree.touch_event(1, TouchPhase::End, x, y, None);
+  settled(&mut stage);
+  assert_eq!(stage.tree.pointer(), Pointer::Coarse);
+  assert!(!phones(&mut stage), "it does not change under the finger");
+
+  // Closed and opened again, it is the phone's.
+  open.set(false);
+  settled(&mut stage);
+  open.set(true);
+  settled(&mut stage);
+  assert!(phones(&mut stage), "opened under a finger");
+
+  // The app or a test setting the pointer reaches it at once.
+  stage.tree.set_pointer(Pointer::Fine);
+  settled(&mut stage);
+  assert!(!phones(&mut stage), "told");
 }
 
 #[test]

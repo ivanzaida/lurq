@@ -22,6 +22,7 @@ pub(crate) enum BuiltinTool {
   Act,
   SetValue,
   Resize,
+  Pointer,
   Logs,
   Navigate,
   FileDialogs,
@@ -335,6 +336,22 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "required": ["width", "height"]
       })),
       kind: ToolKind::Builtin(BuiltinTool::Resize),
+    },
+    RegisteredTool {
+      name: "lurq_pointer".into(),
+      description: "Read or set what the person points with: `fine` (a mouse, a trackpad, a pen) or `coarse` (a                     finger). Components with a touch form (the lightbox's phone viewer, the picture's phone form,                     the video player's touch form) take it while the pointer is coarse. With no arguments it                     answers the pointer, whether it is pinned and whether input moves it. `pointer` sets it, pinned                     unless `pin` is false (a pin keeps the next mouse move, an agent's too, from making it fine);                     `follow` turns following input on (which lets go of a pin) or off."
+        .into(),
+      scope: Scope::Interact,
+      read_only: false,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "pointer": { "type": "string", "enum": ["fine", "coarse"] },
+          "pin": { "type": "boolean", "description": "Keep input from moving it (default true)" },
+          "follow": { "type": "boolean", "description": "Whether input moves the pointer; true lets go of a pin" }
+        }
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::Pointer),
     },
     RegisteredTool {
       name: "lurq_logs".into(),

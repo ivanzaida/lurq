@@ -54,8 +54,7 @@ pub struct ThemeDefinition {
   pub control_sizes: ThemeControlSizes,
   pub icon_sizes: ThemeIconSizes,
   pub densities: ThemeDensities,
-  /// The density the theme is at: [`Density::platform_default`] in the themes lurq makes, `Touch` on iOS and
-  /// Android and `Default` elsewhere.
+  /// The density the theme is at.
   pub density: Density,
   pub durations: ThemeDurations,
   pub easings: ThemeEasings,
@@ -124,8 +123,7 @@ impl ThemeDefinition {
       control_sizes: ThemeControlSizes::default(),
       icon_sizes: ThemeIconSizes::default(),
       densities: ThemeDensities::default(),
-      // A finger's on iOS and Android, a desktop's on the rest.
-      density: Density::platform_default(),
+      density: Density::Default,
       durations: ThemeDurations::default(),
       easings: ThemeEasings::default(),
       opacities: ThemeOpacities::default(),

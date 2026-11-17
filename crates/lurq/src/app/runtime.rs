@@ -2416,6 +2416,32 @@ impl Tree {
     }
   }
 
+  /// Input of a kind came: the app's pointer follows it, unless the app pinned it or it does not follow.
+  pub(crate) fn pointer_input(&self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.input(pointer);
+    }
+  }
+
+  /// Sets what the person points with, as if the platform said so, with no input: for a test, a preview or a tool.
+  /// It applies at once, to an open lightbox too, and does not pin it: the next input of the other kind moves it
+  /// again, as [`App::follow_pointer`](crate::app::App::follow_pointer) says.
+  pub fn set_pointer(&mut self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.tell(pointer, false);
+    }
+    self.apply_reactive_updates_after_event();
+  }
+
+  /// What the person points with, as the app's pointer says.
+  pub fn pointer(&self) -> crate::app::Pointer {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or_else(crate::app::Pointer::platform_default, |app| app.shared.pointer.now())
+  }
+
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
     if let Some(ctx) = &mut self.root_ctx {
       ctx.set_app_ref(app);
@@ -3970,6 +3996,10 @@ impl Tree {
   pub fn mouse_move_with_meta(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A mouse or a trackpad that moves makes the pointer fine; what a finger or a pen moves as the pointer does not.
+    if !self.touch_pointer.down {
+      self.pointer_input(crate::app::Pointer::Fine);
+    }
     self.track_pointer(x, y);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(

@@ -1207,10 +1207,10 @@ impl Component for VideoPlayerPage {
       (
         "touch",
         "bool",
-        "by the density",
+        "by the pointer",
         "The touch form: larger controls over a scrim, shown and hidden by a tap, two taps on a side seeking ten \
-         seconds. On its side while in fullscreen. Unless told, it is the touch form in an app for a finger \
-         (Density::Touch), whatever its width.",
+         seconds. On its side while in fullscreen. Unless told, it is the touch form under a finger \
+         (Pointer::Coarse), whatever its width.",
       ),
       (
         "title / description / on_back",
@@ -1433,8 +1433,8 @@ impl Component for VideoPlayerPage {
           "Touch",
           "For a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play, the time \
            and fullscreen over a seek bar with a thumb of 16, and no volume. In fullscreen it is the form for a \
-           phone on its side. It is the form in an app for a finger (the theme at Density::Touch, as on iOS and \
-           Android), and touch(true) chooses it anywhere: here on a desktop.",
+           phone on its side. It is the form under a finger (Pointer::Coarse, as on iOS and Android), and \
+           touch(true) chooses it anywhere: here on a desktop.",
           self.frame.demo(
             4,
             touch,

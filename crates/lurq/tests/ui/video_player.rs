@@ -1352,21 +1352,24 @@ fn touch(told: &Told) -> VideoPlayer {
 }
 
 #[test]
-fn in_an_app_for_a_finger_it_is_the_touch_form_unless_told() {
-  use lurq::app::{App, theme::Density};
-  let finger = || {
+fn under_a_finger_it_is_the_touch_form_unless_told() {
+  use lurq::app::{App, Pointer, theme::Density};
+  let pointing = |pointer: Pointer| {
     let app = App::new();
-    app.theme().set_density(Density::Touch);
+    app.set_pointer(pointer);
     app
   };
   let told = Told::default();
-  // Mounted, as wide as a desktop's window, and built still in the theme it is given.
+  // Mounted, as wide as a desktop's window. The density does not choose it.
   for (app, told_touch, touch) in [
-    (finger(), None, true),
-    (finger(), Some(false), false),
-    (App::new(), None, false),
-    (App::new(), Some(true), true),
+    (pointing(Pointer::Coarse), None, true),
+    (pointing(Pointer::Coarse), Some(false), false),
+    (pointing(Pointer::Fine), None, false),
+    (pointing(Pointer::Fine), Some(true), true),
   ] {
+    app
+      .theme()
+      .set_density(if touch { Density::Compact } else { Density::Touch });
     let made = told.clone();
     let mut stage = Stage::first_frame_in(app, 1000.0, 600.0, move |ctx| {
       let player = player(&made).width(720.0);
@@ -1380,11 +1383,12 @@ fn in_an_app_for_a_finger_it_is_the_touch_form_unless_told() {
     assert_eq!(has(&mut stage, "v-rewind"), touch, "{told_touch:?}: ten seconds back");
     assert_eq!(has(&mut stage, "v-mute"), !touch, "{told_touch:?}: the volume");
   }
-  let theme = Theme::new();
-  theme.set_density(Density::Touch);
+  // Built still, under a finger.
   let made = told.clone();
-  let mut stage = stage(move |_| player(&made).width(720.0).build(&theme));
-  assert!(has(&mut stage, "v-rewind"), "built in a theme for a finger");
+  let mut stage = stage(move |_| player(&made).width(720.0).build(&lurq::ui::current_theme()));
+  stage.tree.set_pointer(Pointer::Coarse);
+  stage.pass();
+  assert!(has(&mut stage, "v-rewind"), "built under a finger");
 }
 
 #[test]

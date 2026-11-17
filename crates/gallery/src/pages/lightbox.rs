@@ -338,9 +338,9 @@ impl Component for LightboxPage {
       (
         "variant",
         "LightboxVariant",
-        "by the density",
-        "Desktop, Phone: the phone's viewer in an app for a finger (Density::Touch), whatever the window's width, \
-         unless told. A narrow window of a desktop has the desktop's, laid out narrow.",
+        "by the pointer",
+        "Desktop, Phone: the phone's viewer under a finger (Pointer::Coarse), whatever the window's width and the \
+         density, unless told. A narrow window of a desktop has the desktop's, laid out narrow.",
       ),
       (
         "on_share / menu_item / menu_items",
@@ -446,17 +446,17 @@ impl Component for LightboxPage {
         ),
         Section::new(
           "On a phone",
-          "In an app for a finger (the theme at Density::Touch, where an app on iOS and Android starts) the \
+          "Under a finger (Pointer::Coarse: on iOS and Android, and once a finger touches the screen) the \
            lightbox is the phone's viewer: black, the whole screen, a swipe to the next picture, a pinch or a \
            double tap closer, a drag down to close. Close, Share and More are at the top, the caption and the dots \
            under the picture. The window's width does not choose it: here on a desktop it is told, and shown in a \
-           page as a phone would show it.",
+           page as a phone would show it. The hand over a playground points with a finger.",
           self.frame.demo(
             2,
             on_a_phone,
             ".variant(LightboxVariant::Phone)",
             &[
-              "// In an app at Density::Touch it is the phone's on its own.",
+              "// Under a finger it is the phone's on its own.",
               "Lightbox::new(open, pictures).on_share(share).on_download(save)",
               "",
               "Lightbox::new(open, pictures).variant(LightboxVariant::Phone)",

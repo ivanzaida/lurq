@@ -125,17 +125,17 @@ The design's recipe for `Button` has no rule for a density: a button has its siz
 
 ### The Touch Form
 
-Some components have a form dressed for a finger: the [lightbox](#lightbox)'s phone viewer, the [picture](#picture)'s phone form, the [video player](#video-player)'s touch form. Which one they take is the theme's density and nothing else: at `Density::Touch` they take the finger's, at any other the pointer's. `ui::touch_form()` says it for what is being built, and is what each of them reads; an app's own component with a touch form reads it too. A theme starts at `Touch` on iOS and Android and at `Default` on a desktop and in the browser ([`Density::platform_default`](../theme/#density)), and an app sets any other. A component's own prop for its form (`variant(..)`, `touch(bool)`) wins over it.
+Some components have a form dressed for a finger: the [lightbox](#lightbox)'s phone viewer, the [picture](#picture)'s phone form, the [video player](#video-player)'s touch form. Which one they take is the person's pointer and nothing else: under a finger (`Pointer::Coarse`) the finger's, under a mouse, a trackpad or a pen (`Pointer::Fine`) the pointer's. `ui::touch_form()` says it for what is being built, and is what each of them reads; an app's own component with a touch form reads it too. The pointer starts as the platform says (`Coarse` on iOS and Android, `Fine` on a desktop, in the browser what `(pointer: coarse)` says) and follows the last input unless the app pins it: see [A Finger Or A Mouse](../styling-events/#a-finger-or-a-mouse). A component's own prop for its form (`variant(..)`, `touch(bool)`) wins over it.
 
-The window's width is not asked. A narrow window of a desktop is a narrow room, and a component lays itself out in it (labels to an ellipsis, a row into a column, the lightbox's level giving way), but it keeps the pointer's form: a phone's chrome in a narrow desktop window would take away the buttons a mouse needs. A rule for a [breakpoint](#breakpoints) changes the layout, never the form.
+Neither the window's width nor the theme's density is asked. A narrow window of a desktop is a narrow room, and a component lays itself out in it (labels to an ellipsis, a row into a column, the lightbox's level giving way), but it keeps the pointer's form: a phone's chrome in a narrow desktop window would take away the buttons a mouse needs. A [density](#density) is how large rows are, at any pointer. A rule for a [breakpoint](#breakpoints) changes the layout, never the form. A lightbox that is open keeps the form it opened in until it closes, so the finger that lands on it does not change it under itself; the app setting the pointer reaches it at once.
 
 ```rust
-use lurq::{app::theme::Density, ui::{Lightbox, LightboxVariant}};
+use lurq::{app::Pointer, ui::{Lightbox, LightboxVariant}};
 
-// An app for a finger on a desktop's screen, a kiosk: every component takes its touch form.
-app.theme().set_density(Density::Touch);
+// A kiosk with a touch screen: every component takes its touch form.
+app.set_pointer(Pointer::Coarse);
 
-// One lightbox in the phone's viewer whatever the theme says.
+// One lightbox in the phone's viewer whatever the pointer.
 Lightbox::new(open, pictures).variant(LightboxVariant::Phone);
 
 // An app's own component.
@@ -7268,7 +7268,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `fullscreen_fills(VideoFullscreen)` | What a mounted player in fullscreen fills: its window as it is (`Window`, the default); its window taken to the whole screen (`Screen`); nothing, where the app lays it out itself (`App`) |
 | `picture_in_picture_window(bool)` | Whether a mounted player in picture in picture opens its small window itself (the default). Without it the value is told and drawn, and the window is the app's |
 | `in_picture_text(&str)`, `back_label(&str)` | What stands where the player was while it is in its small window, and the button that brings it back |
-| `touch(bool)` | The touch form: larger controls over a scrim, shown and hidden by a tap; two taps on a side third seek ten seconds, and more add up. On its side while in fullscreen. Unless told, the touch form in an app for a finger, the theme at `Density::Touch` ([the touch form](#the-touch-form)), whatever its width |
+| `touch(bool)` | The touch form: larger controls over a scrim, shown and hidden by a tap; two taps on a side third seek ten seconds, and more add up. On its side while in fullscreen. Unless told, the touch form under a finger, `Pointer::Coarse` ([the touch form](#the-touch-form)), whatever its width and the density |
 | `title(&str)`, `description(&str)` | What plays and a line under it, at the top of the touch form on its side |
 | `on_back(impl Fn())` | The first button of the touch form's top row: drawn upright where a handler is given, always on its side, where it leaves fullscreen if there is none |
 | `max_width(Length)` | The most it is wide: narrower where what holds it is, its aspect kept |
@@ -7763,7 +7763,7 @@ Picture::from_resource("images/lake.jpg")
 | `on_click(handler)` | A press of the picture as a whole |
 | `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
 | `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
-| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's where the theme is at `Density::Touch`, an app for a finger ([the touch form](#the-touch-form)), whatever the window's width, unless told |
+| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's under a finger, `Pointer::Coarse` ([the touch form](#the-touch-form)), whatever the window's width and the density, unless told |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
@@ -7813,7 +7813,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
 | `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
 | `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
-| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox is in an app for a finger, the theme at `Density::Touch` ([the touch form](#the-touch-form)), over a window of any width and in a page, unless told. In a narrow window of a desktop it is the desktop's, laid out in the room it has. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
+| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox is under a finger, `Pointer::Coarse` ([the touch form](#the-touch-form)), over a window of any width and in a page, whatever the density, unless told. In a narrow window of a desktop it is the desktop's, laid out in the room it has. Open, it keeps the form it opened in until it closes (in a page, the one it was first shown in); the app setting the pointer changes it at once. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
 | `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
 | `wrap(bool)` | Whether the first picture comes after the last |
 | `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |

@@ -963,14 +963,14 @@ impl VideoPlayer {
   /// it). A tap on the picture shows the controls and hides them; two on its left or its right third seek ten
   /// seconds, and more of them add up. In fullscreen it is the form for a phone on its side, with its
   /// [`title`](Self::title) at the top and its speed at the bottom. Unless told, it is the touch form where the
-  /// theme is at the density of an app for a finger ([`Density::Touch`](crate::app::theme::Density::Touch),
-  /// [`touch_form`](super::touch_form)), whatever its width.
+  /// person points with a finger ([`Pointer::Coarse`](crate::app::Pointer::Coarse),
+  /// [`touch_form`](super::touch_form)), whatever its width and the theme's density.
   pub fn touch(mut self, touch: bool) -> Self {
     self.touch = Some(touch);
     self
   }
 
-  /// Whether it is the touch form: as told, or as the theme it is built in says.
+  /// Whether it is the touch form: as told, or as the person's pointer says.
   fn is_touch(&self) -> bool {
     self.touch.unwrap_or_else(super::touch_form)
   }
@@ -1142,9 +1142,8 @@ impl VideoPlayer {
   /// Builds a still picture of the player in `theme`, for a test or a screenshot: its controls shown, its menus
   /// closed, nothing kept between two of them. An app gives the player to its tree, or mounts it
   /// ([`mount`](Self::mount)).
-  pub fn build(mut self, theme: &Theme) -> Element {
+  pub fn build(self, theme: &Theme) -> Element {
     let held = Live::still();
-    self.touch = Some(self.touch.unwrap_or_else(|| super::in_theme(theme, super::touch_form)));
     view(self, theme, &held, None).render_themed()
   }
 
@@ -1903,7 +1902,7 @@ impl Component for PictureWindow {
 
 /// Builds the view of `player` in `theme`, with its controls made, and their tooltips where `ctx` is given.
 fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) -> VideoPlayerView {
-  // Which form it is, asked of the theme once.
+  // Which form it is, asked of the person's pointer once.
   player.touch = Some(player.is_touch());
   // Not measured yet (the still form, and a mounted player's first render): a width given in pixels decides
   // what the measure would, so that a player told to be 432 wide folds its volume without being mounted.

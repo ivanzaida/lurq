@@ -390,59 +390,119 @@ fn telling(app: App, width: f32, said: &Said) -> Stage {
   })
 }
 
-#[test]
-fn the_touch_form_is_the_density_of_the_theme_and_not_the_width_of_the_window() {
-  use lurq::app::theme::{Breakpoint, Density};
-  let last = |said: &Said| *said.lock().unwrap().last().unwrap();
+fn last(said: &Said) -> (bool, Option<lurq::app::theme::Breakpoint>) {
+  *said.lock().unwrap().last().unwrap()
+}
 
-  // A narrow window of a desktop is not a phone: below every breakpoint, at the default density.
+#[test]
+fn the_touch_form_is_the_pointer_and_not_the_width_of_the_window_nor_the_density() {
+  use lurq::app::{
+    Pointer,
+    theme::{Breakpoint, Density},
+  };
+
+  // A narrow window of a desktop is not a phone: below every breakpoint, with a fine pointer.
   let said = Said::default();
-  let app = App::new();
-  let theme = app.theme().clone();
-  let mut stage = telling(app, 320.0, &said);
+  let mut stage = telling(App::new(), 320.0, &said);
+  stage.tree.set_pointer(Pointer::Fine);
+  stage.pass();
   assert_eq!(last(&said), (false, None));
-  // At a finger's density it is the touch form, and what read it is rendered again.
-  theme.set_density(Density::Touch);
+  // A finger: the touch form, and what read it is rendered again.
+  stage.tree.set_pointer(Pointer::Coarse);
   stage.pass();
   assert_eq!(last(&said), (true, None));
-  for density in [Density::Compact, Density::Comfortable, Density::Default] {
-    theme.set_density(density);
+  assert_eq!(
+    lurq::ui::in_theme(&Theme::new(), lurq::ui::touch_form),
+    lurq::ui::touch_form()
+  );
+  // No density changes it.
+  for density in [Density::Compact, Density::Default, Density::Comfortable, Density::Touch] {
+    stage.app.theme().set_density(density);
     stage.pass();
-    assert!(!last(&said).0, "{density:?} is no finger's");
+    assert!(last(&said).0, "{density:?} under a finger");
   }
+  stage.tree.set_pointer(Pointer::Fine);
+  stage.pass();
+  assert!(!last(&said).0, "a mouse, at the touch density");
 
-  // A wide window at a finger's density is the touch form too.
+  // A wide window under a finger is the touch form too.
   let said = Said::default();
   let app = App::new();
-  app.theme().set_density(Density::Touch);
+  app.set_pointer(Pointer::Coarse);
   let _stage = telling(app, 1440.0, &said);
   let (touch, breakpoint) = last(&said);
   assert!(touch);
   assert!(breakpoint >= Some(Breakpoint::Lg), "{breakpoint:?}");
-
-  // A subtree in a theme of its own takes that theme's.
-  let finger = Theme::new();
-  finger.set_density(Density::Touch);
-  assert!(lurq::ui::in_theme(&finger, lurq::ui::touch_form));
-  assert!(!lurq::ui::in_theme(&Theme::new(), lurq::ui::touch_form));
 }
 
 #[test]
-fn a_theme_starts_at_the_density_of_its_platform() {
-  use lurq::app::theme::Density;
-  let finger = cfg!(any(target_os = "ios", target_os = "android"));
-  let expected = if finger { Density::Touch } else { Density::Default };
-  assert_eq!(Density::platform_default(), expected);
+fn the_pointer_follows_the_last_input_unless_pinned_or_told_not_to() {
+  use lurq::app::{Pointer, events::TouchPhase};
+  let finger = |stage: &mut Stage| {
+    stage.tree.touch_event(1, TouchPhase::Start, 20.0, 20.0, None);
+    stage.tree.touch_event(1, TouchPhase::End, 20.0, 20.0, None);
+    stage.pass();
+  };
+  let mouse = |stage: &mut Stage| {
+    stage.tree.mouse_move(30.0, 30.0);
+    stage.pass();
+  };
+
+  let said = Said::default();
+  let mut stage = telling(App::new(), 400.0, &said);
+  stage.tree.set_pointer(Pointer::Fine);
+  stage.pass();
+  finger(&mut stage);
+  assert_eq!(stage.tree.pointer(), Pointer::Coarse, "a finger");
+  assert!(last(&said).0, "what read it is rendered again");
+  mouse(&mut stage);
+  assert_eq!(stage.tree.pointer(), Pointer::Fine, "a mouse that moves");
+  assert!(!last(&said).0);
+  let renders = said.lock().unwrap().len();
+  mouse(&mut stage);
+  assert_eq!(
+    said.lock().unwrap().len(),
+    renders,
+    "a move of the kind it is at changes nothing"
+  );
+
+  // Pinned, input does not move it; following again lets go.
+  stage.app.set_pointer(Pointer::Coarse);
+  mouse(&mut stage);
+  assert_eq!(stage.app.pointer(), Pointer::Coarse, "pinned");
+  stage.app.follow_pointer(true);
+  mouse(&mut stage);
+  assert_eq!(stage.app.pointer(), Pointer::Fine);
+
+  // Not following, input does not move it either.
+  stage.app.follow_pointer(false);
+  finger(&mut stage);
+  assert_eq!(stage.app.pointer(), Pointer::Fine, "not following");
+}
+
+#[test]
+fn every_theme_starts_at_the_default_density_whatever_the_pointer() {
+  use lurq::app::{Pointer, theme::Density};
   for theme in [
     Theme::new(),
     Theme::legacy(),
     Theme::from_definition(ThemeDefinition::bare()),
   ] {
-    assert_eq!(theme.density(), expected);
+    assert_eq!(theme.density(), Density::Default);
   }
-  assert_eq!(App::new().theme().density(), expected);
-  // Outside a render it is the neutral theme's, at the platform's density.
-  assert_eq!(lurq::ui::touch_form(), finger);
+  let app = App::new();
+  app.set_pointer(Pointer::Coarse);
+  assert_eq!(
+    app.theme().density(),
+    Density::Default,
+    "a density is how large things are"
+  );
+  // Outside a render the pointer is the platform's.
+  assert_eq!(
+    lurq::ui::current_pointer(),
+    Pointer::platform_default(),
+    "the platform's pointer outside a render"
+  );
 }
 
 #[test]

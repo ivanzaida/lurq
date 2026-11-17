@@ -168,6 +168,8 @@ web-sys = { version = "0.3", features = [
     "HtmlCanvasElement",
     "HtmlElement",
     "Location",
+    # What the page says of the device's pointer (`app::Pointer`).
+    "MediaQueryList",
     "MouseEvent",
     "Navigator",
     "Node",

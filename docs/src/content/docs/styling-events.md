@@ -635,6 +635,36 @@ Column::new()
 
 The hook listens for left clicks outside the referenced element's measured bounds. It is removed automatically when the component stops calling it during render.
 
+### A Finger Or A Mouse
+
+`lurq::app::Pointer` says what the person points with: `Fine` (a mouse, a trackpad, a pen: a point a pixel wide,
+which can hover) or `Coarse` (a finger: a point a fingertip wide, which cannot). It is a fact about the device in the
+person's hand, beside the theme and not in it: a theme's density says how large rows are, the pointer says whether
+a component is dressed for a finger (see [the touch form](../design-system/#the-touch-form)).
+
+- **At the start** it is the platform's (`Pointer::platform_default()`): `Coarse` on iOS and Android, `Fine` on
+  Windows, macOS and Linux, and in the browser what the page's `(pointer: coarse)` media query says of the device's
+  primary pointer.
+- **Then it follows the last input**: a finger that touches the window makes it `Coarse`, a mouse or a trackpad that
+  moves makes it `Fine`, and a pen leaves it as it is. Only the first input of the other kind changes it; a move of
+  the kind it is at costs nothing. On a desktop a touch screen's touches reach lurq as the mouse's, so there it
+  stays `Fine`; an iPad with a trackpad becomes `Fine` while the trackpad is used.
+- **The app pins it** with `App::set_pointer(Pointer::Coarse)`: a kiosk with a touch screen, a preview of the phone's
+  forms on a desktop. Input then does not move it. `App::follow_pointer(false)` keeps it where it is without
+  pinning a value, and `follow_pointer(true)` follows input again, letting go of a pin.
+- **It is read in a render**, and what read it is rendered again when it changes: `ui::current_pointer()` in a
+  builder, `app.pointer()` with the app at hand. `ui::touch_form()` is `current_pointer() == Pointer::Coarse`.
+- **A test** sets it with no input, `Tree::set_pointer(Pointer::Coarse)` (not pinned), and reads it with
+  `Tree::pointer()`. Tooling reads and sets it with the MCP tool [`lurq_pointer`](../mcp/#built-in-tools).
+
+```rust
+use lurq::app::{App, Pointer};
+
+let app = App::new();
+// A kiosk: every component takes its touch form, whatever moves.
+app.set_pointer(Pointer::Coarse);
+```
+
 ## Keyboard And Focus
 
 Keyboard events go to the focused node. A press where nothing can take focus blurs it; a press on a `focusable(false)` element keeps it. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).

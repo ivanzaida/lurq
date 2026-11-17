@@ -273,6 +273,8 @@ struct Surroundings {
   dates: Option<crate::core::AppDateText>,
   /// The app's locale: every word lurq writes by itself.
   locale: Option<crate::core::AppLocale>,
+  /// What the person points with, the app's.
+  pointer: Option<crate::app::pointer::AppPointer>,
   /// The window what is being built is in.
   window: Option<crate::app::window::Window>,
 }
@@ -309,15 +311,43 @@ pub fn current_breakpoint() -> Option<Breakpoint> {
   breakpoint.and_then(|breakpoint| breakpoint.get())
 }
 
+/// What the person points with, in the app of what is being built
+/// ([`App::pointer`](crate::app::App::pointer)): a finger or a mouse, a trackpad, a pen. What reads it is rendered
+/// again when it changes. Outside a render, what the platform starts with
+/// ([`Pointer::platform_default`](crate::app::Pointer::platform_default)).
+pub fn current_pointer() -> crate::app::Pointer {
+  RENDERING_IN
+    .with(|rendering| {
+      rendering
+        .borrow()
+        .last()
+        .and_then(|surroundings| surroundings.pointer.clone())
+    })
+    .map_or_else(crate::app::Pointer::platform_default, |pointer| pointer.get())
+}
+
 /// Whether what is being built takes its touch form, dressed for a finger: swipes in place of buttons over its
-/// sides, larger targets, dots in place of arrows, a phone's chrome. It is the theme's density and nothing else:
-/// the theme at [`Density::Touch`](crate::app::theme::Density::Touch), where a theme starts on iOS and Android
-/// ([`Density::platform_default`](crate::app::theme::Density::platform_default)). The window's width is not
-/// asked: a narrow window of a desktop is a narrow room, laid out narrow, and still a desktop's. Every component
-/// with a touch form reads it, and a component's own prop for its form (`variant(..)`, `touch(bool)`) wins over it.
-/// What reads it is rendered again when the density changes.
+/// sides, larger targets, dots in place of arrows, a phone's chrome. It is the person's pointer and nothing else:
+/// a coarse one ([`Pointer::Coarse`](crate::app::Pointer::Coarse), [`current_pointer`]), which an app on iOS and
+/// Android starts with and any app has once a finger touches it. Neither the window's width nor the theme's density
+/// is asked: a narrow window of a desktop is a narrow room, laid out narrow, and a density is how large things are.
+/// Every component with a touch form reads it, and a component's own prop for its form (`variant(..)`,
+/// `touch(bool)`) wins over it. What reads it is rendered again when the pointer changes.
 pub fn touch_form() -> bool {
-  current_theme().density() == crate::app::theme::Density::Touch
+  current_pointer() == crate::app::Pointer::Coarse
+}
+
+/// How many times the app or a test set the pointer rather than input moving it: what an open component that holds
+/// its form against a finger landing on it gives way to. Read so that what reads it is rendered again.
+pub(crate) fn pointer_told() -> u64 {
+  RENDERING_IN
+    .with(|rendering| {
+      rendering
+        .borrow()
+        .last()
+        .and_then(|surroundings| surroundings.pointer.clone())
+    })
+    .map_or(0, |pointer| pointer.told())
 }
 
 pub(crate) fn enter_theme(
@@ -325,6 +355,7 @@ pub(crate) fn enter_theme(
   breakpoint: Option<Memo<Option<Breakpoint>>>,
   dates: Option<crate::core::AppDateText>,
   locale: Option<crate::core::AppLocale>,
+  pointer: Option<crate::app::pointer::AppPointer>,
   window: Option<crate::app::window::Window>,
 ) {
   RENDERING_IN.with(|rendering| {
@@ -333,6 +364,7 @@ pub(crate) fn enter_theme(
       breakpoint,
       dates,
       locale,
+      pointer,
       window,
     })
   });
@@ -394,20 +426,21 @@ pub fn in_theme<R>(theme: &Theme, build: impl FnOnce() -> R) -> R {
     }
   }
   // The window and the app are the ones around: only the theme changes.
-  let (breakpoint, dates, locale, window) = RENDERING_IN.with(|rendering| {
+  let (breakpoint, dates, locale, pointer, window) = RENDERING_IN.with(|rendering| {
     rendering
       .borrow()
       .last()
-      .map_or((None, None, None, None), |surroundings| {
+      .map_or((None, None, None, None, None), |surroundings| {
         (
           surroundings.breakpoint.clone(),
           surroundings.dates.clone(),
           surroundings.locale.clone(),
+          surroundings.pointer.clone(),
           surroundings.window.clone(),
         )
       })
   });
-  enter_theme(theme.clone(), breakpoint, dates, locale, window);
+  enter_theme(theme.clone(), breakpoint, dates, locale, pointer, window);
   let _leave = Leave;
   build()
 }

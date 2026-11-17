@@ -1197,9 +1197,14 @@ impl ManagedWindow {
           TouchPhase::Cancelled => crate::app::events::TouchPhase::Cancel,
         };
         let force = touch.force.map(|force| force.normalized() as f32);
-        let route = self
-          .tree
-          .touch_event(touch.id, phase, touch.location.x as f32, touch.location.y as f32, force);
+        let route = self.tree.touch_event_by(
+          touch.id,
+          phase,
+          touch.location.x as f32,
+          touch.location.y as f32,
+          force,
+          is_pen(&touch),
+        );
         if route != crate::app::runtime::TouchRoute::Pointer {
           if route == crate::app::runtime::TouchRoute::Gesture {
             // Two fingers pinch or rotate: what the first one did as the pointer ends without a click.
@@ -1321,7 +1326,7 @@ impl ManagedSecondaryWindow {
     };
     let force = touch.force.map(|force| force.normalized() as f32);
     let (x, y) = (touch.location.x, touch.location.y);
-    let route = tree.touch_event(touch.id, phase, x as f32, y as f32, force);
+    let route = tree.touch_event_by(touch.id, phase, x as f32, y as f32, force, is_pen(&touch));
     let actions = match route {
       crate::app::runtime::TouchRoute::Pointer => {
         self.touch.set_momentum(tree.touch_momentum());
@@ -1841,6 +1846,18 @@ impl ManagedSecondaryWindow {
     self.check_redraw(tree);
     false
   }
+}
+
+/// Whether a touch is a pen's: the system gives a pen's the angle it is held at (an Apple Pencil's), a finger's none.
+#[cfg(target_os = "ios")]
+fn is_pen(touch: &winit::event::Touch) -> bool {
+  matches!(
+    touch.force,
+    Some(winit::event::Force::Calibrated {
+      altitude_angle: Some(_),
+      ..
+    })
+  )
 }
 
 /// A finger's scroll of a window's content just ended. A list that scrolls by pages has no momentum: it goes
