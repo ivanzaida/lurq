@@ -2474,6 +2474,12 @@ impl Ctx {
     self.app_ref().window_opener()
   }
 
+  /// Opens `url` in the app the system keeps for it: a web page in the browser. It is
+  /// [`open_url`](crate::app::open_url()), which a handler with no `Ctx` calls too.
+  pub fn open_url(&self, url: &str) -> Result<(), crate::app::OpenUrlError> {
+    crate::app::open_url(url)
+  }
+
   /// Mutates the same shared services as the App passed to the tree.
   pub fn app_ref_mut(&mut self) -> &mut App {
     self.app.as_mut().expect("app ref not set")

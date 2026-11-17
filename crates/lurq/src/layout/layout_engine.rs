@@ -56,6 +56,8 @@ mod input_marks;
 mod input_objects;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
+#[cfg(feature = "markdown")]
+pub(crate) mod text_objects;
 #[cfg(feature = "perf_profile")]
 mod layout_trace;
 mod line_limit;
@@ -1552,7 +1554,7 @@ impl LayoutEngine {
         spans: self.painted_spans(if node.children().is_empty() {
           spans.clone()
         } else {
-          self.painted_rich_text_spans(node, spans)
+          self.painted_rich_text_spans(node, spans, result)
         }),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         // Text that paints underlines or links is drawn from the top of its
@@ -3329,6 +3331,18 @@ impl LayoutEngine {
         );
       }
       NodeKind::RichText { state, spans, .. } => {
+        // A paragraph's objects take the width of their elements in its lines.
+        #[cfg(feature = "markdown")]
+        if let Some((spans, _)) = self.object_spans(glyph_engine, node, spans, constraints.max_width) {
+          return self.layout_rich_text_node(
+            glyph_engine,
+            &spans,
+            state,
+            constraints,
+            node.text_wrap,
+            node.text_overflow,
+          );
+        }
         return self.layout_rich_text_node(
           glyph_engine,
           spans,

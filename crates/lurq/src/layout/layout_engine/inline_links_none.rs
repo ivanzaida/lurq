@@ -24,7 +24,12 @@ impl LayoutEngine {
   }
 
   /// The paragraph's spans as painted: as they are, with no link to restyle them.
-  pub(super) fn painted_rich_text_spans(&self, _: &Node, spans: &[RichTextSpan]) -> Vec<RichTextSpan> {
+  pub(super) fn painted_rich_text_spans(
+    &self,
+    _: &Node,
+    spans: &[RichTextSpan],
+    _: &LayoutResult,
+  ) -> Vec<RichTextSpan> {
     spans.to_vec()
   }
 }

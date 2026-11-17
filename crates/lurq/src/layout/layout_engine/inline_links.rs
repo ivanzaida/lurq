@@ -40,11 +40,21 @@ pub(crate) struct InlineTextLayout {
   pub(crate) top: f32,
   pub(crate) text_height: f32,
   pub(crate) span_boxes: Arc<[SpanBox]>,
+  /// The spans as they are laid out where the paragraph has objects: each object's as wide as its element
+  /// ([`super::text_objects`]).
+  pub(crate) spans: Option<Arc<[RichTextSpan]>>,
 }
 
 impl InlineTextLayout {
   pub(super) fn estimated_memory_bytes(&self) -> usize {
-    std::mem::size_of::<Self>() + self.span_boxes.len() * std::mem::size_of::<SpanBox>()
+    std::mem::size_of::<Self>()
+      + self.span_boxes.len() * std::mem::size_of::<SpanBox>()
+      + self.spans.as_ref().map_or(0, |spans| {
+        spans
+          .iter()
+          .map(|span| std::mem::size_of::<RichTextSpan>() + span.text.len())
+          .sum()
+      })
   }
 }
 
@@ -108,20 +118,35 @@ impl LayoutEngine {
     {
       return;
     }
-    let (text_size, span_boxes) = self.painted_span_boxes(glyph_engine, node, spans, result.size.width);
+    let objects = self.object_spans(glyph_engine, node, spans, result.size.width);
+    let laid_out = objects
+      .as_ref()
+      .map_or(spans.as_slice(), |(widened, _)| widened.as_slice());
+    let (text_size, span_boxes) = self.painted_span_boxes(glyph_engine, node, laid_out, result.size.width);
     let top = (result.size.height - text_size.height) * 0.5;
+    let objects = objects.map(|(widened, objects)| (Arc::<[RichTextSpan]>::from(widened), objects));
     result.children = node
       .children()
       .iter()
-      .map(|child| {
-        child.layout_cache.mark_placed_by_parent();
-        link_child_layout(child, &span_boxes, top)
+      .enumerate()
+      .map(|(index, child)| {
+        let object = objects
+          .as_ref()
+          .and_then(|(_, objects)| objects.iter().find(|object| object.child == index));
+        match object {
+          Some(object) => self.object_child_layout(glyph_engine, child, object, &span_boxes, top),
+          None => {
+            child.layout_cache.mark_placed_by_parent();
+            link_child_layout(child, &span_boxes, top)
+          }
+        }
       })
       .collect();
     let inline = Arc::new(InlineTextLayout {
       top,
       text_height: text_size.height,
       span_boxes,
+      spans: objects.map(|(widened, _)| widened),
     });
     if let Some(TextLayoutOutput::Text(output)) = result.text_layout.as_deref() {
       result.text_layout = Some(Arc::new(TextLayoutOutput::Text(output.with_inline(inline))));
@@ -205,10 +230,19 @@ impl LayoutEngine {
 
   /// The paragraph's spans as painted: each link's words and trailing runs
   /// take the colors of its hover and focus states.
-  pub(super) fn painted_rich_text_spans(&self, node: &Node, spans: &[RichTextSpan]) -> Vec<RichTextSpan> {
+  pub(super) fn painted_rich_text_spans(
+    &self,
+    node: &Node,
+    spans: &[RichTextSpan],
+    result: &LayoutResult,
+  ) -> Vec<RichTextSpan> {
     let palette = self.palette.borrow();
     let resolved = |color: &Option<crate::node::TextColor>| color.as_ref().and_then(|color| color.resolve(&palette));
-    let mut painted = spans.to_vec();
+    // A paragraph with objects is drawn as it was laid out: each object's span as wide as its element.
+    let mut painted = match inline_layout(result).and_then(|inline| inline.spans.as_ref()) {
+      Some(laid_out) if laid_out.len() == spans.len() => laid_out.to_vec(),
+      _ => spans.to_vec(),
+    };
     for (link, state) in link_states(node) {
       for span in painted.get_mut(link.label.clone()).unwrap_or_default() {
         if let Some(color) = resolved(&state.color) {
@@ -449,6 +483,46 @@ fn link_states_of(child: &Node, link: &InlineLink) -> Option<MarkdownLinkState> 
       background: focused.background.or(hovered.background),
       trailing_color: focused.trailing_color.or(hovered.trailing_color),
     }),
+  }
+}
+
+impl LayoutEngine {
+  /// An object's child laid out at its size and placed on its span: at the span's start, on the middle of its
+  /// line. One whose span is not laid out takes no room and is not painted.
+  fn object_child_layout(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    child: &Node,
+    object: &super::text_objects::TextObject,
+    span_boxes: &[SpanBox],
+    top: f32,
+  ) -> ChildLayout {
+    let Some(line) = span_boxes
+      .iter()
+      .find(|span_box| usize::try_from(span_box.span).is_ok_and(|span| span == object.span))
+    else {
+      child.layout_cache.mark_placed_by_parent();
+      return ChildLayout {
+        offset: Offset::default(),
+        result: Arc::new(LayoutResult {
+          size: Size::default(),
+          children: Vec::new(),
+          text_layout: None,
+          dropped: true,
+          holds: SubtreeHolds::UNKNOWN,
+          generation: 0,
+          sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
+        }),
+      };
+    };
+    ChildLayout {
+      offset: Offset {
+        x: line.x,
+        y: top + line.top + (line.height - object.size.height) * 0.5,
+      },
+      result: self.layout_node(glyph_engine, child, crate::layout::Constraints::tight(object.size)),
+    }
   }
 }
 
