@@ -146,6 +146,7 @@ Added:
 - `ui::Lightbox` is a component of the design system: pictures one at a time over the window or in a page, brought
 - `ui::Gallery` is a component of the design system: pictures in rows of rooms of one shape, with one lightbox for
 - `ui::Carousel` is a component of the design system: slides between two round buttons with dots under them,
+- `VideoPlayer`: the tooltip of a control goes with the controls when they fade out while a video plays, where it stayed over the picture.
 - A frame of red, green and blue of `images::CardFrames` (`CardSurface::Rgba`) is drawn with the colors it has, where it was drawn lighter (255, 24, 0 as 255, 86, 0).
 - A video lurq plays under Vulkan stays on the graphics card: its frame is converted there to red, green and blue. `images::card_frames_nv12()` says whether one NV12 texture is drawn where it is, for an app's decoder to give another kind where it is not.
 - The program has one instance of wgpu among the same backends: two windows of an app drawn through Vulkan ended it.
