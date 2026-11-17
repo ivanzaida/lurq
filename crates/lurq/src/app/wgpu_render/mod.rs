@@ -6,6 +6,7 @@ mod card_copies;
 mod card_frames;
 #[cfg(all(test, windows, feature = "raster", feature = "media"))]
 mod card_frames_tests;
+mod device_loss;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
@@ -394,6 +395,10 @@ pub struct WgpuRenderEngine {
   backends: wgpu::Backends,
   /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`].
   prepared: Option<WgpuDevice>,
+  /// Whether the device is lost: the card was reset or taken away.
+  lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  /// How many frames to let pass before a device that was not given is asked for again.
+  device_wait: u32,
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
@@ -684,6 +689,8 @@ impl WgpuRenderEngine {
       instance: None,
       backends: default_backends(),
       prepared: None,
+      lost: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      device_wait: 0,
       adapter: None,
       device: None,
       queue: None,
@@ -1045,9 +1052,18 @@ impl WgpuRenderEngine {
     }
   }
 
-  /// Asks for the adapter that draws to `surface` and its device, and waits for them.
+  /// Whether the device this draws with is lost.
+  fn device_is_lost(&self) -> bool {
+    self
+      .device
+      .as_ref()
+      .is_some_and(|device| device_loss::is_lost(device, &self.lost))
+  }
+
+  /// Asks for the adapter that draws to `surface` and its device, and waits for them. `None` where a device
+  /// was lost in this program and the card gives none yet: another window may hold the lost one still.
   #[cfg(not(target_arch = "wasm32"))]
-  fn request_device(&self, surface: &wgpu::Surface<'static>) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+  fn request_device(&self, surface: &wgpu::Surface<'static>) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     let adapter = pollster::block_on(
       self
         .instance
@@ -1058,20 +1074,26 @@ impl WgpuRenderEngine {
           compatible_surface: Some(surface),
           force_fallback_adapter: false,
         }),
-    )
-    .expect("no suitable GPU adapter found");
-    let (device, queue) = pollster::block_on(adapter.request_device(&device_descriptor(
+    );
+    if adapter.is_err() && device_loss::happened() {
+      return None;
+    }
+    let adapter = adapter.expect("no suitable GPU adapter found");
+    let made = pollster::block_on(adapter.request_device(&device_descriptor(
       &adapter,
       self.optional_device_features,
       &self.optional_device_limits,
-    )))
-    .expect("failed to create device");
-    (adapter, device, queue)
+    )));
+    if made.is_err() && device_loss::happened() {
+      return None;
+    }
+    let (device, queue) = made.expect("failed to create device");
+    Some((adapter, device, queue))
   }
 
   /// A browser answers through a promise, which a frame cannot wait for.
   #[cfg(target_arch = "wasm32")]
-  fn request_device(&self, _surface: &wgpu::Surface<'static>) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+  fn request_device(&self, _surface: &wgpu::Surface<'static>) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     panic!(
       "in a browser the GPU device comes from a promise: await `WgpuDevice::request()` before the window starts and \
        give the device with `WgpuRenderEngine::with_device`"
@@ -1080,6 +1102,12 @@ impl WgpuRenderEngine {
 
   fn ensure_initialized(&mut self, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
     if self.device.is_some() && self.surface.is_some() {
+      return;
+    }
+
+    // A device that was not given is not asked for in every frame.
+    if self.device_wait > 0 {
+      self.device_wait -= 1;
       return;
     }
 
@@ -1098,7 +1126,15 @@ impl WgpuRenderEngine {
 
     let (adapter, device, queue) = match self.prepared.clone() {
       Some(prepared) => (prepared.adapter, prepared.device, prepared.queue),
-      None => self.request_device(&surface),
+      None => {
+        let Some(made) = self.request_device(&surface) else {
+          self.device_wait = 15;
+          return;
+        };
+        // The device is this engine's own: where it is lost, another engine takes this one's place.
+        device_loss::watch(&made.1, &self.lost);
+        made
+      }
     };
     // What decodes a video decodes on the card this draws on, and its frames stay there.
     #[cfg(all(windows, feature = "raster"))]
@@ -1691,6 +1727,14 @@ impl RenderEngine for WgpuRenderEngine {
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
+    // A device that is lost is asked nothing more: what it answers is errors.
+    if self.device_is_lost() {
+      #[cfg(feature = "screenshot")]
+      if let Some(capture) = self.pending_frame_capture.take() {
+        capture.target.fail("the graphics device was lost");
+      }
+      return false;
+    }
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
@@ -1699,6 +1743,14 @@ impl RenderEngine for WgpuRenderEngine {
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderInit));
     self.ensure_initialized(window, display);
+    // After a loss the card may give no device yet: the frame is not drawn, and is asked for again.
+    if self.device.is_none() || self.surface.is_none() {
+      #[cfg(feature = "screenshot")]
+      if let Some(capture) = self.pending_frame_capture.take() {
+        capture.target.fail("the graphics device was lost");
+      }
+      return false;
+    }
     self.apply_pending_surface_size();
     let _init_dur = profile_elapsed!(_init_start);
     #[cfg(feature = "perf_profile")]
@@ -3135,6 +3187,11 @@ impl RenderEngine for WgpuRenderEngine {
       previous.target.fail("superseded before a frame was rendered");
     }
     self.render(list, window, display)
+  }
+
+  /// Only an engine that made its own device is replaced: a device it was given is the app's to make again.
+  fn lost(&self) -> bool {
+    self.prepared.is_none() && self.device_is_lost()
   }
 
   fn release_window_surface(&mut self) {
