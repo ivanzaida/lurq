@@ -86,3 +86,21 @@ fn a_selection_can_be_started_again_after_a_drag_over_the_reported_paragraph() {
     assert_eq!(page.selected().as_deref(), Some(&*page.text_between(0, from)));
   }
 }
+
+/// A narrow glyph of wide inline code, a dot or a bar in a monospace cell,
+/// is highlighted over its whole advance: the highlight reaches past its ink
+/// by its side bearings, which the cell makes wider than a proportional
+/// font's, and no further.
+#[test]
+fn the_highlight_of_a_narrow_code_glyph_covers_its_cell_and_no_more() {
+  let mut page = page(
+    MarkdownProps::new("A dot `.`, a bar `|` and a quote `'` drawn in code.").theme(wide_code()),
+    560.0,
+  );
+  for needle in [".", "|", "'"] {
+    let ink = page.ink_at(needle, 0);
+    page.drag_inks(ink, ink);
+    assert_eq!(page.selected().as_deref(), Some(needle));
+    page.assert_highlight_covers(ink, ink);
+  }
+}

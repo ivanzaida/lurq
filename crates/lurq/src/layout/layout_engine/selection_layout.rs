@@ -4,7 +4,8 @@
 //! The paint shapes a text in device pixels: its style scaled by the display
 //! scale, wrapped at its box's width rounded up in device pixels,
 //! `ceil(width * scale)`, and placed in its whole box (a `Text`'s padding
-//! does not move its glyphs). At a fractional width or scale that is not the
+//! does not move its glyphs) where `GlyphEngine::painted_text_offset` puts
+//! its first line. At a fractional width or scale that is not the
 //! logical layout: a word ending between the two wraps in one and not the
 //! other, and glyph advances differ by rounding. A selection's hit-testing,
 //! highlight and copied text index the carets of the painted layout, kept in
@@ -90,13 +91,16 @@ impl LayoutEngine {
     scaled.scale_pixels(scale);
     let max_width = painted_max_width(scale, wrap, style.text_align, size.width);
     let positions = glyph_engine.caret_positions(text, &scaled, max_width, wrap);
-    let top = glyph_engine.text_vertical_align_offset(
+    let top = glyph_engine.painted_text_offset(
       text,
+      style,
       &scaled,
+      size.width,
+      size.height,
       max_width,
       wrap,
       style.vertical_align,
-      size.height * scale,
+      scale,
     ) / scale;
     PaintedText {
       carets: PaintedCarets { positions, scale },

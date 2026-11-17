@@ -178,6 +178,26 @@ impl Probes {
     count
   }
 
+  /// How far apart the paint sets two of `text` drawn in `style` one after
+  /// the other, in physical pixels: its advance, to a pixel. Zero where its
+  /// glyphs cannot be told apart.
+  pub fn advance(&mut self, app: &mut App, text: &str, style: &TextStyle) -> f32 {
+    let mut tree = Tree::new();
+    tree.set_scale_factor(self.scale);
+    tree.resize((4000.0 * self.scale) as u32, (400.0 * self.scale) as u32);
+    tree.set_root(Text::styled(&format!("{text}{text}"), style.clone()).nowrap());
+    // In the order they are drawn: the first copy's glyphs, then the second's.
+    let glyphs: Vec<_> = render_pass_with_app(&mut tree, app)
+      .glyphs
+      .into_iter()
+      .filter(|glyph| glyph.width > 0.0)
+      .collect();
+    if glyphs.is_empty() || glyphs.len() % 2 != 0 {
+      return 0.0;
+    }
+    glyphs[glyphs.len() / 2].x - glyphs[0].x
+  }
+
   /// The clusters of the non-whitespace characters of `text`, painted in
   /// `stretches`, in text order: one per character where a stretch draws a
   /// glyph for each.

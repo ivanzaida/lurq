@@ -3374,12 +3374,12 @@ impl Tree {
             // that wraps into fewer lines painted than laid out (near a
             // break, the scaled type fits a word more) starts where the
             // layout put its first line, not lower by half a line.
-            let (align, box_y) = match painted_wrap_offset(
-              &mut glyph_engine,
+            let (align, box_y) = match glyph_engine.painted_wrap_offset(
               text,
               style,
               &scaled_style,
-              quad,
+              quad.width,
+              quad.height,
               max_width,
               *wrap,
               *vertical_align,
@@ -3403,13 +3403,16 @@ impl Tree {
             );
           } else {
             let text_y = scaled_y
-              + glyph_engine.text_vertical_align_offset(
+              + glyph_engine.painted_text_offset(
                 text,
+                style,
                 &scaled_style,
+                quad.width,
+                quad.height,
                 max_width,
                 *wrap,
                 *vertical_align,
-                scaled_height,
+                scale,
               );
             if *transform_mode == TextTransformMode::Rasterized {
               glyph_engine.rasterize_text_with_baked_transform_into(
@@ -12296,38 +12299,6 @@ fn composite_screenshot_layer(pixels: &mut [u8], layer: &[u8], width: u32, opaci
     let (x, y) = (index as u32 % width, index as u32 / width);
     blend_screenshot_pixel(pixels, width, x, y, [source[0], source[1], source[2], alpha]);
   }
-}
-
-/// The offset of a wrapped text's first line in its painted box where the
-/// paint would wrap it into another number of lines than the layout did: the
-/// layout's offset, scaled. `None` where both agree, or the text does not wrap.
-#[allow(clippy::too_many_arguments)]
-fn painted_wrap_offset(
-  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
-  text: &str,
-  style: &crate::layout::text_style::TextStyle,
-  scaled_style: &crate::layout::text_style::TextStyle,
-  quad: &Quad,
-  max_width: f32,
-  wrap: bool,
-  align: crate::layout::text_style::VerticalAlign,
-  scale: f32,
-) -> Option<f32> {
-  if !wrap
-    || quad.width <= 0.0
-    || quad.height <= 0.0
-    || matches!(
-      align,
-      crate::layout::text_style::VerticalAlign::LineBox | crate::layout::text_style::VerticalAlign::Top
-    )
-  {
-    return None;
-  }
-  let laid_out = glyph_engine.text_vertical_align_offset(text, style, quad.width, wrap, align, quad.height) * scale;
-  let painted =
-    glyph_engine.text_vertical_align_offset(text, scaled_style, max_width, wrap, align, quad.height * scale);
-  // A line more or fewer moves a centered text by half a line, at least half the type's size.
-  ((laid_out - painted).abs() > scaled_style.font_size * 0.4).then_some(laid_out)
 }
 
 fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {

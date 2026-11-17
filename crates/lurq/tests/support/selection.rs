@@ -13,6 +13,7 @@ use std::cell::{Cell, RefCell};
 use lurq::{
   app::{App, Tree, events::MouseButton},
   core::ElementRect,
+  layout::text_style::TextStyle,
   node::color::Color,
 };
 
@@ -23,8 +24,8 @@ use super::{GlyphSnapshot, RectSnapshot, TestSurface, render_pass_with_app};
 const HIGHLIGHT: Color = Color::new(191, 219, 254, 255);
 /// How far a highlight may reach past the ink of the glyphs it covers, in
 /// logical pixels: a glyph's advance is wider than its ink by its side
-/// bearings.
-/// How far past a glyph's ink a highlight may reach on a row, in logical pixels.
+/// bearings. A glyph whose bearings are wider (a dot in a monospace cell)
+/// may be reached past by them (`Page::highlight_mismatch`).
 pub const INK_SLACK: f32 = 3.0;
 /// The transparent border around every glyph bitmap, in physical pixels
 /// (the glyph atlas pads each glyph so sampling never bleeds).
@@ -79,6 +80,8 @@ pub struct Page {
   /// The drawn glyphs that stand for the non-whitespace characters of
   /// `text`, in reading order: text by text, row by row, left to right.
   pub inks: Vec<Ink>,
+  /// The style each of `inks` is painted in.
+  ink_styles: Vec<TextStyle>,
   nodes: Vec<TextNode>,
   /// Colors of glyphs that are not the text's (a link's trailing runs),
   /// left out of `inks`.
@@ -111,6 +114,7 @@ impl Page {
       scale,
       text: String::new(),
       inks: Vec::new(),
+      ink_styles: Vec::new(),
       nodes: Vec::new(),
       ignored: Vec::new(),
       probes: Probes::new(scale),
@@ -143,6 +147,7 @@ impl Page {
     let mut glyphs = glyphs.into_iter();
     let mut painted = Painted::new(&self.tree);
     let mut inks = Vec::new();
+    let mut ink_styles = Vec::new();
     for node in &self.nodes {
       let stretches = painted.stretches(&node.text);
       let clusters = self.probes.clusters(&mut self.app, &node.text, &stretches);
@@ -156,6 +161,11 @@ impl Page {
       );
       let mut drawn = rows_of(node_glyphs).into_iter();
       for cluster in clusters.into_iter().filter(|cluster| cluster.glyphs > 0) {
+        let stretch = stretches
+          .iter()
+          .find(|stretch| stretch.bytes.contains(&cluster.bytes.start))
+          .expect("a cluster is in a stretch");
+        ink_styles.push(stretch.style.clone());
         let cluster_glyphs: Vec<_> = drawn.by_ref().take(cluster.glyphs).collect();
         let (row, _) = cluster_glyphs[0];
         inks.push(Ink {
@@ -179,6 +189,23 @@ impl Page {
       self.text
     );
     self.inks = inks;
+    self.ink_styles = ink_styles;
+  }
+
+  /// How much wider the glyph `ink`'s advance is than its ink, in physical
+  /// pixels: the most a highlight over it reaches past its ink on one side.
+  fn side_bearings(&mut self, ink: usize) -> f32 {
+    let Ink {
+      left,
+      right,
+      start,
+      end,
+      ..
+    } = self.inks[ink];
+    let advance = self
+      .probes
+      .advance(&mut self.app, &self.text[start..end], &self.ink_styles[ink]);
+    advance - (right - left)
   }
 
   /// How many glyphs `text` draws where the tree paints it, each
@@ -328,16 +355,28 @@ impl Page {
     let slack = INK_SLACK * self.scale;
     let highlights = self.highlights();
     for rect in &highlights {
-      let on_row: Vec<&Ink> = selected
-        .iter()
-        .filter(|ink| rect.y <= ink.y && ink.y <= rect.y + rect.height)
+      let on_row: Vec<usize> = (from..=to)
+        .filter(|&ink| rect.y <= self.inks[ink].y && self.inks[ink].y <= rect.y + rect.height)
         .collect();
       if on_row.is_empty() {
         return Some(format!("a highlight on a row with no selected glyph: {rect:?}"));
       }
-      let left = on_row.iter().map(|ink| ink.left).fold(f32::MAX, f32::min);
-      let right = on_row.iter().map(|ink| ink.right).fold(f32::MIN, f32::max);
-      if rect.x < left - slack || rect.x + rect.width > right + slack {
+      let first = on_row
+        .iter()
+        .copied()
+        .min_by(|&a, &b| self.inks[a].left.total_cmp(&self.inks[b].left));
+      let last = on_row
+        .iter()
+        .copied()
+        .max_by(|&a, &b| self.inks[a].right.total_cmp(&self.inks[b].right));
+      let (first, last) = (first.expect("a glyph on the row"), last.expect("a glyph on the row"));
+      let (left, right) = (self.inks[first].left, self.inks[last].right);
+      // Past the fixed slack, as far as the outermost glyph's side bearings
+      // reach, and a pixel for where its advance was snapped.
+      let reaches_left = rect.x < left - slack && rect.x < left - self.side_bearings(first) - 1.0;
+      let reaches_right =
+        rect.x + rect.width > right + slack && rect.x + rect.width > right + self.side_bearings(last) + 1.0;
+      if reaches_left || reaches_right {
         return Some(format!(
           "the highlight at y {} ({}..{}) reaches past the selected glyphs' ink ({left}..{right})",
           rect.y,

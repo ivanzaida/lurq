@@ -1,7 +1,8 @@
 //! Where a text's lines sit in a box taller than them: the offset its
 //! `VerticalAlign` puts its first line at. Painting draws the glyphs there,
 //! and layout writes the same offset into the text's state, so a selection's
-//! hit-testing and highlight meet the glyphs on screen.
+//! hit-testing and highlight meet the glyphs on screen. Both take it from
+//! [`GlyphEngine::painted_text_offset`].
 
 use super::{GlyphEngine, TextVerticalExtents};
 use crate::layout::{
@@ -48,6 +49,62 @@ impl GlyphEngine {
       return 0.0;
     };
     offset_for_extents(align, extents, box_height)
+  }
+
+  /// The offset of `text`'s first line in its painted box, in device
+  /// pixels: where the paint draws it, and so where a selection's
+  /// hit-testing and highlight find it. `style` is the laid-out style and
+  /// `scaled_style` the painted one, `scale` times its size; the box is
+  /// `width` by `height` logical pixels, painted wrapped at `max_width`
+  /// device pixels.
+  ///
+  /// The paint wraps at its width rounded up to a device pixel, so near a
+  /// break it fits a word more on a line than the layout and wraps into a
+  /// line fewer (or, at a fractional scale, more). A text aligned by its
+  /// lines' height (`Center`, `Bottom`) then keeps the layout's first line,
+  /// scaled, instead of moving by half a line or a whole one.
+  #[allow(clippy::too_many_arguments)]
+  pub(crate) fn painted_text_offset(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    scaled_style: &TextStyle,
+    width: f32,
+    height: f32,
+    max_width: f32,
+    wrap: bool,
+    align: VerticalAlign,
+    scale: f32,
+  ) -> f32 {
+    self
+      .painted_wrap_offset(text, style, scaled_style, width, height, max_width, wrap, align, scale)
+      .unwrap_or_else(|| self.text_vertical_align_offset(text, scaled_style, max_width, wrap, align, height * scale))
+  }
+
+  /// The offset of a wrapped text's first line in its painted box where the
+  /// paint wraps it into another number of lines than the layout did: the
+  /// layout's offset, scaled. `None` where both agree, or the text does not
+  /// wrap. See [`Self::painted_text_offset`].
+  #[allow(clippy::too_many_arguments)]
+  pub(crate) fn painted_wrap_offset(
+    &mut self,
+    text: &str,
+    style: &TextStyle,
+    scaled_style: &TextStyle,
+    width: f32,
+    height: f32,
+    max_width: f32,
+    wrap: bool,
+    align: VerticalAlign,
+    scale: f32,
+  ) -> Option<f32> {
+    if !wrap || width <= 0.0 || height <= 0.0 || matches!(align, VerticalAlign::LineBox | VerticalAlign::Top) {
+      return None;
+    }
+    let laid_out = self.text_vertical_align_offset(text, style, width, wrap, align, height) * scale;
+    let painted = self.text_vertical_align_offset(text, scaled_style, max_width, wrap, align, height * scale);
+    // A line more or fewer moves a centered text by half a line, at least half the type's size.
+    ((laid_out - painted).abs() > scaled_style.font_size * 0.4).then_some(laid_out)
   }
 
   /// The offset of a rich text's first line in a box `box_height` tall,
