@@ -13,6 +13,9 @@ devtools = ["lurq/devtools"]
 
 [dependencies]
 lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas", "media"] }
+# The tokenizer of another crate the Code Block page plugs into lurq, as an app would (`src/syntect_code.rs`): the
+# gallery's alone, never lurq's. Its grammars are read by its own regular expressions, which build for the browser.
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 
 # Addresses on the network, for the sound the Audio Player page plays from one. Not in a browser: the client is
 # not built for one, and the loader loads no address there yet.
