@@ -96,6 +96,14 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   indicator, upright and on its side.
 - [ ] **The phone pieces' colors** (on recipes since 2026-11-17): the tab bar, the navigation bar, a sheet and pull
   to refresh in light and dark, as the board's Mobile frames.
+- [ ] **The gestures added on 2026-11-17, on a real phone, and adapted to how iOS does them** (time and distance
+  thresholds, what the system keeps for itself): one-finger zoom (double tap held and dragged); three fingers
+  swiped left/right undo/redo, pinched in/out copy/paste, tapped open the editing menu — and that iOS's own
+  three-finger gestures do not fire twice with lurq's; in a text, the loupe under a long press and the caret moving
+  with the finger, the two selection handles and the menu over a selection; the bounce at a list's edge; a
+  pencil's hover (iPad with Apple Pencil 2 or Pro) shows hover styles.
+- [ ] **The emulator against the device.** The same page on the phone and on a Mac with `LURQ_DEVICE=phone`: the
+  gestures feel and do the same; note what the mouse cannot imitate.
 - [ ] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).
 
 ## 6. Sound and video

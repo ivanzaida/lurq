@@ -10,6 +10,28 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-17
 
+### Every gesture, the emulator and MCP's touch
+
+- **Decision (Ivan: "let's add support for all the gestures, wire the emulator and MCP, and leave it in the
+  macOS/iOS handover to check and adapt").**
+  - **The gestures the engine has** stay as they are: tap (`fingers`, `count`), double tap, long press, pan, swipe,
+    the edge pan, pinch, rotate, two-finger pan, momentum, pull to refresh, swipe row, force, the pen.
+  - **The ones it lacks are added**: one-finger zoom (a double tap held and dragged, as `on_pinch`); three fingers
+    swiped left and right as `EditCommand::Undo` / `Redo`, pinched in and out as `Copy` / `Paste`, tapped as the
+    menu of editing commands (iOS's); in text, a long press shows a loupe and moves the caret, selection by touch
+    has two handles and a menu over it (the editing commands); the bounce at a scroll's edge on iOS (checked first:
+    built only if missing); a pencil's hover as hover.
+  - **The emulator** as the entry "Phone emulation on a desktop" says, now decided: `LURQ_DEVICE=phone|tablet`,
+    `App::emulate(Device::..)`, `--device` in the gallery; the mouse is fingers (a click a tap, a double click a
+    double tap, a drag a pan or a swipe, from an edge an edge pan, held still a long press, **Alt**+drag a pinch and a
+    rotation mirrored about where it began, **Alt+Shift**+drag two fingers side by side, **Alt+Shift+Ctrl**+drag
+    three fingers), the fingers drawn while a modifier is held, the window a phone's size with a safe area.
+  - **MCP** gets touch actions through `Tree::touch_event`: tap (`fingers`, `count`), long press, pan, swipe (a
+    direction and a speed), edge pan, pinch (a scale), rotate (an angle), three-finger swipe and pinch.
+  - **What only a device shows** goes into [apple-checks.md](apple-checks.md) to be checked and adapted on a Mac and
+    a phone.
+- **State.** Decided; in work.
+
 ### A click is the action, a tap is the gesture
 
 - **Question.** A finger's tap sends both `on_click` (the finger is the pointer) and `on_tap` (the gesture), and an
@@ -53,7 +75,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   on a PC; `on_touch_*`, `on_pinch`, `on_swipe` are for what only a finger does. A finger hovers nothing, so under
   emulation nothing shows its hovered style, as on a phone.
 - **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
-- **State.** Waiting for Ivan's go; to follow the Pointer work on `claude/touch-form`.
+- **State.** Decided (see "Every gesture, the emulator and MCP's touch" above).
 
 ### The pointer, not the density, decides a component's phone form
 
