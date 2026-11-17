@@ -24,8 +24,17 @@ default = ["winit", "wgpu", "clipboard", "file_dialog", "image", "canvas", "form
 
 # The window, its events and its loop (`lurq::app::WinitWindow`).
 winit = ["dep:winit"]
-# The GPU renderer: Vulkan, Metal, Direct3D 12 or WebGPU, as wgpu picks.
-wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:objc2-metal", "dep:wgpu-hal", "dep:core-video-sys"]
+# The GPU renderer: Vulkan, Metal, Direct3D 12 or WebGPU, as wgpu picks. On Windows it has Direct3D 11 to read the
+# frames of a decoder that is on another card than the one it draws on.
+wgpu = [
+    "render",
+    "dep:wgpu",
+    "dep:pollster",
+    "dep:objc2-metal",
+    "dep:wgpu-hal",
+    "dep:core-video-sys",
+    "windows/Win32_Graphics_Direct3D11",
+]
 # In a browser without WebGPU the `wgpu` renderer draws through WebGL2. It adds wgpu's own implementation and its
 # shader translator to the page's binary, so an app asks for it. Nothing changes outside a browser.
 #

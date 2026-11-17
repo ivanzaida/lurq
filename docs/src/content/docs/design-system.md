@@ -1049,7 +1049,7 @@ let png = signature.get().to_png(2.0, ink, 2.0); // Option<Vec<u8>>, a PNG file
 | `SignaturePad::new(Signal<Signature>)` | The signature the signal holds; each stroke, Undo and Clear set it |
 | `SignaturePad::controlled(Signature, on_change)` | The app holds the signature: it is told what a stroke, Undo or Clear make of it, and what is drawn is what it gives next |
 | `on_change(Fn(&Signature))` | Called after a stroke is let go, after Undo and after Clear, once the signal is set. Not while a stroke is drawn, nor when the app sets the signal. Each call adds |
-| `placeholder(&str)` | The words under the line, "Sign above the line" unless told. They stay once it is signed, as the board draws them, and end in an ellipsis where they do not fit |
+| `placeholder(&str)` | The words under the line, "Sign above the line" unless told. They stay once it is signed, as the board draws them, and end in an ellipsis where they do not fit; `placeholder("")` leaves the line alone |
 | `read_only(bool)` | It shows the signature and takes nothing: no stroke, no buttons, no stop of Tab |
 | `full_width(bool)`, `width(..)`, `height(..)` | As wide as what holds it; or a size of its own, 280 by 124 unless told, and no wider than what holds it |
 | `label(&str)` | What it is called to tooling, "Signature" unless told. A [field](#field) gives it its label |

@@ -370,7 +370,7 @@ impl SignaturePad {
   }
 
   /// The words under the line: the locale's "Sign above the line" unless told. They stay once it is signed, as the
-  /// board draws them.
+  /// board draws them. Empty (`placeholder("")`), there are none, and the line is alone.
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.placeholder = Some(Arc::from(placeholder));
     self
@@ -1028,10 +1028,11 @@ impl SignaturePadView {
     canvas.into()
   }
 
-  /// The line signed on and the words under it, at the bottom of the pad.
+  /// The line signed on and the words under it, at the bottom of the pad: the line alone where the words are empty
+  /// (`placeholder("")`).
   pub fn guide(&self) -> Element {
     let placeholder = self.part(SignaturePadPart::Placeholder);
-    Column::new()
+    let mut guide = Column::new()
       .part(&self.part(SignaturePadPart::Guide))
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
@@ -1040,14 +1041,16 @@ impl SignaturePadView {
         Row::new()
           .part(&self.part(SignaturePadPart::Baseline))
           .width(Dimension::Pct(100.0)),
-      )
-      .child(
+      );
+    if !self.placeholder.is_empty() {
+      guide = guide.child(
         Row::new()
           .width(Dimension::Pct(100.0))
           .min_width(0.0)
           .child(one_line(&placeholder, &self.placeholder)),
-      )
-      .into()
+      );
+    }
+    guide.into()
   }
 
   /// Undo and Clear, in the pad's top corner: where it is signed on and signed. A press of Clear, or of Undo that
