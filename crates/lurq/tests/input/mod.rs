@@ -58,6 +58,8 @@ mod text_input {
   mod vertical_rows;
 }
 
+// The engine's checkbox node, deprecated for apps in favour of `ui::Checkbox`, is still the engine's: its tests stay.
+#[allow(deprecated)]
 mod checkbox {
   mod double_toggle;
   mod keyboard_toggle;

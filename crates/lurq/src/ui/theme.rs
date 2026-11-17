@@ -66,6 +66,25 @@ impl UiDefinition {
     }
   }
 
+  /// The definition of [`ThemeDefinition::legacy`](crate::app::theme::ThemeDefinition::legacy): the design's
+  /// recipes for the components of `lurq::ui`, and the colors of 0.62 for the engine's own styled pieces, which
+  /// take theirs from a recipe too: the phone's sheet, the host around it, its tab bar, navigation bar, pull to
+  /// refresh and swipe row, and the engine's select.
+  pub fn legacy() -> Self {
+    let mut ui = Self::new();
+    ui.set_recipe::<crate::node::SelectStyle>(crate::node::SelectStyle::legacy_recipe());
+    ui.set_recipe::<crate::components::SheetStyle>(crate::components::SheetStyle::legacy_recipe());
+    ui.set_recipe::<crate::components::SheetHostStyle>(crate::components::SheetHostStyle::legacy_recipe());
+    ui.set_recipe::<crate::components::PullToRefreshStyle>(crate::components::PullToRefreshStyle::legacy_recipe());
+    ui.set_recipe::<crate::components::SwipeRowStyle>(crate::components::SwipeRowStyle::legacy_recipe());
+    #[cfg(feature = "router")]
+    {
+      ui.set_recipe::<crate::components::TabBar>(crate::components::TabBar::legacy_recipe());
+      ui.set_recipe::<crate::components::NavigationBar>(crate::components::NavigationBar::legacy_recipe());
+    }
+    ui
+  }
+
   /// Whether components fall back to the design's recipe where the
   /// definition has none for them.
   pub fn is_bare(&self) -> bool {

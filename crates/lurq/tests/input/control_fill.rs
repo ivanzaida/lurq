@@ -1,6 +1,7 @@
 //! Built-in controls take their fill from the theme when the app has not
 //! styled them, and paint none where the app's own part sets no fill.
 
+#[allow(deprecated)]
 use lurq::{
   app::{App, Tree, theme::PaletteColor},
   components::{Checkbox, Slider},
@@ -39,12 +40,14 @@ fn hex(colors: &[&str]) -> Vec<Color> {
 }
 
 #[test]
+#[allow(deprecated)]
 fn unstyled_checkbox_fills_from_the_theme() {
   assert_eq!(fills(Checkbox::new(Signal::new(false))), hex(&[SURFACE]));
   assert_eq!(fills(Checkbox::new(Signal::new(true))), hex(&[ACCENT]));
 }
 
 #[test]
+#[allow(deprecated)]
 fn checkbox_part_without_a_fill_paints_none() {
   let unchecked = Checkbox::new(Signal::new(false)).box_part(|style| style.size(14.0, 14.0));
   assert_eq!(fills(unchecked), []);
@@ -56,6 +59,7 @@ fn checkbox_part_without_a_fill_paints_none() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn checkbox_fill_set_by_the_app_is_kept() {
   let unchecked = Checkbox::new(Signal::new(false)).box_part(|style| style.background("#f8fafc"));
   assert_eq!(fills(unchecked), hex(&["#f8fafc"]));

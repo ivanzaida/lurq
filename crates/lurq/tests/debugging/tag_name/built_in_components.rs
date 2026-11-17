@@ -1,3 +1,4 @@
+#[allow(deprecated)]
 use lurq::{
   app::Tree,
   components::{
@@ -14,6 +15,7 @@ fn root_tag_name(element: impl Into<Element>) -> String {
 }
 
 #[test]
+#[allow(deprecated)]
 fn built_in_components_emit_component_tag_names() {
   let cases = [
     ("Checkbox", root_tag_name(Checkbox::new(Signal::new(false)))),

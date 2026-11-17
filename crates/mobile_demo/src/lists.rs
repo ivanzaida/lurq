@@ -88,7 +88,7 @@ impl Component for ListsScreen {
       ctx,
       PullToRefreshProps::new(self.refreshing.clone(), scroll)
         .top(top)
-        .style(PullToRefreshStyle::dark())
+        .style(PullToRefreshStyle::new())
         .on_refresh(move || {
           // What an app would load: here, a wait and one more row.
           let (refreshing, loads, all) = (refreshing.clone(), loads.clone(), all.clone());

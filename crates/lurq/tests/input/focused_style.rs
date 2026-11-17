@@ -1,5 +1,6 @@
 //! Focus shows one style whatever moved it there: click, Tab or a request.
 
+#[allow(deprecated)]
 use lurq::{
   app::{Tree, events::MouseButton, theme::BorderSize},
   components::{Button, Checkbox, Column, Slider},
@@ -67,6 +68,7 @@ fn button_shows_the_same_focused_style_when_clicked() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn checkbox_box_shows_its_focused_style() {
   let mut tree = Tree::new();
   tree.set_root(

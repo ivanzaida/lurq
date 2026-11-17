@@ -1,6 +1,17 @@
+// The type is deprecated for apps; the engine's checkbox node it builds stays, and the form's checkbox still uses it.
+#![allow(deprecated)]
+
 use crate::{core::Signal, impl_into_node, node::CheckboxStyle};
 
-impl_into_node!(Checkbox);
+impl_into_node!(
+  /// The engine's checkbox node: a box bound to a signal, with styles of its own for each state and no label.
+  #[deprecated(
+    since = "0.63.0",
+    note = "use `lurq::ui::Checkbox`: the design's checkbox, with its label, an indeterminate state, `bind(signal)` \
+            and a recipe in the theme"
+  )]
+  Checkbox
+);
 
 impl Checkbox {
   pub fn new(value: Signal<bool>) -> Self {

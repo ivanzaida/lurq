@@ -897,10 +897,12 @@ let volume = ctx.signal(50);
 let name = ctx.signal(String::new());
 
 Column::new()
-  .child(lurq::components::Checkbox::new(checked.clone()))
+  .child(lurq::ui::Checkbox::new("Subscribe").bind(checked.clone()))
   .child(lurq::components::Slider::new(volume.clone()).range(0, 100))
   .child(lurq::components::TextInput::new(name.clone()).placeholder("Name"))
 ```
+
+These are the engine's controls, with no look but the theme's roles; the design system's (`lurq::ui::Slider`, `lurq::ui::Input`, see [Design System](../design-system/)) are built on them and are what an app normally wants.
 
 Input updates write back to their signals, which rerenders the owning component.
 
@@ -919,6 +921,8 @@ TextInput::new(command.clone())
 ```
 
 ### Checkbox Styling
+
+This is the engine's checkbox node, `lurq::components::Checkbox`, which is deprecated for an app since 0.63 in favour of `lurq::ui::Checkbox`, themed by its recipe: see [the migration guide](../migration-v0-63/#components-that-moved-to-lurqui). It still compiles, with a warning.
 
 Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click), checked or not; it changes paint only.
 
@@ -1337,7 +1341,10 @@ The highlighted option scrolls into view, and opening scrolls the selected optio
 
 A select is identified across re-renders by the signal it binds, like a `TextInput`: its open menu, keyboard highlight and focus stay with it when siblings are inserted, removed or reordered, and never pass to another select. Create the signal once (in `create` or as a field), not per render; a new signal each render is a new select, so its menu closes on every re-render. The highlight survives a re-render only while its row shows the same enabled option; when options are replaced it is cleared, so `Enter` closes without a change.
 
-`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles:
+`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles.
+
+`SelectStyle::new()` takes its colors from the theme, through the recipe the theme keeps for the engine's select (`engine_select`, by the parts and states of `ui::Select`: `SelectPart::Trigger`, `Panel`, `Item`, `Detail`, `Hint`, `Group`, `Separator`, and `SelectState::Open` and `Selected`). The design's is the trigger on `Background` in an edge of `Border`, `Ring` under the pointer, focused and open; the menu on `Card`; an option on `Canvas` under the pointer and on `Primary` while chosen; what is muted in `MutedForeground`. `ThemeDefinition::legacy()` gives the roles of 0.62. A theme restyles every engine select with `theme.ui.patch::<SelectStyle>(..)`; the design system's `ui::Select` has its own recipe. A style written out:
+
 
 ```rust
 use lurq::{

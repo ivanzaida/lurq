@@ -4,7 +4,12 @@ use crate::{
   node::{SliderOrientation, SliderPartStyle},
 };
 
-impl_into_node!(Slider);
+impl_into_node!(
+  /// The engine's slider: a track, its fill and a thumb bound to a value, dragged, pressed and moved with the keys.
+  /// It is what [`ui::Slider`](crate::ui::Slider) dresses with the design system's recipe, and what an app normally
+  /// wants; with no style of its own this one is drawn in the theme's roles of 0.62.
+  Slider
+);
 
 impl Slider {
   pub fn new(value: Signal<i32>) -> Self {
