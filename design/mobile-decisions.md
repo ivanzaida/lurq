@@ -10,6 +10,28 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-17
 
+### A click is the action, a tap is the gesture
+
+- **Question.** A finger's tap sends both `on_click` (the finger is the pointer) and `on_tap` (the gesture), and an
+  element with both runs twice; an app with breakpoints, one code base for a phone and a desktop, should not have to
+  write an `on_touch` beside its `on_click`.
+- **Decision (Ivan, all six points).**
+  1. `on_click` is "activate", from any input: a mouse, a finger, a pen, Enter or Space, the mouse under emulation.
+     An app writes its actions there. `on_tap` is the raw gesture, from touch only.
+  2. `on_tap` comes first, then `on_click`; a tap a handler takes (`prevent_default`) clicks nothing, as a long
+     press that is taken already does. An element with both runs once.
+  3. A tap of two fingers or more never clicks: it is `on_tap` with its `fingers`. A click is always one finger.
+  4. `TapEvent` has `count` (1, 2, 3). A click never waits for a second tap, except on an element that listens for
+     one (`on_tap` asking `count == 2`, or `on_double_tap`): there the single click is held back for the double
+     tap's time, as a click is now on an element with `on_dblclick`. A double tap is not `on_dblclick`: on a phone it
+     zooms.
+  5. `MouseEvent` says what pressed: `pointer_kind: Mouse | Touch | Pen`, as the web's `pointerType`; one handler,
+     told its source.
+  6. A pen's tap is a click and a tap, as a finger's. A pen's hover is later.
+- **Why.** One handler for the action on every platform; gestures where only a finger has them; never twice; no
+  delay of every click on a phone for the sake of a double tap only some elements want.
+- **State.** Decided; to be built with the pointer on `claude/touch-form`.
+
 ### Phone emulation on a desktop
 
 - **Question.** How does a person on a PC run a lurq app as it would be on a phone, to try its touch forms and
