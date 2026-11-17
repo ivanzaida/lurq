@@ -1,3 +1,5 @@
+#[cfg(windows)]
+mod card_frames;
 #[cfg(feature = "image")]
 mod decoded;
 mod image_data;
@@ -5,6 +7,10 @@ mod render;
 #[cfg(feature = "wgpu")]
 mod wgpu_external;
 
+#[cfg(windows)]
+pub use card_frames::{
+  CardCrop, CardFrame, CardFrames, CardLease, CardSurface, card_frames_adapter, set_card_frames_adapter,
+};
 #[cfg(feature = "image")]
 pub use decoded::{
   DEFAULT_BUDGET_BYTES, DecodedImages, ImageDecodeError, ImageKey, ImageLoadState, ImageSizeCap, ImageSource,
@@ -15,8 +21,6 @@ pub use image_data::{Dx12Nv12Image, Dx12Nv12ImageSlot};
 pub use image_data::{ImageData, ImageKind, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage};
 #[cfg(target_os = "macos")]
 pub use image_data::{MacosCvPixelBuffer, MacosCvPixelBufferNv12Image};
-#[cfg(windows)]
-pub use image_data::{SharedNv12Frames, set_shared_nv12_adapter, shared_nv12_adapter};
 pub(crate) use render::ImageCmd;
 #[cfg(feature = "wgpu")]
 pub use wgpu_external::WgpuExternalImageSlot;

@@ -8,6 +8,8 @@
 //! Its pages open in tabs, as a browser's do: the strip is in the title bar, and each tab keeps its own page, its
 //! history and its scroll (see `tabs`).
 
+#[cfg(windows)]
+mod card_demo;
 mod doc;
 mod icon;
 mod kit;
