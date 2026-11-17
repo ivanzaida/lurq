@@ -1593,9 +1593,27 @@ fn thumb_size(part: &ResolvedPart) -> (f32, f32) {
   (px(rest.width, 44.0), px(rest.height, 32.0))
 }
 
+impl crate::ui::Styled for Lightbox {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Lightbox {
   const NAME: &'static str = "lightbox";
   type Renderer = LightboxRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    LightboxPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    LightboxState::declared()
+  }
 
   /// The design's lightbox (`pencil/lurq-design-system.pen`, Lightbox): near black at 95% in both themes, and
   /// white on it. A top row of 52, 16 before the counter and 8 around the buttons, 4 between them: the counter

@@ -596,8 +596,8 @@ pub use textarea::{
   TextareaView,
 };
 pub use theme::{
-  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_pointer, current_theme,
-  in_theme, touch_form,
+  Declared, Styled, Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_pointer,
+  current_theme, in_theme, touch_form,
 };
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
 pub use time_picker::{
@@ -674,6 +674,15 @@ macro_rules! names {
       /// Every one of them, in order.
       pub fn all() -> &'static [$type] {
         &[ $( Self::$variant, )* ]
+      }
+
+      /// Every one of them as a name and as the Rust that writes it: what a component gives as its
+      /// [`Themed::parts`]($crate::ui::Themed::parts) or [`states`]($crate::ui::Themed::states).
+      pub fn declared() -> $crate::ui::Declared {
+        $crate::ui::Declared::of(
+          stringify!($type),
+          vec![ $( ($crate::ui::Name::new($name), stringify!($variant)), )* ],
+        )
       }
     }
 

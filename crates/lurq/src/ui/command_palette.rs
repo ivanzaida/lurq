@@ -1144,9 +1144,27 @@ impl CommandPaletteView {
   }
 }
 
+impl crate::ui::Styled for CommandPalette {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for CommandPalette {
   const NAME: &'static str = "command_palette";
   type Renderer = CommandPaletteRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CommandPalettePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CommandPaletteState::declared()
+  }
 
   /// The design's command palette (`pencil/lurq-design-system.pen`, Command Palette): a panel of 420 in the popover's
   /// color with an edge of the border's color, corners of `radius-xl` and the large shadow, 72 from the top of the

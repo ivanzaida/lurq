@@ -522,9 +522,27 @@ impl BulletedListView {
   }
 }
 
+impl crate::ui::Styled for BulletedList {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for BulletedList {
   const NAME: &'static str = "bulleted_list";
   type Renderer = BulletedListRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BulletedListPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BulletedListState::declared()
+  }
 
   /// The design's list (`pencil/lurq-design-system.pen`, Bulleted List `btfDc`): its items 6 apart, each a dot of 5
   /// in `MutedForeground` in the middle of its first line, 10 before its text in the body's 14 in `Foreground`.

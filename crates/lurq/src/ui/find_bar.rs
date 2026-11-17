@@ -1287,9 +1287,27 @@ impl FindBarView {
   }
 }
 
+impl crate::ui::Styled for FindBar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for FindBar {
   const NAME: &'static str = "find_bar";
   type Renderer = FindBarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    FindBarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    FindBarState::declared()
+  }
 
   /// The design's find bar (`pencil/lurq-design-system.pen`, Find Bar): a
   /// panel 440 wide of the popover's color, of the large radius, with an edge

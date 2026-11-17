@@ -991,9 +991,27 @@ fn token_part(kind: CodeTokenKind) -> Option<CodeBlockPart> {
   }
 }
 
+impl crate::ui::Styled for CodeBlock {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for CodeBlock {
   const NAME: &'static str = "code_block";
   type Renderer = CodeBlockRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CodeBlockPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CodeBlockState::declared()
+  }
 
   /// The design's code block (`pencil/lurq-design-system.pen`, Code Block `kyzrV`, in Data and in the Markdown
   /// document): on `Background` in an edge of 1 in `Border` with the large radius; a bar of 36 on `Muted` with a line

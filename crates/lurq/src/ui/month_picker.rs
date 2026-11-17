@@ -931,9 +931,27 @@ pub type MonthPickerRenderer = Arc<dyn Fn(PeriodsView) -> Element + Send + Sync>
 /// A month picker as a renderer sees it.
 pub type MonthPickerView = PeriodsView;
 
+impl<V: FieldValue<YearMonth>> crate::ui::Styled for MonthPicker<V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<V: FieldValue<YearMonth>> Themed for MonthPicker<V> {
   const NAME: &'static str = "month_picker";
   type Renderer = MonthPickerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MonthPickerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MonthPickerState::declared()
+  }
 
   /// The design's month picker (`pencil/lurq-design-system.pen`, Month Picker): a panel 252 wide in the popover's
   /// colors with an edge of 1 in the border's color, the large radius, the popover's shadow and 12 of padding. The

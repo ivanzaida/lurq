@@ -2407,9 +2407,27 @@ impl DockLayoutView {
   }
 }
 
+impl crate::ui::Styled for DockLayout {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for DockLayout {
   const NAME: &'static str = "dock_layout";
   type Renderer = DockLayoutRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DockLayoutPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DockLayoutState::declared()
+  }
 
   /// The design's dock layout (`pencil/lurq-design-system.pen`, Dock Layout): on the background, in an edge of 1 in
   /// the border's color with the large radius. A group of several tool panels has a bar 30 high on the muted fill with

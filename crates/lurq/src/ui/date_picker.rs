@@ -1375,9 +1375,27 @@ impl FieldControl for DatePicker {
   }
 }
 
+impl crate::ui::Styled for DatePicker {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for DatePicker {
   const NAME: &'static str = "date_picker";
   type Renderer = DatePickerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DatePickerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DatePickerState::declared()
+  }
 
   /// The design's date picker (`pencil/lurq-design-system.pen`, Date Picker): an input, 260 wide and 36 high, with a
   /// calendar's glyph of 16 in the muted foreground 12 from its start and its date 8 after it in the body's type (the

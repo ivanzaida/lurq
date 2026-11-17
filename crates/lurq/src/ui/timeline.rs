@@ -1394,9 +1394,27 @@ impl TimelineMore {
   }
 }
 
+impl<T: Send + Sync + 'static> crate::ui::Styled for Timeline<T> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static> Themed for Timeline<T> {
   const NAME: &'static str = "timeline";
   type Renderer = TimelineRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TimelinePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TimelineState::declared()
+  }
 
   /// The design's timeline (`pencil/lurq-design-system.pen`, Timeline, in Data Display's Records): items of a rail
   /// of 12 beside their content, 12 apart. The rail is 4 down to a dot of 10 in the primary color and, 4 under it,

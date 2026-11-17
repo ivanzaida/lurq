@@ -1317,9 +1317,27 @@ fn with_hue(hsl: Hsl, h: f32) -> Hsv {
   hsv
 }
 
+impl crate::ui::Styled for ColorPicker {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ColorPicker {
   const NAME: &'static str = "color_picker";
   type Renderer = ColorPickerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ColorPickerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ColorPickerState::declared()
+  }
 
   /// The design's color picker (`pencil/lurq-design-system.pen`, Color Picker): a panel 232 wide in the popover's
   /// fill, with an edge of 1 in `Border`, the large radius and the medium shadow, 12 of padding and 12 between what it

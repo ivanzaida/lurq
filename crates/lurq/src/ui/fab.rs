@@ -217,9 +217,27 @@ impl From<Fab> for Element {
   }
 }
 
+impl crate::ui::Styled for Fab {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Fab {
   const NAME: &'static str = "fab";
   type Renderer = FabRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    FabPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    FabState::declared()
+  }
 
   /// The design's floating action button (`pencil/lurq-design-system.pen`,
   /// FAB): a circle of 48 with an icon of 20 and a shadow under it.

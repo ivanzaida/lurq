@@ -1323,9 +1323,27 @@ impl NumberInputView {
   }
 }
 
+impl crate::ui::Styled for NumberInput {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for NumberInput {
   const NAME: &'static str = "number_input";
   type Renderer = NumberInputRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    NumberInputPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    NumberInputState::declared()
+  }
 
   /// The design's number input (`pencil/lurq-design-system.pen`, Number Input): a box 132 wide and 36 high, an
   /// input's box (the background's fill in an edge of 1 in the color of an input's, 6 round, the ring's color under

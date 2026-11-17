@@ -884,9 +884,27 @@ impl MentionsView {
   }
 }
 
+impl crate::ui::Styled for Mentions {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Mentions {
   const NAME: &'static str = "mentions";
   type Renderer = MentionsRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MentionsPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MentionsState::declared()
+  }
 
   /// The design's mentions (`pencil/lurq-design-system.pen`, Mentions): a box 280 wide and at least 64 high,
   /// padded 12 across and 8 down, its text in the body's type with lines of 1.5. The list hangs 4 under the

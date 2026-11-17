@@ -631,9 +631,27 @@ fn starting_at(dialog: FileDialog, path: &str, kind: PathKind) -> FileDialog {
   }
 }
 
+impl crate::ui::Styled for PathField {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PathField {
   const NAME: &'static str = "path_field";
   type Renderer = PathFieldRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PathFieldPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PathFieldState::declared()
+  }
 
   /// The design's path field (`pencil/lurq-design-system.pen`, Path Field): 440 wide, an input and an outlined
   /// button 8 apart, both 32 high. The input's path is in the mono type at 12, 10 from its edge, after a folder of

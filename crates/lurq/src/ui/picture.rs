@@ -2573,9 +2573,27 @@ fn anchor_shares(anchor: StackAlignment) -> (f32, f32) {
   }
 }
 
+impl crate::ui::Styled for Picture {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Picture {
   const NAME: &'static str = "picture";
   type Renderer = PictureRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PicturePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PictureState::declared()
+  }
 
   /// The design's picture (`pencil/lurq-design-system.pen`, Picture): a box in the muted fill with the corners
   /// of a surface and a line of the border's color around it, over the pixels. Over the picture everything is

@@ -901,9 +901,27 @@ impl ListboxOption {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for Listbox<T, V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Listbox<T, V> {
   const NAME: &'static str = "listbox";
   type Renderer = ListboxRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ListboxPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ListboxState::declared()
+  }
 
   /// The design's listbox (`pencil/lurq-design-system.pen`, Listbox): a box of 220 in the background with an edge of
   /// 1 in the border's color and the large radius, its options 1 apart, 4 in from it. An option is 32 high, 8 in

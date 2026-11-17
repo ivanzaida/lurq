@@ -321,9 +321,27 @@ impl WatermarkView {
   }
 }
 
+impl crate::ui::Styled for Watermark {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Watermark {
   const NAME: &'static str = "watermark";
   type Renderer = WatermarkRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    WatermarkPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    WatermarkState::declared()
+  }
 
   /// The design's watermark (`pencil/lurq-design-system.pen`, Watermark): "lurq internal" in the sans of 12,
   /// medium, in `foreground` at 0.12, turned 20 degrees counter-clockwise, 96 apart along a row and 44 from row to

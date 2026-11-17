@@ -656,6 +656,16 @@ fn card_recipe() -> Recipe {
     })
 }
 
+impl crate::ui::Styled for CheckboxCard {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for CheckboxCard {
   const NAME: &'static str = "checkbox_card";
   type Renderer = ChoiceCardRenderer;
@@ -663,6 +673,16 @@ impl Themed for CheckboxCard {
   /// The design's checkbox card: see [`RadioCard`]'s, which it shares. Its box is the checkbox's.
   fn recipe() -> Recipe {
     card_recipe()
+  }
+}
+
+impl crate::ui::Styled for RadioCard {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
   }
 }
 
@@ -972,6 +992,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<RadioCardGroup<T>> for E
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for RadioCardGroup<T> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static> Themed for RadioCardGroup<T> {
   const NAME: &'static str = "radio_card_group";
   type Renderer = ChoiceCardGroupRenderer;
@@ -1088,6 +1118,16 @@ group_props!(CheckboxCardGroup);
 impl<T: Clone + PartialEq + Send + Sync + 'static> From<CheckboxCardGroup<T>> for Element {
   fn from(group: CheckboxCardGroup<T>) -> Self {
     group.build(&current_theme())
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for CheckboxCardGroup<T> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
   }
 }
 

@@ -918,9 +918,27 @@ impl ColorFieldView {
   }
 }
 
+impl crate::ui::Styled for ColorField {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ColorField {
   const NAME: &'static str = "color_field";
   type Renderer = ColorFieldRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ColorFieldPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ColorFieldState::declared()
+  }
 
   /// The design's color field (`pencil/lurq-design-system.pen`, Color Field): an input's box 180 wide and 36 high (the
   /// background's fill in an edge of 1 in the color of an input's, 6 round), with the swatch of its color (24, the

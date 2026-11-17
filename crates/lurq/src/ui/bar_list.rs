@@ -670,9 +670,27 @@ impl BarListRow {
   }
 }
 
+impl crate::ui::Styled for BarList {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for BarList {
   const NAME: &'static str = "bar_list";
   type Renderer = BarListRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BarListPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BarListState::declared()
+  }
 
   /// The design's bar list (`pencil/lurq-design-system.pen`, Bar List, in Charts' Bars): the card (the card's fill,
   /// an edge of 1 in the border's color, the extra large radius, the small shadow), 20 in, its title and its rows

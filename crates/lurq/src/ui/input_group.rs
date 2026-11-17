@@ -528,9 +528,27 @@ impl InputGroupView {
   }
 }
 
+impl crate::ui::Styled for InputGroup {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for InputGroup {
   const NAME: &'static str = "input_group";
   type Renderer = InputGroupRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    InputGroupPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    InputGroupState::declared()
+  }
 
   /// The design's input group (`pencil/lurq-design-system.pen`, Input Group): one box 280 wide, the background's
   /// fill in an edge of 1 in the color of an input's, 6 round. A text addon is on the muted fill, padded 10, in 13

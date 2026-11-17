@@ -102,6 +102,16 @@ impl Selector {
     self
   }
 
+  /// The states the case needs, every one of them: what [`state`](Self::state) added.
+  pub fn held_states(&self) -> &[Name] {
+    &self.states
+  }
+
+  /// What the pointer or the keyboard must be doing to the part for the case to hold, if anything.
+  pub fn interaction(&self) -> Option<Interaction> {
+    self.interaction
+  }
+
   pub fn hovered(mut self) -> Self {
     self.interaction = Some(Interaction::Hovered);
     self

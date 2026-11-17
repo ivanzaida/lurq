@@ -1748,9 +1748,27 @@ fn ring_inside() -> crate::node::outline::Outline {
   crate::node::outline::Outline::new(crate::app::theme::BorderSize::Md, PaletteColor::Ring).offset(-2.0)
 }
 
+impl crate::ui::Styled for PropertyGrid {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PropertyGrid {
   const NAME: &'static str = "property_grid";
   type Renderer = PropertyGridRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PropertyGridPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PropertyGridState::declared()
+  }
 
   /// The design's property grid (`pencil/lurq-design-system.pen`, Property Grid): 300 wide on `Background`, an edge
   /// of 1 in `Border` and the large radius. Its header is 30 high on `Muted` with a line under it, its title in 11

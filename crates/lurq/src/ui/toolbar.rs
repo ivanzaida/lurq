@@ -1396,9 +1396,27 @@ impl ToolbarView {
   }
 }
 
+impl crate::ui::Styled for Toolbar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Toolbar {
   const NAME: &'static str = "toolbar";
   type Renderer = ToolbarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ToolbarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ToolbarState::declared()
+  }
 
   /// The design's toolbar (`pencil/lurq-design-system.pen`, Toolbar, Overflow
   /// Menu, Table Toolbar, Command Bar): a bar padded 4 with its controls 2

@@ -565,9 +565,27 @@ impl StatusBarView {
   }
 }
 
+impl crate::ui::Styled for StatusBar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for StatusBar {
   const NAME: &'static str = "status_bar";
   type Renderer = StatusBarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    StatusBarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    StatusBarState::declared()
+  }
 
   /// The design's status bar (`pencil/lurq-design-system.pen`, Window Status Bar): a bar 26 high in the muted fill
   /// under a line of the border's color. An item is padded 8, its icon of 13 and its text of 12 in the foreground 5

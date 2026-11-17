@@ -629,9 +629,27 @@ impl Describe for Stack {
   }
 }
 
+impl crate::ui::Styled for Progress {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Progress {
   const NAME: &'static str = "progress";
   type Renderer = ProgressRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ProgressPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ProgressState::declared()
+  }
 
   /// The design's progress (`pencil/lurq-design-system.pen`, Progress,
   /// Loader/Progress Labeled, Loader/Linear, Loader/Top Bar): a rail of 240
@@ -1023,9 +1041,23 @@ impl RingProgressView {
 /// transition to a value grows it from the top. It has no color.
 const NO_ARC: f32 = 0.01;
 
+impl crate::ui::Styled for RingProgress {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for RingProgress {
   const NAME: &'static str = "ring_progress";
   type Renderer = RingProgressRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    RingProgressPart::declared()
+  }
 
   /// The design's ring progress (`pencil/lurq-design-system.pen`, Ring
   /// Progress): a ring of 72 whose width is a tenth of its side, in the

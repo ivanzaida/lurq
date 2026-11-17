@@ -946,9 +946,27 @@ impl TokenInputView {
   }
 }
 
+impl crate::ui::Styled for TokenInput {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for TokenInput {
   const NAME: &'static str = "token_input";
   type Renderer = TokenInputRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TokenInputPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TokenInputState::declared()
+  }
 
   /// The design's token input (`pencil/lurq-design-system.pen`, Token Input): the box of an input, 260 wide and
   /// 36 high, padded 6 at its sides, its text in the body's type and its placeholder in the muted foreground; its

@@ -584,9 +584,27 @@ fn dismissed(on_cancel: Option<&Handler>, on_dismiss: &[Handler]) {
   }
 }
 
+impl crate::ui::Styled for Popconfirm {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Popconfirm {
   const NAME: &'static str = "popconfirm";
   type Renderer = PopconfirmRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PopconfirmPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PopconfirmState::declared()
+  }
 
   /// The design's popconfirm (`pencil/lurq-design-system.pen`, Popconfirm):
   /// a popover's panel 250 wide, padded 12 with 12 between its header and

@@ -236,9 +236,23 @@ impl ChartTooltipView {
   }
 }
 
+impl crate::ui::Styled for ChartTooltip {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ChartTooltip {
   const NAME: &'static str = "chart_tooltip";
   type Renderer = ChartTooltipRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ChartTooltipPart::declared()
+  }
 
   /// The board's Chart Tooltip (`hYUgv`): a panel at least 140 wide on the popover's fill with an edge of 1, the
   /// medium radius and the medium shadow, padded 8 and 10 with 6 between its rows; the title 12/600 in the popover's

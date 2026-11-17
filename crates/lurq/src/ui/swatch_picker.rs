@@ -581,9 +581,27 @@ impl SwatchPickerView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for SwatchPicker<T> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static> Themed for SwatchPicker<T> {
   const NAME: &'static str = "swatch_picker";
   type Renderer = SwatchPickerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SwatchPickerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SwatchPickerState::declared()
+  }
 
   /// The design's swatch picker (`pencil/lurq-design-system.pen`, Swatch Picker): a panel in the popover's color
   /// with an edge of 1 in `Border`, the large radius and the popover's shadow, padded 10, its rows 6 apart and its

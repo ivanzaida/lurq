@@ -654,9 +654,27 @@ impl ButtonView {
   }
 }
 
+impl crate::ui::Styled for Button {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Button {
   const NAME: &'static str = "button";
   type Renderer = ButtonRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ButtonPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ButtonState::declared()
+  }
 
   /// The design's button (`pencil/lurq-design-system.pen`, Buttons): 36 tall,
   /// padded 16, its corners `radius-md`, its label 13/500 and its icon 16,

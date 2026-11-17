@@ -980,9 +980,27 @@ impl ActionBarView {
   }
 }
 
+impl crate::ui::Styled for ActionBar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ActionBar {
   const NAME: &'static str = "action_bar";
   type Renderer = ActionBarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ActionBarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ActionBarState::declared()
+  }
 
   /// The design's action bar (`pencil/lurq-design-system.pen`, Action Bar): a
   /// bar 44 high of the popover's color, round at its ends, with an edge of 1

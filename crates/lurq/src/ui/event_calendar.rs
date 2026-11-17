@@ -1430,9 +1430,27 @@ impl EventCalendarView {
   }
 }
 
+impl<T: Clone + Send + Sync + 'static> crate::ui::Styled for EventCalendar<T> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: 'static> Themed for EventCalendar<T> {
   const NAME: &'static str = "event_calendar";
   type Renderer = EventCalendarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    EventCalendarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    EventCalendarState::declared()
+  }
 
   /// The design's event calendar (`pencil/lurq-design-system.pen`, Event Calendar `eh5zV`): a box on `Background`
   /// in an edge of 1 in `Border` with the large radius, its days side by side, each with a line of 1 in `Border`

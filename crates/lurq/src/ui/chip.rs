@@ -280,9 +280,27 @@ impl ChipView {
   }
 }
 
+impl crate::ui::Styled for Chip {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Chip {
   const NAME: &'static str = "chip";
   type Renderer = ChipRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ChipPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ChipState::declared()
+  }
 
   /// The design's chip (`pencil/lurq-design-system.pen`, Chip): 28 high and
   /// round, padded 12, its text 13 and medium. One not chosen is in the
@@ -611,9 +629,27 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<Chi
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for ChipGroup<T, V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for ChipGroup<T, V> {
   const NAME: &'static str = "chip_group";
   type Renderer = ChipGroupRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ChipGroupPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ChipGroupState::declared()
+  }
 
   /// The design's group of chips (`pencil/lurq-design-system.pen`, Chip group): chips 6 apart, with nothing
   /// around them.

@@ -830,9 +830,27 @@ impl TeachingTipView {
   }
 }
 
+impl crate::ui::Styled for TeachingTip {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for TeachingTip {
   const NAME: &'static str = "teaching-tip";
   type Renderer = TeachingTipRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TeachingTipPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TeachingTipState::declared()
+  }
 
   /// The design's teaching tip and tour (`pencil/lurq-design-system.pen`,
   /// Teaching Tip and Tour). The teaching tip is a panel 300 wide in the

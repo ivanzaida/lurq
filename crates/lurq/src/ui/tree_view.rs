@@ -1310,10 +1310,28 @@ impl TreeRow {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> crate::ui::Styled for TreeView<T, M> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every tree has the one recipe and renderer, whatever its values are and however many it selects.
 impl<T: Send + Sync + 'static, M: RowSelection<T>> Themed for TreeView<T, M> {
   const NAME: &'static str = "tree_view";
   type Renderer = TreeViewRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TreeViewPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TreeViewState::declared()
+  }
 
   /// The design's tree view (`pencil/lurq-design-system.pen`, Tree View): rows of 28, 2 apart, with the
   /// small radius and 8 at each side; each level moves a row in by 16. A row holds a chevron of 14 in the

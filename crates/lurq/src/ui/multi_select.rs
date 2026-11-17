@@ -900,10 +900,24 @@ fn mark(part: &ResolvedPart) -> Row {
     .justify(Justify::Center)
 }
 
+impl<V: 'static> crate::ui::Styled for MultiSelect<V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every multiselect has the one recipe and renderer, whatever its values are.
 impl<V: 'static> Themed for MultiSelect<V> {
   const NAME: &'static str = "multi_select";
   type Renderer = MultiSelectRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MultiSelectPart::declared()
+  }
 
   /// The design's multi select (`pencil/lurq-design-system.pen`, Multi Select): a select's box 280 wide and at least
   /// 36 high, padded 6 at its start, 10 at its end and 6 over and under, its chosen values as tags 6 apart that go

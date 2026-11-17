@@ -602,9 +602,27 @@ impl ContextMenuView {
   }
 }
 
+impl crate::ui::Styled for ContextMenu {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ContextMenu {
   const NAME: &'static str = "context_menu";
   type Renderer = ContextMenuRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ContextMenuPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ContextMenuState::declared()
+  }
 
   /// The design's context menu (`pencil/lurq-design-system.pen`, Context Menu): a menu at least 220 wide. Its bar
   /// (Edit Menu) is a row in the popover's color, padded 3, with the large radius, an edge of the border's color and

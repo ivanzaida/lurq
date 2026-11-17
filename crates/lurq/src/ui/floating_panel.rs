@@ -393,9 +393,27 @@ impl PanelHeaderView {
   }
 }
 
+impl crate::ui::Styled for PanelHeader {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PanelHeader {
   const NAME: &'static str = "panel_header";
   type Renderer = PanelHeaderRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PanelHeaderPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PanelHeaderState::declared()
+  }
 
   /// The design's panel header (`pencil/lurq-design-system.pen`, Panel Header): a bar 30 high on the muted fill with
   /// a line of 1 in the border's color along its bottom, 10 in at its start and 4 at its end. Its title is 11 and
@@ -1699,9 +1717,27 @@ impl Component for PanelHost {
   }
 }
 
+impl crate::ui::Styled for FloatingPanel {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for FloatingPanel {
   const NAME: &'static str = "floating_panel";
   type Renderer = FloatingPanelRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    FloatingPanelPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    FloatingPanelState::declared()
+  }
 
   /// The design's floating panel (`pencil/lurq-design-system.pen`, Floating Panel): 240 wide, on the popover's fill
   /// with an edge of 1 in the border's color inside it, the large radius, and a shadow of 12 down blurred 24 under one

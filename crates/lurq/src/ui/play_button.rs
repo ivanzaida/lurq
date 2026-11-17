@@ -379,9 +379,27 @@ impl PlayButtonView {
   }
 }
 
+impl crate::ui::Styled for PlayButton {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PlayButton {
   const NAME: &'static str = "play_button";
   type Renderer = PlayButtonRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PlayButtonPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PlayButtonState::declared()
+  }
 
   /// The design's play button (`pencil/lurq-design-system.pen`, `Media/Play Button`, `GN7mn`): a disc of 40 in the
   /// primary color with a glyph of 16 in its foreground, the primary hover color under the pointer and the ring of

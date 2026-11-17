@@ -776,9 +776,27 @@ impl MenuView {
   }
 }
 
+impl crate::ui::Styled for Menu {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Menu {
   const NAME: &'static str = "menu";
   type Renderer = MenuRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MenuPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MenuState::declared()
+  }
 
   /// The design's menu (`pencil/lurq-design-system.pen`, Menu): a panel of the
   /// popover's color at least 230 wide and at most 360, where a long label gives
@@ -1411,9 +1429,27 @@ impl MenuItemView {
   }
 }
 
+impl crate::ui::Styled for MenuItem {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for MenuItem {
   const NAME: &'static str = "menu_item";
   type Renderer = MenuItemRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MenuItemPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MenuItemState::declared()
+  }
 
   /// The design's menu item (`pencil/lurq-design-system.pen`, Menu Item): 32
   /// tall, padded 8, with the small radius and 8 between what it holds; its

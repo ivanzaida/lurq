@@ -968,9 +968,27 @@ impl SeekBarView {
   }
 }
 
+impl crate::ui::Styled for SeekBar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for SeekBar {
   const NAME: &'static str = "seek_bar";
   type Renderer = SeekBarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SeekBarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SeekBarState::declared()
+  }
 
   /// The design's seek bar (`pencil/lurq-design-system.pen`, Media/Seek Bar): 16 high, a track of 4 with ends
   /// of radius 2, played in the primary color, loaded in the muted foreground at half its opacity, the rest in the

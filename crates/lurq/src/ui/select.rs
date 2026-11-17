@@ -771,10 +771,28 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
   part
 }
 
+impl<V: 'static> crate::ui::Styled for Select<V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every select has the one recipe and renderer, whatever its values are.
 impl<V: 'static> Themed for Select<V> {
   const NAME: &'static str = "select";
   type Renderer = SelectRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SelectPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SelectState::declared()
+  }
 
   /// The design's select (`pencil/lurq-design-system.pen`, Select, and Menu
   /// and Menu Item for its list): a trigger shaped like an input, 260 by 36,

@@ -1468,10 +1468,28 @@ impl DocumentTabsView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for DocumentTabs<T, V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every set of document tabs has the one recipe and renderer, whatever its values are.
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for DocumentTabs<T, V> {
   const NAME: &'static str = "document_tabs";
   type Renderer = DocumentTabsRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DocumentTabsPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DocumentTabsState::declared()
+  }
 
   /// The design's document tabs (`pencil/lurq-design-system.pen`, Document Tabs): a bar 38 high in the muted fill
   /// over a line of the border's color. A tab is padded 12 at its start and 8 at its end, 8 between its icon of 14,

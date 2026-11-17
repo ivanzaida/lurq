@@ -508,6 +508,10 @@ impl Themed for RadarChart {
   const NAME: &'static str = "radar_chart";
   type Renderer = ChartRenderer;
 
+  fn parts() -> crate::ui::Declared {
+    RadarChartPart::declared()
+  }
+
   /// The chart's frame ([`chart_recipe`]) at the board's Radar Chart's size, `Sm`, its plot a square of 150 (180 in
   /// `Md`) in the middle of the frame: the rings and the spokes 1 in `Border`, the outer ring 15 inside the square;
   /// each series' area and its edge of 1.5 in its color at 0.2, the area of the series under the pointer or the

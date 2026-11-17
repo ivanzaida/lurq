@@ -420,9 +420,23 @@ impl SkeletonView {
   }
 }
 
+impl crate::ui::Styled for Skeleton {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Skeleton {
   const NAME: &'static str = "skeleton";
   type Renderer = SkeletonRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SkeletonPart::declared()
+  }
 
   /// The design's skeleton (`pencil/lurq-design-system.pen`, Skeleton/Line,
   /// Circle, Block, Shimmer, Paragraph): shapes in the muted fill. A line is

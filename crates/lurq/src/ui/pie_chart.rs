@@ -556,6 +556,14 @@ impl Themed for PieChart {
   const NAME: &'static str = "pie_chart";
   type Renderer = ChartRenderer;
 
+  fn parts() -> crate::ui::Declared {
+    PieChartPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PieChartState::declared()
+  }
+
   /// The chart's frame ([`chart_recipe`]), `Sm` for a pie and `Md` for a donut as the board has them, a plot of 96
   /// in either: the slices with a line of 1.5 of the card's color on each side of the line between two of them (none
   /// in a donut), the slices that give way to the one under the pointer or the focus at 0.45; in a donut's hole the

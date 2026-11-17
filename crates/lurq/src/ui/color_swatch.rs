@@ -378,9 +378,27 @@ pub(crate) fn checkerboard(width: f32, height: f32, checker: &ResolvedPart, cell
   board.into()
 }
 
+impl crate::ui::Styled for ColorSwatch {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ColorSwatch {
   const NAME: &'static str = "color_swatch";
   type Renderer = ColorSwatchRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ColorSwatchPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ColorSwatchState::declared()
+  }
 
   /// The design's swatch (`pencil/lurq-design-system.pen`, Color Swatch): 24 square with the small radius and an
   /// edge of 1 in `Border` inside it, filled with its color. Selected, as the swatch picker draws it, a ring of 2 in

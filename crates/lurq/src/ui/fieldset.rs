@@ -324,9 +324,27 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
     .child(part.text(content).width(fill))
 }
 
+impl crate::ui::Styled for Fieldset {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Fieldset {
   const NAME: &'static str = "fieldset";
   type Renderer = FieldsetRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    FieldsetPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    FieldsetState::declared()
+  }
 
   /// The design's fieldset (`pencil/lurq-design-system.pen`, Fieldset): 400 wide, padded 20, with an edge of 1 of
   /// the border's color inside it and corners of `radius-lg`; the legend and the fields one under another, 16
@@ -782,9 +800,27 @@ impl ErrorSummaryView {
   }
 }
 
+impl crate::ui::Styled for ErrorSummary {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ErrorSummary {
   const NAME: &'static str = "error_summary";
   type Renderer = ErrorSummaryRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ErrorSummaryPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ErrorSummaryState::declared()
+  }
 
   /// The design's error summary (`pencil/lurq-design-system.pen`, Error Summary): 400 wide, padded 12 and 14, in
   /// the muted destructive color with an edge of 1 of the destructive color inside it and corners of `radius-md`.

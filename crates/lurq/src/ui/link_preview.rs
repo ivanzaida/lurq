@@ -1259,9 +1259,27 @@ impl LinkPreviewView {
   }
 }
 
+impl crate::ui::Styled for LinkPreview {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for LinkPreview {
   const NAME: &'static str = "link_preview";
   type Renderer = LinkPreviewRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    LinkPreviewPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    LinkPreviewState::declared()
+  }
 
   /// The design's link preview (`pencil/lurq-design-system.pen`, Link Preview, Link Preview/Compact and Link
   /// Preview/Inline). A card of 360 in the card's color with an edge of the border's, corners of `radius-xl` and

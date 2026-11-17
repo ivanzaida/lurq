@@ -1111,9 +1111,27 @@ impl TimePickerView {
   }
 }
 
+impl<V: FieldValue<Time>> crate::ui::Styled for TimePicker<V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<V: FieldValue<Time>> Themed for TimePicker<V> {
   const NAME: &'static str = "time_picker";
   type Renderer = TimePickerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TimePickerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TimePickerState::declared()
+  }
 
   /// The design's time picker (`pencil/lurq-design-system.pen`, Time Picker): an input 160 by 36 with a timer's glyph
   /// of 16 in the muted foreground at its start, 12 from its edge, and the time 8 after it in the mono type at 14. The

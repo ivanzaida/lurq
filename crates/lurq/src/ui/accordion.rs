@@ -471,10 +471,24 @@ impl AccordionView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for Accordion<T, V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every accordion has the one recipe and renderer, whatever its items' values are.
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Accordion<T, V> {
   const NAME: &'static str = "accordion";
   type Renderer = AccordionRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AccordionPart::declared()
+  }
 
   /// The design's accordion (`pencil/lurq-design-system.pen`, Accordion):
   /// items with a line of the border's color under each; a header 14 high

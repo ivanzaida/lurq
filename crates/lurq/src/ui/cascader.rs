@@ -1072,10 +1072,24 @@ impl CascaderView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for Cascader<T, V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every cascader has the one recipe and renderer, whatever its values are and whatever form it is of.
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Cascader<T, V> {
   const NAME: &'static str = "cascader";
   type Renderer = CascaderRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CascaderPart::declared()
+  }
 
   /// The design's cascader (`pencil/lurq-design-system.pen`, Cascader `ACuvJ`): a select's trigger, 260 by 36 on the
   /// background in an edge of 1 in the color of an input's, 6 round, its path 12 from its edge in the body's type and

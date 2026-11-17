@@ -1151,9 +1151,27 @@ impl Component for SignaturePadHost {
   }
 }
 
+impl crate::ui::Styled for SignaturePad {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for SignaturePad {
   const NAME: &'static str = "signature_pad";
   type Renderer = SignaturePadRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SignaturePadPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SignaturePadState::declared()
+  }
 
   /// The design's signature pad (`pencil/lurq-design-system.pen`, Signature Pad, in Advanced Inputs): 280 by 124 on
   /// the background, its corners large, an edge of 1 in the input's color inside it. At its bottom, inside 12 and 16,

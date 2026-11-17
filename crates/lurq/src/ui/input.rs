@@ -633,9 +633,27 @@ enum Side {
   End,
 }
 
+impl crate::ui::Styled for Input {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Input {
   const NAME: &'static str = "input";
   type Renderer = InputRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    InputPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    InputState::declared()
+  }
 
   /// The design's input (`pencil/lurq-design-system.pen`, Input): a box 260
   /// wide and 36 high, the background's fill in an edge of 1 in the color of

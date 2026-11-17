@@ -389,9 +389,27 @@ pub(crate) fn centred(part: &ResolvedPart, content: &str) -> Column {
     .child(part.text(content).width(fill).text_align(TextAlign::Center))
 }
 
+impl crate::ui::Styled for EmptyState {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for EmptyState {
   const NAME: &'static str = "empty_state";
   type Renderer = EmptyStateRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    EmptyStatePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    EmptyStateState::declared()
+  }
 
   /// The design's empty states (`pencil/lurq-design-system.pen`: Empty State, the empty table of Table/Empty and
   /// Mobile/Empty State). The medium one is padded 32 with 16 between the well, the text and the actions, in an edge

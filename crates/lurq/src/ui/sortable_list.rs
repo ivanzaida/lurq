@@ -1170,10 +1170,28 @@ impl SortableRow {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for SortableList<T> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every sortable list has the one recipe and renderer, whatever its values are.
 impl<T: Send + Sync + 'static> Themed for SortableList<T> {
   const NAME: &'static str = "sortable_list";
   type Renderer = SortableListRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SortableListPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SortableListState::declared()
+  }
 
   /// The design's sortable list (`pencil/lurq-design-system.pen`, Sortable List): rows 4 apart, each 36 high on the
   /// card's fill in an edge of 1 in the border's color, 6 round, with a grip of 14 in the muted foreground 6 from

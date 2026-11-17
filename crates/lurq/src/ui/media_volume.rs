@@ -632,9 +632,27 @@ impl MediaVolumeView {
   }
 }
 
+impl crate::ui::Styled for MediaVolume {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for MediaVolume {
   const NAME: &'static str = "media_volume";
   type Renderer = MediaVolumeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MediaVolumePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MediaVolumeState::declared()
+  }
 
   /// The design's volume control (`pencil/lurq-design-system.pen`, `Media/Volume`, `hRRVr`): a ghost button of 32
   /// with a glyph of 16 and a slider 72 long, 4 apart; in a video's bar the button is 36 with a glyph of 20. Over a

@@ -1244,9 +1244,27 @@ impl CalendarView {
   }
 }
 
+impl<V: Picked> crate::ui::Styled for Calendar<V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<V: Picked> Themed for Calendar<V> {
   const NAME: &'static str = "calendar";
   type Renderer = CalendarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CalendarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CalendarState::declared()
+  }
 
   /// The design's calendar (`pencil/lurq-design-system.pen`, Calendar): a panel in the popover's colors with an edge
   /// of 1 in the border's color and the large radius, 12 of padding, its months 16 apart. The headings are 8 over the

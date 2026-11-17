@@ -464,9 +464,23 @@ pub(crate) fn fill_of(part: &ResolvedPart, range: Range<usize>) -> Option<TextHi
   Some(fill)
 }
 
+impl crate::ui::Styled for Highlight {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Highlight {
   const NAME: &'static str = "highlight";
   type Renderer = HighlightRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    HighlightPart::declared()
+  }
 
   /// The design's highlight (`pencil/lurq-design-system.pen`, Highlight):
   /// a text of 14 in the foreground, a mark on the muted warning fill of the

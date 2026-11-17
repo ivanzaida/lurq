@@ -721,9 +721,27 @@ impl GalleryView {
   }
 }
 
+impl<K: GalleryKey> crate::ui::Styled for Gallery<K> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<K: Send + Sync + 'static> Themed for Gallery<K> {
   const NAME: &'static str = "gallery";
   type Renderer = GalleryRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    GalleryPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    GalleryState::declared()
+  }
 
   /// The design's gallery (`pencil/lurq-design-system.pen`, Gallery): rows of four pictures of 92 by 68, 8
   /// apart across and down, each a small picture with the corners of one. What a picture looks like, chosen

@@ -472,9 +472,27 @@ impl BadgeView {
   }
 }
 
+impl crate::ui::Styled for Badge {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Badge {
   const NAME: &'static str = "badge";
   type Renderer = BadgeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BadgePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BadgeState::declared()
+  }
 
   /// The design's badges (`pencil/lurq-design-system.pen`: Badge, Badge/Dot,
   /// Counter Badge, Indicator). A badge is 22 high and round, padded 8, its

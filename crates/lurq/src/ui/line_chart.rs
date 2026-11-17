@@ -209,6 +209,14 @@ impl Themed for LineChart {
   const NAME: &'static str = "line_chart";
   type Renderer = ChartRenderer;
 
+  fn parts() -> crate::ui::Declared {
+    LineChartPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    LineChartState::declared()
+  }
+
   /// The chart's frame ([`chart_recipe`]) at the board's size, `Sm`, and its lines: 2 wide with round joins and ends
   /// in the series' colors; at the place under the pointer the frame's cursor, a line of 1 in the input's color, and
   /// a mark of 10 in each series' color ringed 2 in the card's color.

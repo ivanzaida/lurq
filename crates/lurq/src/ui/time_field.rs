@@ -166,6 +166,16 @@ pub type TimeFieldRenderer = Arc<dyn Fn(SegmentFieldView) -> Element + Send + Sy
 /// A time field as a renderer sees it.
 pub type TimeFieldView = SegmentFieldView;
 
+impl<V: FieldValue<Time>> crate::ui::Styled for TimeField<V> {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<V: FieldValue<Time>> Themed for TimeField<V> {
   const NAME: &'static str = "time_field";
   type Renderer = TimeFieldRenderer;

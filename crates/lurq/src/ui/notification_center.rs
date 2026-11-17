@@ -721,9 +721,27 @@ impl NotificationCenterView {
   }
 }
 
+impl crate::ui::Styled for NotificationCenter {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for NotificationCenter {
   const NAME: &'static str = "notification_center";
   type Renderer = NotificationCenterRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    NotificationCenterPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    NotificationCenterState::declared()
+  }
 
   /// The design's notification center (`pencil/lurq-design-system.pen`, Notification Center `Kg2Z4`): a panel 360
   /// wide in the popover's colors, with an edge of 1 in the border's color, the extra large radius and the large

@@ -399,9 +399,27 @@ impl ScrollAreaView {
   }
 }
 
+impl crate::ui::Styled for ScrollArea {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ScrollArea {
   const NAME: &'static str = "scroll_area";
   type Renderer = ScrollAreaRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ScrollAreaPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ScrollAreaState::declared()
+  }
 
   /// The design's scroll area: the room its content scrolls in, with nothing of its own but the ring of the
   /// keyboard's focus, inside it where the area is a stop of Tab. Its bar (`pencil/lurq-design-system.pen`,

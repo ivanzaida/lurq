@@ -440,9 +440,27 @@ impl AvatarView {
   }
 }
 
+impl crate::ui::Styled for Avatar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Avatar {
   const NAME: &'static str = "avatar";
   type Renderer = AvatarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AvatarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    AvatarState::declared()
+  }
 
   /// The design's avatar (`pencil/lurq-design-system.pen`, Avatar, Presence and
   /// Avatar sizes): a circle of 32 in the muted fill with the initials in the
@@ -858,9 +876,23 @@ impl AvatarGroupView {
   }
 }
 
+impl crate::ui::Styled for AvatarGroup {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for AvatarGroup {
   const NAME: &'static str = "avatar_group";
   type Renderer = AvatarGroupRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AvatarGroupPart::declared()
+  }
 
   /// The design's group (`pencil/lurq-design-system.pen`, Avatar Group): avatars
   /// of 32 that lie 8 over one another, each ringed 2 outside its face in the

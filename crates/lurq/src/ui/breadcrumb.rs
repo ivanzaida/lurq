@@ -1045,9 +1045,27 @@ impl BreadcrumbView {
   }
 }
 
+impl crate::ui::Styled for Breadcrumb {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Breadcrumb {
   const NAME: &'static str = "breadcrumb";
   type Renderer = BreadcrumbRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BreadcrumbPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BreadcrumbState::declared()
+  }
 
   /// The design's breadcrumb (`pencil/lurq-design-system.pen`, Breadcrumb and
   /// Breadcrumb/Collapsed): steps 8 apart in the body's type, the links in

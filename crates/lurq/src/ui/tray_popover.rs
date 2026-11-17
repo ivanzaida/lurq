@@ -832,9 +832,27 @@ impl TrayPopoverView {
   }
 }
 
+impl crate::ui::Styled for TrayPopover {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for TrayPopover {
   const NAME: &'static str = "tray_popover";
   type Renderer = TrayPopoverRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TrayPopoverPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TrayPopoverState::declared()
+  }
 
   /// The design's tray popover (`pencil/lurq-design-system.pen`, Tray Popover `otBsr`, its Popover): a panel 280
   /// wide in the popover's colors, with an edge of 1 in the border's color, a radius of 12 and the large shadow,

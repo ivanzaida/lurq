@@ -684,9 +684,27 @@ impl NotificationView {
   }
 }
 
+impl crate::ui::Styled for Notification {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Notification {
   const NAME: &'static str = "notification";
   type Renderer = NotificationRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    NotificationPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    NotificationState::declared()
+  }
 
   /// The design's notification (`pencil/lurq-design-system.pen`, Notification `sd57u`, and the items of the
   /// Notification Center `Kg2Z4`). The card is 340 wide in the popover's colors, with an edge of 1 in the border's

@@ -488,9 +488,27 @@ impl ExpandableTileView {
   }
 }
 
+impl crate::ui::Styled for ExpandableTile {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ExpandableTile {
   const NAME: &'static str = "expandable_tile";
   type Renderer = ExpandableTileRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ExpandableTilePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ExpandableTileState::declared()
+  }
 
   /// The design's tile (`pencil/lurq-design-system.pen`, Expandable Tile `slE1t`): a box 260 wide on `Background`
   /// in an edge of 1 in `Border` with the large radius, padded 16; its title 14 at medium weight in `Foreground`,

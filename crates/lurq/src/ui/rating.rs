@@ -759,9 +759,27 @@ impl Component for RatingHost {
   }
 }
 
+impl crate::ui::Styled for Rating {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Rating {
   const NAME: &'static str = "rating";
   type Renderer = RatingRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    RatingPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    RatingState::declared()
+  }
 
   /// The design's rating (`pencil/lurq-design-system.pen`, Rating): five solid stars of 20, 4 apart, those lit in
   /// the warning color and the rest in the color of an input's edge. Small they are 16 and 2 apart, large 24. The

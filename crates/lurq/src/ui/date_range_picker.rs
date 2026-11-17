@@ -130,6 +130,16 @@ impl FieldControl for DateRangePicker {
   }
 }
 
+impl crate::ui::Styled for DateRangePicker {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for DateRangePicker {
   const NAME: &'static str = "date_range_picker";
   type Renderer = DateRangePickerRenderer;

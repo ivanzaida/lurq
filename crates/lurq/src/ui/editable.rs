@@ -774,9 +774,27 @@ impl EditableView {
   }
 }
 
+impl crate::ui::Styled for Editable {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Editable {
   const NAME: &'static str = "editable";
   type Renderer = EditableRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    EditablePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    EditableState::declared()
+  }
 
   /// The design's editable (`pencil/lurq-design-system.pen`, Editable): a row 32 high, its text 16 semibold in
   /// the foreground, and 8 after it a pencil of 14 in the muted foreground. Its placeholder is in the muted

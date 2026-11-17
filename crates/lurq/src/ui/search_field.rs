@@ -476,9 +476,27 @@ impl SearchFieldView {
   }
 }
 
+impl crate::ui::Styled for SearchField {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for SearchField {
   const NAME: &'static str = "search_field";
   type Renderer = SearchFieldRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SearchFieldPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SearchFieldState::declared()
+  }
 
   /// The design's search field (`pencil/lurq-design-system.pen`, Search Field): an input 280 wide whose box is
   /// padded 10 at its start and 8 at its end, the search icon of 16 in the muted foreground 8 before the text.

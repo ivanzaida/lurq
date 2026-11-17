@@ -517,9 +517,27 @@ impl SettingsCardView {
   }
 }
 
+impl crate::ui::Styled for SettingsCard {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for SettingsCard {
   const NAME: &'static str = "settings_card";
   type Renderer = SettingsCardRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SettingsCardPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SettingsCardState::declared()
+  }
 
   /// The design's settings card (`pencil/lurq-design-system.pen`, Settings Card, and the cards of Settings Rows in
   /// the Preferences window): a card on `Card` with an edge of 1 in the border's color and the large radius, as

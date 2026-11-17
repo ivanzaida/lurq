@@ -361,9 +361,27 @@ impl DataListView {
   }
 }
 
+impl crate::ui::Styled for DataList {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for DataList {
   const NAME: &'static str = "data_list";
   type Renderer = DataListRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DataListPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DataListState::declared()
+  }
 
   /// The design's data list (`pencil/lurq-design-system.pen`, Data List): each term and its value 10 from the line
   /// over them and the one under them, 12 apart, both in the body's type at 13, the term in the muted color and

@@ -378,9 +378,27 @@ impl MediaSpeedMenuView {
   }
 }
 
+impl crate::ui::Styled for MediaSpeedMenu {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for MediaSpeedMenu {
   const NAME: &'static str = "media_speed_menu";
   type Renderer = MediaSpeedMenuRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MediaSpeedMenuPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MediaSpeedMenuState::declared()
+  }
 
   /// The design's speed menu (`pencil/lurq-design-system.pen`, `Media/Speed Menu`, `XUFEp`): the menu's panel, 168
   /// wide where a menu is at least 230, with the group label "Playback speed" and a menu item for each speed, the

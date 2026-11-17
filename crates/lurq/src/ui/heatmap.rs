@@ -662,6 +662,10 @@ impl Themed for Heatmap {
   const NAME: &'static str = "heatmap";
   type Renderer = ChartRenderer;
 
+  fn parts() -> crate::ui::Declared {
+    HeatmapPart::declared()
+  }
+
   /// The chart's frame ([`chart_recipe`]) at the board's Heatmap's size, `Sm`: cells of 14 with corners of 3, 4
   /// apart, the lowest step in `Muted` and the others `Chart1` at a quarter, a half, three quarters and the whole of
   /// its opacity; the rows' names mono 10 in `MutedForeground` at the plot's start; a cell with no value an edge of 1

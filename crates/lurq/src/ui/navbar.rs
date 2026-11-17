@@ -781,9 +781,27 @@ impl NavbarView {
   }
 }
 
+impl crate::ui::Styled for Navbar {
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Navbar {
   const NAME: &'static str = "navbar";
   type Renderer = NavbarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    NavbarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    NavbarState::declared()
+  }
 
   /// The design's navbar (`pencil/lurq-design-system.pen`, Navbar): a bar 56 tall of the background's color with a
   /// line of 1 in the border's color along its bottom, padded 16 at the sides, 24 between what it holds. The brand
