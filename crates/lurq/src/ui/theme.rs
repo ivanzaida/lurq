@@ -50,7 +50,9 @@ pub trait Themed: 'static {
 }
 
 /// A builder of a themed component, styled as one instance: every component of `lurq::ui` is one, so that what
-/// styles any of them (a gallery's playground, an app's helper over several kinds) is written once.
+/// styles any of them (a gallery's playground, an app's helper over several kinds) is written once. Its rules are
+/// laid over the recipe of [`Component`](Styled::Component): the builder's own, or that of the component it
+/// dresses (a data grid's table, a tour's teaching tip).
 ///
 /// ```
 /// use lurq::{
@@ -64,7 +66,10 @@ pub trait Themed: 'static {
 /// }
 /// let save = pill(Button::new("Save"), ButtonPart::Root);
 /// ```
-pub trait Styled: Themed + Sized {
+pub trait Styled: Sized {
+  /// The component whose recipe the rules are laid over, whose parts and states they name.
+  type Component: Themed;
+
   /// Lays rules over the theme's recipe for this instance, the later over the earlier: what its own `rules` does.
   fn rules(self, rules: &Recipe) -> Self;
 

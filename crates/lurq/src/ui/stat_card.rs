@@ -454,6 +454,8 @@ impl StatCardView {
 }
 
 impl crate::ui::Styled for StatCard {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

@@ -772,6 +772,8 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
 }
 
 impl<V: 'static> crate::ui::Styled for Select<V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

@@ -1046,6 +1046,8 @@ impl BreadcrumbView {
 }
 
 impl crate::ui::Styled for Breadcrumb {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

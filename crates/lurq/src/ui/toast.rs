@@ -623,6 +623,8 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
 }
 
 impl crate::ui::Styled for Toast {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

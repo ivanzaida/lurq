@@ -131,6 +131,8 @@ impl FieldControl for DateRangePicker {
 }
 
 impl crate::ui::Styled for DateRangePicker {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

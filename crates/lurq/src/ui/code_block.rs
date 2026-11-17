@@ -992,6 +992,8 @@ fn token_part(kind: CodeTokenKind) -> Option<CodeBlockPart> {
 }
 
 impl crate::ui::Styled for CodeBlock {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

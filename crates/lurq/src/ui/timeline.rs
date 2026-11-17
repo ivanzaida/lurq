@@ -1395,6 +1395,8 @@ impl TimelineMore {
 }
 
 impl<T: Send + Sync + 'static> crate::ui::Styled for Timeline<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

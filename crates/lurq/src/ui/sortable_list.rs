@@ -1171,6 +1171,8 @@ impl SortableRow {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for SortableList<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

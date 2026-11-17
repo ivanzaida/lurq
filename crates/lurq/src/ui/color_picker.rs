@@ -1318,6 +1318,8 @@ fn with_hue(hsl: Hsl, h: f32) -> Hsv {
 }
 
 impl crate::ui::Styled for ColorPicker {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

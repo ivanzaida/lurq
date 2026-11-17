@@ -441,6 +441,8 @@ impl OutcomeView {
 }
 
 impl crate::ui::Styled for Outcome {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

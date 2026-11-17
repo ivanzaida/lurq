@@ -464,6 +464,8 @@ pub(crate) fn opening(recipe: Recipe, open: Name, panel: Name, body: Name) -> Re
 }
 
 impl crate::ui::Styled for Collapsible {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

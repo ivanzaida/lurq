@@ -379,6 +379,8 @@ pub(crate) fn checkerboard(width: f32, height: f32, checker: &ResolvedPart, cell
 }
 
 impl crate::ui::Styled for ColorSwatch {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

@@ -391,6 +391,8 @@ fn edge(color: PaletteColor) -> Border {
 }
 
 impl crate::ui::Styled for Checkbox {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -809,6 +811,8 @@ impl CheckboxGroupView {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for CheckboxGroup<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

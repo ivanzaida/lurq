@@ -608,6 +608,18 @@ impl ChartPlot for BarPlot {
   }
 }
 
+impl crate::ui::Styled for BarChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for BarChart {
   const NAME: &'static str = "bar_chart";
   type Renderer = ChartRenderer;

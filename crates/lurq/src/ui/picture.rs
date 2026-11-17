@@ -2574,6 +2574,8 @@ fn anchor_shares(anchor: StackAlignment) -> (f32, f32) {
 }
 
 impl crate::ui::Styled for Picture {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

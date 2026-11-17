@@ -1267,6 +1267,8 @@ impl TabsView {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for Tabs<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

@@ -691,6 +691,8 @@ fn detail_parts() -> DisclosureParts {
 }
 
 impl crate::ui::Styled for ProgressDialog {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

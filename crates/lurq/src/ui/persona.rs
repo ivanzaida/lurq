@@ -299,6 +299,8 @@ impl PersonaView {
 }
 
 impl crate::ui::Styled for Persona {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

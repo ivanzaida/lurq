@@ -459,6 +459,8 @@ impl DrawerView {
 }
 
 impl crate::ui::Styled for Drawer {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

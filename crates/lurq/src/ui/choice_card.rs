@@ -657,6 +657,8 @@ fn card_recipe() -> Recipe {
 }
 
 impl crate::ui::Styled for CheckboxCard {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -677,6 +679,8 @@ impl Themed for CheckboxCard {
 }
 
 impl crate::ui::Styled for RadioCard {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -993,6 +997,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<RadioCardGroup<T>> for E
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for RadioCardGroup<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -1122,6 +1128,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<CheckboxCardGroup<T>> fo
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for CheckboxCardGroup<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

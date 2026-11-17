@@ -685,6 +685,8 @@ pub(super) fn engine_part(style: &PartStyle, theme: &Theme) -> SliderPartStyle {
 }
 
 impl crate::ui::Styled for Slider {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

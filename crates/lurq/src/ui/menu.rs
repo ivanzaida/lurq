@@ -777,6 +777,8 @@ impl MenuView {
 }
 
 impl crate::ui::Styled for Menu {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -1430,6 +1432,8 @@ impl MenuItemView {
 }
 
 impl crate::ui::Styled for MenuItem {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

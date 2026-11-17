@@ -719,6 +719,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   }
 }
 
+impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> crate::ui::Styled for DataGrid<R, K> {
+  type Component = super::Table<R, K>;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> From<DataGrid<R, K>> for Element {
   fn from(grid: DataGrid<R, K>) -> Self {
     grid.table.into()

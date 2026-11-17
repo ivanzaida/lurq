@@ -1899,6 +1899,8 @@ impl From<SidebarTrigger> for Element {
 }
 
 impl crate::ui::Styled for Sidebar {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

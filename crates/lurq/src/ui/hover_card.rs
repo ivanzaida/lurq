@@ -570,6 +570,8 @@ impl HoverCardView {
 }
 
 impl crate::ui::Styled for HoverCard {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

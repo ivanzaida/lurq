@@ -205,6 +205,18 @@ impl From<LineChart> for Element {
   }
 }
 
+impl crate::ui::Styled for LineChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for LineChart {
   const NAME: &'static str = "line_chart";
   type Renderer = ChartRenderer;
@@ -303,6 +315,18 @@ impl AreaChart {
 impl From<AreaChart> for Element {
   fn from(chart: AreaChart) -> Self {
     chart.build(&current_theme())
+  }
+}
+
+impl crate::ui::Styled for AreaChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
   }
 }
 

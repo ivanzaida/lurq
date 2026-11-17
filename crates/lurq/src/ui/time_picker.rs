@@ -1112,6 +1112,8 @@ impl TimePickerView {
 }
 
 impl<V: FieldValue<Time>> crate::ui::Styled for TimePicker<V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

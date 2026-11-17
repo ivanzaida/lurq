@@ -585,6 +585,8 @@ fn dismissed(on_cancel: Option<&Handler>, on_dismiss: &[Handler]) {
 }
 
 impl crate::ui::Styled for Popconfirm {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

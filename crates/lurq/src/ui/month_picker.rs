@@ -932,6 +932,8 @@ pub type MonthPickerRenderer = Arc<dyn Fn(PeriodsView) -> Element + Send + Sync>
 pub type MonthPickerView = PeriodsView;
 
 impl<V: FieldValue<YearMonth>> crate::ui::Styled for MonthPicker<V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

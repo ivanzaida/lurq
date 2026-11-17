@@ -2077,6 +2077,8 @@ fn mark_shortcut(kept: &Kept, key: &str) -> bool {
 }
 
 impl crate::ui::Styled for RichTextEditor {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

@@ -394,6 +394,8 @@ impl PanelHeaderView {
 }
 
 impl crate::ui::Styled for PanelHeader {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -1718,6 +1720,8 @@ impl Component for PanelHost {
 }
 
 impl crate::ui::Styled for FloatingPanel {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

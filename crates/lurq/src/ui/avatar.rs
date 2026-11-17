@@ -441,6 +441,8 @@ impl AvatarView {
 }
 
 impl crate::ui::Styled for Avatar {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -877,6 +879,8 @@ impl AvatarGroupView {
 }
 
 impl crate::ui::Styled for AvatarGroup {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

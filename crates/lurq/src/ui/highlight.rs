@@ -465,6 +465,8 @@ pub(crate) fn fill_of(part: &ResolvedPart, range: Range<usize>) -> Option<TextHi
 }
 
 impl crate::ui::Styled for Highlight {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

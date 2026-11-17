@@ -1656,6 +1656,8 @@ impl NavigationMenuView {
 }
 
 impl crate::ui::Styled for NavigationMenu {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

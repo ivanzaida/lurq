@@ -1241,6 +1241,8 @@ pub type DateFieldRenderer = Arc<dyn Fn(SegmentFieldView) -> Element + Send + Sy
 pub type DateFieldView = SegmentFieldView;
 
 impl<V: FieldValue<Date>> crate::ui::Styled for DateField<V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

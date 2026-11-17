@@ -2408,6 +2408,8 @@ impl DockLayoutView {
 }
 
 impl crate::ui::Styled for DockLayout {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

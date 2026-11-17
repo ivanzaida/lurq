@@ -470,6 +470,8 @@ impl PopoverView {
 }
 
 impl crate::ui::Styled for Popover {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

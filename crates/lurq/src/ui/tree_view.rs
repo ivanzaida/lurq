@@ -1311,6 +1311,8 @@ impl TreeRow {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> crate::ui::Styled for TreeView<T, M> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

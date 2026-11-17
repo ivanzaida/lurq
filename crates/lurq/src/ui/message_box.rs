@@ -921,6 +921,8 @@ pub(crate) fn disclosure_recipe(recipe: Recipe, parts: &DisclosureParts, open: N
 }
 
 impl crate::ui::Styled for MessageBox {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

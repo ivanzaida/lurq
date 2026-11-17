@@ -233,6 +233,8 @@ impl BlockquoteView {
 }
 
 impl crate::ui::Styled for Blockquote {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

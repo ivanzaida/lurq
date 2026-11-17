@@ -6961,6 +6961,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
 }
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> crate::ui::Styled for Table<R, K> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

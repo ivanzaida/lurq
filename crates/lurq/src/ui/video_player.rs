@@ -3636,6 +3636,8 @@ impl VideoPlayerView {
 }
 
 impl crate::ui::Styled for VideoPlayer {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

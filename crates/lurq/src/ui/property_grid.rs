@@ -1749,6 +1749,8 @@ fn ring_inside() -> crate::node::outline::Outline {
 }
 
 impl crate::ui::Styled for PropertyGrid {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

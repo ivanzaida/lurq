@@ -1080,6 +1080,8 @@ impl super::FieldControl for DropZone {
 }
 
 impl crate::ui::Styled for FileUpload {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

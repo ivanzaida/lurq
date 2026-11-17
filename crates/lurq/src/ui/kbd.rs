@@ -558,6 +558,8 @@ impl KbdView {
 }
 
 impl crate::ui::Styled for Kbd {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -770,6 +772,8 @@ impl InlineCodeView {
 }
 
 impl crate::ui::Styled for InlineCode {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

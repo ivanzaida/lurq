@@ -634,6 +634,8 @@ enum Side {
 }
 
 impl crate::ui::Styled for Input {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

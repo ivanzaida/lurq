@@ -281,6 +281,8 @@ impl ChipView {
 }
 
 impl crate::ui::Styled for Chip {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -630,6 +632,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<Chi
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for ChipGroup<T, V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

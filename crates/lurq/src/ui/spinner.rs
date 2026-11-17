@@ -451,6 +451,8 @@ impl SpinnerView {
 }
 
 impl crate::ui::Styled for Spinner {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -777,6 +779,8 @@ impl LoadingOverlayView {
 }
 
 impl crate::ui::Styled for LoadingOverlay {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -1054,6 +1058,8 @@ impl PageLoaderView {
 }
 
 impl crate::ui::Styled for PageLoader {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

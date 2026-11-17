@@ -1004,6 +1004,8 @@ fn only(theme: &Theme, style: PartStyle) -> ResolvedPart {
 }
 
 impl crate::ui::Styled for Sheet {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

@@ -421,6 +421,8 @@ impl SkeletonView {
 }
 
 impl crate::ui::Styled for Skeleton {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

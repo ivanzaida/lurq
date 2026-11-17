@@ -142,6 +142,8 @@ pub type YearPickerRenderer = Arc<dyn Fn(PeriodsView) -> Element + Send + Sync>;
 pub type YearPickerView = PeriodsView;
 
 impl<V: FieldValue<i32>> crate::ui::Styled for YearPicker<V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

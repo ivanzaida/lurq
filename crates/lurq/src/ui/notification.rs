@@ -685,6 +685,8 @@ impl NotificationView {
 }
 
 impl crate::ui::Styled for Notification {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

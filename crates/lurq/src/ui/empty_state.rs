@@ -390,6 +390,8 @@ pub(crate) fn centred(part: &ResolvedPart, content: &str) -> Column {
 }
 
 impl crate::ui::Styled for EmptyState {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

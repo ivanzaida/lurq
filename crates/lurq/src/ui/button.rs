@@ -655,6 +655,8 @@ impl ButtonView {
 }
 
 impl crate::ui::Styled for Button {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

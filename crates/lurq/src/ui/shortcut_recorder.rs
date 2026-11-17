@@ -944,7 +944,9 @@ impl Component for RecorderHost {
   }
 }
 
-impl crate::ui::Styled for ShortcutRecorder {
+impl<V: ShortcutValue> crate::ui::Styled for ShortcutRecorder<V> {
+  type Component = ShortcutRecorder;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

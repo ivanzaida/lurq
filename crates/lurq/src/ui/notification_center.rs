@@ -722,6 +722,8 @@ impl NotificationCenterView {
 }
 
 impl crate::ui::Styled for NotificationCenter {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

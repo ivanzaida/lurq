@@ -443,6 +443,8 @@ fn components_row(part: &ResolvedPart) -> crate::components::Button {
 }
 
 impl crate::ui::Styled for ChartLegend {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

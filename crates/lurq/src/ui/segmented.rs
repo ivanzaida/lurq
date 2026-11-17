@@ -322,6 +322,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<SegmentedControl<T>> for
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for SegmentedControl<T> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

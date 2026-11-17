@@ -514,6 +514,8 @@ impl AlertView {
 }
 
 impl crate::ui::Styled for Alert {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

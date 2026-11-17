@@ -951,6 +951,8 @@ impl InputOtpView {
 }
 
 impl crate::ui::Styled for InputOtp {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

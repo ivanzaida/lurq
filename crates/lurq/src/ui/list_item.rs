@@ -702,6 +702,8 @@ impl ListItemView {
 }
 
 impl crate::ui::Styled for ListItem {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -1208,6 +1210,8 @@ impl ListView {
 }
 
 impl crate::ui::Styled for List {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

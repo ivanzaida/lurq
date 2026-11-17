@@ -901,6 +901,8 @@ fn mark(part: &ResolvedPart) -> Row {
 }
 
 impl<V: 'static> crate::ui::Styled for MultiSelect<V> {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

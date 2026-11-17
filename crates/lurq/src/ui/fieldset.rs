@@ -325,6 +325,8 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
 }
 
 impl crate::ui::Styled for Fieldset {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -801,6 +803,8 @@ impl ErrorSummaryView {
 }
 
 impl crate::ui::Styled for ErrorSummary {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

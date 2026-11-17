@@ -630,6 +630,8 @@ impl Describe for Stack {
 }
 
 impl crate::ui::Styled for Progress {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }
@@ -1042,6 +1044,8 @@ impl RingProgressView {
 const NO_ARC: f32 = 0.01;
 
 impl crate::ui::Styled for RingProgress {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

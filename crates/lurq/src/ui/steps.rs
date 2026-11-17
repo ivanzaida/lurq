@@ -1102,6 +1102,8 @@ impl StepsView {
 }
 
 impl crate::ui::Styled for Steps {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

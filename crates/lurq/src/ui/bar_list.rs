@@ -671,6 +671,8 @@ impl BarListRow {
 }
 
 impl crate::ui::Styled for BarList {
+  type Component = Self;
+
   fn rules(self, rules: &crate::ui::Recipe) -> Self {
     Self::rules(self, rules)
   }

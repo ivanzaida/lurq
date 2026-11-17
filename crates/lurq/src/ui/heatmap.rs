@@ -658,6 +658,18 @@ fn over(color: Color, ground: Color) -> Color {
   )
 }
 
+impl crate::ui::Styled for Heatmap {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Heatmap {
   const NAME: &'static str = "heatmap";
   type Renderer = ChartRenderer;
