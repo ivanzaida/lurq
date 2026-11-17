@@ -21,9 +21,9 @@ mod button;
 mod calendar;
 mod card;
 mod carousel;
+mod cascader;
 #[cfg(feature = "canvas")]
 mod chart_motion;
-mod cascader;
 mod checkbox;
 mod choice_card;
 mod code_block;
@@ -64,6 +64,9 @@ mod floating_panel;
 mod fluid_field;
 mod follows_room;
 mod forced_on_one_item;
+// The form controls of `components`, which need the engine's forms.
+#[cfg(feature = "form")]
+mod form_controls;
 // Pictures decoded in the test: the feature that has `lurq::images`.
 #[cfg(feature = "raster")]
 mod gallery;
@@ -135,9 +138,9 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
+mod sidebar;
 #[cfg(feature = "canvas")]
 mod signature_pad;
-mod sidebar;
 mod skeleton;
 mod slider;
 mod sortable_list;
@@ -172,7 +175,7 @@ mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
-mod waveform;
 mod watermark;
+mod waveform;
 mod window_chrome;
 mod window_tabs;

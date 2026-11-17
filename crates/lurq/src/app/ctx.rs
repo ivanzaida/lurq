@@ -2498,6 +2498,11 @@ impl Ctx {
     self.app.as_ref().expect("app ref not set")
   }
 
+  /// The retained app services, borrowed, if a pass or mount set them.
+  pub(crate) fn app_if_set(&self) -> Option<&App> {
+    self.app.as_ref()
+  }
+
   /// The retained app services, if a pass or mount set them.
   pub(crate) fn app_handle(&self) -> Option<App> {
     self.app.clone()
@@ -3396,6 +3401,7 @@ impl Ctx {
         self.breakpoint.clone(),
         self.app.as_ref().map(|app| app.shared.dates.clone()),
         self.app.as_ref().map(|app| app.shared.locale.clone()),
+        self.app.as_ref().map(|app| app.shared.pointer.clone()),
         self.window.clone(),
       );
     }

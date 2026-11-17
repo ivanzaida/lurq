@@ -649,7 +649,7 @@ fn an_app_for_a_finger_has_the_phones_form_and_one_for_a_pointer_the_desktops() 
   );
 
   let app = lurq::app::App::new();
-  app.theme().set_density(lurq::app::theme::Density::Touch);
+  app.set_pointer(lurq::app::Pointer::Coarse);
   let mut stage = Stage::first_frame_in(app, 390.0, 844.0, |_| {
     Column::new()
       .size(390.0, 844.0)

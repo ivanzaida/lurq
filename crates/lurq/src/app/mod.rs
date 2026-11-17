@@ -59,6 +59,7 @@ mod layer_blur_readback_tests;
 mod nested_clip_readback_tests;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod opacity_layer_readback_tests;
+pub(crate) mod pointer;
 pub(crate) mod profile_support;
 pub(crate) mod profile_types;
 pub mod profiler;
@@ -82,6 +83,7 @@ pub mod winit_shell;
 mod window_control_hits;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
+pub use pointer::Pointer;
 pub use runtime::{
   CheckboxHandle, ClipboardReader, ClipboardWriter, ElementHandle, PassReasons, PassReport, SelectHandle, SliderHandle,
   TextInputHandle, Tree,

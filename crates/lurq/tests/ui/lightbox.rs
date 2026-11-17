@@ -765,7 +765,7 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
   use lurq::app::events::TouchPhase;
   let open = Signal::new(true);
   let shown = open.clone();
-  let mut stage = Stage::first_frame(390.0, 844.0, move |_| {
+  let mut stage = Stage::first_frame_in(for_a_finger(), 390.0, 844.0, move |_| {
     Column::new()
       .size(390.0, 844.0)
       .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
@@ -775,15 +775,18 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
   settled(&mut stage);
   assert!(
     stage.tree.get_element_by_id("viewer-zoom-in").is_none(),
-    "a phone's window: the phone's form"
+    "an app for a finger: the phone's form"
   );
   let (x, y) = stage.center("viewer-stage");
+  // The finger's time is the tree's clock of presses: 30 ms a step, slowly, since a throw down closes it however
+  // far it went.
+  let mut at = 0;
   let mut drag = |stage: &mut Stage, by: f32| {
-    let route = stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
-    eprintln!("PROBE route {route:?}");
+    stage.presses_at(std::time::Duration::from_millis(at));
+    stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
     for step in 1..=10 {
-      // Slowly: a throw down closes it however far it went.
-      std::thread::sleep(std::time::Duration::from_millis(30));
+      at += 30;
+      stage.presses_at(std::time::Duration::from_millis(at));
       stage
         .tree
         .touch_event(1, TouchPhase::Move, x, y + by * step as f32 / 10.0, None);
@@ -791,11 +794,170 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
     }
     stage.tree.touch_event(1, TouchPhase::End, x, y + by, None);
     settled(stage);
+    at += 1000;
   };
   drag(&mut stage, 40.0);
   assert!(open.get(), "not far enough");
   drag(&mut stage, 220.0);
   assert!(!open.get(), "far enough: it closed");
+}
+
+/// An app a finger points in, as an app on a phone starts: pinned, so that the stage's own clicks leave it.
+fn for_a_finger() -> lurq::app::App {
+  let app = lurq::app::App::new();
+  app.set_pointer(lurq::app::Pointer::Coarse);
+  app
+}
+
+/// Whether the lightbox `viewer` is in the phone's form: the dots under the picture, and no zoom buttons.
+fn phones(stage: &mut Stage) -> bool {
+  let dots = stage.tree.get_element_by_id("viewer-page-0").is_some();
+  let zoom = stage.tree.get_element_by_id("viewer-zoom-in").is_some();
+  assert_ne!(dots, zoom, "one form or the other");
+  dots
+}
+
+#[test]
+fn in_an_app_for_a_finger_it_is_the_phones_form_however_wide_the_window_is() {
+  for (width, height) in [(1440.0, 900.0), (1000.0, 700.0), (390.0, 844.0), (320.0, 640.0)] {
+    let mut stage = Stage::first_frame_in(for_a_finger(), width, height, move |_| {
+      Column::new()
+        .size(width, height)
+        .child(Lightbox::new(Signal::new(true), pictures()).id("viewer"))
+        .into()
+    });
+    settled(&mut stage);
+    assert!(phones(&mut stage), "over a window of {width}");
+    assert_eq!(stage.bounds("viewer"), (0.0, 0.0, width, height), "the whole screen");
+  }
+  // In a page too, and told otherwise it is the desktop's.
+  for (variant, phone) in [(None, true), (Some(LightboxVariant::Desktop), false)] {
+    let mut stage = Stage::first_frame_in(for_a_finger(), 1000.0, 700.0, move |_| {
+      let lightbox = Lightbox::new(Signal::new(true), pictures())
+        .inline(true)
+        .width(420.0)
+        .height(290.0)
+        .id("viewer");
+      Row::new()
+        .child(match variant {
+          Some(variant) => lightbox.variant(variant),
+          None => lightbox,
+        })
+        .into()
+    });
+    settled(&mut stage);
+    assert_eq!(phones(&mut stage), phone, "{variant:?}");
+  }
+}
+
+#[test]
+fn a_narrow_window_of_a_desktop_has_the_desktops_form_laid_out_to_fit() {
+  for (width, height) in [(390.0, 844.0), (320.0, 640.0)] {
+    let mut stage = Stage::first_frame(width, height, move |_| {
+      Column::new()
+        .size(width, height)
+        .child(
+          Lightbox::new(Signal::new(true), pictures())
+            .index(Signal::new(1))
+            .on_download(|_| {})
+            .id("viewer"),
+        )
+        .into()
+    });
+    settled(&mut stage);
+    assert!(
+      !phones(&mut stage),
+      "a window of {width} at the default density: the desktop's"
+    );
+    assert_eq!(stage.bounds("viewer"), (0.0, 0.0, width, height));
+    for id in [
+      "viewer-close",
+      "viewer-download",
+      "viewer-zoom-in",
+      "viewer-zoom-out",
+      "viewer-previous",
+      "viewer-next",
+      "viewer-thumb-0",
+      "viewer-thumb-2",
+    ] {
+      let (x, y, w, h) = stage.bounds(id);
+      assert!(
+        x >= 0.0 && x + w <= width + 0.5 && y >= 0.0 && y + h <= height + 0.5,
+        "{id} is in a window of {width}: {w} at {x}"
+      );
+    }
+    // Told, it is the phone's in a narrow window as in a wide one.
+    let mut stage = Stage::first_frame(width, height, move |_| {
+      Column::new()
+        .size(width, height)
+        .child(
+          Lightbox::new(Signal::new(true), pictures())
+            .variant(LightboxVariant::Phone)
+            .id("viewer"),
+        )
+        .into()
+    });
+    settled(&mut stage);
+    assert!(phones(&mut stage));
+  }
+}
+
+#[test]
+fn the_density_is_how_large_things_are_and_not_which_form() {
+  use lurq::app::{Pointer, theme::Density};
+  for (density, pointer, phone) in [
+    (Density::Compact, Pointer::Coarse, true),
+    (Density::Touch, Pointer::Fine, false),
+  ] {
+    let app = lurq::app::App::new();
+    app.set_pointer(pointer);
+    app.theme().set_density(density);
+    let mut stage = Stage::first_frame_in(app, 1000.0, 700.0, move |_| {
+      Column::new()
+        .size(1000.0, 700.0)
+        .child(Lightbox::new(Signal::new(true), pictures()).id("viewer"))
+        .into()
+    });
+    settled(&mut stage);
+    assert_eq!(phones(&mut stage), phone, "{density:?} with a {pointer:?} pointer");
+  }
+}
+
+#[test]
+fn an_open_lightbox_keeps_its_form_under_the_finger_that_lands_on_it_until_it_closes() {
+  use lurq::app::{Pointer, events::TouchPhase};
+  let open = Signal::new(false);
+  let shown = open.clone();
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
+      .into()
+  });
+  stage.tree.set_pointer(Pointer::Fine);
+  open.set(true);
+  settled(&mut stage);
+  assert!(!phones(&mut stage), "opened under a mouse");
+
+  // A finger lands on it: the pointer is coarse, and the lightbox stays as it opened.
+  let (x, y) = stage.center("viewer-stage");
+  stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
+  stage.tree.touch_event(1, TouchPhase::End, x, y, None);
+  settled(&mut stage);
+  assert_eq!(stage.tree.pointer(), Pointer::Coarse);
+  assert!(!phones(&mut stage), "it does not change under the finger");
+
+  // Closed and opened again, it is the phone's.
+  open.set(false);
+  settled(&mut stage);
+  open.set(true);
+  settled(&mut stage);
+  assert!(phones(&mut stage), "opened under a finger");
+
+  // The app or a test setting the pointer reaches it at once.
+  stage.tree.set_pointer(Pointer::Fine);
+  settled(&mut stage);
+  assert!(!phones(&mut stage), "told");
 }
 
 #[test]

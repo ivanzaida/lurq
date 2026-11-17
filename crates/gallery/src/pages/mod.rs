@@ -57,6 +57,7 @@ mod family_play;
 mod fieldset;
 mod file_upload;
 mod find_bar;
+mod form_controls;
 mod floating_panel;
 mod gallery;
 mod gauge;
@@ -648,6 +649,14 @@ pub const PAGES: &[Page] = &[
     about: "angle slider dial knob rotation degrees direction compass turn wrap round drag press keys step page_step min max new controlled on_change on_change_end value_text label disabled slider",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<angle_slider::AngleSliderPage>(()),
+  },
+  Page {
+    path: "/form",
+    name: "Form controls",
+    icon: Some("list-check"),
+    about: "form controls form field text input textarea multiline checkbox slider range slider submit reset button primary secondary validation validate error required disabled submitting FormTextInput FormCheckboxInput FormSliderInput FormRangeSliderInput FormPrimaryButton FormSecondaryButton FormControlField control error_visibility hint label placeholder height legacy theme",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<form_controls::FormControlsPage>(()),
   },
   Page {
     path: "/tooltip",

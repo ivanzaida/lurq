@@ -6,6 +6,8 @@ use std::{
   time::Duration,
 };
 
+#[cfg(windows)]
+use lurq::ui::{Badge, BadgeVariant, Table, TableColumn};
 use lurq::{
   app::{
     component::Component,
@@ -26,6 +28,24 @@ use crate::{
   kit::{FILL, fit, props_table, quiet, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
+
+/// A decoder that stands for an app's own, with what it gives a frame as and which card it is on.
+#[cfg(windows)]
+type Decoder = (crate::card_demo::Decoded, &'static str, &'static str);
+
+/// Where a decoder is that decodes on the card lurq draws on.
+#[cfg(windows)]
+const THIS_CARD: &str = "The window's card";
+
+/// A row of the table of decoders: its frames, what it gives a frame as, which card it is on, and how lurq
+/// found its frames come to the screen.
+#[cfg(windows)]
+struct Stream {
+  image: lurq::images::ImageData,
+  gives: &'static str,
+  on: &'static str,
+  way: Option<lurq::images::CardFramesWay>,
+}
 
 /// How long the playground's video is, in seconds.
 const LENGTH: f64 = 250.0;
@@ -364,7 +384,7 @@ pub struct VideoPlayerPage {
   address: Signal<String>,
   /// The decoders that stand for an app's own, each with what its frames are.
   #[cfg(windows)]
-  decoded: Arc<std::sync::Mutex<Vec<(crate::card_demo::Decoded, &'static str)>>>,
+  decoded: Arc<std::sync::Mutex<Vec<Decoder>>>,
   /// Whether they run: they start once the window says which card it draws on, which is after this page is made.
   #[cfg(windows)]
   decoding: Signal<bool>,
@@ -927,9 +947,7 @@ impl Component for VideoPlayerPage {
     // the window is made before the window has its device.
     #[cfg(windows)]
     let (decoded, decoding) = (
-      Arc::new(std::sync::Mutex::new(
-        Vec::<(crate::card_demo::Decoded, &'static str)>::new(),
-      )),
+      Arc::new(std::sync::Mutex::new(Vec::<Decoder>::new())),
       ctx.signal(false),
     );
     #[cfg(windows)]
@@ -944,7 +962,7 @@ impl Component for VideoPlayerPage {
             .lock()
             .expect("the decoders of the page")
             .iter()
-            .map(|(decoded, _)| decoded.way())
+            .map(|(decoded, ..)| decoded.way())
             .collect();
           if ways.get() != found {
             ways.set(found);
@@ -952,13 +970,25 @@ impl Component for VideoPlayerPage {
           return;
         }
         let started: Vec<_> = [
-          (crate::card_demo::Kind::Nv12, "one NV12 texture"),
-          (crate::card_demo::Kind::Planes, "a texture of gray and one of color"),
-          (crate::card_demo::Kind::Rgba, "one texture of red, green and blue"),
-          (crate::card_demo::Kind::OtherCard, "a decoder on another card"),
+          (crate::card_demo::Kind::Nv12, "One NV12 texture", THIS_CARD),
+          (
+            crate::card_demo::Kind::Planes,
+            "Two textures: gray, and color",
+            THIS_CARD,
+          ),
+          (
+            crate::card_demo::Kind::Rgba,
+            "One texture of red, green and blue",
+            THIS_CARD,
+          ),
+          (
+            crate::card_demo::Kind::OtherCard,
+            "Two textures: gray, and color",
+            "Another card",
+          ),
         ]
         .into_iter()
-        .filter_map(|(kind, caption)| Some((crate::card_demo::start(kind)?, caption)))
+        .filter_map(|(kind, gives, on)| Some((crate::card_demo::start(kind)?, gives, on)))
         .collect();
         if !started.is_empty() {
           *decoded.lock().expect("the decoders of the page") = started;
@@ -1085,36 +1115,61 @@ impl Component for VideoPlayerPage {
       )
       .into()
     } else {
-      // Side by side, as the tiles of a grid of streams are, each drawn smaller than its frames.
-      let mut row = Row::new().width(FILL).spacing(16.0).wrap().overflow_visible();
+      // A row for each decoder: its frames as they are drawn, what it gives a frame as, which card it is on, and
+      // how lurq found its frames come to the screen.
       let ways = self.ways.get();
-      for (at, (decoded, caption)) in self
+      let streams: Vec<Stream> = self
         .decoded
         .lock()
         .expect("the decoders of the page")
         .iter()
         .enumerate()
-      {
-        let way = match ways.get(at).copied().flatten() {
-          Some(lurq::images::CardFramesWay::Card) => "drawn where the decoder put it",
-          Some(lurq::images::CardFramesWay::Memory) => "copied through memory",
-          Some(lurq::images::CardFramesWay::Nowhere) => "no card opens it",
-          None => "",
-        };
-        row = row.child(
-          Column::new()
-            .width(208.0)
-            .spacing(9.0)
-            .child(
-              lurq::components::Video::new(decoded.image.clone())
-                .stretch()
-                .size(Dimension::Px(208.0), Dimension::Px(117.0)),
-            )
-            .child(quiet(caption, 12.0))
-            .child(quiet(way, 12.0)),
-        );
-      }
-      row.into()
+        .map(|(at, (decoded, gives, on))| Stream {
+          image: decoded.image.clone(),
+          gives,
+          on,
+          way: ways.get(at).copied().flatten(),
+        })
+        .collect();
+      Table::new(
+        [
+          TableColumn::new("frames", "Frames")
+            .width(144.0)
+            .cell(|stream: &Stream| {
+              // A plain picture, as a tile of a grid of streams is, drawn smaller than its frames.
+              Row::new()
+                .padding_vertical(8.0)
+                .child(
+                  lurq::components::Video::new(stream.image.clone())
+                    .stretch()
+                    .size(Dimension::Px(112.0), Dimension::Px(63.0)),
+                )
+                .into()
+            }),
+          TableColumn::new("gives", "A frame is")
+            .share(1.0)
+            .min_width(120.0)
+            .wrap(true)
+            .text(|stream: &Stream| stream.gives.to_owned()),
+          TableColumn::new("on", "Decoded on")
+            .width(124.0)
+            .wrap(true)
+            .muted(true)
+            .text(|stream: &Stream| stream.on.to_owned()),
+          TableColumn::new("way", "Drawn").width(148.0).cell(|stream: &Stream| {
+            let (label, variant) = match stream.way {
+              Some(lurq::images::CardFramesWay::Card) => ("On the card", BadgeVariant::Success),
+              Some(lurq::images::CardFramesWay::Memory) => ("Through memory", BadgeVariant::Warning),
+              Some(lurq::images::CardFramesWay::Nowhere) => ("Not drawn", BadgeVariant::Destructive),
+              None => return quiet("…", 13.0).into(),
+            };
+            Badge::new(label).variant(variant).into()
+          }),
+        ],
+        streams,
+      )
+      .label("Decoders and how their frames come to the screen")
+      .into()
     };
     #[cfg(not(windows))]
     let decoded: Element = quiet(
@@ -1239,9 +1294,10 @@ impl Component for VideoPlayerPage {
       (
         "touch",
         "bool",
-        "false",
+        "by the pointer",
         "The touch form: larger controls over a scrim, shown and hidden by a tap, two taps on a side seeking ten \
-         seconds. On its side while in fullscreen.",
+         seconds. On its side while in fullscreen. Unless told, it is the touch form under a finger \
+         (Pointer::Coarse), whatever its width.",
       ),
       (
         "title / description / on_back",
@@ -1420,11 +1476,11 @@ impl Component for VideoPlayerPage {
           "Frames of a decoder of your own",
           "An app that decodes by itself (a stream, a codec the system has not) gives lurq the textures its \
            frames are in, and lurq draws them where they are: a frame is never in the memory of the program. \
-           Here a thread of the gallery stands for such a decoder, in the three ways one gives a frame. Its \
-           textures are larger than the picture, as a codec's are, and the rows past the picture are pink: \
-           none of it shows. Each is a plain picture, as a tile of a grid of streams is. The last decoder \
-           is on another card than the one the window is drawn on, as on a laptop with two: its frames \
-           are copied through memory, and frames.way() says so.",
+           Each row is a decoder, which a thread of the gallery stands for: the three ways one gives a \
+           frame, and one on another card than the window's, as on a laptop with two. The last column is \
+           what frames.way() says: on the card, the frame is drawn where the decoder put it, with no copy; \
+           through memory, it is copied once, which is how a frame of another card comes. The textures are \
+           larger than the picture, as a codec's are, with pink past the picture, none of which shows.",
           self.frame.demo(
             6,
             decoded,
@@ -1466,7 +1522,8 @@ impl Component for VideoPlayerPage {
           "Touch",
           "For a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play, the time \
            and fullscreen over a seek bar with a thumb of 16, and no volume. In fullscreen it is the form for a \
-           phone on its side. An app chooses it with touch(true).",
+           phone on its side. It is the form under a finger (Pointer::Coarse, as on iOS and Android), and \
+           touch(true) chooses it anywhere: here on a desktop.",
           self.frame.demo(
             4,
             touch,

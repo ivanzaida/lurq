@@ -2426,6 +2426,32 @@ impl Tree {
     }
   }
 
+  /// Input of a kind came: the app's pointer follows it, unless the app pinned it or it does not follow.
+  pub(crate) fn pointer_input(&self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.input(pointer);
+    }
+  }
+
+  /// Sets what the person points with, as if the platform said so, with no input: for a test, a preview or a tool.
+  /// It applies at once, to an open lightbox too, and does not pin it: the next input of the other kind moves it
+  /// again, as [`App::follow_pointer`](crate::app::App::follow_pointer) says.
+  pub fn set_pointer(&mut self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.tell(pointer, false);
+    }
+    self.apply_reactive_updates_after_event();
+  }
+
+  /// What the person points with, as the app's pointer says.
+  pub fn pointer(&self) -> crate::app::Pointer {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or_else(crate::app::Pointer::platform_default, |app| app.shared.pointer.now())
+  }
+
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
     if let Some(ctx) = &mut self.root_ctx {
       ctx.set_app_ref(app);
@@ -4025,6 +4051,10 @@ impl Tree {
   pub fn mouse_move_with_meta(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A mouse or a trackpad that moves makes the pointer fine; what a finger or a pen moves as the pointer does not.
+    if !self.touch_pointer.down && !self.touch_pointer.mouse_pen {
+      self.pointer_input(crate::app::Pointer::Fine);
+    }
     self.track_pointer(x, y);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(
@@ -4150,16 +4180,19 @@ impl Tree {
         self.click_press = None;
         self.click_tracker.take_pending();
         // The second press is a press as well: every `on_mouse_up` has its `on_mouse_down`, and what is pressed
-        // shows so. Its release clicks nothing, the two presses being the double click.
+        // shows so. Its release clicks nothing, the two presses being the double click; a finger's two being a
+        // double tap, told as `on_double_tap`, and no double click.
         self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
-        self.dispatch_mouse_with_click_target(
-          x,
-          y,
-          button,
-          MouseEventKind::DoubleClick,
-          modifiers,
-          Some(click_target_id),
-        );
+        if !self.touch_pointer.down {
+          self.dispatch_mouse_with_click_target(
+            x,
+            y,
+            button,
+            MouseEventKind::DoubleClick,
+            modifiers,
+            Some(click_target_id),
+          );
+        }
         self.apply_reactive_updates_after_event();
         return;
       }
@@ -4311,6 +4344,9 @@ impl Tree {
       return;
     };
 
+    // A finger's or a pen's click: held back only where a double tap is listened for, and its second no double
+    // click (on a phone a double tap zooms).
+    let touch = self.touch_pointer.down;
     if button == MouseButton::Left
       && let ClickDispatchTarget::Node(click_target_id) = click_target
       && self.click_tracker.pending_matches(
@@ -4323,14 +4359,17 @@ impl Tree {
       )
     {
       self.click_tracker.take_pending();
-      self.dispatch_mouse_with_click_target(
-        x,
-        y,
-        button,
-        MouseEventKind::DoubleClick,
-        modifiers,
-        Some(click_target_id),
-      );
+      // The second of a finger's two taps was told as `on_double_tap`: neither tap clicks.
+      if !touch {
+        self.dispatch_mouse_with_click_target(
+          x,
+          y,
+          button,
+          MouseEventKind::DoubleClick,
+          modifiers,
+          Some(click_target_id),
+        );
+      }
       self.apply_reactive_updates_after_event();
       return;
     }
@@ -4339,11 +4378,21 @@ impl Tree {
 
     match click_target {
       ClickDispatchTarget::Node(click_target_id)
-        if button == MouseButton::Left && self.click_target_has_dblclick_handler(click_target_id) =>
+        if button == MouseButton::Left
+          && if touch {
+            self.click_target_has_double_tap_handler(click_target_id)
+          } else {
+            self.click_target_has_dblclick_handler(click_target_id)
+          } =>
       {
-        self
-          .click_tracker
-          .set_pending(press_now, position, button, modifiers, click_target_id);
+        self.click_tracker.set_pending(
+          press_now,
+          position,
+          button,
+          modifiers,
+          click_target_id,
+          self.pointer_kind_now(),
+        );
         self.needs_redraw = true;
       }
       ClickDispatchTarget::Node(click_target_id) => {
@@ -5051,6 +5100,7 @@ impl Tree {
     // A pass or the next click runs it, outside the delivery of its input:
     // its handlers see the source of that input, so an MCP click stays
     // synthetic input.
+    self.touch_pointer.replaying = Some(click.kind);
     with_input_source(click.source, || {
       self.dispatch_mouse_with_click_target(
         click.position.0,
@@ -5069,6 +5119,21 @@ impl Tree {
       }
       self.apply_reactive_updates_after_event();
     });
+    self.touch_pointer.replaying = None;
+  }
+
+  /// Whether the element a finger clicks, or one it is in, listens for a double tap: its click waits for one.
+  fn click_target_has_double_tap_handler(&mut self, target_id: NodeId) -> bool {
+    self.rebuild_if_dirty();
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let Some(path) = find_path_by_id(root, target_id) else {
+      return false;
+    };
+    (0..=path.len())
+      .rev()
+      .any(|depth| find_node_by_path(root, &path[..depth]).is_some_and(|node| !node.events.on_double_tap.is_empty()))
   }
 
   fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
@@ -5223,11 +5288,7 @@ impl Tree {
       alt: modifiers.alt,
       meta: modifiers.meta,
       from_keyboard: false,
-      pointer: if self.touch_pointer.down {
-        crate::app::events::PointerKind::Touch
-      } else {
-        crate::app::events::PointerKind::Mouse
-      },
+      pointer_kind: self.pointer_kind_now(),
       target_id: NodeId::UNASSIGNED,
       time: self.press_now(),
       control,
@@ -5511,7 +5572,7 @@ impl Tree {
         alt: evt.alt,
         meta: evt.meta,
         from_keyboard: false,
-        pointer: evt.pointer,
+        pointer_kind: evt.pointer_kind,
         target_id: hits
           .first()
           .map(|(node, _)| node.node_id())
@@ -9877,7 +9938,7 @@ impl ClickTracker {
       .is_some_and(|pending| now.duration_since(pending.time) > interval)
   }
 
-  /// Holds back a click of the input being delivered now, with its source.
+  /// Holds back a click of the input being delivered now, with its source and what pressed.
   fn set_pending(
     &mut self,
     now: Instant,
@@ -9885,6 +9946,7 @@ impl ClickTracker {
     button: MouseButton,
     modifiers: MouseModifiers,
     target_id: NodeId,
+    kind: crate::app::events::PointerKind,
   ) {
     self.pending_click = Some(PendingClick {
       time: now,
@@ -9893,6 +9955,7 @@ impl ClickTracker {
       modifiers,
       target_id,
       source: input_source(),
+      kind,
     });
   }
 
@@ -9910,6 +9973,8 @@ struct PendingClick {
   target_id: NodeId,
   /// Where the input that made the click came from.
   source: InputSource,
+  /// What pressed: a click held back for a finger's double tap is still a finger's when it is told.
+  kind: crate::app::events::PointerKind,
 }
 
 struct ClickPress {
@@ -9947,7 +10012,7 @@ impl MouseModifiers {
       alt: self.alt,
       meta: self.meta,
       from_keyboard: true,
-      pointer: crate::app::events::PointerKind::Mouse,
+      pointer_kind: crate::app::events::PointerKind::Mouse,
       target_id,
       time: Instant::now(),
       control: EventControl::new(),
@@ -10412,7 +10477,7 @@ impl<'t> ElementHandle<'t> {
       alt: false,
       meta: false,
       from_keyboard: false,
-      pointer: crate::app::events::PointerKind::Mouse,
+      pointer_kind: crate::app::events::PointerKind::Mouse,
       target_id: self.node_id,
       time: Instant::now(),
       control: EventControl::new(),

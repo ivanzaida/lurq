@@ -162,6 +162,8 @@ pub(crate) struct AppShared {
   pub(crate) dates: crate::core::AppDateText,
   /// Every word lurq writes by itself, the app's choice: [`App::set_locale`].
   pub(crate) locale: crate::core::AppLocale,
+  /// What the person points with: [`App::pointer`].
+  pub(crate) pointer: super::pointer::AppPointer,
   pub(crate) window_opener: WindowOpener,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
@@ -195,6 +197,7 @@ impl App {
         theme: Theme::new(),
         dates: crate::core::AppDateText::new(),
         locale: crate::core::AppLocale::new(),
+        pointer: super::pointer::AppPointer::new(),
         window_opener: WindowOpener::default(),
         #[cfg(feature = "i18n")]
         i18n: I18n::new(),
@@ -295,6 +298,37 @@ impl App {
   /// What [`Self::set_locale`] set, English before: read in a render, it renders that again when it changes.
   pub fn locale(&self) -> std::sync::Arc<crate::core::Locale> {
     self.shared.locale.get()
+  }
+
+  /// What the person points with: a finger ([`Pointer::Coarse`](super::Pointer::Coarse)) or a mouse, a trackpad or
+  /// a pen ([`Pointer::Fine`](super::Pointer::Fine)). It starts as the platform says
+  /// ([`Pointer::platform_default`](super::Pointer::platform_default)) and, unless the app pins it, follows the
+  /// last input: a finger makes it coarse, a mouse or a trackpad that moves makes it fine, a pen leaves it. Read in
+  /// a render, it renders that again when it changes. A component dressed for a finger asks
+  /// [`ui::touch_form`](crate::ui::touch_form).
+  pub fn pointer(&self) -> super::Pointer {
+    self.shared.pointer.get()
+  }
+
+  /// Pins what the person points with: input no longer moves it, and everything that reads it is rendered again,
+  /// an open lightbox too. A kiosk with a touch screen pins [`Pointer::Coarse`](super::Pointer::Coarse); a test
+  /// or a preview of the phone's forms on a desktop either. [`follow_pointer(true)`](Self::follow_pointer) lets go.
+  ///
+  /// ```
+  /// use lurq::app::{App, Pointer};
+  ///
+  /// let app = App::new();
+  /// app.set_pointer(Pointer::Coarse);
+  /// assert_eq!(app.pointer(), Pointer::Coarse);
+  /// ```
+  pub fn set_pointer(&self, pointer: super::Pointer) {
+    self.shared.pointer.tell(pointer, true);
+  }
+
+  /// Whether the last input moves the pointer: on unless told. `false` keeps it where it is; `true` follows input
+  /// again, and lets go of what [`set_pointer`](Self::set_pointer) pinned.
+  pub fn follow_pointer(&self, follows: bool) {
+    self.shared.pointer.follow(follows);
   }
 
   /// How every calendar and date picker of the app writes and reads dates, and names its months, its days and its

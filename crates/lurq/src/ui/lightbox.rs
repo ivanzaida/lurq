@@ -397,8 +397,11 @@ impl Lightbox {
     self
   }
 
-  /// The form ([`LightboxVariant`]): the phone's where the window is narrower than the theme's `Sm` and the
-  /// lightbox is over it, unless told.
+  /// The form ([`LightboxVariant`]): the phone's where the person points with a finger
+  /// ([`Pointer::Coarse`](crate::app::Pointer::Coarse), [`touch_form`](super::touch_form)), whatever the window's
+  /// width and the theme's density, unless told. In a narrow window of a desktop it is the desktop's, laid out
+  /// narrow. Open, it keeps the form it opened in until it closes (in a page, the one it was first shown in), so a
+  /// finger that lands on it does not change it under itself; the app setting the pointer changes it at once.
   pub fn variant(mut self, variant: impl Into<Name>) -> Self {
     self.variant = Some(variant.into());
     self
@@ -608,6 +611,9 @@ struct LightboxHost {
   taken: Arc<std::sync::atomic::AtomicBool>,
   /// Whether it was open at the last render: one that opens again shows its picture fitted.
   was_open: std::sync::atomic::AtomicBool,
+  /// The form it took when it opened, and how many times the pointer had been told then: an open lightbox keeps
+  /// its form while a finger or a mouse moves the pointer, and gives way when the app sets it.
+  held: parking_lot::Mutex<Option<(bool, u64)>>,
   /// The pictures about the one shown brought on ahead, by their places, with the loads held while they are
   /// on their way.
   ahead: parking_lot::Mutex<Vec<(usize, Option<crate::resources::Load>)>>,
@@ -641,6 +647,7 @@ impl Component for LightboxHost {
       drop: ctx.signal(0.0),
       taken: Arc::default(),
       was_open: std::sync::atomic::AtomicBool::new(false),
+      held: parking_lot::Mutex::new(None),
       ahead: parking_lot::Mutex::new(Vec::new()),
       ahead_tick,
       ahead_wake,
@@ -669,11 +676,21 @@ impl Component for LightboxHost {
       self.scroll.set_scroll(0.0, 0.0);
     }
     let max = lightbox.zoom_max;
+    // The phone's form is for a finger, which the person's pointer says; a narrow window is a desktop's still, and
+    // the desktop's form lays itself out in the room it has. Open, it keeps the form it opened in, so that it does
+    // not change under the finger that just touched it; the app setting the pointer reaches it at once.
     let phone = match lightbox.variant {
       Some(variant) => variant == Name::from(LightboxVariant::Phone),
       None => {
-        !lightbox.inline
-          && !super::current_breakpoint().is_some_and(|breakpoint| breakpoint >= crate::app::theme::Breakpoint::Sm)
+        let (finger, told) = (super::touch_form(), super::theme::pointer_told());
+        let mut held = self.held.lock();
+        match *held {
+          Some((phone, at)) if open && at == told => phone,
+          _ => {
+            *held = open.then_some((finger, told));
+            finger
+          }
+        }
       }
     };
     // Over the whole of a phone's screen it keeps clear of what the system draws over its edges.

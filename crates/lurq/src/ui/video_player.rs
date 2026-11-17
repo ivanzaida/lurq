@@ -516,7 +516,7 @@ pub struct VideoPlayer {
   on_retry: Vec<Action>,
   #[cfg(feature = "media")]
   source: Option<crate::resources::Source>,
-  touch: bool,
+  touch: Option<bool>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
   on_back: Vec<Action>,
@@ -617,7 +617,7 @@ impl VideoPlayer {
       on_retry: Vec::new(),
       #[cfg(feature = "media")]
       source: None,
-      touch: false,
+      touch: None,
       title: None,
       description: None,
       on_back: Vec::new(),
@@ -962,10 +962,17 @@ impl VideoPlayer {
   /// in the middle, the time and fullscreen over the seek bar at the bottom, and no volume (a phone has keys for
   /// it). A tap on the picture shows the controls and hides them; two on its left or its right third seek ten
   /// seconds, and more of them add up. In fullscreen it is the form for a phone on its side, with its
-  /// [`title`](Self::title) at the top and its speed at the bottom.
+  /// [`title`](Self::title) at the top and its speed at the bottom. Unless told, it is the touch form where the
+  /// person points with a finger ([`Pointer::Coarse`](crate::app::Pointer::Coarse),
+  /// [`touch_form`](super::touch_form)), whatever its width and the theme's density.
   pub fn touch(mut self, touch: bool) -> Self {
-    self.touch = touch;
+    self.touch = Some(touch);
     self
+  }
+
+  /// Whether it is the touch form: as told, or as the person's pointer says.
+  fn is_touch(&self) -> bool {
+    self.touch.unwrap_or_else(super::touch_form)
   }
 
   /// What plays, said at the top of the touch form on its side.
@@ -1517,7 +1524,7 @@ impl Component for VideoPlayerHost {
       }
       // The touch form's controls are the finger's to hide while it is paused too.
       if !shown
-        && !player.touch
+        && !player.is_touch()
         && let Some(show) = &live.show
       {
         show.start();
@@ -1894,7 +1901,9 @@ impl Component for PictureWindow {
 }
 
 /// Builds the view of `player` in `theme`, with its controls made, and their tooltips where `ctx` is given.
-fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) -> VideoPlayerView {
+fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) -> VideoPlayerView {
+  // Which form it is, asked of the person's pointer once.
+  player.touch = Some(player.is_touch());
   // Not measured yet (the still form, and a mounted player's first render): a width given in pixels decides
   // what the measure would, so that a player told to be 432 wide folds its volume without being mounted.
   let measured = match live.bucket.get() {
@@ -1918,10 +1927,13 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
   let resting = player.playing.value && !player.waiting && !player.ended && player.error.is_none();
   let shown = player.force_controls_shown.unwrap_or_else(|| {
     // A tap shows and hides the touch form's controls whether it plays or not.
-    (!resting && !player.touch) || live.shown.get() || menu_open || (live.mounted && live.root.focus_visible_within())
+    (!resting && !player.is_touch())
+      || live.shown.get()
+      || menu_open
+      || (live.mounted && live.root.focus_visible_within())
   });
   let has_bar = player.controls && player.error.is_none() && !poster;
-  let landscape = player.touch && player.fullscreen.value;
+  let landscape = player.is_touch() && player.fullscreen.value;
   let case = Case {
     variant: None,
     size: Some(form.into()),
@@ -1939,8 +1951,8 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
   .state(VideoPlayerState::Fullscreen, player.fullscreen.value)
   .state(VideoPlayerState::Poster, poster)
   .state(VideoPlayerState::Bare, !player.controls)
-  .state(VideoPlayerState::Hidden, has_bar && !shown && !player.touch)
-  .state(VideoPlayerState::Touch, player.touch)
+  .state(VideoPlayerState::Hidden, has_bar && !shown && !player.is_touch())
+  .state(VideoPlayerState::Touch, player.is_touch())
   .state(VideoPlayerState::Landscape, landscape)
   .state(VideoPlayerState::Narrow, narrow);
   let recipe = theme.resolve::<VideoPlayer>(&case, Some(&player.rules));
@@ -1953,13 +1965,13 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     ctx,
     form,
   };
-  let touch = (player.touch && player.controls).then(|| make.touch(landscape));
-  let bar = (has_bar && !player.touch).then(|| make.bar(narrow));
+  let touch = (player.is_touch() && player.controls).then(|| make.touch(landscape));
+  let bar = (has_bar && !player.is_touch()).then(|| make.bar(narrow));
   // The touch form has its transport in the middle: only the error and the spinner stand there.
-  let center = (player.controls && (!player.touch || player.error.is_some() || player.waiting))
+  let center = (player.controls && (!player.is_touch() || player.error.is_some() || player.waiting))
     .then(|| make.center())
     .flatten();
-  let tap = (player.touch && player.controls && player.error.is_none()).then(|| make.tap());
+  let tap = (player.is_touch() && player.controls && player.error.is_none()).then(|| make.tap());
   let retry = make.retry();
   let root_keys: Arc<dyn Fn(KeyboardEvent) + Send + Sync> = Arc::new(make.keys());
   VideoPlayerView {
@@ -2003,7 +2015,7 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     pressed: live.pressed.clone(),
     fullscreen: make.fullscreen_toggle(),
     // A finger does not hover: the touch form's controls are shown by a tap, not by the pointer moving.
-    poke: (live.mounted && !player.touch).then(|| Arc::new(live.poke()) as Action),
+    poke: (live.mounted && !player.is_touch()).then(|| Arc::new(live.poke()) as Action),
     root: live.root.clone(),
     // A menu drawn open by force hangs from its anchor in the still form too: a picture of it, not dragged.
     mounted: live.mounted || player.force_menu.is_some(),
@@ -2236,7 +2248,7 @@ impl Make<'_, '_> {
       bar = bar.id(id);
     }
     // A finger's: 28 high, the thumb 16.
-    if player.touch {
+    if player.is_touch() {
       bar = bar.size(super::SeekBarSize::Lg);
     }
     // Mounted, the bar shows the time and the frame under the pointer.
@@ -2259,7 +2271,7 @@ impl Make<'_, '_> {
         time = time.id(id);
       }
       time.build(self.recipe.theme())
-    } else if self.form == VideoPlayerSize::Sm && !player.touch {
+    } else if self.form == VideoPlayerSize::Sm && !player.is_touch() {
       let elapsed = self.part(VideoPlayerPart::Elapsed);
       let hours = player.duration.is_some_and(|duration| duration >= 3600.0);
       Row::new()
@@ -2269,7 +2281,7 @@ impl Make<'_, '_> {
     } else {
       let remaining = self.live.remaining.clone();
       // Mono 12 in the large bar, 11 in the compact one; the touch form's is 12, and 13 on its side.
-      let size = match (player.touch, player.fullscreen.value, self.form) {
+      let size = match (player.is_touch(), player.fullscreen.value, self.form) {
         (true, true, _) => MediaTimeSize::Lg,
         (true, false, _) => MediaTimeSize::Md,
         (false, _, VideoPlayerSize::Md) => MediaTimeSize::Sm,
@@ -2411,7 +2423,7 @@ impl Make<'_, '_> {
       VideoPlayerMenu::More => "more-menu",
     };
     // The touch form's settings are at its top, and open under it.
-    let (anchor, placement) = if self.player.touch {
+    let (anchor, placement) = if self.player.is_touch() {
       (self.live.buttons.clone(), Placement::BottomEnd)
     } else {
       (self.live.row.clone(), Placement::TopEnd)

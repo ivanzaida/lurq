@@ -48,8 +48,9 @@ mod loop_wait;
 mod loop_wait_tests;
 mod native_resize;
 mod notched_wheel;
-#[cfg(any(target_os = "ios", test))]
 mod touch;
+#[cfg(test)]
+mod touch_delivery_tests;
 #[cfg(test)]
 mod touch_tests;
 #[cfg(target_arch = "wasm32")]
@@ -347,7 +348,10 @@ struct ManagedWindow {
   /// Where the wheel turns over the canvas, which winit does not say.
   #[cfg(target_arch = "wasm32")]
   wheel_pointer: Option<web::WheelPointer>,
-  #[cfg(target_os = "ios")]
+  /// Whether the mouse's events are a pen's; see [`web::PenPointer`].
+  #[cfg(target_arch = "wasm32")]
+  pen_pointer: Option<web::PenPointer>,
+  /// The finger that is the window's pointer, wherever winit tells touches; see [`touch`].
   touch: touch::TouchPointer,
   /// The status bar was last asked to be hidden.
   #[cfg(target_os = "ios")]
@@ -409,7 +413,8 @@ impl ManagedWindow {
       file_drag: FileDragShell::default(),
       #[cfg(target_arch = "wasm32")]
       wheel_pointer: None,
-      #[cfg(target_os = "ios")]
+      #[cfg(target_arch = "wasm32")]
+      pen_pointer: None,
       touch: touch::TouchPointer::default(),
       #[cfg(target_os = "ios")]
       status_bar_hidden: false,
@@ -449,24 +454,18 @@ impl ManagedWindow {
   /// When a finger on the window next needs the loop: to press after resting, or for a step of momentum.
   fn next_touch_deadline(&self) -> Option<Instant> {
     #[cfg(target_os = "ios")]
-    return self
+    let keyboard_moving = ios::keyboard_moving();
+    #[cfg(not(target_os = "ios"))]
+    let keyboard_moving = false;
+    self
       .touch
       .next_deadline()
       .into_iter()
-      .chain((self.tree.touch_animating() || ios::keyboard_moving()).then(|| Instant::now() + touch::SPRING_STEP))
-      .min();
-    #[cfg(not(target_os = "ios"))]
-    None
-  }
-
-  /// A finger's scroll just ended; see [`page_after_scroll`].
-  #[cfg(target_os = "ios")]
-  fn page_after_scroll(&mut self) {
-    page_after_scroll(&mut self.tree, &mut self.touch, &mut self.cursor_pos);
+      .chain((self.tree.touch_animating() || keyboard_moving).then(|| Instant::now() + touch::SPRING_STEP))
+      .min()
   }
 
   /// Gives the tree what a touch came to; see [`apply_touch_actions`].
-  #[cfg(target_os = "ios")]
   fn apply_touch_actions(&mut self, actions: Vec<touch::TouchAction>, momentum: bool) -> bool {
     apply_touch_actions(&mut self.tree, &mut self.touch, &mut self.cursor_pos, actions, momentum)
   }
@@ -492,6 +491,7 @@ impl ManagedWindow {
     #[cfg(target_arch = "wasm32")]
     {
       self.wheel_pointer = web::WheelPointer::watch(&window);
+      self.pen_pointer = web::PenPointer::watch(&window);
     }
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
@@ -874,7 +874,6 @@ impl ManagedWindow {
     }
     self.tree.tick_timers();
     self.tree.tick_futures();
-    #[cfg(target_os = "ios")]
     {
       let actions = self.touch.tick(now);
       if !self.apply_touch_actions(actions, true)
@@ -884,6 +883,9 @@ impl ManagedWindow {
         self.tree.touch_scroll_bounce(velocity.0 as f32, velocity.1 as f32, now);
       }
       self.tree.touch_tick(now);
+    }
+    #[cfg(target_os = "ios")]
+    {
       // What the keyboard did goes to the focused input, and the keyboard follows the focus.
       if let Some(text_input) = &mut self.text_input {
         text_input.sync(&mut self.tree);
@@ -980,6 +982,13 @@ impl ManagedWindow {
       // Delivered at the turn's end, once the burst of one file per event
       // is complete; see `file_drag`.
       return false;
+    }
+    // In the browser a pen's pointer events come as the mouse's: the tree is told which they are.
+    #[cfg(target_arch = "wasm32")]
+    if matches!(event, WindowEvent::CursorMoved { .. } | WindowEvent::MouseInput { .. })
+      && let Some(pen) = &self.pen_pointer
+    {
+      self.tree.set_mouse_is_pen(pen.is_pen());
     }
     match event {
       WindowEvent::CloseRequested => {
@@ -1174,13 +1183,14 @@ impl ManagedWindow {
         self.apply_cursor();
         self.check_redraw();
       }
-      #[cfg(target_os = "ios")]
+      // winit tells a finger (and a pen) as a touch on iOS, Android, Windows, Linux and in the browser.
       WindowEvent::Touch(touch) => {
-        let scale = f64::from(self.tree.scale_factor());
+        #[cfg(target_os = "ios")]
         if touch.phase == TouchPhase::Started && ios::keyboard_moving() {
           self.touched_during_keyboard_move = Some(ios::keyboard_move());
         }
         // Whether the keyboard follows this finger down, said before the finger moves: a list under it asks.
+        #[cfg(target_os = "ios")]
         if touch.phase == TouchPhase::Started
           && let Some(drag) = &mut self.keyboard_drag
         {
@@ -1189,48 +1199,17 @@ impl ManagedWindow {
             .touch_keyboard_follows_at(touch.location.x as f32, touch.location.y as f32);
           drag.set_interactive(follows);
         }
-        // The finger's own events come first. One a handler took is the app's, and not the pointer.
-        let phase = match touch.phase {
-          TouchPhase::Started => crate::app::events::TouchPhase::Start,
-          TouchPhase::Moved => crate::app::events::TouchPhase::Move,
-          TouchPhase::Ended => crate::app::events::TouchPhase::End,
-          TouchPhase::Cancelled => crate::app::events::TouchPhase::Cancel,
-        };
-        let force = touch.force.map(|force| force.normalized() as f32);
-        let route = self
-          .tree
-          .touch_event(touch.id, phase, touch.location.x as f32, touch.location.y as f32, force);
+        let route = deliver_touch(
+          &mut self.tree,
+          &mut self.touch,
+          &mut self.cursor_pos,
+          &touch,
+          Instant::now(),
+        );
         if route != crate::app::runtime::TouchRoute::Pointer {
-          if route == crate::app::runtime::TouchRoute::Gesture {
-            // Two fingers pinch or rotate: what the first one did as the pointer ends without a click.
-            let actions = self.touch.abandon();
-            let lifted = touch::ends_scroll(&actions);
-            self.apply_touch_actions(actions, false);
-            if lifted {
-              self.page_after_scroll();
-            }
-          }
           self.apply_window_commands(event_loop);
           self.check_redraw();
           return false;
-        }
-        self.touch.set_momentum(self.tree.touch_momentum());
-        // A finger that lands on content springing back holds it where it is.
-        let springing = touch.phase == TouchPhase::Started && self.tree.touch_scroll_catch();
-        let tree = &mut self.tree;
-        let actions = self.touch.touch(
-          touch.id,
-          touch.phase,
-          (touch.location.x, touch.location.y),
-          Instant::now(),
-          scale,
-          springing,
-          |(x, y)| tree.touch_scrolls_at(x as f32, y as f32),
-        );
-        let lifted = matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) && touch::ends_scroll(&actions);
-        self.apply_touch_actions(actions, false);
-        if lifted {
-          self.page_after_scroll();
         }
       }
       // UIKit draws a view from `drawRect:`, which is where winit sends this event from, and drops a
@@ -1272,7 +1251,6 @@ struct ManagedSecondaryWindow {
   ime: ime::ImeSync,
   file_drag: FileDragShell,
   /// The finger that is the window's pointer; see [`touch`].
-  #[cfg(target_os = "ios")]
   touch: touch::TouchPointer,
 }
 
@@ -1299,7 +1277,9 @@ impl ManagedSecondaryWindow {
       ios::leave_other_scene(view);
     }
   }
+}
 
+impl ManagedSecondaryWindow {
   /// When the finger on the window, or what it left moving, next needs the loop.
   fn next_touch_deadline(&self, tree: &Tree) -> Option<Instant> {
     self
@@ -1312,41 +1292,7 @@ impl ManagedSecondaryWindow {
 
   /// A touch on the window: the first finger is its pointer, as on the app's first window.
   fn handle_touch(&mut self, tree: &mut Tree, touch: winit::event::Touch) {
-    let scale = f64::from(tree.scale_factor());
-    let phase = match touch.phase {
-      TouchPhase::Started => crate::app::events::TouchPhase::Start,
-      TouchPhase::Moved => crate::app::events::TouchPhase::Move,
-      TouchPhase::Ended => crate::app::events::TouchPhase::End,
-      TouchPhase::Cancelled => crate::app::events::TouchPhase::Cancel,
-    };
-    let force = touch.force.map(|force| force.normalized() as f32);
-    let (x, y) = (touch.location.x, touch.location.y);
-    let route = tree.touch_event(touch.id, phase, x as f32, y as f32, force);
-    let actions = match route {
-      crate::app::runtime::TouchRoute::Pointer => {
-        self.touch.set_momentum(tree.touch_momentum());
-        let springing = touch.phase == TouchPhase::Started && tree.touch_scroll_catch();
-        self.touch.touch(
-          touch.id,
-          touch.phase,
-          (x, y),
-          Instant::now(),
-          scale,
-          springing,
-          |(x, y)| tree.touch_scrolls_at(x as f32, y as f32),
-        )
-      }
-      // Two fingers pinch or rotate: what the first one did as the pointer ends without a click.
-      crate::app::runtime::TouchRoute::Gesture => self.touch.abandon(),
-      _ => return,
-    };
-    let lifted = touch::ends_scroll(&actions)
-      && (route != crate::app::runtime::TouchRoute::Pointer
-        || matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled));
-    apply_touch_actions(tree, &mut self.touch, &mut self.cursor_pos, actions, false);
-    if lifted {
-      page_after_scroll(tree, &mut self.touch, &mut self.cursor_pos);
-    }
+    deliver_touch(tree, &mut self.touch, &mut self.cursor_pos, &touch, Instant::now());
   }
 
   /// What time brings a finger on the window: its press, its momentum, and content springing back.
@@ -1385,7 +1331,6 @@ impl ManagedSecondaryWindow {
       frames: FrameSource::default(),
       ime: ime::ImeSync::default(),
       file_drag: FileDragShell::default(),
-      #[cfg(target_os = "ios")]
       touch: touch::TouchPointer::default(),
     }
   }
@@ -1668,7 +1613,6 @@ impl ManagedSecondaryWindow {
     let now = Instant::now();
     tree.tick_timers();
     tree.tick_futures();
-    #[cfg(target_os = "ios")]
     self.tick_touch(tree, now);
     self.file_drag.flush(tree, self.window.as_ref(), self.cursor_pos);
     let window = self.window.as_ref();
@@ -1828,7 +1772,6 @@ impl ManagedSecondaryWindow {
         self.apply_cursor(tree);
         self.check_redraw(tree);
       }
-      #[cfg(target_os = "ios")]
       WindowEvent::Touch(touch) => self.handle_touch(tree, touch),
       WindowEvent::RedrawRequested => {
         let presented = self.present_now(app, tree);
@@ -1843,9 +1786,106 @@ impl ManagedSecondaryWindow {
   }
 }
 
+/// A touch on a window, as winit gives it: the finger's own events first, to what it landed on; then, where it is
+/// the shell's (no handler took it, no gesture has it), the pointer it stands for, through `touch`'s model of a
+/// finger. Tells whose the finger was.
+fn deliver_touch(
+  tree: &mut Tree,
+  pointer: &mut touch::TouchPointer,
+  cursor_pos: &mut (f64, f64),
+  touch: &winit::event::Touch,
+  now: Instant,
+) -> crate::app::runtime::TouchRoute {
+  use crate::app::runtime::TouchRoute;
+  let scale = f64::from(tree.scale_factor());
+  let phase = match touch.phase {
+    TouchPhase::Started => crate::app::events::TouchPhase::Start,
+    TouchPhase::Moved => crate::app::events::TouchPhase::Move,
+    TouchPhase::Ended => crate::app::events::TouchPhase::End,
+    TouchPhase::Cancelled => crate::app::events::TouchPhase::Cancel,
+  };
+  let force = touch.force.map(|force| force.normalized() as f32);
+  let (x, y) = (touch.location.x, touch.location.y);
+  let route = tree.touch_event_by(touch.id, phase, x as f32, y as f32, force, is_pen(touch));
+  let actions = match route {
+    TouchRoute::Pointer => {
+      pointer.set_momentum(tree.touch_momentum());
+      // A finger that lands on content springing back holds it where it is.
+      let springing = touch.phase == TouchPhase::Started && tree.touch_scroll_catch();
+      pointer.touch(touch.id, touch.phase, (x, y), now, scale, springing, |(x, y)| {
+        tree.touch_scrolls_at(x as f32, y as f32)
+      })
+    }
+    // Two fingers pinch or rotate: what the first one did as the pointer ends without a click.
+    TouchRoute::Gesture => pointer.abandon(),
+    TouchRoute::Taken => return route,
+  };
+  let lifted = touch::ends_scroll(&actions)
+    && (route != TouchRoute::Pointer || matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled));
+  apply_touch_actions(tree, pointer, cursor_pos, actions, false);
+  if lifted {
+    page_after_scroll(tree, pointer, cursor_pos);
+  }
+  route
+}
+
+/// Whether a touch is a pen's, where winit lets it be told:
+///
+/// - on iOS an Apple Pencil's touch has the angle it is held at, a finger's none;
+/// - on Windows a finger comes as `WM_TOUCH`, with no force, and a pen as pointer input with its pressure
+///   (`Force::Normalized`), since winit registers the window for touch;
+/// - elsewhere winit tells nothing of it (Android, Linux; the browser gives a pen as the mouse), and a touch is a
+///   finger's.
+fn is_pen(touch: &winit::event::Touch) -> bool {
+  pen_by_force(touch.force)
+}
+
+#[cfg(target_os = "ios")]
+fn pen_by_force(force: Option<winit::event::Force>) -> bool {
+  matches!(
+    force,
+    Some(winit::event::Force::Calibrated {
+      altitude_angle: Some(_),
+      ..
+    })
+  )
+}
+
+#[cfg(windows)]
+fn pen_by_force(force: Option<winit::event::Force>) -> bool {
+  matches!(force, Some(winit::event::Force::Normalized(_)))
+}
+
+#[cfg(not(any(target_os = "ios", windows)))]
+fn pen_by_force(_force: Option<winit::event::Force>) -> bool {
+  false
+}
+
+/// Whether a mouse event is one Windows made from a touch: it promotes a finger's `WM_TOUCH` to mouse messages,
+/// which winit passes on as the mouse's, marked with `MI_WP_SIGNATURE` in the message's extra information. The
+/// finger already reached the tree as a touch, so the mouse's copy would press and click it a second time.
+fn promoted_from_touch(event: &WindowEvent) -> bool {
+  if !matches!(event, WindowEvent::CursorMoved { .. } | WindowEvent::MouseInput { .. }) {
+    return false;
+  }
+  promoted_message()
+}
+
+#[cfg(windows)]
+fn promoted_message() -> bool {
+  /// `MI_WP_SIGNATURE`, in the high three bytes of what `GetMessageExtraInfo` gives.
+  const SIGNATURE: u32 = 0xFF51_5700;
+  let extra = unsafe { windows::Win32::UI::WindowsAndMessaging::GetMessageExtraInfo() };
+  (extra.0 as u32) & 0xFFFF_FF00 == SIGNATURE
+}
+
+#[cfg(not(windows))]
+fn promoted_message() -> bool {
+  false
+}
+
 /// A finger's scroll of a window's content just ended. A list that scrolls by pages has no momentum: it goes
 /// on to a page, from how fast the finger lifted.
-#[cfg(target_os = "ios")]
 fn page_after_scroll(tree: &mut Tree, pointer: &mut touch::TouchPointer, cursor_pos: &mut (f64, f64)) {
   if !tree.touch_scroll_pages() {
     return;
@@ -1862,7 +1902,6 @@ fn page_after_scroll(tree: &mut Tree, pointer: &mut touch::TouchPointer, cursor_
 
 /// Gives a window's tree what a touch on the window came to; see [`touch`]. `false` when the actions scrolled
 /// and the last scroll moved nothing.
-#[cfg(target_os = "ios")]
 fn apply_touch_actions(
   tree: &mut Tree,
   pointer: &mut touch::TouchPointer,
@@ -2278,6 +2317,10 @@ impl ApplicationHandler for WinitHandler {
   }
 
   fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    // A finger's touch reached the tree as a touch: the mouse's copy of it Windows makes is dropped.
+    if promoted_from_touch(&event) {
+      return;
+    }
     let event_name = window_event_name(&event);
     let _slow_scope = WinitSlowScope::new("window_event", event_name);
     if self.main.window_id() == Some(id) {
@@ -2527,7 +2570,6 @@ impl ApplicationHandler for WinitHandler {
       .filter_map(ManagedSecondaryWindow::next_file_drag_poll)
       .chain(self.main.next_file_drag_poll())
       .min();
-    #[cfg(target_os = "ios")]
     let next_secondary_touch = self
       .secondaries
       .iter()
@@ -2536,8 +2578,6 @@ impl ApplicationHandler for WinitHandler {
         secondary_window.next_touch_deadline(secondary.tree())
       })
       .min();
-    #[cfg(not(target_os = "ios"))]
-    let next_secondary_touch: Option<Instant> = None;
     let next_timer = trees()
       .filter_map(Tree::next_timer_at)
       .chain(next_file_drag_poll)
