@@ -1228,10 +1228,9 @@ impl LinkPreviewView {
       LinkPreviewVariant::Inline => {
         let mut root = self.root().align_items(Alignment::Center);
         if self.loading {
-          let part = self.part(LinkPreviewPart::Icon);
-          let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
+          // The icon's box in the muted color, as the board draws it while the page is read.
           root = root
-            .child(Skeleton::block(side, side).build(self.theme()))
+            .child(Row::new().part(&self.part(LinkPreviewPart::Icon)))
             .child(Skeleton::line().width(96.0).height(10.0).build(self.theme()));
         } else {
           root = root.child(self.icon()).child(self.title());
@@ -1281,9 +1280,11 @@ impl Themed for LinkPreview {
   /// 168 by 12 in a card; 88, 232 and 168 in a row; a square of 14 and a line of 96 by 10 in a sentence.
   fn recipe() -> Recipe {
     use LinkPreviewPart::*;
-    use LinkPreviewState::{Disabled, Media as WithMedia};
+    use LinkPreviewState::{Disabled, Loading, Media as WithMedia};
     use LinkPreviewVariant::{Card, Compact, Inline};
-    use PaletteColor::{Border as Edge, Card as Surface, CardForeground, Foreground, MutedForeground, StateHover};
+    use PaletteColor::{
+      Border as Edge, Card as Surface, CardForeground, Foreground, Muted, MutedForeground, StateHover,
+    };
     let edge = || Border::inside(BorderSize::Sm, Edge);
     let white = Color::new(255, 255, 255, 255);
     Recipe::new()
@@ -1347,6 +1348,9 @@ impl Themed for LinkPreview {
       .base(Site, |s| s.gap(6.0))
       .base(Icon, |s| s.square(14.0).foreground(MutedForeground))
       .variant(Card, Icon, |s| s.square(16.0))
+      .when(Selector::new().variant(Inline).state(Loading), Icon, |s| {
+        s.background(Muted).radius(RadiusSize::Sm)
+      })
       .base(Domain, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(12.0)
