@@ -88,6 +88,11 @@ fn scene() -> Row {
     .align_items(Alignment::Center)
 }
 
+/// A line under what a scene shows, as wide as the scene and wrapping in it.
+fn note(text: &str) -> Column {
+  Column::new().width(FILL).child(quiet(text, 12.0).width(FILL))
+}
+
 /// A switch of a scene's controls, bound to `on`.
 fn toggle(label: &str, on: &Signal<bool>) -> Switch {
   Switch::new(label).bind(on.clone())
@@ -299,7 +304,7 @@ impl StylingPage {
     });
     let forced = self.forced_hover.get().then_some(Interaction::Hovered);
     controlled(
-      toggle("Draw it as under the pointer (.force)", &self.forced_hover),
+      toggle(".force(hovered)", &self.forced_hover),
       scene()
         .child(
           Button::new("Delete")
@@ -308,7 +313,7 @@ impl StylingPage {
             .force(forced),
         )
         .child(Button::new("Keep").variant(ButtonVariant::Outline))
-        .child(quiet("Point at Delete: the rule holds under the pointer only.", 12.0))
+        .child(note("Point at Delete: the rule holds under the pointer only."))
         .into(),
     )
   }
@@ -370,7 +375,7 @@ impl StylingPage {
       }
       scene()
         .child(button)
-        .child(quiet(&format!("drawn by {winner}; the radius stays the theme's"), 12.0))
+        .child(note(&format!("drawn by {winner}; the radius stays the theme's")))
         .into()
     });
     controlled(controls, shown)
@@ -385,10 +390,7 @@ impl StylingPage {
         .child(Button::new("Skip").variant(ButtonVariant::Ghost))
         .into()
     });
-    controlled(
-      toggle("The label drawn by a renderer of its own", &self.own_label),
-      shown,
-    )
+    controlled(toggle("A label renderer", &self.own_label), shown)
   }
 }
 
