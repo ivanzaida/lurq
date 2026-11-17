@@ -31,14 +31,21 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 - [x] **`http` on Apple.** Never compiled there (its TLS, `ring`, needs Apple's C compiler):
   `cargo build -p lurq --features http` on the Mac, and for `aarch64-apple-ios`. Link Preview, a picture at an
   address and a sound at an address depend on it. 2026-11-17: builds for both; those pages are not looked at yet.
-- [ ] **The phone app.** Build `crates/mobile_demo` for the simulator and a device from Xcode
+- [x] **The phone app.** Build `crates/mobile_demo` for the simulator and a device from Xcode
   (`crates/mobile_demo/ios/MobileDemo.xcodeproj`; Xcode runs `ios/build-rust.sh`). It starts and draws.
-  2026-11-17: builds for both; starts and draws on the iPhone 17 simulator; installed and launched on an iPhone,
-  whose screen is still to be looked at.
+  2026-11-17: builds for both; starts and draws on the iPhone 17 simulator and on Ivan's iPhone.
 - [ ] **The gallery on iOS** (`crates/gallery/ios/Gallery.xcodeproj`, built as the phone app is, its bundle
   `<BUNDLE_ID_PREFIX>.lurq.gallery`): Ivan's tabs, the pages at a phone's width, the pointer toggle.
-  2026-11-17: made; on the iPhone 17 simulator it covers the screen at a phone's width, its header under the
-  status bar. The tabs, the pages one by one and the pointer toggle are still to be looked at.
+  2026-11-17: made; runs on the iPhone 17 simulator and on Ivan's iPhone at a phone's width, its header under the
+  status bar. Ivan went through pages on the phone; what he found is fixed (2026-11-17/18, each with its test):
+  the sidebar over the page keeps where its items were scrolled, opens with a finger from the left edge, and
+  keeps clear of the status bar and the home indicator (a `ui::Sheet` at a side pads by the safe area); a video
+  in full screen keeps clear of them and is left by a drag down; the colour picker's area and rails and the
+  angle slider are dragged from where a finger lands, in a page that scrolls (`Node::finger_drags`); a date and a
+  time picker open at a tap of the field, with no keyboard on the screen (`KeyboardKind::None`); a finger that
+  taps while another is held clicks what it taps (three toasts held open, one closed by another finger; see
+  [mobile-decisions.md](mobile-decisions.md)). Still open: the on-screen keyboard stays up when a field loses
+  the focus; a video at an address lagged the app (not reproduced on a Mac); the pages not yet gone through.
 
 ## 2. Drawing on Metal
 
@@ -65,6 +72,12 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 - [ ] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
   the title bar dragging the window, double-click zooming it, the gallery's tabs in the title bar (open, close,
   reorder, a new tab with Cmd+T), full screen and back.
+  2026-11-18: the lights are the system's own now, moved to where the bar's controls are
+  (`winit_shell/macos_controls.rs`): the menu of tilings under the pointer on the green one, full screen at its
+  press, the window's corners rounded by the system. Leaving full screen by the system's light or keys shows the
+  bar and its lights again (whether the window is in full screen is read every turn). In full screen the bar
+  stays with its tabs, a video and a sheet over it. Ivan saw the lights and full screen and back; the bar in full
+  screen, the tabs, the drag and the double click are still to be looked at.
 - [ ] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
   apps' windows (`always_on_top`), and closes back.
 - [ ] **Opening an address** (`open_url`). Link Preview page and a `ui::Link` with `href`: macOS opens the default
@@ -146,8 +159,9 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
   It opens with its first frame and its length; play, pause, the seek bar, the speed, the volume and mute; it
   ends and says so, and plays again from its start. Its sound is heard with its picture.
   2026-11-17, on a Mac: `cargo test -p lurq --features media --test media_video_apple` passes (five checks, the
-  ones Windows runs), and in the gallery the clip opens, plays and its time goes on. Not yet looked at: on a
-  phone; by ear; a video at an address; a clip filmed upright (drawn on its side, a known gap).
+  ones Windows runs), and in the gallery the clip opens, plays and its time goes on, its frames drawn from the
+  decoder's buffers with no copy (see 8). On Ivan's iPhone the video at an address plays and the app lags while
+  it does: not explained yet. Not yet looked at: by ear; a clip filmed upright (drawn on its side, a known gap).
 
 ## 7. The tools
 
@@ -163,30 +177,41 @@ Windows a video's frames stay on the graphics card from the decoder to the scree
 three renderers. None of that is Apple's: `CardFrames` is Direct3D's shared textures and is compiled on Windows
 alone. What Apple's systems have is one older piece, and the rest is to be built. In the order to do it:
 
-- [ ] **1. Run what exists, which was never run.** The `wgpu` renderer on Metal draws a `CVPixelBuffer` where it is:
+2026-11-17/18: built on `feat/design-system` (the decision is in [decisions.md](decisions.md), "A video plays on
+macOS and iOS"). 1, 3, 4 and 5 are done; 2 in part; 6 the gallery's half; 7 and 8 not.
+
+- [x] **1. Run what exists, which was never run.** 2026-11-17: a video of the system's `AVPlayer` gives its
+  buffers to the renderer, which draws them in the gallery on a Mac with the colors of the copy through memory.
+  Over minutes of playing not watched yet. The `wgpu` renderer on Metal draws a `CVPixelBuffer` where it is:
   `NativeImageData::from_macos_cv_pixel_buffer_nv12(width, height, MacosCvPixelBuffer::retain(buffer))`, whose two
   planes become Metal textures through `CVMetalTextureCache` (`create_macos_native_nv12_cached_image_texture` in
   `wgpu_render/mod.rs`). Write a small example that decodes a clip with VideoToolbox or `AVAssetReader` (output
   `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange`, `kCVPixelBufferMetalCompatibilityKey` and an IOSurface) and
   gives each buffer to a `ui::Video`. It must show the picture with the colors of the same frame decoded to memory,
   never lock the buffer's bytes, and hold its memory over some minutes of playing.
-- [ ] **2. Mend what that run shows of the piece.** Read, not run, these are weak: a texture cache is made and let
+- [ ] **2. Mend what that run shows of the piece.** 2026-11-17: one texture cache for the device, kept; the
+  textures of the frame before kept until the next is drawn. The crop and the depth are not done. Read, not run, these are weak: a texture cache is made and let
   go of for each plane of each frame, where one for the device is meant; the planes are taken to be as large as
   the picture, so a buffer larger than its picture (a codec's 1088 rows for 1080) has no crop; and any buffer is
   taken for 8 bits and gray from 16 to 235 (see 7).
-- [ ] **3. Frames that change in one image.** On Windows one image shows a ring of textures: the decoder calls
+- [x] **3. Frames that change in one image.** 2026-11-17: the sibling type, `images::CvPixelBufferFrames` (`show`,
+  `shown`); one image of it, drawn again at each frame; `images::cv_pixel_buffer_frames_drawn()` says whether a
+  renderer draws them, and a decoder copies through memory where none does. No crop, lease or `way()` yet. On Windows one image shows a ring of textures: the decoder calls
   `CardFrames::show(frame)` and gets its texture back by the frame's lease. On a Mac an app makes a new image for
   every frame, which rebuilds what shows it. Decide and build one of: a kind of surface of `CardFrames` that is a
   pixel buffer, or a sibling type with the same `show`, `crop`, lease and `way()`. "One type for all of them" was
   talked of and not built (the handoff's "Not done").
-- [ ] **4. A video in lurq's own player.** `Media::open` says the build shows no video here; `media/apple.rs` plays a
+- [x] **4. A video in lurq's own player.** 2026-11-17: `media/apple/video.rs`, `AVPlayer` with an
+  `AVPlayerItemVideoOutput`, made and told on the main thread; lurq's clock follows it. `Media::open` says the build shows no video here; `media/apple.rs` plays a
   sound alone. Behind it goes AVFoundation: an `AVPlayer` with an `AVPlayerItemVideoOutput` gives pixel buffers
   timed against its own sound, and has seek and speed, which leaves lurq's clock to follow it as it follows
   `AVAudioPlayer` now. VideoToolbox with lurq's own clock is the other way, and more to write. Then
   `ui::VideoPlayer::source` plays on a Mac as on Windows, through 1 and 3.
-- [ ] **5. iOS.** The pixel buffer's type and the renderer's path are `target_os = "macos"`: compile and run them for
+- [x] **5. iOS.** 2026-11-17: the type and the renderer's path are of both systems; built and run on an iPhone. The pixel buffer's type and the renderer's path are `target_os = "macos"`: compile and run them for
   iOS, where `CVMetalTextureCache` is the same.
-- [ ] **6. The gallery and the tests.** The Video Player page's table of decoders (`crates/gallery/src/card_demo.rs`)
+- [ ] **6. The gallery and the tests.** 2026-11-17: the gallery's half: `crates/gallery/src/cv_demo.rs` writes a
+  moving picture into buffers of its own (`MacosCvPixelBuffer::nv12`, `write_nv12`), seen on a Mac. The renderer's
+  test of a frame from a buffer is not written. The Video Player page's table of decoders (`crates/gallery/src/card_demo.rs`)
   and `wgpu_render/card_frames_tests.rs` are Windows'. A stand-in decoder that writes pixel buffers gives the page
   its rows on a Mac, and the tests their first one: a frame drawn from the buffer is the frame memory gives.
 - [ ] **7. Color and depth.** One matrix is in the shader: BT.709 with gray from 16 to 235. A buffer of the full
