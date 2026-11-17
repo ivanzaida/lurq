@@ -6,7 +6,7 @@
 
 use super::{Tree, find_node_by_id};
 use crate::{
-  app::events::{EventControl, MouseButton, MouseEvent, MouseEventKind, PointerKind},
+  app::events::{EventControl, MouseButton, MouseEvent, MouseEventKind},
   core::NodeId,
   time::{Duration, Instant},
 };
@@ -125,11 +125,7 @@ impl Tree {
       alt: false,
       meta: false,
       from_keyboard: false,
-      pointer: if self.touch_pointer.down {
-        PointerKind::Touch
-      } else {
-        PointerKind::Mouse
-      },
+      pointer_kind: self.pointer_kind_now(),
       target_id: node,
       time: self.press_now(),
       control: EventControl::new(),

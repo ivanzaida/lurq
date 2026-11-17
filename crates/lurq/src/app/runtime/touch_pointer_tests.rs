@@ -650,8 +650,8 @@ fn a_mouse_event_tells_a_finger_from_a_mouse() {
   let (downs, clicks) = (kinds.clone(), kinds.clone());
   tree.set_root(
     Rect::new(100.0, 100.0)
-      .on_mouse_down(move |event: MouseEvent| downs.lock().unwrap().push(event.pointer))
-      .on_click(move |event: MouseEvent| clicks.lock().unwrap().push(event.pointer)),
+      .on_mouse_down(move |event: MouseEvent| downs.lock().unwrap().push(event.pointer_kind))
+      .on_click(move |event: MouseEvent| clicks.lock().unwrap().push(event.pointer_kind)),
   );
   tree.pass(&mut app, &HeadlessSurface);
 
@@ -692,4 +692,182 @@ fn a_finger_from_the_right_edge_that_goes_far_enough_goes_forward() {
       "forward"
     ]
   );
+}
+
+/// At scale 1 in a window of 400 by 200: `double`, a box of 100 at the left that listens for a double tap and a
+/// double click, and `plain`, one at 200 that listens for a tap and a click. Each logs what it is told; a tap
+/// handler of `plain` takes the tap where `takes` says.
+fn two_boxes(takes: bool) -> (Tree, App, Log) {
+  use crate::{app::events::MouseEvent, components::Row};
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(400, 200);
+  let log = Log::default();
+  let push = |log: &Log, line: String| log.lock().unwrap().push(line);
+  let (a, b, c, d, e, f) = (
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+  );
+  tree.set_root(
+    Row::new()
+      .child(
+        Rect::new(100.0, 100.0)
+          .on_double_tap(move |event: TapEvent| push(&a, format!("double tap {}", event.count)))
+          .on_dblclick(move |_| push(&b, "dblclick".to_owned()))
+          .on_click(move |event: MouseEvent| push(&c, format!("double's click {:?}", event.pointer_kind))),
+      )
+      .child(Rect::new(100.0, 100.0))
+      .child(
+        Rect::new(100.0, 100.0)
+          .on_tap(move |event: TapEvent| {
+            if takes {
+              event.prevent_default();
+            }
+            push(&d, format!("tap of {} count {}", event.fingers, event.count))
+          })
+          .on_dblclick(move |_| push(&e, "plain's dblclick".to_owned()))
+          .on_click(move |event: MouseEvent| push(&f, format!("click {:?}", event.pointer_kind))),
+      ),
+  );
+  tree.pass(&mut app, &HeadlessSurface);
+  (tree, app, log)
+}
+
+/// One finger taps at the point at `at`, as the shell gives it: its own events first, then the pointer's tap.
+fn tap_at(tree: &mut Tree, x: f32, y: f32, at: Instant) {
+  tree.set_press_clock(Some(at));
+  tree.touch_event_at(1, TouchPhase::Start, x, y, None, at);
+  tree.touch_event_at(1, TouchPhase::End, x, y, None, at);
+  tree.touch_tap(x, y, Duration::ZERO);
+}
+
+#[test]
+fn a_tap_is_told_before_its_click_and_each_once() {
+  let (mut tree, _app, log) = two_boxes(false);
+  tap_at(&mut tree, 250.0, 50.0, Instant::now());
+  assert_eq!(logged(&log), ["tap of 1 count 1", "click Touch"]);
+}
+
+#[test]
+fn a_tap_a_handler_takes_clicks_nothing() {
+  let (mut tree, _app, log) = two_boxes(true);
+  let start = Instant::now();
+  tap_at(&mut tree, 250.0, 50.0, start);
+  assert_eq!(logged(&log), ["tap of 1 count 1"], "the tap only");
+  // Pressed and lifted as the pointer, the taken tap clicks nothing either.
+  let at = after(start, 2000);
+  tree.set_press_clock(Some(at));
+  tree.touch_event_at(1, TouchPhase::Start, 250.0, 50.0, None, at);
+  tree.touch_press(250.0, 50.0);
+  tree.touch_event_at(1, TouchPhase::End, 250.0, 50.0, None, at);
+  tree.touch_release(250.0, 50.0);
+  assert_eq!(logged(&log), ["tap of 1 count 1"]);
+}
+
+#[test]
+fn a_tap_of_two_fingers_never_clicks() {
+  let (mut tree, _app, log) = two_boxes(false);
+  let at = Instant::now();
+  tree.set_press_clock(Some(at));
+  // The first finger is the pointer and presses; the second lands beside it.
+  tree.touch_event_at(1, TouchPhase::Start, 240.0, 50.0, None, at);
+  tree.touch_press(240.0, 50.0);
+  tree.touch_event_at(2, TouchPhase::Start, 260.0, 50.0, None, at);
+  tree.touch_event_at(1, TouchPhase::End, 240.0, 50.0, None, at);
+  tree.touch_release(240.0, 50.0);
+  tree.touch_event_at(2, TouchPhase::End, 260.0, 50.0, None, at);
+  assert_eq!(logged(&log), ["tap of 2 count 1"], "a tap of two, and no click");
+  // The next tap of one finger clicks again.
+  tap_at(&mut tree, 250.0, 50.0, after(at, 2000));
+  assert_eq!(logged(&log), ["tap of 1 count 1", "click Touch"]);
+}
+
+#[test]
+fn taps_in_a_row_are_counted_and_a_pause_starts_again() {
+  let (mut tree, _app, log) = two_boxes(false);
+  let start = Instant::now();
+  for (millis, x) in [(0, 250.0), (200, 255.0), (400, 250.0), (2000, 250.0)] {
+    tap_at(&mut tree, x, 50.0, after(start, millis));
+  }
+  let taps: Vec<_> = logged(&log)
+    .into_iter()
+    .filter(|line| line.starts_with("tap"))
+    .collect();
+  assert_eq!(
+    taps,
+    [
+      "tap of 1 count 1",
+      "tap of 1 count 2",
+      "tap of 1 count 3",
+      "tap of 1 count 1"
+    ]
+  );
+}
+
+#[test]
+fn a_click_waits_for_a_double_tap_only_where_one_is_listened_for_and_a_double_tap_is_no_double_click() {
+  let (mut tree, mut app, log) = two_boxes(false);
+  let start = Instant::now();
+  // Where nothing listens for a double tap, a tap clicks at once, and two are two clicks and no double click.
+  tap_at(&mut tree, 250.0, 50.0, start);
+  tap_at(&mut tree, 250.0, 50.0, after(start, 150));
+  assert_eq!(
+    logged(&log),
+    ["tap of 1 count 1", "click Touch", "tap of 1 count 2", "click Touch"]
+  );
+
+  // Where a double tap is listened for, the click is held back for the double tap's time, and is a finger's.
+  let at = after(start, 3000);
+  tap_at(&mut tree, 50.0, 50.0, at);
+  assert!(logged(&log).is_empty(), "held back");
+  tree.set_press_clock(Some(after(at, 600)));
+  tree.pass(&mut app, &HeadlessSurface);
+  assert_eq!(logged(&log), ["double's click Touch"]);
+
+  // A double tap there is the double tap alone: no click, no double click.
+  let at = after(start, 6000);
+  tap_at(&mut tree, 50.0, 50.0, at);
+  tap_at(&mut tree, 52.0, 50.0, after(at, 200));
+  tree.set_press_clock(Some(after(at, 2000)));
+  tree.pass(&mut app, &HeadlessSurface);
+  assert_eq!(logged(&log), ["double tap 2"]);
+}
+
+#[test]
+fn a_mouse_event_says_whether_a_mouse_a_finger_or_a_pen_pressed() {
+  use crate::app::events::{MouseButton, MouseEvent, PointerKind};
+
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(300, 300);
+  let kinds: Arc<Mutex<Vec<PointerKind>>> = Arc::default();
+  let (taps, clicks) = (kinds.clone(), kinds.clone());
+  tree.set_root(
+    Rect::new(100.0, 100.0)
+      .on_tap(move |_: TapEvent| taps.lock().unwrap().push(PointerKind::Mouse))
+      .on_click(move |event: MouseEvent| clicks.lock().unwrap().push(event.pointer_kind)),
+  );
+  tree.pass(&mut app, &HeadlessSurface);
+
+  tree.mouse_down(50.0, 50.0, MouseButton::Left);
+  tree.mouse_up(50.0, 50.0, MouseButton::Left);
+  assert_eq!(std::mem::take(&mut *kinds.lock().unwrap()), [PointerKind::Mouse]);
+
+  for (pen, kind) in [(false, PointerKind::Touch), (true, PointerKind::Pen)] {
+    let at = Instant::now() + Duration::from_secs(if pen { 10 } else { 5 });
+    tree.set_press_clock(Some(at));
+    tree.touch_event_by(1, TouchPhase::Start, 50.0, 50.0, None, pen);
+    tree.touch_event_by(1, TouchPhase::End, 50.0, 50.0, None, pen);
+    tree.touch_tap(50.0, 50.0, Duration::ZERO);
+    // A pen taps and clicks as a finger does, and says it is a pen.
+    assert_eq!(
+      std::mem::take(&mut *kinds.lock().unwrap()),
+      [PointerKind::Mouse, kind],
+      "a tap, then its click"
+    );
+  }
 }

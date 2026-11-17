@@ -206,6 +206,11 @@ an alias.
   `on_key_down`: which keys they are, in every layout and on a Mac, is `KeyboardEvent::edit_command()`'s alone, and
   an Edit menu runs the same handlers (`Ctx::edit`). Its own buttons for them call what the handlers call. A key of
   its own that also takes back (Backspace on a pad) stays in its `on_key_down`.
+- **An action is `on_click`; a gesture is `on_tap`/`on_swipe`/`on_pinch`/`on_long_press`.** A mouse, a finger, a
+  pen and a key all reach `on_click`, which is where a component does what it is for; a gesture is what only a finger
+  does, and a component that has one takes its desktop twin too (a long press and a right click, a pinch and the
+  wheel). Never an `on_tap` beside an `on_click` for the same action: the element would run twice. What tells a
+  finger from a mouse reads `MouseEvent::pointer_kind`.
 - **While it moves and when it ends: `on_change` and `on_change_end`**, on what is dragged or stepped: Slider,
   RangeSlider, NumberInput. (A splitter's are `on_resize` and `on_resize_end`: it holds no value.)
 - **Is this one on**: `checked` for a box that is ticked, `on` for a switch or a toggle, `selected` for one of

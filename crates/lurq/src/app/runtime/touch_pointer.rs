@@ -220,24 +220,42 @@ pub(super) struct TouchPointerState {
   press: Option<Press>,
   /// A finger is the pointer: nothing is hovered.
   pub(super) down: bool,
-  /// The touch that is a pen's, while it is down: it moves the pointer neither way.
-  pub(super) pen: Option<u64>,
+  /// The touch that landed last is a pen's: it moves the app's pointer neither way, and what it presses as the
+  /// pointer is a pen's (`PointerKind::Pen`) until another lands.
+  pub(super) pen: bool,
+  /// The fingers down together are no click: a second one landed, or a handler took their tap. The pointer's
+  /// release then ends its press without a click. Cleared when the next fingers land.
+  no_click: bool,
+  /// The last tap, for the count of the next: when, where, of how many fingers, and its count.
+  last_tap: Option<LastTap>,
+  /// What pressed for a click held back and told now.
+  pub(super) replaying: Option<crate::app::events::PointerKind>,
   /// The elements a tap left showing as pressed, and until when.
   tap_highlight: Option<(Vec<NodeId>, Instant)>,
 }
+
+/// A tap, as the next is counted from.
+#[derive(Clone, Copy)]
+struct LastTap {
+  at: Instant,
+  position: (f32, f32),
+  fingers: u32,
+  count: u32,
+}
+
+/// How far apart, in logical pixels, two taps are one double tap at most: a fingertip's width and a half.
+const DOUBLE_TAP_DISTANCE: f32 = 45.0;
 
 impl Tree {
   /// Gives a finger's event to what the finger landed on: `on_touch_start` and the rest, bubbling from the
   /// innermost element out, and the pinch or rotation it makes with another finger. `x` and `y` are physical
   /// pixels. Tells whose the finger is: the shell makes it the pointer only when it is its own.
   pub fn touch_event(&mut self, id: u64, phase: TouchPhase, x: f32, y: f32, force: Option<f32>) -> TouchRoute {
-    self.touch_event_at(id, phase, x, y, force, Instant::now())
+    self.touch_event_by(id, phase, x, y, force, false)
   }
 
   /// [`touch_event`](Self::touch_event) of a finger or, where `pen`, of a pen: a finger makes the app's pointer
   /// coarse ([`App::pointer`](crate::app::App::pointer)), a pen leaves it as it is.
-  // The shell hears touches as such on iOS; elsewhere a touch screen's come as the mouse's.
-  #[cfg_attr(not(all(feature = "winit", target_os = "ios")), allow(dead_code))]
   pub(crate) fn touch_event_by(
     &mut self,
     id: u64,
@@ -247,16 +265,29 @@ impl Tree {
     force: Option<f32>,
     pen: bool,
   ) -> TouchRoute {
-    match (phase, pen) {
-      (TouchPhase::Start, true) => self.touch_pointer.pen = Some(id),
-      (TouchPhase::End | TouchPhase::Cancel, _) if self.touch_pointer.pen == Some(id) => {
-        let route = self.touch_event(id, phase, x, y, force);
-        self.touch_pointer.pen = None;
-        return route;
-      }
-      _ => {}
+    if phase == TouchPhase::Start {
+      self.touch_pointer.pen = pen;
     }
-    self.touch_event(id, phase, x, y, force)
+    self.touch_event_at(id, phase, x, y, force, Instant::now())
+  }
+
+  /// What presses now as the pointer: a finger or a pen while one is down, else the mouse.
+  pub(super) fn pointer_kind_now(&self) -> crate::app::events::PointerKind {
+    use crate::app::events::PointerKind;
+    if let Some(kind) = self.touch_pointer.replaying {
+      return kind;
+    }
+    match (self.touch_pointer.down, self.touch_pointer.pen) {
+      (false, _) => PointerKind::Mouse,
+      (true, false) => PointerKind::Touch,
+      (true, true) => PointerKind::Pen,
+    }
+  }
+
+  /// Whether the press of the finger that is the pointer ends without a click: a second finger landed with it,
+  /// or a handler took its tap.
+  pub(super) fn touch_clicks_nothing(&self) -> bool {
+    self.touch_pointer.down && self.touch_pointer.no_click
   }
 
   /// [`touch_event`](Self::touch_event) at a time of the caller's, for tests of what depends on how fast
@@ -273,7 +304,7 @@ impl Tree {
     let scale = self.scale_factor();
     let (lx, ly) = (x / scale, y / scale);
     if phase == TouchPhase::Start {
-      if self.touch_pointer.pen != Some(id) {
+      if !self.touch_pointer.pen {
         self.pointer_input(crate::app::Pointer::Coarse);
       }
       self.rebuild_if_dirty();
@@ -373,6 +404,8 @@ impl Tree {
           Some(session) => {
             session.fingers.push((id, at, at));
             session.most = session.most.max(session.fingers.len() as u32);
+            // A click is one finger's: two together are a tap of two, or a gesture.
+            state.no_click = true;
             session.chain.retain(|target| targets.contains(target));
             session.middle = middle_of(&session.fingers);
             let count = session.fingers.len() as f32;
@@ -398,6 +431,7 @@ impl Tree {
             } else {
               None
             };
+            state.no_click = false;
             state.session = Some(Session {
               started: now,
               fingers: vec![(id, at, at)],
@@ -622,13 +656,46 @@ impl Tree {
         if cancelled {
           // The system took the touch: it was neither a tap nor a swipe.
         } else if !session.travelled && lasted <= TAP_TIME {
-          bubble!(root, session.chain, on_tap, |target, control| TapEvent {
+          // Counted on the clock of presses, as a double click is.
+          let at = self.press_clock.unwrap_or(now);
+          let count = match self.touch_pointer.last_tap {
+            Some(last)
+              if last.fingers == session.most
+                && at.saturating_duration_since(last.at)
+                  <= self.double_click_interval.unwrap_or(super::DOUBLE_CLICK_INTERVAL)
+                && (last.position.0 - session.landed.0).hypot(last.position.1 - session.landed.1)
+                  <= DOUBLE_TAP_DISTANCE =>
+            {
+              last.count + 1
+            }
+            _ => 1,
+          };
+          self.touch_pointer.last_tap = Some(LastTap {
+            at,
+            position: session.landed,
             fingers: session.most,
+            count,
+          });
+          let tap = |target: NodeId, control: &EventControl| TapEvent {
+            fingers: session.most,
+            count,
             x: session.landed.0,
             y: session.landed.1,
             target_id: target,
             control: control.clone(),
-          });
+          };
+          let control = bubble!(root, session.chain, on_tap, |target, control| tap(target, &control));
+          let mut taken = control.default_prevented();
+          if count == 2 {
+            let control = bubble!(root, session.chain, on_double_tap, |target, control| tap(
+              target, &control
+            ));
+            taken |= control.default_prevented();
+          }
+          // A tap a handler took clicks nothing, as a long press that was taken does.
+          if taken {
+            self.touch_pointer.no_click = true;
+          }
         } else if along >= SWIPE_DISTANCE && along >= across * SWIPE_STRAIGHTNESS && speed >= SWIPE_SPEED {
           bubble!(root, session.chain, on_swipe, |target, control| SwipeEvent {
             direction,
@@ -874,6 +941,11 @@ impl Tree {
   /// The finger that is the pointer lifts at the point: the press ends, with a click when the finger is on
   /// what it pressed or within reach of it, and the pointer leaves.
   pub fn touch_release(&mut self, x: f32, y: f32) {
+    // A second finger landed with it, or a handler took its tap: no click.
+    if self.touch_clicks_nothing() {
+      self.touch_cancel_press(x, y);
+      return;
+    }
     let scale = self.scale_factor();
     let press = self.touch_pointer.press.take();
     // Beside the element but within reach, the finger still clicks it: the release is the element's.
@@ -904,6 +976,10 @@ impl Tree {
   /// A tap at the point, in physical pixels: a press and its release at once, so the click is not held back,
   /// while what was tapped goes on showing as pressed for `highlight`.
   pub fn touch_tap(&mut self, x: f32, y: f32, highlight: Duration) {
+    // A handler took the tap, or it was of more fingers than one: nothing is pressed.
+    if self.touch_pointer.no_click {
+      return;
+    }
     self.touch_press(x, y);
     let pressed = self.active_path.clone();
     self.touch_pointer.press = None;

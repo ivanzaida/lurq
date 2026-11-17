@@ -603,7 +603,7 @@ The hover moves whenever the pointer comes onto another node, from a row onto th
 
 While DevTools is open on the window, every change of the hover is drawn, since DevTools shows which elements are hovered. Otherwise the pointer moving over elements with none of the above draws nothing, however many of them it crosses. `ElementRef::hovered()` and `InteractionState::is_hovered()` are plain reads, not signals: they are up to date after every pointer move, but a change of them renders no component and asks for no frame. A component that renders again when the pointer comes onto an element sets a signal from `on_mouse_enter` and `on_mouse_leave`.
 
-`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
+`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, `pointer_kind` (what pressed: `PointerKind::Mouse`, `Touch` or `Pen`, as a browser's `pointerType`; a key's click and input synthesized as the mouse's are `Mouse`), the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
 
 Each `on_*` modifier appends a handler for that rendered node, so a node can have multiple handlers for the same event. Inline closures are render output: when the node is rendered again, the rendered handler list should replace the previous list.
 
@@ -634,6 +634,15 @@ Column::new()
 ```
 
 The hook listens for left clicks outside the referenced element's measured bounds. It is removed automatically when the component stops calling it during render.
+
+### A Click Is The Action, A Tap Is The Gesture
+
+`on_click` is "activate", from any input: a mouse, a finger, a pen, Enter or Space on a focused control, and input a
+tool synthesizes. An app writes its actions there, once for a phone and a desktop. `on_tap`, `on_double_tap`,
+`on_swipe`, `on_pinch`, `on_long_press` and the rest are gestures, from a finger or a pen only. A finger's tap is
+told as `on_tap` first and `on_click` after, each once; a tap a handler takes clicks nothing, a tap of two fingers
+never clicks, and a click waits for a second tap only on an element with `on_double_tap`. See
+[Touch](../ios/#touch) for the gestures.
 
 ### A Finger Or A Mouse
 
