@@ -1,11 +1,7 @@
+use std::time::{Duration, Instant};
+
 use lurq::{
-  app::{
-    App, Tree,
-    component::Component,
-    ctx::Ctx,
-    events::MouseButton,
-    theme::{FormTheme, PaletteColor},
-  },
+  app::{App, Tree, component::Component, ctx::Ctx, events::MouseButton, theme::PaletteColor},
   components::{
     Column, ErrorVisibility, FormCheckboxInput, FormCheckboxInputProps, FormControlField, FormFieldProps, FormHandle,
     FormOptions, FormPrimaryButton, FormPrimaryButtonProps, FormSecondaryButton, FormSecondaryButtonProps,
@@ -13,9 +9,10 @@ use lurq::{
   },
   layout::{quad::QuadContent, text_style::TextStyle},
   node::{Element, color::Color},
+  ui::{self, FieldPart},
 };
 
-use crate::support::{pointer_click, render_pass, render_pass_with_app, run_pass};
+use crate::support::{RenderSnapshot, pointer_click, render_pass_with_app, run_pass};
 
 struct CompoundFieldHost {
   form: FormHandle,
@@ -100,15 +97,16 @@ fn form_control_field_renders_visible_error_instead_of_hint() {
   );
 }
 
+// A form's field is a `ui::Field`, styled by its recipe: in 0.62 it was `FormTheme::field`.
 #[test]
 fn form_control_field_uses_theme_field_styles() {
   let mut app = App::new();
-  let mut form_theme = FormTheme::default();
-  form_theme.field.label.color = PaletteColor::Info;
+  app
+    .theme()
+    .patch_recipe::<ui::Field>(|recipe| recipe.base(FieldPart::Label, |s| s.foreground(PaletteColor::Info)));
   app
     .theme()
     .set_palette_color(PaletteColor::Info, Color::from_hex("#123456"));
-  app.theme().set_form(form_theme);
 
   let mut tree = Tree::new();
   tree.mount_root::<CompoundFieldHost>(&mut app, false);
@@ -174,12 +172,14 @@ fn builtin_form_inputs_render_field_labels_and_primitives() {
       "{label} label should render"
     );
   }
-  for tag in ["TextInput", "Checkbox", "Slider"] {
+  // The checkbox is the design system's, a box of its own and no checkbox of the engine's: its label is beside it.
+  for tag in ["TextInput", "Slider"] {
     assert!(
       tree.find_element(|element| element.tag_name() == tag).is_some(),
       "{tag} primitive should render"
     );
   }
+  assert!(tree.find_element(|element| element.tag_name() == "Checkbox").is_none());
 }
 
 #[test]
@@ -219,13 +219,14 @@ fn builtin_form_text_input_focus_style_renders_on_input_frame() {
   let (x, y) = rect.center();
 
   pointer_click(&mut tree, x, y, MouseButton::Left);
-  let focused = render_pass(&mut tree);
-  // The ring of the design, which the form theme's focus border follows.
-  let focused_border = Color::from_hex("#71717a");
+  let focused = settled_pass(&mut tree, &mut App::new());
+  // The input's focus: a line of 2 inside its box in the theme's ring, which a click draws too. In 0.62 it was an
+  // edge of 1 in `FormTheme::input::border_focus`.
+  let ring = Color::from_hex("#71717a");
   let focused_borders = focused
     .rects
     .iter()
-    .filter(|rect| rect.stroke_color == focused_border && rect.stroke == [1.0; 4])
+    .filter(|rect| rect.stroke_color == ring && rect.stroke == [2.0; 4])
     .collect::<Vec<_>>();
 
   assert_eq!(focused_borders.len(), 1, "form input focused border should render once");
@@ -343,9 +344,21 @@ fn focus_app() -> App {
   app
 }
 
-fn focus_border_count(tree: &mut Tree) -> usize {
+/// Renders what changed, then paints again a second later: a ring that fades in has come in.
+fn settled_pass(tree: &mut Tree, app: &mut App) -> RenderSnapshot {
+  let now = Instant::now();
+  tree.set_animation_clock(Some(now));
+  render_pass_with_app(tree, app);
+  tree.set_animation_clock(Some(now + Duration::from_secs(1)));
+  let snapshot = render_pass_with_app(tree, app);
+  tree.set_animation_clock(None);
+  snapshot
+}
+
+/// How many rings of the focus are painted: lines in the theme's ring color, which nothing else is.
+fn focus_border_count(tree: &mut Tree, app: &mut App) -> usize {
   let focus = Color::from_hex(FOCUS_BORDER);
-  render_pass(tree)
+  settled_pass(tree, app)
     .rects
     .iter()
     .filter(|rect| rect.stroke_color == focus && rect.stroke.iter().any(|width| *width > 0.0))
@@ -354,15 +367,24 @@ fn focus_border_count(tree: &mut Tree) -> usize {
 
 #[test]
 fn builtin_form_buttons_show_theme_focus_border_when_tabbed_to() {
+  let mut app = focus_app();
   let mut tree = Tree::new();
-  tree.mount_root::<BuiltinButtonsHost>(&mut focus_app(), ());
+  tree.mount_root::<BuiltinButtonsHost>(&mut app, ());
   run_pass(&mut tree);
-  assert_eq!(focus_border_count(&mut tree), 0);
+  assert_eq!(focus_border_count(&mut tree, &mut app), 0);
 
   tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
-  assert_eq!(focus_border_count(&mut tree), 1, "primary button shows border_focus");
+  assert_eq!(
+    focus_border_count(&mut tree, &mut app),
+    1,
+    "primary button shows its ring"
+  );
   tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
-  assert_eq!(focus_border_count(&mut tree), 1, "secondary button shows border_focus");
+  assert_eq!(
+    focus_border_count(&mut tree, &mut app),
+    1,
+    "secondary button shows its ring"
+  );
 }
 
 #[test]
@@ -371,14 +393,7 @@ fn builtin_form_button_shows_no_focus_border_when_clicked() {
   let mut app = focus_app();
   let mut tree = Tree::new();
   tree.mount_root::<BuiltinButtonsHost>(&mut app, ());
-  let mut focus_borders = |tree: &mut Tree| {
-    let focus = Color::from_hex(FOCUS_BORDER);
-    render_pass_with_app(tree, &mut app)
-      .rects
-      .iter()
-      .filter(|rect| rect.stroke_color == focus && rect.stroke.iter().any(|width| *width > 0.0))
-      .count()
-  };
+  let mut focus_borders = |tree: &mut Tree| focus_border_count(tree, &mut app);
   assert_eq!(focus_borders(&mut tree), 0);
   let cancel = tree
     .find_element(|element| element.text_content() == Some("Cancel"))
@@ -397,15 +412,20 @@ fn builtin_form_button_shows_no_focus_border_when_clicked() {
 
 #[test]
 fn builtin_form_checkbox_and_slider_show_theme_focus_border_when_tabbed_to() {
+  let mut app = focus_app();
   let mut tree = Tree::new();
-  tree.mount_root::<BuiltinInputsHost>(&mut focus_app(), ());
+  tree.mount_root::<BuiltinInputsHost>(&mut app, ());
   run_pass(&mut tree);
-  assert_eq!(focus_border_count(&mut tree), 0);
+  assert_eq!(focus_border_count(&mut tree, &mut app), 0);
 
   // Text input, then checkbox, then slider.
   for control in ["text input", "checkbox", "slider"] {
     tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
-    assert_eq!(focus_border_count(&mut tree), 1, "{control} shows its focus border");
+    assert_eq!(
+      focus_border_count(&mut tree, &mut app),
+      1,
+      "{control} shows its focus ring"
+    );
   }
 }
 

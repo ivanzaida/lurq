@@ -242,7 +242,11 @@ impl Node {
 
   fn put_held(&mut self, taken: &mut HashMap<u64, Node>) {
     if self.is_held_component() {
-      if let Some(root) = self.component_slot_id.and_then(|slot| taken.remove(&slot)) {
+      if let Some(mut root) = self.component_slot_id.and_then(|slot| taken.remove(&slot)) {
+        // A theme of a subtree put on the node that stood for the component is the live root's now.
+        if let Some(theme) = self.theme_scope.as_deref() {
+          root.set_theme_scope(theme);
+        }
         *self = root;
       }
       return;

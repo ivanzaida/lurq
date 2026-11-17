@@ -271,7 +271,8 @@ pub struct Field {
 
 impl Field {
   /// A field called `label` that holds `control`, which the field finishes: see [`FieldControl`]. An element of
-  /// the engine's goes in with `.into()`.
+  /// the engine's goes in with `.into()`. A field with an empty label draws none above its control, and gives the
+  /// control no name: a checkbox that has its label beside it, with the field's description under it.
   pub fn new(label: &str, control: impl FieldControl + 'static) -> Self {
     Self {
       fluid: false,
@@ -647,8 +648,12 @@ impl FieldView {
       .stack_align(StackAlignment::TopStart)
       .overflow_visible()
       .ref_element(self.focus.clone())
-      .child(self.control)
-      .child(label);
+      .child(self.control);
+    let boxed = if self.label.is_empty() {
+      boxed
+    } else {
+      boxed.child(label)
+    };
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
       .overflow_visible()
@@ -834,7 +839,11 @@ impl FieldView {
           .min_width(Dimension::Px(width))
           .align(Alignment::Start);
       }
-      let mut root = root.child(label).child(control);
+      // An empty label is none: the control is at the top.
+      if !self.label.is_empty() {
+        root = root.child(label);
+      }
+      let mut root = root.child(control);
       if let Some(description) = description {
         root = root.child(description);
       }

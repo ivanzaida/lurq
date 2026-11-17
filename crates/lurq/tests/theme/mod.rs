@@ -33,3 +33,7 @@ mod extras {
 mod system {
   mod follows;
 }
+
+mod scope {
+  mod mounted_root;
+}

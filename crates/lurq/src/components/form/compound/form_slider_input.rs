@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use super::form_field::form_field;
 use crate::{
   app::ctx::Ctx,
-  components::{Control, FormControlField, FormFieldProps, Slider},
+  components::Control,
   core::Signal,
-  node::{Element, dimension::Dimension},
+  node::Element,
+  ui::{self, Length, SliderPart},
 };
 
 #[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
@@ -44,6 +46,11 @@ impl FormSliderInputProps {
   }
 }
 
+/// A slider of a form: the design system's [`ui::Slider`] in a [`ui::Field`], bound to a number control in whole
+/// steps from the least of its range to the greatest. Its label is above it and its hint under it, or the form's
+/// error in the hint's place; the form judges the field when the slider loses the focus. The slider is as wide as
+/// the field, which is as wide as what holds it. It is styled by the theme's recipes for `ui::Slider` and
+/// `ui::Field`.
 pub struct FormSliderInput {
   value: Signal<i32>,
 }
@@ -78,30 +85,21 @@ impl crate::app::component::Component for FormSliderInput {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
     let control = ctx.form_control(&props.control);
-    let slider_style = ctx.theme().form().slider.clone();
-    let palette = ctx.theme().palette().clone();
     let blur_control = control.clone();
+    // A range given the wrong way round is the range between the two, as the value is kept in it.
+    let (min, max) = (props.min.min(props.max), props.min.max(props.max));
 
-    let slider = Slider::new(self.value.clone())
+    let slider = ui::Slider::new(self.value.clone())
+      .min(min)
+      .max(max)
       .name(control.name())
-      .width(Dimension::Pct(100.0))
-      .range(props.min, props.max)
-      .track_style(slider_style.track_style(&palette))
-      .track_hovered_style(slider_style.track_hovered_style(&palette))
-      .thumb_style(slider_style.thumb_style(&palette))
-      .thumb_hovered_style(slider_style.thumb_hovered_style(&palette))
-      .thumb_focused_style(slider_style.thumb_focused_style())
-      .on_blur(move || {
+      .style(SliderPart::Root, |s| s.width(Length::Fill))
+      .on_leave(move || {
         blur_control.mark_touched();
         blur_control.validate();
       });
 
-    ctx.mount_with::<FormControlField<f64>>(
-      FormFieldProps::new(props.control)
-        .maybe_label(props.label)
-        .maybe_hint(props.hint),
-      vec![slider.into()],
-    )
+    form_field(&control, props.label.as_deref(), props.hint.as_deref(), slider)
   }
 }
 

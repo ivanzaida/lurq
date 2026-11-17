@@ -217,6 +217,12 @@ pub struct Slider {
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
+  /// Called as the focus leaves the slider (a thumb of a range slider): for a form's slider, which judges its field
+  /// then.
+  on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
+  // Read only where the engine has forms.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -273,6 +279,8 @@ impl Slider {
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
+      on_leave: Vec::new(),
+      name: None,
       id: None,
       key: None,
     }
@@ -371,6 +379,21 @@ impl Slider {
     self
   }
 
+  /// The name the slider's value has in the form it is in. A range slider gives its low value and its high one
+  /// under it.
+  #[cfg(feature = "form")]
+  pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
+    self.name = Some(name.into());
+    self
+  }
+
+  /// Called as the focus leaves the slider: a form's slider judges its field then.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  pub(crate) fn on_leave(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_leave.push(Arc::new(handler));
+    self
+  }
+
   /// The id of the slider's node: what is dragged and focused.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
@@ -416,6 +439,8 @@ impl Slider {
       on_change: self.on_change,
       on_change_end: self.on_change_end,
       forced: self.forced,
+      on_leave: self.on_leave,
+      name: self.name,
       id: self.id,
       key: self.key,
     };
@@ -451,6 +476,9 @@ pub struct SliderView {
   on_change: Vec<ChangeHandler>,
   on_change_end: Vec<ChangeHandler>,
   forced: Option<Interaction>,
+  on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -559,6 +587,18 @@ impl SliderView {
     }
     if let Some(label) = &self.label {
       slider = slider.describe("a11y_name", label.clone());
+    }
+    #[cfg(feature = "form")]
+    if let Some(name) = &self.name {
+      slider = slider.name(name.clone());
+    }
+    if !self.on_leave.is_empty() {
+      let leave = self.on_leave.clone();
+      slider = slider.on_blur(move || {
+        for handler in &leave {
+          handler();
+        }
+      });
     }
     if let Some(id) = &self.id {
       slider = slider.id(id.clone());
@@ -785,6 +825,15 @@ impl RangeSlider {
     /// The id of the slider's node: what is dragged and focused.
     fn id(id: impl Into<Arc<str>>);
     fn key(key: impl Into<Arc<str>>);
+    /// The name the two values have in the form the slider is in: it gives the low one and the high one under it.
+    #[cfg(feature = "form")]
+    fn name(name: impl Into<Arc<str>>);
+  }
+
+  /// Called as the focus leaves either thumb: a form's range slider judges its field then.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  pub(crate) fn on_leave(self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    Self(self.0.on_leave(handler))
   }
 
   /// Builds the range slider in `theme`. Converting it into an element does
@@ -804,7 +853,7 @@ impl super::FieldControl for Slider {
   /// Called by the field's label unless it has a name of its own, and disabled where the field is. A slider has no
   /// judgment.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.disabled |= field.disabled;
