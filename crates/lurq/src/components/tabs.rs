@@ -34,6 +34,7 @@ use crate::{
   },
   node::{Element, color::Color, dimension::Dimension, transform::Transform2D},
   router::RouterHandle,
+  ui::{Recipe, Themed, engine_look::EngineLook, names},
 };
 
 const FILL: Dimension = Dimension::Pct(100.0);
@@ -151,6 +152,9 @@ struct TabsInner {
 /// A set of tabs, each a router with a history of its own, and which of them is shown. Cloning it gives
 /// another handle to the same set. Inside a [`TabOutlet`] a component gets the set it is in with
 /// `ctx.use_context::<Tabs>()`.
+///
+/// It is the engine's navigation between places of an app, with no look of its own. A strip of tabs that
+/// switches between panels of one page is [`ui::Tabs`](crate::ui::Tabs).
 #[derive(Clone)]
 pub struct Tabs {
   inner: Arc<TabsInner>,
@@ -395,7 +399,14 @@ pub enum TabBarPlace {
   Top,
 }
 
-/// How a [`TabOutlet`]'s bar looks. The sizes it starts with are the platform's for a phone.
+/// How a [`TabOutlet`]'s bar looks: the phone's tab bar. The sizes it starts with are the platform's for a phone.
+/// Its colors come from the theme, through the recipe it keeps under the name `phone_tab_bar` ([`TabBarPart`]):
+/// the design's roles, light or dark as the theme is, and the colors of 0.62 in
+/// [`ThemeDefinition::legacy`](crate::app::theme::ThemeDefinition::legacy). They are read where the bar is made,
+/// in the theme of what is being built.
+///
+/// The board draws a design system's tab bar (Mobile/Tab Bar) that `lurq::ui` does not have yet; a strip of tabs
+/// on a desktop is [`ui::Tabs`](crate::ui::Tabs).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TabBar {
   pub place: TabBarPlace,
@@ -463,15 +474,84 @@ impl TabBar {
   }
 }
 
+/// The parts of the recipe of a [`TabBar`]'s colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabBarPart {
+  /// The bar: its fill is the bar's `background`.
+  Root,
+  /// The line between the bar and the tab: its fill.
+  Separator,
+  /// A tab's picture and title: its foreground, and its `contrast_color` where the person asked for more
+  /// contrast ([`TabBarPart::ContrastItem`]).
+  Item,
+  ContrastItem,
+  /// The active tab's picture and title: its foreground, the bar's `tint`.
+  SelectedItem,
+  /// The mark of a count at a picture's corner: its fill and its foreground.
+  Badge,
+  /// What a floating bar draws behind the place of the active tab: its fill.
+  Selection,
+}
+
+names!(TabBarPart {
+  Root => "root",
+  Separator => "separator",
+  Item => "item",
+  ContrastItem => "contrast_item",
+  SelectedItem => "selected_item",
+  Badge => "badge",
+  Selection => "selection",
+});
+
+/// The colors of 0.62's light bar: what the legacy theme gives, and what a theme with no recipe for the bar keeps.
+mod legacy {
+  use crate::node::color::Color;
+
+  pub(super) const BACKGROUND: Color = Color::new(249, 249, 249, 224);
+  pub(super) const BORDER: Color = Color::new(60, 60, 67, 74);
+  pub(super) const TINT: Color = Color::new(0x00, 0x7A, 0xFF, 255);
+  pub(super) const COLOR: Color = Color::new(0x99, 0x99, 0x99, 255);
+  pub(super) const CONTRAST: Color = Color::new(0x51, 0x51, 0x54, 255);
+  pub(super) const BADGE: Color = Color::new(0xFF, 0x3B, 0x30, 255);
+  pub(super) const BADGE_TEXT: Color = Color::new(255, 255, 255, 255);
+  pub(super) const SELECTION: Color = Color::new(120, 120, 128, 41);
+}
+
+impl Themed for TabBar {
+  const NAME: &'static str = "phone_tab_bar";
+  type Renderer = ();
+
+  /// The design's (`pencil/lurq-design-system.pen`, Mobile/Tab Bar): the bar on the background over a line of
+  /// the border, the active tab in the foreground and the others in the muted foreground (and in the foreground
+  /// where more contrast is asked for), a count's mark in the destructive colors. A floating bar marks the active
+  /// tab's place on the muted fill.
+  fn recipe() -> Recipe {
+    use crate::app::theme::PaletteColor::{
+      Background, Border, Destructive, DestructiveForeground, Foreground, Muted, MutedForeground,
+    };
+    Recipe::new()
+      .base(TabBarPart::Root, |s| s.background(Background))
+      .base(TabBarPart::Separator, |s| s.background(Border))
+      .base(TabBarPart::Item, |s| s.foreground(MutedForeground))
+      .base(TabBarPart::ContrastItem, |s| s.foreground(Foreground))
+      .base(TabBarPart::SelectedItem, |s| s.foreground(Foreground))
+      .base(TabBarPart::Badge, |s| {
+        s.background(Destructive).foreground(DestructiveForeground)
+      })
+      .base(TabBarPart::Selection, |s| s.background(Muted))
+  }
+}
+
 impl Default for TabBar {
   fn default() -> Self {
+    let look = EngineLook::of::<Self>(&[]);
     Self {
       place: TabBarPlace::Bottom,
-      background: Color::new(249, 249, 249, 224),
-      border: Color::new(60, 60, 67, 74),
-      tint: Color::from_hex("#007AFF"),
-      color: Color::from_hex("#999999"),
-      contrast_color: Color::from_hex("#515154"),
+      background: look.background(TabBarPart::Root, legacy::BACKGROUND),
+      border: look.background(TabBarPart::Separator, legacy::BORDER),
+      tint: look.foreground(TabBarPart::SelectedItem, legacy::TINT),
+      color: look.foreground(TabBarPart::Item, legacy::COLOR),
+      contrast_color: look.foreground(TabBarPart::ContrastItem, legacy::CONTRAST),
       blur: 40.0,
       height: 49.0,
       low_height: 32.0,
@@ -483,8 +563,8 @@ impl Default for TabBar {
       title_weight: FontWeight::Medium,
       symbol_size: 18.0,
       spacing: 2.0,
-      badge_background: Color::from_hex("#FF3B30"),
-      badge_color: Color::from_hex("#FFFFFF"),
+      badge_background: look.background(TabBarPart::Badge, legacy::BADGE),
+      badge_color: look.foreground(TabBarPart::Badge, legacy::BADGE_TEXT),
       badge_size: 13.0,
       item_max_width: f32::INFINITY,
       hides_with_keyboard: true,
@@ -496,17 +576,51 @@ impl Default for TabBar {
       floating_margin: 21.0,
       floating_bottom: 21.0,
       floating_height: 62.0,
-      floating_selection: Color::new(120, 120, 128, 41),
+      floating_selection: look.background(TabBarPart::Selection, legacy::SELECTION),
     }
   }
 }
 
 impl TabBar {
+  /// The bar in the colors of the theme of what is being built.
   pub fn new() -> Self {
     Self::default()
   }
 
-  /// The platform's dark colors.
+  /// 0.62's colors: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the bar.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Recipe::new()
+      .base(TabBarPart::Root, |s| s.background(legacy::BACKGROUND))
+      .base(TabBarPart::Separator, |s| s.background(legacy::BORDER))
+      .base(TabBarPart::Item, |s| s.foreground(legacy::COLOR))
+      .base(TabBarPart::ContrastItem, |s| s.foreground(legacy::CONTRAST))
+      .base(TabBarPart::SelectedItem, |s| s.foreground(legacy::TINT))
+      .base(TabBarPart::Badge, |s| {
+        s.background(legacy::BADGE).foreground(legacy::BADGE_TEXT)
+      })
+      .base(TabBarPart::Selection, |s| s.background(legacy::SELECTION))
+  }
+
+  /// The bar of 0.62 in its light colors, whatever the theme.
+  fn legacy_light() -> Self {
+    Self {
+      background: legacy::BACKGROUND,
+      border: legacy::BORDER,
+      tint: legacy::TINT,
+      color: legacy::COLOR,
+      contrast_color: legacy::CONTRAST,
+      badge_background: legacy::BADGE,
+      badge_color: legacy::BADGE_TEXT,
+      floating_selection: legacy::SELECTION,
+      ..Self::default()
+    }
+  }
+
+  /// The platform's dark colors of 0.62.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the dark colors: `TabBar::new()` built in a dark theme is dark"
+  )]
   pub fn dark() -> Self {
     Self {
       background: Color::new(22, 22, 22, 204),
@@ -514,14 +628,19 @@ impl TabBar {
       tint: Color::from_hex("#0A84FF"),
       color: Color::from_hex("#8E8E93"),
       contrast_color: Color::from_hex("#C7C7CC"),
-      ..Self::default()
+      ..Self::legacy_light()
     }
   }
 
-  /// The platform's bar for an appearance: `ctx.window().system.appearance`, or the theme's.
+  /// The platform's bar of 0.62 for an appearance.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the colors: `TabBar::new()` is light or dark as the theme is"
+  )]
+  #[allow(deprecated)]
   pub fn for_appearance(appearance: crate::app::window::Appearance) -> Self {
     match appearance {
-      crate::app::window::Appearance::Light => Self::new(),
+      crate::app::window::Appearance::Light => Self::legacy_light(),
       crate::app::window::Appearance::Dark => Self::dark(),
     }
   }

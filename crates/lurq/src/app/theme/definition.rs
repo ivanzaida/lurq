@@ -151,7 +151,10 @@ impl ThemeDefinition {
   }
 
   /// The theme of lurq 0.61: its palette color for color, with no dark one,
-  /// its typography, radii and shadows. An app written for 0.61 that applies it looks as it did.
+  /// its typography, radii and shadows, and the colors of 0.62 for the engine's own styled pieces (the phone's
+  /// sheet, tab bar, navigation bar, pull to refresh and swipe row, and the engine's select:
+  /// [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy)). An app written for 0.61 that applies it looks as
+  /// it did.
   pub fn legacy() -> Self {
     Self {
       light: ThemePalette::legacy(),
@@ -161,6 +164,7 @@ impl ThemeDefinition {
       shadows: ThemeShadows::legacy(),
       scrollbar: legacy_scrollbar(),
       caret: ThemeCaret::legacy(),
+      ui: crate::ui::UiDefinition::legacy(),
       ..Self::neutral()
     }
   }

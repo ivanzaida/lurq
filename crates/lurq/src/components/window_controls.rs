@@ -76,7 +76,8 @@ pub struct WindowControlColors {
 /// Traffic-light fills for macOS-style controls. Hover keeps the fill; active uses the `*_active` color.
 ///
 /// Defaults are the macOS 11+ (Big Sur and later) values sampled from the system controls:
-/// close `#FF5F57`, minimize `#FEBC2E`, zoom `#28C840`. Apple does not publish these values.
+/// close `#FF5F57`, minimize `#FEBC2E`, zoom `#28C840`. Apple does not publish these values. They are the
+/// platform's own colors, the same in every theme and appearance, and so are literals and not roles of the theme.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrafficLightColors {
   pub close: BackgroundColor,

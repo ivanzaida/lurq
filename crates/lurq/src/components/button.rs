@@ -4,7 +4,13 @@ use crate::{
   node::{ButtonKind, Element},
 };
 
-impl_into_node!(Button);
+impl_into_node!(
+  /// The engine's unstyled button: what it is given to show, pressed with the pointer and with Enter or Space
+  /// where it is a stop of Tab. It has no look of its own. The design system's buttons are built on it: an app
+  /// normally wants [`ui::Button`](crate::ui::Button), or [`ui::Link`](crate::ui::Link) for a press that goes
+  /// somewhere.
+  Button
+);
 
 impl Button {
   pub fn new(label: &str) -> Self {

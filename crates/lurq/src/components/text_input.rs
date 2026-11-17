@@ -6,7 +6,12 @@ use crate::{
   layout::text_style::{FontFeatures, TextAlign, TextStyle},
 };
 
-impl_into_node!(TextInput);
+impl_into_node!(
+  /// The engine's text input: the text, its caret and selection, the keyboard, IME and the clipboard, in a box with
+  /// no look of its own. The design system's fields are built on it: an app normally wants
+  /// [`ui::Input`](crate::ui::Input), [`ui::Textarea`](crate::ui::Textarea) or another field of `lurq::ui`.
+  TextInput
+);
 
 /// The numbers of a multiline input's lines, and the bands behind the lines picked out, drawn beside its text where
 /// it lays its lines out: a line's number stands at its first row, a wrapped line's band covers all its rows. What a

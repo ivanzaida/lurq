@@ -137,15 +137,17 @@ Sheet::mount_with(
 
 The router is the sheet's own, made once with `ctx.router(..)`, with a `StackOutlet` as its routes' layout.
 
-`SheetStyle` is how it looks and moves; `SheetStyle::dark()` has the platform's dark colors.
+`SheetStyle` is how it looks and moves. Its colors come from the theme where it is made, light or dark as the
+theme is ([Colors from the theme](../ios/#colors-from-the-theme)); `ThemeDefinition::legacy()` gives the white
+sheet over black at 0.3 of 0.62.
 
 | Field | Starts as | |
 | --- | --- | --- |
-| `background` | white | The sheet's own color |
+| `background` | `Background` | The sheet's own color |
 | `corner_radius` | 20 | Of its top corners |
-| `backdrop`, `dim` | black, 0.3 | What is drawn over the window behind, and how much of it shows |
+| `backdrop`, `dim` | `Scrim`, 1 | What is drawn over the window behind, and how much of it shows |
 | `grabber` | `false` | The bar at the top that says it can be dragged |
-| `grabber_color`, `grabber_width`, `grabber_height`, `grabber_top` | 36 by 5, 5 under the edge | |
+| `grabber_color`, `grabber_width`, `grabber_height`, `grabber_top` | `Input`, 36 by 5, 5 under the edge | |
 | `top_margin` | 10 | How far under the status bar the highest sheet stops |
 | `max_width` | none | In a wider window the sheet stands in the middle |
 | `duration` | 500 ms | Of every move |
