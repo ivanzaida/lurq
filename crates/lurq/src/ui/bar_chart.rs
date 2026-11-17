@@ -608,9 +608,29 @@ impl ChartPlot for BarPlot {
   }
 }
 
+impl crate::ui::Styled for BarChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for BarChart {
   const NAME: &'static str = "bar_chart";
   type Renderer = ChartRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BarChartPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BarChartState::declared()
+  }
 
   /// The chart's frame ([`chart_recipe`]) at the board's Bar Chart's size, `Md`, and its bars: 12 apart, 14 where
   /// they are stacked, as the board's Stacked Bar Chart has them; the bars of the categories that give way to the

@@ -165,7 +165,7 @@ impl WatermarkPage {
       Spec {
         title: "Watermark",
         make: Arc::new(made),
-        shown: Shown::of(watermark),
+        shown: Shown::of(self.playground.styled(watermark)),
         fill: false,
         forceable: false,
         facts: format!("angle {}", ANGLES[angle].0),

@@ -90,7 +90,9 @@ impl EditablePage {
       self.playground.recorder(),
       self.playground.recorder(),
     );
-    let shown = plain()
+    let shown = self
+      .playground
+      .styled(plain())
       .force(self.playground.forced())
       .on_change(move |text| changed(format!("on_change({text:?})")))
       .on_cancel(move || cancelled("on_cancel()".to_owned()))

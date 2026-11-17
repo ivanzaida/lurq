@@ -84,7 +84,7 @@ impl ProgressPage {
     let fraction = value as f32 / 100.0;
     let plain = {
       let label = label.clone();
-      move || -> Element {
+      move |playground: Option<&Playground>| -> Element {
         if ring {
           let mut ring = RingProgress::new(fraction)
             .variant(variant)
@@ -93,6 +93,10 @@ impl ProgressPage {
           if !label.is_empty() {
             ring = ring.label(&label);
           }
+          let ring = match playground {
+            Some(playground) => playground.styled(ring),
+            None => ring,
+          };
           return ring.into();
         }
         let mut progress = if indeterminate {
@@ -110,6 +114,10 @@ impl ProgressPage {
         if top_bar {
           progress = progress.width(360.0);
         }
+        let progress = match playground {
+          Some(playground) => playground.styled(progress),
+          None => progress,
+        };
         progress.into()
       }
     };
@@ -186,8 +194,11 @@ impl ProgressPage {
       ctx,
       Spec {
         title: "Progress",
-        make: Arc::new(plain.clone()),
-        shown: Shown::of(plain()),
+        make: Arc::new({
+          let plain = plain.clone();
+          move || plain(None)
+        }),
+        shown: Shown::of(plain(Some(&self.playground))),
         fill: false,
         forceable: false,
         facts: if indeterminate && !ring {

@@ -263,9 +263,9 @@ impl PicturePage {
       }
     };
     let live = {
-      let (plain, record) = (plain.clone(), record.clone());
+      let (stage, record) = (self.playground.styled(plain()), record.clone());
       move |ctx: &mut Ctx| -> Element {
-        let mut picture = plain().on_click({
+        let mut picture = stage.on_click({
           let record = record.clone();
           move |_| record("on_click".to_owned())
         });

@@ -140,7 +140,7 @@ impl TimePickerPage {
       Spec {
         title: "Time Picker",
         make,
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!("value {value} · {}", if open { "open" } else { "closed" }),

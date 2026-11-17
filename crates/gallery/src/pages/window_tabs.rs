@@ -191,7 +191,9 @@ impl WindowTabsPage {
       (record.clone(), files.clone()),
       (record, files),
     );
-    let mut strip = WindowTabs::new(self.play.selected.clone(), tabs(&open))
+    let mut strip = self
+      .playground
+      .styled(WindowTabs::new(self.play.selected.clone(), tabs(&open)))
       .label("Open files")
       .shortcuts(shortcuts)
       .disabled(disabled)

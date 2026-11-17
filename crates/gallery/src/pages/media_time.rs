@@ -86,7 +86,7 @@ impl MediaTimePage {
         if label.is_empty() { time } else { time.label(&label) }
       }
     };
-    let mut time = plain().force(self.playground.forced());
+    let mut time = self.playground.styled(plain()).force(self.playground.forced());
     if pressable {
       let (record, turn) = (self.playground.recorder(), self.remaining.clone());
       time = time.on_click(move |_| {

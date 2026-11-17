@@ -166,7 +166,7 @@ impl TextareaPage {
       Spec {
         title: "Textarea",
         make: Arc::new(move || Column::new().width(360.0).child(plain()).into()),
-        shown: Shown::of(textarea),
+        shown: Shown::of(self.playground.styled(textarea)),
         fill: full_width,
         forceable: true,
         facts: format!("{size_name} · {} characters", held.chars().count()),

@@ -1101,9 +1101,29 @@ impl StepsView {
   }
 }
 
+impl crate::ui::Styled for Steps {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Steps {
   const NAME: &'static str = "steps";
   type Renderer = StepsRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    StepsPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    StepsState::declared()
+  }
 
   /// The design's steps (`pencil/lurq-design-system.pen`, Steps): a mark of
   /// 24, round, in the primary color with a check of 14 once a step is done

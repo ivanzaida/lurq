@@ -528,9 +528,29 @@ impl ToggletipView {
   }
 }
 
+impl crate::ui::Styled for Toggletip {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Toggletip {
   const NAME: &'static str = "toggletip";
   type Renderer = ToggletipRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ToggletipPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ToggletipState::declared()
+  }
 
   /// The design's toggletip (`pencil/lurq-design-system.pen`, Toggletip): a
   /// panel 230 wide in the primary color with a radius of 6, 12 of padding

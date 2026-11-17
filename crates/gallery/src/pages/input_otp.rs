@@ -264,7 +264,7 @@ impl InputOtpPage {
       Spec {
         title: "Input OTP",
         make: Arc::new(move || make().into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!("{size_name} · cells {side} · radius 6"),

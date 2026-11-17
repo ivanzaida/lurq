@@ -298,9 +298,29 @@ impl PersonaView {
   }
 }
 
+impl crate::ui::Styled for Persona {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Persona {
   const NAME: &'static str = "persona";
   type Renderer = PersonaRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PersonaPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PersonaState::declared()
+  }
 
   /// The design's persona (`pencil/lurq-design-system.pen`, Persona): an
   /// avatar of 32 with its dot, 10 before a name in 14 at 500 in the

@@ -442,9 +442,29 @@ fn components_row(part: &ResolvedPart) -> crate::components::Button {
   crate::components::Button::empty().part(part)
 }
 
+impl crate::ui::Styled for ChartLegend {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ChartLegend {
   const NAME: &'static str = "chart_legend";
   type Renderer = ChartLegendRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ChartLegendPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ChartLegendState::declared()
+  }
 
   /// The board's Chart Legend (`OjIRm`): a row of 16 between items, each a key of 10 with corners of 2 and its
   /// name 12 in the foreground, 6 apart. Under a chart's plot the keys are dots of 8 and the names muted, as the

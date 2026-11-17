@@ -117,7 +117,7 @@ impl BadgePage {
 
     let plain = {
       let text = text.clone();
-      move || {
+      move |playground: Option<&Playground>| {
         let mut badge = match count {
           Some(n) => Badge::count(n).label(&text).max(max).show_zero(show_zero),
           None => Badge::new(&text),
@@ -131,6 +131,9 @@ impl BadgePage {
         }
         if square {
           badge = badge.shape(BadgeShape::Square);
+        }
+        if let Some(playground) = playground {
+          badge = playground.styled(badge);
         }
         let shown: Element = if on {
           badge.on(bell("Notifications")).into()
@@ -239,8 +242,8 @@ impl BadgePage {
       ctx,
       Spec {
         title: "Badge",
-        make: Arc::new(move || make()),
-        shown: Shown::of(plain()),
+        make: Arc::new(move || make(None)),
+        shown: Shown::of(plain(Some(&self.playground))),
         fill: false,
         forceable: false,
         facts: format!("{variant_name} · {size_name}"),

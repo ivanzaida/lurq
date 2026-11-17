@@ -267,9 +267,29 @@ impl LinkView {
   }
 }
 
+impl crate::ui::Styled for Link {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Link {
   const NAME: &'static str = "link";
   type Renderer = LinkRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    LinkPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    LinkState::declared()
+  }
 
   /// The design's link (`pencil/lurq-design-system.pen`, Link): text at
   /// 14/500 in the foreground, an icon of 14 four after it, and a straight

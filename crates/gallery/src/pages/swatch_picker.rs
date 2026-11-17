@@ -187,7 +187,7 @@ impl SwatchPickerPage {
       Spec {
         title: "SwatchPicker",
         make: Arc::new(move || make(Signal::new(chosen)).into()),
-        shown: Shown::of(picker),
+        shown: Shown::of(self.playground.styled(picker)),
         fill: false,
         forceable: true,
         facts: chosen.to_hex_upper(),

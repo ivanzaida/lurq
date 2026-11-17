@@ -159,7 +159,13 @@ impl NavigationMenuPage {
     let props = self.props();
     let record = self.playground.recorder();
     let height = if props.columns == 1 { TALL } else { SCENE };
-    let shown = scene(menu(props, record).open(self.play_open.clone()).mount(ctx), height);
+    let shown = scene(
+      self
+        .playground
+        .styled(menu(props, record).open(self.play_open.clone()))
+        .mount(ctx),
+      height,
+    );
 
     let mut code = vec!["NavigationMenu::new()".to_owned(), "    .label(\"Site\")".to_owned()];
     if props.variant == NavigationMenuVariant::Links {

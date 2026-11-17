@@ -334,7 +334,7 @@ impl LinkPreviewPage {
       Spec {
         title: "Link Preview",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!("{variant_name} · {page_name}"),

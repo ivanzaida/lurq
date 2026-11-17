@@ -1529,10 +1529,30 @@ pub(crate) fn status_rules(recipe: Recipe) -> Recipe {
     .row_density(super::Selector::new(), ComboboxPart::Status, 32.0)
 }
 
+impl<V: 'static> crate::ui::Styled for Combobox<V> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every combobox has the one recipe and renderer, whatever its values are.
 impl<V: 'static> Themed for Combobox<V> {
   const NAME: &'static str = "combobox";
   type Renderer = ComboboxRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ComboboxPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ComboboxState::declared()
+  }
 
   /// The design's combobox (`pencil/lurq-design-system.pen`, Combobox, and Menu Item for its list): a select's box,
   /// 260 by 36, the background's fill in an edge of 1 in the color of an input's, 6 round, what is typed 12 from its

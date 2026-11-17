@@ -406,9 +406,25 @@ impl SparklineView {
   }
 }
 
+impl crate::ui::Styled for Sparkline {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Sparkline {
   const NAME: &'static str = "sparkline";
   type Renderer = SparklineRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SparklinePart::declared()
+  }
 
   /// The design's sparkline (`pencil/lurq-design-system.pen`, Sparkline, in Charts' Parts): a line of 80 by 28 of
   /// straight steps, 1.75 wide with round joins and ends, in a series' color (the board's is the success color,

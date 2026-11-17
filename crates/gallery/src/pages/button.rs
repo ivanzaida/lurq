@@ -389,7 +389,7 @@ impl ButtonPage {
       ctx,
       Spec {
         title: "Button",
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         make: {
           let props = props.clone();
           Arc::new(move || props.button().into())

@@ -8,7 +8,10 @@ use std::{
   sync::{Arc, Mutex, OnceLock},
 };
 
-use super::recipe::{Case, Name, Recipe, ResolvedRecipe, ResolvedStyles, resolve_styles};
+use super::{
+  part_style::PartStyle,
+  recipe::{Case, Name, Recipe, ResolvedRecipe, ResolvedStyles, resolve_styles},
+};
 use crate::{
   app::theme::{Breakpoint, Theme},
   core::Memo,
@@ -30,6 +33,127 @@ pub trait Themed: 'static {
   /// The recipe of the design: what the component looks like in the neutral
   /// theme, and in any theme that says nothing about it.
   fn recipe() -> Recipe;
+
+  /// The parts a recipe styles, in the order the component declares them: its `*Part` enum
+  /// (`SwitchPart::declared()`). What a gallery lists and a tool offers to restyle. A component that declares none
+  /// has the parts its design's recipe styles, as names.
+  fn parts() -> Declared {
+    Declared::parts_of(&Self::recipe())
+  }
+
+  /// The states a recipe styles the component in besides what the pointer and the keyboard do to it, in the order
+  /// the component declares them: its `*State` enum. A component that declares none has the states its design's
+  /// recipe names.
+  fn states() -> Declared {
+    Declared::states_of(&Self::recipe())
+  }
+}
+
+/// A builder of a themed component, styled as one instance: every component of `lurq::ui` is one, so that what
+/// styles any of them (a gallery's playground, an app's helper over several kinds) is written once. Its rules are
+/// laid over the recipe of [`Component`](Styled::Component): the builder's own, or that of the component it
+/// dresses (a data grid's table, a tour's teaching tip).
+///
+/// ```
+/// use lurq::{
+///   app::theme::RadiusSize,
+///   ui::{Button, ButtonPart, Name, Styled},
+/// };
+///
+/// // A pill, whatever the component is.
+/// fn pill<C: Styled>(component: C, part: impl Into<Name>) -> C {
+///   Styled::style(component, part, |s| s.radius(RadiusSize::Full))
+/// }
+/// let save = pill(Button::new("Save"), ButtonPart::Root);
+/// ```
+pub trait Styled: Sized {
+  /// The component whose recipe the rules are laid over, whose parts and states they name.
+  type Component: Themed;
+
+  /// Lays rules over the theme's recipe for this instance, the later over the earlier: what its own `rules` does.
+  fn rules(self, rules: &Recipe) -> Self;
+
+  /// Puts this instance in a state its recipe names, or takes it out: what its own `state` does.
+  fn state(self, state: impl Into<Name>, on: bool) -> Self;
+
+  /// Styles one part of this instance over what the theme gives it: one rule that always holds, laid as
+  /// [`rules`](Styled::rules).
+  fn style(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    Styled::rules(self, &Recipe::new().base(part, style))
+  }
+}
+
+/// What a component declares of itself for a recipe, its parts or its states: each as a name, and as the Rust
+/// that writes it. [`Themed::parts`] and [`Themed::states`] give it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Declared {
+  /// The enum that writes them, `SwitchPart`; `None` where they are names only, written as strings.
+  pub enum_name: Option<&'static str>,
+  /// Each name, with the variant of the enum that writes it: `("thumb", "Thumb")`. A name only has itself.
+  pub names: Vec<(Name, &'static str)>,
+}
+
+impl Declared {
+  /// Names an enum writes: what `names!` gives each enum of parts and states.
+  pub fn of(enum_name: &'static str, names: Vec<(Name, &'static str)>) -> Self {
+    Self {
+      enum_name: Some(enum_name),
+      names,
+    }
+  }
+
+  /// Names alone, written as strings, each once.
+  pub fn names_only(names: impl IntoIterator<Item = Name>) -> Self {
+    let mut declared = Self::default();
+    for name in names {
+      if !declared.contains(name) {
+        declared.names.push((name, name.as_str()));
+      }
+    }
+    declared
+  }
+
+  /// The parts `recipe` styles, in the order it first styles them.
+  pub fn parts_of(recipe: &Recipe) -> Self {
+    Self::names_only(recipe.rules().iter().map(|rule| rule.part))
+  }
+
+  /// The states `recipe` names in its rules, in the order it first names them.
+  pub fn states_of(recipe: &Recipe) -> Self {
+    Self::names_only(
+      recipe
+        .rules()
+        .iter()
+        .flat_map(|rule| rule.selector.held_states().iter().copied()),
+    )
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.names.is_empty()
+  }
+
+  pub fn len(&self) -> usize {
+    self.names.len()
+  }
+
+  /// Whether `name` is one of them.
+  pub fn contains(&self, name: Name) -> bool {
+    self.names.iter().any(|(held, _)| *held == name)
+  }
+
+  /// The names, in order.
+  pub fn names(&self) -> impl Iterator<Item = Name> + '_ {
+    self.names.iter().map(|(name, _)| *name)
+  }
+
+  /// The Rust that writes `name`: `SwitchPart::Thumb`, or `"thumb"` where there is no enum or the enum does not
+  /// have it (a name an app adds).
+  pub fn code(&self, name: Name) -> String {
+    match (self.enum_name, self.names.iter().find(|(held, _)| *held == name)) {
+      (Some(enum_name), Some((_, variant))) => format!("{enum_name}::{variant}"),
+      _ => format!("{:?}", name.as_str()),
+    }
+  }
 }
 
 type Stored = Arc<dyn Any + Send + Sync>;
@@ -170,6 +294,12 @@ impl UiDefinition {
     self
   }
 
+  /// Takes back the renderer the definition gave one part of a component.
+  pub fn reset_part_renderer<C: Themed>(&mut self, part: impl Into<Name>) -> &mut Self {
+    self.part_renderers.remove(&(Name::new(C::NAME), part.into()));
+    self
+  }
+
   /// The renderer the definition gives one part of a component.
   pub fn part_renderer<C: Themed, R: Clone + Send + Sync + 'static>(&self, part: impl Into<Name>) -> Option<R> {
     self
@@ -272,6 +402,13 @@ impl Theme {
     });
   }
 
+  /// Takes back what the theme said of a component's recipe: see [`UiDefinition::reset_recipe`].
+  pub fn reset_recipe<C: Themed>(&self) {
+    self.update_ui(|ui| {
+      ui.reset_recipe::<C>();
+    });
+  }
+
   /// Gives a component a renderer in place of its default one: see [`UiDefinition::set_renderer`].
   pub fn set_renderer<C: Themed>(&self, renderer: C::Renderer) {
     self.update_ui(|ui| {
@@ -284,6 +421,21 @@ impl Theme {
     let part = part.into();
     self.update_ui(|ui| {
       ui.set_part_renderer::<C, R>(part, renderer);
+    });
+  }
+
+  /// Takes back the renderer the theme gave a component: its default one builds it again.
+  pub fn reset_renderer<C: Themed>(&self) {
+    self.update_ui(|ui| {
+      ui.reset_renderer::<C>();
+    });
+  }
+
+  /// Takes back the renderer the theme gave one part of a component.
+  pub fn reset_part_renderer<C: Themed>(&self, part: impl Into<Name>) {
+    let part = part.into();
+    self.update_ui(|ui| {
+      ui.reset_part_renderer::<C>(part);
     });
   }
 }

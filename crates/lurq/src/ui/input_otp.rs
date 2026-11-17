@@ -950,9 +950,29 @@ impl InputOtpView {
   }
 }
 
+impl crate::ui::Styled for InputOtp {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for InputOtp {
   const NAME: &'static str = "input_otp";
   type Renderer = InputOtpRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    InputOtpPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    InputOtpState::declared()
+  }
 
   /// The design's code (`pencil/lurq-design-system.pen`, Input OTP): cells 36 wide and 40 high, 6 apart, each the
   /// background's fill in an edge of 1 in the color of an input's, `radius-md` round, its character in the mono

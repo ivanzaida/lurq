@@ -340,9 +340,29 @@ impl SwitchView {
   }
 }
 
+impl crate::ui::Styled for Switch {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Switch {
   const NAME: &'static str = "switch";
   type Renderer = SwitchRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SwitchPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SwitchState::declared()
+  }
 
   /// The design's switch (`pencil/lurq-design-system.pen`, Switch): a track
   /// of 36 by 20, round, in the color of an input's edge, with a thumb of 16

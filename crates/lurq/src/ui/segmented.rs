@@ -321,9 +321,29 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<SegmentedControl<T>> for
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for SegmentedControl<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static> Themed for SegmentedControl<T> {
   const NAME: &'static str = "segmented_control";
   type Renderer = SegmentedControlRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SegmentedControlPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SegmentedControlState::declared()
+  }
 
   /// The design's control (`pencil/lurq-design-system.pen`, Segmented
   /// Control): a muted track as high as a control, padded 3, with segments 2

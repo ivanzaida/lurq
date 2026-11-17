@@ -135,7 +135,7 @@ impl GaugePage {
       Spec {
         title: "Gauge",
         make: Arc::new(make),
-        shown: Shown::of(gauge(props)),
+        shown: Shown::of(self.playground.styled(gauge(props))),
         fill: false,
         forceable: false,
         facts: format!("{} of 100", VALUES[props.value].0),

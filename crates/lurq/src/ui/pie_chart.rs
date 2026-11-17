@@ -552,9 +552,29 @@ impl ChartPlot for PiePlot {
   }
 }
 
+impl crate::ui::Styled for PieChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PieChart {
   const NAME: &'static str = "pie_chart";
   type Renderer = ChartRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PieChartPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PieChartState::declared()
+  }
 
   /// The chart's frame ([`chart_recipe`]), `Sm` for a pie and `Md` for a donut as the board has them, a plot of 96
   /// in either: the slices with a line of 1.5 of the card's color on each side of the line between two of them (none

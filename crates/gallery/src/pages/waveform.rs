@@ -190,7 +190,7 @@ impl WaveformPage {
       Spec {
         title: "Waveform",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(wave),
+        shown: Shown::of(self.playground.styled(wave)),
         fill: false,
         forceable: form != Form::At,
         facts: format!("{:.0}% played", f64::from(progress) * 100.0),

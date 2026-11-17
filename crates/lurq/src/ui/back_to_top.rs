@@ -344,9 +344,29 @@ impl BackToTopView {
   }
 }
 
+impl crate::ui::Styled for BackToTop {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for BackToTop {
   const NAME: &'static str = "back_to_top";
   type Renderer = BackToTopRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BackToTopPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BackToTopState::declared()
+  }
 
   /// The design's back to top button (`pencil/lurq-design-system.pen`, Back
   /// To Top): a circle of 40 on `Background` in an edge of 1 in `Border`,

@@ -622,9 +622,29 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
     .child(part.text(content).width(fill))
 }
 
+impl crate::ui::Styled for Toast {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Toast {
   const NAME: &'static str = "toast";
   type Renderer = ToastRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ToastPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ToastState::declared()
+  }
 
   /// The design's toast (`pencil/lurq-design-system.pen`, Toast and
   /// Toast/Rich): a panel 360 wide in the popover's colors, with an edge,

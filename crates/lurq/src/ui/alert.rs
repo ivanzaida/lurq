@@ -513,9 +513,29 @@ impl AlertView {
   }
 }
 
+impl crate::ui::Styled for Alert {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Alert {
   const NAME: &'static str = "alert";
   type Renderer = AlertRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AlertPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    AlertState::declared()
+  }
 
   /// The design's alert (`pencil/lurq-design-system.pen`, Alert and its
   /// severities): a box as wide as the room it is given, in the card's

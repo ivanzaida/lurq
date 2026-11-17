@@ -273,7 +273,10 @@ impl TimelinePage {
     let props = self.props();
     let record = self.playground.recorder();
     let record: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record);
-    let shown = deploy(props, Some(record)).force(if props.select { self.playground.forced() } else { None });
+    let shown = self
+      .playground
+      .styled(deploy(props, Some(record)))
+      .force(if props.select { self.playground.forced() } else { None });
     let make = move || -> Element { deploy(props, None).into() };
 
     let mut code = vec!["Timeline::new([".to_owned()];

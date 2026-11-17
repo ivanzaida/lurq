@@ -944,9 +944,29 @@ impl Component for RecorderHost {
   }
 }
 
+impl<V: ShortcutValue> crate::ui::Styled for ShortcutRecorder<V> {
+  type Component = ShortcutRecorder;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ShortcutRecorder {
   const NAME: &'static str = "shortcut_recorder";
   type Renderer = ShortcutRecorderRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ShortcutRecorderPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ShortcutRecorderState::declared()
+  }
 
   /// The design's shortcut recorder (`pencil/lurq-design-system.pen`, Shortcut Recorder): a box 230 wide and 32 high,
   /// a box's fill and edge with the medium radius, 8 in at its start and 6 at its end, its keys 4 apart as

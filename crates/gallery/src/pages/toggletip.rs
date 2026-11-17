@@ -84,7 +84,14 @@ impl ToggletipPage {
         tip
       }
     };
-    let shown = labelled("Pixel size", plain().force_open(open.then_some(true)).mount(ctx));
+    let shown = labelled(
+      "Pixel size",
+      self
+        .playground
+        .styled(plain())
+        .force_open(open.then_some(true))
+        .mount(ctx),
+    );
 
     let mut code = vec![format!("Toggletip::new({label:?})"), format!("    .text({text:?})")];
     if link {

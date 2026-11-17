@@ -338,6 +338,12 @@ an alias.
   is resolved on the item's part (`Disabled`), not on the root (`ItemDisabled`); where the component's own state of
   that name reaches the item's part too, the item's has a word of its own (`Unavailable`, `OptionDisabled`).
 - A component that wraps another lists the inner one's states it shows in its own enum.
+- **A component declares its parts and its states.** Its `impl Themed` gives `fn parts() -> Declared { XPart::declared() }`
+  and `fn states() -> Declared { XState::declared() }` (`names!` gives `declared()`), and the builder implements
+  `Styled` (`type Component`, `rules`, `state`) with the bounds of the impl that has its `rules`. The gallery's
+  playground reads them for its Styling tab, and its page gives the stage's instance to
+  `self.playground.styled(..)`: a component that declares nothing shows only what its recipe names, and a page that
+  does not call it says it has no parts to style.
 
 ## What the eighth batch and the QA pass taught
 

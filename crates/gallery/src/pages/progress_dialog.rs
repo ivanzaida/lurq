@@ -175,7 +175,9 @@ impl ProgressDialogPage {
           }
         })
     };
-    let shown = Row::new().child(opener).child(make(self.open.clone(), Some(recorded)));
+    let shown = Row::new()
+      .child(opener)
+      .child(self.playground.styled(make(self.open.clone(), Some(recorded))));
 
     let mut code = vec![
       "// open: Signal<bool>".to_owned(),

@@ -181,7 +181,7 @@ impl TagPage {
       Spec {
         title: "Tag",
         make: Arc::new(move || make().into()),
-        shown: Shown::of(tag),
+        shown: Shown::of(self.playground.styled(tag)),
         fill: false,
         forceable: removable,
         facts: if removable {
@@ -294,7 +294,7 @@ impl TagPage {
       Spec {
         title: "Chip",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(chip),
+        shown: Shown::of(self.chip_playground.styled(chip)),
         fill: false,
         forceable: true,
         facts: if selected {

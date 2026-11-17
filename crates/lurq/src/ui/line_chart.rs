@@ -205,9 +205,29 @@ impl From<LineChart> for Element {
   }
 }
 
+impl crate::ui::Styled for LineChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for LineChart {
   const NAME: &'static str = "line_chart";
   type Renderer = ChartRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    LineChartPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    LineChartState::declared()
+  }
 
   /// The chart's frame ([`chart_recipe`]) at the board's size, `Sm`, and its lines: 2 wide with round joins and ends
   /// in the series' colors; at the place under the pointer the frame's cursor, a line of 1 in the input's color, and
@@ -295,6 +315,18 @@ impl AreaChart {
 impl From<AreaChart> for Element {
   fn from(chart: AreaChart) -> Self {
     chart.build(&current_theme())
+  }
+}
+
+impl crate::ui::Styled for AreaChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
   }
 }
 

@@ -197,7 +197,7 @@ impl QrCodePage {
       Spec {
         title: "QR Code",
         make: Arc::new(made),
-        shown: Shown::of(code),
+        shown: Shown::of(self.playground.styled(code)),
         fill: false,
         forceable: false,
         facts,

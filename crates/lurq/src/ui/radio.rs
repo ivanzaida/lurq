@@ -307,9 +307,29 @@ impl RadioView {
   }
 }
 
+impl crate::ui::Styled for Radio {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Radio {
   const NAME: &'static str = "radio";
   type Renderer = RadioRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    RadioPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    RadioState::declared()
+  }
 
   /// The design's radio (`pencil/lurq-design-system.pen`, Radio): a round
   /// mark of 16 in the background's color, with an edge of 1 inside it in the
@@ -712,9 +732,29 @@ impl RadioGroupView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for RadioGroup<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static> Themed for RadioGroup<T> {
   const NAME: &'static str = "radio_group";
   type Renderer = RadioGroupRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    RadioGroupPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    RadioGroupState::declared()
+  }
 
   /// The design's radios (`pencil/lurq-design-system.pen`, Toggles): one
   /// under the other, 12 apart.

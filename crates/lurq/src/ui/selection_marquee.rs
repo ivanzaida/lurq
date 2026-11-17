@@ -660,9 +660,29 @@ impl SelectionMarqueeView {
   }
 }
 
+impl crate::ui::Styled for SelectionMarquee {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for SelectionMarquee {
   const NAME: &'static str = "selection_marquee";
   type Renderer = SelectionMarqueeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SelectionMarqueePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SelectionMarqueeState::declared()
+  }
 
   /// The design's selection marquee (`pencil/lurq-design-system.pen`, Selection Marquee): a rectangle on the muted
   /// info fill in an edge of 1 in the info color, the whole of it at 0.55, drawn over the surface from where the

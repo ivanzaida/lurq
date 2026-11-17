@@ -101,9 +101,10 @@ impl SignaturePadPage {
     let record = self.playground.recorder();
     let forced = self.playground.forced();
     let shown = {
-      let (plain, signature) = (plain.clone(), signature.clone());
+      let (plain, signature, playground) = (plain.clone(), signature.clone(), &self.playground);
       Shown::built(move |ctx| {
-        plain(signature)
+        playground
+          .styled(plain(signature))
           .force(forced)
           .on_change(move |signature| {
             record(format!("on_change({} strokes)", signature.strokes.len()));

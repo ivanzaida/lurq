@@ -445,9 +445,29 @@ impl MediaTimeView {
   }
 }
 
+impl crate::ui::Styled for MediaTime {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for MediaTime {
   const NAME: &'static str = "media_time";
   type Renderer = MediaTimeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MediaTimePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MediaTimeState::declared()
+  }
 
   /// The design's time (`pencil/lurq-design-system.pen`, Media/Time): the mono type at 12, 4 between the
   /// readings, the elapsed time in the foreground and the "/" and the whole in the muted foreground. Not loaded,

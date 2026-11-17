@@ -67,22 +67,19 @@ impl ActionSheetPage {
     let record = self.playground.recorder();
     let plain = {
       let title = title.clone();
-      move |record: Option<Arc<dyn Fn(String) + Send + Sync>>| {
+      move |record: Option<Arc<dyn Fn(String) + Send + Sync>>, playground: Option<&Playground>| {
         let mut sheet = ActionSheet::new(Signal::new(true), options(count, destructive, record)).inline(true);
         if !title.is_empty() {
           sheet = sheet.title(&title);
         }
+        if let Some(playground) = playground {
+          sheet = playground.styled(sheet);
+        }
         Column::new().width(360.0).max_width(FILL).child(sheet)
       }
     };
-    let live = {
-      let plain = plain.clone();
-      move |_: &mut Ctx| -> Element {
-        let record = record.clone();
-        plain(Some(Arc::new(move |line: String| record(line)))).into()
-      }
-    };
-    let still = move || -> Element { plain(None).into() };
+    let live: Element = plain(Some(Arc::new(move |line: String| record(line))), Some(&self.playground)).into();
+    let still = move || -> Element { plain(None, None).into() };
 
     let mut code = vec!["ActionSheet::new(open, [".to_owned()];
     for name in NAMES.iter().take(count) {
@@ -108,7 +105,7 @@ impl ActionSheetPage {
       Spec {
         title: "ActionSheet",
         make: Arc::new(still),
-        shown: Shown::built(live),
+        shown: Shown::of(live),
         fill: false,
         forceable: false,
         facts: format!("{} options", count + usize::from(destructive)),

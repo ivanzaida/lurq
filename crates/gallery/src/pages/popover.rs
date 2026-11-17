@@ -106,17 +106,10 @@ impl PopoverPage {
     let trigger = button().on_click(move |_| record(format!("open: {}", !told.get())));
     // Built on the stage, in the stage's theme: the field in it types in that theme's color.
     let shown = {
-      let (plain, anchor, open, layer) = (
-        plain.clone(),
-        self.anchor.clone(),
-        self.open.clone(),
-        self.layer.clone(),
+      let popover = self.playground.styled(
+        plain(&self.anchor, &self.open, &self.layer, trigger).on_dismiss(move || dismissed("on_dismiss()".to_owned())),
       );
-      Shown::built(move |_| {
-        plain(&anchor, &open, &layer, trigger)
-          .on_dismiss(move || dismissed("on_dismiss()".to_owned()))
-          .into()
-      })
+      Shown::built(move |_| popover.into())
     };
 
     let mut code = vec![

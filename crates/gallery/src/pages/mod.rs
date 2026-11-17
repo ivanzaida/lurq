@@ -132,6 +132,7 @@ mod splitter;
 mod stat_card;
 mod status_bar;
 mod steps;
+mod styling;
 mod swatch_picker;
 mod switch;
 mod table;
@@ -238,6 +239,14 @@ pub const PAGES: &[Page] = &[
     about: "palette color typography font radius shadow spacing size density duration motion opacity blur focus ring",
     group: Group::GettingStarted,
     mount: |ctx| ctx.mount::<tokens::Tokens>(()),
+  },
+  Page {
+    path: "/styling",
+    name: "Styling",
+    icon: Some("pencil"),
+    about: "style styling recipe patch_recipe rules style state force renderer part_renderer palette role theme tokens parts states layers order instance",
+    group: Group::GettingStarted,
+    mount: |ctx| ctx.mount::<styling::StylingPage>(()),
   },
   Page {
     path: "/icons",

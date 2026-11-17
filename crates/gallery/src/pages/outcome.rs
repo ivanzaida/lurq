@@ -126,7 +126,7 @@ impl OutcomePage {
     };
     let plain = {
       let (title, description) = (title.clone(), description.clone());
-      move || -> Element {
+      move |style: &dyn Fn(Outcome) -> Outcome| -> Element {
         let mut outcome = Outcome::new(&title).variant(variant).bordered(bordered);
         if !description.is_empty() {
           outcome = outcome.description(&description);
@@ -144,7 +144,7 @@ impl OutcomePage {
         if actions >= 1 {
           outcome = outcome.action(Button::new(main).on_click(pressed(main)));
         }
-        outcome.into()
+        style(outcome).into()
       }
     };
 
@@ -207,8 +207,8 @@ impl OutcomePage {
       ctx,
       Spec {
         title: "Outcome",
-        make: Arc::new(move || make()),
-        shown: Shown::of(plain()),
+        make: Arc::new(move || make(&|outcome| outcome)),
+        shown: Shown::of(plain(&|outcome| self.playground.styled(outcome))),
         fill: false,
         forceable: false,
         facts: variant_name.to_owned(),

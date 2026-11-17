@@ -188,7 +188,7 @@ impl MeterPage {
       Spec {
         title: "Meter",
         make: Arc::new(make),
-        shown: Shown::of(disk(props)),
+        shown: Shown::of(self.playground.styled(disk(props))),
         fill: false,
         forceable: false,
         facts: format!("{} of 128", props.value),

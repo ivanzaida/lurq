@@ -504,9 +504,25 @@ impl ChartPlot for RadarPlot {
   }
 }
 
+impl crate::ui::Styled for RadarChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for RadarChart {
   const NAME: &'static str = "radar_chart";
   type Renderer = ChartRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    RadarChartPart::declared()
+  }
 
   /// The chart's frame ([`chart_recipe`]) at the board's Radar Chart's size, `Sm`, its plot a square of 150 (180 in
   /// `Md`) in the middle of the frame: the rings and the spokes 1 in `Border`, the outer ring 15 inside the square;

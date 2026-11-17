@@ -450,9 +450,29 @@ impl SpinnerView {
   }
 }
 
+impl crate::ui::Styled for Spinner {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Spinner {
   const NAME: &'static str = "spinner";
   type Renderer = SpinnerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SpinnerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SpinnerState::declared()
+  }
 
   /// The design's spinner (`pencil/lurq-design-system.pen`, Spinner,
   /// Loader/Dots, Loader/Bars, Loader/Inline): a ring of 16, 24 or 32;
@@ -758,9 +778,29 @@ impl LoadingOverlayView {
   }
 }
 
+impl crate::ui::Styled for LoadingOverlay {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for LoadingOverlay {
   const NAME: &'static str = "loading_overlay";
   type Renderer = LoadingOverlayRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    LoadingOverlayPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    LoadingOverlayState::declared()
+  }
 
   /// The design's loading overlay (`pencil/lurq-design-system.pen`, Loading
   /// Overlay): a veil in the background's color at 85 hundredths over the
@@ -1017,9 +1057,29 @@ impl PageLoaderView {
   }
 }
 
+impl crate::ui::Styled for PageLoader {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PageLoader {
   const NAME: &'static str = "page_loader";
   type Renderer = PageLoaderRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PageLoaderPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PageLoaderState::declared()
+  }
 
   /// The design's page loader (`pencil/lurq-design-system.pen`, Loader/Page):
   /// a ring of 28 in the foreground, 14 over the text; the title in 14 at 500

@@ -3645,9 +3645,29 @@ impl VideoPlayerView {
   }
 }
 
+impl crate::ui::Styled for VideoPlayer {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for VideoPlayer {
   const NAME: &'static str = "video_player";
   type Renderer = VideoPlayerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    VideoPlayerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    VideoPlayerState::declared()
+  }
 
   /// The design's video player (`pencil/lurq-design-system.pen`, Video Player `yKk3P`, Compact `cak7v`, Minimal
   /// `OUkUD`). What is over the picture is white on black at the board's alphas in a light and a dark theme alike:

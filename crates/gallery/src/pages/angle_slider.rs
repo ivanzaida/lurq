@@ -89,11 +89,15 @@ impl AngleSliderPage {
     let shown = {
       let (plain, angle) = (plain, self.angle.clone());
       let (change, end) = (record.clone(), record);
+      let playground = &self.playground;
       Shown::built(move |_| {
-        plain(angle)
-          .force(forced)
-          .on_change(move |angle| change(format!("on_change({angle})")))
-          .on_change_end(move |angle| end(format!("on_change_end({angle})")))
+        playground
+          .styled(
+            plain(angle)
+              .force(forced)
+              .on_change(move |angle| change(format!("on_change({angle})")))
+              .on_change_end(move |angle| end(format!("on_change_end({angle})"))),
+          )
           .into()
       })
     };

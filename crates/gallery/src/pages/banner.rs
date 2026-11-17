@@ -67,7 +67,7 @@ impl BannerPage {
       }
     };
     let record = self.playground.recorder();
-    let mut banner = plain().force(self.playground.forced());
+    let mut banner = self.playground.styled(plain().force(self.playground.forced()));
     if closable {
       let close = self.open.clone();
       banner = banner.on_close(move || {

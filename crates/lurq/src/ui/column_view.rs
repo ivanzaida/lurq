@@ -1016,10 +1016,30 @@ impl ColumnViewItem {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for ColumnView<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every column view has the one recipe and renderer, whatever its values are.
 impl<T: Send + Sync + 'static> Themed for ColumnView<T> {
   const NAME: &'static str = "column_view";
   type Renderer = ColumnViewRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ColumnViewPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ColumnViewState::declared()
+  }
 
   /// The design's column view (`pencil/lurq-design-system.pen`, Column View): a box of 520 by 176 on the background
   /// in an edge of 1 in the border's color, 8 round, that cuts what is in it. Its columns share its width, each

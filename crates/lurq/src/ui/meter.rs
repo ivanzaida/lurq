@@ -510,9 +510,29 @@ impl MeterView {
   }
 }
 
+impl crate::ui::Styled for Meter {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Meter {
   const NAME: &'static str = "meter";
   type Renderer = MeterRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MeterPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MeterState::declared()
+  }
 
   /// The design's segmented meter (`pencil/lurq-design-system.pen`, Meter, in Slider & Progress' Meters): 260 on
   /// the board and as wide as what holds it here, its header, its segments and its description 8 apart. The label

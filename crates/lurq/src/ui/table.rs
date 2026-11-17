@@ -6960,9 +6960,29 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
   }
 }
 
+impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> crate::ui::Styled for Table<R, K> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> {
   const NAME: &'static str = "table";
   type Renderer = TableRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TablePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TableState::declared()
+  }
 
   /// The design's table (`pencil/lurq-design-system.pen`: Table, Table/Empty, Table/Loading, and the Data
   /// Grid for what a table whose rows are selected has): a box with the large radius, an inner edge of 1 in

@@ -94,7 +94,7 @@ impl EmptyStatePage {
     };
     let plain = {
       let (title, description) = (title.clone(), description.clone());
-      move || -> Element {
+      move || {
         let mut empty = EmptyState::new(&title).size(size);
         if !description.is_empty() {
           empty = empty.description(&description);
@@ -121,7 +121,7 @@ impl EmptyStatePage {
         if let Some(edge) = edge {
           empty = empty.bordered(edge);
         }
-        empty.into()
+        empty
       }
     };
 
@@ -203,8 +203,8 @@ impl EmptyStatePage {
       ctx,
       Spec {
         title: "EmptyState",
-        make: Arc::new(move || make()),
-        shown: Shown::of(plain()),
+        make: Arc::new(move || make().into()),
+        shown: Shown::of(self.playground.styled(plain())),
         fill: true,
         forceable: false,
         facts: size_name.to_owned(),
