@@ -11,6 +11,8 @@
 //! While a modifier is held, or fingers are down, the fingers are drawn where they are or would land
 //! ([`Tree::set_touch_marks`]). Positions are physical pixels.
 
+#![cfg_attr(not(feature = "winit"), allow(dead_code))]
+
 use super::Tree;
 use crate::app::events::TouchPhase;
 

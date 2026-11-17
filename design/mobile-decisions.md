@@ -30,7 +30,11 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
     direction and a speed), edge pan, pinch (a scale), rotate (an angle), three-finger swipe and pinch.
   - **What only a device shows** goes into [apple-checks.md](apple-checks.md) to be checked and adapted on a Mac and
     a phone.
-- **State.** Decided; in work.
+- **State.** Built on `claude/gestures-769083` (2026-11-17): `Tree::finger` is the one path of a finger, the
+  gestures, the menu of editing commands, the loupe and the handles, a pen's hover, the emulator and `lurq_touch`.
+  The bounce at a list's edge was there already (momentum carries a list past its end and it springs back,
+  `UIScrollView`'s constants): nothing was built for it. What only a device shows is in
+  [apple-checks.md](apple-checks.md) §5.
 
 ### A click is the action, a tap is the gesture
 
@@ -75,7 +79,10 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   on a PC; `on_touch_*`, `on_pinch`, `on_swipe` are for what only a finger does. A finger hovers nothing, so under
   emulation nothing shows its hovered style, as on a phone.
 - **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
-- **State.** Decided (see "Every gesture, the emulator and MCP's touch" above).
+- **State.** Built on `claude/gestures-769083` (2026-11-17), as "Every gesture, the emulator and MCP's touch" above
+  says: `App::emulate`, `Device`, `LURQ_DEVICE`, the gallery's `--device`. Alt+Shift+Ctrl is three fingers side by
+  side, which swipe and tap; a pinch of three fingers is not made with a mouse (MCP's `three_finger_pinch` makes
+  it). The DevTools Device panel is later, on `feat/devtools`.
 
 ### The pointer, not the density, decides a component's phone form
 

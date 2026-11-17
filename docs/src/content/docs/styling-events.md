@@ -644,6 +644,55 @@ told as `on_tap` first and `on_click` after, each once; a tap a handler takes cl
 never clicks, and a click waits for a second tap only on an element with `on_double_tap`. See
 [Touch](../ios/#touch) for the gestures.
 
+### Every Gesture
+
+Every gesture reaches the app through one path, a finger's ([`Tree::finger`](../app-runtime/#a-phone-on-a-desktop)):
+a touch screen's on a phone, a tablet or a touch laptop, the mouse's under [the emulator](../app-runtime/#a-phone-on-a-desktop),
+and an agent's through MCP's [`lurq_touch`](../mcp/#touch-gestures). An app writes its handlers once and tries them
+on a desktop.
+
+| Gesture | What it means | Event | On a phone | In the emulator | Through MCP (`lurq_touch`) |
+| --- | --- | --- | --- | --- | --- |
+| Tap | Activate; a gesture of some fingers | `on_tap` (`fingers`, `count`), then `on_click` for one finger | Touch and lift | Click | `tap` (`fingers`, `count`) |
+| Double tap | Zoom to a point; select a word in text | `on_double_tap`, `on_tap` with `count` 2 | Tap twice | Double click | `double_tap`, or `tap` with `count` 2 |
+| Long press | A context menu; in text, the caret with the loupe | `on_long_press` | Hold still half a second | Hold the button still | `long_press` (`duration_ms`) |
+| Pan | Drag what follows the fingers; scroll | `on_pan`, and the scroll with momentum | Drag | Drag | `pan` (`dx`, `dy`, or `direction` and `distance`) |
+| Swipe | A flick: next, previous, dismiss | `on_swipe` (`direction`, `fingers`, `velocity`) | Flick and lift | Drag quickly and let go | `swipe` (`direction`, `distance`, `speed`, `fingers`) |
+| Edge pan | Back (from the left) or forward (from the right) | `on_edge_pan`, then `on_history_swipe` | Drag in from an edge | Drag in from the window's edge | `edge_pan` (`edge`, `distance`) |
+| Pinch | Zoom | `on_pinch` (`scale`) | Two fingers apart or together | **Alt**+drag away from or toward where it began | `pinch` (`scale`) |
+| Rotate | Turn | `on_rotate` (`rotation`) | Two fingers turning | **Alt**+drag around where it began | `rotate` (`angle`) |
+| One-finger zoom | Zoom with one hand | `on_pinch` (down zooms in) | Tap, then land again, hold and drag | Click, then press again and drag | `zoom` (`scale`) |
+| Two fingers | A pan or a swipe of two | `on_pan`, `on_swipe` with `fingers` 2 | Two fingers together | **Alt+Shift**+drag | `pan`, `swipe` with `fingers` 2 |
+| Three-finger swipe | Undo (left), redo (right) | `on_swipe` with `fingers` 3, then `EditCommand::Undo` / `Redo` | Three fingers flicked sideways | **Alt+Shift+Ctrl**+drag sideways | `three_finger_swipe` (`direction`) |
+| Three-finger pinch | Copy (in), paste (out) | `EditCommand::Copy` / `Paste` | Three fingers pinched | Not made: MCP or a device | `three_finger_pinch` (`scale`) |
+| Three-finger tap | The menu of editing commands | `on_tap` with `fingers` 3, then the menu | Three fingers tapped | **Alt+Shift+Ctrl**+click | `tap` with `fingers` 3 |
+| Pull to refresh, swipe actions | A list's | See [iOS](../ios/#pull-to-refresh) | Drag a list down; a row sideways | Drag | `pan`, `swipe` |
+| Bounce | A list pulled or thrown past its end springs back | The list's scroll | Drag or flick past an end | Drag or flick past an end | `pan`, `swipe` |
+| Pen hover | A pen near the screen hovers | `on_mouse_enter`, `on_mouse_move`, hover styles; `pointer_kind` `Pen` | An Apple Pencil over an iPad; a pen over a Windows screen; a browser's pen | The mouse hovers nothing | Not made |
+
+Three fingers' commands run as their keys would ([Editing commands](#editing-commands-undo-redo-copy-cut-paste)) on
+what has the focus, where nothing took their swipe or tap (`prevent_default`). Their tap opens **the menu of editing
+commands**: lurq shows it over the app by itself, a [`ContextMenu`](../design-system/)'s bar in the theme's
+`context_menu` recipe, its words the locale's (`locale.editing.undo`, `cut`, `copy`, `paste`, `redo`,
+`locale.common.select_all`), and choosing one leaves the focus where it was. `Window::edit_menu()` says whether it is
+open and where; `Window::set_edit_menu(None)` closes it. On iOS, where the system's text input has the focus, lurq
+leaves three fingers to the system.
+
+**Text by touch.** Where the platform draws no caret of its own (everywhere but iOS, which has its own), lurq draws
+a phone's:
+
+- a long press in a text input puts the caret under the finger with a **loupe** over it, a magnified view of the
+  text around the caret; the caret goes with the finger until it lifts, and the menu opens over it with Select all
+  and Paste;
+- a selection in the focused input while the pointer is a finger has **two handles**, a knob on a stem at each end
+  in the theme's `Primary`; a finger that lands on one drags that end;
+- a selection a finger makes (a double tap selects a word, a triple tap a line), or a handle let go, opens the menu
+  over the selection: Cut, Copy, Paste, Select all.
+
+Under emulation nothing hovers (a finger cannot), the wheel still scrolls and the keyboard still types. A gesture of
+the mouse's fingers starts where the button went down; while a modifier is held the fingers it would make are drawn
+as dots.
+
 ### A Finger Or A Mouse
 
 `lurq::app::Pointer` says what the person points with: `Fine` (a mouse, a trackpad, a pen: a point a pixel wide,

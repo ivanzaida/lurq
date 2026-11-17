@@ -118,6 +118,11 @@ A finger's own events are separate, and bubble like the mouse's:
 | `on_edge_pan` | `EdgePanEvent` | a finger in from a screen edge |
 | `on_history_swipe` | `HistorySwipeEvent` | the same from the left edge (back) or the right (forward) |
 
+A double tap held and dragged zooms with one finger (`on_pinch`), three fingers swiped, pinched or tapped are the
+editing commands and their menu, and a pen's hover hovers: [every gesture](../styling-events/#every-gesture) has
+the table, with how each is made on a phone, in the emulator on a desktop and through MCP. In text, iOS draws its
+own caret, loupe and handles; elsewhere lurq draws them.
+
 ```rust
 let navigator = ctx.navigator();
 Column::new()

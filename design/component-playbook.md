@@ -540,6 +540,12 @@ components of its own.
   window is a greatest width, a wrap that a wide window never reaches, or a branch on `phone()` or on a measured
   room.
 
+- **A gesture is tried as a person makes it.** A component's gesture (a swipe of a carousel, a long press of a
+  menu, a pinch of a picture) is tested through `Tree::finger` and `finger_tick` on the tree's clock, not by calling
+  its handler, and looked at once in the gallery with `--device phone` (the mouse as fingers) or MCP's `lurq_touch`.
+  What lurq shows by itself for a gesture (the menu of editing commands) is a `ui` component in a recipe, in the
+  locale's words, never a color or a word of the engine's.
+
 ## What the engine does that surprises
 
 - A container clips what is in it (`Overflow::Hidden` is the default): a shadow or a ring outside a part
