@@ -11,7 +11,8 @@ be able to replace every one of them in one place. That place is `lurq::core::Lo
 dates before it, and now is a part of it (`Locale::dates`).
 
 - **No literal in a component or in the engine for a word a person sees or a tool reads.** The word is a field of
-  `Locale`, in the part for its area: `dates`, `media`, `common` (what many components say alike: "Close", "More",
+  `Locale`, in the part for its area: `dates`, `media`, `input` and `display` (the signature pad, the angle
+  slider, the QR code, the transfer and the cascader), `common` (what many components say alike: "Close", "More",
   "No results", a count chosen), `fields`, `navigation` (windows, panels, tabs, pages, steps, notifications, the
   Mac's menu of the app), `data` (tables, filters, sums, charts), `editing` (find, rich text, code, the command
   palette, Markdown's notes) and `keys`. A word of a new area adds a part, as `core/media_words.rs` does; a word

@@ -11,9 +11,12 @@ use crate::{
   core::Signal,
 };
 
+mod objects;
 mod ops;
 mod paragraphs;
 mod rich_text;
+pub use objects::{InlineObject, OBJECT_CHARACTER};
+pub(crate) use objects::{normalize_objects, place_objects, slice_objects, splice_objects, text_with_labels};
 pub(crate) use ops::{insertion_style, normalize, restyle, slice, splice, style_at, summarize};
 pub use paragraphs::{ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles};
 pub(crate) use paragraphs::{normalize_kinds, paragraph_of, paragraph_ranges, place_kinds, splice_kinds};
@@ -196,6 +199,7 @@ pub struct StyledChange {
   pub(crate) value: Signal<String>,
   pub(crate) spans: Arc<Vec<StyledSpan>>,
   pub(crate) paragraphs: Option<Arc<Vec<ParagraphKind>>>,
+  pub(crate) objects: Option<Arc<Vec<InlineObject>>>,
   pub(crate) edit: StyledEdit,
 }
 
@@ -230,14 +234,21 @@ impl StyledChange {
     self.paragraphs.as_deref().map_or(&[], Vec::as_slice)
   }
 
-  /// The text, its spans and the kinds of its paragraphs as an owned
-  /// [`RichText`] (copies them).
+  /// The objects the text holds now, in its order; empty for an input
+  /// without objects ([`TextInput::objects`](super::TextInput::objects)).
+  pub fn objects(&self) -> &[InlineObject] {
+    self.objects.as_deref().map_or(&[], Vec::as_slice)
+  }
+
+  /// The text, its spans, the kinds of its paragraphs and its objects as an
+  /// owned [`RichText`] (copies them).
   pub fn to_rich_text(&self) -> RichText {
     RichText::new(
       self.value.get_untracked(),
       self.spans.to_vec(),
       self.paragraphs().to_vec(),
     )
+    .with_objects(self.objects().to_vec())
   }
 
   /// The text and spans as an owned [`StyledText`] (copies them).

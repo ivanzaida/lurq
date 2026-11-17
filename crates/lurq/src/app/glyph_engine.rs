@@ -1063,6 +1063,17 @@ impl GlyphEngine {
     band
   }
 
+  /// The ascent and the descent of a line of `style`'s type, in pixels.
+  pub(crate) fn line_ascent_descent(&mut self, style: &TextStyle) -> Option<(f32, f32)> {
+    let buffer = self.full_text_buffer("H", style, f32::MAX, false);
+    let band = buffer.layout_runs().next().and_then(|run| {
+      let line = buffer.lines.get(run.line_i)?.layout_opt()?.first()?;
+      (line.max_ascent + line.max_descent > 0.0).then_some((line.max_ascent, line.max_descent))
+    });
+    self.retain_plain_buffer(buffer);
+    band
+  }
+
   fn font_cap_height_px(&mut self, glyph: GlyphFace) -> Option<f32> {
     let font = self.font_system.get_font(glyph.font_id, glyph.weight)?;
     cap_height::cap_height_px(self.font_system.db(), &font, glyph.weight, glyph.font_size)

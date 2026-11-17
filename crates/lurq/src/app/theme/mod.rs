@@ -319,6 +319,22 @@ impl Theme {
     self.inner.read().unwrap().palette.get(palette_color)
   }
 
+  /// The color of one role in the palette of `appearance`, whatever appearance the theme is in now: what is
+  /// drawn the same in the light look and in the dark one, as a QR code a phone reads, dark on light. On a
+  /// theme with one palette it is that palette's.
+  pub fn palette_color_for(
+    &self,
+    appearance: crate::app::window::Appearance,
+    palette_color: impl Into<PaletteColor>,
+  ) -> Color {
+    let inner = self.inner.read().unwrap();
+    match (&inner.palettes, appearance) {
+      (Some((light, _)), crate::app::window::Appearance::Light) => light.get(palette_color),
+      (Some((_, dark)), crate::app::window::Appearance::Dark) => dark.get(palette_color),
+      (None, _) => inner.palette.get(palette_color),
+    }
+  }
+
   pub fn border_sizes(&self) -> ThemeRef<'_, ThemeBorderSizes> {
     ThemeRef {
       inner: self.inner.read().unwrap(),

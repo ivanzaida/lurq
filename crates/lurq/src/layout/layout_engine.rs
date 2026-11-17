@@ -52,6 +52,8 @@ pub(crate) mod inline_links;
 mod input_gutter;
 mod input_layout;
 mod input_marks;
+#[cfg(feature = "markdown")]
+mod input_objects;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
 #[cfg(feature = "perf_profile")]
@@ -1273,6 +1275,11 @@ impl LayoutEngine {
     let scroll_scope = frame.scroll_viewport.map(|viewport| self.scroll_clip.replace(viewport));
     let outlines = self.pending_outlines.borrow().len();
     let layers = node.has_synthetic_role(SyntheticNodeRole::OverlayHost);
+    // What a repeating node holds is its first tile, collected whole wherever it is, then painted again where the
+    // tiles can be seen.
+    let repeat = node.repeat_spec();
+    let child_culling_enabled = child_culling_enabled && repeat.is_none();
+    let tile_start = (quads.len(), self.opacity_groups.borrow().len());
     // What sticks is painted after its siblings, which scroll under it.
     for stuck in [false, true] {
       let mut sticks_later = false;
@@ -1321,6 +1328,10 @@ impl LayoutEngine {
       // The outlines of what scrolls under what sticks are under it too.
       self.paint_pending_outlines(outlines, quads);
     }
+    if let Some(repeat) = repeat {
+      let seen = (culling_enabled && cull_clip.active).then_some(cull_clip);
+      self.repeat_tile(repeat, result, (abs_x, abs_y), tile_start, seen, quads);
+    }
     self.leave_select_scope(select_scope);
     if let Some(outer) = scroll_scope {
       self.scroll_clip.set(outer);
@@ -1331,11 +1342,141 @@ impl LayoutEngine {
     self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
     self.leave_foreground_scope(foreground_scope);
     self.leave_theme_scope(theme_scope);
+    if node.snaps_to_pixels() {
+      self.snap_quads_to_pixels(&mut quads[group_start..]);
+    }
     let opacity = node.effective_opacity();
     if opacity < DEFAULT_QUAD_OPACITY || blur > 0.0 {
       // A layer holds the outlines of what is in it, and its own.
       self.paint_pending_outlines(outlines, quads);
       self.close_opacity_group(opacity, blur, group_clip, group_start, quads);
+    }
+  }
+
+  /// Paints the tile a repeating node's children made (the quads from `tile.0`, and the opacity groups from
+  /// `tile.1`) again at every place of the pattern that `seen` (the scroll's view, where the node is culled by
+  /// one) and the node's box let be seen: the first child's box with the gap after it, across and down both
+  /// ways, every other row moved by the stagger. The groups of the tile are made again for each copy.
+  fn repeat_tile(
+    &self,
+    repeat: crate::layout::Repeat,
+    result: &LayoutResult,
+    (abs_x, abs_y): (f32, f32),
+    (tile_start, groups_start): (usize, usize),
+    seen: Option<ClipRect>,
+    quads: &mut Vec<Quad>,
+  ) {
+    // No more copies than this in a frame, whatever the box: a pattern of tiles of a pixel over a window.
+    const MOST: usize = 4096;
+    let Some(first) = result.children.first() else {
+      return;
+    };
+    let (pitch_x, pitch_y) = (
+      first.result.size.width + repeat.gap_x,
+      first.result.size.height + repeat.gap_y,
+    );
+    let copyable = quads[tile_start..]
+      .iter()
+      .all(|quad| quad.moved_copy(0.0, 0.0).is_some());
+    if quads.len() == tile_start || !(pitch_x >= 1.0 && pitch_y >= 1.0) || !copyable {
+      return;
+    }
+    let tile: Vec<Quad> = quads.drain(tile_start..).collect();
+    let groups: Vec<crate::layout::opacity_layer::OpacityGroup> =
+      self.opacity_groups.borrow_mut().drain(groups_start..).collect();
+    #[cfg(feature = "screenshot")]
+    let sensitive: Vec<usize> = {
+      let mut held = self.sensitive_quads.borrow_mut();
+      let kept = held.iter().take_while(|index| **index < tile_start).count();
+      held.drain(kept..).map(|index| index - tile_start).collect()
+    };
+    // Where the tile reaches: the corners of each quad, turned as it is about its top left.
+    let (mut left, mut top, mut right, mut bottom) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for quad in &tile {
+      let [a, b, c, d] = quad.transform.matrix_2x2();
+      for (u, v) in [
+        (0.0, 0.0),
+        (quad.width, 0.0),
+        (0.0, quad.height),
+        (quad.width, quad.height),
+      ] {
+        let (x, y) = (quad.x + a * u + c * v, quad.y + b * u + d * v);
+        left = left.min(x);
+        top = top.min(y);
+        right = right.max(x);
+        bottom = bottom.max(y);
+      }
+    }
+    let (mut from_x, mut from_y) = (abs_x, abs_y);
+    let (mut to_x, mut to_y) = (abs_x + result.size.width, abs_y + result.size.height);
+    if let Some(clip) = seen {
+      from_x = from_x.max(clip.x);
+      from_y = from_y.max(clip.y);
+      to_x = to_x.min(clip.x + clip.width);
+      to_y = to_y.min(clip.y + clip.height);
+    }
+    if to_x <= from_x || to_y <= from_y {
+      return;
+    }
+    let mut copies = 0;
+    let first_row = ((from_y - bottom) / pitch_y).floor() as i64;
+    let last_row = ((to_y - top) / pitch_y).ceil() as i64;
+    for row in first_row..=last_row {
+      let dy = row as f32 * pitch_y;
+      let shift = if row.rem_euclid(2) == 1 { repeat.stagger } else { 0.0 };
+      let first_column = ((from_x - right - shift) / pitch_x).floor() as i64;
+      let last_column = ((to_x - left - shift) / pitch_x).ceil() as i64;
+      for column in first_column..=last_column {
+        let dx = column as f32 * pitch_x + shift;
+        if right + dx <= from_x || left + dx >= to_x || bottom + dy <= from_y || top + dy >= to_y {
+          continue;
+        }
+        if copies == MOST {
+          return;
+        }
+        copies += 1;
+        let start = quads.len();
+        quads.extend(tile.iter().filter_map(|quad| quad.moved_copy(dx, dy)));
+        let mut held = self.opacity_groups.borrow_mut();
+        for group in &groups {
+          held.push(crate::layout::opacity_layer::OpacityGroup {
+            start: group.start - tile_start + start,
+            end: group.end - tile_start + start,
+            opacity: group.opacity,
+            blur: group.blur,
+            clip: group.clip,
+          });
+        }
+        #[cfg(feature = "screenshot")]
+        self
+          .sensitive_quads
+          .borrow_mut()
+          .extend(sensitive.iter().map(|index| index + start));
+      }
+    }
+  }
+
+  /// Moves each edge of the fills and borders among `quads` that are not turned to the device pixel nearest it
+  /// (`Node::snaps_to_pixels`). An edge half way between two pixels goes to the lower one, whichever box it is
+  /// the edge of, so two boxes that meet on it still meet, where the float sums that placed them differ by a hair.
+  fn snap_quads_to_pixels(&self, quads: &mut [Quad]) {
+    let scale = self.paint_scale.get();
+    if !(scale.is_finite() && scale > 0.0) {
+      return;
+    }
+    // Under a hair of a pixel past the half, an edge is taken as on the half.
+    const HALF: f32 = 0.5 - 1.0 / 64.0;
+    let snap = |value: f32| (value * scale + HALF).floor() / scale;
+    for quad in quads {
+      if !matches!(quad.content, QuadContent::Rect { .. }) || !quad.transform.is_identity() {
+        continue;
+      }
+      let (left, top) = (snap(quad.x), snap(quad.y));
+      let (right, bottom) = (snap(quad.x + quad.width), snap(quad.y + quad.height));
+      quad.x = left;
+      quad.y = top;
+      quad.width = (right - left).max(0.0);
+      quad.height = (bottom - top).max(0.0);
     }
   }
 
@@ -1965,91 +2106,21 @@ impl LayoutEngine {
     }
 
     match node.node_kind() {
-      NodeKind::TextInput { state, style, .. } if state.is_focused() && self.should_render_text_input_caret(node) => {
-        let padding = self.resolved_padding_for_size(node, result.size);
-        let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
-        let viewport = self.text_input_viewport(node, state, result, (abs_x, abs_y), padding);
-        let caret_line_height = state.caret_height();
-        let theme_caret = *self.caret.borrow();
-        let caret_width = theme_caret.width();
-        // Line height controls row pitch, but the insertion caret tracks the type: a share of the font size where
-        // the caret stands, or the band of the text in its line, as the theme says. Otherwise readable multiline
-        // leading produces a visually oversized caret. It is centred in its line. Among the rows of a multiline
-        // input it is never higher than its row; in a single line it may be, up to the box the text is in.
-        let caret_room = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
-          caret_line_height.min(content_height)
-        } else {
-          content_height
-        };
-        let (caret_height, caret_leading) = match theme_caret.height() {
-          CaretHeight::FontSize(share) => {
-            let share = if share.is_finite() && share > 0.0 { share } else { 1.0 };
-            let height = (state.caret_font_size(style.font_size) * share)
-              .min(caret_room)
-              .max(1.0);
-            (height, (caret_line_height - height) * 0.5)
-          }
-          CaretHeight::TextBand => {
-            let (band_top, band_height) = state.selection_band_for_row(state.caret_y(), state.text_band());
-            let height = band_height.min(caret_room).max(1.0);
-            // A row with no text in it has no band of its own: the caret is centred in it.
-            let top = if band_top + height > caret_line_height + 0.01 || band_height >= caret_line_height {
-              ((caret_line_height - height) * 0.5).max(0.0)
-            } else {
-              band_top.max(0.0)
-            };
-            (height, top)
-          }
-        };
-        let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
-        // The caret starts at its insertion point, after the glyph before it.
-        // At the start of a line nothing precedes it, so it ends there
-        // instead: drawn from the line's left edge it covered the first
-        // glyph (of the value or the placeholder), whose side bearing is
-        // about zero. Where an ancestor clips right at that edge it stays at
-        // the edge rather than disappear.
-        let insertion_x = abs_x + padding.left + state.caret_x();
-        let before_x = insertion_x - caret_width;
-        let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
-        let caret_x = if state.caret_at_line_start() && room_before {
-          before_x
-        } else {
-          insertion_x
-        };
-        let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
-        let palette = self.palette.borrow();
-        let caret_color = node
-          .caret_color_value()
-          .and_then(|color| color.resolve(&palette))
-          .or_else(|| style.caret_color.as_ref().and_then(|color| color.resolve(&palette)))
-          .unwrap_or_else(|| palette.text_color(style));
-        let (caret_x, caret_y, caret_transform, caret_transform_origin) =
-          transformed_quad_frame(caret_x, caret_y, transform);
-        quads.push(Quad {
-          x: caret_x,
-          y: caret_y,
-          width: caret_width,
-          height: caret_height,
+      // The caret of an input with children is drawn over them: see `push_node_overlay_quads`.
+      NodeKind::TextInput { state, style, .. }
+        if node.children().is_empty() && state.is_focused() && self.should_render_text_input_caret(node) =>
+      {
+        self.push_text_input_caret(
+          node,
+          state,
+          style,
+          result,
+          (abs_x, abs_y),
+          transform,
+          clip,
           opacity,
-          transform: caret_transform,
-          transform_origin: caret_transform_origin,
-          content: QuadContent::Rect {
-            color: caret_color,
-            gradient: None,
-          },
-          border_radius: None,
-          border: None,
-          clip: intersect_clip(
-            clip,
-            ClipRect {
-              // Room for a caret at the start of a line.
-              x: viewport.x - caret_width,
-              width: viewport.width + caret_width,
-              ..viewport
-            }
-            .transformed(transform),
-          ),
-        });
+          quads,
+        );
       }
       NodeKind::Checkbox { state } => {
         let checked = state.is_checked();
@@ -2281,6 +2352,106 @@ impl LayoutEngine {
     }
   }
 
+  /// The caret of a focused text input, at `origin`.
+  #[allow(clippy::too_many_arguments)]
+  fn push_text_input_caret(
+    &self,
+    node: &Node,
+    state: &TextInputState,
+    style: &TextStyle,
+    result: &LayoutResult,
+    (abs_x, abs_y): (f32, f32),
+    transform: Transform2D,
+    clip: ClipRect,
+    opacity: f32,
+    quads: &mut Vec<Quad>,
+  ) {
+    let padding = self.resolved_padding_for_size(node, result.size);
+    let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
+    let viewport = self.text_input_viewport(node, state, result, (abs_x, abs_y), padding);
+    let caret_line_height = state.caret_height();
+    let theme_caret = *self.caret.borrow();
+    let caret_width = theme_caret.width();
+    // Line height controls row pitch, but the insertion caret tracks the type: a share of the font size where
+    // the caret stands, or the band of the text in its line, as the theme says. Otherwise readable multiline
+    // leading produces a visually oversized caret. It is centred in its line. Among the rows of a multiline
+    // input it is never higher than its row; in a single line it may be, up to the box the text is in.
+    let caret_room = if state.overflow() == crate::node::node_kind::TextInputOverflow::Multiline {
+      caret_line_height.min(content_height)
+    } else {
+      content_height
+    };
+    let (caret_height, caret_leading) = match theme_caret.height() {
+      CaretHeight::FontSize(share) => {
+        let share = if share.is_finite() && share > 0.0 { share } else { 1.0 };
+        let height = (state.caret_font_size(style.font_size) * share)
+          .min(caret_room)
+          .max(1.0);
+        (height, (caret_line_height - height) * 0.5)
+      }
+      CaretHeight::TextBand => {
+        let (band_top, band_height) = state.selection_band_for_row(state.caret_y(), state.text_band());
+        let height = band_height.min(caret_room).max(1.0);
+        // A row with no text in it has no band of its own: the caret is centred in it.
+        let top = if band_top + height > caret_line_height + 0.01 || band_height >= caret_line_height {
+          ((caret_line_height - height) * 0.5).max(0.0)
+        } else {
+          band_top.max(0.0)
+        };
+        (height, top)
+      }
+    };
+    let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
+    // The caret starts at its insertion point, after the glyph before it.
+    // At the start of a line nothing precedes it, so it ends there
+    // instead: drawn from the line's left edge it covered the first
+    // glyph (of the value or the placeholder), whose side bearing is
+    // about zero. Where an ancestor clips right at that edge it stays at
+    // the edge rather than disappear.
+    let insertion_x = abs_x + padding.left + state.caret_x();
+    let before_x = insertion_x - caret_width;
+    let room_before = transform.is_identity() && (!clip.active || before_x >= clip.x);
+    let caret_x = if state.caret_at_line_start() && room_before {
+      before_x
+    } else {
+      insertion_x
+    };
+    let caret_y = abs_y + vertical_offset + state.caret_y() + caret_leading;
+    let palette = self.palette.borrow();
+    let caret_color = node
+      .caret_color_value()
+      .and_then(|color| color.resolve(&palette))
+      .or_else(|| style.caret_color.as_ref().and_then(|color| color.resolve(&palette)))
+      .unwrap_or_else(|| palette.text_color(style));
+    let (caret_x, caret_y, caret_transform, caret_transform_origin) =
+      transformed_quad_frame(caret_x, caret_y, transform);
+    quads.push(Quad {
+      x: caret_x,
+      y: caret_y,
+      width: caret_width,
+      height: caret_height,
+      opacity,
+      transform: caret_transform,
+      transform_origin: caret_transform_origin,
+      content: QuadContent::Rect {
+        color: caret_color,
+        gradient: None,
+      },
+      border_radius: None,
+      border: None,
+      clip: intersect_clip(
+        clip,
+        ClipRect {
+          // Room for a caret at the start of a line.
+          x: viewport.x - caret_width,
+          width: viewport.width + caret_width,
+          ..viewport
+        }
+        .transformed(transform),
+      ),
+    });
+  }
+
   /// The quads a node paints over its children: a border deferred past them
   /// and scrollbars. See [`Self::push_node_quads`].
   #[inline(never)]
@@ -2300,6 +2471,26 @@ impl LayoutEngine {
       deferred_border,
       ..
     } = *frame;
+    #[cfg(feature = "markdown")]
+    self.push_input_object_veils(node, result, (abs_x, abs_y), transform, clip, quads);
+    // An input's children, the objects of its text, stand where a caret can: it is drawn over them.
+    if let NodeKind::TextInput { state, style, .. } = node.node_kind()
+      && !node.children().is_empty()
+      && state.is_focused()
+      && self.should_render_text_input_caret(node)
+    {
+      self.push_text_input_caret(
+        node,
+        state,
+        style,
+        result,
+        (abs_x, abs_y),
+        transform,
+        clip,
+        opacity,
+        quads,
+      );
+    }
     if deferred_border.is_some() {
       let (border_x, border_y, border_transform, border_transform_origin) =
         transformed_quad_frame(abs_x, abs_y, transform);
@@ -2444,6 +2635,11 @@ impl LayoutEngine {
     // box, so a changed link lays its paragraph out again.
     #[cfg(feature = "markdown")]
     if matches!(node.node_kind(), NodeKind::RichText { .. }) {
+      return None;
+    }
+    // An input lays its text out around its objects: one that changed its size lays the input out again.
+    #[cfg(feature = "markdown")]
+    if matches!(node.node_kind(), NodeKind::TextInput { .. }) && !node.children().is_empty() {
       return None;
     }
 
@@ -3019,6 +3215,8 @@ impl LayoutEngine {
     self.lay_out_text_decorations(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
     self.lay_out_inline_text(glyph_engine, node, &mut result);
+    #[cfg(feature = "markdown")]
+    self.lay_out_input_objects(glyph_engine, node, &mut result);
     result
   }
 
@@ -3146,6 +3344,14 @@ impl LayoutEngine {
         placeholder_style,
       } => {
         let content = state.rendered_text_for_layout();
+        // The room each object of a styled input takes in its text is the size of its child node.
+        #[cfg(feature = "markdown")]
+        let objects = {
+          let room = Self::decorated_input_width(state, constraints);
+          self.measure_input_objects(glyph_engine, node, state, room)
+        };
+        #[cfg(not(feature = "markdown"))]
+        let objects: Vec<Option<Size>> = Vec::new();
         return self.layout_text_input(
           glyph_engine,
           state,
@@ -3154,6 +3360,7 @@ impl LayoutEngine {
           placeholder_style.as_deref(),
           constraints,
           padding,
+          &objects,
         );
       }
       NodeKind::Checkbox { .. } => {
@@ -5344,6 +5551,8 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
       .iter()
       .all(|(prop, _)| *prop == crate::animation::AnimatableProperty::Opacity)
     && node.effective_transform().is_identity()
+    && !node.snaps_to_pixels()
+    && node.repeat_spec().is_none()
     && node.intrinsic_size.is_none()
     && {
       #[cfg(feature = "raster")]

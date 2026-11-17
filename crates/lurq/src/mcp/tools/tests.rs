@@ -140,6 +140,35 @@ pub(super) fn output_text(result: McpToolResult) -> String {
 }
 
 #[test]
+fn what_is_hidden_from_tooling_is_left_out_of_the_tree_with_all_it_holds() {
+  use crate::components::{Column, Row, Text};
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(
+    Column::new().child(Text::new("The report").id("report")).child(
+      Row::new()
+        .describe("a11y_hidden", "true")
+        .child(Text::new("lurq internal").id("mark")),
+    ),
+  );
+  let read = |tree: &mut Tree, app: &mut App, filter: &str| {
+    output_text(call(
+      tree,
+      app,
+      &state,
+      "lurq_read_tree",
+      serde_json::json!({"filter": filter}),
+    ))
+  };
+  let interactive = read(&mut tree, &mut app, "interactive");
+  assert!(interactive.contains("The report"), "{interactive}");
+  assert!(!interactive.contains("lurq internal"), "{interactive}");
+  // Where everything is asked for, it is there.
+  assert!(read(&mut tree, &mut app, "all").contains("lurq internal"));
+}
+
+#[test]
 fn masked_values_are_redacted_in_tree_lookup_refs_and_set_value() {
   use crate::{
     components::{Column, TextInput},

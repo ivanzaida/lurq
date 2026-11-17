@@ -198,7 +198,11 @@ fn bytes_play_as_a_file_does_and_what_is_no_video_says_why() {
   let broken = Media::open(&Loader::new(), &Source::bytes(b"this is not a video".to_vec()));
   let state = until(&broken, "failed", |state| state.error.is_some());
   assert!(!state.playing && !state.waiting);
-  assert_eq!(state.error, Some(MediaError::Unsupported), "what is no video is a kind it does not play");
+  assert_eq!(
+    state.error,
+    Some(MediaError::Unsupported),
+    "what is no video is a kind it does not play"
+  );
   let missing = Media::open(&Loader::new(), &Source::file("no/such/clip.mp4"));
   let state = until(&missing, "failed", |state| state.error.is_some());
   assert_eq!(state.error, Some(MediaError::NotFound));
@@ -260,7 +264,11 @@ fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
     media.set_muted(true);
     media.set_volume(0.5);
     let state = until(&media, "opened", |state| !state.waiting);
-    assert_eq!((state.error.clone(), state.size, state.sound), (None, None, true), "{from}");
+    assert_eq!(
+      (state.error.clone(), state.size, state.sound),
+      (None, None, true),
+      "{from}"
+    );
     assert!(
       state.duration.is_some_and(|duration| (duration - 1.2).abs() < 0.05),
       "{from}: {:?}",
@@ -283,7 +291,10 @@ fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   assert_eq!(state.error, Some(MediaError::Unsupported));
   // The app's locale says it: a short line a player shows.
   let said = |tag: &str| lurq::core::Locale::for_tag(tag).media.error(&MediaError::Unsupported);
-  assert_eq!((&*said("en"), &*said("uk")), ("Unsupported format", "Непідтримуваний формат"));
+  assert_eq!(
+    (&*said("en"), &*said("uk")),
+    ("Unsupported format", "Непідтримуваний формат")
+  );
   assert!(!state.playing && !state.waiting);
 }
 
@@ -808,11 +819,17 @@ fn its_sound_reaches_the_output_as_loud_as_it_is_told() {
   println!("(process, device) before {before:?} at 0.1 {quiet:?} at 0.2 {louder:?} muted {muted:?}");
   println!("(process, device) heard again {again:?} paused {paused:?}");
 
-  assert!(before.0 < 0.001, "nothing is given to the output before it plays: {before:?}");
+  assert!(
+    before.0 < 0.001,
+    "nothing is given to the output before it plays: {before:?}"
+  );
   assert!(quiet.0 > 0.1, "the tone is given to the output: {quiet:?}");
   assert!(paused.0 < 0.001, "paused, nothing is given to it: {paused:?}");
   // The rest is of the device, and holds only where nothing else plays.
-  assert!(before.1 < 0.001, "something else plays, which this test cannot tell from the tone: {before:?}");
+  assert!(
+    before.1 < 0.001,
+    "something else plays, which this test cannot tell from the tone: {before:?}"
+  );
   assert!(quiet.1 > 0.005, "it comes out of the device: {quiet:?}");
   assert!(
     (quiet.1 * 1.6..quiet.1 * 2.4).contains(&louder.1),

@@ -73,6 +73,10 @@ pub(crate) struct TokenChip {
   /// The selection covers the token and it has a look of its own for that: its fill is drawn over the selection's
   /// highlight, which would otherwise lie over it.
   pub(crate) over_selection: bool,
+  /// The range is no text but a box of this width and height that stands on the baseline of its row: its glyph
+  /// draws nothing and takes the box's width, and the row is as high as its tallest box asks. What an object of
+  /// a styled input is laid out as ([`InputObjectBox`]).
+  pub(crate) object: Option<(f32, f32)>,
 }
 
 /// An icon at the end of a token, drawn in the room its padding keeps for it.
@@ -92,6 +96,21 @@ pub(crate) struct TextLines {
   pub(crate) strikethrough: bool,
 }
 
+/// The room a row keeps after a box that is as wide as it can be, for the caret that stands there.
+pub(crate) const OBJECT_CARET_ROOM: f32 = 2.0;
+
+/// Where the box of a range that is an object stands ([`TokenChip::object`]): the byte its range starts at, and
+/// its place in the coordinates the glyphs and the carets have.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct InputObjectBox {
+  pub(crate) byte: usize,
+  pub(crate) x: f32,
+  pub(crate) y: f32,
+  pub(crate) width: f32,
+  pub(crate) height: f32,
+  row: usize,
+}
+
 #[derive(Clone, PartialEq)]
 pub(crate) struct InputConfig {
   pub(crate) source: Arc<str>,
@@ -108,6 +127,25 @@ pub(crate) struct InputConfig {
   /// and descent are more than the line draws past it, as in CSS. A paragraph with a kind is laid out so, for a
   /// kind's rows to be the same in every font; any other row is never lower than its font's line.
   pub(crate) exact_rows: bool,
+}
+
+impl InputConfig {
+  /// The size of the box the style `token` is, where it is one: its own, or with a width that is more than the
+  /// row's, as wide as the row and as high as keeps its shape. The row keeps the room of a caret after its
+  /// widest box, so that the caret after a box as wide as the row is inside the input and seen.
+  pub(crate) fn object_size(&self, token: usize) -> Option<(f32, f32)> {
+    let (width, height) = self.styles.get(token)?.chip.object?;
+    let (width, height) = (width.max(0.0), height.max(0.0));
+    let room = (self.width - OBJECT_CARET_ROOM).max(0.0);
+    if width > room && room.is_finite() && width > 0.0 {
+      return Some((room, height * (room / width)));
+    }
+    Some((width, height))
+  }
+
+  fn has_objects(&self) -> bool {
+    self.styles.iter().any(|style| style.chip.object.is_some())
+  }
 }
 
 /// How one hard paragraph is laid out and what is drawn before it.
@@ -196,6 +234,8 @@ pub struct DecoratedInputLayout {
   pub(crate) glyphs: Vec<InputGlyph>,
   pub(crate) fragments: Vec<InputFragment>,
   pub(crate) carets: Vec<InputCaret>,
+  /// The boxes of the ranges that are objects, in the order they were laid out.
+  pub(crate) objects: Vec<InputObjectBox>,
   rows: Vec<InputRow>,
   intervals: Vec<ClusterInterval>,
   pub(crate) size: Size,
@@ -225,6 +265,7 @@ impl DecoratedInputLayout {
       glyphs: Vec::new(),
       fragments: Vec::new(),
       carets: Vec::new(),
+      objects: Vec::new(),
       rows: Vec::new(),
       intervals: Vec::new(),
       size: Size::default(),
@@ -327,6 +368,14 @@ impl GlyphEngine {
     } else {
       Cow::Owned(config.source.replace(['\r', '\n'], " "))
     };
+    // A box has no type of its own: where the text has one, it is given the ascent and the descent of the
+    // input's, whatever font would have drawn the character it stands for.
+    let object_band = if config.has_objects() {
+      let base = config.base.clone();
+      self.line_ascent_descent(&base)
+    } else {
+      None
+    };
     let mut buffer = self.input_paragraphs(config, &presentation);
     let mut offset = 0;
     let mut prepared = Vec::new();
@@ -337,7 +386,7 @@ impl GlyphEngine {
         Some(shape) => shape,
         None => line.shape(&mut self.font_system, 8),
       };
-      rows::paragraph(&mut prepared, shape, offset, bytes, &output.config);
+      rows::paragraph(&mut prepared, shape, offset, bytes, &output.config, object_band);
       let ending = offset + bytes..offset + bytes + line.ending().as_str().len();
       rows::set_ending(&mut prepared, ending.clone());
       offset = ending.end;

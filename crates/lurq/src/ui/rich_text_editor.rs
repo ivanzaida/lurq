@@ -14,6 +14,7 @@ use super::{
   input::{Input, InputSize},
   names,
   part_style::{FontFamily, Length, PartStyle},
+  picture::Picture,
   popover::{Popover, PopoverPart},
   recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   select::{Select, SelectPart},
@@ -26,12 +27,12 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement},
-    events::{KeyboardEvent, MouseEvent},
+    events::{ClipboardImage, KeyboardEvent, MouseEvent, PasteEvent},
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{
-    Column, LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, RichText, Row,
-    SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput, TextInputController, TextMark,
+    Column, InlineObject, LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles,
+    RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput, TextInputController, TextMark,
   },
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
@@ -165,7 +166,8 @@ pub enum RichTextTool {
   Code,
   /// Opens the panel a link's target is typed in.
   Link,
-  /// Runs the app's [`RichTextEditor::on_image`]: the editor draws no picture in its text.
+  /// Runs the app's [`RichTextEditor::on_image`], which asks for a picture and puts it in the text with
+  /// [`RichTextController::insert_picture`].
   Image,
   Undo,
   Redo,
@@ -206,6 +208,8 @@ pub type RichTextEditorRenderer = Arc<dyn Fn(RichTextEditorView) -> Element + Se
 type Run = Arc<dyn Fn() + Send + Sync>;
 type ChangeHandler = Arc<dyn Fn(&RichText) + Send + Sync>;
 type LinkHandler = Arc<dyn Fn(&str) + Send + Sync>;
+type PictureBuilder = Arc<dyn Fn(&InlineObject) -> Element + Send + Sync>;
+type ImageKeeper = Arc<dyn Fn(&ClipboardImage) -> Option<String> + Send + Sync>;
 type CountText = Arc<dyn Fn(usize) -> String + Send + Sync>;
 type HeadingText = Arc<dyn Fn(u8) -> String + Send + Sync>;
 
@@ -376,8 +380,40 @@ impl RichTextController {
     done
   }
 
-  /// Puts `text` in place of the selection as a link to `target`: what an app does with a picture a person
-  /// chose, which the editor cannot draw in its text.
+  /// Puts a picture in place of the selection, or at the caret, which is left after it: `source` is where its
+  /// pixels are, the path of a file or an address, and `label` what it shows, in words. What an app does with
+  /// the file a person chose after the image tool ran its [`on_image`](RichTextEditor::on_image). The picture is
+  /// a character of the document: it is selected, deleted, copied and pasted with the words around it, and one
+  /// step of the undo takes it back. `false` in a line of a block of code, which holds no picture, in an editor
+  /// that takes no change, and while the editor is not on the screen.
+  ///
+  /// ```
+  /// use lurq::ui::RichTextController;
+  ///
+  /// let editor = RichTextController::new();
+  /// // After the editor is on the screen, with the file a person chose:
+  /// editor.insert_picture("photos/lake.jpg", "The lake at dusk");
+  /// ```
+  pub fn insert_picture(&self, source: &str, label: &str) -> bool {
+    self.insert_object(&InlineObject::new(0, source).label(label))
+  }
+
+  /// Puts `object` in place of the selection as [`insert_picture`](Self::insert_picture) does: for a picture
+  /// with a width of its own (`InlineObject::new(0, source).label(label).width(320)`). The byte it is put at is
+  /// the caret's, whatever `object.at` says.
+  pub fn insert_object(&self, object: &InlineObject) -> bool {
+    let in_code = self
+      .input
+      .caret_paragraph()
+      .ok()
+      .flatten()
+      .is_some_and(|(kind, _)| kind == ParagraphKind::Code);
+    let done = !in_code && self.input.insert_object(object).unwrap_or(false);
+    self.redraw();
+    done
+  }
+
+  /// Puts `text` in place of the selection as a link to `target`.
   pub fn insert_link(&self, text: &str, target: &str) -> bool {
     let style = crate::components::SpanStyle::new().link(target);
     let linked = StyledText::new(text, vec![StyledSpan::new(0..text.len(), style)]);
@@ -430,8 +466,15 @@ impl RichTextController {
 /// from Markdown and writes it ([`RichText::from_markdown`], [`RichText::to_markdown`]). The editor is the
 /// engine's styled text input with kinds of paragraphs, so the caret, the selection, the clipboard and the
 /// undo history are a text input's own; a copy keeps its formatting through the clipboard
-/// ([`TextInput::rich_clipboard`](crate::components::TextInput::rich_clipboard)). A document holds text: a
-/// picture is the app's to place outside it, and the image tool runs the app's [`on_image`](Self::on_image).
+/// ([`TextInput::rich_clipboard`](crate::components::TextInput::rich_clipboard)).
+///
+/// A document holds pictures too, each a character of its text ([`InlineObject`]): alone in a paragraph or
+/// among words, as high as it is in a row that makes room for it. The caret goes past a picture as past one
+/// character, a press selects it, Backspace after it selects it and the next deletes it, and it is copied and
+/// pasted with the words around it, as the Markdown image it is written as. The image tool runs the app's
+/// [`on_image`](Self::on_image), and the app puts the picture in with
+/// [`RichTextController::insert_picture`]. A picture is drawn by a [`Picture`], which loads it and shows that it
+/// is on its way or did not come; [`picture`](Self::picture) draws it another way.
 ///
 /// A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is
 /// selected; a list, a quote or a style over every paragraph the selection touches. The bar shows what the
@@ -452,6 +495,8 @@ pub struct RichTextEditor {
   on_change: Vec<ChangeHandler>,
   on_link_click: Vec<LinkHandler>,
   on_image: Vec<Run>,
+  picture: Option<PictureBuilder>,
+  on_paste_image: Option<ImageKeeper>,
   controller: Option<RichTextController>,
   placeholder: Option<Arc<str>>,
   min_rows: usize,
@@ -469,6 +514,25 @@ pub struct RichTextEditor {
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+}
+
+/// What an editor draws for a picture unless it is told ([`RichTextEditor::picture`]): a [`Picture`] of its
+/// source, which is an address where it starts as one (`http://`, `https://`) and the path of a file otherwise,
+/// called by its label, as wide as the document says it is and never wider than its line.
+fn picture_of(object: &InlineObject) -> Element {
+  let source = object.source.as_ref();
+  let mut picture = if source.starts_with("http://") || source.starts_with("https://") {
+    Picture::from_url(source)
+  } else {
+    Picture::from_file(source)
+  };
+  if !object.label.is_empty() {
+    picture = picture.label(&object.label);
+  }
+  if let Some(width) = object.width {
+    picture = picture.width(width as f32);
+  }
+  picture.into()
 }
 
 /// The rows of body text an editor shows while it holds less, unless it is told otherwise.
@@ -495,6 +559,8 @@ impl RichTextEditor {
       on_change: Vec::new(),
       on_link_click: Vec::new(),
       on_image: Vec::new(),
+      picture: None,
+      on_paste_image: None,
       controller: None,
       placeholder: None,
       min_rows: RICH_TEXT_MIN_ROWS,
@@ -542,8 +608,8 @@ impl RichTextEditor {
   }
 
   /// What the image tool does: with it the bar has the tool ([`RichTextTool::Image`]) unless [`Self::tools`]
-  /// leaves it out. The editor draws no picture in its text: the app asks for one and puts what stands for it
-  /// in the text through a [`RichTextController`].
+  /// leaves it out. The app asks for a picture (the system's dialog for a file, a panel of its own) and puts it
+  /// in the text with [`RichTextController::insert_picture`].
   pub fn on_image(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     if self.on_image.is_empty() && !self.tools.contains(&RichTextTool::Image) {
       let after = self
@@ -554,6 +620,53 @@ impl RichTextEditor {
       self.tools.insert(after, RichTextTool::Image);
     }
     self.on_image.push(Arc::new(handler));
+    self
+  }
+
+  /// What is drawn for a picture of the document, in place of a [`Picture`] of its source: `element` is given
+  /// the picture's record (its source, its label, its width) and builds the element. An app whose pictures are
+  /// not files or addresses (bytes it holds, a resource, a key of its own store) draws them here. The element is
+  /// laid out in the room the text has and takes the room it needs in its row; the pointer and the focus do
+  /// not reach what it holds.
+  ///
+  /// ```
+  /// use lurq::{components::RichText, core::Signal, ui::{Picture, RichTextEditor}};
+  ///
+  /// # fn build(notes: Signal<RichText>) -> RichTextEditor {
+  /// // The document names its pictures by a path under the app's resources.
+  /// RichTextEditor::new(notes).picture(|picture| {
+  ///   Picture::from_resource(&picture.source).label(&picture.label).into()
+  /// })
+  /// # }
+  /// ```
+  pub fn picture(mut self, element: impl Fn(&InlineObject) -> Element + Send + Sync + 'static) -> Self {
+    self.picture = Some(Arc::new(element));
+    self
+  }
+
+  /// What is done with a picture pasted as pixels: a screenshot, an image copied in another app. `keep` is given
+  /// the pixels, keeps them where the app keeps its pictures (a file it writes, a store of its own), and answers
+  /// with the source the document is to name them by; the editor puts a picture of that source at the caret, as
+  /// one step of the undo. `None` puts nothing in. Without it a paste of pixels does nothing: a document names
+  /// its pictures and holds no pixels itself. A second call takes the place of the first.
+  ///
+  /// A clipboard that holds words is pasted as text, whatever else it holds. Files that are pictures, copied in
+  /// a file manager, are put in by their paths with no handler at all, each called by its file's name.
+  ///
+  /// ```
+  /// use lurq::{components::RichText, core::Signal, ui::RichTextEditor};
+  ///
+  /// # fn build(notes: Signal<RichText>) -> RichTextEditor {
+  /// RichTextEditor::new(notes).on_paste_image(|image| {
+  ///   // The app writes the pixels where it keeps its pictures, and says where.
+  ///   let path = format!("attachments/pasted-{}x{}.png", image.width(), image.height());
+  ///   std::fs::write(&path, image.to_png().ok()?).ok()?;
+  ///   Some(path)
+  /// })
+  /// # }
+  /// ```
+  pub fn on_paste_image(mut self, keep: impl Fn(&ClipboardImage) -> Option<String> + Send + Sync + 'static) -> Self {
+    self.on_paste_image = Some(Arc::new(keep));
     self
   }
 
@@ -772,11 +885,12 @@ impl RichTextEditor {
       Held::Bound(signal) => signal.get(),
       Held::Controlled(value) => value.clone(),
     };
-    let document = RichText::new(document.text, document.spans, document.paragraphs);
+    let document = RichText::new(document.text, document.spans, document.paragraphs).with_objects(document.objects);
     let kept = Kept {
       text: Signal::new(document.text),
       spans: Signal::new(document.spans),
       kinds: Signal::new(document.paragraphs),
+      objects: Signal::new(document.objects),
       controller: self.controller.clone().unwrap_or_default(),
       last: Arc::default(),
       link_open: Signal::new(false),
@@ -804,7 +918,16 @@ impl RichTextEditor {
       can_undo: editable && input.can_undo(),
       can_redo: editable && input.can_redo(),
     };
-    let words = kept.text.with_untracked(|text| text.split_whitespace().count());
+    // A picture is no word, and stands between two.
+    let words = kept.objects.with_untracked(|objects| {
+      kept.text.with_untracked(|text| {
+        if objects.is_empty() {
+          text.split_whitespace().count()
+        } else {
+          RichText::plain(text.clone()).with_objects(objects.clone()).word_count()
+        }
+      })
+    });
     let mut view = RichTextEditorView {
       placeholder: self.placeholder,
       min_rows: self.min_rows,
@@ -825,6 +948,8 @@ impl RichTextEditor {
       on_change: self.on_change,
       on_link_click: self.on_link_click,
       on_image: self.on_image,
+      picture: self.picture,
+      on_paste_image: self.on_paste_image,
       boxed: self.boxed,
       words: self.words,
       forced: self.forced,
@@ -868,13 +993,15 @@ impl FieldControl for RichTextEditor {
   }
 }
 
-/// What an editor keeps from one render to the next: the three signals the engine's input edits, its
-/// controller, what it last wrote to the app or read from it, and the panel of a link.
+/// What an editor keeps from one render to the next: the signals the engine's input edits, its controller, what
+/// it last wrote to the app or read from it, and the panel of a link.
 #[derive(Clone)]
 struct Kept {
   text: Signal<String>,
   spans: Signal<Vec<StyledSpan>>,
   kinds: Signal<Vec<ParagraphKind>>,
+  /// The pictures of the document, each at its character of the text.
+  objects: Signal<Vec<InlineObject>>,
   controller: RichTextController,
   /// The document the app's value and the signals last agreed on.
   last: Arc<Mutex<Option<RichText>>>,
@@ -918,6 +1045,7 @@ impl Component for RichTextEditorHost {
         text: Signal::new(String::new()),
         spans: Signal::new(Vec::new()),
         kinds: Signal::new(Vec::new()),
+        objects: Signal::new(Vec::new()),
         controller: RichTextController::new(),
         last: Arc::default(),
         link_open: Signal::new(false),
@@ -945,9 +1073,13 @@ impl Component for RichTextEditorHost {
     };
     let stale = kept.last.lock().as_ref() != Some(&held);
     if stale {
-      let document = RichText::new(held.text.clone(), held.spans.clone(), held.paragraphs.clone());
+      let document = RichText::new(held.text.clone(), held.spans.clone(), held.paragraphs.clone())
+        .with_objects(held.objects.clone());
       if kept.text.with_untracked(|text| *text != document.text) {
         kept.text.set(document.text);
+      }
+      if kept.objects.with_untracked(|objects| *objects != document.objects) {
+        kept.objects.set(document.objects);
       }
       if kept.spans.with_untracked(|spans| *spans != document.spans) {
         kept.spans.set(document.spans);
@@ -1037,6 +1169,8 @@ pub struct RichTextEditorView {
   on_change: Vec<ChangeHandler>,
   on_link_click: Vec<LinkHandler>,
   on_image: Vec<Run>,
+  picture: Option<PictureBuilder>,
+  on_paste_image: Option<ImageKeeper>,
   boxed: BoxStates,
   words: Words,
   forced: Option<Interaction>,
@@ -1403,9 +1537,10 @@ impl RichTextEditorView {
       .with(ParagraphKind::Code, code)
   }
 
-  /// The box that is typed in: the engine's styled text input with kinds of paragraphs, bound to what the
-  /// editor keeps, with the editor's keys. Each change it makes is written to the app's signal and told to
-  /// its handlers. It is a `textbox` of several lines to what reads the tree.
+  /// The box that is typed in: the engine's styled text input with kinds of paragraphs and objects, bound to
+  /// what the editor keeps, with the editor's keys. Each change it makes is written to the app's signal and told
+  /// to its handlers. It is a `textbox` of several lines to what reads the tree, and each picture in it a child
+  /// of it.
   pub fn content(&self) -> TextInput {
     let part = self.part(RichTextEditorPart::Content).forced(self.forced);
     let text = text_box::ink(self.theme(), &part.rest());
@@ -1421,10 +1556,17 @@ impl RichTextEditorView {
       .input
       .selection()
       .map_or(0, |selection| selection.range().start);
+    let picture = self.picture.clone();
     let input = TextInput::styled(kept.text.clone(), text)
       .placeholder_style(placeholder)
       .spans(kept.spans.clone())
       .paragraphs(kept.kinds.clone(), self.paragraph_styles())
+      .objects(kept.objects.clone(), move |object| match &picture {
+        Some(picture) => picture(object),
+        None => picture_of(object),
+      })
+      // A selected picture is made wider or narrower by the handle on its corner.
+      .resizable_objects(self.editable())
       // What is copied keeps its marks and kinds beside its text, and comes back with them.
       .rich_clipboard(true)
       .controller(kept.controller.input.clone())
@@ -1475,6 +1617,47 @@ impl RichTextEditorView {
         }
       })
       .on_mouse_up(move |_: MouseEvent| pressed.redraw())
+      .on_paste(self.paste_pictures())
+  }
+
+  /// What a paste that holds no words does: pixels are given to the app to keep and put in as the picture it
+  /// answers with, and files that are pictures are put in by their paths. Anything else is left to the text.
+  fn paste_pictures(&self) -> impl Fn(PasteEvent) + Send + Sync + 'static {
+    let (keep, editor, editable) = (
+      self.on_paste_image.clone(),
+      self.kept.controller.clone(),
+      self.editable(),
+    );
+    move |event: PasteEvent| {
+      if !editable || event.default_prevented() || event.text().is_some_and(|text| !text.is_empty()) {
+        return;
+      }
+      // Each picture to put in: its source, and what it is called.
+      let mut pictures: Vec<(String, String)> = Vec::new();
+      match (event.image(), &keep) {
+        (Some(image), Some(keep)) => pictures.extend(keep(image).map(|source| (source, String::new()))),
+        _ => {
+          for path in event.files() {
+            let extension = path
+              .extension()
+              .map(|extension| extension.to_string_lossy().to_lowercase());
+            if extension.is_some_and(|extension| {
+              crate::files::FileKind::of_extension(&extension) == crate::files::FileKind::Image
+            }) {
+              let name = path.file_stem().map(|name| name.to_string_lossy().into_owned());
+              pictures.push((path.to_string_lossy().into_owned(), name.unwrap_or_default()));
+            }
+          }
+        }
+      }
+      if pictures.is_empty() {
+        return;
+      }
+      event.prevent_default();
+      for (source, label) in pictures {
+        editor.insert_picture(&source, &label);
+      }
+    }
   }
 
   /// What the keys do in the box, besides what they do in any text: the marks, the kinds of paragraphs, the
@@ -1732,6 +1915,16 @@ fn caret_paragraph(input: &TextInputController) -> Option<(ParagraphKind, std::o
 /// three backticks it starts a block of code. Anywhere else it is the text input's own.
 fn enter_key(kept: &Kept, shortcuts: bool) -> bool {
   let input = &kept.controller.input;
+  // A picture selected alone is not what Enter takes the place of: the paragraph starts after it.
+  if let Ok(selection) = input.selection() {
+    let range = selection.range();
+    let pictured = kept
+      .objects
+      .with_untracked(|objects| objects.iter().any(|object| object.range() == range));
+    if pictured {
+      let _ = input.select(range.end, range.end);
+    }
+  }
   let Some((kind, range, caret)) = caret_paragraph(input) else {
     return false;
   };

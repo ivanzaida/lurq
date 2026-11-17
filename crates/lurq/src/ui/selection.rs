@@ -38,6 +38,11 @@ impl Pick {
       Self::Only
     }
   }
+
+  /// How `event` checks in a list of checkboxes: with Shift a range, else the row in or out, the rest as it is.
+  pub(crate) fn of_check(event: &MouseEvent) -> Self {
+    if event.shift { Self::Range } else { Self::Toggle }
+  }
 }
 
 /// What writes the next selection.
@@ -50,6 +55,8 @@ pub(crate) struct ListSelection<T> {
   selected: Vec<T>,
   multiple: bool,
   write: Option<Write<T>>,
+  /// Whether a range adds to what is selected, as a list of checkboxes has it, in place of being the whole of it.
+  adds: bool,
 }
 
 impl<T: Clone + PartialEq> ListSelection<T> {
@@ -68,7 +75,15 @@ impl<T: Clone + PartialEq> ListSelection<T> {
       selected,
       multiple,
       write,
+      adds: false,
     }
+  }
+
+  /// Whether a range, by a press with Shift or Shift with the keys, adds its rows to what is selected and keeps the
+  /// rest, as in a list of checkboxes, in place of being all that is selected.
+  pub(crate) fn adding(mut self, adds: bool) -> Self {
+    self.adds = adds;
+    self
   }
 
   /// The id of the row at `index`.
@@ -144,6 +159,12 @@ impl<T: Clone + PartialEq> ListSelection<T> {
       .map(|index| self.ids[index].clone())
       .collect();
     range.push(self.ids[anchor].clone());
+    if self.adds {
+      // What was selected outside the range stays, before it.
+      let mut kept: Vec<T> = self.selected.iter().filter(|id| !range.contains(id)).cloned().collect();
+      kept.extend(range);
+      return kept;
+    }
     range
   }
 

@@ -713,7 +713,11 @@ impl AudioPlayerPage {
         ));
       }
       if chosen == ADDRESSED {
-        controls.push(prop("address", "&str", crate::playground::field_telling(&self.address, stops(&self.playing))));
+        controls.push(prop(
+          "address",
+          "&str",
+          crate::playground::field_telling(&self.address, stops(&self.playing)),
+        ));
         controls.push(kept_line(source.as_ref(), self.kept.get()));
       }
     }
@@ -1127,93 +1131,93 @@ impl Component for AudioPlayerPage {
     ];
     let playground = self.play(ctx);
     let sections = vec![
-        Section::new(
-          "Playground",
-          "Every prop is a control on the right; the player on the stage is bound to the page's signals, and a \
+      Section::new(
+        "Playground",
+        "Every prop is a control on the right; the player on the stage is bound to the page's signals, and a \
            clock of the page moves the position on while it plays and stops it at the end. With a source chosen \
            (the gallery's own track from its bytes, a file by its path, a sound at an address) the player really \
            plays it: where it is and how long are then the sound's. A file of your own is its path, typed in \
            place of the gallery's. An address is loaded when it is first played, and kept.",
-          playground,
-        ),
-        Section::new(
-          "Card",
-          "The board's card: paused; playing with shuffle on and repeat one; loading, with lines for the texts and \
+        playground,
+      ),
+      Section::new(
+        "Card",
+        "The board's card: paused; playing with shuffle on and repeat one; loading, with lines for the texts and \
            a spinner in play; and an error, which says what went wrong in place of the times.",
-          self.frame.demo(
-            0,
-            cards,
-            "AudioPlayer::new(position, 250.0).title(..).description(..)",
-            &[
-              "AudioPlayer::new(position, 250.0)",
-              "    .title(\"Night Drive\")",
-              "    .description(\"Aurora Lane · Low Tide\")",
-              "    .media(artwork)",
-              "    .playing(playing)",
-              "    .shuffle(shuffle)",
-              "    .repeat(repeat)",
-              "    .mount(ctx)",
-            ],
-          ),
+        self.frame.demo(
+          0,
+          cards,
+          "AudioPlayer::new(position, 250.0).title(..).description(..)",
+          &[
+            "AudioPlayer::new(position, 250.0)",
+            "    .title(\"Night Drive\")",
+            "    .description(\"Aurora Lane · Low Tide\")",
+            "    .media(artwork)",
+            "    .playing(playing)",
+            "    .shuffle(shuffle)",
+            "    .repeat(repeat)",
+            "    .mount(ctx)",
+          ],
         ),
-        Section::new(
-          "Compact",
-          "One row of 48 for a list or a message: play, the bar (or a waveform), the time. After an error the \
+      ),
+      Section::new(
+        "Compact",
+        "One row of 48 for a list or a message: play, the bar (or a waveform), the time. After an error the \
            button turns to retry.",
-          self.frame.demo(
-            1,
-            rows,
-            "AudioPlayer::new(..).variant(AudioPlayerVariant::Compact)",
-            &[
-              "AudioPlayer::new(position, 250.0)",
-              "    .variant(AudioPlayerVariant::Compact)",
-              "    .playing(playing)",
-              "    .mount(ctx)",
-            ],
-          ),
+        self.frame.demo(
+          1,
+          rows,
+          "AudioPlayer::new(..).variant(AudioPlayerVariant::Compact)",
+          &[
+            "AudioPlayer::new(position, 250.0)",
+            "    .variant(AudioPlayerVariant::Compact)",
+            "    .playing(playing)",
+            "    .mount(ctx)",
+          ],
         ),
-        Section::new(
-          "Voice message",
-          "A play button, the waveform, the time, and the speed while it plays, which a press steps through 1×, \
+      ),
+      Section::new(
+        "Voice message",
+        "A play button, the waveform, the time, and the speed while it plays, which a press steps through 1×, \
            1.5× and 2×; a dot while it has not been heard.",
-          self.frame.demo(
-            2,
-            voices,
-            "AudioPlayer::new(..).variant(AudioPlayerVariant::Voice).peaks(&peaks)",
-            &[
-              "AudioPlayer::new(position, 42.0)",
-              "    .variant(AudioPlayerVariant::Voice)",
-              "    .peaks(&peaks)",
-              "    .unheard(!heard)",
-              "    .rate(rate)",
-              "    .mount(ctx)",
-            ],
-          ),
+        self.frame.demo(
+          2,
+          voices,
+          "AudioPlayer::new(..).variant(AudioPlayerVariant::Voice).peaks(&peaks)",
+          &[
+            "AudioPlayer::new(position, 42.0)",
+            "    .variant(AudioPlayerVariant::Voice)",
+            "    .peaks(&peaks)",
+            "    .unheard(!heard)",
+            "    .rate(rate)",
+            "    .mount(ctx)",
+          ],
         ),
-        Section::new(
-          "Mini player",
-          "Docked along the bottom of a window, as wide as it: a progress line along its top edge, the track, the \
+      ),
+      Section::new(
+        "Mini player",
+        "Docked along the bottom of a window, as wide as it: a progress line along its top edge, the track, the \
            transport, the time, the volume, the queue and expand. Under 480 wide, the track, play and next.",
-          self.frame.demo(
-            3,
-            docked,
-            "AudioPlayer::new(..).variant(AudioPlayerVariant::Mini)",
-            &[
-              "Column::new()",
-              "    .child(content.flex(1.0))",
-              "    .child(",
-              "        AudioPlayer::new(position, 250.0)",
-              "            .variant(AudioPlayerVariant::Mini)",
-              "            .title(\"Night Drive\")",
-              "            .description(\"Aurora Lane\")",
-              "            .on_queue(|| show_queue())",
-              "            .on_expand(|| expand())",
-              "            .mount(ctx),",
-              "    )",
-            ],
-          ),
+        self.frame.demo(
+          3,
+          docked,
+          "AudioPlayer::new(..).variant(AudioPlayerVariant::Mini)",
+          &[
+            "Column::new()",
+            "    .child(content.flex(1.0))",
+            "    .child(",
+            "        AudioPlayer::new(position, 250.0)",
+            "            .variant(AudioPlayerVariant::Mini)",
+            "            .title(\"Night Drive\")",
+            "            .description(\"Aurora Lane\")",
+            "            .on_queue(|| show_queue())",
+            "            .on_expand(|| expand())",
+            "            .mount(ctx),",
+            "    )",
+          ],
         ),
-        Section::new("Props", "", props_table(&rows_table, &["new"], self.frame.room())),
+      ),
+      Section::new("Props", "", props_table(&rows_table, &["new"], self.frame.room())),
     ];
     self.frame.page(
       ctx,

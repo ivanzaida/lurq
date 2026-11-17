@@ -9,7 +9,7 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    AudioPlayer, AudioPlayerVariant, CheckboxCard, ColorField, ColumnView, Combobox, DateField, DatePicker,
+    AudioPlayer, AudioPlayerVariant, Cascader, CheckboxCard, ColorField, ColumnView, Combobox, DateField, DatePicker,
     DateRangePicker, DropZone, Editable, ErrorSummary, ExpandableTile, Field, FieldError, Fieldset, FieldsetVariant,
     FileUpload, Input, InputGroup, ListItem, Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect,
     NumberInput, Outcome, PasswordInput, PathField, Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid,
@@ -624,12 +624,35 @@ fn an_expandable_tile_is_no_wider_than_a_narrow_room() {
   });
 }
 
+#[cfg(feature = "canvas")]
+#[test]
+fn a_signature_pad_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    lurq::ui::SignaturePad::controlled(lurq::ui::Signature::default(), |_| {})
+      .id("it")
+      .into()
+  });
+}
+
 #[test]
 fn a_tree_select_is_no_wider_than_a_narrow_room() {
   fits(|| {
     TreeSelect::controlled(
       "lib.rs",
       [TreeItem::folder("crates", "crates").item(TreeItem::file("lib.rs", "lib.rs"))],
+      |_| {},
+    )
+    .id("it")
+    .into()
+  });
+}
+
+#[test]
+fn a_cascader_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    Cascader::controlled(
+      "kyiv",
+      [TreeItem::new("europe", "Europe").item(TreeItem::new("ukraine", "Ukraine").item(TreeItem::new("kyiv", "Kyiv")))],
       |_| {},
     )
     .id("it")

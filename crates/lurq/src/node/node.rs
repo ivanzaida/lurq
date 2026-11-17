@@ -632,6 +632,13 @@ pub(crate) trait NodeUpdate {
   fn within_hovered_style(&mut self, style: Style);
   fn within_pressed_style(&mut self, style: Style);
   fn interaction_group(&mut self, group: bool);
+  /// Draws the boxes of the node and of everything in it on whole device pixels: each edge of a fill or a border
+  /// is moved to the device pixel nearest it when the frame is painted, so that at a scale that is no whole number
+  /// (150%) an edge is crisp and not a column of half covered pixels. Two boxes that meet still meet. What is laid
+  /// out, and what a pointer hits, is as before; a text, an image and a box that is turned are drawn where they are.
+  fn snap_to_pixels(&mut self, snap: bool);
+  /// Paints what the node holds again and again across its box; see [`crate::layout::Repeat`].
+  fn repeat(&mut self, repeat: Option<crate::layout::Repeat>);
   /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
   /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system so, which on
   /// Windows answers the system's hit test with the minimize, the maximize or the close button where the element
@@ -1041,6 +1048,10 @@ pub(crate) struct RareStyle {
   /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
   /// see [`NodeUpdate::interaction_group`].
   pub(crate) interaction_group: bool,
+  /// The boxes of the node and its subtree are drawn on whole device pixels; see [`NodeUpdate::snap_to_pixels`].
+  pub(crate) snaps_to_pixels: bool,
+  /// What the node holds is painted again and again across its box; see [`NodeUpdate::repeat`].
+  pub(crate) repeat: Option<crate::layout::Repeat>,
   /// Which of the window's controls the node is, if it is one; see [`NodeUpdate::window_control`].
   pub(crate) window_control: Option<WindowControl>,
 }
@@ -1794,6 +1805,20 @@ impl NodeUpdate for Node {
 
   fn interaction_group(&mut self, group: bool) {
     self.rare_style.interaction_group = group;
+  }
+
+  fn repeat(&mut self, repeat: Option<crate::layout::Repeat>) {
+    // Writing through the lazy box would allocate it for a node that repeats nothing.
+    if self.rare_style.repeat != repeat {
+      self.rare_style.repeat = repeat;
+    }
+  }
+
+  fn snap_to_pixels(&mut self, snap: bool) {
+    // Writing through the lazy box would allocate it for a node that does not snap.
+    if self.rare_style.snaps_to_pixels != snap {
+      self.rare_style.snaps_to_pixels = snap;
+    }
   }
 
   fn window_control(&mut self, control: WindowControl) {
@@ -5010,6 +5035,15 @@ impl Node {
     NodeUpdate::child(self, child.into_node());
   }
 
+  /// Takes away the children built so far: what builds them again puts its own in their place.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn clear_child_elements(&mut self) {
+    if !self.children.is_empty() {
+      self.children.clear();
+      self.layout_cache.invalidate();
+    }
+  }
+
   /// The children of a `with_children`, grown as `Vec::extend` grows them, so
   /// a build allocates as before.
   pub(crate) fn extend_child_elements(&mut self, mut children: impl Iterator<Item = crate::node::Element>) {
@@ -5141,7 +5175,8 @@ impl Node {
       return std::borrow::Cow::Borrowed(&self.debug.debug_attrs);
     }
     let mut attrs: Vec<(Arc<str>, Arc<str>)> = self
-      .debug.debug_attrs
+      .debug
+      .debug_attrs
       .iter()
       .filter(|(name, _)| !described.iter().any(|(said, _)| said == name))
       .cloned()
@@ -5704,6 +5739,17 @@ impl Node {
   /// Whether the node is an interaction group: see [`NodeUpdate::interaction_group`].
   pub(crate) fn is_interaction_group(&self) -> bool {
     self.rare_style.interaction_group
+  }
+
+  /// Whether the boxes of the node and its subtree are drawn on whole device pixels: see
+  /// [`NodeUpdate::snap_to_pixels`].
+  pub(crate) fn snaps_to_pixels(&self) -> bool {
+    self.rare_style.snaps_to_pixels
+  }
+
+  /// How what the node holds is painted again and again across its box: see [`NodeUpdate::repeat`].
+  pub(crate) fn repeat_spec(&self) -> Option<crate::layout::Repeat> {
+    self.rare_style.repeat
   }
 
   /// Which of the window's controls the node is: see [`NodeUpdate::window_control`].
@@ -6644,7 +6690,8 @@ impl Node {
   #[cfg(feature = "devtools")]
   fn estimated_debug_memory_bytes(&self) -> usize {
     self
-      .debug.component_props_debug
+      .debug
+      .component_props_debug
       .as_ref()
       .map(|props| {
         props.type_name.len()
@@ -6657,23 +6704,27 @@ impl Node {
       })
       .unwrap_or(0)
       + self
-        .debug.component_signals_debug
+        .debug
+        .component_signals_debug
         .iter()
         .map(|signal| signal.type_name.len() + signal.estimated_memory_bytes())
         .sum::<usize>()
       + self
-        .debug.component_memos_debug
+        .debug
+        .component_memos_debug
         .iter()
         .map(|memo| memo.type_name.len() + memo.estimated_memory_bytes())
         .sum::<usize>()
       + self.debug.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
       + self
-        .debug.component_contexts_debug
+        .debug
+        .component_contexts_debug
         .iter()
         .map(|context| context.type_name.len())
         .sum::<usize>()
       + self
-        .debug.debug_attrs
+        .debug
+        .debug_attrs
         .iter()
         .map(|(name, value)| name.len() + value.len())
         .sum::<usize>()

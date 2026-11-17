@@ -105,13 +105,14 @@ fn input_tokens_context_empty_intermediate_span_keeps_public_shaped_order() {
     .map(|glyph| signature(&glyph))
     .collect();
   let mut prepared = Vec::new();
-  rows::paragraph(&mut prepared, &shape, 0, raw.len(), &config);
+  rows::paragraph(&mut prepared, &shape, 0, raw.len(), &config, None);
   let mut output = DecoratedInputLayout {
     config,
     revision: 0,
     glyphs: Vec::new(),
     fragments: Vec::new(),
     carets: Vec::new(),
+    objects: Vec::new(),
     rows: Vec::new(),
     intervals: Vec::new(),
     size: Size::default(),

@@ -11,11 +11,16 @@ impl LayoutEngine {
     placeholder_style: Option<&TextStyle>,
     constraints: Constraints,
     padding: ResolvedPadding,
+    // The size of each object a styled input shows, in the order of its text: `None` for one that has no
+    // child node to take its size from.
+    objects: &[Option<Size>],
   ) -> LayoutResult {
     #[cfg(feature = "markdown")]
-    if let Some(styled) = self.styled_input_styles(state, style) {
+    if let Some(styled) = self.styled_input_styles(state, style, objects) {
       return self.layout_decorated_input(glyph_engine, state, style, constraints, styled, padding);
     }
+    #[cfg(not(feature = "markdown"))]
+    let _ = objects;
     if let Some(tokens) = state.tokens().filter(|tokens| !tokens.tokens.is_empty()) {
       return self.layout_input_tokens(glyph_engine, state, style, constraints, tokens, padding);
     }

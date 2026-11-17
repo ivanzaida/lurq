@@ -192,7 +192,14 @@ lurq_interact {"action":"paste","text":"from an agent","files":["C:/shots/a.png"
 → {"ok":true,"action":"paste","window":"main","text":true,"files":true,"note":"..."}
 ```
 
-`text` and/or `files` are required; an image cannot be pasted this way. The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
+`text`, `files` and/or `image` are required. `image` is the path of an image file: its pixels are what the paste
+holds, as a screenshot on the clipboard would be (`PasteEvent::image`), and the reply has `"image":true`:
+
+```text
+lurq_interact {"action":"paste","image":"C:/shots/a.png"}
+```
+
+The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
 
 Files from the OS are dragged with `drag_files` (enters the window at the point, or moves a drag in progress there, with `paths` of files or folders), ended without a drop with `file_drag_leave`, and dropped with `drop_files` (enters first when no drag is in progress). The reply reports `paths` and `folders`; `drag_files` adds whether the elements under the point `accepted` the drag, `drop_files` whether an element there `handled` the drop:
 
@@ -296,6 +303,8 @@ Row::new()
 ```
 
 `id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref. Attribute values, item labels and element text are cut at 80 characters and names in lookup lines at 60, ending in `…`.
+
+An element described `a11y_hidden` `true` is nothing to tooling, with all it holds: `lurq_read_tree` leaves it out (but with `filter: "all"`), `lurq_inspect` does not walk into it, and the name of a control is not made of its text. A watermark's marks and a chart's axis, drawn beside what says the same, are.
 
 ### Canvas content
 

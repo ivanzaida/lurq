@@ -104,8 +104,8 @@ pub use stack_outlet::{
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{
-  LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, RichText, SelectionStyle,
-  SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+  InlineObject, LinkClick, MarkPresence, OBJECT_CHARACTER, ParagraphKind, ParagraphMarker, ParagraphStyle,
+  ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
 };
 #[cfg(feature = "svg")]
 pub use svg::Svg;
@@ -771,6 +771,26 @@ macro_rules! impl_into_node {
       /// to the innermost.
       pub fn interaction_group(mut self, group: bool) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::interaction_group(node, group));
+        self
+      }
+
+      /// Draws the boxes of the element and of everything in it on whole device pixels: each edge of a fill or a
+      /// border is moved to the device pixel nearest it when the frame is painted, so that at a scale that is no
+      /// whole number (150%) an edge is crisp, and two boxes that meet still meet. A grid of cells that must read
+      /// sharp, as the modules of a QR code. What is laid out and what a pointer hits are as before; a text, an
+      /// image and a box that is turned are drawn where they are.
+      pub fn snap_to_pixels(mut self, snap: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::snap_to_pixels(node, snap));
+        self
+      }
+
+      /// Paints what the element holds again and again across its box: a watermark, a pattern. What it holds is
+      /// laid out once, and is the first tile; the tiles are its first child's box with the repeat's gap after
+      /// it, across and down both ways, every other row moved by the repeat's stagger. Only the tiles that can be
+      /// seen are painted, so a pattern over a page of any length in a scroll costs the tiles in view. The copies
+      /// are paint alone: no pointer hits them and tooling does not read them. See [`Repeat`]($crate::layout::Repeat).
+      pub fn repeat(mut self, repeat: $crate::layout::Repeat) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::repeat(node, Some(repeat)));
         self
       }
 

@@ -2,8 +2,10 @@
 
 mod accordion;
 mod action_bar;
+mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod audio_player;
 mod audio_queue;
 mod avatar;
@@ -21,6 +23,7 @@ mod card;
 mod carousel;
 #[cfg(feature = "canvas")]
 mod chart_motion;
+mod cascader;
 mod checkbox;
 mod choice_card;
 mod code_block;
@@ -113,6 +116,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 #[cfg(feature = "canvas")]
 mod radar_chart;
 mod radio;
@@ -130,6 +134,8 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
+#[cfg(feature = "canvas")]
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -160,10 +166,12 @@ mod toggletip;
 mod token_input;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;

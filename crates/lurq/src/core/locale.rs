@@ -13,8 +13,8 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use super::{
-  CommonWords, DataWords, DateLocale, EditingWords, FieldWords, KeyWords, MediaWords, NavigationWords, Plural,
-  PluralRule, Signal,
+  CommonWords, DataWords, DateLocale, DisplayWords, EditingWords, FieldWords, InputWords, KeyWords, MediaWords,
+  NavigationWords, Plural, PluralRule, Signal,
 };
 
 /// The languages lurq has words for.
@@ -46,6 +46,10 @@ pub struct Locale {
   pub dates: DateLocale,
   /// What a media and its players say: the names of their controls, and why a media cannot play.
   pub media: MediaWords,
+  /// What the controls that take a value say: their names, their buttons', their placeholders, an empty list.
+  pub input: InputWords,
+  /// What the components that show something are called to tooling.
+  pub display: DisplayWords,
   /// What many components say alike: "Close", "Clear", "More", "No results", a count of things chosen.
   pub common: CommonWords,
   /// What fields, pickers and forms say: their buttons, a password's strength, a color's channels, a file's size.
@@ -68,6 +72,8 @@ impl Locale {
       tag: Arc::from("en"),
       dates: DateLocale::english(),
       media: MediaWords::english(),
+      input: InputWords::english(),
+      display: DisplayWords::english(),
       common: CommonWords::english(),
       fields: FieldWords::english(),
       navigation: NavigationWords::english(),
@@ -88,6 +94,8 @@ impl Locale {
       tag: Arc::from(tag.trim()),
       dates,
       media: MediaWords::for_language(language),
+      input: InputWords::for_language(language),
+      display: DisplayWords::for_language(language),
       common: CommonWords::for_language(language),
       fields: FieldWords::for_language(language),
       navigation: NavigationWords::for_language(language),
@@ -107,6 +115,18 @@ impl Locale {
   /// With `media` for what a media and its players say.
   pub fn with_media(mut self, media: MediaWords) -> Self {
     self.media = media;
+    self
+  }
+
+  /// With `input` for what the controls that take a value say.
+  pub fn with_input(mut self, input: InputWords) -> Self {
+    self.input = input;
+    self
+  }
+
+  /// With `display` for what the components that show something are called.
+  pub fn with_display(mut self, display: DisplayWords) -> Self {
+    self.display = display;
     self
   }
 
@@ -179,12 +199,16 @@ mod tests {
   fn a_tag_gives_its_languages_words_and_its_regions_dates() {
     let locale = Locale::for_tag("uk_UA");
     assert_eq!(&*locale.media.pause, "Пауза");
+    assert_eq!(&*locale.input.clear, "Очистити");
+    assert_eq!(&*locale.display.qr_code, "QR-код");
     assert_eq!(&*locale.dates.tag, &*DateLocale::for_tag("uk_UA").tag);
     // A region of English has English words, and its own way with dates.
     let british = Locale::for_tag("en-GB");
     assert_eq!(british.media, MediaWords::english());
     assert_eq!(british.dates.order, DateLocale::for_tag("en-GB").order);
+    assert_eq!(british.input, InputWords::english());
     assert_eq!(Locale::for_tag("xx").media, MediaWords::english());
+    assert_eq!(Locale::for_tag("xx").input, InputWords::english());
   }
 
   #[test]

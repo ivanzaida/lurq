@@ -1252,3 +1252,366 @@ fn the_panel_of_a_link_hangs_from_the_selection_a_press_made() {
     "the panel is under the heading, not under the last item: {field_y} in a box at {y}"
   );
 }
+
+/// The color the tests draw a picture in.
+const PICTURE: Color = Color::new(200, 30, 60, 255);
+
+/// An editor of `document` whose pictures are drawn as a red box 50 high, 80 wide or as wide as the document says.
+fn pictured(document: RichText) -> Editor {
+  Editor::with(640.0, document, |editor| {
+    editor.picture(|picture| {
+      let width = picture.width.unwrap_or(80) as f32;
+      lurq::components::Rect::new(width, 50.0).background(PICTURE).into()
+    })
+  })
+}
+
+/// Where a picture is painted.
+#[derive(Clone, Copy, Debug)]
+struct Drawn {
+  x: f32,
+  y: f32,
+  width: f32,
+}
+
+/// The boxes of the pictures as they are painted, from the top of the document down.
+fn pictures(editor: &Editor) -> Vec<Drawn> {
+  let mut drawn: Vec<_> = editor
+    .stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Rect { color, .. } if color == PICTURE))
+    .map(|quad| Drawn {
+      x: quad.x,
+      y: quad.y,
+      width: quad.width,
+    })
+    .collect();
+  drawn.sort_by(|a, b| a.y.total_cmp(&b.y));
+  drawn
+}
+
+fn press(editor: &mut Editor, x: f32, y: f32) {
+  editor.stage.tree.mouse_move(x, y);
+  editor.stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  editor.stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  editor.stage.pass();
+}
+
+#[test]
+fn the_pictures_of_a_document_are_drawn_in_its_text_and_are_no_words() {
+  let source = "One ![the lake](lake.jpg) two.\n\n<img src=\"hill.png\" alt=\"the hill\" width=\"200\">\n\nThree.";
+  let mut editor = pictured(RichText::from_markdown(source));
+  let drawn = pictures(&editor);
+  assert_eq!(drawn.len(), 2);
+  let (content_x, content_y, ..) = editor.stage.bounds(CONTENT);
+  // The one among words stands after the first of them, in the first paragraph.
+  assert!(drawn[0].x > content_x + 18.0 + 20.0 && close(drawn[0].width, 80.0));
+  assert!(drawn[0].y >= content_y + 16.0 - 0.6);
+  // The one alone in its paragraph starts where the text does, as wide as the document says, under the first.
+  assert!(close(drawn[1].x, content_x + 18.0) && close(drawn[1].width, 200.0));
+  assert!(drawn[1].y >= drawn[0].y + 50.0);
+  assert!(editor.stage.paints("3 words"), "a picture is no word");
+  assert_eq!(editor.document().to_markdown(), source);
+}
+
+#[test]
+fn the_controller_puts_a_picture_at_the_caret_and_undo_takes_it_back() {
+  let mut editor = pictured(RichText::plain("ab"));
+  editor.focus();
+  editor.select(1, 1);
+  assert!(editor.editor.insert_picture("lake.jpg", "The lake"));
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "a![The lake](lake.jpg)b");
+  assert_eq!(
+    editor.told().last().map(String::as_str),
+    Some("a![The lake](lake.jpg)b")
+  );
+  assert_eq!(pictures(&editor).len(), 1);
+  // The caret is after it: what is typed next follows it.
+  editor.type_text("!");
+  assert_eq!(editor.document().to_markdown(), "a![The lake](lake.jpg)!b");
+  // One with a width of its own, in place of a selection.
+  editor.select(0, 1);
+  assert!(
+    editor
+      .editor
+      .insert_object(&lurq::components::InlineObject::new(0, "hill.png").width(120))
+  );
+  editor.stage.pass();
+  assert_eq!(
+    editor.document().to_markdown(),
+    "<img src=\"hill.png\" alt=\"\" width=\"120\">![The lake](lake.jpg)!b"
+  );
+  let drawn = pictures(&editor);
+  assert!(close(drawn[0].width, 120.0) && close(drawn[1].width, 80.0), "{drawn:?}");
+  // Each is one step of the undo.
+  assert!(editor.editor.undo());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "a![The lake](lake.jpg)!b");
+  assert!(editor.editor.undo() && editor.editor.undo());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+  assert!(pictures(&editor).is_empty());
+  assert!(editor.editor.redo());
+  editor.stage.pass();
+  assert_eq!(editor.document().objects.len(), 1);
+}
+
+#[test]
+fn the_image_tool_runs_the_apps_handler_and_the_app_puts_the_picture_in() {
+  let asked = Arc::new(Mutex::new(0));
+  let count = asked.clone();
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), move |editor| {
+    let count = count.clone();
+    editor
+      .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+      .on_image(move || *count.lock().unwrap() += 1)
+  });
+  editor.focus();
+  editor.stage.click("editor-image");
+  assert_eq!(*asked.lock().unwrap(), 1);
+  assert_eq!(
+    editor.focused().as_deref(),
+    Some(CONTENT),
+    "the focus stays in the text"
+  );
+  // What the app does once a person chose a file.
+  assert!(editor.editor.insert_picture("photos/lake.jpg", "The lake"));
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab![The lake](photos/lake.jpg)");
+  assert_eq!(pictures(&editor).len(), 1);
+}
+
+#[test]
+fn a_press_on_a_picture_selects_it_and_backspace_deletes_it() {
+  let mut editor = pictured(RichText::from_markdown("ab ![the lake](lake.jpg) cd"));
+  editor.focus();
+  let drawn = pictures(&editor)[0];
+  press(&mut editor, drawn.x + 30.0, drawn.y + 20.0);
+  assert_eq!(editor.editor.input().selection().unwrap().range(), 3..6);
+  editor.stage.key("Backspace");
+  assert_eq!(editor.document().to_markdown(), "ab  cd");
+  assert!(pictures(&editor).is_empty());
+  // Backspace after one selects it first, and deletes it at the second press.
+  editor.shortcut("z", "KeyZ", false, false);
+  assert_eq!(editor.document().objects.len(), 1);
+  editor.select(6, 6);
+  editor.stage.key("Backspace");
+  assert_eq!(editor.editor.input().selection().unwrap().range(), 3..6);
+  assert_eq!(editor.document().objects.len(), 1, "the first press deletes nothing");
+  editor.stage.key("Backspace");
+  assert!(editor.document().objects.is_empty());
+}
+
+#[test]
+fn a_line_of_code_and_an_editor_that_takes_no_change_take_no_picture() {
+  let mut editor = pictured(RichText::from_markdown("```\nlet a = 1;\n```"));
+  editor.focus();
+  assert!(!editor.editor.insert_picture("lake.jpg", "The lake"));
+  assert!(editor.document().objects.is_empty());
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), |editor| editor.read_only(true));
+  editor.focus();
+  assert!(!editor.editor.insert_picture("lake.jpg", "The lake"));
+  assert_eq!(editor.document().to_markdown(), "ab");
+}
+
+#[test]
+fn a_picture_the_app_does_not_draw_is_a_picture_of_its_source() {
+  // The editor's own picture loads the file the document names: one that is not there is a box that says so,
+  // and the document keeps it as it was written.
+  let source = "A lake: ![The lake](no/such/lake.jpg)";
+  let mut editor = Editor::new(RichText::from_markdown(source));
+  editor.stage.pass();
+  editor.focus();
+  assert_eq!(editor.document().to_markdown(), source);
+  // It is a character of the text like any other picture: selected by the arrows, deleted, and brought back.
+  let end = editor.document().text.len();
+  editor.select(end, end);
+  editor.stage.key("Backspace");
+  assert_eq!(editor.editor.input().selection().unwrap().range(), end - 3..end);
+  editor.stage.key("Backspace");
+  assert_eq!(editor.document().to_markdown(), "A lake: ");
+  editor.shortcut("z", "KeyZ", false, false);
+  assert_eq!(editor.document().to_markdown(), source);
+}
+
+/// A clipboard that holds a picture as pixels, two by two: what a screenshot is.
+fn screenshot() -> lurq::app::events::ClipboardContent {
+  let image = lurq::app::events::ClipboardImage::from_rgba(2, 2, vec![255; 16]).expect("four pixels");
+  lurq::app::events::ClipboardContent::image(image)
+}
+
+#[test]
+fn a_pasted_screenshot_is_given_to_the_app_to_keep_and_put_in_as_the_picture_it_names() {
+  let kept = Arc::new(Mutex::new(Vec::new()));
+  let store = kept.clone();
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), move |editor| {
+    let store = store.clone();
+    editor
+      .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+      .on_paste_image(move |image| {
+        let mut store = store.lock().unwrap();
+        store.push((image.width(), image.height()));
+        Some(format!("attachments/pasted-{}.png", store.len()))
+      })
+  });
+  editor.focus();
+  editor.select(1, 1);
+  assert!(editor.stage.tree.paste(screenshot()));
+  editor.stage.pass();
+  assert_eq!(*kept.lock().unwrap(), [(2, 2)], "the app was given the pixels once");
+  assert_eq!(editor.document().to_markdown(), "a![](attachments/pasted-1.png)b");
+  assert_eq!(pictures(&editor).len(), 1);
+  // It is one step of the undo.
+  assert!(editor.editor.undo());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+}
+
+#[test]
+fn a_pasted_screenshot_does_nothing_where_the_app_keeps_none_or_the_editor_takes_no_change() {
+  // No handler: a document names its pictures and has nowhere to keep pixels.
+  let mut editor = pictured(RichText::plain("ab"));
+  editor.focus();
+  editor.stage.tree.paste(screenshot());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+  // A handler that refuses puts nothing in.
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), |editor| editor.on_paste_image(|_| None));
+  editor.focus();
+  editor.stage.tree.paste(screenshot());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab");
+  // Read only, the app is not asked.
+  let asked = Arc::new(Mutex::new(0));
+  let count = asked.clone();
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), move |editor| {
+    let count = count.clone();
+    editor.read_only(true).on_paste_image(move |_| {
+      *count.lock().unwrap() += 1;
+      Some("kept.png".to_owned())
+    })
+  });
+  editor.focus();
+  editor.stage.tree.paste(screenshot());
+  editor.stage.pass();
+  assert_eq!(
+    (*asked.lock().unwrap(), editor.document().to_markdown().as_str()),
+    (0, "ab")
+  );
+}
+
+#[test]
+fn a_clipboard_with_words_is_pasted_as_text_and_pasted_picture_files_go_in_by_their_paths() {
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), |editor| {
+    editor
+      .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+      .on_paste_image(|_| Some("kept.png".to_owned()))
+  });
+  editor.focus();
+  // Words and pixels at once, as a sheet's cells are copied: the words are what is pasted.
+  let both = screenshot().with_text("words");
+  assert!(editor.stage.tree.paste(both));
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "abwords");
+  // Files copied in a file manager: the pictures among them, each called by its name.
+  let files = lurq::app::events::ClipboardContent::files([
+    std::path::PathBuf::from("photos/lake.JPG"),
+    std::path::PathBuf::from("notes.txt"),
+    std::path::PathBuf::from("photos/hill.png"),
+  ]);
+  assert!(editor.stage.tree.paste(files));
+  editor.stage.pass();
+  assert_eq!(
+    editor.document().to_markdown(),
+    "abwords![lake](photos/lake.JPG)![hill](photos/hill.png)"
+  );
+  assert_eq!(pictures(&editor).len(), 2);
+}
+
+/// Drags from `(x, y)` by `dx`, as the pointer drags the handle of a picture.
+fn drag(editor: &mut Editor, x: f32, y: f32, dx: f32) {
+  let left = lurq::app::events::MouseButton::Left;
+  editor.stage.tree.mouse_move(x, y);
+  editor.stage.tree.mouse_down(x, y, left);
+  editor.stage.tree.mouse_move(x + dx * 0.5, y);
+  editor.stage.pass();
+  editor.stage.tree.mouse_move(x + dx, y);
+  editor.stage.tree.mouse_up(x + dx, y, left);
+  editor.stage.pass();
+}
+
+#[test]
+fn the_handle_of_a_selected_picture_makes_it_wider_and_the_app_is_told_once() {
+  let mut editor = pictured(RichText::from_markdown("ab ![the lake](lake.jpg) cd"));
+  editor.focus();
+  let drawn = pictures(&editor)[0];
+  press(&mut editor, drawn.x + 30.0, drawn.y + 20.0);
+  assert_eq!(editor.editor.input().selection().unwrap().range(), 3..6);
+  let told = editor.told().len();
+  // The handle is on the lower corner at the end of the picture, which is 80 by 50.
+  drag(&mut editor, drawn.x + 80.0, drawn.y + 50.0, 40.0);
+  assert_eq!(editor.document().objects[0].width, Some(120));
+  assert_eq!(
+    editor.document().to_markdown(),
+    "ab <img src=\"lake.jpg\" alt=\"the lake\" width=\"120\"> cd"
+  );
+  assert!(close(pictures(&editor)[0].width, 120.0));
+  assert_eq!(
+    editor.told().len(),
+    told + 1,
+    "told when the handle is let go, not at each step of the drag"
+  );
+  // Undo takes the whole drag back.
+  assert!(editor.editor.undo());
+  editor.stage.pass();
+  assert_eq!(editor.document().to_markdown(), "ab ![the lake](lake.jpg) cd");
+}
+
+#[test]
+fn a_read_only_editor_has_no_handle_on_its_pictures() {
+  let mut editor = Editor::with(
+    640.0,
+    RichText::from_markdown("ab ![the lake](lake.jpg) cd"),
+    |editor| {
+      editor
+        .read_only(true)
+        .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+    },
+  );
+  editor.focus();
+  let drawn = pictures(&editor)[0];
+  press(&mut editor, drawn.x + 30.0, drawn.y + 20.0);
+  drag(&mut editor, drawn.x + 79.0, drawn.y + 49.0, 40.0);
+  assert_eq!(editor.document().objects[0].width, None);
+}
+
+#[test]
+fn what_is_written_after_a_picture_goes_after_it_and_enter_starts_a_paragraph_under_it() {
+  let mut editor = Editor::with(640.0, RichText::plain("ab"), |editor| {
+    editor
+      .picture(|_| lurq::components::Rect::new(80.0, 50.0).background(PICTURE).into())
+      .on_paste_image(|_| Some("kept.png".to_owned()))
+  });
+  editor.focus();
+  // Pasted, the picture has the caret after it: what is typed next follows it.
+  assert!(editor.stage.tree.paste(screenshot()));
+  editor.stage.pass();
+  editor.type_text("c");
+  assert_eq!(editor.document().to_markdown(), "ab![](kept.png)c");
+  // A press on the picture selects it. Enter then does not take its place: a paragraph starts after it.
+  let drawn = pictures(&editor)[0];
+  press(&mut editor, drawn.x + 30.0, drawn.y + 20.0);
+  assert_eq!(editor.editor.input().selection().unwrap().range(), 2..5);
+  editor.stage.key("Enter");
+  editor.type_text("d");
+  assert_eq!(editor.document().to_markdown(), "ab![](kept.png)\n\ndc");
+  assert_eq!(pictures(&editor).len(), 1, "the picture is still there");
+  // The arrow from a selected picture puts the caret after it.
+  let drawn = pictures(&editor)[0];
+  press(&mut editor, drawn.x + 30.0, drawn.y + 20.0);
+  editor.stage.key("ArrowRight");
+  editor.type_text("e");
+  assert_eq!(editor.document().to_markdown(), "ab![](kept.png)e\n\ndc");
+}

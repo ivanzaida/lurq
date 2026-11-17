@@ -30,20 +30,18 @@ use windows::{
       },
     },
     Media::MediaFoundation::{
-      IMFDXGIBuffer, IMFDXGIDeviceManager, MF_SOURCE_READER_D3D_MANAGER, MFCreateDXGIDeviceManager,
-      IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM,
-      MF_E_INVALID_FILE_FORMAT,
-      MF_E_INVALID_FORMAT, MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE,
-      MF_E_UNSUPPORTED_FORMAT, MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE,
-      MF_MT_AUDIO_NUM_CHANNELS,
-      MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
-      MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-      MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+      IMFAttributes, IMFDXGIBuffer, IMFDXGIDeviceManager, IMFMediaType, IMFSample, IMFSourceReader,
+      MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM, MF_E_INVALID_FILE_FORMAT, MF_E_INVALID_FORMAT,
+      MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE, MF_E_UNSUPPORTED_FORMAT,
+      MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
+      MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE,
+      MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
+      MF_SOURCE_READER_D3D_MANAGER, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
       MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
       MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED, MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFAudioFormat_Float,
-      MFAudioFormat_PCM, MFCreateAttributes, MFCreateMFByteStreamOnStream, MFCreateMediaType,
-      MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video,
-      MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
+      MFAudioFormat_PCM, MFCreateAttributes, MFCreateDXGIDeviceManager, MFCreateMFByteStreamOnStream,
+      MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL, MFMediaType_Audio,
+      MFMediaType_Video, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
     },
     System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage::PROPVARIANT},
     UI::Shell::SHCreateMemStream,
@@ -55,7 +53,7 @@ use super::{
   Command, MediaError, Opened, Shared,
   output::{CHANNELS, Output},
 };
-use crate::images::{ImageData, NativeImageData, SharedNv12Frames};
+use crate::images::{CardFrame, CardFrames, CardSurface, ImageData, NativeImageData};
 
 /// The streams that are decoded: the first video and the first sound of what is opened.
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -307,7 +305,7 @@ struct OnCard {
 /// The textures of a video's frames, of one size, and the frames an image draws from.
 struct Held {
   textures: Vec<ID3D11Texture2D>,
-  frames: SharedNv12Frames,
+  frames: CardFrames,
   width: u32,
   height: u32,
 }
@@ -317,7 +315,7 @@ impl OnCard {
   /// device, and a frame goes through memory.
   unsafe fn new() -> Option<Self> {
     unsafe {
-      let (low, high) = crate::images::shared_nv12_adapter()?;
+      let (low, high) = crate::images::card_frames_adapter()?;
       let cards: IDXGIFactory4 = CreateDXGIFactory1().ok()?;
       let card: IDXGIAdapter = cards
         .EnumAdapterByLuid(LUID {
@@ -340,10 +338,7 @@ impl OnCard {
       .ok()?;
       let (device, context) = (device?, context?);
       // The decoder uses the device from threads of its own.
-      let _ = device
-        .cast::<ID3D11Multithread>()
-        .ok()?
-        .SetMultithreadProtected(true);
+      let _ = device.cast::<ID3D11Multithread>().ok()?.SetMultithreadProtected(true);
       let (mut token, mut manager) = (0_u32, None);
       MFCreateDXGIDeviceManager(&mut token, &mut manager).ok()?;
       let manager = manager?;
@@ -383,7 +378,7 @@ impl OnCard {
         CPUAccessFlags: 0,
         MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0) as u32,
       };
-      let (mut textures, mut handles) = (Vec::with_capacity(FRAMES), Vec::with_capacity(FRAMES));
+      let (mut textures, mut surfaces) = (Vec::with_capacity(FRAMES), Vec::with_capacity(FRAMES));
       for _ in 0..FRAMES {
         let mut texture = None;
         self.device.CreateTexture2D(&like, None, Some(&mut texture))?;
@@ -392,13 +387,13 @@ impl OnCard {
           texture
             .cast::<IDXGIResource1>()?
             .CreateSharedHandle(None, DXGI_SHARED_RESOURCE_READ.0, PCWSTR::null())?;
-        handles.push(handle.0 as isize);
+        surfaces.push(CardSurface::Nv12(handle.0 as isize));
         textures.push(texture);
       }
       Ok(Held {
         textures,
         // SAFETY: the handles are of shared NV12 textures of one size, made here and given away to be closed.
-        frames: SharedNv12Frames::new(handles),
+        frames: CardFrames::new(surfaces),
         width,
         height,
       })
@@ -430,7 +425,7 @@ impl OnCard {
   /// Copies the frame `sample` holds into the texture after the one that is shown, and shows it. `None` where
   /// the sample is no texture of the card: the decoder gave memory. The frames themselves where they were made
   /// anew (the first frame, another size), and an image is to be made of them.
-  unsafe fn show(&mut self, sample: &IMFSample, shape: &Shape) -> Result<Option<Option<SharedNv12Frames>>> {
+  unsafe fn show(&mut self, sample: &IMFSample, shape: &Shape) -> Result<Option<Option<CardFrames>>> {
     unsafe {
       let Ok(buffer) = sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>() else {
         return Ok(None);
@@ -452,7 +447,7 @@ impl OnCard {
       let slot = if made {
         0
       } else {
-        (held.frames.shown() + 1) % held.textures.len()
+        (held.frames.shown().map_or(0, |shown| shown.surface()) + 1) % held.textures.len()
       };
       // The picture's part of the decoder's frame, which is rounded up to whole blocks.
       let picture = D3D11_BOX {
@@ -468,7 +463,7 @@ impl OnCard {
         .CopySubresourceRegion(&held.textures[slot], 0, 0, 0, 0, &decoded, slice, Some(&picture));
       // Shown once it is all there: what draws never reads a frame half copied.
       self.settle();
-      held.frames.show(slot);
+      held.frames.show(CardFrame::of(slot));
       Ok(Some(made.then(|| held.frames.clone())))
     }
   }
@@ -523,17 +518,13 @@ impl Picture {
       {
         return Ok(match made {
           Some(frames) => {
-            let native = NativeImageData::from_shared_nv12(width, height, frames);
+            let native = NativeImageData::from_card_frames(width, height, frames);
             self.image = native.image_data();
             self.native = Some(native);
             true
           }
-          None => {
-            if let Some(native) = &self.native {
-              native.bump_version();
-            }
-            false
-          }
+          // The image is another picture with the frame shown.
+          None => false,
         });
       }
       // Through memory, into an image of memory: one whose frames were on the card is let go.

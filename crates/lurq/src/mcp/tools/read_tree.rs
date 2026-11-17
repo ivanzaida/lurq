@@ -3,7 +3,8 @@
 use super::{
   canvas_items,
   semantics::{
-    attr, inspection_attrs, is_interactive, node_value_summary, semantic_name, semantic_role, token, truncate_text,
+    attr, hidden_from_tooling, inspection_attrs, is_interactive, node_value_summary, semantic_name, semantic_role,
+    token, truncate_text,
   },
   windows::{requested_window, window_tree_mut},
 };
@@ -39,6 +40,10 @@ pub(super) fn snapshot_node(
   abs: (f32, f32),
   depth: usize,
 ) -> Vec<String> {
+  // What says it is nothing to tooling is left out with all it holds, but where everything is asked for.
+  if !ctx.all && hidden_from_tooling(node) {
+    return Vec::new();
+  }
   let mut child_lines = canvas_items::snapshot_item_lines(ctx, node, depth);
   if ctx.max_depth == 0 || depth < ctx.max_depth {
     let children = node.children();

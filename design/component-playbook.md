@@ -392,6 +392,24 @@ an alias.
   `ui::Highlight`, the type roles `Heading1` to `Heading6`, `Prose` and `Article`, `TextStyle::case`,
   `ElementRef::observe_rect_before_paint`, `Stage::first_frame`.
 
+## What the thirteenth batch taught
+
+- **What a batch may use now**: the components of 14.27; `CanvasHandle::offscreen`; `.snap_to_pixels`;
+  `.repeat(Repeat)`; `Theme::palette_color_for`; `Listbox::checkboxes`; `ui/select_trigger.rs` for a trigger that
+  opens a panel.
+
+- **A component that measures its room is a component when it is a child too.** A `Transfer` given as
+  `.child(transfer)` kept its wide form at any width, as only `mount` measured; its `From<_> for Element` now declares
+  the same host component `mount` mounts, and `build(theme)` is the still, wide picture for a test. A component with a
+  narrow form chosen by its room has a test of it as a child in a narrow room.
+- **A component's tests decode what it paints, where there is a decoder.** The QR code's tests read the painted quads
+  back into text at 100, 150 and 200%, and the signature's PNG is read back by a PNG decoder; a test of the numbers
+  alone would have passed a code no phone reads.
+- **A prop added to another component for yours gets that component's tests**, not only yours: `ColumnView`'s three
+  props were covered only through the cascader until they had their own.
+- **A session that merges into the branch while the coordinator's suites run makes those runs worth nothing.** The
+  suites are run again on the whole once every merge is in.
+
 ## What the twelfth batch taught
 
 - **Find out first whether it exists.** Of 29 families the board draws apart, ten were a form of a component

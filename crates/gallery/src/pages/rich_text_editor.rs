@@ -1,17 +1,19 @@
 //! The page of the rich text editor: its playground, the board's document bound to a signal with the Markdown
-//! it writes, a comment box with a few tools, its states, and a controller that works it from outside.
+//! it writes, a comment box with a few tools, a document with pictures in it, its states, and a controller that
+//! works it from outside.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
-  components::{Column, ParagraphKind, RichText, Row, TextMark},
+  app::{component::Component, ctx::Ctx, events::ClipboardImage},
+  components::{Column, InlineObject, ParagraphKind, RichText, Row, TextMark},
   core::Signal,
+  images::ImageData,
   layout::Alignment,
   node::Element,
   ui::{
-    Button, ButtonSize, ButtonVariant, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor,
-    RichTextTool, icons,
+    Button, ButtonSize, ButtonVariant, Picture, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController,
+    RichTextEditor, RichTextTool, icons,
   },
 };
 
@@ -24,6 +26,55 @@ use crate::{
 /// The board's document.
 const NOTES: &str = "## Release notes\n\nBackdrop blur now **follows rounded clips** and transforms.\n\n- Faster text \
                      shaping\n- Fixes for window teardown";
+
+/// A document with a picture in a paragraph of its own and one among the words of a line.
+const FIELD_NOTES: &str = "## Field notes\n\nThe lake at dusk, from the north shore:\n\n<img src=\"lake\" alt=\"The \
+                           lake at dusk\" width=\"320\">\n\nA small one <img src=\"lake\" alt=\"the lake, small\" \
+                           width=\"28\"> stands among the words of its line, and the row makes room for it.";
+
+/// The pictures pasted into the page's editors as pixels: a document names one `pasted-0`, `pasted-1`, by its
+/// place here. An app would write them to its files; the gallery has none, and keeps them while it runs.
+type Pasted = Arc<Mutex<Vec<ImageData>>>;
+
+/// What the page's editors draw for a picture. The gallery has no files of its own, so its documents name the
+/// page's lake or a picture that was pasted as pixels, and the pixels are painted; a picture the document names
+/// by a path or an address (a file pasted from a file manager) is that file's, as the editor draws it unless
+/// told. An app whose pictures are all files or addresses draws nothing itself.
+fn painted(lake: &ImageData, pasted: &Pasted) -> impl Fn(&InlineObject) -> Element + Send + Sync + 'static {
+  let (lake, pasted) = (lake.clone(), pasted.clone());
+  move |picture| {
+    let source = picture.source.as_ref();
+    let kept = source
+      .strip_prefix("pasted-")
+      .and_then(|index| index.parse::<usize>().ok())
+      .and_then(|index| pasted.lock().unwrap().get(index).cloned());
+    let mut drawn = match kept {
+      Some(pixels) => Picture::new(pixels),
+      None if source == "lake" => Picture::new(lake.clone()),
+      None if source.starts_with("http://") || source.starts_with("https://") => Picture::from_url(source),
+      None => Picture::from_file(source),
+    }
+    .label(&picture.label);
+    if let Some(width) = picture.width {
+      drawn = drawn.width(width as f32);
+    }
+    drawn.into()
+  }
+}
+
+/// What the page's editors do with a picture pasted as pixels, a screenshot: they keep it, and name it.
+fn keeps(pasted: &Pasted) -> impl Fn(&ClipboardImage) -> Option<String> + Send + Sync + 'static {
+  let pasted = pasted.clone();
+  move |image| {
+    let mut pasted = pasted.lock().unwrap();
+    pasted.push(ImageData::from_rgba(
+      image.rgba().to_vec(),
+      image.width(),
+      image.height(),
+    ));
+    Some(format!("pasted-{}", pasted.len() - 1))
+  }
+}
 
 /// The rows an editor can be told to show at least, and at most: the selects of the playground.
 const LEAST: [(&str, usize); 4] = [("2", 2), ("4", 4), ("6", 6), ("10", 10)];
@@ -55,6 +106,13 @@ pub struct RichTextEditorPage {
   /// The documents of the states: one empty, one the three other editors share.
   empty: Signal<RichText>,
   terms: Signal<RichText>,
+  /// The document with pictures, what works its editor from outside, and the playground's.
+  pictured: Signal<RichText>,
+  picturing: RichTextController,
+  playing: RichTextController,
+  /// The page's picture, drawn once: the same pixels each render.
+  lake: ImageData,
+  pasted: Pasted,
 }
 
 impl RichTextEditorPage {
@@ -72,8 +130,17 @@ impl RichTextEditorPage {
     let plain = {
       let (value, placeholder) = (self.value.clone(), placeholder.clone());
       let set: Vec<bool> = flags.iter().map(|(_, set)| *set).collect();
+      let (playing, lake, pasted) = (self.playing.clone(), self.lake.clone(), self.pasted.clone());
       move || {
+        let insert = playing.clone();
         RichTextEditor::new(value.clone())
+          // The image tool of the playground puts the page's lake in at the caret, and a screenshot is pasted.
+          .controller(&playing)
+          .picture(painted(&lake, &pasted))
+          .on_paste_image(keeps(&pasted))
+          .on_image(move || {
+            insert.insert_object(&InlineObject::new(0, "lake").label("The lake at dusk").width(240));
+          })
           .placeholder(&placeholder)
           .rows(min_rows, max_rows)
           .toolbar(toolbar)
@@ -96,6 +163,8 @@ impl RichTextEditorPage {
     let mut code = vec![
       "// value: Signal<RichText>".to_owned(),
       "RichTextEditor::new(value.clone())".to_owned(),
+      "    .controller(&controller)".to_owned(),
+      "    .on_image(move || { controller.insert_picture(\"photos/lake.jpg\", \"The lake at dusk\"); })".to_owned(),
       format!("    .placeholder({placeholder:?})"),
     ];
     if (min_rows, max_rows) != (RICH_TEXT_MIN_ROWS, RICH_TEXT_MAX_ROWS) {
@@ -234,6 +303,11 @@ impl Component for RichTextEditorPage {
       terms: ctx.signal(RichText::from_markdown(
         "### Terms\n\nBy using lurq you agree to *build something*.",
       )),
+      pictured: ctx.signal(RichText::from_markdown(FIELD_NOTES)),
+      picturing: RichTextController::new(),
+      playing: RichTextController::new(),
+      lake: super::picture::lake(640, 480),
+      pasted: Pasted::default(),
     }
   }
 
@@ -244,6 +318,9 @@ impl Component for RichTextEditorPage {
       .child(
         RichTextEditor::new(self.notes.clone())
           .label("Release notes")
+          // Every editor of the page takes a pasted picture, and draws it.
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
           .mount(ctx),
       )
       .child(
@@ -270,6 +347,8 @@ impl Component for RichTextEditorPage {
           ])
           .footer(false)
           .rows(3, 8)
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
           .key("comment")
           .mount(ctx),
       )
@@ -277,6 +356,32 @@ impl Component for RichTextEditorPage {
         &format!("{} words, {} marked runs", comment.word_count(), comment.spans.len()),
         12.0,
       ));
+
+    // Pictures in the document: one alone in its paragraph, one among words, and a tool that puts another in.
+    let pictured: Vec<String> = self.pictured.get().to_markdown().lines().map(str::to_owned).collect();
+    let insert = self.picturing.clone();
+    let pictures = stack()
+      .child(
+        RichTextEditor::new(self.pictured.clone())
+          .label("Field notes")
+          .controller(&self.picturing)
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
+          .on_image(move || {
+            insert.insert_object(&InlineObject::new(0, "lake").label("The lake at dusk").width(160));
+          })
+          .rows(6, 20)
+          .key("pictured")
+          .mount(ctx),
+      )
+      .child(
+        Column::new()
+          .width(560.0)
+          .max_width(FILL)
+          .spacing(8.0)
+          .child(quiet("document.to_markdown()", 12.0))
+          .child(plain_block(&pictured)),
+      );
 
     let fixed = || self.terms.clone();
     let states = stack()
@@ -329,6 +434,8 @@ impl Component for RichTextEditorPage {
           .controller(&self.controller)
           .toolbar(false)
           .rows(3, 8)
+          .picture(painted(&self.lake, &self.pasted))
+          .on_paste_image(keeps(&self.pasted))
           .key("driven")
           .mount(ctx),
       )
@@ -411,8 +518,22 @@ impl Component for RichTextEditorPage {
         "on_image",
         "impl Fn()",
         "",
-        "What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to \
-         place outside it.",
+        "What the image tool does; with it the bar has the tool. The app asks for a picture and puts it in with \
+         the controller's `insert_picture(source, label)`.",
+      ),
+      (
+        "on_paste_image",
+        "impl Fn(&ClipboardImage) -> Option<String>",
+        "",
+        "What is done with a picture pasted as pixels, a screenshot: the app keeps the pixels and answers with the \
+         source the document names them by. Without it a paste of pixels does nothing.",
+      ),
+      (
+        "picture",
+        "impl Fn(&InlineObject) -> Element",
+        "a Picture of the source",
+        "What is drawn for a picture of the document: given its source, its label and its width. Unless told, a \
+         `Picture` of the file or the address the source names.",
       ),
       (
         "controller",
@@ -522,6 +643,41 @@ impl Component for RichTextEditorPage {
               "    .footer(false)",
               "    .rows(3, 8)",
               "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Pictures",
+          "A picture is a character of the document: the caret goes past it, a press selects it, Backspace after \
+           it selects it and the next deletes it, and it is copied and pasted with the words around it. A \
+           selected picture has a handle on its corner: drag it to make the picture wider or narrower. A \
+           screenshot pasted here goes in as a picture too: the page keeps its pixels while it runs, where an app \
+           would write a file. One alone \
+           in its paragraph and one among words are both in rows of the text, each row as high as it needs. The \
+           image tool runs the app's handler, which puts a picture in at the caret; undo takes it back. Markdown \
+           writes a picture as an image, and as a tag where it has a width.",
+          self.frame.demo(
+            4,
+            pictures,
+            "controller.insert_picture(source, label)",
+            &[
+              "// controller: RichTextController, kept by the page",
+              "RichTextEditor::new(notes.clone())",
+              "    .controller(&controller)",
+              "    // The app asks for a file, and puts the one chosen in at the caret.",
+              "    .on_image(move || { controller.insert_picture(\"photos/lake.jpg\", \"The lake at dusk\"); })",
+              "    .mount(ctx)",
+              "",
+              "// A screenshot pasted: the app keeps the pixels and says what the document calls them.",
+              "RichTextEditor::new(notes.clone())",
+              "    .on_paste_image(|image| { let path = save(image.to_png().ok()?)?; Some(path) })",
+              "",
+              "// A picture that is no file and no address is drawn by the app.",
+              "RichTextEditor::new(notes.clone())",
+              "    .picture(|picture| Picture::from_resource(&picture.source).label(&picture.label).into())",
+              "",
+              "// What the app stores.",
+              "notes.get().to_markdown()",
             ],
           ),
         ),

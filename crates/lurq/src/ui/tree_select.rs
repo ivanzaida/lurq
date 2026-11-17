@@ -5,12 +5,13 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::{
-  combobox, icons, names,
+  combobox, names,
   part_style::{Length, PartStyle},
   popover::{Popover, PopoverPart},
   recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   select::{Select, SelectState},
-  shared::{ChangeHandler, fading, glyph, pressable},
+  select_trigger::{OpenModel, SelectTrigger},
+  shared::{ChangeHandler, fading},
   text_box::{BoxStates, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
   tree_view::{TreeItem, TreeView, TreeViewPart},
@@ -19,13 +20,11 @@ use crate::{
   app::{
     component::Component,
     ctx::{CollisionStrategy, Ctx, Placement},
-    events::{KeyboardEvent, MouseEvent},
     theme::{IconSize, PaletteColor, SpacingSize, Theme},
   },
   components::{self, Column, Row, ScrollVertical},
   core::{ElementRef, Signal, SignalValue},
-  layout::{Alignment, layout_kind::Justify},
-  node::{CursorIcon, Element, SpacingValue, dimension::Dimension, node_kind::TextOverflow},
+  node::{CursorIcon, Element, SpacingValue, dimension::Dimension},
 };
 
 /// The parts of a tree select a recipe styles. Those it shares with a select have their names.
@@ -148,6 +147,8 @@ type Toggle<T> = Arc<dyn Fn(&T, bool) + Send + Sync>;
 ///
 /// The select keeps whether it is open, the trigger its panel hangs from and which branches are open where it is
 /// [mounted](Self::mount); the app holds them with [`open`](Self::open) and [`branches`](Self::branches).
+/// [`Cascader`](super::Cascader) is its sibling for a tree shown as columns that open one after the other, of which
+/// one is chosen.
 /// Converted into an element on its own it is the still form of itself.
 pub struct TreeSelect<T: 'static = (), V: ?Sized + 'static = T> {
   items: Vec<TreeItem<T>>,
@@ -743,7 +744,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> TreeSele
       })
     };
 
-    let model = Arc::new(Model {
+    let model = Arc::new(OpenModel {
       open: open.clone(),
       on_open_change: self.on_open_change.clone(),
       on_dismiss: self.on_dismiss.clone(),
@@ -936,38 +937,6 @@ impl<T> Clone for Kept<T> {
   }
 }
 
-/// What the handlers of a tree select know of its panel.
-struct Model {
-  open: Signal<bool>,
-  on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
-  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
-  /// Whether the panel does not open: the select is disabled or read only.
-  inert: bool,
-}
-
-impl Model {
-  /// Opens or closes the panel, and tells the handlers where it changed.
-  fn set_open(&self, open: bool) {
-    if self.open.get_untracked() == open || (open && self.inert) {
-      return;
-    }
-    self.open.set(open);
-    for handler in &self.on_open_change {
-      handler(open);
-    }
-  }
-
-  /// What Escape or a press outside does after the popover closed: tells the handlers.
-  fn dismissed(&self) {
-    for handler in &self.on_dismiss {
-      handler();
-    }
-    for handler in &self.on_open_change {
-      handler(false);
-    }
-  }
-}
-
 /// A tree select as a renderer sees it: what its trigger says, the style of its parts, and its behavior ready to
 /// be dressed.
 pub struct TreeSelectView {
@@ -1000,7 +969,7 @@ pub struct TreeSelectView {
   collision: Option<CollisionStrategy>,
   dismiss_on_escape: bool,
   dismiss_on_outside_press: bool,
-  model: Arc<Model>,
+  model: Arc<OpenModel>,
   signal: Signal<bool>,
   anchor: ElementRef,
   // Read only where the engine has forms.
@@ -1020,101 +989,49 @@ impl TreeSelectView {
     self.recipe.theme()
   }
 
+  /// The trigger as a select's is drawn, the one a cascader has too.
+  fn shaped(&self) -> SelectTrigger<'_> {
+    SelectTrigger {
+      recipe: &self.recipe,
+      forced: self.forced,
+      text: self.text.as_ref(),
+      placeholder: self.placeholder.as_ref(),
+      label: self.label.as_ref(),
+      open: self.open,
+      invalid: self.invalid,
+      read_only: self.read_only,
+      disabled: self.disabled,
+      multiple: self.multiple,
+      popup: "tree",
+      model: &self.model,
+      anchor: &self.anchor,
+      name: self.name.as_ref(),
+      id: self.id.as_ref(),
+    }
+  }
+
   /// What the trigger says, in the room the chevron leaves it: what is chosen, else the placeholder. A longer
   /// text ends in an ellipsis.
   pub fn value(&self) -> Row {
-    // The type of the trigger, in the size it is, with the value's laid over it and the placeholder's over that.
-    let mut style = self
-      .part(TreeSelectPart::Trigger)
-      .rest()
-      .merged(&self.part(TreeSelectPart::Value).rest());
-    if self.text.is_none() {
-      style = style.merged(&self.part(TreeSelectPart::Placeholder).rest());
-    }
-    let said = self.text.as_deref().or(self.placeholder.as_deref()).unwrap_or("");
-    Row::new().flex_full(1.0, 1.0, Some(0.0)).min_width(0.0).child(
-      components::Text::styled(said, super::text_box::ink(self.theme(), &style))
-        .nowrap()
-        .text_overflow(TextOverflow::Elipsis),
-    )
+    self.shaped().value()
   }
 
   /// The cross that takes what is chosen away, where the select shows one: pressed apart from the trigger, and
   /// called "Clear" or its `clear_label` to what reads the tree.
   pub fn clear(&self) -> Option<Element> {
-    let clear = self.clear.clone()?;
-    let icon = self.part(TreeSelectPart::ClearIcon);
-    let mut control = pressable(&self.part(TreeSelectPart::Clear), false)
-      .describe("a11y_role", "button")
-      .describe("a11y_name", self.clear_label.clone())
-      .flex_shrink(0.0)
-      .child(glyph(&icon, Name::new(icons::CLOSE), false))
-      .on_click(move |event: MouseEvent| {
-        // The press is the cross's: it does not open the panel as well.
-        event.stop_propagation();
-        clear();
-      });
-    if let Some(id) = &self.id {
-      control = control.id(format!("{id}-clear"));
-    }
-    Some(combobox::apart(control.into()))
+    self.shaped().clear(self.clear.clone(), &self.clear_label)
   }
 
   /// The glyph at the end of the trigger: a chevron down.
   pub fn chevron(&self) -> Element {
-    Row::new()
-      .flex_shrink(0.0)
-      .pointer_events_none()
-      .child(glyph(
-        &self.part(TreeSelectPart::Chevron),
-        Name::new(icons::CHEVRON_DOWN),
-        false,
-      ))
-      .into()
+    self.shaped().chevron()
   }
 
   /// The trigger in the style of its part, with nothing in it yet: what is pressed and focused, and what the panel
   /// hangs from. A press, Enter and Space open and close the panel, and Down and Up open it. It is a combobox that
   /// opens a tree to what reads the tree, and says whether it is open.
   pub fn trigger(&self) -> components::Button {
-    let flag = |on: bool| if on { "true" } else { "false" };
-    let (press, keys) = (self.model.clone(), self.model.clone());
-    let mut trigger = pressable(&self.part(TreeSelectPart::Trigger), self.disabled)
-      .justify(Justify::Start)
-      .align_items(Alignment::Center)
-      .ref_element(self.anchor.clone())
-      .describe("a11y_role", "combobox")
-      .describe("a11y_haspopup", "tree")
-      .describe("a11y_expanded", flag(self.open))
-      .describe("a11y_invalid", flag(self.invalid))
-      .on_click(move |_: MouseEvent| press.set_open(!press.open.get_untracked()))
-      .on_key_down(move |event: KeyboardEvent| {
-        let plain = !(event.ctrl || event.alt || event.meta || event.shift || event.composing);
-        if event.focus_within && plain && matches!(event.key.as_str(), "ArrowDown" | "ArrowUp") {
-          event.prevent_default();
-          keys.set_open(true);
-        }
-      });
-    if let Some(label) = &self.label {
-      trigger = trigger.describe("a11y_name", label.clone());
-    }
-    if let Some(text) = &self.text {
-      trigger = trigger.describe("a11y_value", text.clone());
-    }
-    if self.read_only {
-      trigger = trigger.describe("a11y_readonly", "true");
-    }
-    if self.multiple {
-      trigger = trigger.describe("a11y_multiselectable", "true");
-    }
-    #[cfg(feature = "form")]
-    if let Some(name) = &self.name {
-      trigger = trigger.name(name.clone()).form_value(self.text.clone());
-    }
-    if let Some(id) = &self.id {
-      trigger = trigger.id(id.clone());
-    }
-    trigger
+    self.shaped().trigger()
   }
 
   /// What the panel holds: the tree, in what scrolls it past the greatest height of its part, or the words of a

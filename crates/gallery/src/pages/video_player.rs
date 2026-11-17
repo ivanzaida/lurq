@@ -362,6 +362,14 @@ pub struct VideoPlayerPage {
   source: Signal<usize>,
   path: Signal<String>,
   address: Signal<String>,
+  /// The decoders that stand for an app's own, each with what its frames are.
+  #[cfg(windows)]
+  decoded: Arc<std::sync::Mutex<Vec<(crate::card_demo::Decoded, &'static str)>>>,
+  /// Whether they run: they start once the window says which card it draws on, which is after this page is made.
+  #[cfg(windows)]
+  decoding: Signal<bool>,
+  #[cfg(windows)]
+  _decoders: Interval,
   _clock: Interval,
 }
 
@@ -898,11 +906,7 @@ impl Component for VideoPlayerPage {
       let (waiting, ended, error) = (waiting.clone(), ended.clone(), error.clone());
       let source = source.clone();
       move || {
-        if !playing.get_untracked()
-          || waiting.get_untracked()
-          || error.get_untracked()
-          || source.get_untracked() != 0
-        {
+        if !playing.get_untracked() || waiting.get_untracked() || error.get_untracked() || source.get_untracked() != 0 {
           return;
         }
         let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();
@@ -916,6 +920,38 @@ impl Component for VideoPlayerPage {
       }
     });
     clock.start();
+    // The decoders that stand for an app's own start once something draws frames of the card: a page made with
+    // the window is made before the window has its device.
+    #[cfg(windows)]
+    let (decoded, decoding) = (
+      Arc::new(std::sync::Mutex::new(
+        Vec::<(crate::card_demo::Decoded, &'static str)>::new(),
+      )),
+      ctx.signal(false),
+    );
+    #[cfg(windows)]
+    let decoders = ctx.create_interval(TICK, {
+      let (decoded, decoding) = (decoded.clone(), decoding.clone());
+      move || {
+        if decoding.get() {
+          return;
+        }
+        let started: Vec<_> = [
+          (crate::card_demo::Kind::Nv12, "one NV12 texture"),
+          (crate::card_demo::Kind::Planes, "a texture of gray and one of color"),
+          (crate::card_demo::Kind::Rgba, "one texture of red, green and blue"),
+        ]
+        .into_iter()
+        .filter_map(|(kind, caption)| Some((crate::card_demo::start(kind)?, caption)))
+        .collect();
+        if !started.is_empty() {
+          *decoded.lock().expect("the decoders of the page") = started;
+          decoding.set(true);
+        }
+      }
+    });
+    #[cfg(windows)]
+    decoders.start();
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 3),
@@ -947,6 +983,12 @@ impl Component for VideoPlayerPage {
       #[cfg(target_arch = "wasm32")]
       path: ctx.signal(String::new()),
       address: ctx.signal(ADDRESS.to_owned()),
+      #[cfg(windows)]
+      decoded,
+      #[cfg(windows)]
+      decoding,
+      #[cfg(windows)]
+      _decoders: decoders,
       _clock: clock,
     }
   }
@@ -1016,6 +1058,38 @@ impl Component for VideoPlayerPage {
       .into();
     #[cfg(target_arch = "wasm32")]
     let real: Element = quiet("A video is not decoded in a browser build yet.", 13.0).into();
+    // The frames of a decoder that is not lurq's: each is a plain picture, with no player around it.
+    #[cfg(windows)]
+    let decoded: Element = if !self.decoding.get() {
+      quiet(
+        "Nothing draws frames of the card in this run: it takes the wgpu renderer on Direct3D 12.",
+        13.0,
+      )
+      .into()
+    } else {
+      // Side by side, as the tiles of a grid of streams are, each drawn smaller than its frames.
+      let mut row = Row::new().width(FILL).spacing(16.0).wrap().overflow_visible();
+      for (decoded, caption) in self.decoded.lock().expect("the decoders of the page").iter() {
+        row = row.child(
+          Column::new()
+            .width(208.0)
+            .spacing(9.0)
+            .child(
+              lurq::components::Video::new(decoded.image.clone())
+                .stretch()
+                .size(Dimension::Px(208.0), Dimension::Px(117.0)),
+            )
+            .child(quiet(caption, 12.0)),
+        );
+      }
+      row.into()
+    };
+    #[cfg(not(windows))]
+    let decoded: Element = quiet(
+      "Frames of a decoder of the app's own are drawn on Windows so far.",
+      13.0,
+    )
+    .into();
     // The touch form on its side is as wide as a phone on its side: where the stage is narrower it scrolls.
     let upright = ctx.mount::<Demo>(Scene::Touch);
     let side = ctx.mount::<Demo>(Scene::TouchSide);
@@ -1307,6 +1381,35 @@ impl Component for VideoPlayerPage {
               "    .width(640.0)",
               "    .max_width(Length::Fill)",
               "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Frames of a decoder of your own",
+          "An app that decodes by itself (a stream, a codec the system has not) gives lurq the textures its \
+           frames are in, and lurq draws them where they are: a frame is never in the memory of the program. \
+           Here a thread of the gallery stands for such a decoder, in the three ways one gives a frame. Its \
+           textures are larger than the picture, as a codec's are, and the rows past the picture are pink: \
+           none of it shows. Each is a plain picture, as a tile of a grid of streams is.",
+          self.frame.demo(
+            6,
+            decoded,
+            "Video::new(NativeImageData::from_card_frames(w, h, frames).image_data())",
+            &[
+              "// once: the textures the decoder writes, by their shared handles, and its fence",
+              "let frames = unsafe { CardFrames::with_fence(surfaces, fence) };",
+              "let image = NativeImageData::from_card_frames(1920, 1080, frames.clone()).image_data();",
+              "",
+              "// the decoder's thread, for each frame",
+              "frames.show(",
+              "  CardFrame::of(surface)",
+              "    .crop(CardCrop { left: 0, top: 0, width: 1920, height: 1080 })",
+              "    .ready_at(fence_value)",
+              "    .lease(gives_the_surface_back),",
+              ");",
+              "",
+              "// the screen",
+              "Video::new(image)",
             ],
           ),
         ),

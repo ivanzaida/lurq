@@ -24,13 +24,24 @@ impl TextInputState {
     let insert = styled::InsertedText {
       styled: inserted,
       kinds: None,
+      objects: &[],
     };
     self.replace_selection_with(&inserted.text, Some(&insert), keyboard)
   }
 
-  /// Replaces the selection with text that brings its own spans and the kinds of its paragraphs, as one undo
-  /// step: see [`crate::components::TextInputController::replace_selection_rich`]. An input without kinds of
-  /// paragraphs takes the text and its spans, a plain one the text.
+  /// Replaces the selection with text that brings what `insert` says with it.
+  #[cfg(feature = "markdown")]
+  pub(super) fn replace_selection_inserting(
+    &self,
+    insert: &styled::InsertedText<'_>,
+    keyboard: &KeyboardEvent,
+  ) -> bool {
+    self.replace_selection_with(&insert.styled.text, Some(insert), keyboard)
+  }
+
+  /// Replaces the selection with text that brings its own spans, the kinds of its paragraphs and its objects, as
+  /// one undo step: see [`crate::components::TextInputController::replace_selection_rich`]. An input without
+  /// kinds of paragraphs takes the text and its spans, a plain one the text.
   #[cfg(feature = "markdown")]
   pub(crate) fn replace_selection_rich(
     &self,
@@ -41,6 +52,7 @@ impl TextInputState {
     let insert = styled::InsertedText {
       styled: &text,
       kinds: Some(&inserted.paragraphs),
+      objects: &inserted.objects,
     };
     self.replace_selection_with(&text.text, Some(&insert), keyboard)
   }
@@ -369,6 +381,10 @@ impl TextInputState {
   }
 
   pub(crate) fn begin_selection_at_point(&self, x: f32, y: f32) {
+    // A press on the handle of a selected object starts a drag of it, and leaves the selection as it is.
+    if self.begin_object_resize(x, y) {
+      return;
+    }
     // A press on a token's removing icon selects nothing: a release that leaves a selection is the end of a drag,
     // and makes no click, which is what takes the token away.
     if !self.on_removing_icon(x, y) && self.select_atomic_at_point(x, y) {
@@ -383,6 +399,9 @@ impl TextInputState {
   }
 
   pub(crate) fn update_selection_to_point(&self, x: f32, y: f32) {
+    if self.drag_object_resize(x) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     self.inner.lock().caret = caret;
     self.keep_out_of_tokens(tokens::Toward::AwayFromAnchor);

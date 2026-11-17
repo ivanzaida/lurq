@@ -42,6 +42,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
 | `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
 | `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
+| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox over a window narrower than the theme's `Sm` is unless told. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
 | `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
 | `wrap(bool)` | Whether the first picture comes after the last |
 | `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
@@ -109,9 +110,20 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 - Opened again, the picture is fitted, as it is the first time, unless the app keeps how close it is in a signal
   of its own.
 
+- On a phone (`LightboxVariant::Phone`, the board's `Mobile/Picture/Viewer`, `nBrZz`) the lightbox is black and
+  the whole screen, clear of what the system draws over its edges (`Ctx::safe_area`): a top row of 44 with Close,
+  the counter in its middle, the app's buttons, Share and More, all 44 with glyphs of 24; the picture; its title
+  (15 medium) and line (13 at 60% white) 16 in; a dot of 8 for each picture, 8 apart, at most nine about the one
+  shown. The pictures are pages of a `ui::Carousel`, so a swipe is the engine's paging scroll; the one shown is in
+  `ZoomScroll` (a pinch and a double tap), whose drag pans only once it is closer. A fitted picture dragged down
+  more than across follows the finger, the black under it fading, and let go 120 down or thrown at 900 a second
+  it closes the lightbox. No zoom buttons, round buttons or strip. Seen in the gallery's window at 390 by 844 and
+  in a page at 360 by 640: as the board draws it.
+- The form follows the window, not the lightbox's room: over the window the two are one, and a lightbox in a page
+  is the desktop's unless told.
+
 ## Not done
 
-- The phone's lightbox (a sheet, swipes between pictures) is not drawn on the board and not built.
 - Not seen by hand: a pinch on a touch screen. The gallery's MCP server sends no touch, and this machine has
   no touch screen; the pinch is `ZoomScroll`'s, which the engine's touch tests cover.
 

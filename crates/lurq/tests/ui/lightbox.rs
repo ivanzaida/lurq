@@ -15,7 +15,7 @@ use lurq::{
   images::ImageData,
   layout::quad::QuadContent,
   node::color::Color,
-  ui::{Lightbox, Picture},
+  ui::{Lightbox, LightboxVariant, Picture},
 };
 
 use super::stage::Stage;
@@ -38,7 +38,7 @@ fn pictures() -> Vec<Picture> {
 /// A lightbox of 420 by 290 in a page, as the board draws it, 8 in from the page's corner.
 fn in_page(lightbox: impl Fn(Lightbox) -> Lightbox + Send + Sync + 'static) -> Stage {
   let open = Signal::new(true);
-  Stage::first_frame(600.0, 400.0, move |_| {
+  Stage::first_frame(800.0, 400.0, move |_| {
     Row::new()
       .padding(8.0)
       .child(lightbox(
@@ -156,7 +156,7 @@ fn the_strip_shows_as_many_as_it_has_room_for_about_the_one_shown() {
   let open = Signal::new(true);
   let index = Signal::new(0usize);
   let which = index.clone();
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     let pixels = || ImageData::from_rgba(vec![180; 8 * 6 * 4], 8, 6);
     Row::new()
       .padding(8.0)
@@ -301,7 +301,7 @@ fn it_shows_the_picture_the_apps_signal_says() {
 #[test]
 fn one_picture_has_no_counter_no_strip_and_no_round_buttons() {
   let open = Signal::new(true);
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     Row::new()
       .padding(8.0)
       .child(
@@ -330,10 +330,10 @@ fn it_is_over_the_window_while_its_signal_says_so_and_escape_closes_it() {
   let open = Signal::new(false);
   let dismissed = Arc::new(AtomicUsize::new(0));
   let (shown, tell) = (open.clone(), dismissed.clone());
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     let tell = tell.clone();
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(
         Lightbox::new(shown.clone(), pictures())
           .id("viewer")
@@ -349,7 +349,7 @@ fn it_is_over_the_window_while_its_signal_says_so_and_escape_closes_it() {
 
   open.set(true);
   settled(&mut stage);
-  assert_eq!(stage.bounds("viewer"), (0.0, 0.0, 600.0, 400.0), "it takes the window");
+  assert_eq!(stage.bounds("viewer"), (0.0, 0.0, 800.0, 400.0), "it takes the window");
   assert!(stage.paints("/ 3"));
   assert!(
     stage.tree.get_element_by_id("viewer-download").is_some(),
@@ -381,9 +381,9 @@ fn its_keys_are_its_own_only_while_the_focus_is_in_it() {
 #[test]
 fn in_a_page_it_is_no_wider_than_a_room_narrower_than_it() {
   let open = Signal::new(true);
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(
         Row::new().id("room").width(280.0).child(
           Lightbox::new(open.clone(), pictures())
@@ -406,9 +406,9 @@ fn in_a_page_it_is_no_wider_than_a_room_narrower_than_it() {
 #[test]
 fn the_level_gives_way_where_the_top_row_has_no_room_for_it() {
   let open = Signal::new(true);
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .child(
         Row::new().id("room").width(240.0).child(
           Lightbox::new(open.clone(), pictures())
@@ -473,7 +473,7 @@ mod ahead {
 
   fn lightbox_of(app: lurq::app::App, names: &[String], preload: Option<usize>) -> Stage {
     let names = names.to_vec();
-    Stage::first_frame_in(app, 600.0, 400.0, move |_| {
+    Stage::first_frame_in(app, 800.0, 400.0, move |_| {
       let mut lightbox = Lightbox::new(Signal::new(true), names.iter().map(|name| Picture::from_resource(name)))
         .inline(true)
         .width(420.0)
@@ -484,7 +484,7 @@ mod ahead {
       if let Some(preload) = preload {
         lightbox = lightbox.preload(preload);
       }
-      Column::new().size(600.0, 400.0).child(lightbox).into()
+      Column::new().size(800.0, 400.0).child(lightbox).into()
     })
   }
 
@@ -547,10 +547,10 @@ mod ahead {
 fn opened_by_a_button() -> (Stage, Signal<bool>) {
   let open = Signal::new(false);
   let shown = open.clone();
-  let mut stage = Stage::first_frame(600.0, 400.0, move |_| {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
     let press = shown.clone();
     Column::new()
-      .size(600.0, 400.0)
+      .size(800.0, 400.0)
       .padding(8.0)
       .child(
         lurq::ui::Button::new("Open")
@@ -652,4 +652,161 @@ fn opened_again_the_picture_is_fitted() {
   stage.pass();
   stage.pass();
   assert!(stage.paints("100%"), "fitted, as the first time");
+}
+
+/// The phone's viewer, as the board draws it: a page of 360 by 640 with the lightbox in it, at the second of
+/// three pictures.
+fn on_a_phone(lightbox: impl Fn(Lightbox) -> Lightbox + Send + Sync + 'static) -> (Stage, Signal<usize>) {
+  let index = Signal::new(1);
+  let shown = index.clone();
+  let mut stage = Stage::first_frame(360.0, 640.0, move |_| {
+    Column::new()
+      .size(360.0, 640.0)
+      .child(lightbox(
+        Lightbox::new(Signal::new(true), pictures())
+          .inline(true)
+          .variant(LightboxVariant::Phone)
+          .index(shown.clone())
+          .id("viewer"),
+      ))
+      .into()
+  });
+  settled(&mut stage);
+  settled(&mut stage);
+  (stage, index)
+}
+
+#[test]
+fn on_a_phone_it_is_the_boards_viewer() {
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let (mut stage, _) = on_a_phone(move |lightbox| {
+    let tell = tell.clone();
+    lightbox
+      .on_share(move |at| tell.lock().unwrap().push(at))
+      .on_download(|_| {})
+  });
+  assert_eq!(stage.bounds("viewer"), (0.0, 0.0, 360.0, 640.0));
+  assert_eq!(stage.fill_color("viewer"), Some(Color::new(0, 0, 0, 255)), "black");
+  // A top row of 44: Close 4 in, Share and More at the end, the counter in the middle.
+  assert_eq!(stage.bounds("viewer-close"), (4.0, 0.0, 44.0, 44.0));
+  assert_eq!(stage.bounds("viewer-more"), (360.0 - 4.0 - 44.0, 0.0, 44.0, 44.0));
+  assert_eq!(stage.bounds("viewer-share").0, 360.0 - 4.0 - 88.0);
+  let counter = stage.text_quad("2").expect("the counter");
+  assert!(
+    (counter.y + counter.height / 2.0 - 22.0).abs() < 2.0,
+    "in the middle of the row's height: {} + {}",
+    counter.y,
+    counter.height
+  );
+  assert!(
+    (counter.x + 20.0 - 180.0).abs() < 20.0,
+    "in the middle of the row: {}",
+    counter.x
+  );
+  // No zoom buttons, round buttons or strip: a pinch, a double tap and a swipe do their work.
+  for id in ["viewer-zoom-in", "viewer-previous", "viewer-thumb-0"] {
+    assert!(stage.tree.get_element_by_id(id).is_none(), "{id}");
+  }
+  // The caption under the picture, a title of 15, and a dot for each picture, the one shown white.
+  let (color, size) = stage.text("The ridge");
+  assert_eq!((color, size), (Color::new(255, 255, 255, 255), 15.0));
+  let (x0, y0, width, height) = stage.bounds("viewer-page-0");
+  assert_eq!((width, height), (8.0, 8.0));
+  assert_eq!(stage.bounds("viewer-page-1").0, x0 + 16.0);
+  assert_eq!(stage.bounds("viewer-page-1").1, y0);
+  assert_eq!(stage.fill_color("viewer-page-1"), Some(Color::new(255, 255, 255, 255)));
+  assert_eq!(stage.fill_color("viewer-page-0"), Some(Color::new(255, 255, 255, 0x59)));
+  assert_eq!(y0 + 8.0 + 8.0, 640.0, "8 under the dots");
+
+  stage.click("viewer-share");
+  assert_eq!(*told.lock().unwrap(), [1]);
+}
+
+#[test]
+fn more_holds_download_and_the_apps_items() {
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let (mut stage, _) = on_a_phone(move |lightbox| {
+    let tell = tell.clone();
+    lightbox
+      .on_download(move |at| tell.lock().unwrap().push(at))
+      .menu_item(lurq::ui::MenuItem::new("Copy link"))
+  });
+  stage.click("viewer-more");
+  stage.pass();
+  assert!(stage.paints("Download"));
+  assert!(stage.paints("Copy link"));
+  let (x, y) = {
+    let quad = stage.text_quad("Download").unwrap();
+    (quad.x + 4.0, quad.y + quad.height / 2.0)
+  };
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), [1]);
+}
+
+#[test]
+fn on_a_phone_the_keys_turn_and_the_pages_follow() {
+  let (mut stage, index) = on_a_phone(|lightbox| lightbox);
+  // Tab to Close, in the lightbox: its keys are its own while the focus is in it.
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  settled(&mut stage);
+  settled(&mut stage);
+  assert_eq!(index.get(), 2);
+  assert_eq!(stage.bounds("viewer-pages-slide-2").0, 0.0, "the third page is in view");
+}
+
+#[test]
+fn a_drag_down_closes_it_and_a_short_one_does_not() {
+  use lurq::app::events::TouchPhase;
+  let open = Signal::new(true);
+  let shown = open.clone();
+  let mut stage = Stage::first_frame(390.0, 844.0, move |_| {
+    Column::new()
+      .size(390.0, 844.0)
+      .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
+      .into()
+  });
+  settled(&mut stage);
+  settled(&mut stage);
+  assert!(
+    stage.tree.get_element_by_id("viewer-zoom-in").is_none(),
+    "a phone's window: the phone's form"
+  );
+  let (x, y) = stage.center("viewer-stage");
+  let mut drag = |stage: &mut Stage, by: f32| {
+    let route = stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
+    eprintln!("PROBE route {route:?}");
+    for step in 1..=10 {
+      // Slowly: a throw down closes it however far it went.
+      std::thread::sleep(std::time::Duration::from_millis(30));
+      stage
+        .tree
+        .touch_event(1, TouchPhase::Move, x, y + by * step as f32 / 10.0, None);
+      stage.frame();
+    }
+    stage.tree.touch_event(1, TouchPhase::End, x, y + by, None);
+    settled(stage);
+  };
+  drag(&mut stage, 40.0);
+  assert!(open.get(), "not far enough");
+  drag(&mut stage, 220.0);
+  assert!(!open.get(), "far enough: it closed");
+}
+
+#[test]
+fn a_window_as_wide_as_a_desktops_has_the_desktops_form() {
+  let mut stage = Stage::first_frame(1000.0, 700.0, move |_| {
+    Column::new()
+      .size(1000.0, 700.0)
+      .child(Lightbox::new(Signal::new(true), pictures()).id("viewer"))
+      .into()
+  });
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-zoom-in").is_some());
+  assert!(stage.tree.get_element_by_id("viewer-page-0").is_none());
 }

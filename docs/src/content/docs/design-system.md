@@ -930,6 +930,49 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `slider` called by its label; a range slider's value is `low,high`.
 - A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, fill and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
 
+## Angle Slider
+
+A dial that sets an angle in degrees, by a drag round it, a press on it or the keys: the rotation of a layer, the direction of a gradient or of a light.
+
+```rust
+use lurq::ui::AngleSlider;
+
+// rotation: Signal<f64>, 0 to 360 in whole degrees, going round past 359 to 0.
+AngleSlider::new(rotation.clone()).label("Rotation");
+
+// The app holds the angle; told each change, and of the end of a drag.
+AngleSlider::controlled(angle, move |angle| preview(angle))
+  .on_change_end(move |angle| save(angle));
+
+// A half turn either way of 0, in steps of 15, held at its ends.
+AngleSlider::new(tilt.clone()).min(-180).max(180).step(15).wrap(false);
+```
+
+| Builder | |
+| --- | --- |
+| `AngleSlider::new(Signal<f64>)` | The angle the signal holds, in degrees; a drag, a press and the keys set it |
+| `AngleSlider::controlled(f64, on_change)` | The app holds the angle: it is told what a person makes it, and what is drawn is what it gives next |
+| `on_change(Fn(f64))` | Each change a person makes, as it is made: a drag as it moves, a press, a key. After the signal is set; not when the app sets it, nor for a press that leaves it as it is. Each call adds |
+| `on_change_end(Fn(f64))` | The angle when a change is over, where it is another than it was as the change began: the drag let go, the key's step made. A drag taken back to where it began tells nothing. Each call adds |
+| `min(v)`, `max(v)` | The range: 0 to 360 unless told. A range of more than a turn is turned round more than once |
+| `step(v)`, `page_step(v)` | How far apart the angles are, from the least: 1 unless told, what an arrow key moves it by and what a drag snaps to. What Page Up and Page Down move it by: 15 unless told, in whole steps and at least one |
+| `wrap(bool)` | On unless told: where the range is a whole turn it goes round, a step past 359 is 0 and a drag goes on round. Off, or with another range, it stops at its ends, and a drag past an end stays there until it comes back |
+| `label(&str)` | What it is called to tooling, "Angle" unless told. A [field](#field) gives it its label |
+| `locale(&Locale)` | The words it speaks in, its name, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A `label` told by itself stays; the degrees are a sign, the same in every locale |
+| `value_text(Fn(f64) -> String)` | What it says the angle is, in its middle and to tooling: "45°" unless told, with the decimals of the step ("22.5°") |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the dial, what is dragged and focused |
+
+- The angle is drawn as on a compass: 0 at the top and growing clockwise, the dot on the ring at it. An angle the app gives is snapped to the step and kept in the range; where it goes round, 370 is 10 and 360 is 0.
+- The pointer: a press anywhere on the dial sets the angle it is at (of a range of more than a turn, the turn nearer to the angle it holds; past the ends of a range of less than a turn, the nearer end), and a drag goes on round from there, snapped to the step. A press at the dial's very middle, where a point has no angle, sets nothing and the drag goes on from where it moves. A finger or a pen turns it as the mouse does, and is taken from the page. A press focuses it, so the keys go on from it.
+- The keys: Right and Up a step clockwise, Left and Down a step back, Page Up and Page Down by `page_step`, Home to the least and End to the greatest (where it goes round, the last step before it comes round to the least: 359). Each is a change and its end. Tab stops on it once; the ring of the focus is around the circle.
+- It tells as a [slider](#slider) does: `on_change` for each change, then `on_change_end` for the end of the drag or the key's step; bound, the signal is set first.
+- It is built of boxes: the circle, the text in its middle and the dot, placed at the angle, so the parts are styled as any others are.
+- In the design the dial is 64 on `Background` with a ring of 1.5 in `Input` inside it, the angle in the mono type of 13 in `Foreground`, and a dot of 9 in `Primary` inside the ring, touching it. The board draws it at rest: the ring of the focus is around the circle, the pointer is a hand over it, and a disabled dial is dimmed. A dial made larger (`style(AngleSliderPart::Root, |s| s.square(96.0))`) keeps its dot touching its ring.
+- To a screen reader it is a slider called by its label, of its range, that says its angle.
+- Parts: `AngleSliderPart::Root` (the circle, what is focused), `Value`, `Handle`. State: `AngleSliderState::Disabled`.
+- In a [field](#field) it is called by the field's label unless it has one of its own and disabled where the field is.
+- A renderer that draws another dial is given an `AngleSliderView`: `view.root()` is the dial with its behavior (the pointer, the keys, the role), `view.value()` and `view.handle()` the text and the dot, `view.reach()` how far the dot is from the middle, `view.text()` what it says, `view.angle` the angle.
+
 ## Rating
 
 A number of stars, chosen by a press or by the keys, or shown and not chosen: the quality of a call, how much a person liked a release, what others gave a package.
@@ -978,6 +1021,54 @@ Rating::at(3.0).icon(icons::HEART).empty_icon(icons::HEART);
 - Parts: `RatingPart::Root` (the row of stars, what is focused), `Star` (the room of a star, what a press chooses), `Filled` (a lit star, or the lit part of one), `Empty`. States: `RatingState::Interactive`, `ReadOnly`, `Invalid`, `Disabled`; sizes `RatingSize::Sm`, `Md`, `Lg`.
 - In a [field](#field) it is called by the field's label unless it has one of its own, invalid where the field is and disabled where the field is.
 - A renderer that draws another rating is given a `RatingView`: `view.root()` is the row with its behavior (the keys, the role, the value), `view.star(index)` a star with its room for a press, `view.lit(index)` how much of a star is lit, `view.stars` the value and `view.shown` what is lit now.
+
+## Signature Pad
+
+A surface a person signs on with a mouse, a pen or a finger: the signature on a delivery, the consent on a form. Behind the `canvas` feature.
+
+```rust
+use lurq::ui::{Field, Signature, SignaturePad};
+
+// signature: Signal<Signature>. Each stroke let go, Undo and Clear set it.
+SignaturePad::new(signature.clone()).label("Signature of the recipient").mount(ctx);
+
+// The app holds the signature, and is told what a person makes of it.
+SignaturePad::controlled(held.clone(), move |signature| save(signature));
+
+// In a field, which names it and judges it.
+Field::new("Signature", SignaturePad::new(consent.clone()).placeholder("Sign to accept the delivery"))
+  .error("Sign to accept the delivery.");
+
+// The signature as a picture: its own size twice over, in the ink and the width given, on nothing.
+let image = signature.get().to_image(2.0, ink, 2.0); // Option<ImageData>
+let png = signature.get().to_png(2.0, ink, 2.0); // Option<Vec<u8>>, a PNG file
+```
+
+| Builder | |
+| --- | --- |
+| `SignaturePad::new(Signal<Signature>)` | The signature the signal holds; each stroke, Undo and Clear set it |
+| `SignaturePad::controlled(Signature, on_change)` | The app holds the signature: it is told what a stroke, Undo or Clear make of it, and what is drawn is what it gives next |
+| `on_change(Fn(&Signature))` | Called after a stroke is let go, after Undo and after Clear, once the signal is set. Not while a stroke is drawn, nor when the app sets the signal. Each call adds |
+| `placeholder(&str)` | The words under the line, "Sign above the line" unless told. They stay once it is signed, as the board draws them, and end in an ellipsis where they do not fit |
+| `read_only(bool)` | It shows the signature and takes nothing: no stroke, no buttons, no stop of Tab |
+| `full_width(bool)`, `width(..)`, `height(..)` | As wide as what holds it; or a size of its own, 280 by 124 unless told, and no wider than what holds it |
+| `label(&str)` | What it is called to tooling, "Signature" unless told. A [field](#field) gives it its label |
+| `undo_label(&str)`, `clear_label(&str)` | The names of its two buttons, "Undo" and "Clear" unless told |
+| `signed_text(&str)`, `empty_text(&str)` | What it says to tooling it holds: "Signed" and "Not signed" unless told |
+| `locale(&Locale)` | The words it speaks in, its name, the words under its line, its buttons' names and what it says it holds, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A word told by itself (`placeholder`, `undo_label` and the others) stays |
+| `invalid(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the pad, what takes the focus; its canvas is `<id>-surface` and its buttons `<id>-undo` and `<id>-clear` |
+| `mount(ctx)`, `build(theme)` | Converted into an element, or mounted, it is the pad that is signed on: it keeps the stroke being drawn. `build` is its still form, which shows the signature and takes nothing |
+
+- **The value.** A `Signature` is the app's: `strokes`, each a `SignatureStroke` of `points` in the order they were drawn, and the `width` and `height` of the surface they were signed on. A `SignaturePoint` is `x` and `y` in logical pixels from that surface's top left, `pressure` from 0 to 1 where the input measures it (a pen, a screen that feels force; `None` for a mouse) and `time` in milliseconds from the first point of its stroke. A stroke of one point is a dot. It is `Clone`, `PartialEq` and inspectable, to keep in a signal and to store. Given back to a pad of another size, it is drawn scaled to fit from its top left, keeping its shape, and a stroke drawn on it joins it in its own pixels.
+- **The pointer.** A press draws a stroke where the pointer goes until it is let go, and the stroke is shown as it is drawn; the signature is told only when it is let go. A move of less than three quarters of a pixel from the last point is no point. A stroke stays on the pad: one dragged past its edge goes along the edge. A finger or a pen draws as the mouse does, with its pressure, and is taken from the page: it does not scroll what the pad is in. A second finger while one draws draws nothing, and a touch the system takes away signs nothing.
+- **The line.** Each stroke is a curve through the middles between its points (each point bends the line toward it), 2 wide in `Foreground` with round ends and joins. The board's line is even, so the pad's is: its width does not follow the speed or the pressure, which are in the value for an app that draws otherwise.
+- **The keys and the focus.** The pad is one stop of Tab, and its Undo and Clear buttons the next two, in its top corner while it is signed. With the pad focused, Backspace and Ctrl+Z (Cmd+Z on a Mac) take back the last stroke and Delete all of them. A press on the pad focuses it, so its keys go on from there; a press of Clear, or of Undo that takes back the last stroke, gives the focus to the pad, as the buttons are gone after it. A press of a button draws nothing under it.
+- **A picture.** `Signature::to_image(scale_factor, ink, line_width)` draws it on lurq's CPU canvas ([`CanvasHandle::offscreen`](../canvas/#a-picture-drawn-off-the-screen)) at its own size times `scale_factor`, in `ink` and `line_width` wide, on nothing: an `ImageData` of straight RGBA, the same wherever it is made and with no window. `Signature::to_png(scale_factor, ink, line_width)` is the same picture as the bytes of a PNG file (8-bit RGBA, not premultiplied), to store or to send; the `canvas` feature brings the `png` crate for it, which is Rust alone and builds for the browser. `Signature::paint(&draw, width, height, ink, line_width)` draws it on any canvas, scaled to fit.
+- In the design the pad is 280 by 124 on `Background`, its corners `Lg`, an edge of 1 in `Input` inside it. At its bottom, 12 and 16 in, a line of 1 in `Input` and, 6 under it, the words in the mono type of 11 in `MutedForeground`. The board draws it signed and no other state: the ring of the focus is around the pad, Undo and Clear are ghost buttons of the `Xs` size 6 in from its top corner, an invalid pad has its edge in `Destructive`, a disabled one is dimmed, and the pointer is a cross over a pad that is signed on. It is drawn on the canvas, again only when what it shows changes.
+- To a screen reader it is a picture (`img`) called by its label and described as signed or not.
+- Parts: `SignaturePadPart::Root` (the pad, what is focused), `Surface` (the canvas over the whole pad), `Ink` (the line: its background is the ink, its width the line's), `Guide` (the column at the bottom: its padding and gap), `Baseline`, `Placeholder`, `Actions` (the row of the buttons). States: `SignaturePadState::Empty` or `Signed` (one of them is on), `Drawing`, `Interactive`, `ReadOnly`, `Invalid`, `Disabled`.
+- In a [field](#field) it is called by the field's label unless it has one of its own, invalid where the field is and disabled where the field is.
+- A renderer that draws another pad is given a `SignaturePadView`: `view.root()` is the pad with its keys and its role, `view.surface()` the canvas that draws and takes the strokes, `view.guide()` the line and its words, `view.actions()` the buttons where they are shown, `view.signature` the value and `view.draft` the points of the stroke being drawn.
 
 ## Shortcut Recorder
 
@@ -2850,6 +2941,63 @@ MultiSelect::new(languages.clone(), [
 - It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
+## Cascader
+
+A select whose options are a tree shown as columns that open one after the other, as a menu of submenus does: a place by its continent, its country and its city, a category of a catalogue, a setting by its section.
+
+```rust
+use lurq::ui::{Cascader, TreeItem};
+
+// city: Signal<Option<&str>>: one or none, of the cities alone.
+Cascader::optional(city, [
+  TreeItem::new("asia", "Asia").items([TreeItem::new("japan", "Japan").item(TreeItem::new("tokyo", "Tokyo"))]),
+  TreeItem::new("europe", "Europe").items([
+    TreeItem::new("ukraine", "Ukraine").items([TreeItem::new("kyiv", "Kyiv"), TreeItem::new("lviv", "Lviv")]),
+    TreeItem::new("poland", "Poland").item(TreeItem::new("warsaw", "Warsaw")),
+  ]),
+])
+.label("Place")
+.placeholder("Select a city")
+.clearable(true)
+.mount(ctx);
+
+// A continent or a country may be chosen too, and the columns open under the pointer.
+Cascader::optional(region, items).leaves_only(false).open_on_hover(true).mount(ctx);
+
+// Held by the app, which is told each choice.
+Cascader::controlled(app.city(), items, |city| app.set_city(*city));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)`, `optional(value, items)` | The tree's items (`TreeItem<T>`, a [tree view](#tree-view)'s) and what is chosen of them, bound to a `Signal<T>` or a `Signal<Option<T>>`. A value is one item's: the trigger says the path down to it |
+| `controlled(value, items, on_change)`, `controlled_optional(..)` | The same held by the app, which is told `on_change(&T)` or `on_change(&Option<T>)` and shows what it gives back |
+| `on_change(handler)` | Told what is chosen after a choice a person makes, after the signal is set; not for the option chosen already, nor when the app sets the signal. The cascader is `Cascader<T, T>` or `Cascader<T, Option<T>>`, so a handler of another type does not compile |
+| `leaves_only(bool)` | Whether only an option that holds nothing is chosen, as the board's cascader has it (it is unless told otherwise). Without it a press or Enter chooses any option, and a choice of one that holds others leaves the panel open on its column |
+| `open_on_hover(bool)` | The pointer on an option that holds others opens its column, as a submenu opens, in place of a press. A press opens it either way |
+| `on_load(handler)` | Told an item marked `lazy` that holds nothing yet as its column opens: where the app brings its children. The column has a spinner until they come |
+| `open(Signal<bool>)` | Whether the panel is open, where the app keeps it. `on_open_change(bool)` hears each change a person makes, a choice too; `on_dismiss()` Escape and a press outside, before it |
+| `path(bool)`, `separator_text(&str)` | The trigger says the whole path to what is chosen, `Europe / Ukraine / Kyiv` (it does unless told otherwise), or its label alone; and what stands between the steps, `" / "` |
+| `placeholder(&str)`, `size(CascaderSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `name` | As a [select](#select) has them. A read only one and a disabled one do not open |
+| `clearable(bool)`, `clear_label(&str)` | A cross before the chevron, while something is chosen, that takes it away, of a cascader that may hold none; and what it is called, "Clear" |
+| `empty_text(&str)`, `loading_label(&str)` | What the panel says where there are no items, "No options"; what the spinner of a column on its way is called, "Loading" |
+| `locale(&Locale)` | The words it speaks in, the name of its cross, what an empty panel says and what a spinner is called, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A word told by itself (`clear_label`, `empty_text`, `loading_label`) stays; the mark between the steps is no word |
+| `label(&str)`, `panel_label(&str)` | What the cascader is called to what reads the tree, and its panel and its columns in place of that |
+| `placement`, `offset`, `collision`, `inline`, `dismiss_on_escape`, `dismiss_on_outside_press` | As a [popover](#popover) has them: the panel is one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the trigger's; the panel has it with `-panel`, the columns with `-columns` (each column that, `-column-` and its place), the cross with `-clear` |
+| `mount(ctx)` | In place of converting it: the cascader keeps whether it is open, the trigger the focus goes back to and the columns open in it |
+
+- It is built of what is there already: its trigger is a [select](#select)'s box (the same recipe, sizes, ring, judgments and fluid form in a [field](#field)), the one a [tree select](#tree-select) has, its panel a [popover](#popover) and what the panel holds a [column view](#column-view), with a column view's columns, options, chevrons and keys. What a `TreeItem` has, it has here: `icon`, `disabled`, `lazy`, `trailing`. A tree select is its sibling for a tree shown in one column, of which any number may be chosen.
+- A press, Enter, Space, Down or Up on the trigger opens the panel with the columns of the path to what is chosen open, and the focus on it, or on the first option. A press of an option that holds others opens its column; a press of one that holds nothing chooses it and closes the panel, and the panel closes first and the handler is told after, so a handler that opens a dialog keeps its focus. Up and Down go through a column and open the column of the option they reach, Home and End go to its ends, Right goes into what an option holds and Left back to the option the column is of, a letter to the next option that starts with it; Enter on an option that holds nothing chooses it, on one that holds others goes into it. Moving chooses nothing.
+- The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Opened again, the panel is on what is chosen, not on where it was left.
+- The panel is as wide as the columns open in it, each 124, and as high as the longest of them, up to 280, past which a column scrolls; where the window is narrower than the columns they scroll sideways.
+- A cascader that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and the path open in its columns.
+- The board draws a cascader of one: there is no cascader of any number, and no search over the paths, which the board does not draw.
+- To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `listbox`, `a11y_expanded`, `a11y_value` (the path it says), `a11y_invalid` and `a11y_readonly` where they hold; the panel a `dialog`, each column a `listbox` called by the option it is of, and each option an `option` that says `a11y_selected` while it is on the path open, `a11y_expanded` where it holds others, `a11y_level`, `a11y_posinset` and `a11y_setsize`.
+- Parts: `CascaderPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon` (a select's and a tree select's), `Panel` (laid over the popover's panel), `Columns` (laid over the column view's box: its greatest height), `Column`, `Option`, `OptionIcon`, `OptionLabel` and `OptionChevron` (laid over the column view's column, item, icon, label and chevron), and `Empty`. States: a select's, `CascaderState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Fluid`, and `Selected`, resolved on the parts of an option on the path open.
+- In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its path 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow, and holds the columns with no room around them: each 124 wide, padded 4, with a line of 1 in `Border` at its end but the last's. An option is 30 high (22, 38 and 42 at the compact, comfortable and touch densities), 8 in, `radius-sm`, its label at 13 in `Foreground`, and where it holds others a chevron of 14 in `MutedForeground` 4 after it. The options on the path are on `Highlight` with their labels at 500, the last as the others; under the pointer and held down an option has the veils of those states, and the focus from the keyboard is a ring of 2 in `Ring` inside it.
+- A theme's renderer is given `CascaderView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.content()`, `view.panel()` and `view.render()`. It is set for `Cascader<T>` of any `T`.
+
 ## Tree Select
 
 A select whose options are a tree: a file of a project, a category of a catalogue, the folders a search looks in.
@@ -2903,10 +3051,60 @@ TreeSelect::controlled(app.file(), items, |file| app.open(file));
 - The focus goes back to the trigger on every way out of the panel: a choice, Escape, a press of the trigger. A press outside closes it and leaves the focus where the press put it. Tab in the panel leaves the tree, which is one stop.
 - A select that is only built keeps nothing: converted into an element it is the still form of itself, which opens only where the app holds `open`. Mounted (`mount(ctx)`, or by a [field](#field) that is mounted), it keeps whether it is open, its trigger and which branches are open. As the panel opens, the branches the chosen rows are in open, so it opens on what is chosen; while it is open nothing opens or closes but by a person, so a row taken out of what is chosen stays under the focus.
 - A select of any number has no checkboxes: the board draws none, and its rows are a tree's, in the highlight while they are chosen.
+- A [cascader](#cascader) is its sibling for a tree shown as columns that open one after the other, of which one is chosen. Its trigger is the same.
 - To what reads the tree the trigger is a `combobox` with `a11y_haspopup` `tree`, `a11y_expanded`, `a11y_value` (what it says), `a11y_invalid`, `a11y_readonly` and `a11y_multiselectable` where they hold; the panel a `dialog` and what it holds a `tree` of `treeitem`s, called by the select's label.
 - Parts: `TreeSelectPart::Trigger`, `Value`, `Placeholder`, `Chevron`, `Clear`, `ClearIcon`, `Panel` (laid over the popover's panel), `Tree` (its greatest height, past which the tree scrolls), `Row`, `RowIcon` and `RowLabel` (laid over the tree view's row, icon and label) and `Empty`. States: a select's, `TreeSelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
 - In the design the trigger is 260 by 36 on `Background` in an edge of 1 in `Input`, `radius-md`, its text 12 from its edge in the body's type and a chevron of 16 in `MutedForeground` 8 after it. The panel is 4 under it, 260 wide on `Popover` in an edge of 1 in `Border`, `radius-lg`, with the popover's shadow and 8 of padding around the tree. The tree scrolls past 280.
 - A theme's renderer is given `TreeSelectView`: `view.text` (what the trigger says), `view.trigger()` (the behavior with the trigger's style), `view.value()`, `view.clear()`, `view.chevron()`, `view.panel()` and `view.render()`. It is set for `TreeSelect<T>` of any `T`.
+
+## Transfer
+
+Two lists side by side, and the buttons between them that move the items checked in one to the other: the features a build has, the columns a table shows, the members of a group.
+
+```rust
+use lurq::ui::Transfer;
+
+// enabled: Signal<Vec<&str>>: the values of the items on the right.
+Transfer::new(enabled, [
+  ("canvas", "canvas"),
+  ("svg", "svg"),
+  ("router", "router"),
+  ("wgpu", "wgpu"),
+  ("winit", "winit"),
+])
+.source_title("Available")
+.target_title("Enabled")
+.label("Features")
+.mount(ctx);
+
+// Held by the app, which is told each new value.
+Transfer::controlled(app.features(), items, |features| app.set_features(features));
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, items)` | Bound to a `Signal<Vec<T>>`: the items of its values are on the right, in the order they came there, and a move sets it. The items are a [listbox](#listbox)'s options: `(value, label)` or a `SelectOption` with `disabled`, `detail`, `hint`, `leading`, `trailing`. The left list has the rest, in the order of the items |
+| `controlled(value, items, on_change)` | The same held by the app, which is told the whole value a move asks for and shows what it gives back |
+| `on_change(handler)` | Told the whole new value, `&[T]`, after a move, after the signal is set; not when the app sets the signal. A second handler is called after the first |
+| `checked(Signal<Vec<T>>)`, `checked_controlled(checked, on_checked_change)`, `on_checked_change(handler)` | What is checked in either list, where the app keeps it (without it a mounted transfer keeps it), and what hears each change a press, a key or a move makes |
+| `source_title(&str)`, `target_title(&str)` | What the lists are called, in their headers and to what reads the tree: "Available" and "Selected" |
+| `count_text(Fn(checked, total) -> String)` | What a header says of how many of its items are checked, of how many: `1/3` |
+| `select_all_label(&str)`, `add_label(&str)`, `remove_label(&str)` | What the header's checkbox and the two buttons are called to what reads the tree: "Select all", "Add", "Remove" |
+| `empty_text(&str)` | What a list with no items says: "No items" |
+| `locale(&Locale)` | The words it speaks in, its lists' titles, the names of its checkboxes and buttons and what an empty list says, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::input`. A word told by itself (`source_title`, `add_label` and the others) stays; the count is no word |
+| `label(&str)`, `disabled(bool)`, `density(Density)` | What the transfer is called, to what reads the tree; nothing in it takes input; how high an item is, whatever the theme's density |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; the lists' items have it with `-source` and `-target` (each item that and `-` and its place), their headers' checkboxes with `-source-all` and `-target-all`, the buttons with `-add` and `-remove` |
+| `mount(ctx)` | The transfer keeps what is checked, measures its room before it is painted and finds its narrow form there, and a list of more than two hundred items builds only those near its view. Converting it into an element declares the same component; `build(theme)` is the still form, wide only |
+
+- Each list is a [listbox](#listbox) of any number with `checkboxes(true)`: a press of an item checks it or unchecks it and leaves the rest, a press with Shift checks the range from the last one checked and keeps what else is, and the keys are a listbox's: one stop of Tab, Up and Down, Home and End, the page keys, a letter, Space to check, Shift with the keys to check a range, Ctrl+A to check every item that can be. A disabled item is faded, is not checked and does not move.
+- The checkbox in a list's header checks every item of the list that can be checked, or none, and is half checked while some are; it is disabled while none can be. The count beside it says how many are checked, of how many items the list has.
+- The primary button, with a chevron to the right, moves what is checked on the left to the end of the right, in the order of the items; the outline one, with a chevron to the left, moves what is checked on the right back. Each is disabled while its list has nothing checked. A move sets the value and tells `on_change`, then takes what moved out of what is checked. The focus stays on the button that was pressed.
+- Its narrow form is chosen by its own room: mounted, it measures the room before the frame is painted, and where the two lists and the buttons do not fit side by side the lists are as wide as the room, one over the other, and the buttons are side by side between them with their chevrons turned down and up. The first frame is the settled one. Converted into an element (`.child(transfer)`) it is that same live component, as `mount(ctx)` makes it; `build(theme)` is its still form, side by side whatever its room, with nothing checked unless the app holds what is.
+- A list scrolls past 264, eight items; one of more than two hundred items, in a mounted transfer, is a listbox mounted in a virtual list, which builds only the items near its view and which the keys reach every item of.
+- To what reads the tree it is a `group` called by its label, each list a `listbox` that is `a11y_multiselectable`, called by its title, of `option`s that say `a11y_checked` and `a11y_selected`; the header's checkbox is a `checkbox` that says `mixed` while some are checked, and the buttons are `button`s called "Add" and "Remove".
+- Parts: `TransferPart::Root` (the room between the lists and the buttons), `List`, `Header`, `Title`, `Count`, `Items` (laid over the listbox's box: its greatest height, past which the items scroll), `Item` and `ItemLabel` (laid over the listbox's option and label), `Empty` and `Actions`. States: `TransferState::Disabled` and `Stacked`.
+- In the design a list is 190 wide on `Background` in an edge of 1 in `Border`, `radius-lg`, 12 from the buttons, the two lists in the middle of each other's height. Its header is 36 high on `Muted` with a line of 1 in `Border` under it, 12 in from its sides: a checkbox, the title in the body's type at 13 and 500 in `Foreground`, and the count in the mono type at 11 in `MutedForeground`, 8 apart. Its items are 4 in from its top and bottom, each 32 high (24, 40 and 44 at the compact, comfortable and touch densities), 12 in, a checkbox and the label at 13, 8 apart; under the pointer an item is on `Muted`, and the focus from the keyboard is a ring of 2 in `Ring` inside it. The buttons are 32 square, 8 apart. A list with no items says so at 13 in `MutedForeground`, 12 in.
+- A theme's renderer is given `TransferView`: `view.source` and `view.target` (each a `TransferList` with its title, its count, how many are checked and `list.header()`, `list.select_all()`, `list.render(items)`), `view.button(to_target)`, `view.actions()`, `view.stacked` and `view.render()`. It is set for `Transfer<T>` of any `T`.
 
 ## Token Input
 
@@ -3062,7 +3260,7 @@ Mentions::new(comment.clone(), &mentions)
 ## Rich Text Editor
 
 Formatted text typed into a box, under a bar of the tools that format it: a comment, release notes, the body of an
-article. It comes with the `markdown` feature.
+article, with pictures among its words. It comes with the `markdown` feature.
 
 ```rust
 use lurq::{components::RichText, ui::{RichTextEditor, RichTextTool}};
@@ -3083,7 +3281,26 @@ RichTextEditor::new(comment.clone())
 
 // Held by the app: it is told each change, and the editor shows what the app answers with.
 RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.clone())).mount(ctx);
+
+// Pictures. In `create`: the app's handle on the editor, and the system's dialog for a file.
+let editor = RichTextController::new();
+let window = ctx.window();
+let choose = ctx.future_action(move |()| {
+  FileDialog::new().title("Insert a picture").filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"]).pick_result(&window)
+});
+// In `render`: the image tool opens the dialog, and the file a person chose goes in at the caret.
+if let Some(path) = chosen_path(&choose.state().get()) {
+  editor.insert_picture(&path, "A picture");
+}
+let open = choose.clone();
+RichTextEditor::new(notes.clone())
+  .controller(&editor)
+  .on_image(move || open.run(()))
+  .mount(ctx);
 ```
+
+`chosen_path` is the app's: the path of the first file of a fulfilled state, taken once (see
+[Files a person gives](../styling-events/#files-a-person-gives)).
 
 | Builder | |
 | --- | --- |
@@ -3096,8 +3313,10 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 | `toolbar(bool)`, `footer(bool)` | Whether it has its bar, and the row under the box that says Markdown shortcuts are on and counts the words: both unless told |
 | `markdown_shortcuts(bool)` | Whether Markdown typed becomes what it says: on unless told |
 | `on_link_click(handler)` | Called with a link's target when it is clicked with Ctrl held (Cmd on a Mac): the app opens it |
-| `on_image(handler)` | What the image tool does; with it the bar has the tool. A document holds text: a picture is the app's to place outside it, and the editor draws none in its text |
-| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
+| `on_image(handler)` | What the image tool does; with it the bar has the tool. The app asks for a picture, with the system's dialog for a file or a panel of its own, and puts it in with the controller's `insert_picture` |
+| `on_paste_image(Fn(&ClipboardImage) -> Option<String>)` | What is done with a picture pasted as pixels, a screenshot: the app keeps the pixels (`image.to_png()` into a file, a store of its own) and answers with the source the document names them by, and the editor puts that picture at the caret. Without it a paste of pixels does nothing: a document names its pictures and holds no pixels |
+| `picture(Fn(&InlineObject) -> Element)` | What is drawn for a picture of the document, in place of a [`Picture`](#picture) of its source: for pictures that are no files and no addresses (bytes the app holds, a resource, a key of its own store) |
+| `controller(&RichTextController)` | The app's handle on the editor, kept from one render to the next: `toggle_mark`, `set_paragraphs`, `toggle_paragraphs`, `set_link`, `insert_text`, `insert_link`, `insert_picture(source, label)`, `insert_object(&InlineObject)` for a picture with a width, `select`, `undo`, `redo`, `value`, and `input()`, the engine's controller of its text |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: its edge in the destructive, warning or success color |
 | `read_only(bool)` | It is focused, selected and copied, and not changed: its tools take no input |
 | `full_width(bool)` | As wide as what holds it, in place of 560 |
@@ -3108,7 +3327,12 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 | `mount(ctx)` | Puts it in the tree: it keeps the text being edited, what its bar shows and the panel of a link |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. Its parts have the id with `-content`, `-toolbar`, `-style`, `-bold` and each tool's name, `-count` and `-link-field` after it |
 
-- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s) and what each paragraph is (`ParagraphKind`). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- Its value is a [`RichText`](../text-input-styled/#one-value-richtext): the text, the marks over it (`StyledSpan`s), what each paragraph is (`ParagraphKind`) and the pictures in it (`InlineObject`s). `RichText::from_markdown` and `to_markdown` read and write the Markdown an app stores.
+- A picture is a character of the document, alone in a paragraph or among words: an [object](../text-input-styled/#objects) of the engine's input. It is as large as it is, or as wide as the document says (`InlineObject::width`), and never wider than its line; its row is as high as it needs, and it stands on the baseline of the words beside it. The caret goes past it as past one character, a press selects it, Backspace after it selects it and the next deletes it, a selection takes it whole, and undo brings it back as it was. While the editor has the focus, a selected picture is under a veil of the selection's color. It is no word to the count of the footer. Markdown writes it as an image, `![label](source)`, or as `<img src alt width>` where it has a width, and a copy and a paste carry it so. `insert_picture` is `false` in a line of a block of code, which holds no picture, and in an editor that takes no change.
+- A picture selected alone has a handle on its lower corner at the end: dragged, it makes the picture wider or narrower, from 16 to the width of the text, its height following its shape, as one step of the undo told to `on_change` once, when it is let go. A read only or disabled editor has none. The width goes into the document (`InlineObject::width`) and into its Markdown as `<img width>`.
+- What is typed after a picture goes after it: a pasted or inserted picture has the caret after it, an arrow from a selected picture puts the caret before or after it, and Enter with a picture selected starts a paragraph after the picture and leaves it. Anything else typed over a selected picture takes its place, as over any selection.
+- A paste of a clipboard with no words in it is a paste of pictures: pixels (a screenshot, an image copied in another app) go to `on_paste_image`, and files that are pictures, copied in a file manager, are put in by their paths with no handler, each called by its file's name. A clipboard that holds words is pasted as text, whatever else it holds.
+- A picture is drawn by a [`Picture`](#picture) of its source, an address where the source starts as one (`http://`, `https://`) and the path of a file otherwise, called by its label: it shows a skeleton while it loads and says so when it did not come. The pointer and the focus do not reach it, so it has no bar and opens no lightbox. `picture(..)` draws it another way.
 - It is the engine's [styled text input](../text-input-styled/) with kinds of paragraphs: the caret, the selection, the clipboard and the undo history are a text input's own, and a selection runs over paragraphs of any kind. A copy keeps the formatting: the clipboard of the system is given the selection as Markdown where it has marks or a paragraph that is not body text (the plain text where it has neither), so another app or another lurq process pastes the Markdown, and an input of the same app the plain text while the clipboard still holds what was written. A paste of Markdown, or of a text that reads as it (a line with a block mark, or a mark Markdown reads), comes with its marks and kinds as one undo step; any other text, and anything pasted into a block of code, is plain text in the style at the caret.
 - A tool works on the selection: a mark over the selected words, or over what is typed next where nothing is selected; a list, a quote or a style over every paragraph the selection touches, and a second press of a list or a quote makes them paragraphs again. The bar shows what the selection is: a mark's tool is on while all of the selection has it, the style control says what its paragraphs are. A press of a tool leaves the focus in the text.
 - The style control makes a paragraph body text, a heading of a level from 1 to 3, or a line of a block of code. The link tool opens a panel at the selection with a field for the target: Enter or Apply links the selection, an empty target or Remove link takes the link away, Escape changes nothing, and the focus goes back to the text.
@@ -3116,8 +3340,9 @@ RichTextEditor::controlled(document.clone(), move |changed| store.set(changed.cl
 - Markdown shortcuts: `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three backticks at the start of a paragraph make it what they say and are taken away; `**bold**`, `*italic*`, `_italic_`, `` `code` `` and `~~struck~~` become the mark as their last character is typed.
 - Parts: `RichTextEditorPart::Root`, `Toolbar` (laid over a [toolbar](#toolbar)'s root), `Tool`, `ToolOn` and `ToolIcon` (over its buttons and toggles, and a toggle that is on), `Style`, `StyleChevron` and `StyleList` (over a [select](#select)'s trigger, chevron and panel), `Content` (the box: its padding, the type of body text, and its gap, the room between two paragraphs), `Placeholder`, `Heading1`, `Heading2`, `Heading3` (levels 4 to 6 are drawn as the third), `Bullet` and `BulletMark`, `Ordered` and `OrderedMark`, `Quote` and `QuoteMark`, `CodeBlock`, `Footer`, `FooterText`, `LinkPanel` (over a [popover](#popover)'s panel). A paragraph's part gives its type over the content's, its start padding is the room before its text, and a mark's part its width, its gap to the text and its color. States: `RichTextEditorState::Focused`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`.
 - In the design the box is 560 wide in `Background` with an edge of 1 in `Border` and the large radius. The bar is 40 high on `Muted` over a line of 1, padded 6, its tools 28 square with the small radius and icons of 15, 2 apart, one that is on filled with `Background` (the board's `accent` is the bar's own fill, and would not show); the style control is 28 high and as wide as the name it shows (padded 10 before it and 6 after its chevron of 12, 6 from the name), its text 12, and its list as wide as its longest style with the check beside it. The box is padded 18 across and 16 down, its text the body's 14 in rows of 18, its paragraphs 10 apart. A heading of the second level is 22 semibold in rows of 26 (the first 28 bold in rows of 34, the third 18 semibold in rows of 22). An item's text starts 21 in after a dot of 5 in `MutedForeground`; a numbered item's 24 in, 6 after its number; a quote's 14 in, in `MutedForeground`, after a bar of 3 in `Border`; a block of code is the mono family at 13 in rows of 21 on `Muted`, 12 in. A row is as high as its kind says, whatever the font's own line is. The footer is 28 high over a line of 1, padded 12, its texts the mono family at 11 in `MutedForeground`; the count is of the runs of what is not white space. An empty editor draws its placeholder in the kind of its first paragraph, after its mark.
+- The board draws no picture in a document, only the tool: how one stands in its row, the veil of a selected one and its size are lurq's, and it has no handles, no caption and no bar of its own.
 - In a room narrower than its bar the tools that do not fit go into the menu of a More button at the bar's end, as a toolbar's do; the style control stays.
-- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`.
+- To what reads the tree it is a `group` called by its label, with a `toolbar` of named tools and a `textbox` that is `a11y_multiline`, in which each picture is an `img` called by its label.
 - Built without `mount` (converted into an element) it is the still form of itself: the document as it is drawn, with nothing kept between two renders. A [field](#field) the app mounts (`Field::new("Notes", editor).mount(ctx)`) mounts it, calls it by its label, judges it and disables it.
 - A renderer that draws another editor has `view.bar()` (the toolbar, to add to), `view.toolbar` (it built), `view.content()`, `view.footer()`, `view.link_panel()`, `view.root()`, `view.paragraph_styles()` and `view.format`, what the selection is.
 
@@ -5283,6 +5508,7 @@ ColumnView::controlled(app.path(), items, |path| app.go(path));
 | `controlled(path, items, on_change)` | The path held by the app, which is told `on_change(&[T])` and shows what it gives back |
 | `on_change(handler)` | Told the whole new path after a press or a key changes it, after the signal is set; not for the path chosen already, nor when the app sets it |
 | `on_activate(handler)` | Told of the item a double press or Enter activates: open the file |
+| `press_activates(bool)`, `activate_branches(bool)`, `open_on_hover(bool)` | For a menu of columns, a [cascader](#cascader)'s: a single press activates the item it chooses; an item that holds others is not activated, and Enter goes into it as Right does (`activate_branches(false)`); the pointer on an item that holds others chooses it, opening its column |
 | `label(&str)`, `loading_label(&str)` | What the view is called to what reads the tree, and the spinner of a column whose items are on their way, "Loading" |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's, and each column has it with `-column-` and its place; `force` draws the item Tab stops on so |
 | `mount(ctx)` | In place of converting it: the view keeps where its columns are scrolled to, starts at the end of its path and brings the last column into sight as the path grows |
@@ -6717,6 +6943,7 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 | `multiple(values, options)` | Bound to a `Signal<Vec<T>>`: the options of its values are chosen, and choosing one adds it or takes it out |
 | `controlled(value, options, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same three, held by the app: a `T`, an `Option<T>` or the values, chosen as it says; `on_change` is told what a press or a key would choose, and the listbox shows what the app answers with |
 | `follow_focus(bool)` | Of one, whether the arrows choose as they move. They do unless told otherwise; without it Space, Enter and a press choose |
+| `checkboxes(bool)` | Of many, a checkbox before each option's label, ticked while it is chosen, in place of the check at its end and the highlight: a press checks one or unchecks it and keeps the rest, a press with Shift and Shift with the keys check a range and keep what else is checked. A [transfer](#transfer)'s lists are these |
 | `on_change(handler)` | Told the new choice after each press or key that changes it, after the signal is set, and not for what is already chosen nor when the app sets the signal: `&T` of a listbox made with `new` or `controlled`, `&Option<T>` of an optional one, `&[T]`, the whole set, of a multiple one. A handler of another type does not compile. A second handler is called after the first |
 | `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
 | `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
@@ -6729,9 +6956,9 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 - The keys are the engine's: the options are a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`, `pages` and without `wrap`; one of one `activate`s, one of many `shift_extends`. The range and the toggle are `ui::selection`'s, which the [tree view](#tree-view) shares.
 - Mounted with `mount(ctx)`, the options are in the engine's virtual list and the group steps over every option, built or not (`FocusRows`): the keys, the page keys and typeahead go to any option, the list builds it and the focus goes to it, and the choice follows as it does where every option is built; Shift with the keys and Ctrl+A choose over every option. The list opens at the chosen option. Each option is drawn with `ListboxOption::render`, its group's label over it; a theme's renderer of the whole listbox is not used there, its rules are.
 - To what reads the tree it is a `listbox` (`a11y_multiselectable` of many) called by its label, with `option`s that say `a11y_selected`, `a11y_posinset` and `a11y_setsize`; a group's label is a `group`.
-- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
+- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Checkboxes`, `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
 - In the design the box is 220 on `Background` with an edge of 1 in `Border` and the large radius, its options 1 apart, 4 in. An option is 32 high (24, 40 and 44 at the compact, comfortable and touch densities), and 16 higher with a detail under its label (48; 40, 56 and 60), 8 in, with the small radius, its label in the body's type at 13. The chosen one is on `Highlight`, its label at 500, with a check of 14 at its end; the one under the pointer is on `Muted`; one held down has the `StatePressed` veil; the focus from the keyboard is a ring of 2 in `Ring` inside it; a disabled one says its label in `MutedForeground`, faded, is drawn as nothing points at it or presses it whatever the listbox is forced to, and says `a11y_disabled` to tooling. A group's label is 11 at 600 in `MutedForeground`, 6 over it, 4 under it, 8 in.
-- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
+- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.checkbox()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
 
 ## Data List
 
@@ -7517,6 +7744,7 @@ Picture::from_resource("images/lake.jpg")
 | `on_click(handler)` | A press of the picture as a whole |
 | `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
 | `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
+| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's where the theme is at `Density::Touch`, an app for a finger, unless told |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
@@ -7566,6 +7794,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
 | `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
 | `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
+| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox over a window narrower than the theme's `Sm` is unless told. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
 | `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
 | `wrap(bool)` | Whether the first picture comes after the last |
 | `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
@@ -7696,6 +7925,103 @@ Carousel::new(cards)
   called by its label, the dots a `tablist` of `tab`s.
 - A renderer that draws another carousel has `view.previous()`, `view.next()`, `view.viewport()` (the slides, with
   what turns them) and `view.dots()`.
+
+## QR Code
+
+A text an app gives, drawn as a code a phone's camera reads: an address to open, a code to pair a device, a ticket.
+
+```rust
+use lurq::ui::{QrCode, QrLevel};
+
+QrCode::new("https://lurq.dev/pair?code=7F3K-92QD").label("Pair your phone");
+QrCode::new("TICKET-2026-11-16-0042").level(QrLevel::Quartile).length(220.0).quiet_zone(4);
+QrCode::new(address).media(logo);
+```
+
+| Builder | |
+| --- | --- |
+| `QrCode::new(text)` | The code of the text's UTF-8 bytes, in the smallest version (1 to 40) that holds them |
+| `level(QrLevel)` | How much can be lost and the code still read: `Low` (7%), `Medium` (15%, the default), `Quartile` (25%), `High` (30%) |
+| `length(length)` | The side of the card, its padding included: 160 unless the app or a recipe says another |
+| `quiet_zone(modules)` | Modules of light around the code inside the card's padding: none unless the app says |
+| `media(element)` | A logo over the middle, in a well of the light fill; the code is made at `High` |
+| `label(&str)` | What tooling calls it: "QR code" unless the app says what it is for |
+| `locale(&Locale)` | The words it speaks in, what tooling calls it, in place of the app's (`App::set_locale(Locale::for_tag("uk"))`, English where it set none), whose words are `Locale::display`. A `label` told by itself stays |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- It is dark on light in the light look and in the dark one alike, as the design draws it: a phone reads a code dark on light, and not every phone reads it the other way. Its fills are the roles of its recipe read in the theme's light palette (`Theme::palette_color_for(Appearance::Light, role)`): the card `Background`, the modules `Foreground`. Its edge is the window's `Border`.
+- The modules are as large as fit in whole logical pixels, and the code stands in the middle of the room inside the card's padding. The card is drawn with `.snap_to_pixels(true)`, so every module's edge is on a whole device pixel: at 100% and 200% every module is as wide as the next, at 150% a module of 5 is 7 or 8 device pixels, and two modules side by side meet with no seam. A run of dark modules, and the same run in the rows under it, is one box.
+- The encoder is lurq's own, byte mode at every version and level, with the mask that scores best: no dependency, in every build and in the browser. A higher level is taken where it fits in the same version. A text too long for the level asked for is drawn at the highest level that holds it; one no level holds (over 2953 bytes) draws the card empty. `QrMatrix::encode(text, level)` gives the modules themselves, to print or to draw another way.
+- The card's padding of 10 is light, and is the quiet zone a phone needs where the modules are small; a code of large modules, or one that is printed, takes `quiet_zone(2)` to `quiet_zone(4)`.
+- A logo's well is a fifth of the code's side, an odd number of modules across so that it sits on the middle module, or the logo's size with the well's padding where the logo is larger: a logo larger than a fifth of the side may leave a code no phone reads.
+- To tooling it is an image (`img`) called by its label, whose description is the text, also where no code holds the text.
+- Parts: `QrCodePart::Root` (the card), `Module` (a dark module), `Media` (the logo's well). State: `QrCodeState::Media`.
+- In the design the card has an edge of 1 inside it in `Border`, `radius-lg` corners and 10 of padding, white, with modules of near black. The board draws eleven modules of 7, a picture of a code: a code of a real text has 21 or more, so the card is 160 by default. The board draws no logo, no loading and no expired code.
+
+## Watermark
+
+A text, or a picture, repeated across what it covers, turned and faint, over the content: who a shared screen is shown to, a draft, a confidential report.
+
+```rust
+use lurq::ui::Watermark;
+
+Watermark::new("lurq internal").child(card);
+Watermark::new("ivan@lurq.dev · 16 Nov 2026").child(page);
+Watermark::new("Draft").angle(-35.0).gap(16.0, 24.0).child(page);
+Watermark::new("lurq").media(logo).child(report);
+```
+
+| Builder | |
+| --- | --- |
+| `Watermark::new(text)` | The marks of a text |
+| `child(element)`, `children(elements)` | What it covers; the watermark is as large as that |
+| `media(element)` | A picture repeated in place of the text, turned and faint as the text would be |
+| `gap(x, y)` | The room between one mark's box and the next, across and down, before they are turned: 27 and 29 |
+| `angle(degrees)` | Clockwise where more than nothing: -20, rising to the right |
+| `offset(x, y)` | Where the first mark's box is from the top left: -20 and 18 |
+| `stagger(x)` | How much further along every other row is: 40 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The marks take nothing from the content: their layer is hit by no pointer, so the content is pressed, selected and scrolled through them, and it says `a11y_hidden`, so tooling reads the content and not the marks (see [the MCP page](../mcp/)). The layer's id is the watermark's with `-layer` after it.
+- The mark is in the tree once; the engine paints it again across the layer ([`.repeat(Repeat)`](../layout/#repeat)), only where it can be seen. Over a page of any length in a scroll a watermark costs the marks in view, scrolling builds nothing again, and what is laid out again is the mark when its text or look changes, and the layer when the size of what it covers does.
+- A mark's glyphs are drawn at its angle (`TextTransformMode::Rasterized`), so it is sharp at every scale. Its color is `Foreground` at 0.12: dark on the light look, light on the dark one.
+- Parts: `WatermarkPart::Root` (what holds the content and the layer), `Layer`, `Mark` (its type, color and faintness). State: `WatermarkState::Media`. The board's numbers are `WATERMARK_GAP`, `WATERMARK_ANGLE`, `WATERMARK_OFFSET` and `WATERMARK_STAGGER`.
+- In the design the marks are "lurq internal" in the sans of 12, medium, in `foreground` at 0.12, turned 20 degrees counter-clockwise, 96 apart along a row and 44 from row to row, every other row 40 further along, over a card of 220 by 120 with an edge and `radius-lg` corners. The card is the content it covers, not the watermark's: a watermark draws no box of its own.
+
+## Action Sheet
+
+On a phone, the actions on something, risen from the bottom of the screen over a scrim, and Cancel under them.
+
+```rust
+use lurq::ui::{ActionSheet, MenuItem};
+
+// open: Signal<bool>. An option does what it does and closes the sheet.
+ActionSheet::new(open.clone(), [
+  MenuItem::new("Save to library").on_select(save),
+  MenuItem::new("Duplicate").on_select(duplicate),
+  MenuItem::new("Delete photo").destructive(true).on_select(delete),
+])
+.title("Photo options");
+```
+
+| Builder | |
+| --- | --- |
+| `new(open, items)`, `item(MenuItem)` | Open while the signal says so, with its options: what an item says, whether it destroys something or is disabled, and what choosing it does. An icon, a shortcut and a submenu of an item are not shown |
+| `title(&str)` | What the sheet is about, over its options |
+| `cancel_label(&str)` | What Cancel says: "Cancel" |
+| `on_dismiss(Fn())` | Told when it is closed with no option: Cancel, a press on the scrim, Escape |
+| `inline(bool)` | The sheet where it is declared, open or not, without the scrim: for a gallery, a screenshot, a test |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Its options are `<id>-option-<n>`, Cancel `<id>-cancel` |
+
+- It rises from the bottom as the scrim fades in, and goes down as it fades out. It takes the focus as it opens and
+  gives it back as it closes; the arrow keys move among the options, and Enter and Space choose.
+- Parts: `ActionSheetPart::Scrim`, `Root`, `Options`, `Title`, `Option`, `Label`, `Cancel`, `CancelLabel`. States:
+  `ActionSheetState::Destructive`, `Disabled`.
+- In the design the options are a card in `Card` with a line of `Border` and the large corners, 8 in from the
+  screen's sides and bottom: the title 13 in `MutedForeground`, 12 over and under; options of 56 with a line over
+  each and their words 17 in the middle, in `Foreground` or `Destructive`; Cancel 8 under them, a card of its own,
+  17 semibold. The scrim is `Scrim`.
+- To what reads the tree it is a `dialog` called by its title, its options and Cancel `button`s.
 
 ## Tab And The Design System's Controls
 

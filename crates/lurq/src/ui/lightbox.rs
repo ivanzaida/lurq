@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use super::{
-  FontFamily, Picture, icons, names,
+  Carousel, FontFamily, Menu, MenuItem, Picture, icons, names,
   part_style::{Length, PartTransition},
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
@@ -13,8 +13,8 @@ use crate::{
   animation::Transition,
   app::{
     component::Component,
-    ctx::Ctx,
-    events::{KeyboardEvent, MouseEvent},
+    ctx::{Ctx, Placement},
+    events::{GesturePhase, KeyboardEvent, MouseEvent, PanEvent},
     theme::{MotionDuration, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, Stack, ZoomScroll, ZoomScrollProps},
@@ -85,6 +85,12 @@ pub enum LightboxPart {
   Filmstrip,
   /// One of them.
   Thumb,
+  /// What stands under the picture on a phone: its caption and the dots.
+  Bottom,
+  /// The row of dots on a phone, one for each picture about the one shown.
+  Pages,
+  /// A dot of that row.
+  Page,
 }
 
 names!(LightboxPart {
@@ -105,6 +111,9 @@ names!(LightboxPart {
   Description => "description",
   Filmstrip => "filmstrip",
   Thumb => "thumb",
+  Bottom => "bottom",
+  Pages => "pages",
+  Page => "page",
 });
 
 /// The states of a lightbox a recipe styles.
@@ -120,6 +129,31 @@ names!(LightboxState {
   Inline => "inline",
   Current => "current",
 });
+
+/// The forms of a lightbox.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum LightboxVariant {
+  /// A panel with a top row of buttons, round buttons over the picture's sides and a strip of small pictures:
+  /// for a pointer and a keyboard.
+  #[default]
+  Desktop,
+  /// The whole screen, black: a top row of a close button, the counter, share and more, the picture, and its
+  /// caption and dots under it. A swipe turns, a pinch and a double tap bring closer, a drag down closes.
+  Phone,
+}
+
+names!(LightboxVariant {
+  Desktop => "desktop",
+  Phone => "phone",
+});
+
+/// How many dots the phone's row shows at most, about the picture shown.
+const PAGES_SHOWN: usize = 9;
+/// How far a drag down takes the picture before letting go closes the lightbox, and how fast a throw down does.
+const DROP_CLOSES: f32 = 120.0;
+const THROW_CLOSES: f32 = 900.0;
+/// How far down the picture is dragged when the black under it is gone to its least.
+const DROP_FADES: f32 = 400.0;
 
 /// What builds a lightbox's nodes: a theme's in place of the default one.
 pub type LightboxRenderer = Arc<dyn Fn(LightboxView) -> Element + Send + Sync>;
@@ -138,6 +172,8 @@ struct Words {
   zoom_out: Arc<str>,
   fit: Arc<str>,
   download: Arc<str>,
+  share: Arc<str>,
+  more: Arc<str>,
 }
 
 impl Default for Words {
@@ -153,6 +189,8 @@ impl Default for Words {
       zoom_out: words.zoom_out.clone(),
       fit: words.fit_to_window.clone(),
       download: locale.common.download.clone(),
+      share: locale.common.share.clone(),
+      more: locale.common.more.clone(),
     }
   }
 }
@@ -197,6 +235,9 @@ pub struct Lightbox {
   counter_text: Option<Arc<dyn Fn(usize, usize) -> String + Send + Sync>>,
   wrap: bool,
   on_download: Vec<Told<usize>>,
+  on_share: Vec<Told<usize>>,
+  menu_items: Vec<MenuItem>,
+  variant: Option<Name>,
   actions: Vec<Element>,
   inline: bool,
   width: Option<Length>,
@@ -230,6 +271,9 @@ impl Lightbox {
       counter_text: None,
       wrap: false,
       on_download: Vec::new(),
+      on_share: Vec::new(),
+      menu_items: Vec::new(),
+      variant: None,
       actions: Vec::new(),
       inline: false,
       width: None,
@@ -332,6 +376,43 @@ impl Lightbox {
   /// Shows the Download button, and is called with the picture shown when it is pressed.
   pub fn on_download(mut self, handler: impl Fn(usize) + Send + Sync + 'static) -> Self {
     self.on_download.push(Arc::new(handler));
+    self
+  }
+
+  /// Shows the Share button on a phone, and is called with the picture shown when it is pressed.
+  pub fn on_share(mut self, handler: impl Fn(usize) + Send + Sync + 'static) -> Self {
+    self.on_share.push(Arc::new(handler));
+    self
+  }
+
+  /// An item of the menu behind More on a phone, after Download. More shows where the menu has an item.
+  pub fn menu_item(mut self, item: MenuItem) -> Self {
+    self.menu_items.push(item);
+    self
+  }
+
+  /// Items of the menu behind More on a phone.
+  pub fn menu_items(mut self, items: impl IntoIterator<Item = MenuItem>) -> Self {
+    self.menu_items.extend(items);
+    self
+  }
+
+  /// The form ([`LightboxVariant`]): the phone's where the window is narrower than the theme's `Sm` and the
+  /// lightbox is over it, unless told.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = Some(variant.into());
+    self
+  }
+
+  /// What Share is called: "Share" unless told.
+  pub fn share_label(mut self, label: &str) -> Self {
+    self.words.share = Arc::from(label);
+    self
+  }
+
+  /// What More is called: "More" unless told.
+  pub fn more_label(mut self, label: &str) -> Self {
+    self.words.more = Arc::from(label);
     self
   }
 
@@ -518,6 +599,13 @@ struct LightboxHost {
   room: Signal<(f32, f32)>,
   /// The picture whose pixels came, by its place.
   came: Signal<Option<usize>>,
+  /// Whether the menu behind More is open, and the button it hangs from.
+  more_open: Signal<bool>,
+  more: ElementRef,
+  /// How far down a finger has dragged the picture, on a phone: what closes it once let go far enough.
+  drop: Signal<f32>,
+  /// Whether the fingers on the stage are a drag down the lightbox took.
+  taken: Arc<std::sync::atomic::AtomicBool>,
   /// Whether it was open at the last render: one that opens again shows its picture fitted.
   was_open: std::sync::atomic::AtomicBool,
   /// The pictures about the one shown brought on ahead, by their places, with the loads held while they are
@@ -548,6 +636,10 @@ impl Component for LightboxHost {
       stage: ElementRef::new(),
       room: ctx.signal((0.0, 0.0)),
       came: ctx.signal(None),
+      more_open: ctx.signal(false),
+      more: ElementRef::new(),
+      drop: ctx.signal(0.0),
+      taken: Arc::default(),
       was_open: std::sync::atomic::AtomicBool::new(false),
       ahead: parking_lot::Mutex::new(Vec::new()),
       ahead_tick,
@@ -577,6 +669,22 @@ impl Component for LightboxHost {
       self.scroll.set_scroll(0.0, 0.0);
     }
     let max = lightbox.zoom_max;
+    let phone = match lightbox.variant {
+      Some(variant) => variant == Name::from(LightboxVariant::Phone),
+      None => {
+        !lightbox.inline
+          && !super::current_breakpoint().is_some_and(|breakpoint| breakpoint >= crate::app::theme::Breakpoint::Sm)
+      }
+    };
+    // Over the whole of a phone's screen it keeps clear of what the system draws over its edges.
+    let safe = match phone && !lightbox.inline {
+      true => {
+        let safe = ctx.safe_area();
+        (safe.top, safe.bottom)
+      }
+      false => (0.0, 0.0),
+    };
+    let drop = self.drop.get();
     let zoom = zoom_signal.get().clamp(1.0, max);
     let room = self.room.get();
 
@@ -650,7 +758,8 @@ impl Component for LightboxHost {
       let props = ZoomScrollProps::new(room.0, room.1)
         .range(1.0, max)
         .wheel_zoom(ZOOM_STEP)
-        .drag_pan(true)
+        // On a phone a drag of the fitted picture is the slides': it pans only once it is closer.
+        .drag_pan(!phone || zoom > 1.0)
         // It pans by a drag and by the arrows: the board draws no bars over the picture's black.
         .scrollbars(false)
         .zoom(zoom_signal.clone())
@@ -660,7 +769,14 @@ impl Component for LightboxHost {
 
     let case = |current: bool| {
       Case {
-        variant: None,
+        variant: Some(
+          if phone {
+            LightboxVariant::Phone
+          } else {
+            LightboxVariant::Desktop
+          }
+          .into(),
+        ),
         size: None,
         density: None,
         breakpoint: super::current_breakpoint(),
@@ -679,6 +795,14 @@ impl Component for LightboxHost {
       turn,
       stage: self.stage.clone(),
       shift,
+      phone,
+      safe,
+      room,
+      drop,
+      dropped: self.drop.clone(),
+      taken: self.taken.clone(),
+      more_open: self.more_open.clone(),
+      more: self.more.clone(),
       lightbox,
     };
     match theme.renderer::<Lightbox>() {
@@ -769,6 +893,18 @@ pub struct LightboxView {
   turn: Told<usize>,
   stage: ElementRef,
   shift: Arc<dyn Fn(f32, f32) + Send + Sync>,
+  /// Whether it is the phone's form.
+  pub phone: bool,
+  /// How far in from the top and the bottom of the screen what the system draws ends, on a phone.
+  safe: (f32, f32),
+  /// The stage's size, once it is laid out.
+  room: (f32, f32),
+  /// How far down a finger has dragged the picture, and where that is kept.
+  drop: f32,
+  dropped: Signal<f32>,
+  taken: Arc<std::sync::atomic::AtomicBool>,
+  more_open: Signal<bool>,
+  more: ElementRef,
   lightbox: Lightbox,
 }
 
@@ -839,6 +975,29 @@ impl LightboxView {
     button.into()
   }
 
+  /// What the counter says, where it shows: which picture is shown, counted from 1, of how many.
+  pub fn counter(&self) -> Option<Element> {
+    let lightbox = &self.lightbox;
+    let count = self.count();
+    if !lightbox.counter.unwrap_or(count > 1) {
+      return None;
+    }
+    let part = self.part(LightboxPart::Counter);
+    Some(
+      match &lightbox.counter_text {
+        Some(text) => Row::new().child(part.text(&text(self.index + 1, count)).nowrap().part(&part)),
+        None => Row::new()
+          .spacing(4.0)
+          .child(part.text(&(self.index + 1).to_string()).nowrap().part(&part))
+          .child({
+            let total = self.part(LightboxPart::Total);
+            total.text(&format!("/ {count}")).nowrap().part(&total)
+          }),
+      }
+      .into(),
+    )
+  }
+
   /// The row along the top: the counter, and the buttons that bring the picture closer and further, fit it,
   /// download it and close the lightbox.
   pub fn top(&self) -> Element {
@@ -850,23 +1009,12 @@ impl LightboxView {
       .align_items(Alignment::Center);
     // How wide the counter is, about: its letters are of one width.
     let mut said = 0.0;
-    if lightbox.counter.unwrap_or(count > 1) {
-      let part = self.part(LightboxPart::Counter);
+    if let Some(counter) = self.counter() {
       let letters = match &lightbox.counter_text {
         Some(text) => text(self.index + 1, count).chars().count(),
         None => format!("{} / {count}", self.index + 1).chars().count(),
       };
       said = letters as f32 * COUNTER_LETTER + CONTROL_GAP;
-      let counter = match &lightbox.counter_text {
-        Some(text) => Row::new().child(part.text(&text(self.index + 1, count)).nowrap().part(&part)),
-        None => Row::new()
-          .spacing(4.0)
-          .child(part.text(&(self.index + 1).to_string()).nowrap().part(&part))
-          .child({
-            let total = self.part(LightboxPart::Total);
-            total.text(&format!("/ {count}")).nowrap().part(&total)
-          }),
-      };
       top = top.child(counter);
     }
     top = top.child(Row::new().flex(1.0));
@@ -1084,6 +1232,202 @@ impl LightboxView {
     Some(strip.into())
   }
 
+  /// The phone's top row: Close at its start, the counter in its middle, Share and More at its end.
+  pub fn phone_top(&self) -> Element {
+    let lightbox = &self.lightbox;
+    let full = Dimension::Pct(100.0);
+    // Its two ends share what the counter leaves alike: the counter is in the middle of the row.
+    let mut start = Row::new().flex(1.0).min_width(0.0).align_items(Alignment::Center);
+    if lightbox.close_button {
+      let close = self.dismisser();
+      start = start.child(self.control(icons::CLOSE, &lightbox.words.close, "close", Arc::new(close)));
+    }
+    let mut end = Row::new()
+      .flex(1.0)
+      .min_width(0.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::End)
+      .with_children(lightbox.actions.iter().cloned());
+    if !lightbox.on_share.is_empty() {
+      let (handlers, index) = (lightbox.on_share.clone(), self.index);
+      let share: Action = Arc::new(move || handlers.iter().for_each(|handler| handler(index)));
+      end = end.child(self.control(icons::SHARE, &lightbox.words.share, "share", share));
+    }
+    let mut items = Vec::new();
+    if !lightbox.on_download.is_empty() {
+      let (handlers, index) = (lightbox.on_download.clone(), self.index);
+      items.push(
+        MenuItem::new(&lightbox.words.download)
+          .icon(icons::DOWNLOAD)
+          .on_select(move || handlers.iter().for_each(|handler| handler(index))),
+      );
+    }
+    items.extend(lightbox.menu_items.iter().cloned());
+    let mut menu = None;
+    if !items.is_empty() {
+      let open = self.more_open.clone();
+      let press: Action = Arc::new(move || open.set(!open.get_untracked()));
+      end = end.child(Row::new().ref_element(self.more.clone()).child(self.control(
+        icons::MORE_HORIZONTAL,
+        &lightbox.words.more,
+        "more",
+        press,
+      )));
+      menu = Some(
+        Menu::new(self.more_open.clone(), self.more.clone())
+          .label(&lightbox.words.more)
+          .placement(Placement::BottomEnd)
+          .items(items)
+          .build(self.theme()),
+      );
+    }
+    let top = Row::new()
+      .part(&self.part(LightboxPart::Top))
+      .width(full)
+      .align_items(Alignment::Center)
+      .child(start)
+      .with_children(self.counter())
+      .child(end);
+    match menu {
+      Some(menu) => Column::new().width(full).child(top).child(menu).into(),
+      None => top.into(),
+    }
+  }
+
+  /// The phone's stage: the pictures side by side, which a finger swipes from one to the next, the one shown
+  /// in what brings it closer. A drag down carries it, and let go far enough closes the lightbox.
+  pub fn phone_stage(&mut self) -> Element {
+    let full = Dimension::Pct(100.0);
+    let (width, height) = self.room;
+    let count = self.count();
+    let mut shown = self.shown.take();
+    let content: Element = if width > 0.0 && height > 0.0 && count > 1 {
+      // The pictures beside the one shown are there to be swiped to; the others are empty pages.
+      let pages = (0..count).map(|at| {
+        let page = Stack::new().size(width, height).stack_align(StackAlignment::Center);
+        if at == self.index {
+          page.with_children(shown.take())
+        } else if at + 1 == self.index || at == self.index + 1 {
+          page.child(self.lightbox.pictures[at].clone().in_viewer().key(format!("page-{at}")))
+        } else {
+          page
+        }
+      });
+      let turn = self.turn.clone();
+      let mut pages = Carousel::new(pages)
+        .gap(0.0)
+        .arrows(false)
+        .dots(false)
+        .index_controlled(self.index, move |to| turn(to))
+        .label(&self.lightbox.words.label)
+        .key("pages");
+      if let Some(id) = self.id("pages") {
+        pages = pages.id(id);
+      }
+      pages.into()
+    } else {
+      Stack::new().size(full, full).with_children(shown).into()
+    };
+    let name = self
+      .lightbox
+      .pictures
+      .get(self.index)
+      .and_then(Picture::label_of)
+      .unwrap_or_else(|| Arc::from(format!("{} / {count}", self.index + 1)));
+    let (dropped, close, fitted) = (self.dropped.clone(), self.dismisser(), !self.zoomed());
+    // Kept by the lightbox: the drag renders it again at every step, and its end goes to the handler of the last.
+    let taken = self.taken.clone();
+    let mut room = Stack::new()
+      .part(&self.part(LightboxPart::Stage))
+      .width(full)
+      .flex(1.0)
+      .clip()
+      .tab_index(0)
+      .describe("a11y_role", "group")
+      .describe("a11y_name", name)
+      .ref_element(self.stage.clone())
+      .on_pan(move |event: PanEvent| {
+        use std::sync::atomic::Ordering;
+        match event.phase {
+          // A fitted picture dragged down more than across is the lightbox's to close; any other drag is
+          // the slides' or the picture's.
+          GesturePhase::Start => {
+            let down = event.translation_y > 0.0 && event.translation_y.abs() > event.translation_x.abs();
+            if fitted && down && event.fingers == 1 {
+              event.prevent_default();
+              taken.store(true, Ordering::Relaxed);
+              dropped.set(event.translation_y);
+            }
+          }
+          GesturePhase::Change if taken.load(Ordering::Relaxed) => dropped.set(event.translation_y.max(0.0)),
+          GesturePhase::End if taken.swap(false, Ordering::Relaxed) => {
+            dropped.set(0.0);
+            if event.translation_y > DROP_CLOSES || event.velocity_y > THROW_CLOSES {
+              close();
+            }
+          }
+          _ => {}
+        }
+      })
+      .child(Stack::new().size(full, full).offset(0.0, self.drop).child(content));
+    if let Some(id) = self.id("stage") {
+      room = room.id(id);
+    }
+    let mut room: Element = room.into();
+    if !self.lightbox.inline {
+      NodeUpdate::autofocus(&mut *room.node, true);
+    }
+    room
+  }
+
+  /// What stands under the picture on a phone: its title and description, and a dot for each picture about
+  /// the one shown.
+  pub fn phone_bottom(&self) -> Element {
+    let full = Dimension::Pct(100.0);
+    let mut bottom = Column::new()
+      .part(&self.part(LightboxPart::Bottom))
+      .width(full)
+      .align_items(Alignment::Center);
+    let (title, description) = match self.lightbox.pictures.get(self.index) {
+      Some(picture) => picture.caption_of(),
+      None => (None, None),
+    };
+    if title.is_some() || description.is_some() {
+      let mut caption = Column::new().part(&self.part(LightboxPart::Caption)).width(full);
+      for (part, text) in [(LightboxPart::Title, title), (LightboxPart::Description, description)] {
+        if let Some(text) = text {
+          let part = self.part(part);
+          caption = caption.child(part.text(&text).width(full).part(&part));
+        }
+      }
+      bottom = bottom.child(caption);
+    }
+    let count = self.count();
+    if count > 1 {
+      // As many as fit the row's purpose, about the one shown: a hundred pictures are not a hundred dots.
+      let shown = count.min(PAGES_SHOWN);
+      let first = self.index.saturating_sub(shown / 2).min(count - shown);
+      let mut pages = Row::new()
+        .part(&self.part(LightboxPart::Pages))
+        .align_items(Alignment::Center);
+      for at in first..first + shown {
+        let recipe = if at == self.index { &self.current } else { &self.recipe };
+        let mut page = Row::new().part(&recipe.part(LightboxPart::Page));
+        if let Some(id) = self.id(&format!("page-{at}")) {
+          page = page.id(id);
+        }
+        pages = pages.child(page);
+      }
+      bottom = bottom.child(pages);
+    }
+    // Under it, what the system draws over the screen's lower edge.
+    Column::new()
+      .width(full)
+      .padding_bottom(self.safe.1)
+      .child(bottom)
+      .into()
+  }
+
   /// The lightbox itself: its top row, its stage and its strip, with its keys.
   pub fn panel(&mut self) -> Element {
     let lightbox = &self.lightbox;
@@ -1157,6 +1501,31 @@ impl LightboxView {
     }
     if let (Some(key), true) = (&lightbox.key, lightbox.inline) {
       panel = panel.key(key.clone());
+    }
+    if self.phone {
+      if self.drop > 0.0 {
+        // The black goes as the picture is dragged down: what is under it shows through.
+        let black = match self.part(LightboxPart::Root).rest().background.clone() {
+          Some(crate::node::BackgroundColor::Color(color)) => color,
+          _ => Color::new(0, 0, 0, 255),
+        };
+        let left = 1.0 - (self.drop / DROP_FADES).min(0.7);
+        panel = panel.background(Color::new(
+          black.r(),
+          black.g(),
+          black.b(),
+          (black.a() as f32 * left) as u8,
+        ));
+      }
+      let top = self.phone_top();
+      let stage = self.phone_stage();
+      let bottom = self.phone_bottom();
+      return panel
+        .padding_top(self.safe.0)
+        .child(top)
+        .child(stage)
+        .child(bottom)
+        .into();
     }
     let top = self.top();
     let stage = self.stage();
@@ -1320,5 +1689,32 @@ impl Themed for Lightbox {
       .hovered(Thumb, |s| s.opacity(1.0))
       .focus_visible(Thumb, |s| s.outline(Outline::new(2.0, white)))
       .state(Current, Thumb, |s| s.opacity(1.0).border(Border::inside(2.0, white)))
+      // The phone's viewer (`pencil/lurq-design-system.pen`, Mobile/Picture/Viewer): black, the whole screen. A
+      // top row of 44, 4 in at its ends, of buttons of 44 with glyphs of 24, the counter in its middle. Under the
+      // picture its caption, 16 in and 16 over the dots, a title of 15 medium and a line of 13 at 60% white;
+      // dots of 8, 8 apart, at 35% white and the one shown white, and 8 under them.
+      .variant(LightboxVariant::Phone, Root, |s| s.background(Color::new(0, 0, 0, 255)).radius(0.0))
+      .when(
+        Selector::new().variant(LightboxVariant::Phone).state(Inline),
+        Root,
+        |s| s.radius(0.0),
+      )
+      .variant(LightboxVariant::Phone, Top, |s| {
+        s.height(44.0).padding_top(0.0).padding_bottom(0.0).padding_start(4.0).padding_end(4.0).gap(0.0)
+      })
+      .variant(LightboxVariant::Phone, Control, |s| s.square(44.0).radius(RadiusSize::Full))
+      .variant(LightboxVariant::Phone, ControlIcon, |s| s.square(24.0))
+      .variant(LightboxVariant::Phone, Caption, |s| {
+        s.background(Color::new(0, 0, 0, 0))
+          .padding_top(0.0)
+          .padding_bottom(16.0)
+          .padding_x(16.0)
+          .gap(2.0)
+      })
+      .variant(LightboxVariant::Phone, Title, |s| s.font_size(15.0))
+      .base(Bottom, |s| s.padding_bottom(8.0))
+      .base(Pages, |s| s.gap(8.0))
+      .base(Page, |s| s.square(8.0).radius(RadiusSize::Full).background(Color::new(255, 255, 255, 0x59)))
+      .state(Current, Page, |s| s.background(white))
   }
 }

@@ -6,8 +6,10 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
 mod action_bar;
+mod action_sheet;
 mod ai_label;
 mod alert;
+mod angle_slider;
 mod area_chart;
 mod audio_player;
 mod audio_queue;
@@ -25,6 +27,7 @@ mod calendar;
 mod callout;
 mod card;
 mod carousel;
+mod cascader;
 mod checkbox;
 mod checkbox_card;
 mod code_block;
@@ -99,6 +102,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod qr_code;
 mod radar_chart;
 mod radio;
 mod radio_card;
@@ -114,6 +118,7 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
+mod signature_pad;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -144,10 +149,12 @@ mod token_input;
 mod tokens;
 mod toolbar;
 mod tooltip;
+mod transfer;
 mod tree_select;
 mod tree_view;
 mod video_player;
 mod waveform;
+mod watermark;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -608,6 +615,38 @@ pub const PAGES: &[Page] = &[
     about: "tree select treeselect cascader hierarchy nested options folder file category dropdown combobox panel branches leaves path new optional multiple controlled controlled_optional controlled_multiple on_change open branches branches_controlled on_branch_change leaves_only path separator_text max_shown placeholder size clearable clear_label empty_text invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<tree_select::TreeSelectPage>(()),
+  },
+  Page {
+    path: "/cascader",
+    name: "Cascader",
+    icon: Some("columns"),
+    about: "cascader cascade cascading select columns miller hierarchy nested tree path region country city place category menu submenu new optional controlled controlled_optional on_change leaves_only any level open_on_hover hover on_load lazy open path separator_text placeholder size clearable clear_label empty_text loading_label invalid warning valid read_only disabled full_width label panel_label placement offset collision inline on_open_change on_dismiss mount TreeItem fluid field",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<cascader::CascaderPage>(()),
+  },
+  Page {
+    path: "/transfer",
+    name: "Transfer",
+    icon: Some("arrow-left-right"),
+    about: "transfer dual list shuttle two lists move left right source target available selected chosen checkbox check all select all range shift features columns members new controlled on_change checked checked_controlled on_checked_change source_title target_title count_text select_all_label add_label remove_label empty_text label disabled density style rules mount virtual long narrow stacked",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<transfer::TransferPage>(()),
+  },
+  Page {
+    path: "/signature-pad",
+    name: "Signature Pad",
+    icon: Some("pencil"),
+    about: "signature pad sign signed draw ink pen stylus finger touch stroke strokes pressure undo clear consent delivery picture image png to_image Signature SignatureStroke SignaturePoint new controlled on_change placeholder read_only disabled invalid full_width width height label undo_label clear_label signed_text empty_text mount canvas",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<signature_pad::SignaturePadPage>(()),
+  },
+  Page {
+    path: "/angle-slider",
+    name: "Angle Slider",
+    icon: Some("rotate-left"),
+    about: "angle slider dial knob rotation degrees direction compass turn wrap round drag press keys step page_step min max new controlled on_change on_change_end value_text label disabled slider",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<angle_slider::AngleSliderPage>(()),
   },
   Page {
     path: "/tooltip",
@@ -1229,6 +1268,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<carousel::CarouselPage>(()),
   },
   Page {
+    path: "/action-sheet",
+    name: "Action Sheet",
+    icon: Some("list"),
+    about: "action sheet actions phone mobile long press options cancel scrim bottom destructive menu ActionSheet new item title cancel_label on_dismiss inline",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<action_sheet::ActionSheetPage>(()),
+  },
+  Page {
     path: "/video-player",
     name: "Video Player",
     icon: Some("play-circle"),
@@ -1411,6 +1458,22 @@ pub const PAGES: &[Page] = &[
     about: "audio queue playlist up next tracks rows list current now playing equalizer number artwork length more unavailable arrows keyboard AudioQueue AudioQueueItem on_change on_more",
     group: Group::Media,
     mount: |ctx| ctx.mount::<audio_queue::AudioQueuePage>(()),
+  },
+  Page {
+    path: "/qr-code",
+    name: "QR Code",
+    icon: Some("qr-code"),
+    about: "qr code qrcode barcode scan camera phone pair link address ticket wifi level error correction low medium quartile high quiet zone length module logo media label text QrCode QrLevel QrMatrix",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<qr_code::QrCodePage>(()),
+  },
+  Page {
+    path: "/watermark",
+    name: "Watermark",
+    icon: Some("stamp"),
+    about: "watermark stamp confidential draft internal shared screen mark repeated pattern faint turned angle rotate gap offset stagger opacity media picture logo over content tooling Watermark Repeat",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<watermark::WatermarkPage>(()),
   },
 ];
 
