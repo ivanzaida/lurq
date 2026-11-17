@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- a comment
+   over lines -->
+<body class="page" data-x=1 hidden>
+  <p>Fish &amp; chips &#169;</p>
+  <a href="/a"
+     title='two
+lines'>link</a>
+  <br/>
+</body>

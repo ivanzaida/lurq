@@ -33,8 +33,13 @@ pub(crate) struct TextInputState {
   layout_subscribers: Arc<crate::core::layout_dirty::LayoutSubscribers>,
 }
 
+/// What gives an input's tokens for each value it holds: see `TextInput::tokens_with`.
+pub(crate) type TokenSource = Arc<dyn Fn(&str) -> crate::components::InputTokens + Send + Sync>;
+
 struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
+  /// What gives the tokens of a value the tokens above are not of.
+  token_source: Option<TokenSource>,
   token_layout: Option<Arc<crate::layout::layout_engine::input_token_layout::TokenLayout>>,
   token_affinity: Option<TokenAffinity>,
   /// The token the pointer is on, where its style has a look for it.
@@ -140,6 +145,7 @@ impl TextInputState {
       value,
       inner: Arc::new(Mutex::new(TextInputInner {
         tokens: None,
+        token_source: None,
         token_layout: None,
         token_affinity: None,
         hovered_token: None,

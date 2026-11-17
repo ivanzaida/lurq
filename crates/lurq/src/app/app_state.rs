@@ -297,6 +297,31 @@ impl App {
     self.shared.locale.get()
   }
 
+  /// Registers `highlighter` for `language`: the code of that language is colored by it in every code block, Markdown
+  /// document, inline code and code field, and what shows it now is drawn again. A language that has one, lurq's own
+  /// included, has this one in its place under each of its names. Any `Fn(&str) -> Vec<CodeToken>` is a highlighter,
+  /// and so is a [`CodeLanguage`](crate::code::CodeLanguage) table; see [`crate::code`].
+  ///
+  /// ```
+  /// use lurq::{app::App, code::{CodeLanguage, token}};
+  ///
+  /// let app = App::new();
+  /// app.register_highlighter("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
+  /// ```
+  pub fn register_highlighter(&self, language: &str, highlighter: impl Into<crate::code::CodeHighlighter>) {
+    crate::code::register_highlighter(language, highlighter);
+  }
+
+  /// As [`Self::register_highlighter`], with other names of the language: `("sql", &["psql"], ..)`.
+  pub fn register_highlighter_with_aliases(
+    &self,
+    language: &str,
+    aliases: &[&str],
+    highlighter: impl Into<crate::code::CodeHighlighter>,
+  ) {
+    crate::code::register_highlighter_with_aliases(language, aliases, highlighter);
+  }
+
   /// How every calendar and date picker of the app writes and reads dates, and names its months, its days and its
   /// controls, where the component is given no `.locale(..)` of its own: a
   /// [`DateLocale`](crate::core::DateLocale) (`DateLocale::for_tag("uk")`, or one with a style or a format of the

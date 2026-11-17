@@ -545,6 +545,16 @@ impl PartStyle {
     self
   }
 
+  /// Its text in the bold weight.
+  pub fn bold(self) -> Self {
+    self.weight(FontWeight::Bold)
+  }
+
+  /// Its text leaning.
+  pub fn italic(self) -> Self {
+    self.font_style(FontStyle::Italic)
+  }
+
   pub fn line_height(mut self, line_height: f32) -> Self {
     self.text.line_height = Some(line_height);
     self

@@ -1,0 +1,9 @@
+-- Notes by their count.
+SELECT n.title, COUNT(*) AS total
+FROM notes n
+LEFT JOIN tags t ON t.note_id = n.id
+WHERE n.title LIKE 'it''s%' AND n.created > $1 /* recent */
+  AND t.name IS NOT NULL
+GROUP BY n.title
+CREATE TABLE "my notes" (id INTEGER PRIMARY KEY, body text);
+select case when x then 1 else 2.5 end from t;

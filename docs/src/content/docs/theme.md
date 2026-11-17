@@ -819,6 +819,42 @@ app.theme().set_caret(
 
 The caret is centered in its line. Among the rows of a multiline input it is never higher than its row; in a single-line input it may be higher than the line, up to the box the text is in: 18 in an `Input` whose text of 14 has a line of 16.8. Its color is not the theme's caret's: it is the text's, or the input's `caret_color`. `ThemeCaret::default()` and `ThemeCaret::new(mode)` are the design's caret and `ThemeCaret::legacy()` the one lurq 0.62 drew. `theme.set_caret_mode(mode)` changes the mode alone and keeps the size the theme has.
 
+## Code
+
+`theme.code_scheme()` is how code is colored, in every code block, Markdown fence, `InlineCode` given a language and code field: a `CodeScheme`, a `CodeStyle` (a color, a weight, whether it leans) for each name of a token. A name it has nothing for is looked up dropping its tail (`keyword.control.rust`, then `keyword.control`, then `keyword`), each of the three from the most particular name that says it; a name none says is in the code's own color. What names a token is the highlighter of its language ([Highlighting code](../resources-media/#highlighting-code)).
+
+```rust
+use lurq::{
+  app::{theme::{CodeScheme, CodeStyle, PaletteColor}, window::Appearance},
+  node::color::Color,
+};
+
+let theme = app.theme();
+// One name, in every appearance: a role follows the appearance by itself.
+theme.set_code_color("keyword.control", PaletteColor::Destructive);
+// One name, in one appearance.
+theme.set_code_color_for(Appearance::Dark, "string", Color::from_hex("#a3e635"));
+// A style of more than a color.
+theme.set_code_style("comment", CodeStyle::new().foreground(PaletteColor::MutedForeground).italic());
+// A whole scheme, or one for each appearance.
+theme.set_code_scheme(CodeScheme::lurq().color("function", PaletteColor::Chart4));
+theme.set_code_schemes(light_scheme, dark_scheme);
+```
+
+| Name | `CodeScheme::lurq()`, the design's theme and `legacy()` | `bare()` |
+| --- | --- | --- |
+| `keyword`, `type`, `namespace`, `tag`, `property`, `variable.builtin`, `constant.language` | `Info` | the code's color |
+| `string`, `regex` | `Success` | |
+| `number`, `constant`, `attribute` | `Warning` | |
+| `comment`, `operator`, `punctuation` | `MutedForeground` | |
+| `markup.heading` | `Info`, bold | |
+| `markup.code`, `markup.link`, `markup.list` | `Success`, `Info`, `Warning` | |
+| `markup.quote` | `MutedForeground`, leaning | |
+| `markup.bold`, `markup.italic` | bold, leaning | |
+| `function`, `variable`, `label`, and any other | the code's color | |
+
+The roles are those the code block had before the scheme, so a theme left alone draws code as it did. `ThemeDefinition::code` and `code_dark` hold the schemes as one value, `code_dark` `None` for the same in both appearances; `CodeScheme::new()` is a scheme with nothing in it, every token in the code's color. A block styles a name over the theme's (`CodeBlock::token_style`) or has a scheme of its own (`CodeBlock::code_scheme`); a theme's rules for the code block style a token by a part of its name too.
+
 ## Scrollbar
 
 `theme.scrollbar()` is the default style for scroll components. Set it once to make scrollbars consistent across the app:

@@ -32,7 +32,12 @@ dropped). When a decision is replaced, the old entry stays and says what replace
      shows one as an example of plugging a tokenizer in.
 - **With it.** A cache of tokens by code, language and tokenizer; a long block draws the lines in view; `InlineCode`
   takes a language; the editable text's tokens use the same highlighter and colors.
-- **State.** Decided; to be built in a session of its own.
+- **State.** Built on `claude/code-highlight-ef7166` (2026-11-17), to be merged: `lurq::code` (`CodeToken` with a
+  dotted name, `Highlighter`, `CodeHighlighter`, the registry and its cache, `CodeLanguage` and the scanner, thirteen
+  languages), `CodeScheme` and `CodeStyle` in the theme, `CodeBlock::highlighter`, `token_style` and `code_scheme`, a
+  long block windowed past 400 lines, `InlineCode::language`, `TextInput::tokens_with` and `code_language`, and the
+  gallery's `syntect` adapter (`crates/gallery/src/syntect_code.rs`). A long block with no greatest height is laid out
+  whole (it has no room of its own to window).
 
 ### Link Preview works from the link alone; every field overrides
 

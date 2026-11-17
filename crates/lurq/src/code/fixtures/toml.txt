@@ -1,0 +1,17 @@
+# A manifest.
+[package]
+name = "notes"
+version = "0.1.0"
+"quoted key" = 'literal \n'
+site.url = """
+many
+lines"""
+
+[[bin]]
+path = 'src/main.rs'
+debug = true
+size = 1_024
+when = 1979-05-27T07:32:00Z
+
+[dependencies]
+lurq = { version = "0.62", features = ["winit", "wgpu"] }

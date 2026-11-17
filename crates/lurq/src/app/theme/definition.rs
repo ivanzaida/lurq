@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[cfg(feature = "form")]
 use super::FormTheme;
 use super::{
-  Density, ThemeBlurs, ThemeBorderSizes, ThemeBreakpoints, ThemeCaret, ThemeControlSizes, ThemeDensities,
+  CodeScheme, Density, ThemeBlurs, ThemeBorderSizes, ThemeBreakpoints, ThemeCaret, ThemeControlSizes, ThemeDensities,
   ThemeDurations, ThemeEasings, ThemeFocusRing, ThemeIconSizes, ThemeIcons, ThemeInner, ThemeOpacities, ThemePalette,
   ThemeRadii, ThemeShadows, ThemeSpacing, ThemeTypography,
 };
@@ -63,6 +63,11 @@ pub struct ThemeDefinition {
   pub focus_ring: ThemeFocusRing,
   /// What each name of an icon is drawn with.
   pub icons: ThemeIcons,
+  /// The colors of code ([`CodeScheme::lurq`] unless told), and of every appearance when there is no dark one.
+  pub code: CodeScheme,
+  /// The colors of code in the dark appearance. `None` for the same as [`Self::code`]: lurq's are roles of the
+  /// palette, which follow the appearance by themselves.
+  pub code_dark: Option<CodeScheme>,
   /// What the theme says about components: recipes in place of the design's,
   /// rules laid over them, renderers.
   pub ui: crate::ui::UiDefinition,
@@ -130,6 +135,8 @@ impl ThemeDefinition {
       blurs: ThemeBlurs::default(),
       focus_ring: ThemeFocusRing::default(),
       icons: ThemeIcons::lurq(),
+      code: CodeScheme::lurq(),
+      code_dark: None,
       ui: crate::ui::UiDefinition::new(),
       #[cfg(feature = "markdown")]
       markdown: ThemeMarkdown::default(),
@@ -166,8 +173,9 @@ impl ThemeDefinition {
   pub fn bare() -> Self {
     Self {
       ui: crate::ui::UiDefinition::bare(),
-      // What lurq draws itself is as plain as the components: the caret of 0.62.
+      // What lurq draws itself is as plain as the components: the caret of 0.62, code in one color.
       caret: ThemeCaret::legacy(),
+      code: CodeScheme::new(),
       ..Self::neutral()
     }
   }
@@ -214,6 +222,10 @@ impl ThemeInner {
     self.blurs = definition.blurs;
     self.focus_ring = definition.focus_ring;
     self.icons = definition.icons;
+    self.code = super::code::ThemeCode {
+      light: Arc::new(definition.code),
+      dark: definition.code_dark.map(Arc::new),
+    };
     self.ui = definition.ui;
     #[cfg(feature = "markdown")]
     {
@@ -253,6 +265,8 @@ impl ThemeInner {
       blurs: self.blurs.clone(),
       focus_ring: self.focus_ring.clone(),
       icons: self.icons.clone(),
+      code: (*self.code.light).clone(),
+      code_dark: self.code.dark.as_deref().cloned(),
       ui: self.ui.clone(),
       #[cfg(feature = "markdown")]
       markdown: self.markdown.clone(),

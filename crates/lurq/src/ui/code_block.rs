@@ -1,9 +1,14 @@
 //! A block of code: its lines in the family of code, colored by what each word is, under a bar with its name and a
 //! button that copies it.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+  ops::Range,
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use super::{
+  code_tokens::{TokenStyles, code_tokens},
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   scroll_area::{ScrollArea, ScrollAreaOrientation, ScrollAreaPart},
@@ -15,15 +20,15 @@ use crate::{
     component::Component,
     ctx::{Ctx, Timeout},
     events::{MouseEvent, TextInputEvent},
-    theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    theme::{BorderSize, CodeScheme, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Window,
   },
-  code::{CodeTokenKind, tokens},
-  components::{Column, InputToken, InputTokenStyle, InputTokens, LineGutter, Row, TextInput},
+  code::{CodeHighlighter, CodeToken},
+  components::{Column, LineGutter, Row, TextInput},
   core::Signal,
   layout::{
     Alignment,
-    layout_kind::Justify,
+    layout_kind::{Justify, ScrollState},
     quad::RichTextSpan,
     text_style::{TextAlign, TextStyle},
   },
@@ -57,18 +62,6 @@ pub enum CodeBlockPart {
   LineNumber,
   /// The band behind a line that is picked out.
   Marked,
-  /// The words of the language: `fn`, `let`.
-  Keyword,
-  /// Strings.
-  String,
-  /// Numbers.
-  Number,
-  /// Comments.
-  Comment,
-  /// The names of types, traits and modules: `App`, `lurq::`.
-  Type,
-  /// Brackets, operators and the other marks between names.
-  Punctuation,
 }
 
 names!(CodeBlockPart {
@@ -81,13 +74,20 @@ names!(CodeBlockPart {
   Code => "code",
   LineNumber => "line_number",
   Marked => "marked",
-  Keyword => "keyword",
-  String => "string",
-  Number => "number",
-  Comment => "comment",
-  Type => "type",
-  Punctuation => "punctuation",
 });
+
+/// The names of the block's own parts, which are no token's.
+const OWN_PARTS: &[&str] = &[
+  "root",
+  "header",
+  "title",
+  "copy",
+  "copy_icon",
+  "body",
+  "code",
+  "line_number",
+  "marked",
+];
 
 /// The states of a code block a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -118,6 +118,13 @@ pub type CodeBlockRenderer = Arc<dyn Fn(CodeBlockView) -> Element + Send + Sync>
 /// How long the copy button shows that it copied, mounted.
 pub const CODE_BLOCK_COPIED_FOR: Duration = Duration::from_secs(2);
 
+/// How many lines a block of a greatest height may have and still lay all of them out: one of more lays out and
+/// paints the lines in view, and a few screens of them around.
+pub const CODE_BLOCK_WINDOWED_LINES: usize = 400;
+
+/// How many lines a windowed block takes at a time.
+const CHUNK: usize = 64;
+
 /// What hears the code copied.
 type CopyHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -134,14 +141,25 @@ type CopyHandler = Arc<dyn Fn(&str) + Send + Sync>;
 ///   .on_copy(|code| println!("copied {} bytes", code.len()));
 /// ```
 ///
-/// Its code is in the family of code, each word in the color of what it is where the block knows the language
-/// ([`crate::code`]: Rust), on one line each that scrolls sideways (or wraps, with [`wrap`](Self::wrap)). Its bar
-/// names it (its title, or its language) and copies it whole. A person selects its text with the pointer, across its
-/// lines. To what reads the tree it is `code` with its language, called by its label, its title or its language.
+/// Its code is in the family of code, each word in the color of what it is: the highlighter registered for its
+/// language tells its tokens apart ([`crate::code`]: lurq's own for Rust, TOML, JSON, JavaScript and TypeScript,
+/// shells, Python, CSS, HTML and XML, YAML, SQL and Markdown, or the app's), or the block's own
+/// ([`highlighter`](Self::highlighter)); each token is in the style the recipe gives a part of its name
+/// ([`token_style`](Self::token_style)) or the theme's code colors give it (`Theme::set_code_color`), dropping the
+/// tail of a name neither has. Its lines are one line each that scrolls sideways (or wraps, with
+/// [`wrap`](Self::wrap)). Its bar names it (its title, or its language) and copies it whole. A person selects its
+/// text with the pointer, across its lines. To what reads the tree it is `code` with its language, called by its
+/// label, its title or its language.
+///
+/// A block of a greatest height with more than [`CODE_BLOCK_WINDOWED_LINES`] lines lays out and paints the lines
+/// in view and a few screens of them around, whatever its length; its tokens are kept, so a render that changes
+/// nothing of its code does not tokenize it again. Such a block is a component, which `.child(block)` mounts.
 #[derive(Clone)]
 pub struct CodeBlock {
   code: Arc<str>,
   language: Option<Arc<str>>,
+  highlighter: Option<CodeHighlighter>,
+  scheme: Option<Arc<CodeScheme>>,
   title: Option<Arc<str>>,
   label: Option<Arc<str>>,
   line_numbers: bool,
@@ -175,6 +193,8 @@ impl CodeBlock {
     Self {
       code: Arc::from(code.strip_suffix('\n').unwrap_or(code)),
       language: None,
+      highlighter: None,
+      scheme: None,
       title: None,
       label: None,
       line_numbers: false,
@@ -199,10 +219,69 @@ impl CodeBlock {
     }
   }
 
-  /// The language of the code (`rust`, `toml`): what colors its words, where the block knows it, what the bar
-  /// shows where the block has no title, and what tooling is told.
+  /// The language of the code (`rust`, `toml`): whose highlighter colors its words (`code::register_highlighter`
+  /// gives a language one), what the bar shows where the block has no title, and what tooling is told. A language
+  /// with no highlighter is plain text.
   pub fn language(mut self, language: &str) -> Self {
     self.language = Some(Arc::from(language));
+    self
+  }
+
+  /// Tells the tokens of this block's code apart with `highlighter`, in place of its language's. Made once and
+  /// cloned into each render, what it gave is kept and not asked again.
+  ///
+  /// ```
+  /// use lurq::{code::{CodeHighlighter, CodeToken, token}, ui::CodeBlock};
+  ///
+  /// // Every line that starts with `>` is a prompt.
+  /// let prompts = CodeHighlighter::new(|code: &str| {
+  ///   let mut at = 0;
+  ///   let mut found = Vec::new();
+  ///   for line in code.split('\n') {
+  ///     if line.starts_with('>') {
+  ///       found.push(CodeToken::new(at..at + 1, token::KEYWORD));
+  ///     }
+  ///     at += line.len() + 1;
+  ///   }
+  ///   found
+  /// });
+  /// let session = CodeBlock::new("> help\nusage: ...").highlighter(prompts.clone());
+  /// ```
+  pub fn highlighter(mut self, highlighter: impl Into<CodeHighlighter>) -> Self {
+    self.highlighter = Some(highlighter.into());
+    self
+  }
+
+  /// Styles the tokens named `name` (`"keyword"`, `"string.escape"`, `"function.macro"`) over the theme's code
+  /// colors: a part of that name in the block's recipe. A token with no style of its own name takes its less
+  /// particular name's (`keyword.control.rust`, `keyword.control`, `keyword`).
+  ///
+  /// ```
+  /// use lurq::{app::theme::PaletteColor, ui::CodeBlock};
+  ///
+  /// let block = CodeBlock::new("fn main() {} // the start")
+  ///   .language("rust")
+  ///   .token_style("comment", |s| s.foreground(PaletteColor::Success).italic())
+  ///   .token_style("keyword", |s| s.bold());
+  /// ```
+  pub fn token_style(self, name: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.style(name, style)
+  }
+
+  /// Draws its tokens in the colors of `scheme` in place of the theme's: a block that looks apart from the rest of
+  /// the app's code, as a terminal's. [`token_style`](Self::token_style) styles a name over it.
+  ///
+  /// ```
+  /// use lurq::{app::theme::{CodeScheme, CodeStyle}, node::color::Color, ui::CodeBlock};
+  ///
+  /// let ember = CodeScheme::new()
+  ///   .color("keyword", Color::from_hex("#f97316"))
+  ///   .color("string", Color::from_hex("#84cc16"))
+  ///   .style("comment", CodeStyle::new().foreground(Color::from_hex("#a8a29e")).italic());
+  /// let block = CodeBlock::new("fn main() {} // the start").language("rust").code_scheme(ember);
+  /// ```
+  pub fn code_scheme(mut self, scheme: CodeScheme) -> Self {
+    self.scheme = Some(Arc::new(scheme));
     self
   }
 
@@ -351,18 +430,27 @@ impl CodeBlock {
   }
 
   /// Mounted where it is declared: the copy button shows a check, named [`copied_text`](Self::copied_text), for
-  /// [`CODE_BLOCK_COPIED_FOR`] after it copied.
+  /// [`CODE_BLOCK_COPIED_FOR`] after it copied, and a long block follows its scrolling with the lines in view.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     ctx.mount::<CodeBlockHost>(CodeBlockProps(Arc::new(self)))
   }
 
-  /// Builds the still form in `theme`: it copies, and does not show that it did. Converting it into an element does
-  /// this in the theme of what is being rendered.
+  /// Builds the still form in `theme`: it copies, and does not show that it did; a long block of a greatest height
+  /// shows its first lines alone and does not follow its scrolling. Converting it into an element does this in the
+  /// theme of what is being rendered, and mounts a long block of a greatest height as [`mount`](Self::mount) does.
   pub fn build(self, theme: &Theme) -> Element {
     self.build_with(theme, None)
   }
 
-  fn build_with(self, theme: &Theme, copied: Option<Copied>) -> Element {
+  /// Whether it lays out the lines in view alone: it has a greatest height, and more lines than
+  /// [`CODE_BLOCK_WINDOWED_LINES`].
+  fn windowed(&self) -> bool {
+    matches!(self.max_height, Some(Length::Px(_)))
+      && self.code.bytes().filter(|byte| *byte == b'\n').count() >= CODE_BLOCK_WINDOWED_LINES
+  }
+
+  fn build_with(self, theme: &Theme, host: Option<&CodeBlockHost>) -> Element {
+    let copied = host.map(|host| host.copied.clone());
     let has_header = self
       .header
       .unwrap_or(self.copy_button || self.title.is_some() || self.language.is_some());
@@ -377,9 +465,21 @@ impl CodeBlock {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
+    let tokens = code_tokens(&self.code, self.language.as_deref(), self.highlighter.as_ref());
+    let window = self.windowed().then(|| CodeWindow {
+      lines: host
+        .and_then(|host| host.window.get())
+        .map(|(start, end, _)| start..end),
+      scroll: host.map(|host| host.scroll.clone()),
+      geometry: host.map(|host| host.geometry.clone()),
+    });
     let view = CodeBlockView {
       code: self.code,
       language: self.language,
+      highlighter: self.highlighter,
+      scheme: self.scheme,
+      tokens,
+      lines_window: window,
       title: self.title,
       label: self.label,
       line_numbers: self.line_numbers,
@@ -413,7 +513,57 @@ impl CodeBlock {
 
 impl From<CodeBlock> for Element {
   fn from(block: CodeBlock) -> Self {
+    if block.windowed() {
+      let key = block.key.clone();
+      let props = CodeBlockProps(Arc::new(block));
+      return match key {
+        Some(key) => Element::component_keyed::<CodeBlockHost>(key, props),
+        None => Element::component::<CodeBlockHost>(props),
+      };
+    }
     block.build(&current_theme())
+  }
+}
+
+/// What a windowed block keeps: the lines it lays out, how it scrolls, and how its lines stand.
+struct CodeWindow {
+  /// The lines laid out, where a layout has said which are in view.
+  lines: Option<Range<usize>>,
+  scroll: Option<ScrollState>,
+  geometry: Option<Arc<Mutex<Option<Geometry>>>>,
+}
+
+/// How a windowed block's lines stand in the room it scrolls: what its host reads after a layout to find the lines in
+/// view.
+#[derive(Clone, Debug, PartialEq)]
+struct Geometry {
+  /// The room above the first line.
+  top: f32,
+  /// How high a row of a line is.
+  pitch: f32,
+  /// The rows of the lines before each line, and of them all at the end: a line that wraps takes more than one.
+  rows_before: Arc<[u32]>,
+  /// Whether its lines wrap, and take rows by the width of the room.
+  wraps: bool,
+}
+
+impl Geometry {
+  /// The lines to lay out for a room `height` high scrolled `scrolled` down: those in view, and a chunk more on each
+  /// side, by whole chunks.
+  fn window(&self, scrolled: f32, height: f32) -> Range<usize> {
+    let lines = self.rows_before.len().saturating_sub(1);
+    let line_at = |y: f32| {
+      let row = ((y - self.top) / self.pitch.max(1.0)).max(0.0) as u32;
+      self
+        .rows_before
+        .partition_point(|before| *before <= row)
+        .saturating_sub(1)
+    };
+    let first = line_at(scrolled);
+    let last = line_at(scrolled + height.max(self.pitch));
+    let start = (first / CHUNK).saturating_sub(1) * CHUNK;
+    let end = ((last / CHUNK + 2) * CHUNK).min(lines);
+    start.min(end)..end
   }
 }
 
@@ -428,6 +578,13 @@ struct Copied {
 pub struct CodeBlockView {
   pub code: Arc<str>,
   pub language: Option<Arc<str>>,
+  /// The block's own highlighter, where it has one in place of its language's.
+  pub highlighter: Option<CodeHighlighter>,
+  /// The block's own code colors, where it has them in place of the theme's.
+  pub scheme: Option<Arc<CodeScheme>>,
+  /// The tokens of the code, in bytes of it: by its highlighter, or its language's.
+  pub tokens: Arc<[CodeToken]>,
+  lines_window: Option<CodeWindow>,
   pub title: Option<Arc<str>>,
   pub label: Option<Arc<str>>,
   pub line_numbers: bool,
@@ -580,32 +737,14 @@ impl CodeBlockView {
     input.into()
   }
 
-  /// The code's words in the colors of their kinds, as the input draws them: a run of one kind on one line each.
-  fn input_tokens(&self) -> InputTokens {
-    let language = self.language.as_deref().unwrap_or("");
-    let mut runs = Vec::new();
-    for token in tokens(&self.code, language) {
-      let Some(part) = token_part(token.kind) else {
-        continue;
-      };
-      let color = self
-        .part(part)
-        .rest()
-        .foreground
-        .unwrap_or(PaletteColor::Foreground.into());
-      let style = InputTokenStyle::new(color, crate::node::color::Color::new(0, 0, 0, 0));
-      // A token of the input stands on one line: one of many lines is one run a line.
-      let mut at = token.range.start;
-      for piece in self.code[token.range.clone()].split_inclusive('\n') {
-        let text = piece.trim_end_matches('\n');
-        if !text.is_empty() {
-          runs.push(InputToken::new(at..at + text.len(), style.clone()));
-        }
-        at += piece.len();
-      }
-    }
-    InputTokens::new(&self.code, runs)
-      .unwrap_or_else(|_| InputTokens::new(&self.code, Vec::new()).expect("no tokens are always valid"))
+  /// The styles of the code's tokens, as this block draws them.
+  fn token_styles(&self) -> TokenStyles {
+    TokenStyles::new(&self.recipe, OWN_PARTS, self.code_style(), self.scheme.clone())
+  }
+
+  /// The code's tokens in their styles, as the input draws them.
+  fn input_tokens(&self) -> crate::components::InputTokens {
+    self.token_styles().input_tokens(&self.code, &self.tokens)
   }
 
   fn color_of(&self, part: &ResolvedPart, otherwise: PaletteColor) -> crate::node::color::Color {
@@ -616,39 +755,29 @@ impl CodeBlockView {
     }
   }
 
-  /// The code in spans of the colors of its tokens: of `line` alone, or of the whole code.
+  /// `code` in spans of the styles of its tokens: the block's code or a line of it, or any code in the block's
+  /// language.
   pub fn spans(&self, code: &str) -> Vec<RichTextSpan> {
-    let base = self.code_style();
-    let styled = |part: CodeBlockPart| TextStyle {
-      color: self.color_of(&self.part(part), PaletteColor::Foreground),
-      ..base.clone()
+    let tokens = if code == &*self.code {
+      self.tokens.clone()
+    } else {
+      code_tokens(code, self.language.as_deref(), self.highlighter.as_ref())
     };
-    let kinds = [
-      (CodeTokenKind::Keyword, styled(CodeBlockPart::Keyword)),
-      (CodeTokenKind::Type, styled(CodeBlockPart::Type)),
-      (CodeTokenKind::String, styled(CodeBlockPart::String)),
-      (CodeTokenKind::Number, styled(CodeBlockPart::Number)),
-      (CodeTokenKind::Comment, styled(CodeBlockPart::Comment)),
-      (CodeTokenKind::Punctuation, styled(CodeBlockPart::Punctuation)),
-    ];
-    let language = self.language.as_deref().unwrap_or("");
-    let mut spans: Vec<RichTextSpan> = tokens(code, language)
-      .into_iter()
-      .map(|token| RichTextSpan {
-        text: code[token.range].to_owned(),
-        style: kinds
-          .iter()
-          .find(|(kind, _)| *kind == token.kind)
-          .map_or_else(|| base.clone(), |(_, style)| style.clone()),
+    self.token_styles().spans(code, 0..code.len(), &tokens)
+  }
+
+  /// The bytes of each line of the code, without its `\n`.
+  fn line_ranges(&self) -> Vec<Range<usize>> {
+    let mut start = 0;
+    self
+      .code
+      .split('\n')
+      .map(|line| {
+        let range = start..start + line.len();
+        start = range.end + 1;
+        range
       })
-      .collect();
-    if spans.is_empty() {
-      spans.push(RichTextSpan {
-        text: String::new(),
-        style: base,
-      });
-    }
-    spans
+      .collect()
   }
 
   /// What a press of the copy button does: the code on the clipboard, the app told, and the check shown.
@@ -735,17 +864,33 @@ impl CodeBlockView {
   /// The code that does not wrap: one text of all its lines, which a selection runs across, beside a column of
   /// their numbers, over the bands of the lines picked out.
   fn unwrapped(&self) -> Element {
-    let lines = self.lines();
+    let ranges = self.line_ranges();
+    let (_, _, top, bottom) = self.code_padding();
+    self.unwrapped_lines(&self.token_styles(), &ranges, 0..ranges.len(), (top, bottom))
+  }
+
+  /// The lines `lines` that do not wrap, `pads` above and below them.
+  fn unwrapped_lines(
+    &self,
+    styles: &TokenStyles,
+    ranges: &[Range<usize>],
+    lines: Range<usize>,
+    (pad_top, pad_bottom): (f32, f32),
+  ) -> Element {
     let code_part = self.part(CodeBlockPart::Code);
-    let mut code = Node::rich_text(self.spans(&self.code)).text_wrap(false);
+    if lines.is_empty() {
+      return Column::new().into();
+    }
+    let whole = lines.len() == ranges.len();
+    let bytes = ranges[lines.start].start..ranges[lines.end - 1].end;
+    let mut code = Node::rich_text(styles.spans(&self.code, bytes, &self.tokens)).text_wrap(false);
     if self.selectable {
       code = code.selectable(true);
     }
     let mut code = Element::from_node(code);
-    if let Some(id) = &self.id {
+    if whole && let Some(id) = &self.id {
       code = Row::new().id(format!("{id}-code")).child(code).into();
     }
-    let (_, _, pad_top, pad_bottom) = self.code_padding();
     let mut row = Row::new()
       .align_items(Alignment::Start)
       .part(&code_part)
@@ -756,11 +901,15 @@ impl CodeBlockView {
         .align_items(Alignment::End)
         .part(&self.part(CodeBlockPart::LineNumber));
       // One text of the numbers, so that they stand on the code's lines; a picked line's number is in the code's
-      // color.
-      let spans = (0..lines.len())
+      // color. The column is as wide as the block's longest number.
+      if !whole {
+        column = column.min_width(self.numbers_width());
+      }
+      let spans = lines
+        .clone()
         .map(|index| {
           let mut text = self.number(index);
-          if index + 1 < lines.len() {
+          if index + 1 < lines.end {
             text.push('\n');
           }
           RichTextSpan {
@@ -775,7 +924,7 @@ impl CodeBlockView {
       row = row.child(column);
     }
     row = row.child(code);
-    if self.highlighted.is_empty() {
+    if !lines.clone().any(|index| self.is_highlighted(index)) {
       return row.into();
     }
     // The bands behind the lines picked out: hard stops of a gradient down the room the lines are in, which runs
@@ -790,10 +939,11 @@ impl CodeBlockView {
       .unwrap_or(PaletteColor::Highlight.into());
     let clear = crate::node::BackgroundColor::Color(crate::node::color::Color::new(0, 0, 0, 0));
     let mut stops = Vec::new();
-    for index in (0..lines.len()).filter(|index| self.is_highlighted(*index)) {
+    for index in lines.clone().filter(|index| self.is_highlighted(*index)) {
+      let at = index - lines.start;
       let (from, to) = (
-        (top + pitch * index as f32) / height,
-        (top + pitch * (index + 1) as f32) / height,
+        (top + pitch * at as f32) / height,
+        (top + pitch * (at + 1) as f32) / height,
       );
       stops.extend([
         GradientStop::at(clear.clone(), from),
@@ -806,6 +956,16 @@ impl CodeBlockView {
       .flex_full(1.0, 0.0, None)
       .background_gradient(Gradient::linear(180.0, stops))
       .into()
+  }
+
+  /// How wide the column of the numbers is: the longest number in the family of code, whose figures are as wide as
+  /// each other (about six tenths of its size each), and the room after it.
+  fn numbers_width(&self) -> f32 {
+    let lines = self.code.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let digits = self.number(lines.saturating_sub(1)).len() as f32;
+    let number_part = self.part(CodeBlockPart::LineNumber);
+    digits * self.code_style().font_size * 0.6
+      + self.px(number_part.rest().padding_end.or(number_part.rest().padding_x))
   }
 
   /// A spacing of the recipe, in pixels.
@@ -835,22 +995,33 @@ impl CodeBlockView {
 
   /// The code that wraps: a row for each line, its number at its start and its text wrapping beside it.
   fn wrapped(&self) -> Element {
-    let lines = self.lines();
+    let ranges = self.line_ranges();
+    let (_, _, top, bottom) = self.code_padding();
+    let mut column = self.wrapped_lines(&self.token_styles(), &ranges, 0..ranges.len(), (top, bottom));
+    if let Some(id) = &self.id {
+      column = column.id(format!("{id}-code"));
+    }
+    column.into()
+  }
+
+  /// The lines `lines` that wrap, `pads` above and below them.
+  fn wrapped_lines(
+    &self,
+    styles: &TokenStyles,
+    ranges: &[Range<usize>],
+    lines: Range<usize>,
+    (pad_top, pad_bottom): (f32, f32),
+  ) -> Column {
     let code_part = self.part(CodeBlockPart::Code);
     let marked = self.part(CodeBlockPart::Marked);
-    // The column of the numbers is as wide as the longest number in the family of code, whose figures are as wide
-    // as each other: about six tenths of its size each.
-    let digits = self.number(lines.len().saturating_sub(1)).len() as f32;
     let number_part = self.part(CodeBlockPart::LineNumber);
-    let numbers_width = digits * self.code_style().font_size * 0.6
-      + self.px(number_part.rest().padding_end.or(number_part.rest().padding_x));
+    let numbers_width = self.numbers_width();
     // The room's padding across is each line's, so that a picked line's band runs across the block.
     let rest = code_part.rest();
     let (start, end) = (
       self.px(rest.padding_start.or(rest.padding_x)),
       self.px(rest.padding_end.or(rest.padding_x)),
     );
-    let (_, _, pad_top, pad_bottom) = self.code_padding();
     let mut column = Column::new()
       .width(Dimension::Pct(100.0))
       .part(&code_part)
@@ -858,7 +1029,7 @@ impl CodeBlockView {
       .padding_right(0.0)
       .padding_top(pad_top)
       .padding_bottom(pad_bottom);
-    for (index, line) in lines.iter().enumerate() {
+    for index in lines {
       let mut row = Row::new()
         .width(Dimension::Pct(100.0))
         .align_items(Alignment::Start)
@@ -885,7 +1056,7 @@ impl CodeBlockView {
             .child(number),
         );
       }
-      let mut text = Node::rich_text(self.spans(line));
+      let mut text = Node::rich_text(styles.spans(&self.code, ranges[index].clone(), &self.tokens));
       if self.selectable {
         text = text.selectable(true);
       }
@@ -897,18 +1068,97 @@ impl CodeBlockView {
       );
       column = column.child(row);
     }
+    column
+  }
+
+  /// The lines in view of a long block, and a few screens of them around: the rest stands as room above and below
+  /// them, as high as its rows.
+  fn windowed_lines(&self, window: &CodeWindow) -> Element {
+    let ranges = self.line_ranges();
+    let count = ranges.len();
+    let styles = self.token_styles();
+    let pitch = self.line_pitch();
+    let (start, end, top, bottom) = self.code_padding();
+    let advance = self.code_style().font_size * 0.6;
+    let numbers = if self.line_numbers { self.numbers_width() } else { 0.0 };
+    let room = window.scroll.as_ref().map_or(0.0, ScrollState::viewport_width) - start - end - numbers;
+    // A line that wraps takes as many rows as its characters fill at the room's width: the figures of the family of
+    // code are as wide as each other.
+    let chars: Vec<usize> = ranges
+      .iter()
+      .map(|range| self.code[range.clone()].chars().count())
+      .collect();
+    let mut rows_before = Vec::with_capacity(count + 1);
+    let mut rows = 0u32;
+    for chars in &chars {
+      rows_before.push(rows);
+      rows += if self.wrap && room > advance {
+        ((*chars as f32 * advance) / room).ceil().max(1.0) as u32
+      } else {
+        1
+      };
+    }
+    rows_before.push(rows);
+    let geometry = Geometry {
+      top,
+      pitch,
+      rows_before: rows_before.into(),
+      wraps: self.wrap,
+    };
+    let lines = window.lines.clone().unwrap_or_else(|| {
+      let scrolled = window.scroll.as_ref().map_or(0.0, ScrollState::scroll_y);
+      geometry.window(scrolled, self.code_room_height())
+    });
+    let lines = lines.start.min(count)..lines.end.min(count);
+    let above = top + geometry.rows_before[lines.start] as f32 * pitch;
+    let below = (geometry.rows_before[count] - geometry.rows_before[lines.end]) as f32 * pitch + bottom;
+    if let Some(shared) = &window.geometry {
+      *shared.lock().unwrap() = Some(geometry);
+    }
+    let shown: Element = if self.wrap {
+      self.wrapped_lines(&styles, &ranges, lines, (0.0, 0.0)).into()
+    } else {
+      self.unwrapped_lines(&styles, &ranges, lines, (0.0, 0.0))
+    };
+    let mut column = Column::new()
+      .align_items(Alignment::Stretch)
+      .child(Column::new().height(above))
+      .child(shown)
+      .child(Column::new().height(below));
+    column = if self.wrap {
+      column.width(Dimension::Pct(100.0))
+    } else {
+      // As wide as the longest line, which may be out of view: the lines in view do not change the width it scrolls.
+      let longest = chars.iter().copied().max().unwrap_or(0) as f32;
+      column
+        .flex_full(1.0, 0.0, None)
+        .min_width(longest * advance + start + end + numbers)
+    };
     if let Some(id) = &self.id {
       column = column.id(format!("{id}-code"));
     }
     column.into()
   }
 
+  /// How high the room the code scrolls in is at most: the block's greatest height, less its bar.
+  fn code_room_height(&self) -> f32 {
+    let header = match (self.has_header, self.part(CodeBlockPart::Header).rest().height) {
+      (true, Some(Length::Px(height))) => height,
+      _ => 0.0,
+    };
+    match self.max_height {
+      Some(Length::Px(max)) => (max - header).max(0.0),
+      _ => 0.0,
+    }
+  }
+
   /// The room the code scrolls in: sideways where it does not wrap, down past the greatest height.
   pub fn body(&self) -> Element {
-    let content = match (self.selectable, self.wrap) {
-      (true, _) => self.code_input(),
-      (false, true) => self.wrapped(),
-      (false, false) => self.unwrapped(),
+    let content = match (&self.lines_window, self.selectable, self.wrap) {
+      (Some(window), ..) => self.windowed_lines(window),
+      (None, true, _) => self.code_input(),
+      (None, false, true) => self.wrapped(),
+      (None, false, false) => self.unwrapped(),
     };
     let orientation = match (self.wrap, self.max_height.is_some()) {
       (true, _) => ScrollAreaOrientation::Vertical,
@@ -930,8 +1180,11 @@ impl CodeBlockView {
       .fill_width(true)
       .child(content);
     // The code that takes the focus itself is the stop of Tab; text that does not is reached by the area's keys.
-    if !self.selectable {
+    if !self.selectable || self.lines_window.is_some() {
       area = area.label(&self.name());
+    }
+    if let Some(scroll) = self.lines_window.as_ref().and_then(|window| window.scroll.clone()) {
+      area = area.scroll_state(scroll);
     }
     if let Some(Length::Px(max)) = self.max_height {
       area = area.max_height((max - header).max(0.0));
@@ -978,19 +1231,6 @@ impl CodeBlockView {
   }
 }
 
-/// The part whose foreground colors a kind of token, or none for plain code.
-fn token_part(kind: CodeTokenKind) -> Option<CodeBlockPart> {
-  match kind {
-    CodeTokenKind::Plain => None,
-    CodeTokenKind::Keyword => Some(CodeBlockPart::Keyword),
-    CodeTokenKind::Type => Some(CodeBlockPart::Type),
-    CodeTokenKind::String => Some(CodeBlockPart::String),
-    CodeTokenKind::Number => Some(CodeBlockPart::Number),
-    CodeTokenKind::Comment => Some(CodeBlockPart::Comment),
-    CodeTokenKind::Punctuation => Some(CodeBlockPart::Punctuation),
-  }
-}
-
 impl Themed for CodeBlock {
   const NAME: &'static str = "code_block";
   type Renderer = CodeBlockRenderer;
@@ -999,12 +1239,13 @@ impl Themed for CodeBlock {
   /// document): on `Background` in an edge of 1 in `Border` with the large radius; a bar of 36 on `Muted` with a line
   /// of 1 in `Border` under it, padded 14 at its start and 6 at its end, its title 11 in the family of code in
   /// `MutedForeground`, and a ghost button of 28 with a copy glyph of 16; the code 13 in the family of code in
-  /// `Foreground`, padded 14, its lines 4 apart, the words of the language in `Info`.
+  /// `Foreground`, padded 14, its lines 4 apart. Its tokens are in the theme's code colors (`CodeScheme::lurq`: the
+  /// words of the language in `Info`, as the board draws them); a rule for a part named as a token styles it over
+  /// them.
   fn recipe() -> Recipe {
     use CodeBlockPart::*;
     use PaletteColor::{
-      Background, Border as Edge, Foreground, Highlight, HighlightForeground, Info, Muted, MutedForeground, Success,
-      Warning,
+      Background, Border as Edge, Foreground, Highlight, HighlightForeground, Muted, MutedForeground, Success,
     };
     // A line is `row_height` high, 21 unless told: the code's own line of 17 and 4 between two. The room around the
     // lines is 14, less above and below by what a row takes past the code's own line.
@@ -1055,13 +1296,6 @@ impl Themed for CodeBlock {
           .padding_end(16.0)
       })
       .base(Marked, |s| s.background(Highlight))
-      .base(Keyword, |s| s.foreground(Info))
-      .base(String, |s| s.foreground(Success))
-      .base(Number, |s| s.foreground(Warning))
-      .base(Comment, |s| s.foreground(MutedForeground))
-      // Where the board is silent, as the gallery's code had them: names of types in `Info`, marks quiet.
-      .base(Type, |s| s.foreground(Info))
-      .base(Punctuation, |s| s.foreground(MutedForeground))
   }
 }
 
@@ -1079,9 +1313,13 @@ impl PartialEq for CodeBlockProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for CodeBlockProps {}
 
-/// What keeps a mounted block's check for a while after it copied.
+/// What keeps a mounted block's check for a while after it copied, and a long block's lines in view.
 struct CodeBlockHost {
   copied: Copied,
+  /// The lines laid out, once a layout said which are in view, and the width of the room they wrap in.
+  window: Signal<Option<(usize, usize, u32)>>,
+  scroll: ScrollState,
+  geometry: Arc<Mutex<Option<Geometry>>>,
 }
 
 impl Component for CodeBlockHost {
@@ -1095,11 +1333,39 @@ impl Component for CodeBlockHost {
     });
     Self {
       copied: Copied { on, off },
+      window: Signal::new(None),
+      scroll: ScrollState::new(),
+      geometry: Arc::default(),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let block = (*ctx.props::<CodeBlockProps>().0).clone();
-    block.build_with(&current_theme(), Some(self.copied.clone()))
+    if !block.windowed() {
+      *self.geometry.lock().unwrap() = None;
+    }
+    block.build_with(&current_theme(), Some(self))
+  }
+
+  /// A long block takes the lines its room shows now, where they are not the lines it laid out.
+  fn after_layout(&self) {
+    let Some(geometry) = self.geometry.lock().unwrap().clone() else {
+      return;
+    };
+    let height = self.scroll.viewport_height();
+    if height <= 0.0 {
+      return;
+    }
+    let lines = geometry.window(self.scroll.scroll_y(), height);
+    // Wrapped lines take rows by the room's width: a room of another width counts them again.
+    let width = if geometry.wraps {
+      self.scroll.viewport_width().round() as u32
+    } else {
+      0
+    };
+    let lines = Some((lines.start, lines.end, width));
+    if self.window.get_untracked() != lines {
+      self.window.set(lines);
+    }
   }
 }
