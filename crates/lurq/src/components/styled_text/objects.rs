@@ -5,10 +5,7 @@
 use std::{ops::Range, sync::Arc};
 
 use crate::app::component::{DevtoolsFormatter, DevtoolsInspectable};
-
-/// The character that stands for an object in a text: U+FFFC, the object replacement character. One with no
-/// [`InlineObject`] at its byte is a character like any other.
-pub const OBJECT_CHARACTER: char = '\u{FFFC}';
+pub use crate::components::text::OBJECT_CHARACTER;
 
 /// An object in a styled text: the [`OBJECT_CHARACTER`] at the byte `at`, and what it is. The caret goes past it
 /// as past one character; it is selected, deleted, copied and pasted with the words around it, and undo brings

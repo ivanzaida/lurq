@@ -13,7 +13,7 @@ use crate::{
   app::glyph_engine::GlyphEngine,
   components::OBJECT_CHARACTER,
   layout::{Constraints, Size, quad::RichTextSpan},
-  node::{color::Color, node::Node, node_kind::NodeKind},
+  node::{color::Color, node::Node},
 };
 
 /// An object of a paragraph: its span, the child drawn for it, and the child's size.
@@ -31,7 +31,7 @@ pub(crate) fn object_slots(node: &Node, spans: &[RichTextSpan]) -> Vec<(usize, u
     .children()
     .iter()
     .enumerate()
-    .filter(|(_, child)| !matches!(child.node_kind(), NodeKind::InlineLink { .. }))
+    .filter(|(_, child)| !is_link(child))
     .map(|(index, _)| index);
   let mut object = [0u8; 4];
   let object: &str = OBJECT_CHARACTER.encode_utf8(&mut object);
@@ -125,5 +125,18 @@ impl LayoutEngine {
       return None;
     }
     Some((Self::spans_with_objects(glyph_engine, spans, &objects), objects))
+  }
+}
+
+/// Whether `child` is a link of its paragraph, which the paragraph places on its words: no object.
+fn is_link(child: &Node) -> bool {
+  #[cfg(feature = "markdown")]
+  {
+    matches!(child.node_kind(), crate::node::node_kind::NodeKind::InlineLink { .. })
+  }
+  #[cfg(not(feature = "markdown"))]
+  {
+    let _ = child;
+    false
   }
 }

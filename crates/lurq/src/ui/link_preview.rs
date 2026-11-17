@@ -12,12 +12,12 @@ use super::{
 use crate::{
   app::{
     component::Component,
-    ctx::Ctx,
+    ctx::{Ctx, FocusHandle},
     events::MouseEvent,
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{self, Column, Row, Stack, TextOverflow},
-  core::{DisplayWords, Locale, Signal},
+  core::{DisplayWords, ElementRef, Locale, Signal},
   layout::{
     Alignment, StackAlignment,
     layout_kind::Justify,
@@ -245,6 +245,7 @@ pub struct LinkPreview {
   remove_label: Option<Arc<str>>,
   on_open: Vec<OpenHandler>,
   on_remove: Vec<RemoveHandler>,
+  return_focus: Option<ElementRef>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -274,6 +275,7 @@ impl Clone for LinkPreview {
       remove_label: self.remove_label.clone(),
       on_open: self.on_open.clone(),
       on_remove: self.on_remove.clone(),
+      return_focus: self.return_focus.clone(),
       states: self.states.clone(),
       rules: self.rules.clone(),
       forced: self.forced,
@@ -306,6 +308,7 @@ impl LinkPreview {
       remove_label: None,
       on_open: Vec::new(),
       on_remove: Vec::new(),
+      return_focus: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -446,6 +449,14 @@ impl LinkPreview {
     self
   }
 
+  /// Where the focus goes once the close button is pressed and the app has taken the preview out: `element`.
+  /// Without one it goes on to what follows the preview in the order of Tab, or to what comes before it where
+  /// nothing follows, and is never left to nothing.
+  pub fn return_focus(mut self, element: &ElementRef) -> Self {
+    self.return_focus = Some(element.clone());
+    self
+  }
+
   /// Puts the preview in a state the theme's recipe names, or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
@@ -559,8 +570,9 @@ impl LinkPreview {
     };
     let image = pick(&self.image, meta.and_then(|meta| meta.image.as_ref()))
       .filter(|(_, key)| !failed(*key, live.map(|live| &live.failed_image)));
-    let icon = pick(&self.icon, meta.and_then(|meta| meta.icon.as_ref()))
-      .filter(|(_, key)| !failed(*key, live.map(|live| &live.failed_icon)));
+    let page_icon = self.page_icon(meta, live.is_some());
+    let icon =
+      pick(&self.icon, page_icon.as_ref()).filter(|(_, key)| !failed(*key, live.map(|live| &live.failed_icon)));
     let video = self
       .video
       .or_else(|| meta.filter(|meta| meta.video).map(|meta| meta.video_length));
@@ -628,8 +640,10 @@ impl LinkPreview {
       hovered: live.map(|live| live.hovered.clone()),
       failed_image: live.map(|live| live.failed_image.clone()),
       failed_icon: live.map(|live| live.failed_icon.clone()),
+      focus: live.map(|live| live.focus.clone()),
+      return_focus: self.return_focus.clone(),
       image_key: self.image_key(meta),
-      icon_key: self.icon_key(meta),
+      icon_key: self.icon_key(page_icon.as_ref()),
       on_open: self.on_open,
       on_remove: self.on_remove,
       id: self.id,
@@ -647,12 +661,21 @@ impl LinkPreview {
     }
   }
 
-  fn icon_key(&self, meta: Option<&LinkMeta>) -> u64 {
+  /// The site's icon the page gives, or, where a page that was read names none, the icon a site keeps at
+  /// `/favicon.ico`: read through the app's loader as the rest is, and the link mark where it is not there. A
+  /// preview with nothing fetched, and one in no app, asks for none.
+  fn page_icon(&self, meta: Option<&LinkMeta>, in_an_app: bool) -> Option<Arc<str>> {
+    let meta = meta?;
+    if let Some(icon) = &meta.icon {
+      return Some(icon.clone());
+    }
+    in_an_app.then(|| favicon_of(&meta.url)).flatten()
+  }
+
+  fn icon_key(&self, page_icon: Option<&Arc<str>>) -> u64 {
     match &self.icon {
       Given::Is(icon) => icon.picture().1,
-      Given::Fetched => meta
-        .and_then(|meta| meta.icon.as_ref())
-        .map_or(0, |address| Source::resource(address).cache_key()),
+      Given::Fetched => page_icon.map_or(0, |address| Source::resource(address).cache_key()),
       Given::None => 0,
     }
   }
@@ -660,6 +683,16 @@ impl LinkPreview {
 
 impl LinkPreviewVariant {
   const ALL: [Self; 3] = [Self::Card, Self::Compact, Self::Inline];
+}
+
+/// The icon a site keeps where its pages name none: `/favicon.ico` at the origin of `url`, an address on the web.
+fn favicon_of(url: &str) -> Option<Arc<str>> {
+  let (scheme, after) = url.split_once("://")?;
+  if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+    return None;
+  }
+  let host = after.split(['/', '?', '#']).next().filter(|host| !host.is_empty())?;
+  Some(Arc::from(format!("{scheme}://{host}/favicon.ico")))
 }
 
 /// The domain of `url`, as a site is named where nothing names it: its host, without `www.`.
@@ -718,6 +751,8 @@ struct Live {
   failed_image: Signal<Option<u64>>,
   /// The key of an icon that did not load: the link mark stands for it.
   failed_icon: Signal<Option<u64>>,
+  /// What moves the focus once the close button took the preview out.
+  focus: FocusHandle,
 }
 
 /// The component of a preview.
@@ -741,6 +776,7 @@ impl Component for LinkPreviewHost {
         hovered: ctx.signal(false),
         failed_image: ctx.signal(None),
         failed_icon: ctx.signal(None),
+        focus: ctx.focus_handle(),
       },
     }
   }
@@ -797,6 +833,8 @@ pub struct LinkPreviewView {
   hovered: Option<Signal<bool>>,
   failed_image: Option<Signal<Option<u64>>>,
   failed_icon: Option<Signal<Option<u64>>>,
+  focus: Option<FocusHandle>,
+  return_focus: Option<ElementRef>,
   image_key: u64,
   icon_key: u64,
   on_open: Vec<OpenHandler>,
@@ -823,6 +861,17 @@ impl LinkPreviewView {
   /// What the preview is called to tooling: its label, or its title.
   pub fn name(&self) -> Arc<str> {
     self.label.clone().unwrap_or_else(|| self.title.clone())
+  }
+
+  /// What a selection over it copies where it stands in a sentence: `[title](url)`, or the address alone where
+  /// the page told nothing.
+  pub fn copy_text(&self) -> String {
+    if self.empty {
+      self.url.to_string()
+    } else {
+      let title = self.title.replace('[', "\\[").replace(']', "\\]");
+      format!("[{title}]({})", self.url)
+    }
   }
 
   /// What tooling reads of it after its name: the site, the description, and that it is a video.
@@ -1065,6 +1114,7 @@ impl LinkPreviewView {
     let icon = self.part(LinkPreviewPart::CloseIcon);
     let side = icon.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
     let handlers = self.on_remove.clone();
+    let (focus, return_focus) = (self.focus.clone(), self.return_focus.clone());
     let mut close = pressable(&part, self.disabled)
       .align_items(Alignment::Center)
       .describe("a11y_role", "button")
@@ -1075,6 +1125,12 @@ impl LinkPreviewView {
         event.stop_propagation();
         for handler in &handlers {
           handler();
+        }
+        // The preview is on its way out with the focus in it: the focus goes where the app said, or on.
+        match (&focus, &return_focus) {
+          (Some(focus), Some(element)) => focus.focus(element),
+          (Some(focus), None) => focus.focus_onward(),
+          _ => {}
         }
       });
     if let Some(id) = &self.id {
@@ -1093,7 +1149,9 @@ impl LinkPreviewView {
       .stops_inside(true)
       .describe("a11y_role", "link")
       .describe("a11y_name", self.name())
-      .describe("a11y_description", self.tooling_description());
+      .describe("a11y_description", self.tooling_description())
+      // What a selection over it copies, in a sentence: a Markdown link, which lurq's own inputs paste as one.
+      .copy_text(&self.copy_text());
     if !self.disabled {
       let (url, handlers) = (self.url.clone(), self.on_open.clone());
       root = root.on_click(move |_: MouseEvent| {

@@ -10,26 +10,34 @@
 //! multi-span rich text already was, and painted from the top of the laid-out
 //! text, so glyphs and the geometry painted around them agree.
 
-use std::{ops::Range, sync::Arc};
+#[cfg(feature = "markdown")]
+use std::ops::Range;
+use std::sync::Arc;
 
-use super::{LayoutEngine, TextLayoutOutput, transformed_quad_frame};
+#[cfg(feature = "markdown")]
+use super::transformed_quad_frame;
+use super::{LayoutEngine, TextLayoutOutput};
 use crate::{
-  app::{
-    glyph_engine::{GlyphEngine, SpanBox},
-    theme::MarkdownLinkState,
-  },
+  app::glyph_engine::{GlyphEngine, SpanBox},
   layout::{
     Offset, Size,
     layout_result::{ChildLayout, LayoutResult, SubtreeHolds},
-    quad::{ClipRect, Quad, QuadContent, RichTextSpan},
+    quad::RichTextSpan,
     text_style::TextAlign,
   },
+  node::{
+    node::Node,
+    node_kind::{NodeKind, TextOverflow},
+  },
+};
+#[cfg(feature = "markdown")]
+use crate::{
+  app::theme::MarkdownLinkState,
+  layout::quad::{ClipRect, Quad, QuadContent},
   node::{
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     color::Color,
     inline_link::InlineLink,
-    node::Node,
-    node_kind::{NodeKind, TextOverflow},
     transform::Transform2D,
   },
 };
@@ -67,6 +75,7 @@ pub(crate) struct InlineRect {
   pub(crate) height: f32,
 }
 
+#[cfg_attr(not(feature = "markdown"), allow(dead_code))]
 impl InlineRect {
   fn contains(&self, x: f32, y: f32) -> bool {
     x >= self.x && x <= self.x + self.width && y >= self.y && y <= self.y + self.height
@@ -82,6 +91,7 @@ impl InlineRect {
   }
 }
 
+#[cfg(feature = "markdown")]
 /// Where a link lies in its paragraph: one rectangle per laid-out line of its
 /// words and of its target (its words and what follows them).
 pub(crate) struct InlineLinkOutput {
@@ -91,6 +101,7 @@ pub(crate) struct InlineLinkOutput {
   pub(crate) target: Box<[InlineRect]>,
 }
 
+#[cfg(feature = "markdown")]
 impl InlineLinkOutput {
   /// Whether `(x, y)`, relative to the link node's origin, is on the link.
   pub(crate) fn hits(&self, x: f32, y: f32) -> bool {
@@ -110,12 +121,19 @@ impl LayoutEngine {
     let NodeKind::RichText { spans, generated, .. } = node.node_kind() else {
       return;
     };
-    if node.children().is_empty()
+    #[cfg(feature = "markdown")]
+    let nothing = node.children().is_empty()
       && generated.is_empty()
       && !spans
         .iter()
-        .any(|span| span.style.underline.is_some() || span.style.strikethrough.is_some())
-    {
+        .any(|span| span.style.underline.is_some() || span.style.strikethrough.is_some());
+    // Without the feature `markdown` a paragraph has no links: it lays out what it paints around its objects.
+    #[cfg(not(feature = "markdown"))]
+    let nothing = {
+      let _ = generated;
+      node.children().is_empty()
+    };
+    if nothing {
       return;
     }
     let objects = self.object_spans(glyph_engine, node, spans, result.size.width);
@@ -137,7 +155,12 @@ impl LayoutEngine {
           Some(object) => self.object_child_layout(glyph_engine, child, object, &span_boxes, top),
           None => {
             child.layout_cache.mark_placed_by_parent();
-            link_child_layout(child, &span_boxes, top)
+            #[cfg(feature = "markdown")]
+            {
+              link_child_layout(child, &span_boxes, top)
+            }
+            #[cfg(not(feature = "markdown"))]
+            dropped_child()
           }
         }
       })
@@ -236,13 +259,19 @@ impl LayoutEngine {
     spans: &[RichTextSpan],
     result: &LayoutResult,
   ) -> Vec<RichTextSpan> {
-    let palette = self.palette.borrow();
-    let resolved = |color: &Option<crate::node::TextColor>| color.as_ref().and_then(|color| color.resolve(&palette));
     // A paragraph with objects is drawn as it was laid out: each object's span as wide as its element.
+    #[cfg_attr(not(feature = "markdown"), allow(unused_mut))]
     let mut painted = match inline_layout(result).and_then(|inline| inline.spans.as_ref()) {
       Some(laid_out) if laid_out.len() == spans.len() => laid_out.to_vec(),
       _ => spans.to_vec(),
     };
+    #[cfg(not(feature = "markdown"))]
+    let _ = node;
+    #[cfg(feature = "markdown")]
+    let palette = self.palette.borrow();
+    #[cfg(feature = "markdown")]
+    let resolved = |color: &Option<crate::node::TextColor>| color.as_ref().and_then(|color| color.resolve(&palette));
+    #[cfg(feature = "markdown")]
     for (link, state) in link_states(node) {
       for span in painted.get_mut(link.label.clone()).unwrap_or_default() {
         if let Some(color) = resolved(&state.color) {
@@ -261,6 +290,7 @@ impl LayoutEngine {
     painted
   }
 
+  #[cfg(feature = "markdown")]
   /// The fills behind the words of hovered and focused links.
   pub(super) fn push_inline_link_fills(
     &self,
@@ -283,6 +313,7 @@ impl LayoutEngine {
     }
   }
 
+  #[cfg(feature = "markdown")]
   /// The underlines of underlined spans and the lines through struck ones,
   /// drawn in `spans`' painted colors. Lines of neighbouring spans that meet
   /// on a line of text are one: a link's words are several spans (emphasis,
@@ -313,6 +344,7 @@ impl LayoutEngine {
       .collect()
   }
 
+  #[cfg(feature = "markdown")]
   /// The focus rings of links with keyboard focus, around each line of their
   /// words. They take the paragraph's clip, not its box, so they show in full.
   pub(super) fn push_inline_link_rings(
@@ -357,6 +389,7 @@ impl LayoutEngine {
   }
 }
 
+#[cfg(feature = "markdown")]
 /// Joins the lines that meet on a line of text in one color into one.
 fn joined_lines(pieces: impl Iterator<Item = (InlineRect, Color)>) -> Vec<(InlineRect, Color)> {
   let mut lines: Vec<(InlineRect, Color)> = Vec::new();
@@ -376,6 +409,7 @@ fn joined_lines(pieces: impl Iterator<Item = (InlineRect, Color)>) -> Vec<(Inlin
   lines
 }
 
+#[cfg(feature = "markdown")]
 /// Where and how a paragraph paints around its text.
 #[derive(Clone, Copy)]
 pub(super) struct InlinePaint {
@@ -387,6 +421,7 @@ pub(super) struct InlinePaint {
   pub(super) opacity: f32,
 }
 
+#[cfg(feature = "markdown")]
 impl InlinePaint {
   fn rect(self, rect: InlineRect, color: Color, radius: Option<BorderRadius>, border: Option<ResolvedBorders>) -> Quad {
     let (x, y, transform, transform_origin) = transformed_quad_frame(self.x + rect.x, self.y + rect.y, self.transform);
@@ -434,6 +469,7 @@ fn inline_layout(result: &LayoutResult) -> Option<&InlineTextLayout> {
   }
 }
 
+#[cfg(feature = "markdown")]
 fn link_output(child_layout: &ChildLayout) -> Option<&InlineLinkOutput> {
   match child_layout.result.text_layout.as_deref()? {
     TextLayoutOutput::InlineLink(output) => Some(output),
@@ -441,6 +477,7 @@ fn link_output(child_layout: &ChildLayout) -> Option<&InlineLinkOutput> {
   }
 }
 
+#[cfg(feature = "markdown")]
 /// The paragraph's links that are hovered or have keyboard focus, with the
 /// look of that state.
 fn link_states(node: &Node) -> impl Iterator<Item = (&InlineLink, MarkdownLinkState)> {
@@ -452,6 +489,7 @@ fn link_states(node: &Node) -> impl Iterator<Item = (&InlineLink, MarkdownLinkSt
   })
 }
 
+#[cfg(feature = "markdown")]
 fn link_states_with_layouts<'a>(
   node: &'a Node,
   result: &'a LayoutResult,
@@ -469,6 +507,7 @@ fn link_states_with_layouts<'a>(
     })
 }
 
+#[cfg(feature = "markdown")]
 /// The look of `child`'s state, focus over hover where both apply; `None` at
 /// rest.
 fn link_states_of(child: &Node, link: &InlineLink) -> Option<MarkdownLinkState> {
@@ -502,19 +541,7 @@ impl LayoutEngine {
       .find(|span_box| usize::try_from(span_box.span).is_ok_and(|span| span == object.span))
     else {
       child.layout_cache.mark_placed_by_parent();
-      return ChildLayout {
-        offset: Offset::default(),
-        result: Arc::new(LayoutResult {
-          size: Size::default(),
-          children: Vec::new(),
-          text_layout: None,
-          dropped: true,
-          holds: SubtreeHolds::UNKNOWN,
-          generation: 0,
-          sticky_shifts: None,
-          reach: crate::layout::layout_result::Reach::UNKNOWN,
-        }),
-      };
+      return dropped_child();
     };
     ChildLayout {
       offset: Offset {
@@ -526,6 +553,24 @@ impl LayoutEngine {
   }
 }
 
+/// A child the paragraph does not place: it takes no room and is not painted.
+fn dropped_child() -> ChildLayout {
+  ChildLayout {
+    offset: Offset::default(),
+    result: Arc::new(LayoutResult {
+      size: Size::default(),
+      children: Vec::new(),
+      text_layout: None,
+      dropped: true,
+      holds: SubtreeHolds::UNKNOWN,
+      generation: 0,
+      sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
+    }),
+  }
+}
+
+#[cfg(feature = "markdown")]
 fn link_child_layout(child: &Node, span_boxes: &[SpanBox], top: f32) -> ChildLayout {
   let output = match child.node_kind() {
     NodeKind::InlineLink { link } => InlineLinkOutput {
@@ -564,6 +609,7 @@ fn link_child_layout(child: &Node, span_boxes: &[SpanBox], top: f32) -> ChildLay
   }
 }
 
+#[cfg(feature = "markdown")]
 /// One rectangle per laid-out line covering the boxes of `spans`, shifted
 /// down by `top`.
 fn line_rects(span_boxes: &[SpanBox], spans: &Range<usize>, top: f32) -> Box<[InlineRect]> {

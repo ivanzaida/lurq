@@ -498,7 +498,6 @@ impl RichTextSpan {
   /// [`OBJECT_CHARACTER`](crate::components::OBJECT_CHARACTER) in `style`, which the element the paragraph is
   /// given for it ([`Text::object`](crate::components::Text::object)) stands on. The style is the line's: the
   /// element keeps the line's height.
-  #[cfg(feature = "markdown")]
   pub fn object(style: TextStyle) -> Self {
     Self::new(crate::components::OBJECT_CHARACTER, style)
   }

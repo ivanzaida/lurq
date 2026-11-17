@@ -228,3 +228,14 @@ fn an_element_that_changes_its_size_lays_its_line_out_again() {
   let red = rects.iter().find(|rect| rect.color == RED).expect("the object").clone();
   close(red.width, 50.0, "grown");
 }
+
+#[test]
+fn a_highlight_past_an_object_is_on_the_words_it_covers() {
+  use lurq::components::TextHighlight;
+  // " aa" after the object: its "aa" is bytes 3 + 3 + 1 to the end, drawn from 12.5 + 30 + 2.5.
+  let text = sentence(Rect::new(30.0, 8.0).background(RED)).highlights(vec![TextHighlight::new(7..9, GREEN)]);
+  let mut scene = Scene::new(text, 400.0);
+  let mark = scene.the_box(GREEN);
+  close(mark.x, 45.0, "the highlight starts where its words are drawn");
+  close(mark.width, 10.0, "and is as wide as they are");
+}

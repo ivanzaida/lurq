@@ -66,7 +66,6 @@ mod sticky;
 mod text_centering;
 mod text_decorations;
 mod text_layout_cache;
-#[cfg(feature = "markdown")]
 mod text_objects;
 mod text_paint_wrap;
 mod theme_typography;

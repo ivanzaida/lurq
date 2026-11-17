@@ -8,6 +8,11 @@ use crate::{
 
 impl_into_node!(Text);
 
+/// The character that stands for an object in a text: U+FFFC, the object replacement character. In a rich text it
+/// is where an element stands in the line ([`Text::object`]); in a styled input, where an `InlineObject` is
+/// (feature `markdown`). One with nothing for it is a character like any other.
+pub const OBJECT_CHARACTER: char = '\u{FFFC}';
+
 impl Text {
   pub fn new(content: &str) -> Self {
     Self::from_node(crate::node::Node::text(content))
@@ -64,9 +69,6 @@ impl Text {
   /// ])
   /// .object(Column::new().width(120.0).height(20.0));
   /// ```
-  ///
-  /// It needs the feature `markdown`, which the input's objects need too.
-  #[cfg(feature = "markdown")]
   pub fn object(mut self, element: impl Into<crate::node::Element>) -> Self {
     let element = element.into();
     self.update_node(|node| {
@@ -80,7 +82,6 @@ impl Text {
   }
 
   /// The elements of the paragraph's objects, in the order of the text: [`Text::object`] for each.
-  #[cfg(feature = "markdown")]
   pub fn objects(mut self, elements: impl IntoIterator<Item = impl Into<crate::node::Element>>) -> Self {
     for element in elements {
       self = self.object(element);

@@ -487,6 +487,22 @@ window.inject_inputs(SyntheticInput::text("hello"));
 entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations. A wheel scroll is a notch of a mouse's wheel and is
 [animated](../styling-events/#the-mouse-wheel) as one: the content is where it was sent some frames later.
 
+## Moving The Focus From A Handler
+
+```rust
+let focus = ctx.focus_handle();
+Button::new("Remove").on_click(move |_| {
+  draft.remove(chip);
+  focus.focus_onward();
+});
+```
+
+`ctx.focus_handle()` is a `FocusHandle` a component keeps and gives its handlers, which have no `Ctx`.
+`focus(&element)` is `ctx.focus`. `focus_onward()` moves the focus on as Tab would, from where it is, or from where it
+was where what had it left the tree, and to the stop before where nothing follows: what a control that takes itself
+out (a chip, the close of a preview in a draft) asks, so that the focus is never left to nothing. Either is carried out
+once the render that follows it is reconciled.
+
 ## Opening An Address
 
 ```rust

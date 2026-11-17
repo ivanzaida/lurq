@@ -1179,7 +1179,6 @@ impl GlyphEngine {
   /// set and the width is bounded, as painting does) and where each span lies
   /// in it: one box per span and laid-out line. Shares the shaped layout
   /// cache with measuring and painting.
-  #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_span_boxes(
     &mut self,
     spans: &[RichTextSpan],

@@ -439,7 +439,6 @@ fn a_rule_of_a_theme_changes_it() {
   assert!(loading.part(LinkPreviewPart::Skeleton).rest().gap.is_some());
 }
 
-#[cfg(feature = "markdown")]
 #[test]
 fn an_inline_one_stands_in_a_sentence_keeps_its_line_and_is_a_stop_of_tab() {
   use lurq::{
@@ -515,4 +514,155 @@ fn tooling_reads_one_link_named_by_its_title_and_described_by_its_site_and_descr
   assert!(description.contains("Video, 4:10"), "{description}");
   assert_eq!(said("preview-remove", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("preview-remove", "a11y_name").as_deref(), Some("Remove preview"));
+}
+
+/// The id of what has the focus.
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+/// A draft with a button before a preview in it and, where `after`, one after it: the close of the preview takes
+/// it out, and the focus goes where `return_focus` says, or on.
+fn draft(after: bool, return_to: Option<lurq::core::ElementRef>) -> Stage {
+  use lurq::{core::Signal, ui::Button};
+  let shown = Signal::new(true);
+  Stage::new(move |_| {
+    let mut column = Column::new().padding(8.0).child(Button::new("Before").id("before"));
+    if let Some(element) = &return_to {
+      column = column.child(Button::new("Back here").id("back").ref_element(element.clone()));
+    }
+    if shown.get() {
+      let gone = shown.clone();
+      let mut preview = LinkPreview::new(URL)
+        .variant(LinkPreviewVariant::Compact)
+        .fetcher(|_: &str| LinkFetch::ready(page()))
+        .no_image()
+        .on_remove(move || gone.set(false))
+        .id("preview");
+      if let Some(element) = &return_to {
+        preview = preview.return_focus(element);
+      }
+      column = column.child(preview);
+    }
+    if after {
+      column = column.child(Button::new("After").id("after"));
+    }
+    column.into()
+  })
+}
+
+#[test]
+fn after_the_close_the_focus_goes_on_or_back_and_never_to_nothing() {
+  // What follows the preview takes the focus.
+  let mut stage = draft(true, None);
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("preview-remove"));
+  stage.key("Enter");
+  stage.pass();
+  assert!(
+    stage.tree.get_element_by_id_mut("preview").is_none(),
+    "the app took it out"
+  );
+  assert_eq!(focused(&stage).as_deref(), Some("after"));
+
+  // Where nothing follows it, what comes before it.
+  let mut stage = draft(false, None);
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("preview-remove"));
+  stage.key(" ");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("before"));
+
+  // Where the app says.
+  let back = lurq::core::ElementRef::new();
+  let mut stage = draft(true, Some(back));
+  stage.click("preview-remove");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("back"));
+}
+
+#[cfg(feature = "image")]
+#[test]
+fn a_page_that_names_no_icon_has_its_sites_favicon_tried_and_the_link_mark_where_there_is_none() {
+  let asked = Arc::new(Mutex::new(Vec::<String>::new()));
+  let app = lurq::app::App::new();
+  let log = asked.clone();
+  // A loader that loads nothing and tells what it was asked for.
+  app.loader().allow(move |address| {
+    log.lock().push(address.to_owned());
+    false
+  });
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        LinkPreview::new("https://lurq.dev/docs/a")
+          .variant(LinkPreviewVariant::Compact)
+          .fetcher(|url: &str| LinkFetch::ready(LinkMeta::new(url).title("A").site("lurq.dev")))
+          .no_image(),
+      )
+      .child(
+        LinkPreview::new("https://lurq.dev/docs/b")
+          .variant(LinkPreviewVariant::Compact)
+          .fetcher(|url: &str| LinkFetch::ready(LinkMeta::new(url).title("B").site("lurq.dev")))
+          .no_image(),
+      )
+      .into()
+  });
+  stage.pass();
+  stage.pass();
+  assert_eq!(
+    *asked.lock(),
+    ["https://lurq.dev/favicon.ico"],
+    "asked of the loader once for the site, and kept"
+  );
+  let link_mark = lurq::ui::icons::ALL
+    .iter()
+    .find_map(|(name, glyph)| (*name == lurq::ui::icons::LINK).then(|| glyph.to_string()))
+    .unwrap();
+  let marks = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == link_mark))
+    .count();
+  assert_eq!(marks, 2, "the link mark stands for the icon that is not there");
+}
+
+#[test]
+fn a_selection_copies_it_as_a_markdown_link_and_one_that_told_nothing_as_its_address() {
+  let copied = Arc::new(Mutex::new(Vec::<String>::new()));
+  let log = copied.clone();
+  let app = lurq::app::App::new();
+  let renderer: lurq::ui::LinkPreviewRenderer = Arc::new(move |view: lurq::ui::LinkPreviewView| {
+    log.lock().push(view.copy_text());
+    view.render()
+  });
+  app.theme().set_renderer::<LinkPreview>(renderer);
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .child(
+        LinkPreview::new(URL)
+          .variant(LinkPreviewVariant::Inline)
+          .title("Layout [in] lurq")
+          .site("lurq.dev")
+          .no_icon(),
+      )
+      .child(
+        LinkPreview::new("https://lurq.dev/x")
+          .variant(LinkPreviewVariant::Inline)
+          .fetcher(|url: &str| LinkFetch::ready(LinkMeta::new(url))),
+      )
+      .into()
+  });
+  stage.pass();
+  let copied = copied.lock().clone();
+  assert!(copied.contains(&format!(r"[Layout \[in\] lurq]({URL})")), "{copied:?}");
+  assert!(copied.contains(&"https://lurq.dev/x".to_owned()), "{copied:?}");
 }
