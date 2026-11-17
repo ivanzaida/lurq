@@ -487,6 +487,20 @@ impl ManagedWindow {
         ElementState::Pressed => fingers.pressed(&mut self.tree),
         ElementState::Released => fingers.released(&mut self.tree),
       },
+      // The phone's back: the mouse's side buttons go back and forward, from the focus, as Android's back does.
+      WindowEvent::MouseInput {
+        state: ElementState::Released,
+        button: button @ (winit::event::MouseButton::Back | winit::event::MouseButton::Forward),
+        ..
+      } => {
+        if let Some(command) = crate::app::events::NavigationCommand::of_button(to_lurq_mouse_button(*button)) {
+          self.tree.navigate_from_input(
+            command,
+            crate::app::events::NavigationSource::Key,
+            crate::app::window::NavigationOrigin::Focus,
+          );
+        }
+      }
       // A finger has no other buttons.
       WindowEvent::MouseInput { .. } => {}
       WindowEvent::ModifiersChanged(modifiers) => {
@@ -2651,8 +2665,8 @@ fn to_lurq_mouse_button(button: winit::event::MouseButton) -> MouseButton {
     winit::event::MouseButton::Left => MouseButton::Left,
     winit::event::MouseButton::Right => MouseButton::Right,
     winit::event::MouseButton::Middle => MouseButton::Middle,
-    winit::event::MouseButton::Back => MouseButton::Other(4),
-    winit::event::MouseButton::Forward => MouseButton::Other(5),
+    winit::event::MouseButton::Back => MouseButton::Back,
+    winit::event::MouseButton::Forward => MouseButton::Forward,
     winit::event::MouseButton::Other(id) => MouseButton::Other(id.min(u16::from(u8::MAX)) as u8),
   }
 }
@@ -2725,6 +2739,10 @@ fn named_key_to_string(key: NamedKey) -> &'static str {
     NamedKey::F10 => "F10",
     NamedKey::F11 => "F11",
     NamedKey::F12 => "F12",
+    // A keyboard's own keys for going back and forward, and Android's back, which winit names as a browser's:
+    // `KeyboardEvent::navigation_command` reads them.
+    NamedKey::BrowserBack => "BrowserBack",
+    NamedKey::BrowserForward => "BrowserForward",
     _ => "",
   }
 }
@@ -2749,6 +2767,51 @@ mod key_name_tests {
     ] {
       assert_eq!(named_key_to_string(key), expected);
     }
+  }
+
+  #[test]
+  fn androids_back_is_the_command_to_go_back() {
+    use crate::{
+      app::events::{KeyboardEvent, NavigationCommand},
+      core::NodeId,
+    };
+    // winit gives Android's back (`Keycode::Back`) as the named key `BrowserBack`, with no physical key.
+    let key = |named| {
+      KeyboardEvent::new(
+        named_key_to_string(named),
+        "",
+        false,
+        false,
+        false,
+        false,
+        NodeId::UNASSIGNED,
+      )
+    };
+    assert_eq!(
+      key(NamedKey::BrowserBack).navigation_command(),
+      Some(NavigationCommand::Back)
+    );
+    assert_eq!(
+      key(NamedKey::BrowserForward).navigation_command(),
+      Some(NavigationCommand::Forward)
+    );
+  }
+
+  #[test]
+  fn the_side_buttons_are_the_mouses_back_and_forward() {
+    use crate::app::events::NavigationCommand;
+    assert_eq!(
+      NavigationCommand::of_button(to_lurq_mouse_button(winit::event::MouseButton::Back)),
+      Some(NavigationCommand::Back)
+    );
+    assert_eq!(
+      NavigationCommand::of_button(to_lurq_mouse_button(winit::event::MouseButton::Forward)),
+      Some(NavigationCommand::Forward)
+    );
+    assert_eq!(
+      to_lurq_mouse_button(winit::event::MouseButton::Other(8)),
+      MouseButton::Other(8)
+    );
   }
 }
 

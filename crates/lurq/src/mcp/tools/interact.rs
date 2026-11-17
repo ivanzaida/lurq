@@ -42,6 +42,8 @@ pub(super) fn parse_button(args: &serde_json::Value) -> MouseButton {
   match args.get("button").and_then(|value| value.as_str()) {
     Some("right") => MouseButton::Right,
     Some("middle") => MouseButton::Middle,
+    Some("back") => MouseButton::Back,
+    Some("forward") => MouseButton::Forward,
     _ => MouseButton::Left,
   }
 }
@@ -220,6 +222,30 @@ pub(super) fn interact_tool(
       Ok(McpToolOutput::Json(
         serde_json::json!({ "ok": true, "action": "type", "window": window }),
       ))
+    }
+    "history_back" | "history_forward" => {
+      use crate::app::{
+        events::{NavigationCommand, NavigationSource},
+        window::NavigationOrigin,
+      };
+      let command = if action == "history_back" {
+        NavigationCommand::Back
+      } else {
+        NavigationCommand::Forward
+      };
+      let (window, point) = resolve_point(tree, state, args, "ref", "x", "y")?;
+      let target = window_tree_mut(tree, &window, state.include_devtools)?;
+      let scale = target.scale_factor();
+      // From a point as the mouse's side buttons go, otherwise from the focus as a key goes.
+      let origin = match point {
+        Some((x, y)) => NavigationOrigin::Point(x / scale, y / scale),
+        None => NavigationOrigin::Focus,
+      };
+      let taken = target.navigate_from_input(command, NavigationSource::App, origin);
+      target.request_redraw();
+      Ok(McpToolOutput::Json(serde_json::json!({
+        "ok": true, "action": action, "window": window, "taken": taken,
+      })))
     }
     "paste" => {
       let text = args.get("text").and_then(|value| value.as_str());

@@ -57,14 +57,15 @@ mod history_swipe;
 mod middle_autoscroll;
 mod modal_resize;
 mod mouse_leave;
+mod navigation;
 mod nested_wheel_scroll;
 mod outside_press;
 mod overlay;
 mod pass_report;
 mod perf_overlay;
+mod rect_observers;
 #[cfg(feature = "image")]
 mod render_order;
-mod rect_observers;
 mod room_before_paint;
 mod rounded_clip_hits;
 mod scroll_axis_dominance;

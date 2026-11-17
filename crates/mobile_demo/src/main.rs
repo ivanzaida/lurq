@@ -28,7 +28,6 @@ use lurq::{
     App, Tree,
     component::Component,
     ctx::Ctx,
-    events::{HistoryDirection, HistorySwipeEvent},
     theme::{PaletteColor, ThemePalette},
     wgpu_render::WgpuRenderEngine,
     window::Orientation,
@@ -168,9 +167,9 @@ fn routes() -> Routes {
 }
 
 /// The stack of screens under its bar. A finger in from the left edge takes the top screen back with it; from
-/// the right edge, or a trackpad's swipe, the history moves as the event says.
+/// the right edge, a trackpad's swipe, Android's back or the mouse's side buttons, the router goes back or forward
+/// by itself (`NavigationCommand`).
 pub(crate) fn shell(ctx: &mut Ctx) -> Element {
-  let navigator = ctx.navigator();
   let bar = NavigationBar::new()
     // Not all there: a list that goes on under the bar shows through it, blurred.
     .background(Color::new(30, 41, 59, 190))
@@ -178,16 +177,6 @@ pub(crate) fn shell(ctx: &mut Ctx) -> Element {
     .title(Color::from_hex(TEXT))
     .border(Color::from_hex(BORDER));
   Column::new()
-    .on_history_swipe(move |event: HistorySwipeEvent| {
-      let Some(navigator) = &navigator else {
-        return;
-      };
-      match event.direction {
-        HistoryDirection::Back => navigator.back(),
-        HistoryDirection::Forward => navigator.forward(),
-      };
-      event.stop_propagation();
-    })
     .child(StackOutlet::mount_with(
       ctx,
       StackOutletProps::new().bar(bar).background(Color::from_hex(BG)),

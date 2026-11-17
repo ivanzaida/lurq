@@ -35,6 +35,7 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
 - A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
+- Going back: the mouse's side buttons, Alt+← and Alt+→ (Cmd+[ and Cmd+] on a Mac), a swipe and Android's back move the mounted router by themselves, and an `on_history_swipe` handler that moved it too moves it twice: see [Back And Forward](#back-and-forward).
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
@@ -592,6 +593,47 @@ now they are a finger's, with its gestures and a coarse pointer. What is new whe
 
 See [A Click Is The Action, A Tap Is The Gesture](../styling-events/#a-click-is-the-action-a-tap-is-the-gesture).
 
+### Back And Forward
+
+Going back is one command now, `NavigationCommand`, and a mounted router takes it by itself: the mouse's side buttons,
+Alt+← and Alt+→ (Cmd+[ and Cmd+] on a Mac), a keyboard's Back key, Android's back, a trackpad's swipe between pages
+and a finger from the left or the right edge all go back and forward with nothing written. See
+[Going back and forward](../styling-events/#going-back-and-forward).
+
+The mouse's side buttons are `MouseButton::Back` and `MouseButton::Forward`, where they were `MouseButton::Other(4)`
+and `Other(5)`. A `match` on `MouseButton` with no `_` arm takes them.
+
+```rust
+// 0.62
+if event.button == MouseButton::Other(4) { router.back(); }
+// 0.63: nothing to write for the router; an element that goes back from something of its own
+.on_history_back(move |event: HistoryEvent| {
+    if !viewer.previous() {
+        event.pass_on();
+    }
+})
+```
+
+`on_history_swipe` is told as before, and its default is the command now. A handler that moved the router itself
+moves it a second time: take the handler away, or call `event.prevent_default()` in it where it does something else
+with the swipe. `stop_propagation` alone does not stop the command.
+
+```rust
+// 0.62
+.on_history_swipe(move |event: HistorySwipeEvent| {
+    match event.direction {
+        HistoryDirection::Back => navigator.back(),
+        HistoryDirection::Forward => navigator.forward(),
+    };
+    event.stop_propagation();
+})
+// 0.63: nothing; the router goes back by itself
+```
+
+`HistoryDirection` is `NavigationCommand`, under its old name too. A finger from the left or the right edge is taken
+as the gesture wherever a router is mounted in the window, where it was taken only over an element with
+`on_history_swipe` or `on_edge_pan`: such a finger scrolls and presses nothing.
+
 ### A Disabled Element Hears The Pointer Come And Go
 
 The `on_mouse_enter` and `on_mouse_leave` of a disabled element run as the pointer comes onto it and leaves it, so a tooltip can say why it is disabled. They did not run. Nothing else of the pointer reaches it: it is not hovered, and no press, click or drop reaches it.
@@ -818,6 +860,7 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `RadiusSize` | `Xl`, `Full` | A `match` arm |
 | `ScrollBarStyle` | `thumb_inset`, `thumb_hovered_color`, `thumb_pressed_color` | `..ScrollBarStyle::default()` |
 | `ShrinkLimit` | `ContentFirst` | A `match` arm |
+| `MouseButton` | `Back`, `Forward` (the side buttons, which were `Other(4)` and `Other(5)`) | A `match` arm |
 | `BackgroundColor` | `CurrentForeground` | A `match` arm |
 | `GradientKind` | `Corners` | A `match` arm |
 | `AnimatableValue` | `Percent(f32)`, `Dash { dash, gap }`, `Fit { px, content }` | A `match` arm |

@@ -2,7 +2,8 @@
 //! outlet, links that push a path, and a history to go back and forward through. Its playground is a small app of
 //! the page's own, a router that is not the gallery's, with a layout, params, a nested layout, a guard and a
 //! fallback, under a bar that says the path it is at; its sections are the patterns a path is matched by, a stack
-//! of screens, and tabs that are each a router.
+//! of screens, going back and forward from every source (with a dialog that takes it), and tabs that are each a
+//! router.
 //!
 //! The demo had no page of its own for these: its shell was a router, its sidebar links, and its pages an outlet.
 
@@ -12,6 +13,7 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
+    events::{HistoryEvent, NavigationCommand, NavigationSource},
     theme::{PaletteColor, RadiusSize},
   },
   components::{
@@ -22,7 +24,7 @@ use lurq::{
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
   router::{GuardAction, RouterHandle, Routes},
-  ui::{Button, ButtonSize, ButtonVariant, icons},
+  ui::{Button, ButtonSize, ButtonVariant, Dialog, icons},
 };
 
 use super::kit::{named, samples, well};
@@ -60,6 +62,167 @@ const PROBES: [&str; 7] = [
   "/files/a/b",
   "/nowhere",
 ];
+
+/// How many of the commands the section on going back heard it shows, the latest first.
+const HEARD: usize = 4;
+
+/// What a source of going back or forward is called in the section's log.
+fn source_name(source: NavigationSource) -> &'static str {
+  match source {
+    NavigationSource::Key => "a key",
+    NavigationSource::Mouse => "the mouse's button",
+    NavigationSource::Swipe => "a trackpad's swipe",
+    NavigationSource::Edge => "a finger from the edge",
+    NavigationSource::Browser => "the browser",
+    NavigationSource::App => "the app",
+    _ => "another source",
+  }
+}
+
+/// Writes `line` at the top of the log, which keeps the latest few.
+fn heard_line(heard: &Signal<Vec<String>>, line: String) {
+  heard.update(|lines| {
+    lines.insert(0, line);
+    lines.truncate(HEARD);
+  });
+}
+
+/// The routes of the app of the section on going back: a shell with its own way back and forward and a dialog, and
+/// three screens one after another.
+fn travel_routes(heard: Signal<Vec<String>>, open: Signal<bool>) -> Routes {
+  Routes::new().layout(
+    "/",
+    move |ctx| travel_shell(ctx, &heard, &open),
+    |routes| {
+      routes
+        .route("/", |ctx| travel_screen(ctx, "Home", Some(("Photos", "/photos"))))
+        .route("/photos", |ctx| {
+          travel_screen(ctx, "Photos", Some(("A photo", "/photos/1")))
+        })
+        .route("/photos/1", |ctx| travel_screen(ctx, "A photo", None))
+    },
+  )
+}
+
+/// A screen of the section's app: its title, and a button to the next one.
+fn travel_screen(ctx: &mut Ctx, title: &str, next: Option<(&str, &str)>) -> Element {
+  let mut screen = Column::new()
+    .width(FILL)
+    .padding(16.0)
+    .spacing(12.0)
+    .child(text(title, 16.0, FontWeight::SemiBold));
+  if let Some((label, to)) = next {
+    screen = screen.child(push_button(ctx, label, to.to_owned()));
+  } else {
+    screen = screen.child(
+      text(
+        "The last screen. Go back: Alt+← (Cmd+[ on a Mac), the mouse's back button, a trackpad's swipe to the right.",
+        13.0,
+        FontWeight::Normal,
+      )
+      .width(FILL),
+    );
+  }
+  screen.into()
+}
+
+/// The shell of the section's app: its way back and forward, which run the command as a key does, where it is,
+/// a button that opens a dialog which closes on going back, and the screen. It hears every command on its way out
+/// to the router, and passes it on.
+fn travel_shell(ctx: &mut Ctx, heard: &Signal<Vec<String>>, open: &Signal<bool>) -> Element {
+  let path = ctx.route_path();
+  let (can_back, can_forward) = ctx
+    .navigator()
+    .map(|navigator| (navigator.can_back(), navigator.can_forward()))
+    .unwrap_or_default();
+  let history = ctx.history_runner();
+  let (back, forward) = (history.clone(), history);
+  let opens = open.clone();
+  let bar = Row::new()
+    .width(FILL)
+    .height(44.0)
+    .padding_horizontal(8.0)
+    .spacing(4.0)
+    .align_items(Alignment::Center)
+    .border_bottom(line())
+    .child(
+      Button::new("Back")
+        .variant(ButtonVariant::Ghost)
+        .size(ButtonSize::Sm)
+        .icon(icons::ARROW_LEFT)
+        .icon_only(true)
+        .disabled(!can_back)
+        .on_click(move |_| back.back()),
+    )
+    .child(
+      Button::new("Forward")
+        .variant(ButtonVariant::Ghost)
+        .size(ButtonSize::Sm)
+        .icon(icons::ARROW_RIGHT)
+        .icon_only(true)
+        .disabled(!can_forward)
+        .on_click(move |_| forward.forward()),
+    )
+    .child(Row::new().flex(1.0).min_width(0.0).child(mono(&path, 12.0).nowrap()))
+    .child(
+      Button::new("Dialog")
+        .variant(ButtonVariant::Outline)
+        .size(ButtonSize::Sm)
+        .on_click(move |_| opens.set(true)),
+    );
+  let hears = |name: &'static str| {
+    let heard = heard.clone();
+    move |event: HistoryEvent| {
+      heard_line(
+        &heard,
+        format!("on_history_{name} from {}", source_name(event.source())),
+      );
+      event.pass_on();
+    }
+  };
+  let (closes, shuts, told) = (open.clone(), open.clone(), heard.clone());
+  let dialog = Dialog::new(open.clone())
+    .title("A dialog that takes going back")
+    .close_button(false)
+    .child(
+      Column::new()
+        .width(FILL)
+        .spacing(16.0)
+        .on_history_back(move |event: HistoryEvent| {
+          closes.set(false);
+          heard_line(
+            &told,
+            format!("the dialog closed on going back from {}", source_name(event.source())),
+          );
+        })
+        .child(
+          text(
+            "Go back now: the dialog closes and the page stays where it is. Escape closes it too.",
+            14.0,
+            FontWeight::Normal,
+          )
+          .width(FILL),
+        )
+        .child(
+          Row::new()
+            .width(FILL)
+            .justify(lurq::layout::layout_kind::Justify::End)
+            .child(
+              Button::new("Close")
+                .size(ButtonSize::Sm)
+                .on_click(move |_| shuts.set(false)),
+            ),
+        ),
+    );
+  Column::new()
+    .size(FILL, FILL)
+    .on_history_back(hears("back"))
+    .on_history_forward(hears("forward"))
+    .child(bar)
+    .child(Column::new().width(FILL).flex(1.0).child(Outlet::mount(ctx)))
+    .child(dialog)
+    .into()
+}
 
 /// A screen's title and what it says under it.
 fn screen(title: &str, body: &str) -> Column {
@@ -461,6 +624,10 @@ pub struct RouterPage {
   stack: RouterHandle,
   /// The tabs, each a router.
   tabs: Tabs,
+  /// The router of the section on going back and forward, what its app heard, and whether its dialog is open.
+  travel: RouterHandle,
+  heard: Signal<Vec<String>>,
+  dialog: Signal<bool>,
 }
 
 impl RouterPage {
@@ -748,6 +915,62 @@ impl RouterPage {
       .into()
   }
 
+  /// The section on going back and forward: the app in a box, and what it heard.
+  fn traveled(&self, ctx: &mut Ctx) -> Element {
+    let heard = self.heard.get();
+    let mut log = Column::new().width(FILL).spacing(4.0).child(quiet("Events", 12.0));
+    if heard.is_empty() {
+      log = log.child(quiet("Nothing yet: go back or forward over the box.", 12.0));
+    }
+    for line in &heard {
+      log = log.child(mono(line, 12.0).width(FILL));
+    }
+    let keys = [NavigationCommand::Back, NavigationCommand::Forward]
+      .map(|command| {
+        let accelerator = command.accelerator();
+        let m = accelerator.modifiers;
+        let held = if m.meta {
+          "Cmd+"
+        } else if m.alt {
+          "Alt+"
+        } else {
+          ""
+        };
+        let key = match &*accelerator.key {
+          "ArrowLeft" => "←",
+          "ArrowRight" => "→",
+          key => key,
+        };
+        format!("{held}{key}")
+      })
+      .join(" and ");
+    Column::new()
+      .width(FILL)
+      .spacing(12.0)
+      .child(
+        Row::new()
+          .width(FILL)
+          .spacing(8.0)
+          .wrap()
+          .align_items(Alignment::Center)
+          .child(quiet("keys here", 12.0))
+          .child(mono(&keys, 12.0)),
+      )
+      .child(
+        Column::new()
+          .width(360.0)
+          .max_width(FILL)
+          .height(260.0)
+          .clip()
+          .rounded(RadiusSize::Lg)
+          .background(PaletteColor::Background)
+          .border(Border::inside(1.0, PaletteColor::Border))
+          .child(Router::mount(ctx, self.travel.clone())),
+      )
+      .child(well().padding(12.0).child(log))
+      .into()
+  }
+
   /// The section on tabs: which is shown, chosen here or in the bar, and the path of its router.
   fn tabbed(&self, ctx: &mut Ctx) -> Element {
     let active = self.tabs.active();
@@ -815,6 +1038,11 @@ impl Component for RouterPage {
         .into()
     }));
     account.replace("/");
+    let heard = ctx.signal(Vec::<String>::new());
+    let dialog = ctx.signal(false);
+    let travel = ctx.router(travel_routes(heard.clone(), dialog.clone()));
+    travel.replace("/");
+
     let tabs = Tabs::new();
     tabs
       .add(TAB_NAMES[0], TabItem::new("Library"), library)
@@ -832,6 +1060,9 @@ impl Component for RouterPage {
       patterns: Arc::new(pattern_routes()),
       stack,
       tabs,
+      travel,
+      heard,
+      dialog,
     }
   }
 
@@ -921,6 +1152,21 @@ impl Component for RouterPage {
          one pushed. bar(NavigationBar) draws the bar with the way back.",
       ),
       (
+        "on_history_back / on_history_forward",
+        "Fn(HistoryEvent)",
+        "",
+        "Going back or forward on the focused element or one in it, or under the pointer: Alt+← and Alt+→ (Cmd+[ \
+         and Cmd+] on a Mac), the mouse's side buttons, a swipe, Android's back, a browser's buttons. A handler with \
+         nothing to do calls event.pass_on(); with nothing taking it, the router goes back.",
+      ),
+      (
+        "ctx.history_back / history_forward",
+        "()",
+        "",
+        "Goes back or forward as a key does, from what has the focus: a button of the app's own. \
+         ctx.history_runner() keeps it for a handler; WindowHandle has the same.",
+      ),
+      (
         "Tabs::add",
         "(key, TabItem, RouterHandle)",
         "",
@@ -931,6 +1177,7 @@ impl Component for RouterPage {
     let playground = self.play(ctx);
     let patterns = self.patterns();
     let stacked = self.stacked(ctx);
+    let traveled = self.traveled(ctx);
     let tabbed = self.tabbed(ctx);
     self.frame.page(
       ctx,
@@ -994,6 +1241,39 @@ impl Component for RouterPage {
               "",
               "// a screen says what the bar shows over it",
               "ctx.navigation_item(NavigationItem::new(\"Library\"));",
+            ],
+          ),
+        ),
+        Section::new(
+          "Going back and forward",
+          "One command for every way back: Alt+← (Cmd+[ on a Mac), the mouse's back button, a trackpad's swipe or a \
+           finger from the left edge, Android's back, a browser's back. It goes from the focused element, or from what \
+           is under the pointer, out to the router: the app's shell hears it on the way and passes it on, and the \
+           router goes back. Open the dialog and go back: the dialog takes it and the page stays. The bar's arrows \
+           run the same command from a handler.",
+          self.frame.demo(
+            3,
+            traveled,
+            ".on_history_back(|event: HistoryEvent| event.pass_on())",
+            &[
+              "// the shell: its own way back runs the command, as Alt+← does",
+              "let history = ctx.history_runner();",
+              "Button::new(\"Back\").on_click(move |_| history.back())",
+              "",
+              "// heard on its way out to the router, and passed on",
+              "Column::new()",
+              "    .on_history_back(|event: HistoryEvent| {",
+              "        log(event.source());",
+              "        event.pass_on();",
+              "    })",
+              "    .child(Outlet::mount(ctx))",
+              "",
+              "// a dialog takes it instead of leaving the page",
+              "Dialog::new(open.clone()).child(",
+              "    Column::new()",
+              "        .on_history_back(move |_| open.set(false))",
+              "        .child(content),",
+              ")",
             ],
           ),
         ),

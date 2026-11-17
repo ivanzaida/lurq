@@ -6,7 +6,10 @@
 //! - what the router does to its history it does to the browser's ([`record`]): a push is `pushState`, a replace
 //!   `replaceState`, a move back or forward `history.go`;
 //! - what the browser does to its history reaches the router as a `popstate` event ([`arrived`]): its back and forward
-//!   buttons, and an address a person types or follows.
+//!   buttons, and an address a person types or follows. A move to the entry just before or after the router's is going
+//!   back or forward ([`NavigationCommand`](crate::app::events::NavigationCommand)), run on the window the router is
+//!   mounted in as Alt+← is: where something on the page takes it (a dialog closes) and the router does not move, the
+//!   browser is put back where the router is, which brings a `popstate` for the entry the router is at.
 //!
 //! Every entry the router makes carries its [`token`] as the browser's state for it, so a `popstate` says which
 //! entry of the router the browser is now at. An entry without one is new to the router: an address typed into
@@ -148,6 +151,30 @@ fn arrived(handle: &RouterHandle, state: &JsValue) {
     return;
   };
   let entry = state.as_string().and_then(|state| entry_of(&state, load()));
+  if let Some(entry) = entry
+    && let Some(command) = handle.command_to(entry)
+    && let Some(mounted) = handle.window()
+  {
+    let router = handle.clone();
+    let delta = match command {
+      crate::app::events::NavigationCommand::Back => -1,
+      crate::app::events::NavigationCommand::Forward => 1,
+    };
+    mounted.request_navigation(crate::app::window::NavigationRequest {
+      command,
+      source: crate::app::events::NavigationSource::Browser,
+      origin: crate::app::window::NavigationOrigin::Focus,
+      done: Some(Box::new(move |_| {
+        if router.current_entry() != entry
+          && let Some(history) = web_sys::window().and_then(|window| window.history().ok())
+        {
+          // Something on the page took it, or nothing did: the browser goes back to where the router is.
+          let _ = history.go_with_delta(-delta);
+        }
+      })),
+    });
+    return;
+  }
   if entry.is_some_and(|entry| handle.go_to_entry(entry)) {
     return;
   }

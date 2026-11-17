@@ -206,6 +206,12 @@ an alias.
   `on_key_down`: which keys they are, in every layout and on a Mac, is `KeyboardEvent::edit_command()`'s alone, and
   an Edit menu runs the same handlers (`Ctx::edit`). Its own buttons for them call what the handlers call. A key of
   its own that also takes back (Backspace on a pad) stays in its `on_key_down`.
+- **Going back is lurq's command, never a component's keys.** A component that goes back from something of its own
+  (a dialog that closes, a viewer's picture before, a wizard's step) gives its root `.on_history_back` (and
+  `.on_history_forward`), and calls `event.pass_on()` where it has nowhere to go, so that the router goes back. It
+  never matches Alt+←, Cmd+[, the mouse's side buttons or a swipe: which they are is `NavigationCommand`'s alone. Its
+  own way back (a stack's bar) runs the command (`Ctx::history_runner`, `run_in` from its part), not the router's
+  `back()`, so that what is on the page hears it first.
 - **An action is `on_click`; a gesture is `on_tap`/`on_swipe`/`on_pinch`/`on_long_press`.** A mouse, a finger, a
   pen and a key all reach `on_click`, which is where a component does what it is for; a gesture is what only a finger
   does, and a component that has one takes its desktop twin too (a long press and a right click, a pinch and the

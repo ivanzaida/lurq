@@ -239,6 +239,9 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       name: "lurq_interact".into(),
       description: "Drive the app with synthetic input. Actions: click, double_click, move, drag, \
                     wheel, key, type, scroll_to, request_close (vetoable window close), menu_activate (menu id), \
+                    history_back / history_forward (go back or forward as Alt+arrow and the mouse's side buttons \
+                    do: from the focus, or from a `ref` or `x`/`y`; the elements' on_history_back handlers, then the \
+                    router; `taken` says whether something did), \
                     paste (`text` and/or `files` into the focused text input; the person's OS clipboard is never \
                     read: a synthetic Ctrl+V is refused), drag_files / drop_files (`paths` from the OS over or \
                     onto the point, as an Explorer or Finder drag; drag_files enters or moves the drag, \
@@ -258,7 +261,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
       input_schema: schema(json!({
         "type": "object",
         "properties": {
-          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate", "press", "release", "key_down", "key_up", "paste", "drag_files", "drop_files", "file_drag_leave"] },
+          "action": { "type": "string", "enum": ["click", "double_click", "move", "drag", "wheel", "key", "type", "scroll_to", "request_close", "menu_activate", "history_back", "history_forward", "press", "release", "key_down", "key_up", "paste", "drag_files", "drop_files", "file_drag_leave"] },
           "id": { "type": "string", "description": "Menu item id for menu_activate" },
           "ref": { "type": "string", "description": "Element handle from lurq_read_tree" },
           "x": { "type": "number", "description": "Screenshot-pixel X (alternative to ref)" },
@@ -266,7 +269,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "to_x": { "type": "number", "description": "Drag end X" },
           "to_y": { "type": "number", "description": "Drag end Y" },
           "to_ref": { "type": "string", "description": "Drag end element" },
-          "button": { "type": "string", "enum": ["left", "right", "middle"], "description": "Pointer button for click, double_click, drag, press and release (default left)" },
+          "button": { "type": "string", "enum": ["left", "right", "middle", "back", "forward"], "description": "Pointer button for click, double_click, drag, press and release (default left); back and forward are the mouse's side buttons, which go back and forward on their release" },
           "delta_x": { "type": "number", "description": "Wheel horizontal delta" },
           "delta_y": { "type": "number", "description": "Wheel vertical delta (positive scrolls content up)" },
           "key": { "type": "string", "description": "Key name for key, key_down and key_up, e.g. Enter, Tab, Escape, ArrowDown, a, Shift, \" \" (space)" },
@@ -407,7 +410,9 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     tools.push(RegisteredTool {
       name: "lurq_navigate".into(),
       description: "Navigate the app router: push a route path, or go back/forward. Always returns \
-                    the current path. Requires the app to hand its Navigator to the MCP config."
+                    the current path. Requires the app to hand its Navigator to the MCP config. back/forward here \
+                    move that router alone; lurq_interact history_back / history_forward go back as a person does, \
+                    through what the page does with it first (a dialog that closes)."
         .into(),
       scope: Scope::Navigate,
       read_only: false,

@@ -450,6 +450,28 @@ impl crate::app::component::DevtoolsInspectable for EditMenuRequest {
   }
 }
 
+/// Where a command of going back or forward starts; see [`HistoryEvent`](crate::app::events::HistoryEvent).
+#[derive(Clone)]
+pub(crate) enum NavigationOrigin {
+  /// The focused element, or with none the last element that hears the command.
+  Focus,
+  /// The element under a point of the window, in logical pixels, then as `Focus`.
+  Point(f32, f32),
+  /// A part of the window: the focused element in it, or the last element in it that hears the command.
+  Part(crate::core::ElementRef),
+}
+
+/// What runs once a command asked for without input has gone through the window: told whether something took it.
+pub(crate) type NavigationDone = Box<dyn FnOnce(bool) + Send + Sync>;
+
+/// A command of going back or forward the app asked for without input, for the tree to run after the event.
+pub(crate) struct NavigationRequest {
+  pub(crate) command: crate::app::events::NavigationCommand,
+  pub(crate) source: crate::app::events::NavigationSource,
+  pub(crate) origin: NavigationOrigin,
+  pub(crate) done: Option<NavigationDone>,
+}
+
 /// Wakes the shell's event loop so a command pushed from another thread is
 /// processed without waiting for the next OS event.
 pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
@@ -511,6 +533,9 @@ struct WindowInner {
   /// Undos and redos the app asked for without a key (an Edit menu), which the runtime runs on the focused element
   /// after the event that asked.
   edits: Vec<(crate::app::events::EditCommand, bool)>,
+  /// Going back or forward the app asked for without input (`Ctx::history_back`, a stack's back button, a browser's
+  /// back), which the runtime runs after the event that asked.
+  navigations: Vec<NavigationRequest>,
 }
 
 impl WindowInner {
@@ -579,6 +604,7 @@ impl Window {
         icon_image: None,
         copies: Vec::new(),
         edits: Vec::new(),
+        navigations: Vec::new(),
       })),
       version_signal: Signal::new(0),
       edit_menu: Signal::new(None),
@@ -717,6 +743,24 @@ impl Window {
   /// The commands asked for since the last time, in order, each with whether synthetic input asked for it.
   pub(crate) fn take_edits(&self) -> Vec<(crate::app::events::EditCommand, bool)> {
     std::mem::take(&mut self.inner.write().unwrap().edits)
+  }
+
+  /// Asks for a command of going back or forward to be run once the event that asked is handled (or at the next
+  /// pass, asked from elsewhere).
+  pub(crate) fn request_navigation(&self, request: NavigationRequest) {
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.navigations.push(request);
+      inner.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// The commands of going back or forward asked for since the last time, in order.
+  pub(crate) fn take_navigations(&self) -> Vec<NavigationRequest> {
+    std::mem::take(&mut self.inner.write().unwrap().navigations)
   }
 
   /// The window's icon, as the app set it.
