@@ -91,6 +91,19 @@ pub(super) struct Readers {
 }
 
 impl Readers {
+  /// What the texture behind `handle` says of itself, its format and its size, as the card it is on tells.
+  /// A device of Vulkan is given a texture by its handle with these said, and cannot ask them of it.
+  pub(super) fn said_of(&mut self, handle: isize) -> Option<(DXGI_FORMAT, u32, u32)> {
+    let said = said(&self.that_opens(handle)?.texture(handle)?);
+    Some((said.Format, said.Width, said.Height))
+  }
+
+  /// The fence behind `fence`, opened by the card that opens the texture behind `handle`: a device of
+  /// Vulkan draws the textures and has no way to ask a fence of Direct3D how far it is.
+  pub(super) fn fence_of(&mut self, handle: isize, fence: isize) -> Option<ID3D11Fence> {
+    self.that_opens(handle)?.fence(fence)
+  }
+
   /// The card that opens the texture behind `handle`, where one does.
   fn that_opens(&mut self, handle: isize) -> Option<Reader> {
     if !self.looked {

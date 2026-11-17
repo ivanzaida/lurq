@@ -553,7 +553,10 @@ fn device_descriptor(
 ) -> wgpu::DeviceDescriptor<'static> {
   // A frame of a video that stays on the card is an NV12 texture, where the card has them.
   #[cfg(all(windows, feature = "raster"))]
-  let optional_features = optional_features | wgpu::Features::TEXTURE_FORMAT_NV12;
+  let optional_features = optional_features
+    | wgpu::Features::TEXTURE_FORMAT_NV12
+    // Under Vulkan such a frame is a texture of Direct3D given to it by its handle.
+    | wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32;
   #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
   let mut required_features = adapter.features() & optional_features;
   // Measures GPU time while a profiling session is active.
@@ -1074,7 +1077,7 @@ impl WgpuRenderEngine {
 
   fn release_gpu_resources(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::PollType::Poll);
+      device_loss::asked(device, Some(&self.lost), wgpu::PollType::Poll);
     }
 
     // An engine whose device is lost is let go of before it draws again: its extensions are told here.
@@ -1406,7 +1409,9 @@ impl WgpuRenderEngine {
     }
     // What decodes a video decodes on the card this draws on, and its frames stay there.
     #[cfg(all(windows, feature = "raster"))]
-    card_frames::announce(&device);
+    if !card_frames::announce(&device) {
+      card_frames::announce_vulkan(&device, &adapter);
+    }
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
@@ -3495,7 +3500,7 @@ impl RenderEngine for WgpuRenderEngine {
 
     #[cfg(feature = "screenshot")]
     if let Some(frame_capture) = frame_capture {
-      frame_capture.start(device.clone());
+      frame_capture.start(device.clone(), self.lost.clone());
     }
 
     let _present_start = profile_scope!();
@@ -3567,7 +3572,7 @@ impl RenderEngine for WgpuRenderEngine {
 
   fn release_window_surface(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::PollType::Poll);
+      device_loss::asked(device, Some(&self.lost), wgpu::PollType::Poll);
     }
     self.surface_config = None;
     self.surface = None;
@@ -3620,14 +3625,19 @@ struct WgpuFrameCaptureReadback {
 
 #[cfg(feature = "screenshot")]
 impl WgpuFrameCaptureReadback {
-  fn start(self, device: wgpu::Device) {
+  fn start(self, device: wgpu::Device, lost: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     std::thread::spawn(move || {
       let slice = self.buffer.slice(..);
       let (sender, receiver) = std::sync::mpsc::channel();
       slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = sender.send(result);
       });
-      let _ = device.poll(wgpu::PollType::wait_indefinitely());
+      // A device that is lost gives no pixels, and asking it would end this thread with nothing said to
+      // whoever waits for the screenshot.
+      if !device_loss::asked(&device, Some(&lost), wgpu::PollType::wait_indefinitely()) {
+        self.capture.target.fail("the graphics device was lost");
+        return;
+      }
       match receiver.recv() {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {

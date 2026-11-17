@@ -363,6 +363,26 @@ pub(super) fn taken<T>(device: &wgpu::Device, make: impl FnOnce() -> T) -> Optio
   }
 }
 
+/// Asks wgpu what the card has finished, as `Device::poll` does, where the device may be lost. wgpu ends the
+/// thread that asks it of a lost device (`Error in Device::poll … Parent device is lost`): a screenshot
+/// that waited for its pixels ended so, and whoever waited for the screenshot waited for ever. `lost` is
+/// looked at first where there is one, and what ends the question all the same, for a device lost while
+/// it was asked, is caught. Whether wgpu answered.
+pub(super) fn asked(device: &wgpu::Device, lost: Option<&AtomicBool>, how: wgpu::PollType) -> bool {
+  if lost.is_some_and(|lost| lost.load(Ordering::Acquire)) {
+    return false;
+  }
+  match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| device.poll(how))) {
+    Ok(answered) => answered.is_ok(),
+    Err(_) => {
+      if let Some(lost) = lost {
+        say(lost);
+      }
+      false
+    }
+  }
+}
+
 /// Whether `device` is lost, as `lost` was told or as its card says now.
 ///
 /// wgpu is asked first what it has to tell: of some losses (a device that was destroyed) it tells only when it
@@ -373,7 +393,7 @@ pub(super) fn is_lost(device: &wgpu::Device, lost: &AtomicBool) -> bool {
   if lost.load(Ordering::Acquire) {
     return true;
   }
-  let _ = device.poll(wgpu::PollType::Poll);
+  asked(device, Some(lost), wgpu::PollType::Poll);
   if lost.load(Ordering::Acquire) {
     return true;
   }
