@@ -11,16 +11,18 @@ use lurq::{
     component::{Component, DevtoolsInspectable},
     ctx::Ctx,
     events::{DragEvent, MouseButtonMask},
-    wgpu_render::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuRenderEngine},
+    wgpu_render::{SharedWgpuContext, WgpuAppError, WgpuFrameExtension, WgpuFrameInfo, WgpuRenderEngine},
     winit_shell::WinitWindow,
   },
   components::{Column, GpuViewport, Text},
   core::Signal,
   images::WgpuExternalImageSlot,
   node::Element,
+  wgpu,
 };
 
-/// lurq samples the texture as sRGB-encoded color, as it does its own pictures.
+/// The texture's format: the card encodes what the shader writes as a picture's colors are, and decodes it as lurq
+/// samples it. A linear format (`Rgba8Unorm`, `Rgba16Float`) would show the same colors.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 const SHADER: &str = r#"
@@ -163,11 +165,13 @@ impl WgpuFrameExtension for Triangle {
           usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
           view_formats: &[],
         });
-        // The viewport shows this texture from now on, without a copy.
+        // The viewport shows this texture from now on, without a copy. The slot refuses a texture lurq cannot
+        // sample, which this is not.
         self
           .scene
           .slot
-          .set_texture_view(texture.create_view(&Default::default()), width, height);
+          .set_texture_view(texture.create_view(&Default::default()), width, height)
+          .expect("a 2D texture to be sampled, in a format lurq reads");
         made.texture.insert(texture)
       }
     };
@@ -205,6 +209,11 @@ impl WgpuFrameExtension for Triangle {
     // Submitted before lurq's own pass, on the same queue: this frame shows it.
     gpu.queue.submit([encoder.finish()]);
     made.drawn = Some((width, height, angle));
+  }
+
+  fn error(&mut self, error: &WgpuAppError) {
+    // A wgpu call of this extension failed, which ends nothing: lurq has logged it, and what failed draws nothing.
+    eprintln!("the triangle's renderer: {error}");
   }
 
   fn device_lost(&mut self) {

@@ -3558,6 +3558,22 @@ impl Dx12State {
     if image.image_width == 0 || image.image_height == 0 {
       return Ok(());
     }
+    // A `GpuViewport`'s texture is of wgpu's device, which this renderer cannot sample: its box is left empty,
+    // what is under it showing through, and the rest of the frame is drawn.
+    #[cfg(feature = "wgpu")]
+    if image
+      .native
+      .as_ref()
+      .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::WgpuExternalRgba)
+    {
+      static SAID: std::sync::Once = std::sync::Once::new();
+      SAID.call_once(|| {
+        tracing::warn!(
+          "the dx12 renderer draws no GpuViewport: its box is left empty. Draw with the wgpu renderer to show one"
+        );
+      });
+      return Ok(());
+    }
     let Some(scissor) = scissor_rect(self.space.clip(image.clip), self.space.width, self.space.height) else {
       return Ok(());
     };
@@ -4283,6 +4299,7 @@ impl Dx12State {
           image.image_id
         )));
       }
+      // `draw_image` leaves a viewport's box empty before it comes here.
       #[cfg(feature = "wgpu")]
       crate::images::NativeImageBackend::WgpuExternalRgba => {
         return Err(dx12_invalid_arg(format!(

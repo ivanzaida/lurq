@@ -4759,6 +4759,16 @@ impl LayoutEngine {
     #[cfg(feature = "raster")]
     if aspect_ratio.is_none()
       && match node.node_kind() {
+        // A `GpuViewport` has no picture whose shape it keeps: the app draws its texture to the box's size, and
+        // a side it is given leaves the other as a canvas's is.
+        #[cfg(feature = "wgpu")]
+        NodeKind::Image { data, .. }
+          if data
+            .native()
+            .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::WgpuExternalRgba) =>
+        {
+          false
+        }
         NodeKind::Image { .. } | NodeKind::Video { .. } => true,
         #[cfg(feature = "image")]
         NodeKind::ResourceImage { .. } => true,

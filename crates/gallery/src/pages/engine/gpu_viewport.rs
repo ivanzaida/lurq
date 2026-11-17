@@ -49,7 +49,7 @@ fn tell_scene(colors: usize, turning: bool) {
 }
 
 /// Whether the window is drawn with DirectX 12 (`--renderer dx12`). lurq's DirectX 12 renderer cannot sample a
-/// texture of wgpu's, and a viewport in its frame fails the frame, so the page shows none there.
+/// texture of wgpu's: it leaves the viewport's box empty, and the gallery's extension is not there to fill it.
 fn dx12() -> bool {
   crate::option("--renderer").is_some_and(|renderer| matches!(renderer.to_ascii_lowercase().as_str(), "dx12" | "d3d12"))
 }
@@ -68,14 +68,6 @@ fn empty_line(content: &str) -> Column {
 /// what is under the viewport shows through. `handlers` are its own when it is on the stage, and none in a window
 /// of its own.
 fn viewport(slot: &WgpuExternalImageSlot, size: usize, focusable: bool, handlers: Option<Handlers>) -> Element {
-  if dx12() {
-    return well()
-      .size(FILL, 180.0)
-      .child(empty_line(
-        "Drawn with DirectX 12, which samples no texture of wgpu's: no viewport here.",
-      ))
-      .into();
-  }
   let mut shown = GpuViewport::new(slot.clone()).size(FILL, FILL).focusable(focusable);
   if let Some(Handlers { anchor, record }) = handlers {
     let place = anchor.clone();
@@ -101,8 +93,13 @@ fn viewport(slot: &WgpuExternalImageSlot, size: usize, focusable: bool, handlers
     Stack::new()
       .size(FILL, FILL)
       .stack_align(StackAlignment::Center)
-      // Under the viewport: what shows while nothing has drawn into the slot, as in a browser's build.
-      .child(empty_line("Nothing has drawn into the slot."))
+      // Under the viewport: what shows while nothing has drawn into the slot, as in a browser's build, and what
+      // DirectX 12 leaves to be seen.
+      .child(empty_line(if dx12() {
+        "Drawn with DirectX 12, which samples no texture of wgpu's: the box is left empty."
+      } else {
+        "Nothing has drawn into the slot."
+      }))
       .child(shown),
   );
   if let Some(width) = width {
@@ -202,7 +199,7 @@ impl GpuViewportPage {
       flag("turning: wants_redraw", &self.turning),
     ];
     let facts = if dx12() {
-      "DirectX 12: not shown".to_owned()
+      "DirectX 12: left empty".to_owned()
     } else {
       format!("slot {}, version {}", slot.image_id(), slot.version())
     };
@@ -284,8 +281,8 @@ fn platforms() -> Column {
     ))
     .child(line(
       "dx12",
-      "lurq's own DirectX 12 renderer (--renderer dx12) samples no texture of wgpu's: the page shows a line in the \
-       viewport's place.",
+      "lurq's own DirectX 12 renderer (--renderer dx12) samples no texture of wgpu's: it leaves the viewport's box \
+       empty, draws the rest of the window, and says so once in the log.",
     ))
 }
 
@@ -321,17 +318,25 @@ impl Component for GpuViewportPage {
         "What the app's renderer and the viewport share: cloned into both.",
       ),
       (
+        "size",
+        "f32, f32",
+        "300, 150",
+        "A viewport is laid out as any box: size, width, height, percentages, flex. Given none it is a canvas's \
+         size.",
+      ),
+      (
         "image_id",
         "",
         "",
-        "The slot's id in a frame: WgpuFrameInfo::viewport(id) is where its viewport is, in pixels of the surface.",
+        "The slot's id in a frame: WgpuFrameInfo::viewport(id) is where its viewport is, in pixels of the surface, \
+         and visible_viewport(id) the part of it that is shown.",
       ),
       (
         "set_texture_view",
         "wgpu::TextureView, u32, u32",
         "",
-        "Gives the slot a view of an RGBA texture made with lurq's device, which stays valid while the slot holds \
-         it. Returns the slot's version.",
+        "Gives the slot a view of a 2D texture made with lurq's device, in an sRGB or a linear format, which the \
+         slot holds. Returns the slot's version, or a WgpuTextureError for a texture lurq cannot sample.",
       ),
       (
         "set_texture_view_of",
@@ -359,6 +364,30 @@ impl Component for GpuViewportPage {
         "lurq's instance, adapter, device, queue and surface format, given to an extension: it makes no device of \
          its own.",
       ),
+      (
+        "with_own_device",
+        "",
+        "",
+        "On WgpuRenderEngine: a device of this window's own, where the app's windows share one by default.",
+      ),
+      (
+        "WgpuFrameInfo::scale_factor",
+        "f32",
+        "",
+        "The window's pixels to a logical pixel, in the frame an extension prepares.",
+      ),
+      (
+        "WgpuFrameExtension::error",
+        "&WgpuAppError",
+        "",
+        "An invalid wgpu call of the app's, which lurq logs and tells the extension of: it ends nothing.",
+      ),
+      (
+        "AppEvent::GraphicsDeviceLost",
+        "",
+        "",
+        "Told to each window's on_app_event once its device was lost and lurq draws it with another.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -369,7 +398,7 @@ impl Component for GpuViewportPage {
         description: "A box whose pixels are a texture the app draws itself, with its own wgpu passes on lurq's \
                       device: a 3D view, a map, frames a decoder writes on the card. lurq samples the texture where \
                       the box is laid out, in the same frame, without a copy.",
-        import: Some("use lurq::{components::GpuViewport, images::WgpuExternalImageSlot};"),
+        import: Some("use lurq::{components::GpuViewport, images::WgpuExternalImageSlot, wgpu};"),
         status: Some("Stable"),
         since: None,
         source: file!(),
@@ -428,12 +457,17 @@ impl Component for GpuViewportPage {
               "            // draw the scene",
               "        }",
               "        gpu.queue.submit([encoder.finish()]);",
-              "        self.slot.set_texture_view(view, width, height);",
+              "        // A texture lurq cannot sample is refused, with a line in the log.",
+              "        self.slot.set_texture_view(view, width, height).expect(\"a texture lurq samples\");",
               "        self.texture = Some(texture);",
               "    }",
               "",
               "    fn wants_redraw(&self) -> bool {",
               "        true",
+              "    }",
+              "",
+              "    fn error(&mut self, error: &WgpuAppError) {",
+              "        // an invalid call of this extension's, which ended nothing",
               "    }",
               "",
               "    fn device_lost(&mut self) {",
@@ -456,7 +490,7 @@ impl Component for GpuViewportPage {
         Section::new(
           "Where it draws",
           "The viewport is drawn by lurq's wgpu renderer, on a desktop and in a browser. lurq's DirectX 12 renderer \
-           does not sample it.",
+           leaves its box empty.",
           self.frame.demo(
             1,
             platforms(),

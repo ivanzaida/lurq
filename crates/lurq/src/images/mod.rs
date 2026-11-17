@@ -23,7 +23,7 @@ pub use image_data::{ImageData, ImageKind, ImagePixelFormat, NativeImageBackend,
 pub use image_data::{MacosCvPixelBuffer, MacosCvPixelBufferNv12Image};
 pub(crate) use render::ImageCmd;
 #[cfg(feature = "wgpu")]
-pub use wgpu_external::WgpuExternalImageSlot;
+pub use wgpu_external::{WgpuExternalImageSlot, WgpuTextureError};
 #[cfg(feature = "wgpu")]
 pub(crate) use wgpu_external::{
   WgpuExternalImageSnapshot, WgpuExternalImageState, WgpuExternalImageWeak, for_device, next_in_order,

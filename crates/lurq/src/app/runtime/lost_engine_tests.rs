@@ -25,6 +25,10 @@ struct Told {
   dropped: Cell<usize>,
   /// Each frame drawn: the engine that drew it, and the size it was told.
   drawn: RefCell<Vec<(usize, (u32, u32))>>,
+  /// The scale each engine was told before its frames, in the order it was told.
+  scales: RefCell<Vec<(usize, f32)>>,
+  /// The engines that were told they draw lurq's own tooling.
+  tooling: RefCell<Vec<usize>>,
 }
 
 struct Engine {
@@ -44,6 +48,14 @@ impl Drop for Engine {
 impl RenderEngine for Engine {
   fn resize(&mut self, width: u32, height: u32) {
     self.size = (width, height);
+  }
+
+  fn set_scale_factor(&mut self, scale_factor: f32) {
+    self.told.scales.borrow_mut().push((self.number, scale_factor));
+  }
+
+  fn draws_tooling(&mut self) {
+    self.told.tooling.borrow_mut().push(self.number);
   }
 
   fn render(&mut self, _list: &RenderList, _window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
@@ -184,4 +196,72 @@ fn a_canvas_is_drawn_again_by_its_painter_once_its_renderer_is_lost() {
   tree.request_redraw();
   assert!(tree.pass(&mut app, &TestSurface).rendered);
   assert_eq!(painted.load(Ordering::SeqCst), 2);
+}
+
+/// What a window's handler of the app's events heard.
+fn heard(tree: &Tree) -> std::sync::Arc<std::sync::Mutex<Vec<crate::app::window::AppEvent>>> {
+  let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  tree.window().set_app_event_handler(Some(std::sync::Arc::new({
+    let heard = heard.clone();
+    move |event: &crate::app::window::AppEvent| heard.lock().unwrap().push(event.clone())
+  })));
+  heard
+}
+
+#[test]
+fn each_window_hears_once_that_its_device_was_lost_after_its_engine_is_replaced() {
+  use crate::app::window::AppEvent;
+
+  let (mut tree, mut app, told) = tree(false);
+  tree.push_secondary_window(SecondaryWindow::new("other", 200, 100, Tree::new()));
+  let main = heard(&tree);
+  let other = heard(&tree.secondary_windows[0].tree);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert!(main.lock().unwrap().is_empty(), "nothing is lost yet");
+
+  told.lost.set(true);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(told.made.get(), 4, "the engines of both windows were made again");
+  assert_eq!(*main.lock().unwrap(), [AppEvent::GraphicsDeviceLost]);
+  assert_eq!(*other.lock().unwrap(), [AppEvent::GraphicsDeviceLost]);
+
+  // An engine that is not lost tells nothing.
+  tree.request_redraw();
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(main.lock().unwrap().len(), 1);
+  assert_eq!(other.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn an_engine_is_told_the_windows_scale_before_each_frame() {
+  let (mut tree, mut app, told) = tree(false);
+  tree.set_scale_factor(1.5);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  tree.set_scale_factor(2.0);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(*told.scales.borrow(), [(1, 1.5), (1, 2.0)]);
+  // And the one made after a loss, before its first frame.
+  told.lost.set(true);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(told.scales.borrow().last(), Some(&(2, 2.0)));
+}
+
+#[test]
+fn the_engines_of_a_window_of_lurqs_own_tooling_are_told_so_and_no_others() {
+  let (mut tree, mut app, told) = tree(false);
+  let mut tooling = Tree::new();
+  tooling.draws_tooling = true;
+  tree.push_secondary_window(SecondaryWindow::new("tools", 200, 100, tooling));
+  assert_eq!(told.made.get(), 2);
+  assert_eq!(
+    *told.tooling.borrow(),
+    [2],
+    "the tooling window's engine, and not the app's"
+  );
+  // As is the one made in its place after a loss, before the main window's.
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  told.lost.set(true);
+  assert!(tree.pass(&mut app, &TestSurface).rendered);
+  assert_eq!(told.made.get(), 4);
+  assert_eq!(*told.tooling.borrow(), [2, 3]);
 }

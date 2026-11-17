@@ -77,6 +77,12 @@ pub trait RenderEngine {
   #[cfg(feature = "perf_profile")]
   fn set_profile_context(&mut self, _context: crate::app::profiler::ProfileContext) {}
   fn resize(&mut self, width: u32, height: u32);
+  /// The window's physical pixels to one logical pixel (1.5 at a scale of 150%), told by the tree before each
+  /// frame.
+  fn set_scale_factor(&mut self, _scale_factor: f32) {}
+  /// The engine draws a window of lurq's own tooling (DevTools), not one of the app's: it runs none of the app's
+  /// additions to its frames (a `WgpuFrameExtension`). Told once, as the tree is given the engine.
+  fn draws_tooling(&mut self) {}
   /// Includes culled canvases, which still need queued drawing and readbacks.
   #[cfg(feature = "canvas")]
   fn prepare_canvases(&mut self, canvases: &[crate::canvas::CanvasHandle]) {

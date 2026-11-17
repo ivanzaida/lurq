@@ -1,3 +1,4 @@
+mod app_errors;
 #[cfg(feature = "canvas")]
 mod canvas;
 #[cfg(all(windows, feature = "raster"))]
@@ -16,6 +17,8 @@ mod layers;
 mod quad_tests;
 mod surface_proxy;
 mod vertex;
+#[cfg(all(test, windows, feature = "screenshot"))]
+mod viewport_tests;
 
 #[cfg(all(feature = "raster", target_os = "macos"))]
 use std::ffi::c_void;
@@ -28,7 +31,7 @@ use core_foundation_sys::dictionary::CFDictionaryRef;
 #[cfg(all(feature = "raster", target_os = "macos"))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
 use extension::WgpuFrameExtensionEntry;
-pub use extension::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
+pub use extension::{SharedWgpuContext, WgpuAppError, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
 #[cfg(all(feature = "raster", target_os = "macos"))]
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use raw_window_handle::{DisplayHandle, WindowHandle};
@@ -383,8 +386,15 @@ pub struct WgpuRenderEngine {
   canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   instance: Option<wgpu::Instance>,
   backends: wgpu::Backends,
-  /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`].
+  /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`]. Or
+  /// the device of the app's other windows, which this shares.
   prepared: Option<WgpuDevice>,
+  /// Whether the device is this engine's alone, and not the one the engines of the app's other windows share.
+  own_device: bool,
+  /// The window's physical pixels to one logical pixel, which the extensions are told.
+  scale_factor: f32,
+  /// The errors of the app's own calls on the device that no extension was told of yet.
+  untold: app_errors::Untold,
   /// Whether the device is lost: the card was reset or taken away.
   lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
   /// How many frames to let pass before a device that was not given is asked for again.
@@ -599,8 +609,11 @@ pub struct WgpuDevice {
   /// Whether the card the device was lost on makes a device again, as an engine on another card found: the
   /// device of the other card is let go of for one of that card.
   back: std::sync::Arc<std::sync::atomic::AtomicBool>,
-  /// Among which the device was asked for, and is asked for again.
+  /// Among which the device was asked for, and is asked for again, with these features where the card has them
+  /// and these limits.
   backends: WgpuBackends,
+  features: wgpu::Features,
+  limits: wgpu::Limits,
   backend: WgpuBackend,
   /// The surface of the page's canvas, which the adapter was asked for, until the engine that draws to the
   /// canvas takes it.
@@ -635,6 +648,8 @@ struct MadeDevice {
   displaced: bool,
   /// Whether it was made while something held the lost device still: it is not a whole one.
   while_held: bool,
+  /// The errors of the app's own calls on it that no extension was told of yet.
+  untold: app_errors::Untold,
 }
 
 /// Why [`WgpuDevice::request`] has no device: no adapter (a browser without WebGPU), or one that refused the device.
@@ -658,8 +673,9 @@ impl WgpuDevice {
   /// [`Self::request`] among `backends` only. In a browser, `WgpuBackends::GL` asks for WebGL2 also where there
   /// is WebGPU, and `WgpuBackends::BROWSER_WEBGPU` for WebGPU alone.
   pub async fn request_with(backends: WgpuBackends) -> Result<Self, WgpuDeviceError> {
+    let (features, limits) = (wgpu::Features::empty(), wgpu::Limits::default());
     #[cfg(not(target_arch = "wasm32"))]
-    let made = Self::ask(backends).await?;
+    let made = Self::ask(backends, features, &limits).await?;
     #[cfg(target_arch = "wasm32")]
     let (made, surface) = Self::ask(backends).await?;
     Ok(Self {
@@ -669,18 +685,36 @@ impl WgpuDevice {
       made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
       back: std::sync::Arc::default(),
       backends,
+      features,
+      limits,
       #[cfg(target_arch = "wasm32")]
       surface: std::rc::Rc::new(std::cell::RefCell::new(Some(surface))),
     })
   }
 
+  /// The device an engine made for itself, to be shared with the engines of the app's other windows.
+  #[cfg(not(target_arch = "wasm32"))]
+  fn of_engine(made: MadeDevice, backends: WgpuBackends, features: wgpu::Features, limits: wgpu::Limits) -> Self {
+    Self {
+      backend: made.adapter.get_info().backend,
+      made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
+      back: std::sync::Arc::default(),
+      backends,
+      features,
+      limits,
+    }
+  }
+
   /// Asks for an adapter among `backends` and its device, as an engine does for its first frame.
   #[cfg(not(target_arch = "wasm32"))]
-  async fn ask(backends: WgpuBackends) -> Result<MadeDevice, WgpuDeviceError> {
+  async fn ask(
+    backends: WgpuBackends,
+    features: wgpu::Features,
+    limits: &wgpu::Limits,
+  ) -> Result<MadeDevice, WgpuDeviceError> {
     let instance = new_instance(backends);
     // After a loss, the card the device was lost on is asked first, and waited for a little.
-    let describe =
-      |adapter: &wgpu::Adapter| device_descriptor(adapter, wgpu::Features::empty(), &wgpu::Limits::default());
+    let describe = |adapter: &wgpu::Adapter| device_descriptor(adapter, features, limits);
     let (adapter, device, queue, displaced, while_held) =
       match device_loss::the_card_again(&instance, None, describe).await {
         device_loss::Again::Card(adapter, device, queue, held) => (adapter, device, queue, false, held),
@@ -691,13 +725,14 @@ impl WgpuDevice {
         }
         device_loss::Again::Elsewhere(adapter, device, queue) => (adapter, device, queue, true, false),
         device_loss::Again::Unasked => {
-          let (adapter, device, queue) = Self::ask_of(&instance, None).await?;
+          let (adapter, device, queue) = Self::ask_of(&instance, None, features, limits).await?;
           (adapter, device, queue, false, false)
         }
       };
     let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let untold = app_errors::Untold::default();
     // Where it is lost, the engines that draw with it are replaced, and are given another.
-    device_loss::watch(&device, &lost, &adapter);
+    device_loss::watch(&device, &lost, &adapter, &untold);
     Ok(MadeDevice {
       instance,
       adapter,
@@ -707,6 +742,7 @@ impl WgpuDevice {
       number: device_number(),
       displaced,
       while_held,
+      untold,
     })
   }
 
@@ -733,16 +769,27 @@ impl WgpuDevice {
       .map_err(|error| WgpuDeviceError(format!("the page's canvas cannot be drawn to: {error}")))?;
       (instance, surface)
     };
-    let (adapter, device, queue) = Self::ask_of(&instance, Some(&surface)).await?;
+    let (adapter, device, queue) = Self::ask_of(
+      &instance,
+      Some(&surface),
+      wgpu::Features::empty(),
+      &wgpu::Limits::default(),
+    )
+    .await?;
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let untold = app_errors::Untold::default();
+    // A device lost here is not made again; what the app does wrong on it ends nothing.
+    device_loss::watch(&device, &lost, &adapter, &untold);
     let made = MadeDevice {
       instance,
       adapter,
       device,
       queue,
-      lost: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      lost,
       number: device_number(),
       displaced: false,
       while_held: false,
+      untold,
     };
     Ok((made, surface))
   }
@@ -752,6 +799,8 @@ impl WgpuDevice {
   async fn ask_of(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'static>>,
+    features: wgpu::Features,
+    limits: &wgpu::Limits,
   ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), WgpuDeviceError> {
     let adapter = instance
       .request_adapter(&wgpu::RequestAdapterOptions {
@@ -762,11 +811,7 @@ impl WgpuDevice {
       .await
       .map_err(|error| WgpuDeviceError(format!("no suitable GPU adapter found: {error}")))?;
     let (device, queue) = adapter
-      .request_device(&device_descriptor(
-        &adapter,
-        wgpu::Features::empty(),
-        &wgpu::Limits::default(),
-      ))
+      .request_device(&device_descriptor(&adapter, features, limits))
       .await
       .map_err(|error| WgpuDeviceError(format!("failed to create device: {error}")))?;
     Ok((adapter, device, queue))
@@ -788,7 +833,7 @@ impl WgpuDevice {
         *made = None;
       }
       if made.is_none() {
-        *made = pollster::block_on(Self::ask(self.backends)).ok();
+        *made = pollster::block_on(Self::ask(self.backends, self.features, &self.limits)).ok();
       }
     }
     made.clone()
@@ -797,6 +842,96 @@ impl WgpuDevice {
   /// What the device draws through: `WgpuBackend::BrowserWebGpu` or `WgpuBackend::Gl` in a browser.
   pub fn backend(&self) -> WgpuBackend {
     self.backend
+  }
+}
+
+/// A device the engines of an app's windows share: one an engine on the thread that draws them asked for itself,
+/// as long as one of them draws with it.
+#[cfg(not(target_arch = "wasm32"))]
+struct SharedDevice {
+  backends: WgpuBackends,
+  features: wgpu::Features,
+  limits: wgpu::Limits,
+  backend: WgpuBackend,
+  made: std::sync::Weak<parking_lot::Mutex<Option<MadeDevice>>>,
+  back: std::sync::Weak<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+  /// The devices the engines on this thread share, by what they were asked for with.
+  static SHARED_DEVICES: std::cell::RefCell<Vec<SharedDevice>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WgpuDevice {
+  /// The device another engine on this thread draws with, asked for among `backends` with `features` and
+  /// `limits`, while one does.
+  fn shared(backends: WgpuBackends, features: wgpu::Features, limits: &wgpu::Limits) -> Option<Self> {
+    SHARED_DEVICES.with_borrow_mut(|shared| {
+      shared.retain(|device| device.made.strong_count() > 0);
+      let device = shared
+        .iter()
+        .find(|device| device.backends == backends && device.features == features && device.limits == *limits)?;
+      Some(Self {
+        made: device.made.upgrade()?,
+        back: device.back.upgrade()?,
+        backends,
+        features,
+        limits: limits.clone(),
+        backend: device.backend,
+      })
+    })
+  }
+
+  /// Offers this device to the engines made on this thread after it, while one draws with it.
+  fn share(&self) {
+    SHARED_DEVICES.with_borrow_mut(|shared| {
+      shared.push(SharedDevice {
+        backends: self.backends,
+        features: self.features,
+        limits: self.limits.clone(),
+        backend: self.backend,
+        made: std::sync::Arc::downgrade(&self.made),
+        back: std::sync::Arc::downgrade(&self.back),
+      })
+    });
+  }
+}
+
+/// Runs `call` on an extension as the app's: as the engine of the device numbered `number` (a view it gives a slot
+/// is of that device), and in error scopes of `device` where there is one that lives, whose errors the extension
+/// is told of after the call.
+fn run_extension(
+  entry: &mut WgpuFrameExtensionEntry,
+  device: Option<&wgpu::Device>,
+  untold: &app_errors::Untold,
+  number: u64,
+  call: impl FnOnce(&mut dyn WgpuFrameExtension),
+) {
+  let extension = &mut *entry.extension;
+  #[cfg(feature = "raster")]
+  let within = |run: &mut dyn FnMut()| crate::images::for_device(number, run);
+  #[cfg(not(feature = "raster"))]
+  let within = |run: &mut dyn FnMut()| {
+    let _ = number;
+    run()
+  };
+  let mut call = Some(call);
+  let mut run = || {
+    if let Some(call) = call.take() {
+      call(&mut *extension)
+    }
+  };
+  let errors = match device {
+    Some(device) => app_errors::caught(device, untold, || within(&mut run)).1,
+    None => {
+      app_errors::apps(|| within(&mut run));
+      Vec::new()
+    }
+  };
+  for error in &errors {
+    app_errors::apps(|| entry.extension.error(error));
   }
 }
 
@@ -818,6 +953,9 @@ impl WgpuRenderEngine {
       instance: None,
       backends: default_backends(),
       prepared: None,
+      own_device: false,
+      scale_factor: 1.0,
+      untold: app_errors::Untold::default(),
       lost: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
       device_wait: 0,
       device_number: 0,
@@ -964,6 +1102,17 @@ impl WgpuRenderEngine {
     self
   }
 
+  /// Draws with a device of this engine's own, where it would share the one the engines of the app's other windows
+  /// draw with. An engine made without [`with_device`](Self::with_device) takes the device of another engine on
+  /// its thread that was asked for among the same backends with the same optional features and limits, while one
+  /// draws with it, and asks for one otherwise: so a view of one device can be shown in every window of the app.
+  /// A device of its own is for a window that must not wait on the others' work, or that draws on another card.
+  /// In a browser there is one window and its device is given.
+  pub fn with_own_device(mut self) -> Self {
+    self.own_device = true;
+    self
+  }
+
   pub fn with_frame_extension(mut self, extension: impl WgpuFrameExtension + 'static) -> Self {
     self.add_frame_extension(extension);
     self
@@ -1019,20 +1168,30 @@ impl WgpuRenderEngine {
     let Some(gpu) = self.shared_context() else {
       return;
     };
-    let frame = WgpuFrameInfo::new(list, self.width, self.height);
-    // A view an extension gives to a slot from here is of this engine's device.
-    let run = |entry: &mut WgpuFrameExtensionEntry| {
+    let frame = WgpuFrameInfo::new(list, self.width, self.height, self.scale_factor);
+    // What the app did wrong on the device outside the extensions' calls since the last frame.
+    let untold = self.untold.take();
+    for entry in &mut self.frame_extensions {
       if !entry.initialized {
-        entry.extension.initialize(&gpu);
+        run_extension(
+          entry,
+          Some(&gpu.device),
+          &self.untold,
+          self.device_number,
+          |extension| extension.initialize(&gpu),
+        );
         entry.initialized = true;
       }
-      entry.extension.prepare(&gpu, frame);
-    };
-    for entry in &mut self.frame_extensions {
-      #[cfg(feature = "raster")]
-      crate::images::for_device(self.device_number, || run(entry));
-      #[cfg(not(feature = "raster"))]
-      run(entry);
+      for error in &untold {
+        app_errors::apps(|| entry.extension.error(error));
+      }
+      run_extension(
+        entry,
+        Some(&gpu.device),
+        &self.untold,
+        self.device_number,
+        |extension| extension.prepare(&gpu, frame),
+      );
     }
   }
 
@@ -1043,7 +1202,10 @@ impl WgpuRenderEngine {
     for entry in &mut self.frame_extensions {
       if entry.initialized && !entry.told_lost {
         entry.told_lost = true;
-        entry.extension.device_lost();
+        // Nothing is asked of a device that is lost: no scope is pushed on it.
+        run_extension(entry, None, &self.untold, self.device_number, |extension| {
+          extension.device_lost()
+        });
       }
     }
     #[cfg(feature = "raster")]
@@ -1060,12 +1222,16 @@ impl WgpuRenderEngine {
     }
 
     // An engine whose device is lost is let go of before it draws again: its extensions are told here.
-    if self.device_is_lost() {
+    let lost = self.device_is_lost();
+    if lost {
       self.tell_extensions_of_loss();
     }
+    let device = self.device.clone().filter(|_| !lost);
     for entry in &mut self.frame_extensions {
       if entry.initialized {
-        entry.extension.shutdown();
+        run_extension(entry, device.as_ref(), &self.untold, self.device_number, |extension| {
+          extension.shutdown()
+        });
         entry.initialized = false;
       }
     }
@@ -1332,6 +1498,16 @@ impl WgpuRenderEngine {
       return;
     }
 
+    // The device of the app's other windows, where one draws with a device asked for as this one would be.
+    #[cfg(not(target_arch = "wasm32"))]
+    let shared = self.prepared.is_none() && !self.own_device && self.device.is_none() && {
+      self.prepared = WgpuDevice::shared(
+        self.backends,
+        self.optional_device_features,
+        &self.optional_device_limits,
+      );
+      self.prepared.is_some()
+    };
     // A device this was given, as it is now: another one where the first was lost.
     let given = match &self.prepared {
       Some(prepared) if self.device.is_none() => match prepared.current() {
@@ -1350,6 +1526,19 @@ impl WgpuRenderEngine {
       });
     }
     let surface = self.create_surface(window, display);
+    // A device of another window whose card cannot draw to this one's: this window asks for one of its own.
+    #[cfg(not(target_arch = "wasm32"))]
+    if shared
+      && given
+        .as_ref()
+        .is_some_and(|made| !made.adapter.is_surface_supported(&surface))
+    {
+      drop(surface);
+      self.prepared = None;
+      self.instance = None;
+      self.own_device = true;
+      return self.ensure_initialized(window, display);
+    }
 
     if let (Some(adapter), Some(device)) = (self.adapter.clone(), self.device.clone()) {
       self.configure_surface(surface, &adapter, &device);
@@ -1358,8 +1547,9 @@ impl WgpuRenderEngine {
 
     let (adapter, device, queue) = match given {
       Some(made) => {
-        // All that share the device lose it together.
+        // All that share the device lose it together, and are told of the app's errors on it together.
         self.lost = made.lost;
+        self.untold = made.untold;
         self.device_number = made.number;
         self.displaced = made.displaced;
         self.made_while_held = made.while_held;
@@ -1371,8 +1561,30 @@ impl WgpuRenderEngine {
           return;
         };
         // The device is this engine's own: where it is lost, another engine takes this one's place.
-        device_loss::watch(&made.1, &self.lost, &made.0);
+        device_loss::watch(&made.1, &self.lost, &made.0, &self.untold);
         self.device_number = device_number();
+        // And the device of the engines of the app's other windows made after this one.
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.own_device {
+          let device = WgpuDevice::of_engine(
+            MadeDevice {
+              instance: self.instance.clone().expect("the instance the device was asked of"),
+              adapter: made.0.clone(),
+              device: made.1.clone(),
+              queue: made.2.clone(),
+              lost: self.lost.clone(),
+              number: self.device_number,
+              displaced: self.displaced,
+              while_held: self.made_while_held,
+              untold: self.untold.clone(),
+            },
+            self.backends,
+            self.optional_device_features,
+            self.optional_device_limits.clone(),
+          );
+          device.share();
+          self.prepared = Some(device);
+        }
         made
       }
     };
@@ -1857,6 +2069,7 @@ impl raw_window_handle::HasDisplayHandle for WindowDisplayPair<'_> {
 
 impl Drop for WgpuRenderEngine {
   fn drop(&mut self) {
+    let _own = app_errors::OwnWork::begin();
     self.release_gpu_resources();
   }
 }
@@ -1986,7 +2199,18 @@ impl RenderEngine for WgpuRenderEngine {
     // replays the ones queued during a modal sizing loop back to back), which stalled for seconds.
   }
 
+  fn set_scale_factor(&mut self, scale_factor: f32) {
+    self.scale_factor = scale_factor;
+  }
+
+  fn draws_tooling(&mut self) {
+    // The app's extensions are the app's windows': they are never initialized for this one.
+    self.frame_extensions.clear();
+  }
+
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
+    // An error of what is asked of wgpu from here is lurq's, but in the extensions' calls.
+    let _own = app_errors::OwnWork::begin();
     // A device that is lost is asked nothing more: what it answers is errors.
     if self.device_is_lost() {
       self.tell_extensions_of_loss();
@@ -3403,6 +3627,7 @@ impl RenderEngine for WgpuRenderEngine {
   }
 
   fn release_window_surface(&mut self) {
+    let _own = app_errors::OwnWork::begin();
     if let Some(device) = &self.device {
       let _ = device.poll(wgpu::PollType::Poll);
     }
