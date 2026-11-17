@@ -703,16 +703,14 @@ impl TeachingTipView {
     if let Some((step, of)) = self.step {
       let part = self.part(TeachingTipPart::Step);
       footer = footer.child(
-        Row::new()
-          .part(&part)
-          .child(
-            part
-              .text(&crate::core::fill(
-                &super::current_locale().common.place_of,
-                &[("at", &step.to_string()), ("total", &of.to_string())],
-              ))
-              .nowrap(),
-          ),
+        Row::new().part(&part).child(
+          part
+            .text(&crate::core::fill(
+              &super::current_locale().common.place_of,
+              &[("at", &step.to_string()), ("total", &of.to_string())],
+            ))
+            .nowrap(),
+        ),
       );
     }
     let mut actions = Row::new()

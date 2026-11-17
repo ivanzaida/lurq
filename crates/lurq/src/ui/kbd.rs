@@ -3,8 +3,6 @@
 
 use std::sync::Arc;
 
-use crate::core::KeyWords;
-
 use super::{
   names,
   part_style::PartStyle,
@@ -17,6 +15,7 @@ use crate::{
     theme::{BorderSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::Row,
+  core::KeyWords,
   layout::Alignment,
   node::{Element, border::Border as Line},
 };
@@ -288,7 +287,11 @@ impl Kbd {
     let view = KbdView {
       steps: {
         let locale = super::current_locale();
-        self.steps.iter().map(|step| keys_of(step, platform, &locale.keys)).collect()
+        self
+          .steps
+          .iter()
+          .map(|step| keys_of(step, platform, &locale.keys))
+          .collect()
       },
       platform,
       variant: self.variant,
@@ -409,7 +412,11 @@ fn keys_of(step: &[Arc<str>], platform: KeyPlatform, words: &KeyWords) -> Vec<Kb
       }
       if let Some((word, mac_label, name)) = named(&folded, words) {
         let label = if mac { mac_label } else { word };
-        let name = if mac && name == &*words.enter { &*words.return_key } else { name };
+        let name = if mac && name == &*words.enter {
+          &*words.return_key
+        } else {
+          name
+        };
         return (
           u8::MAX,
           KbdKey {

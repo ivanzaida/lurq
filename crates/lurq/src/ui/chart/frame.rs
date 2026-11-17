@@ -453,7 +453,13 @@ impl ChartFrame {
           .part(&empty)
           .child(
             empty
-              .text(self.props.empty_text.as_deref().unwrap_or(&crate::ui::current_locale().data.no_data))
+              .text(
+                self
+                  .props
+                  .empty_text
+                  .as_deref()
+                  .unwrap_or(&crate::ui::current_locale().data.no_data),
+              )
               .part(&empty)
               .nowrap(),
           )
@@ -799,7 +805,10 @@ impl ChartFrame {
           }
         }
       })
-      .describe("a11y_roledescription", crate::ui::current_locale().data.chart_role.clone())
+      .describe(
+        "a11y_roledescription",
+        crate::ui::current_locale().data.chart_role.clone(),
+      )
   }
 
   fn series_name(&self, series: usize) -> String {

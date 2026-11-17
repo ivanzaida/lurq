@@ -226,7 +226,9 @@ pub(crate) fn sync() {
   let mtm = MainThreadMarker::new().unwrap();
   let app = NSApplication::sharedApplication(mtm);
   let bar = menu(mtm, "");
-  let words = STATE.with(|s| s.borrow().as_ref().map(|s| s.controller.words())).unwrap_or_default();
+  let words = STATE
+    .with(|s| s.borrow().as_ref().map(|s| s.controller.words()))
+    .unwrap_or_default();
   let application = menu(mtm, &model.application.name);
   if let Some(action) = &model.application.about {
     add_action(&application, mtm, &target, action);

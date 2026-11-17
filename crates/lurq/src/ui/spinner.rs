@@ -353,7 +353,10 @@ impl SpinnerView {
 
   /// What the spinner is called: its label, or "Loading".
   pub fn name(&self) -> Arc<str> {
-    self.label.clone().unwrap_or_else(|| super::current_locale().common.loading.clone())
+    self
+      .label
+      .clone()
+      .unwrap_or_else(|| super::current_locale().common.loading.clone())
   }
 
   /// A length of the recipe in logical pixels, where it is one.

@@ -840,7 +840,10 @@ impl CarouselView {
         .align_items(Alignment::Stretch)
         .padding_right(carousel.gap)
         .describe("a11y_role", "group")
-        .describe("a11y_roledescription", super::current_locale().navigation.slide_role.clone())
+        .describe(
+          "a11y_roledescription",
+          super::current_locale().navigation.slide_role.clone(),
+        )
         .describe("a11y_name", carousel.name_of(at + 1, count))
         .child(slide.clone());
       if self.step > 0.0 {
@@ -952,7 +955,10 @@ impl CarouselView {
       .align_items(Alignment::Center)
       .ref_element(self.root.clone())
       .describe("a11y_role", "region")
-      .describe("a11y_roledescription", super::current_locale().navigation.carousel_role.clone())
+      .describe(
+        "a11y_roledescription",
+        super::current_locale().navigation.carousel_role.clone(),
+      )
       .describe("a11y_name", carousel.words.label.clone())
       .child(track)
       .with_children(self.dots());

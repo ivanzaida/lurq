@@ -3107,14 +3107,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               .then(|| (self.filters.get(&column.id).is_some(), !self.filters.is_empty())),
             filter_labels: self.words.filter.clone(),
             export: export_link.clone(),
-            trigger_label: self
-              .words
-              .menu_trigger
-              .as_ref()
-              .map_or_else(
-                || crate::core::fill(&crate::ui::current_locale().data.column_menu, &[("column", &column.title)]),
-                |label| label(&column.title),
-              ),
+            trigger_label: self.words.menu_trigger.as_ref().map_or_else(
+              || {
+                crate::core::fill(
+                  &crate::ui::current_locale().data.column_menu,
+                  &[("column", &column.title)],
+                )
+              },
+              |label| label(&column.title),
+            ),
           })
         });
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
@@ -3165,14 +3166,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               start: Mutex::new(0.0),
               on_resize: self.on_column_resize.clone(),
               on_resize_end: self.on_column_resize_end.clone(),
-              label: self
-                .words
-                .resize
-                .as_ref()
-                .map_or_else(
-                  || crate::core::fill(&crate::ui::current_locale().data.resize_column, &[("column", &column.title)]),
-                  |label| label(&column.title),
-                ),
+              label: self.words.resize.as_ref().map_or_else(
+                || {
+                  crate::core::fill(
+                    &crate::ui::current_locale().data.resize_column,
+                    &[("column", &column.title)],
+                  )
+                },
+                |label| label(&column.title),
+              ),
             })
           });
         TableHeader {
@@ -3246,7 +3248,11 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           )
         };
         if shown_count != total && selectable {
-          format!("{} · {}", shown(), locale.count(&locale.common.selected, selected_count))
+          format!(
+            "{} · {}",
+            shown(),
+            locale.count(&locale.common.selected, selected_count)
+          )
         } else if shown_count != total {
           shown()
         } else if selectable {
@@ -4357,7 +4363,10 @@ impl TableHeader {
           .align_items(Alignment::Center)
           .flex_full(0.0, 1.0, None)
           .min_width(Dimension::Px(0.0))
-          .describe("a11y_name", crate::core::fill(&crate::ui::current_locale().data.sort_by, &[("column", &self.title)]))
+          .describe(
+            "a11y_name",
+            crate::core::fill(&crate::ui::current_locale().data.sort_by, &[("column", &self.title)]),
+          )
           .on_click(move |event: MouseEvent| press(event.shift));
         if let Some(title) = title {
           button = button.child(title);

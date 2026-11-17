@@ -532,7 +532,11 @@ impl Core {
       read_only: self.boxed.read_only,
       disabled: self.boxed.disabled,
       judgment: self.boxed.judgment(),
-      label: self.boxed.label.clone().unwrap_or_else(|| super::current_locale().fields.shortcut.clone()),
+      label: self
+        .boxed
+        .label
+        .clone()
+        .unwrap_or_else(|| super::current_locale().fields.shortcut.clone()),
       size: self.boxed.size.clone(),
       recipe,
       core: self,

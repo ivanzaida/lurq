@@ -191,7 +191,10 @@ mod tests {
   fn every_language_has_every_key() {
     for language in super::super::locale::LANGUAGES {
       let words = KeyWords::for_language(language);
-      assert!(!words.ctrl.is_empty() && !words.then.is_empty() && !words.caps_lock.is_empty(), "{language}");
+      assert!(
+        !words.ctrl.is_empty() && !words.then.is_empty() && !words.caps_lock.is_empty(),
+        "{language}"
+      );
     }
     assert_eq!(KeyWords::for_language("xx"), KeyWords::english());
     assert_eq!(&*KeyWords::for_language("uk").ctrl, "Ctrl");

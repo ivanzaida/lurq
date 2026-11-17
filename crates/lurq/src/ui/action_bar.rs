@@ -382,13 +382,10 @@ impl ActionBar {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let count_text = self
-      .count_text
-      .clone()
-      .unwrap_or_else(|| {
-        let locale = super::current_locale();
-        Arc::from(locale.count(&locale.common.selected, self.count))
-      });
+    let count_text = self.count_text.clone().unwrap_or_else(|| {
+      let locale = super::current_locale();
+      Arc::from(locale.count(&locale.common.selected, self.count))
+    });
     let recipe = theme.resolve::<ActionBar>(&case, Some(&self.rules));
     let fits = fits.filter(|_| self.count > 0);
     let compact = fits.is_some_and(|fits| {

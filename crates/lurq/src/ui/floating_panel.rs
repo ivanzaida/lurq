@@ -1434,7 +1434,10 @@ impl FloatingPanelView {
     let mut grip = pressable(&part, false)
       .describe("a11y_role", "button")
       .describe("a11y_name", format!("{} {}", self.core.resize_label, self.title))
-      .describe("a11y_description", super::current_locale().navigation.resize_hint.clone())
+      .describe(
+        "a11y_description",
+        super::current_locale().navigation.resize_hint.clone(),
+      )
       .child(glyph(&part, Name::new(icons::GRIP), false));
     grip = self.resize_handle(grip, edges);
     if self.own.mounted {

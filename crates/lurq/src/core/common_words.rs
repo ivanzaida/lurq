@@ -318,12 +318,18 @@ mod tests {
   fn every_language_has_every_word_with_its_places() {
     for language in super::super::locale::LANGUAGES {
       let words = CommonWords::for_language(language);
-      assert!(words.place_of.contains("{at}") && words.place_of.contains("{total}"), "{language}");
+      assert!(
+        words.place_of.contains("{at}") && words.place_of.contains("{total}"),
+        "{language}"
+      );
       assert!(words.remove_named.contains("{name}"), "{language}");
       for plural in [&words.selected, &words.more_count, &words.plus_more, &words.and_more] {
         assert!(plural.forms().iter().all(|form| form.contains("{count}")), "{language}");
       }
-      assert!(words.and_more.forms().iter().all(|form| form.contains("{names}")), "{language}");
+      assert!(
+        words.and_more.forms().iter().all(|form| form.contains("{names}")),
+        "{language}"
+      );
       assert!(!words.close.is_empty() && !words.ai.is_empty(), "{language}");
     }
     assert_eq!(CommonWords::for_language("xx"), CommonWords::english());

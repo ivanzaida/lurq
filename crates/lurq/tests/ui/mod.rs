@@ -103,8 +103,8 @@ mod number_input;
 mod outcome;
 mod pagination;
 mod path_field;
-mod picture;
 mod persona;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;

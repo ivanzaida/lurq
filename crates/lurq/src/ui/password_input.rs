@@ -393,9 +393,7 @@ impl PasswordInput {
       },
       reveal_button: self.reveal_button,
       strength: self.strength,
-      strength_text: self
-        .strength_text
-        .or_else(|| self.strength.map(PasswordStrength::text)),
+      strength_text: self.strength_text.or_else(|| self.strength.map(PasswordStrength::text)),
       new_password: self.new_password,
       recipe: theme.resolve::<PasswordInput>(&case, Some(&self.rules)),
       forced: self.forced,

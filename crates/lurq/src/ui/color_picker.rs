@@ -894,7 +894,11 @@ impl ColorPickerView {
     let (said, name) = if self.words.told_area {
       let (saturation, brightness) = (&self.words.saturation, &self.words.brightness);
       (
-        format!("{saturation} {}%, {brightness} {}%", percent(self.hsv.s), percent(self.hsv.v)),
+        format!(
+          "{saturation} {}%, {brightness} {}%",
+          percent(self.hsv.s),
+          percent(self.hsv.v)
+        ),
         Arc::from(format!("{saturation}, {brightness}")),
       )
     } else {
@@ -1241,23 +1245,33 @@ impl ColorPickerView {
             let hsl = model.current().to_hsl_values();
             model.set(with_hue(Hsl { h, ..hsl }, h))
           }))
-          .child(self.channel("S", &self.words.saturation, hsl.s * 100.0, 100.0, |model, s| {
-            let hsl = model.current().to_hsl_values();
-            let h = model.hsv().h;
-            model.set(with_hue(Hsl { s: s / 100.0, ..hsl }, h))
-          }))
-          .child(self.channel("L", &super::current_locale().fields.lightness, hsl.l * 100.0, 100.0, |model, l| {
-            let hsl = model.current().to_hsl_values();
-            let h = model.hsv().h;
-            model.set(with_hue(Hsl { l: l / 100.0, ..hsl }, h))
-          }));
+          .child(
+            self.channel("S", &self.words.saturation, hsl.s * 100.0, 100.0, |model, s| {
+              let hsl = model.current().to_hsl_values();
+              let h = model.hsv().h;
+              model.set(with_hue(Hsl { s: s / 100.0, ..hsl }, h))
+            }),
+          )
+          .child(self.channel(
+            "L",
+            &super::current_locale().fields.lightness,
+            hsl.l * 100.0,
+            100.0,
+            |model, l| {
+              let hsl = model.current().to_hsl_values();
+              let h = model.hsv().h;
+              model.set(with_hue(Hsl { l: l / 100.0, ..hsl }, h))
+            },
+          ));
       }
     }
     if self.alpha && self.format != ColorFormat::Hex {
-      row = row.child(self.channel("A", &self.words.alpha, self.hsv.a * 100.0, 100.0, |model, a| {
-        let hsv = model.hsv();
-        model.set(Hsv { a: a / 100.0, ..hsv })
-      }));
+      row = row.child(
+        self.channel("A", &self.words.alpha, self.hsv.a * 100.0, 100.0, |model, a| {
+          let hsv = model.hsv();
+          model.set(Hsv { a: a / 100.0, ..hsv })
+        }),
+      );
     }
     if let Some(eyedropper) = self.eyedropper() {
       row = row.child(eyedropper);

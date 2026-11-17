@@ -44,7 +44,9 @@ fn the_common_words_and_a_count_are_said_in_the_apps_locale() {
   // Outside an app that set a locale, English; a word told by itself is that word.
   let english = Stage::new(move |_| Column::new().width(480.0).child(bar()).into());
   assert!(english.paints("3 selected"));
-  let (told, _) = in_locale("uk", move || bar().count_text("Three picked").clear_label("Drop them").into());
+  let (told, _) = in_locale("uk", move || {
+    bar().count_text("Three picked").clear_label("Drop them").into()
+  });
   assert!(told.paints("Three picked") && !told.paints("Вибрано: 3"));
 }
 
@@ -62,7 +64,11 @@ fn the_words_of_fields_are_said_in_the_apps_locale() {
 
 #[test]
 fn the_words_of_ways_about_an_app_are_said_in_the_apps_locale() {
-  let pages = || Row::new().child(Pagination::controlled(3, 12, |_| {}).compact(true).id("p")).into();
+  let pages = || {
+    Row::new()
+      .child(Pagination::controlled(3, 12, |_| {}).compact(true).id("p"))
+      .into()
+  };
   let (mut stage, app) = in_locale("de", pages);
   assert!(stage.paints("Seite 3 von 12"));
   #[cfg(any(feature = "devtools", feature = "mcp"))]
@@ -94,7 +100,9 @@ fn the_words_of_data_are_said_in_the_apps_locale() {
   app.set_locale(Locale::for_tag("uk"));
   stage.pass();
   assert!(stage.paints("Немає даних") && !stage.paints("Sin datos"));
-  let (told, _) = in_locale("es", || BarList::new(Vec::<BarListItem>::new()).empty_text("Nothing ran").into());
+  let (told, _) = in_locale("es", || {
+    BarList::new(Vec::<BarListItem>::new()).empty_text("Nothing ran").into()
+  });
   assert!(told.paints("Nothing ran") && !told.paints("Sin datos"));
   // A count after a number takes the form its language gives it.
   let locale = Locale::for_tag("uk");
@@ -112,7 +120,9 @@ fn the_words_of_writing_are_said_in_the_apps_locale() {
   stage.pass();
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   assert_eq!(named(&mut stage, "block-copy").as_deref(), Some("Kopiuj kod"));
-  let (mut told, _) = in_locale("fr", || CodeBlock::new("let x = 1;").copy_label("Take it").id("block").into());
+  let (mut told, _) = in_locale("fr", || {
+    CodeBlock::new("let x = 1;").copy_label("Take it").id("block").into()
+  });
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   assert_eq!(named(&mut told, "block-copy").as_deref(), Some("Take it"));
   let _ = (&mut stage, &mut told);

@@ -213,9 +213,10 @@ impl Sparkline {
     let least = values.iter().copied().fold(f64::INFINITY, f64::min);
     let most = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let summary = if values.is_empty() {
-      self
-        .empty_text
-        .map_or_else(|| super::current_locale().data.no_data.to_string(), |text| text.to_string())
+      self.empty_text.map_or_else(
+        || super::current_locale().data.no_data.to_string(),
+        |text| text.to_string(),
+      )
     } else {
       match &self.summary_text {
         Some(text) => text(&values),

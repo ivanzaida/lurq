@@ -174,7 +174,11 @@ impl FieldWords {
         shortcut_needs_modifier: "Утримуйте разом із нею Ctrl, Alt, Shift або системну клавішу.".into(),
         rating: "Оцінка".into(),
         no_rating: "Без оцінки".into(),
-        stars: Plural::three("{value} з {count} зірки", "{value} з {count} зірок", "{value} з {count} зірок"),
+        stars: Plural::three(
+          "{value} з {count} зірки",
+          "{value} з {count} зірок",
+          "{value} з {count} зірок",
+        ),
         fields_need_attention: Plural::three(
           "{count} поле потребує уваги",
           "{count} поля потребують уваги",
@@ -389,7 +393,11 @@ impl FieldWords {
         shortcut_needs_modifier: "Przytrzymaj przy tym Ctrl, Alt, Shift lub klawisz systemowy.".into(),
         rating: "Ocena".into(),
         no_rating: "Brak oceny".into(),
-        stars: Plural::three("{value} z {count} gwiazdki", "{value} z {count} gwiazdek", "{value} z {count} gwiazdek"),
+        stars: Plural::three(
+          "{value} z {count} gwiazdki",
+          "{value} z {count} gwiazdek",
+          "{value} z {count} gwiazdek",
+        ),
         fields_need_attention: Plural::three(
           "{count} pole wymaga uwagi",
           "{count} pola wymagają uwagi",
@@ -460,16 +468,37 @@ mod tests {
   fn every_language_has_every_word_with_its_places() {
     for language in super::super::locale::LANGUAGES {
       let words = FieldWords::for_language(language);
-      for unit in [&words.bytes, &words.kilobytes, &words.megabytes, &words.gigabytes, &words.terabytes] {
+      for unit in [
+        &words.bytes,
+        &words.kilobytes,
+        &words.megabytes,
+        &words.gigabytes,
+        &words.terabytes,
+      ] {
         assert!(unit.contains("{size}"), "{language}");
       }
       for word in [&words.reset, &words.picker] {
         assert!(word.contains("{name}"), "{language}");
       }
       let value = &words.saturation_brightness_value;
-      assert!(value.contains("{saturation}") && value.contains("{brightness}"), "{language}");
-      assert!(words.stars.forms().iter().all(|form| form.contains("{value}") && form.contains("{count}")));
-      assert!(words.fields_need_attention.forms().iter().all(|form| form.contains("{count}")));
+      assert!(
+        value.contains("{saturation}") && value.contains("{brightness}"),
+        "{language}"
+      );
+      assert!(
+        words
+          .stars
+          .forms()
+          .iter()
+          .all(|form| form.contains("{value}") && form.contains("{count}"))
+      );
+      assert!(
+        words
+          .fields_need_attention
+          .forms()
+          .iter()
+          .all(|form| form.contains("{count}"))
+      );
       assert!(!words.optional.is_empty() && !words.terabytes.is_empty(), "{language}");
     }
     assert_eq!(FieldWords::for_language("xx"), FieldWords::english());

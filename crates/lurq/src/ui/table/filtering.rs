@@ -372,7 +372,12 @@ impl FilterLink {
           _ => None,
         };
         let options = std::iter::once((None, labels.all.clone()))
-          .chain(several.map(|count| (Some(usize::MAX), crate::ui::current_locale().count(&labels.several, count))))
+          .chain(several.map(|count| {
+            (
+              Some(usize::MAX),
+              crate::ui::current_locale().count(&labels.several, count),
+            )
+          }))
           .chain(values.iter().enumerate().map(|(at, value)| (Some(at), value.clone())));
         let values = values.clone();
         Select::controlled(chosen, options, move |at: &Option<usize>| {

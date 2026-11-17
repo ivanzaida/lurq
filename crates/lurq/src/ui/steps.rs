@@ -746,7 +746,10 @@ impl StepsView {
     };
     let place = crate::core::fill(
       &words.step_of,
-      &[("at", &(index + 1).to_string()), ("total", &self.steps.len().to_string())],
+      &[
+        ("at", &(index + 1).to_string()),
+        ("total", &self.steps.len().to_string()),
+      ],
     );
     let mut name = format!("{place}, {}, {status}", step.step.title);
     if step.step.invalid {

@@ -334,7 +334,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> CommandBar<T> {
       case = case.state(state.clone(), true);
     }
     let recipe = theme.resolve::<CommandBar>(&case, Some(&self.rules));
-    let label = self.label.unwrap_or_else(|| super::current_locale().navigation.commands.clone());
+    let label = self
+      .label
+      .unwrap_or_else(|| super::current_locale().navigation.commands.clone());
     let mut index = None;
     let mut chosen = None;
     let mut tabs = Vec::with_capacity(self.tabs.len());

@@ -420,7 +420,11 @@ impl Property<f64> {
             .describe("a11y_role", "button")
             .describe("a11y_name", {
               let locale = super::current_locale();
-              if up { locale.fields.increase.clone() } else { locale.fields.decrease.clone() }
+              if up {
+                locale.fields.increase.clone()
+              } else {
+                locale.fields.decrease.clone()
+              }
             });
           if able {
             half = half.on_click(move |_| {
@@ -601,7 +605,10 @@ fn color_row(cx: &EditorContext, value: &Signal<Color>) -> Element {
     .focusable(false)
     .disabled(!able)
     .ref_element(anchor.clone())
-    .describe("a11y_name", crate::core::fill(&super::current_locale().fields.picker, &[("name", &cx.label)]))
+    .describe(
+      "a11y_name",
+      crate::core::fill(&super::current_locale().fields.picker, &[("name", &cx.label)]),
+    )
     .describe("a11y_haspopup", "dialog")
     .child(
       ColorSwatch::new(color)
@@ -618,7 +625,10 @@ fn color_row(cx: &EditorContext, value: &Signal<Color>) -> Element {
     let mut dropper = components::Button::empty()
       .focusable(false)
       .disabled(!able)
-      .describe("a11y_name", crate::core::fill(&super::current_locale().fields.picker, &[("name", &cx.label)]))
+      .describe(
+        "a11y_name",
+        crate::core::fill(&super::current_locale().fields.picker, &[("name", &cx.label)]),
+      )
       .child(glyph(&cx.stepper_part, Name::from(icons::EYEDROPPER), false));
     if able && cx.color.is_some() {
       dropper = dropper.on_click(toggle(&keep.open));
@@ -647,7 +657,10 @@ fn color_row(cx: &EditorContext, value: &Signal<Color>) -> Element {
     .bare(true);
     row = row.child(
       Popover::new(keep.open.clone(), anchor)
-        .label(&crate::core::fill(&super::current_locale().fields.picker, &[("name", &cx.label)]))
+        .label(&crate::core::fill(
+          &super::current_locale().fields.picker,
+          &[("name", &cx.label)],
+        ))
         .child(picker.build(&cx.theme)),
     );
   }
@@ -1535,7 +1548,10 @@ impl PropertyGridView {
       let able = !read_only && !disabled;
       let mut control = pressable(&reset_part, !able)
         .describe("a11y_role", "button")
-        .describe("a11y_name", crate::core::fill(&super::current_locale().fields.reset, &[("name", &property.name)]))
+        .describe(
+          "a11y_name",
+          crate::core::fill(&super::current_locale().fields.reset, &[("name", &property.name)]),
+        )
         .child(glyph(&reset_part, Name::from(icons::ROTATE_LEFT), false));
       if able {
         control = control.on_click(move |_| {

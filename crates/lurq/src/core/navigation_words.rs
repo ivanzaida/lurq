@@ -339,7 +339,10 @@ impl NavigationWords {
         step_current: "aktuell".into(),
         step_to_come: "ausstehend".into(),
         step_error: "Fehler".into(),
-        steps_done: Plural::two("{count} von {count} Schritt erledigt", "{count} von {count} Schritten erledigt"),
+        steps_done: Plural::two(
+          "{count} von {count} Schritt erledigt",
+          "{count} von {count} Schritten erledigt",
+        ),
         notifications: "Benachrichtigungen".into(),
         no_notifications: "Keine Benachrichtigungen".into(),
         mark_all_read: "Alle als gelesen markieren".into(),
@@ -416,7 +419,10 @@ impl NavigationWords {
         step_current: "en cours".into(),
         step_to_come: "à venir".into(),
         step_error: "erreur".into(),
-        steps_done: Plural::two("{count} étape sur {count} terminée", "{count} étapes sur {count} terminées"),
+        steps_done: Plural::two(
+          "{count} étape sur {count} terminée",
+          "{count} étapes sur {count} terminées",
+        ),
         notifications: "Notifications".into(),
         no_notifications: "Aucune notification".into(),
         mark_all_read: "Tout marquer comme lu".into(),
@@ -493,7 +499,10 @@ impl NavigationWords {
         step_current: "actual".into(),
         step_to_come: "pendiente".into(),
         step_error: "error".into(),
-        steps_done: Plural::two("{count} de {count} paso completado", "{count} de {count} pasos completados"),
+        steps_done: Plural::two(
+          "{count} de {count} paso completado",
+          "{count} de {count} pasos completados",
+        ),
         notifications: "Notificaciones".into(),
         no_notifications: "No hay notificaciones".into(),
         mark_all_read: "Marcar todo como leído".into(),
@@ -614,9 +623,16 @@ mod tests {
       for word in [&words.slide_of, &words.page_of, &words.step_of] {
         assert!(word.contains("{at}") && word.contains("{total}"), "{language}: {word}");
       }
-      assert!(["{first}", "{last}", "{total}"].iter().all(|place| words.range_of.contains(place)));
+      assert!(
+        ["{first}", "{last}", "{total}"]
+          .iter()
+          .all(|place| words.range_of.contains(place))
+      );
       assert!(words.hide_app.contains("{app}"), "{language}");
-      assert!(words.steps_done.forms().iter().all(|form| form.contains("{count}")), "{language}");
+      assert!(
+        words.steps_done.forms().iter().all(|form| form.contains("{count}")),
+        "{language}"
+      );
       assert!(!words.main.is_empty() && !words.show_all.is_empty(), "{language}");
     }
     assert_eq!(NavigationWords::for_language("xx"), NavigationWords::english());

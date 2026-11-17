@@ -1012,7 +1012,10 @@ impl Build<'_> {
         self.opened(key, group.default_open),
         self.opened(key, group.default_open),
       );
-      let name = group.label.clone().unwrap_or_else(|| super::current_locale().navigation.group.clone());
+      let name = group
+        .label
+        .clone()
+        .unwrap_or_else(|| super::current_locale().navigation.group.clone());
       let mut button = pressable(&part, false)
         .flex(1.0)
         .justify(Justify::Start)

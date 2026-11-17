@@ -403,7 +403,9 @@ impl BarList {
       description: self.description,
       label: self.label,
       max,
-      empty_text: self.empty_text.unwrap_or_else(|| super::current_locale().data.no_data.clone()),
+      empty_text: self
+        .empty_text
+        .unwrap_or_else(|| super::current_locale().data.no_data.clone()),
       grouped,
       recipe,
       id: self.id,

@@ -449,7 +449,11 @@ impl Pagination {
           let last = (current * page_size).min(total);
           fill(
             &locale.navigation.range_of,
-            &[("first", &first.to_string()), ("last", &last.to_string()), ("total", &total.to_string())],
+            &[
+              ("first", &first.to_string()),
+              ("last", &last.to_string()),
+              ("total", &total.to_string()),
+            ],
           )
         }
         Some((total, _)) => fill(&locale.common.place_of, &[("at", "0"), ("total", &total.to_string())]),

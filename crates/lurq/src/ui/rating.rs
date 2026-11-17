@@ -407,7 +407,9 @@ impl<V: RatingValue> Rating<V> {
       size: self.size,
       icon: self.icon,
       empty_icon: self.empty_icon,
-      label: self.label.unwrap_or_else(|| super::current_locale().fields.rating.clone()),
+      label: self
+        .label
+        .unwrap_or_else(|| super::current_locale().fields.rating.clone()),
       value_text: self.value_text,
       states: self.states,
       rules: self.rules,

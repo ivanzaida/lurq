@@ -111,7 +111,10 @@ impl DataWords {
       select_none: "Select none".into(),
       rows: Plural::two("{count} row", "{count} rows"),
       shown_rows: Plural::two("{shown} of {count} row", "{shown} of {count} rows"),
-      selected_rows: Plural::two("{selected} of {count} row selected", "{selected} of {count} rows selected"),
+      selected_rows: Plural::two(
+        "{selected} of {count} row selected",
+        "{selected} of {count} rows selected",
+      ),
       column_menu: "{column} column menu".into(),
       resize_column: "Resize {column}".into(),
       sort_by: "Sort by {column}".into(),
@@ -184,7 +187,11 @@ impl DataWords {
         select_row: "Вибрати рядок".into(),
         select_none: "Зняти вибір".into(),
         rows: Plural::three("{count} рядок", "{count} рядки", "{count} рядків"),
-        shown_rows: Plural::three("{shown} з {count} рядка", "{shown} з {count} рядків", "{shown} з {count} рядків"),
+        shown_rows: Plural::three(
+          "{shown} з {count} рядка",
+          "{shown} з {count} рядків",
+          "{shown} з {count} рядків",
+        ),
         selected_rows: Plural::three(
           "Вибрано {selected} з {count} рядка",
           "Вибрано {selected} з {count} рядків",
@@ -259,7 +266,10 @@ impl DataWords {
         select_none: "Keine auswählen".into(),
         rows: Plural::two("{count} Zeile", "{count} Zeilen"),
         shown_rows: Plural::two("{shown} von {count} Zeile", "{shown} von {count} Zeilen"),
-        selected_rows: Plural::two("{selected} von {count} Zeile ausgewählt", "{selected} von {count} Zeilen ausgewählt"),
+        selected_rows: Plural::two(
+          "{selected} von {count} Zeile ausgewählt",
+          "{selected} von {count} Zeilen ausgewählt",
+        ),
         column_menu: "Spaltenmenü {column}".into(),
         resize_column: "Breite von {column} ändern".into(),
         sort_by: "Nach {column} sortieren".into(),
@@ -471,7 +481,11 @@ impl DataWords {
         select_row: "Zaznacz wiersz".into(),
         select_none: "Odznacz wszystko".into(),
         rows: Plural::three("{count} wiersz", "{count} wiersze", "{count} wierszy"),
-        shown_rows: Plural::three("{shown} z {count} wiersza", "{shown} z {count} wierszy", "{shown} z {count} wierszy"),
+        shown_rows: Plural::three(
+          "{shown} z {count} wiersza",
+          "{shown} z {count} wierszy",
+          "{shown} z {count} wierszy",
+        ),
         selected_rows: Plural::three(
           "Zaznaczono {selected} z {count} wiersza",
           "Zaznaczono {selected} z {count} wierszy",
@@ -560,10 +574,22 @@ mod tests {
       for word in [&words.column_menu, &words.resize_column, &words.sort_by] {
         assert!(word.contains("{column}"), "{language}: {word}");
       }
-      assert!(words.from_to.contains("{from}") && words.from_to.contains("{to}"), "{language}");
-      assert!(words.from_only.contains("{from}") && words.to_only.contains("{to}"), "{language}");
-      assert!(words.series.contains("{name}") && words.series.contains("{number}"), "{language}");
-      assert!(words.scale.contains("{less}") && words.scale.contains("{more}"), "{language}");
+      assert!(
+        words.from_to.contains("{from}") && words.from_to.contains("{to}"),
+        "{language}"
+      );
+      assert!(
+        words.from_only.contains("{from}") && words.to_only.contains("{to}"),
+        "{language}"
+      );
+      assert!(
+        words.series.contains("{name}") && words.series.contains("{number}"),
+        "{language}"
+      );
+      assert!(
+        words.scale.contains("{less}") && words.scale.contains("{more}"),
+        "{language}"
+      );
       for (plural, places) in [
         (&words.rows, &["{count}"][..]),
         (&words.values, &["{count}"]),

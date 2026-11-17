@@ -256,7 +256,10 @@ impl Heatmap {
       .describe("a11y_role", "img")
       .describe(
         "a11y_name",
-        crate::core::fill(&super::current_locale().data.scale, &[("less", &self.less_text), ("more", &self.more_text)]),
+        crate::core::fill(
+          &super::current_locale().data.scale,
+          &[("less", &self.less_text), ("more", &self.more_text)],
+        ),
       )
       .child(label.text(&self.less_text).part(&label).nowrap());
     for at in 0..plot.steps {

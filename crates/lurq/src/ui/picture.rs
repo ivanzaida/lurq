@@ -370,7 +370,10 @@ impl PictureLoad {
         let locale = super::current_locale();
         let megabytes = |bytes: u64| format!("{:.1}", bytes as f64 / (1024.0 * 1024.0));
         let total = crate::core::fill(&locale.fields.megabytes, &[("size", &megabytes(total))]);
-        let said = crate::core::fill(&locale.common.place_of, &[("at", &megabytes(loaded)), ("total", &total)]);
+        let said = crate::core::fill(
+          &locale.common.place_of,
+          &[("at", &megabytes(loaded)), ("total", &total)],
+        );
         format!("{percent} · {said}")
       }
       None => percent,

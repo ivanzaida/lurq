@@ -369,7 +369,10 @@ mod tests {
       let words = EditingWords::for_language(language);
       assert!(words.heading.contains("{level}"), "{language}");
       assert!(words.back_to_reference.contains("{number}"), "{language}");
-      assert!(words.words.forms().iter().all(|form| form.contains("{count}")), "{language}");
+      assert!(
+        words.words.forms().iter().all(|form| form.contains("{count}")),
+        "{language}"
+      );
       assert!(!words.find.is_empty() && !words.caution.is_empty(), "{language}");
     }
     assert_eq!(EditingWords::for_language("xx"), EditingWords::english());

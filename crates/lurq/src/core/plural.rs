@@ -196,6 +196,9 @@ mod tests {
     assert_eq!(fill("{shown} of {count}", &[("shown", "3"), ("count", "9")]), "3 of 9");
     assert_eq!(fill("{a} {b}", &[("a", "x")]), "x {b}");
     assert_eq!(fill("{ open", &[]), "{ open");
-    assert_eq!(Plural::two("{count} row", "{count} rows").say(PluralRule::OneOther, 4), "4 rows");
+    assert_eq!(
+      Plural::two("{count} row", "{count} rows").say(PluralRule::OneOther, 4),
+      "4 rows"
+    );
   }
 }
