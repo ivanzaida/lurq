@@ -91,10 +91,12 @@ pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers
 #[cfg(feature = "screenshot")]
 pub use window::ScreenshotRegion;
 pub use window::{
-  CloseRequest, CloseRequestSource, Window, WindowBorderColor, WindowCornerRadius, WindowHandle, WindowIcon,
-  WindowInfo, WindowResizeDirection,
+  CloseRequest, CloseRequestSource, EditMenuRequest, Window, WindowBorderColor, WindowCornerRadius, WindowHandle,
+  WindowIcon, WindowInfo, WindowResizeDirection,
 };
 
+mod device;
+pub use device::Device;
 pub mod menu;
 pub mod open_url;
 pub use open_url::{OpenUrlError, open_url};

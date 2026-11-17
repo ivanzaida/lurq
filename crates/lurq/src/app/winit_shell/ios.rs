@@ -252,8 +252,70 @@ fn receiver_class() -> &'static AnyClass {
       sel!(scrollViewShouldScrollToTop:),
       should_scroll_to_top as extern "C-unwind" fn(_, _, _) -> _,
     );
+    builder.add_method(sel!(lurqPencilHover:), pencil_hover as extern "C-unwind" fn(_, _, _));
   }
   builder.register()
+}
+
+/// Where an Apple Pencil hovered over the window since the shell last looked, as UIKit told it: whether it is still
+/// over it, and where, in points of the view.
+static PENCIL_HOVER: Mutex<Vec<(bool, f64, f64)>> = Mutex::new(Vec::new());
+
+extern "C-unwind" fn pencil_hover(_this: &AnyObject, _cmd: Sel, recognizer: *mut AnyObject) {
+  let Some(recognizer) = (unsafe { recognizer.as_ref() }) else {
+    return;
+  };
+  let (state, point): (isize, CGPoint) = unsafe {
+    let view: *mut AnyObject = msg_send![recognizer, view];
+    (
+      msg_send![recognizer, state],
+      msg_send![recognizer, locationInView: view],
+    )
+  };
+  // `UIGestureRecognizerStateBegan` and `Changed`: over the view; `Ended`, `Cancelled` and `Failed`: gone.
+  let over = matches!(state, 1 | 2);
+  if let Ok(mut hovers) = PENCIL_HOVER.lock() {
+    hovers.push((over, point.x, point.y));
+  }
+}
+
+/// Takes what an Apple Pencil's hover did since the last call: whether it is over the view, and where, in points.
+pub(super) fn take_pencil_hovers() -> Vec<(bool, f64, f64)> {
+  PENCIL_HOVER
+    .lock()
+    .map(|mut hovers| std::mem::take(&mut *hovers))
+    .unwrap_or_default()
+}
+
+/// An Apple Pencil hovering over the window (iPadOS 16.1, an Apple Pencil 2 or Pro): a hover gesture of the
+/// pencil's only on winit's view, which takes no touch from it. Main thread only.
+pub(super) struct PencilHover {
+  _recognizer: Retained<AnyObject>,
+  _receiver: Retained<AnyObject>,
+}
+
+impl PencilHover {
+  /// `None` where the system has no hover gesture.
+  pub(super) fn new(view: NonNull<c_void>) -> Option<Self> {
+    let class = AnyClass::get(c"UIHoverGestureRecognizer")?;
+    let view: &AnyObject = unsafe { view.cast::<AnyObject>().as_ref() };
+    unsafe {
+      let receiver: Retained<AnyObject> = msg_send![receiver_class(), new];
+      let recognizer: objc2::rc::Allocated<AnyObject> = msg_send![class, alloc];
+      let recognizer: Retained<AnyObject> =
+        msg_send![recognizer, initWithTarget: &*receiver, action: sel!(lurqPencilHover:)];
+      // `UITouchTypePencil`: a trackpad's or a mouse's hover is not the pencil's.
+      let pencil: Retained<AnyObject> = msg_send![class!(NSNumber), numberWithInteger: 2isize];
+      let types: Retained<AnyObject> = msg_send![class!(NSArray), arrayWithObject: &*pencil];
+      let _: () = msg_send![&*recognizer, setAllowedTouchTypes: &*types];
+      let _: () = msg_send![&*recognizer, setCancelsTouchesInView: false];
+      let _: () = msg_send![view, addGestureRecognizer: &*recognizer];
+      Some(Self {
+        _recognizer: recognizer,
+        _receiver: receiver,
+      })
+    }
+  }
 }
 
 /// The display's refreshes, as turns of the event loop. Main thread only, as the window is.

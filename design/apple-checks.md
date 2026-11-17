@@ -102,6 +102,18 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   three-finger gestures do not fire twice with lurq's; in a text, the loupe under a long press and the caret moving
   with the finger, the two selection handles and the menu over a selection; the bounce at a list's edge; a
   pencil's hover (iPad with Apple Pencil 2 or Pro) shows hover styles.
+- [ ] **lurq's text by touch is off on iOS.** In a text field on the phone, the system draws the caret, the loupe,
+  the handles and its edit menu (`set_native_text_selection`): lurq's loupe, handles and menu of editing commands
+  must not show beside them, and three fingers' undo, copy and paste in a focused field must happen once (lurq
+  leaves them to the system there). Outside a field (a canvas, a list), lurq's three-finger gestures and their menu
+  work, and do not fight the system's own three-finger bar.
+- [ ] **Two fingers' frame.** A pinch and a rotation are measured once both fingers of a frame moved (4 ms apart at
+  most, a finger still for 40 ms is a pivot): on a 120 Hz iPhone a pinch is smooth, a two-finger swipe over a photo
+  does not turn it, and a turn about one still finger rotates.
+- [ ] **Apple Pencil hover** (iPadOS 16.1+, Pencil 2 or Pro): `UIHoverGestureRecognizer` with
+  `allowedTouchTypes` pencil only, on winit's view. Over the gallery a button shows its hover style under the hovering
+  pencil and loses it when the pencil leaves; a trackpad's pointer is still the mouse's, not the pencil's; the
+  recognizer takes no touch from winit's view (a pencil's tap still clicks once).
 - [ ] **The emulator against the device.** The same page on the phone and on a Mac with `LURQ_DEVICE=phone`: the
   gestures feel and do the same; note what the mouse cannot imitate.
 - [ ] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).

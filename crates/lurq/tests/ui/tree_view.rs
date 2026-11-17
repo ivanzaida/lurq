@@ -1177,3 +1177,20 @@ fn a_row_of_thousands_in_a_virtual_list_opens_and_closes_building_the_rows_in_vi
   assert!((top(&mut stage, "tail") - tail).abs() < 1.0);
   assert_eq!(focused(&stage).as_deref(), Some("many"));
 }
+
+#[test]
+fn in_the_touch_form_a_tap_opens_a_row_at_once() {
+  let (mut stage, held) = board(&["crates"], None);
+  stage.tree.set_pointer(lurq::app::Pointer::Coarse);
+  stage.pass();
+  stage.tap("Cargo.toml");
+  assert_eq!(held.selected.get(), Some("Cargo.toml"));
+  assert_eq!(
+    *held.activated.lock().unwrap(),
+    ["Cargo.toml"],
+    "a tap does what a double press does, held back for nothing"
+  );
+  // A mouse's single press only selects.
+  stage.click("demo");
+  assert_eq!(held.activated.lock().unwrap().len(), 1);
+}

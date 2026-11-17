@@ -21,7 +21,7 @@ use crate::{
   app::{
     App, Tree,
     events::{MouseButton, ScrollPhase},
-    runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata},
+    runtime::{PassReport, SecondaryWindow, SecondaryWindowMetadata, finger},
     window::{
       CloseRequestSource, WindowBorderColor, WindowCommand, WindowCornerRadius, WindowIcon, WindowResizeDirection,
       resize::SizeReporter,
@@ -48,11 +48,8 @@ mod loop_wait;
 mod loop_wait_tests;
 mod native_resize;
 mod notched_wheel;
-mod touch;
 #[cfg(test)]
 mod touch_delivery_tests;
-#[cfg(test)]
-mod touch_tests;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -270,6 +267,21 @@ impl WinitWindow {
     };
 
     self.app.shared.menu.set_waker(waker.clone());
+    // A phone or a tablet emulated on a desktop: its size and safe area, and the mouse as its fingers.
+    let device = if cfg!(any(target_os = "ios", target_os = "android")) {
+      None
+    } else {
+      self.app.emulated().or_else(crate::app::Device::from_env)
+    };
+    let mut attrs = self.attrs;
+    if let Some(device) = &device {
+      if self.app.emulated().is_none() {
+        self.app.emulate(device.clone());
+      }
+      attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(device.size.0, device.size.1));
+      self.tree.window().set_safe_area(device.safe_area);
+      tracing::info!(target: "lurq::emulate", "emulating a {} of {}x{}", device.name, device.size.0, device.size.1);
+    }
     let tree = self.tree;
     tree.window().attach_shell(waker.clone());
     #[cfg(feature = "mcp")]
@@ -290,7 +302,7 @@ impl WinitWindow {
       app: self.app,
       main: ManagedWindow::new(
         tree,
-        self.attrs,
+        attrs,
         self.start_without_focus,
         self.corner_radius,
         self.on_tick,
@@ -298,7 +310,8 @@ impl WinitWindow {
         self.on_position_changed,
         self.on_size_changed,
         true,
-      ),
+      )
+      .emulating(device.is_some()),
       secondaries,
       loop_cadence: WinitLoopCadence::new(Instant::now()),
       window_waker: waker,
@@ -351,8 +364,8 @@ struct ManagedWindow {
   /// Whether the mouse's events are a pen's; see [`web::PenPointer`].
   #[cfg(target_arch = "wasm32")]
   pen_pointer: Option<web::PenPointer>,
-  /// The finger that is the window's pointer, wherever winit tells touches; see [`touch`].
-  touch: touch::TouchPointer,
+  /// The phone or tablet the window emulates, with the mouse as its fingers; see [`App::emulate`].
+  emulator: Option<crate::app::runtime::mouse_fingers::MouseFingers>,
   /// The status bar was last asked to be hidden.
   #[cfg(target_os = "ios")]
   status_bar_hidden: bool,
@@ -367,6 +380,9 @@ struct ManagedWindow {
   /// The view the keyboard types into; see [`ios_text`].
   #[cfg(target_os = "ios")]
   text_input: Option<ios_text::TextInput>,
+  /// An Apple Pencil's hover over the window; see `ios::PencilHover`.
+  #[cfg(target_os = "ios")]
+  pencil_hover: Option<ios::PencilHover>,
   #[cfg(target_os = "ios")]
   keyboard_probe: Option<ios::KeyboardProbe>,
   /// The scroll view whose finger takes the keyboard down with it; see `ios::KeyboardDrag`.
@@ -415,7 +431,7 @@ impl ManagedWindow {
       wheel_pointer: None,
       #[cfg(target_arch = "wasm32")]
       pen_pointer: None,
-      touch: touch::TouchPointer::default(),
+      emulator: None,
       #[cfg(target_os = "ios")]
       status_bar_hidden: false,
       #[cfg(target_os = "ios")]
@@ -428,6 +444,8 @@ impl ManagedWindow {
       #[cfg(target_os = "ios")]
       text_input: None,
       #[cfg(target_os = "ios")]
+      pencil_hover: None,
+      #[cfg(target_os = "ios")]
       keyboard_probe: None,
       #[cfg(target_os = "ios")]
       keyboard_drag: None,
@@ -438,6 +456,58 @@ impl ManagedWindow {
 
   fn window_id(&self) -> Option<WindowId> {
     self.window.as_ref().map(Window::id)
+  }
+
+  /// Makes the mouse the fingers of an emulated phone, where `emulating`.
+  fn emulating(mut self, emulating: bool) -> Self {
+    self.emulator = emulating.then(crate::app::runtime::mouse_fingers::MouseFingers::default);
+    self
+  }
+
+  /// Gives the mouse's event to the emulated phone's fingers, where the window emulates one: `true` when it took
+  /// it, and nothing else is to be done with it. The wheel and the keyboard are not the fingers'.
+  fn emulate_event(&mut self, event: &WindowEvent) -> bool {
+    let Some(fingers) = &mut self.emulator else {
+      return false;
+    };
+    match event {
+      WindowEvent::CursorMoved { position, .. } => {
+        self.cursor_pos = (position.x, position.y);
+        fingers.moved(&mut self.tree, position.x as f32, position.y as f32);
+      }
+      WindowEvent::CursorLeft { .. } | WindowEvent::Focused(false) => {
+        fingers.left(&mut self.tree);
+        return matches!(event, WindowEvent::CursorLeft { .. });
+      }
+      WindowEvent::MouseInput {
+        state,
+        button: winit::event::MouseButton::Left,
+        ..
+      } => match state {
+        ElementState::Pressed => fingers.pressed(&mut self.tree),
+        ElementState::Released => fingers.released(&mut self.tree),
+      },
+      // A finger has no other buttons.
+      WindowEvent::MouseInput { .. } => {}
+      WindowEvent::ModifiersChanged(modifiers) => {
+        let state = modifiers.state();
+        fingers.modifiers(&mut self.tree, state.alt_key(), state.shift_key(), state.control_key());
+        return false;
+      }
+      // With Alt+Shift+Ctrl the wheel pinches three fingers; otherwise it scrolls, as on a desktop.
+      WindowEvent::MouseWheel { delta, .. } => {
+        let delta_y = match delta {
+          MouseScrollDelta::LineDelta(_, y) => y * WHEEL_LINE,
+          MouseScrollDelta::PixelDelta(position) => position.y as f32 / self.tree.scale_factor(),
+        };
+        if !fingers.wheel(&mut self.tree, delta_y) {
+          return false;
+        }
+      }
+      _ => return false,
+    }
+    self.check_redraw();
+    true
   }
 
   /// Whether the loop must poll for this window: `on_tick` runs every turn,
@@ -458,16 +528,11 @@ impl ManagedWindow {
     #[cfg(not(target_os = "ios"))]
     let keyboard_moving = false;
     self
-      .touch
-      .next_deadline()
+      .tree
+      .finger_deadline()
       .into_iter()
-      .chain((self.tree.touch_animating() || keyboard_moving).then(|| Instant::now() + touch::SPRING_STEP))
+      .chain(keyboard_moving.then(|| Instant::now() + finger::SPRING_STEP))
       .min()
-  }
-
-  /// Gives the tree what a touch came to; see [`apply_touch_actions`].
-  fn apply_touch_actions(&mut self, actions: Vec<touch::TouchAction>, momentum: bool) -> bool {
-    apply_touch_actions(&mut self.tree, &mut self.touch, &mut self.cursor_pos, actions, momentum)
   }
 
   fn create_window(&mut self, event_loop: &ActiveEventLoop, app: &mut App) {
@@ -504,8 +569,8 @@ impl ManagedWindow {
     {
       self
         .tree
-        .set_double_click_distance(touch::DOUBLE_TAP_DISTANCE * window.scale_factor() as f32);
-      self.tree.set_double_click_interval(touch::DOUBLE_TAP_INTERVAL);
+        .set_double_click_distance(finger::DOUBLE_TAP_DISTANCE * window.scale_factor() as f32);
+      self.tree.set_double_click_interval(finger::DOUBLE_TAP_INTERVAL);
       ios::watch_keyboard();
       self.frames.attach();
       if let Ok(RawWindowHandle::UiKit(handle)) = window.window_handle().map(|handle| handle.as_raw()) {
@@ -515,6 +580,7 @@ impl ManagedWindow {
         self.status_bar_tap = Some(ios::StatusBarTap::new(handle.ui_view));
         self.keyboard_drag = Some(ios::KeyboardDrag::new(handle.ui_view));
         self.text_input = Some(ios_text::TextInput::new(handle.ui_view));
+        self.pencil_hover = ios::PencilHover::new(handle.ui_view);
         // The platform draws the focused input's caret and selection; see `ios_text`.
         self.tree.set_native_text_selection(true);
         self.keyboard_probe = Some(ios::KeyboardProbe::new(handle.ui_view));
@@ -874,18 +940,18 @@ impl ManagedWindow {
     }
     self.tree.tick_timers();
     self.tree.tick_futures();
-    {
-      let actions = self.touch.tick(now);
-      if !self.apply_touch_actions(actions, true)
-        && let Some((end, velocity)) = self.touch.end_fling()
-      {
-        self.apply_touch_actions(vec![end], true);
-        self.tree.touch_scroll_bounce(velocity.0 as f32, velocity.1 as f32, now);
-      }
-      self.tree.touch_tick(now);
-    }
+    self.tree.finger_tick(now);
     #[cfg(target_os = "ios")]
     {
+      // An Apple Pencil hovering over the window hovers what is under it.
+      let scale = self.tree.scale_factor() as f64;
+      for (over, x, y) in ios::take_pencil_hovers() {
+        if over {
+          self.tree.pen_hover((x * scale) as f32, (y * scale) as f32);
+        } else {
+          self.tree.pen_hover_ended();
+        }
+      }
       // What the keyboard did goes to the focused input, and the keyboard follows the focus.
       if let Some(text_input) = &mut self.text_input {
         text_input.sync(&mut self.tree);
@@ -990,6 +1056,10 @@ impl ManagedWindow {
     {
       self.tree.set_mouse_is_pen(pen.is_pen());
     }
+    if self.emulate_event(&event) {
+      self.apply_window_commands(event_loop);
+      return false;
+    }
     match event {
       WindowEvent::CloseRequested => {
         self.tree.window().dispatch_close_request(CloseRequestSource::Os);
@@ -1000,7 +1070,7 @@ impl ManagedWindow {
         #[cfg(target_os = "ios")]
         self
           .tree
-          .set_double_click_distance(touch::DOUBLE_TAP_DISTANCE * scale_factor as f32);
+          .set_double_click_distance(finger::DOUBLE_TAP_DISTANCE * scale_factor as f32);
         if let Some(w) = &self.window {
           let size = surface_size(w);
           self.tree.resize(size.width, size.height);
@@ -1199,13 +1269,7 @@ impl ManagedWindow {
             .touch_keyboard_follows_at(touch.location.x as f32, touch.location.y as f32);
           drag.set_interactive(follows);
         }
-        let route = deliver_touch(
-          &mut self.tree,
-          &mut self.touch,
-          &mut self.cursor_pos,
-          &touch,
-          Instant::now(),
-        );
+        let route = deliver_touch(&mut self.tree, &mut self.cursor_pos, &touch, Instant::now());
         if route != crate::app::runtime::TouchRoute::Pointer {
           self.apply_window_commands(event_loop);
           self.check_redraw();
@@ -1250,8 +1314,6 @@ struct ManagedSecondaryWindow {
   frames: FrameSource,
   ime: ime::ImeSync,
   file_drag: FileDragShell,
-  /// The finger that is the window's pointer; see [`touch`].
-  touch: touch::TouchPointer,
 }
 
 /// What a further window of the app is on a tablet or on a display plugged in: a window in a scene of its
@@ -1282,29 +1344,19 @@ impl ManagedSecondaryWindow {
 impl ManagedSecondaryWindow {
   /// When the finger on the window, or what it left moving, next needs the loop.
   fn next_touch_deadline(&self, tree: &Tree) -> Option<Instant> {
-    self
-      .touch
-      .next_deadline()
-      .into_iter()
-      .chain(tree.touch_animating().then(|| Instant::now() + touch::SPRING_STEP))
-      .min()
+    let _ = self;
+    tree.finger_deadline()
   }
 
   /// A touch on the window: the first finger is its pointer, as on the app's first window.
   fn handle_touch(&mut self, tree: &mut Tree, touch: winit::event::Touch) {
-    deliver_touch(tree, &mut self.touch, &mut self.cursor_pos, &touch, Instant::now());
+    deliver_touch(tree, &mut self.cursor_pos, &touch, Instant::now());
   }
 
   /// What time brings a finger on the window: its press, its momentum, and content springing back.
   fn tick_touch(&mut self, tree: &mut Tree, now: Instant) {
-    let actions = self.touch.tick(now);
-    if !apply_touch_actions(tree, &mut self.touch, &mut self.cursor_pos, actions, true)
-      && let Some((end, velocity)) = self.touch.end_fling()
-    {
-      apply_touch_actions(tree, &mut self.touch, &mut self.cursor_pos, vec![end], true);
-      tree.touch_scroll_bounce(velocity.0 as f32, velocity.1 as f32, now);
-    }
-    tree.touch_tick(now);
+    let _ = self;
+    tree.finger_tick(now);
   }
 }
 
@@ -1331,7 +1383,6 @@ impl ManagedSecondaryWindow {
       frames: FrameSource::default(),
       ime: ime::ImeSync::default(),
       file_drag: FileDragShell::default(),
-      touch: touch::TouchPointer::default(),
     }
   }
 
@@ -1786,18 +1837,15 @@ impl ManagedSecondaryWindow {
   }
 }
 
-/// A touch on a window, as winit gives it: the finger's own events first, to what it landed on; then, where it is
-/// the shell's (no handler took it, no gesture has it), the pointer it stands for, through `touch`'s model of a
-/// finger. Tells whose the finger was.
+/// A touch on a window, as winit gives it, to the tree's model of a finger ([`Tree::finger`]): the finger's own
+/// events first, to what it landed on; then, where it is the tree's, the pointer it stands for. Tells whose the
+/// finger was.
 fn deliver_touch(
   tree: &mut Tree,
-  pointer: &mut touch::TouchPointer,
   cursor_pos: &mut (f64, f64),
   touch: &winit::event::Touch,
   now: Instant,
 ) -> crate::app::runtime::TouchRoute {
-  use crate::app::runtime::TouchRoute;
-  let scale = f64::from(tree.scale_factor());
   let phase = match touch.phase {
     TouchPhase::Started => crate::app::events::TouchPhase::Start,
     TouchPhase::Moved => crate::app::events::TouchPhase::Move,
@@ -1806,25 +1854,15 @@ fn deliver_touch(
   };
   let force = touch.force.map(|force| force.normalized() as f32);
   let (x, y) = (touch.location.x, touch.location.y);
-  let route = tree.touch_event_by(touch.id, phase, x as f32, y as f32, force, is_pen(touch));
-  let actions = match route {
-    TouchRoute::Pointer => {
-      pointer.set_momentum(tree.touch_momentum());
-      // A finger that lands on content springing back holds it where it is.
-      let springing = touch.phase == TouchPhase::Started && tree.touch_scroll_catch();
-      pointer.touch(touch.id, touch.phase, (x, y), now, scale, springing, |(x, y)| {
-        tree.touch_scrolls_at(x as f32, y as f32)
-      })
-    }
-    // Two fingers pinch or rotate: what the first one did as the pointer ends without a click.
-    TouchRoute::Gesture => pointer.abandon(),
-    TouchRoute::Taken => return route,
-  };
-  let lifted = touch::ends_scroll(&actions)
-    && (route != TouchRoute::Pointer || matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled));
-  apply_touch_actions(tree, pointer, cursor_pos, actions, false);
-  if lifted {
-    page_after_scroll(tree, pointer, cursor_pos);
+  // A pen in range that touches nothing: Windows tells its moves as a touch's that never started. It hovers.
+  if phase == crate::app::events::TouchPhase::Move && is_pen(touch) && !tree.touch_is_down(touch.id) {
+    tree.pen_hover(x as f32, y as f32);
+    *cursor_pos = (x, y);
+    return crate::app::runtime::TouchRoute::Taken;
+  }
+  let route = tree.finger_at(touch.id, phase, x as f32, y as f32, force, is_pen(touch), now);
+  if route == crate::app::runtime::TouchRoute::Pointer {
+    *cursor_pos = (x, y);
   }
   route
 }
@@ -1882,72 +1920,6 @@ fn promoted_message() -> bool {
 #[cfg(not(windows))]
 fn promoted_message() -> bool {
   false
-}
-
-/// A finger's scroll of a window's content just ended. A list that scrolls by pages has no momentum: it goes
-/// on to a page, from how fast the finger lifted.
-fn page_after_scroll(tree: &mut Tree, pointer: &mut touch::TouchPointer, cursor_pos: &mut (f64, f64)) {
-  if !tree.touch_scroll_pages() {
-    return;
-  }
-  let velocity = match pointer.end_fling() {
-    Some((end, velocity)) => {
-      apply_touch_actions(tree, pointer, cursor_pos, vec![end], false);
-      velocity
-    }
-    None => (0.0, 0.0),
-  };
-  tree.touch_scroll_page(velocity.0 as f32, velocity.1 as f32, Instant::now());
-}
-
-/// Gives a window's tree what a touch on the window came to; see [`touch`]. `false` when the actions scrolled
-/// and the last scroll moved nothing.
-fn apply_touch_actions(
-  tree: &mut Tree,
-  pointer: &mut touch::TouchPointer,
-  cursor_pos: &mut (f64, f64),
-  actions: Vec<touch::TouchAction>,
-  momentum: bool,
-) -> bool {
-  use touch::TouchAction;
-  let mut moved = true;
-  for action in actions {
-    match action {
-      TouchAction::Move { x, y } => {
-        *cursor_pos = (x, y);
-        tree.touch_pointer_move(x as f32, y as f32);
-      }
-      TouchAction::Press { x, y } => {
-        *cursor_pos = (x, y);
-        tree.touch_press(x as f32, y as f32);
-      }
-      TouchAction::Release { x, y } => {
-        *cursor_pos = (x, y);
-        tree.touch_release(x as f32, y as f32);
-      }
-      TouchAction::Tap { x, y } => {
-        *cursor_pos = (x, y);
-        tree.touch_tap(x as f32, y as f32, touch::TAP_HIGHLIGHT);
-      }
-      TouchAction::LongPress { x, y } => {
-        if tree.touch_long_press(x as f32, y as f32) {
-          pointer.long_press_taken();
-        }
-      }
-      TouchAction::CancelPress { x, y } => tree.touch_cancel_press(x as f32, y as f32),
-      TouchAction::Settle => tree.touch_scroll_settle(),
-      TouchAction::ScrollTarget { x, y, dx, dy } => {
-        tree.touch_scroll_begin(x as f32, y as f32, dx as f32, dy as f32);
-      }
-      TouchAction::Scroll { x, y, dx, dy, phase } => {
-        let scrolled = tree.touch_scroll(x as f32, y as f32, dx as f32, dy as f32, phase, momentum);
-        if matches!(phase, ScrollPhase::Scroll) {
-          moved = scrolled;
-        }
-      }
-    }
-  }
-  moved
 }
 
 fn secondary_window_metadata(window: &Window) -> SecondaryWindowMetadata {

@@ -87,7 +87,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | Tool | Scope | Does |
 | --- | --- | --- |
 | `lurq_screenshot` | observe | PNG of a window, a region, or one element (by ref); sensitive text is covered by a grey bar. |
-| `lurq_inspect` | observe | Structured semantic tree, or matches for `query`/`role`, with roles, names, state, bounds, and `ref_N` handles. |
+| `lurq_inspect` | observe | Structured semantic tree (12 deep unless told), or matches for `query`/`role` at any depth, with roles, names, state, bounds, and `ref_N` handles. |
 | `lurq_read_tree` | observe | Element outline with `ref_N` handles, bounds, text, form values, `#id`/`.class` markers, and `.describe` attributes. |
 | `lurq_find` | observe | Substring search over the refs from the last `read_tree` (answered without touching the app). |
 | `lurq_find_by_id` | observe | Live lookup of the element with an `.id("...")`, or else the [canvas item](#canvas-content) with that id, returning a fresh actionable ref. |
@@ -100,8 +100,43 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
 | `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. A range slider takes `[low, high]` and sets both; one number moves its nearer thumb. |
 | `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
+| `lurq_touch` | interact | Play a gesture of fingers through the touch path: `tap` (`fingers`, `count`), `double_tap`, `long_press`, `pan`, `swipe`, `edge_pan`, `pinch`, `rotate`, `zoom`, `three_finger_swipe`, `three_finger_pinch`. See [touch gestures](#touch-gestures). |
 | `lurq_pointer` | interact | Read or set what the person points with, `fine` or `coarse` ([a finger or a mouse](../styling-events/#a-finger-or-a-mouse)): under `coarse` the components with a touch form take it. Set, it is pinned unless `pin` is false, so the agent's own mouse moves leave it; `follow` turns following input on or off. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
+
+### Touch gestures
+
+`lurq_touch` plays a gesture of fingers on a window through the path a touch screen's fingers take
+([`Tree::finger`](../app-runtime/#a-phone-on-a-desktop)): the fingers' own events, the pointer the first one stands
+for (a tap clicks, a drag scrolls with momentum), and the gestures, so an agent tries what a person does with a
+phone. The app's pointer becomes `coarse`, as under a finger. The gesture is played at once on a clock of its own
+that ends as the call does, at the speed it says; what it leaves moving (momentum, a list springing back) goes on in
+real time, so `lurq_wait` before a screenshot.
+
+| `gesture` | Arguments | Makes |
+| --- | --- | --- |
+| `tap` | `fingers` 1–5, `count` 1–3 | `on_tap`; one finger's tap clicks; three fingers' tap opens the menu of editing commands |
+| `double_tap` | | `on_tap` twice and `on_double_tap`; in text, a word selected |
+| `long_press` | `duration_ms` (700) | `on_long_press`; in text, the caret with the loupe |
+| `pan` | `dx`/`dy`, or `direction` and `distance` (200); `speed` (400); `fingers` | `on_pan`, a drag or a scroll; rests before it lifts, so no momentum |
+| `swipe` | `direction`, `distance` (200), `speed` (1200 px/s), `fingers` | `on_pan` and `on_swipe`; a scroll with momentum |
+| `edge_pan` | `edge` (left, right, top, bottom), `distance`, `speed` | `on_edge_pan`; from the left far enough, back |
+| `pinch` | `scale` (2), `distance` (the starting radius, 60), `angle` | `on_pinch` (and `on_rotate` with an `angle`) |
+| `rotate` | `angle` (45, degrees clockwise) | `on_rotate` |
+| `zoom` | `scale` (2) | one finger: a tap, then held and dragged, `on_pinch` |
+| `three_finger_swipe` | `direction` | left undoes, right redoes, on the focus |
+| `three_finger_pinch` | `scale` | below 1 copies, above 1 pastes |
+
+`lift: false` leaves the fingers down where the gesture ends, to take a screenshot of what is under way (the loupe of
+a long press in text, a pinch half way); the gesture `lift` lifts them. Coordinates are a `ref` or `x`/`y` in
+screenshot pixels, the gesture's middle; distances and speeds are logical
+pixels. An edge pan starts at its edge, across from `x`/`y` or at the edge's middle. As with `lurq_interact`, nothing
+MCP does reads the person's clipboard: a three-finger pinch out is refused as a synthetic Ctrl+V is. A pinch in
+copies what is selected to the clipboard, as Ctrl+C would.
+
+`lurq_inspect` with a `query` or a `role` searches every node at any depth (its `max_nodes` caps the matches), so an
+element deep in a page is found by its name or id; an outline with neither goes 12 deep unless `max_depth` says, and
+says `truncated` when it stopped.
 
 ### Coordinates and refs
 

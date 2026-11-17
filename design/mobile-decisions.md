@@ -30,7 +30,11 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
     direction and a speed), edge pan, pinch (a scale), rotate (an angle), three-finger swipe and pinch.
   - **What only a device shows** goes into [apple-checks.md](apple-checks.md) to be checked and adapted on a Mac and
     a phone.
-- **State.** Decided; in work.
+- **State.** Built on `claude/gestures-769083` (2026-11-17): `Tree::finger` is the one path of a finger, the
+  gestures, the menu of editing commands, the loupe and the handles, a pen's hover, the emulator and `lurq_touch`.
+  The bounce at a list's edge was there already (momentum carries a list past its end and it springs back,
+  `UIScrollView`'s constants): nothing was built for it. What only a device shows is in
+  [apple-checks.md](apple-checks.md) §5.
 
 ### A click is the action, a tap is the gesture
 
@@ -56,6 +60,11 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   `on_double_tap` too (a held-back single tap does not matter there); `Table` and `TreeView` open a row on a single
   tap in the touch form, so a tap on a row is never delayed.
 - **State.** Decided; to be built with the pointer on `claude/touch-form`.
+- **Since (Ivan, 2026-11-17).** What listened only to `on_dblclick` answers a finger too: `components::Zoom`
+  (`2bb08839`), `ui::Splitter` (a double tap on the handle restores the size) and `ui::DocumentTabs` (a double tap
+  keeps a preview) listen to `on_double_tap` of one finger as well; `ui::Table` and `ui::TreeView` in the touch form
+  (`ui::touch_form()`) open a row at a single tap, with no double tap listened for, so a tap is never held back; on a
+  mouse as before. Built on `claude/gestures-769083`.
 
 ### Phone emulation on a desktop
 
@@ -78,7 +87,10 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   on a PC; `on_touch_*`, `on_pinch`, `on_swipe` are for what only a finger does. A finger hovers nothing, so under
   emulation nothing shows its hovered style, as on a phone.
 - **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
-- **State.** Decided (see "Every gesture, the emulator and MCP's touch" above).
+- **State.** Built on `claude/gestures-769083` (2026-11-17), as "Every gesture, the emulator and MCP's touch" above
+  says: `App::emulate`, `Device`, `LURQ_DEVICE`, the gallery's `--device`. Alt+Shift+Ctrl is three fingers side by
+  side, which swipe and tap, and with the wheel three fingers pinched about the mouse (away spreads, toward closes;
+  the keys let go lift them). The DevTools Device panel is later, on `feat/devtools`.
 
 ### The pointer, not the density, decides a component's phone form
 

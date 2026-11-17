@@ -180,7 +180,7 @@ impl LightboxPage {
         fill: false,
         forceable: false,
         facts: format!("{count} pictures · up to {closest} ×"),
-        event: "on_index_change",
+        event: "on_index_change / on_zoom_change / on_dismiss / on_download",
         code,
         tree,
         controls: vec![

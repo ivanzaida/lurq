@@ -802,3 +802,14 @@ fn a_tab_chosen_from_the_menu_of_what_does_not_fit_has_the_focus() {
     "the tab chosen, in the bar now"
   );
 }
+
+#[test]
+fn a_fingers_double_tap_of_a_preview_keeps_it() {
+  let (open, told) = (Signal::new("blur.rs"), log());
+  let mut stage = stage(860.0, &open, &told);
+  // Two taps at one time: a double tap however slow the machine. A finger's double tap is no double click.
+  stage.presses_at(std::time::Duration::ZERO);
+  stage.tap("readme");
+  stage.tap("readme");
+  assert!(said(&told).contains(&"keep README.md".to_owned()), "{:?}", said(&told));
+}

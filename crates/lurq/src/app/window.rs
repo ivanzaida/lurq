@@ -426,6 +426,28 @@ pub(crate) enum WindowCommand {
 pub struct Window {
   inner: Arc<RwLock<WindowInner>>,
   version_signal: Signal<u64>,
+  /// The menu of editing commands a finger asked for, while it is open.
+  edit_menu: Signal<Option<EditMenuRequest>>,
+}
+
+/// A menu of editing commands a finger asked for, at a point of the window: three fingers tapped, or text was
+/// selected by touch, or a long press placed the caret. lurq shows it over the app by itself (a
+/// [`ContextMenu`](crate::ui::ContextMenu)'s bar), and each command runs as its key would
+/// ([`EditCommand`](crate::app::events::EditCommand)).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditMenuRequest {
+  /// Where the menu stands, in logical pixels: the fingers, or the top of what was selected.
+  pub x: f32,
+  pub y: f32,
+  /// Its commands, in order.
+  pub commands: Vec<crate::app::events::EditCommand>,
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for EditMenuRequest {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
 }
 
 /// Wakes the shell's event loop so a command pushed from another thread is
@@ -559,6 +581,7 @@ impl Window {
         edits: Vec::new(),
       })),
       version_signal: Signal::new(0),
+      edit_menu: Signal::new(None),
     }
   }
 
@@ -933,6 +956,24 @@ impl Window {
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);
+  }
+
+  /// The menu of editing commands a finger asked for, while it is open: read so that what reads it is rendered
+  /// again when it opens or closes.
+  pub fn edit_menu(&self) -> Option<EditMenuRequest> {
+    self.edit_menu.get()
+  }
+
+  /// The signal that holds the menu of editing commands a finger asked for: `None` closes it.
+  pub fn edit_menu_signal(&self) -> Signal<Option<EditMenuRequest>> {
+    self.edit_menu.clone()
+  }
+
+  /// Opens the menu of editing commands at a point, or closes it with `None`.
+  pub fn set_edit_menu(&self, menu: Option<EditMenuRequest>) {
+    if self.edit_menu.get_untracked() != menu {
+      self.edit_menu.set(menu);
+    }
   }
 
   /// Sets the insets a shell read from the platform. Public for tests and for shells outside the crate.
