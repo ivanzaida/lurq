@@ -726,3 +726,11 @@ fn its_words_are_the_app_s_locale_s_and_a_word_told_by_itself_stays() {
   let plain = scene(|| SignaturePad::controlled(Signature::default(), |_| {}));
   assert!(plain.paints("Sign above the line"));
 }
+
+#[test]
+fn an_empty_placeholder_leaves_the_line_alone() {
+  let stage = scene(|| SignaturePad::controlled(Signature::default(), |_| {}).placeholder(""));
+  assert!(!stage.paints("Sign above the line"), "no words under the line");
+  let with = scene(|| SignaturePad::controlled(Signature::default(), |_| {}));
+  assert!(with.paints("Sign above the line"), "the locale's words by default");
+}
