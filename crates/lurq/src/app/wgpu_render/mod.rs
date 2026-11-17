@@ -703,15 +703,10 @@ impl WgpuDevice {
             "the card a device was lost on makes none yet".to_owned(),
           ));
         }
-        asked => {
+        device_loss::Again::Elsewhere(adapter, device, queue) => (adapter, device, queue, true, false),
+        device_loss::Again::Unasked => {
           let (adapter, device, queue) = Self::ask_of(&instance, None).await?;
-          (
-            adapter,
-            device,
-            queue,
-            matches!(asked, device_loss::Again::Elsewhere),
-            false,
-          )
+          (adapter, device, queue, false, false)
         }
       };
     let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1304,7 +1299,10 @@ impl WgpuRenderEngine {
         return Some((adapter, device, queue));
       }
       device_loss::Again::Wait => return None,
-      device_loss::Again::Elsewhere => self.displaced = true,
+      device_loss::Again::Elsewhere(adapter, device, queue) => {
+        self.displaced = true;
+        return Some((adapter, device, queue));
+      }
       device_loss::Again::Unasked => {}
     }
     let adapter = pollster::block_on(
@@ -3557,7 +3555,13 @@ impl RenderEngine for WgpuRenderEngine {
 
   /// Also where the device is whole and of another card than the one a device was lost on, once that card
   /// makes a device again: the engine that takes this one's place draws on it.
+  /// Every engine on another card says so once one of them found that: a window that is not drawn now asks
+  /// nothing, and goes back with the one that asked.
   fn lost(&self) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    if self.displaced && device_loss::the_card_gave() {
+      return true;
+    }
     self.device_is_lost() || self.card_is_back
   }
 

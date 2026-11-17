@@ -53,7 +53,7 @@ fn say(lost: &AtomicBool) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) use card::{Again, a_lost_device_is_held, the_card_again, the_card_gives};
+pub(super) use card::{Again, a_lost_device_is_held, the_card_again, the_card_gave, the_card_gives};
 
 /// The card a device was lost on, which what takes the device's place is made on.
 #[cfg(not(target_arch = "wasm32"))]
@@ -110,6 +110,13 @@ mod card {
 
   static WATCHED: Mutex<Vec<Watched>> = Mutex::new(Vec::new());
   static WANTED: Mutex<Option<Wanted>> = Mutex::new(None);
+  /// Whether the card made a device the last time an engine on another card asked it: every engine on
+  /// another card is to be replaced then, drawn or not.
+  static GIVES: AtomicBool = AtomicBool::new(false);
+  /// Has the card a device was lost on make none, as one whose driver is being put in again does: a test
+  /// cannot take a card away.
+  #[cfg(test)]
+  pub(in super::super) static REFUSES: AtomicBool = AtomicBool::new(false);
 
   /// Remembers which card `device`, which `lost` tells of, is on, and has the system tell when it is
   /// destroyed.
@@ -174,6 +181,10 @@ mod card {
       return;
     };
     let mut wanted = WANTED.lock().unwrap();
+    // A device was lost on the card that is wanted: whatever it gave before, it is to be asked again.
+    if wanted.as_ref().is_none_or(|wanted| wanted.card == card) {
+      GIVES.store(false, Ordering::Release);
+    }
     match &mut *wanted {
       Some(wanted) if wanted.card == card => {
         wanted.at = Instant::now();
@@ -196,10 +207,10 @@ mod card {
     /// A device of that card, and whether it was made while something held the lost one still: such a
     /// device is not a whole one, and is made again once the lost one is gone.
     Card(wgpu::Adapter, wgpu::Device, wgpu::Queue, bool),
-    /// None yet, and the loss is recent: it is asked again later.
+    /// None yet: the loss is recent, or no other card makes one either. It is asked again later.
     Wait,
-    /// None, for too long: another card is taken, and this one looked for from there.
-    Elsewhere,
+    /// None, for too long: a device of another card, from which this one is looked for.
+    Elsewhere(wgpu::Adapter, wgpu::Device, wgpu::Queue),
     /// No device was lost on a card that is known: any card that draws is asked, as at the start.
     Unasked,
   }
@@ -225,7 +236,14 @@ mod card {
     match on_the_card(instance, &card, surface, &describe).await {
       Some((adapter, device, queue)) => Again::Card(adapter, device, queue, held),
       None if at.elapsed() < WAIT => Again::Wait,
-      None => Again::Elsewhere,
+      None => match on_another_card(instance, &card, surface, &describe).await {
+        Some((adapter, device, queue)) => {
+          // It made none just now, whatever it answered before.
+          GIVES.store(false, Ordering::Release);
+          Again::Elsewhere(adapter, device, queue)
+        }
+        None => Again::Wait,
+      },
     }
   }
 
@@ -236,10 +254,18 @@ mod card {
     describe: impl Fn(&wgpu::Adapter) -> wgpu::DeviceDescriptor<'static>,
   ) -> bool {
     let wanted = WANTED.lock().unwrap().as_ref().map(|wanted| wanted.card.clone());
-    match wanted {
+    let gives = match wanted {
       Some(card) => on_the_card(instance, &card, None, &describe).await.is_some(),
       None => false,
-    }
+    };
+    GIVES.store(gives, Ordering::Release);
+    gives
+  }
+
+  /// Whether the card made a device the last time an engine on another card asked it: the engines of the
+  /// other windows, which may not be drawn now and ask nothing, are replaced with the one that asked.
+  pub(in super::super) fn the_card_gave() -> bool {
+    GIVES.load(Ordering::Acquire)
   }
 
   async fn on_the_card(
@@ -248,10 +274,46 @@ mod card {
     surface: Option<&wgpu::Surface<'_>>,
     describe: &impl Fn(&wgpu::Adapter) -> wgpu::DeviceDescriptor<'static>,
   ) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    #[cfg(test)]
+    if REFUSES.load(Ordering::Acquire) {
+      return None;
+    }
     for adapter in instance.enumerate_adapters(wgpu::Backends::all()).await {
       if Card::of(&adapter) != *card || surface.is_some_and(|surface| !adapter.is_surface_supported(surface)) {
         continue;
       }
+      if let Ok((device, queue)) = adapter.request_device(&describe(&adapter)).await {
+        return Some((adapter, device, queue));
+      }
+    }
+    None
+  }
+
+  /// A device of another card than `card`, which made none: of a real card before one of software. The
+  /// cards are asked by name, and not as at the start, where any card that draws is taken: `card` may be
+  /// listed still and make a device a moment later, and the window is not to be on it by chance while the
+  /// engine believes itself elsewhere.
+  async fn on_another_card(
+    instance: &wgpu::Instance,
+    card: &Card,
+    surface: Option<&wgpu::Surface<'_>>,
+    describe: &impl Fn(&wgpu::Adapter) -> wgpu::DeviceDescriptor<'static>,
+  ) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    let mut others: Vec<wgpu::Adapter> = instance
+      .enumerate_adapters(wgpu::Backends::all())
+      .await
+      .into_iter()
+      .filter(|adapter| Card::of(adapter) != *card)
+      .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
+      .collect();
+    others.sort_by_key(|adapter| match adapter.get_info().device_type {
+      wgpu::DeviceType::DiscreteGpu => 0,
+      wgpu::DeviceType::IntegratedGpu => 1,
+      wgpu::DeviceType::VirtualGpu => 2,
+      wgpu::DeviceType::Other => 3,
+      wgpu::DeviceType::Cpu => 4,
+    });
+    for adapter in others {
       if let Ok((device, queue)) = adapter.request_device(&describe(&adapter)).await {
         return Some((adapter, device, queue));
       }
@@ -558,5 +620,84 @@ mod tests {
       .poll(wgpu::PollType::wait_indefinitely())
       .expect("the card answers");
     assert!(!super::is_lost(&again.device, &again.lost));
+  }
+
+  /// Run by itself, as the tests above: it removes the card's device.
+  #[test]
+  #[ignore = "removes the card's device from the whole test program: run alone, with --ignored"]
+  fn a_card_that_makes_no_device_in_time_is_left_for_another_and_gone_back_to() {
+    use std::{
+      sync::atomic::Ordering,
+      time::{Duration, Instant},
+    };
+
+    fn describe(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'static> {
+      super::super::device_descriptor(adapter, wgpu::Features::empty(), &wgpu::Limits::default())
+    }
+
+    let Ok(given) = pollster::block_on(super::super::WgpuDevice::request_with(wgpu::Backends::DX12)) else {
+      eprintln!("skipped: no card with Direct3D 12 here");
+      return;
+    };
+    let first = given.current().expect("the device that was asked for");
+    let card = first.adapter.get_info().name;
+    // SAFETY: the device of this test's own is removed, as a card that is reset removes it.
+    unsafe {
+      first
+        .device
+        .as_hal::<wgpu::hal::api::Dx12>()
+        .expect("a device of Direct3D 12")
+        .raw_device()
+        .cast::<ID3D12Device5>()
+        .expect("a device that can be removed")
+        .RemoveDevice();
+    }
+    assert!(super::is_lost(&first.device, &first.lost));
+    drop(first);
+    // The card makes no device from here, as one whose driver is being put in again.
+    super::card::REFUSES.store(true, Ordering::Release);
+    let lost_at = Instant::now();
+
+    // It is waited for: no other card is taken at once.
+    assert!(
+      given.current().is_none(),
+      "another card is taken before the first was waited for"
+    );
+    assert!(lost_at.elapsed() < Duration::from_secs(2));
+    std::thread::sleep(Duration::from_millis(3200));
+    // Waited for long enough: a device of another card, which knows itself to be elsewhere.
+    let Some(other) = given.current() else {
+      super::card::REFUSES.store(false, Ordering::Release);
+      eprintln!("the rest is not run: no other card makes a device here");
+      return;
+    };
+    let elsewhere = other.adapter.get_info().name;
+    assert_ne!(elsewhere, card, "the card that makes none is not the one taken");
+    assert!(other.displaced && !other.while_held);
+    assert!(!super::is_lost(&other.device, &other.lost));
+    // What shares the device has the same one, and it stays while the first card makes none.
+    assert!(std::sync::Arc::ptr_eq(
+      &given.clone().current().unwrap().lost,
+      &other.lost
+    ));
+    assert!(!pollster::block_on(super::the_card_gives(&other.instance, describe)));
+    assert!(!super::the_card_gave());
+
+    // The card makes a device again: an engine on the other card finds it, and says so for all.
+    super::card::REFUSES.store(false, Ordering::Release);
+    assert!(pollster::block_on(super::the_card_gives(&other.instance, describe)));
+    assert!(super::the_card_gave());
+    // Until an engine asks for it, the device of the other card is the one that is given.
+    assert!(given.current().is_some_and(|made| made.displaced));
+    given.back.store(true, Ordering::Release);
+    let back = given.current().expect("a device of the first card");
+    assert_eq!(
+      back.adapter.get_info().name,
+      card,
+      "the device is of the card it was lost on again"
+    );
+    assert!(!back.displaced && !back.while_held);
+    assert!(!super::is_lost(&back.device, &back.lost));
+    eprintln!("lost on {card:?}, went to {elsewhere:?}, and came back");
   }
 }
