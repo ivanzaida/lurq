@@ -6,7 +6,9 @@
 //! - **Alt**: two fingers, the second mirrored about where the drag began, so a drag apart or together pinches and one
 //!   around that point rotates.
 //! - **Alt+Shift**: two fingers side by side, which move together.
-//! - **Alt+Shift+Ctrl**: three fingers side by side.
+//! - **Alt+Shift+Ctrl**: three fingers side by side. With the keys held and no button, the wheel pinches them about the
+//!   mouse: away from the person spreads them (a paste), toward closes them (a copy); letting go of the keys lifts
+//!   them.
 //!
 //! While a modifier is held, or fingers are down, the fingers are drawn where they are or would land
 //! ([`Tree::set_touch_marks`]). Positions are physical pixels.
@@ -20,6 +22,10 @@ use crate::app::events::TouchPhase;
 const FIRST_FINGER: u64 = 0x6000_0000;
 /// How far apart fingers that land together are, in logical pixels.
 const FINGER_GAP: f32 = 40.0;
+/// How far from the mouse three fingers the wheel pinches land, in logical pixels, and how far the wheel turns,
+/// in its logical pixels, to spread them by e (about 2.7).
+const PINCH_RADIUS: f32 = 60.0;
+const PINCH_WHEEL: f32 = 200.0;
 
 /// How many fingers the mouse is, and how they are placed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +59,8 @@ pub(crate) struct MouseFingers {
   held: Fingers,
   /// The fingers down, and where the drag began.
   down: Option<(Fingers, (f32, f32))>,
+  /// Three fingers the wheel pinches: where they stand about, and how far from it, in physical pixels.
+  pinch: Option<((f32, f32), f32)>,
 }
 
 impl Default for MouseFingers {
@@ -61,6 +69,7 @@ impl Default for MouseFingers {
       cursor: (0.0, 0.0),
       held: Fingers::One,
       down: None,
+      pinch: None,
     }
   }
 }
@@ -87,7 +96,21 @@ impl MouseFingers {
   }
 
   /// Draws the fingers where they are or would land: while fingers other than one are held or down.
+  /// Three fingers on a circle about `center`, `radius` from it.
+  fn around(center: (f32, f32), radius: f32) -> Vec<(f32, f32)> {
+    (0..3)
+      .map(|index| {
+        let turn = -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * index as f32 / 3.0;
+        (center.0 + radius * turn.cos(), center.1 + radius * turn.sin())
+      })
+      .collect()
+  }
+
   fn mark(&self, tree: &mut Tree) {
+    if let Some((center, radius)) = self.pinch {
+      tree.set_touch_marks(Self::around(center, radius));
+      return;
+    }
     let gap = Self::gap(tree);
     let marks = match self.down {
       Some((fingers, start)) => Self::places(fingers, self.cursor, start, gap),
@@ -100,7 +123,46 @@ impl MouseFingers {
   /// The modifiers held changed.
   pub(crate) fn modifiers(&mut self, tree: &mut Tree, alt: bool, shift: bool, ctrl: bool) {
     self.held = Fingers::of(alt, shift, ctrl);
+    if self.held != Fingers::Three {
+      self.end_pinch(tree, TouchPhase::End);
+    }
     self.mark(tree);
+  }
+
+  /// The wheel turned by `delta_y`, its logical pixels, away from the person when positive. With Alt+Shift+Ctrl
+  /// held and no button down it pinches three fingers about the mouse, landing them at its first turn: `true`
+  /// then, and the wheel scrolls nothing.
+  pub(crate) fn wheel(&mut self, tree: &mut Tree, delta_y: f32) -> bool {
+    if self.held != Fingers::Three || self.down.is_some() {
+      return false;
+    }
+    let (center, radius) = match self.pinch {
+      Some(pinch) => pinch,
+      None => {
+        let pinch = (self.cursor, PINCH_RADIUS * tree.scale_factor());
+        for (index, (x, y)) in Self::around(pinch.0, pinch.1).into_iter().enumerate() {
+          tree.finger(FIRST_FINGER + index as u64, TouchPhase::Start, x, y, None);
+        }
+        pinch
+      }
+    };
+    let radius = (radius * (delta_y / PINCH_WHEEL).exp()).max(2.0);
+    self.pinch = Some((center, radius));
+    for (index, (x, y)) in Self::around(center, radius).into_iter().enumerate() {
+      tree.finger(FIRST_FINGER + index as u64, TouchPhase::Move, x, y, None);
+    }
+    self.mark(tree);
+    true
+  }
+
+  /// Lifts the three fingers the wheel pinched, if it did.
+  fn end_pinch(&mut self, tree: &mut Tree, phase: TouchPhase) {
+    let Some((center, radius)) = self.pinch.take() else {
+      return;
+    };
+    for (index, (x, y)) in Self::around(center, radius).into_iter().enumerate() {
+      tree.finger(FIRST_FINGER + index as u64, phase, x, y, None);
+    }
   }
 
   /// The mouse moved: the fingers down move with it.
@@ -117,7 +179,7 @@ impl MouseFingers {
 
   /// The left button went down: the fingers the modifiers make land.
   pub(crate) fn pressed(&mut self, tree: &mut Tree) {
-    if self.down.is_some() {
+    if self.down.is_some() || self.pinch.is_some() {
       return;
     }
     let gap = Self::gap(tree);
@@ -138,6 +200,7 @@ impl MouseFingers {
 
   /// The mouse left the window, or the window lost it: fingers down are taken away, as the system takes a touch.
   pub(crate) fn left(&mut self, tree: &mut Tree) {
+    self.end_pinch(tree, TouchPhase::Cancel);
     self.lift(tree, TouchPhase::Cancel);
     tree.set_touch_marks(Vec::new());
   }

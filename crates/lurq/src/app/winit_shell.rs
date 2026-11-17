@@ -494,6 +494,16 @@ impl ManagedWindow {
         fingers.modifiers(&mut self.tree, state.alt_key(), state.shift_key(), state.control_key());
         return false;
       }
+      // With Alt+Shift+Ctrl the wheel pinches three fingers; otherwise it scrolls, as on a desktop.
+      WindowEvent::MouseWheel { delta, .. } => {
+        let delta_y = match delta {
+          MouseScrollDelta::LineDelta(_, y) => y * WHEEL_LINE,
+          MouseScrollDelta::PixelDelta(position) => position.y as f32 / self.tree.scale_factor(),
+        };
+        if !fingers.wheel(&mut self.tree, delta_y) {
+          return false;
+        }
+      }
       _ => return false,
     }
     self.check_redraw();

@@ -89,8 +89,8 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 - **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
 - **State.** Built on `claude/gestures-769083` (2026-11-17), as "Every gesture, the emulator and MCP's touch" above
   says: `App::emulate`, `Device`, `LURQ_DEVICE`, the gallery's `--device`. Alt+Shift+Ctrl is three fingers side by
-  side, which swipe and tap; a pinch of three fingers is not made with a mouse (MCP's `three_finger_pinch` makes
-  it). The DevTools Device panel is later, on `feat/devtools`.
+  side, which swipe and tap, and with the wheel three fingers pinched about the mouse (away spreads, toward closes;
+  the keys let go lift them). The DevTools Device panel is later, on `feat/devtools`.
 
 ### The pointer, not the density, decides a component's phone form
 

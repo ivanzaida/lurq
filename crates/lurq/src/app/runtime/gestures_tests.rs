@@ -513,3 +513,84 @@ fn a_pens_hover_hovers_and_leaves_the_pointer_as_it_is() {
   tree.pen_hover_ended();
   assert!(!hovered(&tree));
 }
+
+/// Where the menu of editing commands stands, in logical pixels: x, y, width, height.
+fn menu_bounds(tree: &mut Tree) -> (f32, f32, f32, f32) {
+  tree
+    .find_element(|element| element.id() == Some("lurq-edit-menu"))
+    .expect("the menu")
+    .rect()
+}
+
+#[test]
+fn the_menu_stands_centred_above_the_point_from_its_first_frame_inside_the_window_and_its_safe_area() {
+  let (mut tree, mut app, _log) = board();
+  tree.open_edit_menu(
+    (200.0, 200.0),
+    vec![EditCommand::Cut, EditCommand::Copy, EditCommand::Paste],
+  );
+  tree.pass(&mut app, &HeadlessSurface);
+  let first = menu_bounds(&mut tree);
+  let (x, y, width, height) = first;
+  assert!(
+    ((x + width / 2.0) - 200.0).abs() < 0.5,
+    "centred over the point: {first:?}"
+  );
+  assert!(
+    ((y + height) - (200.0 - 12.0)).abs() < 0.5,
+    "above it by the gap: {first:?}"
+  );
+  tree.request_redraw();
+  tree.pass(&mut app, &HeadlessSurface);
+  assert_eq!(menu_bounds(&mut tree), first, "the first frame is the settled one");
+
+  // At the window's edge it stays inside it, and with no room above it stands below the point.
+  tree.open_edit_menu(
+    (5.0, 5.0),
+    vec![EditCommand::Cut, EditCommand::Copy, EditCommand::Paste],
+  );
+  tree.pass(&mut app, &HeadlessSurface);
+  let (x, y, ..) = menu_bounds(&mut tree);
+  assert!(x >= 0.0, "{x}");
+  assert!((y - (5.0 + 12.0)).abs() < 0.5, "below: {y}");
+
+  // A phone's status bar is not room: under one of 47, a point at 80 has no room above.
+  tree.window().set_safe_area(crate::app::window::SafeAreaInsets {
+    top: 47.0,
+    ..Default::default()
+  });
+  tree.open_edit_menu((200.0, 80.0), vec![EditCommand::Copy]);
+  tree.pass(&mut app, &HeadlessSurface);
+  let (_, y, ..) = menu_bounds(&mut tree);
+  assert!(y >= 47.0, "clear of the status bar: {y}");
+  assert!((y - (80.0 + 12.0)).abs() < 0.5, "below the point: {y}");
+}
+
+#[test]
+fn the_wheel_with_alt_shift_ctrl_pinches_three_fingers() {
+  let (mut tree, _app, log) = board();
+  let mut mouse = MouseFingers::default();
+  mouse.moved(&mut tree, 200.0, 200.0);
+  mouse.pressed(&mut tree);
+  mouse.released(&mut tree);
+  logged(&log);
+
+  // Without the keys the wheel is the wheel's.
+  assert!(!mouse.wheel(&mut tree, 120.0));
+  mouse.modifiers(&mut tree, true, true, true);
+  // Toward the person: the three close, drawn where they are; letting go of the keys lifts them, a copy.
+  for _ in 0..3 {
+    assert!(mouse.wheel(&mut tree, -40.0));
+  }
+  assert_eq!(tree.touch_marks.len(), 3);
+  mouse.modifiers(&mut tree, false, false, false);
+  assert_eq!(logged(&log), ["copy"]);
+  assert!(tree.touch_marks.is_empty());
+  // Away: they spread, a paste.
+  mouse.modifiers(&mut tree, true, true, true);
+  for _ in 0..3 {
+    mouse.wheel(&mut tree, 40.0);
+  }
+  mouse.modifiers(&mut tree, false, false, false);
+  assert_eq!(logged(&log), ["paste"]);
+}

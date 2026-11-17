@@ -224,6 +224,10 @@ pub(crate) struct OverlaySpec {
   pub(crate) traps_tab: bool,
   /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
   pub(crate) at: Option<(f32, f32)>,
+  /// Where it stands by that point, as by an anchor of no size: see [`Overlay::at_placed`].
+  pub(crate) at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of, top, right, bottom, left: see [`Overlay::keep_clear`].
+  pub(crate) clear: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -330,6 +334,8 @@ impl OverlaySpec {
       tab_after_anchor: self.tab_after_anchor,
       traps_tab: self.traps_tab,
       at: self.at,
+      at_placement: self.at_placement,
+      clear: self.clear,
     }
   }
 }
@@ -464,6 +470,8 @@ pub struct Overlay {
   tab_after_anchor: bool,
   traps_tab: bool,
   at: Option<(f32, f32)>,
+  at_placement: Option<Placement>,
+  clear: [f32; 4],
 }
 
 impl Overlay {
@@ -487,6 +495,8 @@ impl Overlay {
       tab_after_anchor: false,
       traps_tab: false,
       at: None,
+      at_placement: None,
+      clear: [0.0; 4],
     }
   }
 
@@ -631,6 +641,21 @@ impl Overlay {
     self
   }
 
+  /// With [`at`](Self::at), stands the overlay by the point as by an anchor of no size, at `placement` of it,
+  /// measured first: `Placement::Top` centres it above the point, and the collision strategy flips it below
+  /// where there is no room above. What lurq shows at a finger (the menu of editing commands) stands so.
+  pub(crate) fn at_placed(mut self, placement: Placement) -> Self {
+    self.at_placement = Some(placement);
+    self
+  }
+
+  /// Keeps the overlay off the window's edges by these, top, right, bottom and left, in logical pixels, where the
+  /// collision strategy clamps it: a phone's safe area.
+  pub(crate) fn keep_clear(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    self.clear = [top, right, bottom, left];
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -656,6 +681,8 @@ impl Overlay {
       tab_after_anchor: self.tab_after_anchor,
       traps_tab: self.traps_tab,
       at: self.at,
+      at_placement: self.at_placement,
+      clear: self.clear,
     })
   }
 }

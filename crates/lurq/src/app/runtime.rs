@@ -9244,6 +9244,8 @@ fn build_overlay_node(
     offset_y: spec.offset_y,
     collision: spec.collision,
     at: spec.at,
+    at_placement: spec.at_placement,
+    clear: spec.clear,
   };
   let (node, bounds) = place_overlay(
     node,
@@ -9269,6 +9271,10 @@ pub(super) struct OverlayPlacing {
   collision: CollisionStrategy,
   /// The point of the window it stands at in place of its anchor (`Overlay::at`).
   at: Option<(f32, f32)>,
+  /// Where it stands by that point (`Overlay::at_placed`).
+  at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of (`Overlay::keep_clear`).
+  clear: [f32; 4],
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -9291,6 +9297,8 @@ fn place_overlay(
     offset_y,
     collision,
     at,
+    at_placement,
+    clear,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -9308,16 +9316,43 @@ fn place_overlay(
     invalidate_layout_cache_recursive(&node);
   }
   let overlay_size = measured.size;
-  let (x, y) = match at {
-    Some(point) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
-    None => {
+  let (x, y) = match (at, at_placement) {
+    // By the point as by an anchor of no size there, flipped where the window less what it keeps clear of has no
+    // room that way.
+    (Some(point), Some(placement)) => {
+      let [top, right, bottom, left] = clear;
+      let (px, py) = (point.0 - left, point.1 - top);
+      let anchor = ElementRect {
+        x: px,
+        y: py,
+        relative_x: px,
+        relative_y: py,
+        width: 0.0,
+        height: 0.0,
+      };
+      let room = Size::new(
+        (viewport.width - left - right).max(0.0),
+        (viewport.height - top - bottom).max(0.0),
+      );
+      let placement = resolve_overlay_collision(placement, anchor, overlay_size, room, offset_x, offset_y, collision);
+      let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
+      (x + left, y + top)
+    }
+    (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
+    (None, _) => {
       let placement =
         resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
       overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
     }
   };
   let (x, y) = if matches!(collision, CollisionStrategy::Clamp | CollisionStrategy::FlipThenClamp) {
-    clamp_overlay_position(x, y, overlay_size, viewport)
+    let [top, right, bottom, left] = clear;
+    let room = Size::new(
+      (viewport.width - left - right).max(overlay_size.width.min(viewport.width)),
+      (viewport.height - top - bottom).max(overlay_size.height.min(viewport.height)),
+    );
+    let (x, y) = clamp_overlay_position(x - left, y - top, overlay_size, room);
+    clamp_overlay_position(x + left, y + top, overlay_size, viewport)
   } else {
     (x, y)
   };

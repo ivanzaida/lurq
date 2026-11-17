@@ -664,7 +664,7 @@ on a desktop.
 | One-finger zoom | Zoom with one hand | `on_pinch` (down zooms in) | Tap, then land again, hold and drag | Click, then press again and drag | `zoom` (`scale`) |
 | Two fingers | A pan or a swipe of two | `on_pan`, `on_swipe` with `fingers` 2 | Two fingers together | **Alt+Shift**+drag | `pan`, `swipe` with `fingers` 2 |
 | Three-finger swipe | Undo (left), redo (right) | `on_swipe` with `fingers` 3, then `EditCommand::Undo` / `Redo` | Three fingers flicked sideways | **Alt+Shift+Ctrl**+drag sideways | `three_finger_swipe` (`direction`) |
-| Three-finger pinch | Copy (in), paste (out) | `EditCommand::Copy` / `Paste` | Three fingers pinched | Not made: MCP or a device | `three_finger_pinch` (`scale`) |
+| Three-finger pinch | Copy (in), paste (out) | `EditCommand::Copy` / `Paste` | Three fingers pinched | **Alt+Shift+Ctrl** and the wheel, no button: away spreads them, toward closes them; let go of the keys to lift | `three_finger_pinch` (`scale`) |
 | Three-finger tap | The menu of editing commands | `on_tap` with `fingers` 3, then the menu | Three fingers tapped | **Alt+Shift+Ctrl**+click | `tap` with `fingers` 3 |
 | Pull to refresh, swipe actions | A list's | See [iOS](../ios/#pull-to-refresh) | Drag a list down; a row sideways | Drag | `pan`, `swipe` |
 | Bounce | A list pulled or thrown past its end springs back | The list's scroll | Drag or flick past an end | Drag or flick past an end | `pan`, `swipe` |

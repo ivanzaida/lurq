@@ -335,8 +335,9 @@ impl App {
   /// tap, a drag a pan, a swipe or a scroll with its momentum, a drag from an edge of the window an edge pan, a
   /// press held still a long press. **Alt** and a drag is a pinch and a rotation, the second finger mirrored about
   /// where the drag began; **Alt+Shift** and a drag two fingers side by side; **Alt+Shift+Ctrl** and a drag three
-  /// fingers side by side. The fingers are drawn while a modifier is held. A finger hovers nothing, so nothing
-  /// shows its hovered style; the wheel still scrolls and the keyboard types.
+  /// fingers side by side, and with the wheel three fingers pinched about the mouse (away spreads them, toward
+  /// closes them; letting go of the keys lifts them). The fingers are drawn while a modifier is held. A finger hovers
+  /// nothing, so nothing shows its hovered style; the wheel still scrolls and the keyboard types.
   ///
   /// ```
   /// use lurq::app::{App, Device, Pointer};

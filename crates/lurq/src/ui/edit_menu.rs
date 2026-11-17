@@ -5,7 +5,7 @@
 use super::{context_menu::ContextMenu, current_locale, menu::MenuItem, theme::current_theme};
 use crate::{
   app::{
-    ctx::CollisionStrategy,
+    ctx::{CollisionStrategy, Placement},
     events::EditCommand,
     window::{EditMenuRequest, Window},
   },
@@ -14,12 +14,9 @@ use crate::{
   node::{Element, Node, NodeUpdate},
 };
 
-/// How far above the point it was asked at the bar stands, in logical pixels: its height and a gap, so that it does
-/// not cover the fingers or what they selected. Where that is off the window it stands below.
-const ABOVE: f32 = 52.0;
-const BELOW: f32 = 24.0;
-/// About how wide one command of the bar is, to stand the bar's middle over the point before it is measured.
-const COMMAND_WIDTH: f32 = 72.0;
+/// How far from the point it was asked at the bar stands, in logical pixels, so that it does not cover the fingers
+/// or what they selected.
+const GAP: f32 = 12.0;
 
 /// The locale's word for an editing command.
 pub(crate) fn command_word(locale: &Locale, command: EditCommand) -> std::sync::Arc<str> {
@@ -57,17 +54,17 @@ fn edit_menu(window: &Window, request: &EditMenuRequest, anchor: ElementRef) -> 
     .build(&current_theme());
   // A finger choosing a command leaves the focus where it was: the command is run on it.
   keep_focus(&mut panel.node);
-  let width = request.commands.len() as f32 * COMMAND_WIDTH;
-  let y = if request.y >= ABOVE {
-    request.y - ABOVE
-  } else {
-    request.y + BELOW
-  };
   let menu = window.edit_menu_signal();
+  let safe = window.info().safe_area;
+  // Measured first, it stands centred above the point, below it where there is no room above, and inside the
+  // window and its safe area: the first frame shows it where it stays.
   Popup::new(anchor, panel)
     .open_when(true)
-    .at(Some(((request.x - width / 2.0).max(0.0), y)))
-    .collision(CollisionStrategy::Clamp)
+    .at(Some((request.x, request.y)))
+    .at_placed(Placement::Top)
+    .offset(0.0, GAP)
+    .collision(CollisionStrategy::FlipThenClamp)
+    .keep_clear(safe.top, safe.right, safe.bottom, safe.left)
     .takes_focus(false)
     .switch_on_anchor_press(false)
     .dismiss_on_escape(true)

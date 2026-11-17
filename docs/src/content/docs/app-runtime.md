@@ -142,11 +142,11 @@ While it emulates a device:
   swipe or a scroll with momentum, a drag from an edge of the window an edge pan, a press held still a long press.
   **Alt**+drag is two fingers, the second mirrored about where the drag began, so dragging away from that point or
   toward it pinches and around it rotates; **Alt+Shift**+drag is two fingers side by side; **Alt+Shift+Ctrl**+drag
-  three side by side. While a modifier is held the fingers are drawn as dots. A finger hovers nothing, so nothing
+  three side by side, and **Alt+Shift+Ctrl** with the wheel and no button pinches three about the mouse (away
+  spreads them, a paste; toward closes them, a copy), lifted when the keys are let go. While a modifier is held the fingers are drawn as dots. A finger hovers nothing, so nothing
   shows its hovered style. The wheel still scrolls and the keyboard still types.
 
-What is not emulated: the on-screen keyboard, the system's own gestures, a pinch of three fingers (MCP's
-`three_finger_pinch` makes one), a pen's hover, and a phone's speed.
+What is not emulated: the on-screen keyboard, the system's own gestures, a pen's hover, and a phone's speed.
 
 **For a shell of its own.** A finger reaches the tree through `Tree::finger(id, phase, x, y, force)`, in physical
 pixels: the finger's own events (`on_touch_*`), and where nothing took it the pointer it stands for (a press, a tap,
