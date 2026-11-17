@@ -4,6 +4,10 @@ use crate::{
   node::{Element, HitTestBehavior},
 };
 
+/// The engine's floating layer anchored to an element, with no look of its own: it places its content beside
+/// the anchor, flips and clamps it to the window, and closes on Escape and a press outside. The design system's
+/// panels are built on it: an app normally wants [`ui::Popover`](crate::ui::Popover),
+/// [`ui::Menu`](crate::ui::Menu) or [`ui::Tooltip`](crate::ui::Tooltip).
 pub struct Popup {
   overlay: Overlay,
 }

@@ -34,7 +34,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   pictures and drawing: `image` (codecs) and `canvas` (drawing, with `svg` folded in); `raster` and `render`
   internal; `screenshot` uses `image`; one `png`. `resources` goes. `devtools` and `perf_profile` stay, their
   call-site cfgs behind macros. The browser keeps an explicit list. Tests: seven runs (A–G) in place of five feature
-  combinations.
+  combinations. SVG is always rasterized at the size it is drawn: the tessellation an `svg`-only build had is removed
+  (Ivan, the same day), as no build has it once `canvas` brings `raster`.
 - **State.** In work in the session "Clean up lurq's Cargo features" (`feature-cleanup`); first merges the 0.62.0
   release from `master`.
 
@@ -58,7 +59,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   type is an engine primitive (stays, its doc names the `ui` component an app wants), a styled duplicate (deprecated
   in favour of `ui::X`, as `components::Image` is for `ui::Picture`), or styled with hard-coded colors (`new()` /
   `dark()` become recipes). Each break in `migration-v0-63.md`.
-- **State.** In work on `claude/legacy-form` and `claude/legacy-styled`.
+- **State.** The old styled components: built (`claude/legacy-styled`, merged 2026-11-17: `Checkbox` and `ActivityIndicator` deprecated for `ui::Checkbox` and `ui::Spinner`; the phone pieces, `SelectStyle`, the stack's shades and the unstyled checkbox and slider nodes on recipes, the legacy theme keeping 0.62's look). The phone pieces as real `ui` components (Tab Bar, App Bar, Large Title, Bottom Sheet, Swipe Row, Pull To Refresh, as the board draws them) are not built. The form controls: in work on `claude/legacy-form`.
 
 ### Words lurq writes are in the locale
 

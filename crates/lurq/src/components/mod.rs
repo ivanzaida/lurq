@@ -55,6 +55,7 @@ pub(crate) mod zoom;
 pub use button::Button;
 #[cfg(feature = "canvas")]
 pub use canvas::Canvas;
+#[allow(deprecated)]
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
@@ -84,14 +85,17 @@ pub use markdown::{Markdown, MarkdownLink, MarkdownLinkPresentation, MarkdownLis
 pub use outlet::Outlet;
 pub use popup::{Popover, Popup};
 pub use rect::Rect;
-pub use refresh::{ActivityIndicator, ActivityIndicatorProps, PullToRefresh, PullToRefreshProps, PullToRefreshStyle};
+#[allow(deprecated)]
+pub use refresh::ActivityIndicator;
+pub use refresh::{ActivityIndicatorProps, PullToRefresh, PullToRefreshPart, PullToRefreshProps, PullToRefreshStyle};
 #[cfg(feature = "router")]
 pub use router_component::{Router, RouterProps};
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
 pub use select::{Select, SelectOption, SelectTriggerState};
 pub use sheet::{
-  Sheet, SheetDetent, SheetDress, SheetHost, SheetHostProps, SheetHostStyle, SheetNode, SheetProps, SheetStyle,
+  Sheet, SheetDetent, SheetDress, SheetHost, SheetHostPart, SheetHostProps, SheetHostStyle, SheetNode, SheetProps,
+  SheetStyle,
 };
 pub use slider::Slider;
 pub use slot::Slot;
@@ -99,8 +103,8 @@ pub use spacer::Spacer;
 pub use stack::Stack;
 #[cfg(feature = "router")]
 pub use stack_outlet::{
-  NavigationBar, NavigationBarBuilder, NavigationBarScreen, NavigationBarState, NavigationItem, NavigationSearch,
-  StackMotion, StackOutlet, StackOutletProps,
+  NavigationBar, NavigationBarBuilder, NavigationBarPart, NavigationBarScreen, NavigationBarState, NavigationItem,
+  NavigationSearch, StackMotion, StackOutlet, StackOutletProps, StackPart,
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{
@@ -109,9 +113,11 @@ pub use styled_text::{
 };
 #[cfg(feature = "canvas")]
 pub use svg::Svg;
-pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowProps, SwipeRowStyle};
+pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowPart, SwipeRowProps, SwipeRowStyle};
 #[cfg(feature = "router")]
-pub use tabs::{TabBar, TabBarBuilder, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs};
+pub use tabs::{
+  TabBar, TabBarBuilder, TabBarPart, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs,
+};
 pub use text::{Text, TextOverflow};
 pub use text_input::{
   ContentKind, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow,

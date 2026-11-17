@@ -137,8 +137,9 @@ stack, the one the others go back to.
 `StackOutlet::mount(ctx)` is the stack alone. With `StackOutletProps::bar` it draws a navigation bar over its
 screens, under the safe area's top, 44 logical pixels high and 32 in a window lower than 480, as a phone held
 on its side is: the top screen's title, and the way back with the title of the screen
-under it. The titles move with the screens, and with the finger. `NavigationBar::new()` is a light bar and
-`NavigationBar::dark()` a dark one; `background`, `tint`, `title` and `border` set its colors.
+under it. The titles move with the screens, and with the finger. `NavigationBar::new()` is a bar in the theme's
+colors, light or dark as the theme is ([Colors from the theme](../ios/#colors-from-the-theme)); `background`,
+`tint`, `title` and `border` set others.
 
 A screen says what the bar shows for it by calling `ctx.navigation_item` in its `render`, or in its route:
 
@@ -262,13 +263,13 @@ NavigationBar {
   back: "Назад".to_owned(), // the word for going back, in the app's language
   back_menu: false,          // no list of the screens under on a long press
   height: 50.0,
-  ..NavigationBar::dark()
+  ..NavigationBar::new()
 }
 ```
 
 | `NavigationBar` | Default | |
 |-----------------|---------|--|
-| `background`, `tint`, `title`, `border` | light, or `dark()` | The bar's colors |
+| `background`, `tint`, `title`, `border` | `Background`, `Foreground`, `Foreground`, `Border` | The bar's colors, from the theme |
 | `blur` | 40 | How much a screen's list is blurred where it shows through the bar, the toolbar and the list of screens under; see [Blur](../blur/) |
 | `large_title_max_scale` | 1.5 | A large title is as much larger as the person asked text to be, up to this; the bar's own text keeps its size |
 | `height`, `low_height`, `low_window` | 44, 32, 480 | The bar's height, and its height in a window lower than `low_window` |
@@ -557,14 +558,14 @@ to search in: a floating bar stands it apart, a round place of its own at the ba
 | `TabBar` | Starts as | |
 | --- | --- | --- |
 | `place` | `Bottom` | `Bottom`, over the home indicator's room, or `Top`, under the status bar's |
-| `background`, `border` | the platform's light | `TabBar::dark()` has the dark ones |
-| `tint`, `color` | blue, grey | The active tab's picture and title, and the others' |
+| `background`, `border` | `Background`, `Border` | From the theme, light or dark as it is ([Colors from the theme](../ios/#colors-from-the-theme)) |
+| `tint`, `color` | `Foreground`, `MutedForeground` | The active tab's picture and title, and the others' |
 | `blur` | 40 | How much the tab's content is blurred where it shows through the bar; see [Blur](../blur/) |
 | `height` | 49 | Without the room of the home indicator |
 | `low_height`, `low_window`, `low_title_size`, `low_symbol_size` | 32, 480, 12, 13 | In a window lower than `low_window`, a phone on its side, the bar is lower and a title stands beside its picture |
 | `title_size`, `title_weight` | 10, medium | |
 | `symbol_size`, `spacing` | 18, 2 | |
-| `badge_background`, `badge_color`, `badge_size` | red, white, 13 | |
+| `badge_background`, `badge_color`, `badge_size` | `Destructive`, `DestructiveForeground`, 13 | |
 | `item_max_width` | none | In a wider bar the places stand together in the middle |
 | `hides_with_keyboard` | `true` | The bar goes while the on-screen keyboard is up |
 | `hide_duration` | 250 ms | How long it takes to go and to come back |

@@ -44,7 +44,7 @@ impl Component for SheetsScreen {
         StackOutlet::mount_with(
           ctx,
           StackOutletProps::new()
-            .bar(NavigationBar::dark().background(Color::new(30, 41, 59, 190)))
+            .bar(NavigationBar::new().background(Color::new(30, 41, 59, 190)))
             .background(Color::from_hex(SURFACE)),
         )
       },
@@ -97,7 +97,7 @@ impl Component for SheetsScreen {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let style = SheetStyle::dark().background(Color::from_hex(SURFACE)).grabber(true);
+    let style = SheetStyle::new().background(Color::from_hex(SURFACE)).grabber(true);
     let opens = |caption: &str, open: &Signal<bool>| {
       let open = open.clone();
       button(caption, move || open.set(true)).width(FILL)

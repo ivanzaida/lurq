@@ -252,45 +252,157 @@ pub(crate) struct SelectOptionState {
   pub(crate) disabled: bool,
 }
 
+/// The roles of 0.62's select, which the legacy theme gives and a theme with no recipe for the engine's select
+/// keeps: the roles of lurq 0.61, which follow the roles that replace them in the design's palettes and keep their
+/// own colors in the legacy one.
+#[allow(deprecated)]
+mod legacy {
+  use crate::app::theme::PaletteColor;
+
+  pub(super) const TRIGGER: PaletteColor = PaletteColor::SurfaceInput;
+  pub(super) const EDGE: PaletteColor = PaletteColor::Border;
+  pub(super) const FOCUS: PaletteColor = PaletteColor::BorderFocus;
+  pub(super) const MENU: PaletteColor = PaletteColor::SurfaceRaised;
+  pub(super) const HOVERED: PaletteColor = PaletteColor::SurfacePanel;
+  pub(super) const SELECTED: PaletteColor = PaletteColor::Accent;
+  pub(super) const SELECTED_HOVERED: PaletteColor = PaletteColor::AccentHover;
+  pub(super) const MUTED: PaletteColor = PaletteColor::TextMuted;
+}
+
+/// The recipe of the colors of the engine's select, by the parts and states of [`ui::Select`](crate::ui::Select)
+/// ([`SelectPart`](crate::ui::SelectPart), [`SelectState`](crate::ui::SelectState)): the trigger's fill and edge,
+/// under the pointer, focused and open; the panel's fill and edge; an item's fill under the pointer, chosen, and
+/// chosen under the pointer; the ink of a detail, a hint and a group's label; the separator's fill.
+fn colors(
+  trigger: impl Into<BackgroundColor>,
+  edge: impl Into<BackgroundColor>,
+  focus: impl Into<BackgroundColor>,
+  menu: impl Into<BackgroundColor>,
+  hovered: impl Into<BackgroundColor>,
+  selected: impl Into<BackgroundColor>,
+  selected_hovered: impl Into<BackgroundColor>,
+  muted: impl Into<TextColor>,
+) -> crate::ui::Recipe {
+  use crate::ui::{Recipe, SelectPart::*, SelectState, Selector};
+  let line = |color: BackgroundColor| Border::inside(BorderSize::Sm, color);
+  let (edge, focus, muted) = (edge.into(), focus.into(), muted.into());
+  Recipe::new()
+    .base(Trigger, |s| s.background(trigger).border(line(edge.clone())))
+    .hovered(Trigger, |s| s.border(line(focus.clone())))
+    .focus_visible(Trigger, |s| s.border(line(focus.clone())))
+    .state(SelectState::Open, Trigger, |s| s.border(line(focus)))
+    .base(Panel, |s| s.background(menu).border(line(edge.clone())))
+    .hovered(Item, |s| s.background(hovered))
+    .state(SelectState::Selected, Item, |s| s.background(selected))
+    .when(Selector::new().state(SelectState::Selected).hovered(), Item, |s| {
+      s.background(selected_hovered)
+    })
+    .base(Detail, |s| s.foreground(muted.clone()))
+    .base(Hint, |s| s.foreground(muted.clone()))
+    .base(Group, |s| s.foreground(muted))
+    .base(Separator, |s| s.background(edge))
+}
+
+/// The engine's select ([`components::Select`](crate::components::Select)) takes the colors of its style from the
+/// theme, through this recipe: an app restyles every select it builds with the engine's
+/// (`theme.ui.patch::<SelectStyle>(..)`) as it restyles a component of the design system. The sizes, paddings and
+/// type stay the style's own.
+impl crate::ui::Themed for SelectStyle {
+  const NAME: &'static str = "engine_select";
+  type Renderer = ();
+
+  /// The design's roles for 0.62's look of the select: the background's fill in an edge of the border, the ring's
+  /// color under the pointer, focused and open; a panel on the card's color; an item on the canvas under the
+  /// pointer and on the primary color while it is chosen; what is muted in the muted foreground.
+  fn recipe() -> crate::ui::Recipe {
+    use PaletteColor::*;
+    colors(
+      Background,
+      Border,
+      Ring,
+      Card,
+      Canvas,
+      Primary,
+      PrimaryHover,
+      MutedForeground,
+    )
+  }
+}
+
 impl Default for SelectStyle {
-  // The roles of lurq 0.61, which an app may still set: each follows the role that replaces it
-  // (`app/theme/palette.rs`). `Select` moves to a recipe with the components.
-  #[allow(deprecated)]
+  /// The style in the colors the theme of what is being built gives the engine's select.
   fn default() -> Self {
+    use crate::ui::{
+      Interaction::{FocusVisible, Hovered},
+      Name,
+      SelectPart::*,
+      SelectState,
+      engine_look::EngineLook,
+    };
+    let look = EngineLook::of::<Self>(&[]);
+    let open = EngineLook::of::<Self>(&[Name::from(SelectState::Open)]);
+    let selected = EngineLook::of::<Self>(&[Name::from(SelectState::Selected)]);
+    let fill = |look: &EngineLook, part, interaction, or: PaletteColor| {
+      look.fill(part, interaction).unwrap_or(BackgroundColor::Palette(or))
+    };
+    let edge = |look: &EngineLook, part, interaction| {
+      look
+        .edge(part, interaction)
+        .unwrap_or(BackgroundColor::Palette(legacy::EDGE))
+    };
+    let focus = |look: &EngineLook, interaction| {
+      look
+        .edge(Trigger, interaction)
+        .unwrap_or(BackgroundColor::Palette(legacy::FOCUS))
+    };
+    let muted = |part| look.ink(part).unwrap_or(TextColor::Palette(legacy::MUTED));
     Self {
       trigger: SelectPartStyle::new()
-        .background(PaletteColor::SurfaceInput)
-        .border_inside(BorderSize::Sm, PaletteColor::Border)
+        .background(fill(&look, Trigger, None, legacy::TRIGGER))
+        .border_inside(BorderSize::Sm, edge(&look, Trigger, None))
         .rounded(RadiusSize::Md)
         .padding(Padding::symmetric(10.0, 8.0))
         .min_height(36.0),
-      trigger_hovered: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
-      trigger_focused: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
-      trigger_open: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
+      trigger_hovered: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, focus(&look, Some(Hovered)))),
+      trigger_focused: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, focus(&look, Some(FocusVisible)))),
+      trigger_open: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, focus(&open, None))),
       menu: SelectPartStyle::new()
-        .background(PaletteColor::SurfaceRaised)
-        .border_inside(BorderSize::Sm, PaletteColor::Border)
+        .background(fill(&look, Panel, None, legacy::MENU))
+        .border_inside(BorderSize::Sm, edge(&look, Panel, None))
         .rounded(RadiusSize::Md),
       option: SelectPartStyle::new().padding(Padding::symmetric(10.0, 0.0)),
-      option_hovered: Some(SelectPartStyle::new().background(PaletteColor::SurfacePanel)),
-      option_selected: Some(SelectPartStyle::new().background(PaletteColor::Accent)),
-      option_selected_hovered: Some(SelectPartStyle::new().background(PaletteColor::AccentHover)),
+      option_hovered: Some(SelectPartStyle::new().background(fill(&look, Item, Some(Hovered), legacy::HOVERED))),
+      option_selected: Some(SelectPartStyle::new().background(fill(&selected, Item, None, legacy::SELECTED))),
+      option_selected_hovered: Some(SelectPartStyle::new().background(fill(
+        &selected,
+        Item,
+        Some(Hovered),
+        legacy::SELECTED_HOVERED,
+      ))),
       option_disabled: Some(SelectPartStyle::new().opacity(0.45)),
       option_detail: SelectPartStyle::new()
         .typography(TypographyStyle::Caption)
-        .text_color(PaletteColor::TextMuted),
+        .text_color(muted(Detail)),
       option_hint: SelectPartStyle::new()
         .typography(TypographyStyle::Caption)
-        .text_color(PaletteColor::TextMuted),
+        .text_color(muted(Hint)),
       group_label: SelectPartStyle::new()
         .typography(TypographyStyle::Caption)
-        .text_color(PaletteColor::TextMuted)
+        .text_color(muted(Group))
         .padding(Padding::symmetric(10.0, 6.0)),
       separator: SelectPartStyle::new()
-        .background(PaletteColor::Border)
+        .background(fill(&look, Separator, None, legacy::EDGE))
         .padding(Padding::symmetric(0.0, 4.0)),
       ..Self::unstyled()
     }
+  }
+}
+
+impl SelectStyle {
+  /// 0.62's roles: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the engine's select.
+  pub(crate) fn legacy_recipe() -> crate::ui::Recipe {
+    use legacy::*;
+    colors(TRIGGER, EDGE, FOCUS, MENU, HOVERED, SELECTED, SELECTED_HOVERED, MUTED)
   }
 }
 

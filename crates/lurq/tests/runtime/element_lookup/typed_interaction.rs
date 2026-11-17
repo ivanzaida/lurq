@@ -3,6 +3,7 @@ use std::sync::{
   atomic::{AtomicUsize, Ordering},
 };
 
+#[allow(deprecated)]
 use lurq::{
   app::{Tree, events::TextInputEvent},
   components::{Checkbox, Column, Slider, Text, TextInput},
@@ -67,6 +68,7 @@ fn set_value_shrinking_text_keeps_editing_consistent() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn checkbox_handle_toggles_signal() {
   let checked = Signal::new(false);
   let mut tree = Tree::new();

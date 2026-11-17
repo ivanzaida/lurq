@@ -6,6 +6,7 @@ use std::sync::{
   atomic::{AtomicUsize, Ordering},
 };
 
+#[allow(deprecated)]
 use lurq::{
   app::{
     App, Tree,
@@ -96,6 +97,7 @@ fn a_click_on_a_disabled_element_runs_no_handler() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn everything_in_a_disabled_element_is_disabled_with_it() {
   let (inner, bump) = counter();
   let checked = Signal::new(false);

@@ -8,7 +8,12 @@ use crate::{
   router::Navigator,
 };
 
-impl_into_node!(Link);
+impl_into_node!(
+  /// The engine's link to a route: a press pushes its path on the router around it. It has no look of its own:
+  /// an app normally wants [`ui::Link`](crate::ui::Link), which is drawn in the design system's recipe and goes
+  /// to a route or an address.
+  Link
+);
 
 impl Link {
   pub fn build(ctx: &mut Ctx, label: &str, to: impl Into<String>) -> Self {

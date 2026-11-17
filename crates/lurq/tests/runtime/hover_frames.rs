@@ -12,6 +12,7 @@ use std::{
   time::{Duration, Instant},
 };
 
+#[allow(deprecated)]
 use lurq::{
   animation::{Easing, Transition},
   app::{
@@ -344,6 +345,7 @@ fn a_tooltip_a_hover_handler_opens_is_drawn() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn a_checkbox_draws_its_hovered_box() {
   let (mut tree, mut app) = shown(
     Column::new()
