@@ -82,6 +82,8 @@ struct Setup {
   errors: usize,
   /// The form is submitting from its first render.
   submitting: bool,
+  /// The form stands on its theme's background.
+  on_background: bool,
   /// What the page sets while the playground's form is submitting.
   #[devtools_ignore]
   submitting_signal: Option<Submitting>,
@@ -100,6 +102,7 @@ impl Setup {
       disabled: false,
       errors: 0,
       submitting: false,
+      on_background: false,
       submitting_signal: None,
       tell: None,
     }
@@ -193,6 +196,14 @@ impl Component for FormScene {
         .padding_bottom(16.0)
         .spacing(16.0)
         .overflow_visible();
+      // The legacy theme has one palette, a light one, which the page's card is not in its dark appearance: its
+      // black text would stand on the card's near black. Its form stands on its own background.
+      if setup.on_background {
+        column = column
+          .padding_horizontal(16.0)
+          .rounded(RadiusSize::Md)
+          .background(PaletteColor::Background);
+      }
       if setup.kind == Kind::Whole {
         column = column.child(ctx.mount::<FormTextInput>(
           FormTextInputProps::new(form.string_control("name").required(true).disabled(setup.disabled)).label("Name"),
@@ -508,16 +519,11 @@ impl Component for FormControlsPage {
       .overflow_visible()
       .child(captioned("Disabled", disabled))
       .child(captioned("Submitting", submitting));
-    // The scope is on a node of its own around the form: a mounted component's root is the component's. The
-    // legacy theme has one palette, light: the form stands on its background, in a dark page too.
     let legacy = ctx.in_theme(&self.legacy, |ctx| {
-      Column::new()
-        .width(FILL)
-        .padding_horizontal(16.0)
-        .rounded(RadiusSize::Md)
-        .background(PaletteColor::Background)
-        .overflow_visible()
-        .child(ctx.mount::<FormScene>(Setup::whole()))
+      ctx.mount::<FormScene>(Setup {
+        on_background: true,
+        ..Setup::whole()
+      })
     });
     let design = ctx.mount::<FormScene>(Setup::whole());
     let themes = Row::new()
