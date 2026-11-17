@@ -50,6 +50,24 @@ pub(super) fn watch(device: &wgpu::Device, lost: &Arc<AtomicBool>) {
   }));
 }
 
+/// What `make` makes of `device`, or `None` where the device refuses it: something it was given is not its
+/// own. A view an app made before a loss is of the lost device, and the device that takes its place refuses
+/// it, which would end the program as a fault of the engine's does; here it ends nothing, and what would
+/// have been drawn of it is not drawn. In a browser nothing is waited for, and `make` is as it was.
+pub(super) fn taken<T>(device: &wgpu::Device, make: impl FnOnce() -> T) -> Option<T> {
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let made = make();
+    pollster::block_on(scope.pop()).is_none().then_some(made)
+  }
+  #[cfg(target_arch = "wasm32")]
+  {
+    let _ = device;
+    Some(make())
+  }
+}
+
 /// Whether `device` is lost, as `lost` was told or as its card says now.
 pub(super) fn is_lost(device: &wgpu::Device, lost: &AtomicBool) -> bool {
   if lost.load(Ordering::Acquire) {
@@ -79,6 +97,82 @@ fn removed_asker(device: &wgpu::Device) -> impl Fn() -> bool + Send + Sync + 'st
 #[cfg(not(windows))]
 fn removed_asker(_device: &wgpu::Device) -> impl Fn() -> bool + Send + Sync + 'static {
   || false
+}
+
+#[cfg(test)]
+mod refused {
+  /// Two devices of one card, as the one that was lost and the one that takes its place are.
+  fn two_devices() -> Option<(wgpu::Device, wgpu::Device)> {
+    let instance = super::super::new_instance(super::super::default_backends());
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+    let device = || {
+      pollster::block_on(adapter.request_device(&super::super::device_descriptor(
+        &adapter,
+        wgpu::Features::empty(),
+        &wgpu::Limits::default(),
+      )))
+      .ok()
+      .map(|(device, _)| device)
+    };
+    Some((device()?, device()?))
+  }
+
+  fn view(device: &wgpu::Device) -> wgpu::TextureView {
+    device
+      .create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+          width: 4,
+          height: 4,
+          depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+      })
+      .create_view(&Default::default())
+  }
+
+  #[test]
+  fn a_view_of_another_device_is_refused_and_ends_nothing() {
+    let Some((first, second)) = two_devices() else {
+      eprintln!("skipped: no card to make two devices on");
+      return;
+    };
+    let layout = second.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+      label: None,
+      entries: &[wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+          sample_type: wgpu::TextureSampleType::Float { filterable: true },
+          view_dimension: wgpu::TextureViewDimension::D2,
+          multisampled: false,
+        },
+        count: None,
+      }],
+    });
+    let bound = |view: &wgpu::TextureView| {
+      let bind = || {
+        second.create_bind_group(&wgpu::BindGroupDescriptor {
+          label: None,
+          layout: &layout,
+          entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(view),
+          }],
+        })
+      };
+      super::taken(&second, bind)
+    };
+    // A view an app made with the device that was lost, given to the device that takes its place.
+    assert!(bound(&view(&first)).is_none(), "a view of another device is bound");
+    // A view of the device's own is bound as ever, before and after one that was refused.
+    assert!(bound(&view(&second)).is_some());
+  }
 }
 
 #[cfg(all(test, windows))]

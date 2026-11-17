@@ -66,6 +66,13 @@ impl<'a> WgpuFrameInfo<'a> {
 /// `initialize` runs once after Lurq creates its device. `prepare` runs before
 /// Lurq encodes the UI pass, so an embedded renderer can update external
 /// textures that the UI samples in the same frame.
+///
+/// The device may be lost: its card was reset (a driver that hung or was updated) or taken away. Lurq finds
+/// it, tells the extension ([`device_lost`](Self::device_lost)), and lets go of the engine and its
+/// extensions; the engine that takes its place is made as the first one was, with extensions of its own,
+/// which are initialized with another device. Lurq watches the device with wgpu's one callback for a loss
+/// and its handler of uncaptured errors (`Device::set_device_lost_callback`, `Device::on_uncaptured_error`):
+/// an extension sets neither.
 pub trait WgpuFrameExtension {
   fn initialize(&mut self, _gpu: &SharedWgpuContext) {}
 
@@ -76,12 +83,25 @@ pub trait WgpuFrameExtension {
     false
   }
 
+  /// The device the extension was initialized with is lost. Everything made with it is gone, textures and
+  /// the views of them given to a [`WgpuExternalImageSlot`](crate::images::WgpuExternalImageSlot) among
+  /// them, and nothing more can be asked of it: what is asked fails, and is not waited for. Called once,
+  /// on the thread that draws, as soon as Lurq finds the loss, which is before its next frame; `prepare` is
+  /// not called again, and `shutdown` follows. An extension lets go of what it made, and tells whatever
+  /// else of the app uses the device: while anything made with the lost device is held, the device is, and
+  /// the card may give no whole device in its place. Lurq lets go of the views of the lost device that are
+  /// in the slots it drew.
+  fn device_lost(&mut self) {}
+
+  /// The engine is let go of. After [`device_lost`](Self::device_lost) there is nothing to ask of the device.
   fn shutdown(&mut self) {}
 }
 
 pub(crate) struct WgpuFrameExtensionEntry {
   pub extension: Box<dyn WgpuFrameExtension>,
   pub initialized: bool,
+  /// Whether it was told that its device is lost.
+  pub told_lost: bool,
 }
 
 impl WgpuFrameExtensionEntry {
@@ -89,6 +109,7 @@ impl WgpuFrameExtensionEntry {
     Self {
       extension,
       initialized: false,
+      told_lost: false,
     }
   }
 }
