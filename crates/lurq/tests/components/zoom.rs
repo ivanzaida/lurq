@@ -131,8 +131,13 @@ fn a_double_tap_goes_in_at_the_point_tapped_and_back_out() {
   let start = std::time::Instant::now();
   tree.set_press_clock(Some(start));
 
-  tree.touch_tap(50.0, 50.0, Duration::ZERO);
-  tree.touch_tap(50.0, 50.0, Duration::ZERO);
+  // A finger's double tap: two taps of one finger, which the tree tells as `on_double_tap` (not a double click).
+  let finger_tap = |tree: &mut Tree| {
+    tree.touch_event(1, TouchPhase::Start, 50.0, 50.0, None);
+    tree.touch_event(1, TouchPhase::End, 50.0, 50.0, None);
+  };
+  finger_tap(&mut tree);
+  finger_tap(&mut tree);
   run_pass(&mut tree);
   assert_eq!(zoom.get_untracked(), 2.0);
   // What was tapped, 50 in from the corner, is drawn 100 in, and is still under the finger.
@@ -140,11 +145,24 @@ fn a_double_tap_goes_in_at_the_point_tapped_and_back_out() {
 
   // Another double tap, a while after the first.
   tree.set_press_clock(Some(start + Duration::from_millis(600)));
-  tree.touch_tap(50.0, 50.0, Duration::ZERO);
-  tree.touch_tap(50.0, 50.0, Duration::ZERO);
+  finger_tap(&mut tree);
+  finger_tap(&mut tree);
   run_pass(&mut tree);
   assert_eq!(zoom.get_untracked(), 1.0);
   assert_eq!((scroll.scroll_x(), scroll.scroll_y()), (0.0, 0.0));
+}
+
+#[test]
+fn a_mouse_double_click_goes_in_too() {
+  let (mut tree, zoom, _scroll) = stage((1.0, 4.0));
+  tree.set_press_clock(Some(std::time::Instant::now()));
+  for _ in 0..2 {
+    tree.mouse_move(50.0, 50.0);
+    tree.mouse_down(50.0, 50.0, lurq::app::events::MouseButton::Left);
+    tree.mouse_up(50.0, 50.0, lurq::app::events::MouseButton::Left);
+  }
+  run_pass(&mut tree);
+  assert_eq!(zoom.get_untracked(), 2.0);
 }
 
 #[test]
