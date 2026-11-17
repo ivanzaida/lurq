@@ -11,6 +11,21 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### Back and forward in one place
+
+- **Question.** Going back and forward is spread like undo was: `router.back()`/`forward()`, `on_history_swipe`
+  (a trackpad's swipe, a finger from the edge), the stack's back button calling the navigator; the mouse's side
+  buttons arrive as `MouseButton::Other(4/5)` and lead nowhere; Alt+←/→ (Cmd+[ / ] on a Mac), Android's back and a
+  browser's back are not handled.
+- **Decision (Ivan).** One command, as `EditCommand` is: `NavigationCommand::Back` / `Forward`, given by every
+  source — the mouse's side buttons, Alt+← / Alt+→ (Cmd+[ / Cmd+] on Apple), a trackpad's history swipe, a finger
+  from the edge, Android's back, a browser's back and forward. Element events **`on_history_back` /
+  `on_history_forward`** (named after `on_history_swipe`, for consistency), dispatched from the focused element
+  outward, a handler that does nothing passing it on (a dialog may close on back instead of leaving the page). With
+  none taking it, the mounted router goes back or forward. `Ctx` runs the same from a menu or a button; MCP and the
+  emulator too. `on_history_swipe` and `StackOutlet` move onto it.
+- **State.** Decided; to be built in a session of its own.
+
 ### The gallery shows how to style
 
 - **Question.** lurq styles at four levels — the theme's tokens, a component's recipe in the theme (parts by
