@@ -5519,6 +5519,9 @@ fn may_move_without_layout(node: &Node) -> bool {
 fn node_is_plain_logical_wrapper(node: &Node) -> bool {
   matches!(node.layout_kind(), LayoutKind::LogicalModifier)
     && matches!(node.node_kind(), NodeKind::Empty)
+    // A wrapper that begins a theme for a subtree (a form's root in `Ctx::in_theme`) has what is in it painted
+    // with that theme's values: the path that enters the scope.
+    && node.theme_scope.is_none()
     && node.color.as_ref().is_none()
     && node.rare_style.gradient.is_none()
     && node.border_radius.as_ref().is_none()

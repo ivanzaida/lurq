@@ -4956,6 +4956,8 @@ impl Node {
   /// Lays the element and what is in it out, and paints them, with `theme` in place of the window's.
   pub(crate) fn set_theme_scope(&mut self, theme: &crate::app::theme::Theme) {
     self.theme_scope = Some(Box::new(theme.clone()));
+    // On a component's root the scope is put from outside, and goes to the root its own renders make.
+    self.record_outer_theme(theme);
   }
 
   pub fn overflow_visible(mut self) -> Self {

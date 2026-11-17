@@ -91,6 +91,11 @@ pub struct Checkbox {
   rules: Recipe,
   forced: Option<Interaction>,
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  /// Called as the focus leaves the box: for a form's checkbox, which judges its field then.
+  on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
+  // Read only where the engine has forms.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -109,6 +114,8 @@ impl Checkbox {
       rules: Recipe::new(),
       forced: None,
       on_change: Vec::new(),
+      on_leave: Vec::new(),
+      name: None,
       id: None,
       key: None,
     }
@@ -192,6 +199,21 @@ impl Checkbox {
     self
   }
 
+  /// The name the checkbox has in the form it is in: a checked one gives the form `on` under it, as a checkbox of
+  /// the engine's does, and one that is not checked gives nothing.
+  #[cfg(feature = "form")]
+  pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
+    self.name = Some(name.into());
+    self
+  }
+
+  /// Called as the focus leaves the box: a form's checkbox judges its field then.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  pub(crate) fn on_leave(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_leave.push(Arc::new(handler));
+    self
+  }
+
   /// The id of the box: what is pressed.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
@@ -228,6 +250,8 @@ impl Checkbox {
       recipe: theme.resolve::<Checkbox>(&case, Some(&self.rules)),
       forced: self.forced,
       on_change: self.on_change,
+      on_leave: self.on_leave,
+      name: self.name,
       id: self.id,
       key: self.key,
     };
@@ -257,6 +281,9 @@ pub struct CheckboxView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -299,6 +326,21 @@ impl CheckboxView {
       .describe("a11y_checked", checked);
     if let Some(press) = self.press() {
       control = control.on_click(move |_| press());
+    }
+    // The box is no checkbox of the engine's: it says itself what it gives the form.
+    #[cfg(feature = "form")]
+    if let Some(name) = &self.name {
+      control = control
+        .name(name.clone())
+        .form_value(self.checked.then(|| Arc::from("on")));
+    }
+    if !self.on_leave.is_empty() {
+      let leave = self.on_leave.clone();
+      control = control.on_blur(move || {
+        for handler in &leave {
+          handler();
+        }
+      });
     }
     if let Some(id) = &self.id {
       control = control.id(id.clone());
@@ -767,7 +809,7 @@ impl super::FieldControl for Checkbox {
   /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
   /// invalid where the field is, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label_hidden {
+    if self.label_hidden && !field.label.is_empty() {
       self.label = field.label.clone();
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
