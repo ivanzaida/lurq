@@ -2,6 +2,14 @@
 
 `lurq` is a Rust UI toolkit with typed component builders, retained runtime state, reactive signals, GPU-backed rendering, and an in-app DevTools window.
 
+## Platforms
+
+lurq supports **Windows**, **macOS** (the latest release) and **iOS** (the latest release).
+
+**Linux is not supported.** The crate builds there, so that it publishes and its documentation builds, but it is not
+run or tested on Linux, and issues only Linux shows are not worked on. A browser build (WebGPU, or WebGL2 with the
+`webgl` feature) exists, and is not part of the supported platforms.
+
 ## Install
 
 ```toml
