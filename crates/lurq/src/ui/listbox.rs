@@ -12,7 +12,7 @@ use super::{
   icons, names,
   part_style::{FontFamily, Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  selection::{ListSelection, Pick, select_all_key},
+  selection::{ListSelection, Pick, select_all_handler},
   shared::{ChangeHandler, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
@@ -20,7 +20,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{KeyboardEvent, MouseEvent},
+    events::MouseEvent,
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row, ScrollVertical, SelectOption, VirtualizedList},
@@ -807,7 +807,7 @@ impl ListboxOption {
       });
     }
     if let Some(select_all) = self.select_all.clone() {
-      option = option.on_key_down(move |event: KeyboardEvent| select_all_key(&event, &*select_all));
+      option = option.on_select_all(select_all_handler(select_all));
     }
     if let Some(id) = &self.id {
       option = option.id(id.clone());

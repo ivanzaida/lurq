@@ -60,11 +60,11 @@ pub use gradient::{Gradient, GradientKind, GradientStop};
 pub use node::FormData;
 pub use node::{
   BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoCopyEventHandler, IntoDragEventHandler,
-  IntoDropEventHandler, IntoEdgePanEventHandler, IntoEventHandler, IntoFileDragEventHandler, IntoFileDropEventHandler,
-  IntoHistorySwipeEventHandler, IntoKeyboardEventHandler, IntoLongPressEventHandler, IntoMouseEventHandler,
-  IntoPanEventHandler, IntoPasteEventHandler, IntoPinchEventHandler, IntoRotateEventHandler, IntoScrollEventHandler,
-  IntoSwipeEventHandler, IntoTapEventHandler, IntoTextInputEventHandler, IntoTouchEventHandler, IntoVoidEventHandler,
-  VoidEventHandler, WindowControl,
+  IntoDropEventHandler, IntoEdgePanEventHandler, IntoEditEventHandler, IntoEventHandler, IntoFileDragEventHandler,
+  IntoFileDropEventHandler, IntoHistorySwipeEventHandler, IntoKeyboardEventHandler, IntoLongPressEventHandler,
+  IntoMouseEventHandler, IntoPanEventHandler, IntoPasteEventHandler, IntoPinchEventHandler, IntoRotateEventHandler,
+  IntoScrollEventHandler, IntoSwipeEventHandler, IntoTapEventHandler, IntoTextInputEventHandler, IntoTouchEventHandler,
+  IntoVoidEventHandler, VoidEventHandler, WindowControl,
 };
 pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole, window_controls_in_use};
 pub use outline::{Outline, ResolvedOutline};

@@ -486,6 +486,9 @@ struct WindowInner {
   icon_image: Option<crate::images::ImageData>,
   /// Texts the app asked to be put on the clipboard, which the runtime writes after the event that asked.
   copies: Vec<String>,
+  /// Undos and redos the app asked for without a key (an Edit menu), which the runtime runs on the focused element
+  /// after the event that asked.
+  edits: Vec<(crate::app::events::EditCommand, bool)>,
 }
 
 impl WindowInner {
@@ -553,6 +556,7 @@ impl Window {
         #[cfg(feature = "raster")]
         icon_image: None,
         copies: Vec::new(),
+        edits: Vec::new(),
       })),
       version_signal: Signal::new(0),
     }
@@ -671,6 +675,25 @@ impl Window {
   /// The texts asked to be put on the clipboard since the last time, in order.
   pub(crate) fn take_copies(&self) -> Vec<String> {
     std::mem::take(&mut self.inner.write().unwrap().copies)
+  }
+
+  /// Asks for `command` to be run on the focus, marked when it was asked while lurq delivered synthetic input: a
+  /// paste of such a request reads no clipboard.
+  pub(crate) fn request_edit(&self, command: crate::app::events::EditCommand) {
+    let synthetic = crate::app::events::is_synthetic_input();
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.edits.push((command, synthetic));
+      inner.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// The commands asked for since the last time, in order, each with whether synthetic input asked for it.
+  pub(crate) fn take_edits(&self) -> Vec<(crate::app::events::EditCommand, bool)> {
+    std::mem::take(&mut self.inner.write().unwrap().edits)
   }
 
   /// The window's icon, as the app set it.

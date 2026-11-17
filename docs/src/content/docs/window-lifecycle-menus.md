@@ -158,6 +158,12 @@ key up before the tree sees them. Keep menu-owned shortcuts in the menu model;
 remove their duplicate macOS tree handlers. Unhandled keys continue to the tree.
 On other platforms, keep your existing drawn-menu shortcut handlers.
 
+The bar has no Edit menu of its own. An app's Undo, Redo, Cut, Copy, Paste and Select All items take
+`EditCommand::accelerator()` as their accelerator and run the command on what has the focus with
+`window.edit(EditCommand::Undo)` (a `WindowHandle` the menu handler keeps), as the key would: a focused text input's
+own history first, then the `on_undo` handlers of the focused element and its ancestors. See
+[Editing commands](../styling-events/#editing-commands-undo-redo-copy-cut-paste).
+
 ## MCP and verification
 
 With `mcp` enabled and `Tree::enable_mcp` configured:

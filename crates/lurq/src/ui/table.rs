@@ -64,7 +64,9 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement},
-    events::{CopyEvent, DragEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent, PasteEvent, ScrollEvent},
+    events::{
+      CopyEvent, DragEvent, EditEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent, PasteEvent, ScrollEvent,
+    },
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -4806,23 +4808,28 @@ impl TableRow {
         (press.click)();
       });
       let element = self.element.clone();
+      if actions.selectable {
+        // Select all (Ctrl+A, an Edit menu's) on the row focused selects every row; on a button in it, it is the
+        // button's, and goes on out.
+        let (element, select_all) = (element.clone(), actions.select_all.clone());
+        row = row.on_select_all(move |event: EditEvent| {
+          if element.focused() {
+            select_all();
+          } else {
+            event.pass_on();
+          }
+        });
+      }
       row = row.on_key_down(move |event: KeyboardEvent| {
         // A key on a button in the row is the button's.
         if !element.focused() || event.composing || event.alt {
           return;
         }
         let command = event.ctrl || event.meta;
-        match event.key.as_str() {
-          // Enter activates; it does not press the row, which would select it.
-          "Enter" if !command && !event.shift => {
-            event.prevent_default();
-            (actions.activate)();
-          }
-          "a" | "A" if command && actions.selectable && !event.shift => {
-            event.prevent_default();
-            (actions.select_all)();
-          }
-          _ => {}
+        // Enter activates; it does not press the row, which would select it.
+        if event.key == "Enter" && !command && !event.shift {
+          event.prevent_default();
+          (actions.activate)();
         }
       });
       if let Some(host) = &self.host {
@@ -5583,6 +5590,18 @@ impl GridCell {
             grid.paste((row, column), text);
           }
         }
+      })
+      // Select all (Ctrl+A, an Edit menu's) on the cell focused selects every cell: the rows are selected with the
+      // header's checkbox. An editor in the cell selects its own text.
+      .on_select_all({
+        let (grid, element) = (grid.clone(), element.clone());
+        move |event: EditEvent| {
+          if element.focused() {
+            grid.select_cells();
+          } else {
+            event.pass_on();
+          }
+        }
       });
     cell.on_key_down(move |event: KeyboardEvent| {
       // A key in the cell is the cell's only where the cell has the focus itself, not its editor.
@@ -5677,11 +5696,6 @@ impl GridCell {
             (false, _) => row,
           };
           grid.move_to(to_row, if end { last_column } else { 0 });
-        }
-        // Every cell: the rows are selected with the header's checkbox.
-        "a" | "A" if command && !event.shift => {
-          event.prevent_default();
-          grid.select_cells();
         }
         // Delete clears what is edited of the range, or of the cell; Shift+Delete is a cut, the engine's.
         "Delete" | "Backspace" if !command && !event.shift => {

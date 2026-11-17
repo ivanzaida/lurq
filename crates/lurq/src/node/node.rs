@@ -11,9 +11,9 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{
-      CopyEvent, DragEvent, DropEvent, EdgePanEvent, FileDragEvent, FileDropEvent, HistorySwipeEvent, KeyboardEvent,
-      LongPressEvent, MouseButton, MouseButtonMask, MouseEvent, PanEvent, PasteEvent, PinchEvent, RotateEvent,
-      ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
+      CopyEvent, DragEvent, DropEvent, EdgePanEvent, EditEvent, FileDragEvent, FileDropEvent, HistorySwipeEvent,
+      KeyboardEvent, LongPressEvent, MouseButton, MouseButtonMask, MouseEvent, PanEvent, PasteEvent, PinchEvent,
+      RotateEvent, ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
     },
     theme::{CaretMode, TypographyStyle},
   },
@@ -373,6 +373,25 @@ pub trait IntoPasteEventHandler {
   fn into_event_handler(self) -> EventHandler<PasteEvent>;
 }
 
+pub trait IntoEditEventHandler {
+  fn into_event_handler(self) -> EventHandler<EditEvent>;
+}
+
+impl IntoEditEventHandler for EventHandler<EditEvent> {
+  fn into_event_handler(self) -> EventHandler<EditEvent> {
+    self
+  }
+}
+
+impl<F> IntoEditEventHandler for F
+where
+  F: Fn(EditEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<EditEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
 pub trait IntoCopyEventHandler {
   fn into_event_handler(self) -> EventHandler<CopyEvent>;
 }
@@ -680,6 +699,12 @@ pub(crate) trait NodeUpdate {
   fn off_paste(&mut self, f: impl IntoPasteEventHandler);
   fn on_copy(&mut self, f: impl IntoCopyEventHandler);
   fn off_copy(&mut self, f: impl IntoCopyEventHandler);
+  fn on_undo(&mut self, f: impl IntoEditEventHandler);
+  fn off_undo(&mut self, f: impl IntoEditEventHandler);
+  fn on_redo(&mut self, f: impl IntoEditEventHandler);
+  fn off_redo(&mut self, f: impl IntoEditEventHandler);
+  fn on_select_all(&mut self, f: impl IntoEditEventHandler);
+  fn off_select_all(&mut self, f: impl IntoEditEventHandler);
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn off_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn on_mouse_leave(&mut self, f: impl IntoVoidEventHandler);
@@ -955,6 +980,12 @@ pub struct EventHandlers {
   pub on_file_drop: Vec<Callback<FileDropEvent>>,
   pub on_paste: Vec<Callback<PasteEvent>>,
   pub on_copy: Vec<Callback<CopyEvent>>,
+  /// Undo on the focused element or one in it: see `Node::on_undo`.
+  pub on_undo: Vec<Callback<EditEvent>>,
+  /// Redo on the focused element or one in it: see `Node::on_redo`.
+  pub on_redo: Vec<Callback<EditEvent>>,
+  /// Select all on the focused element or one in it: see `Node::on_select_all`.
+  pub on_select_all: Vec<Callback<EditEvent>>,
   pub on_mouse_enter: Vec<VoidCallback>,
   pub on_mouse_leave: Vec<VoidCallback>,
   pub on_key_down: Vec<Callback<KeyboardEvent>>,
@@ -2028,6 +2059,36 @@ impl NodeUpdate for Node {
   fn off_copy(&mut self, f: impl IntoCopyEventHandler) {
     let handler = f.into_event_handler();
     self.events.on_copy.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_undo(&mut self, f: impl IntoEditEventHandler) {
+    self.events.on_undo.push(f.into_event_handler());
+  }
+
+  fn off_undo(&mut self, f: impl IntoEditEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_undo.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_redo(&mut self, f: impl IntoEditEventHandler) {
+    self.events.on_redo.push(f.into_event_handler());
+  }
+
+  fn off_redo(&mut self, f: impl IntoEditEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_redo.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_select_all(&mut self, f: impl IntoEditEventHandler) {
+    self.events.on_select_all.push(f.into_event_handler());
+  }
+
+  fn off_select_all(&mut self, f: impl IntoEditEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_select_all
+      .retain(|existing| !existing.same_handler(&handler));
   }
 
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler) {
@@ -3970,6 +4031,27 @@ impl Node {
 
   pub fn on_copy(mut self, f: impl IntoCopyEventHandler) -> Self {
     NodeUpdate::on_copy(&mut self, f);
+    self
+  }
+
+  /// Undo (Ctrl+Z, Cmd+Z on a Mac, or `Ctx::edit`) on this element focused, or on one in it; see
+  /// [`EditEvent`].
+  pub fn on_undo(mut self, f: impl IntoEditEventHandler) -> Self {
+    NodeUpdate::on_undo(&mut self, f);
+    self
+  }
+
+  /// Redo (Ctrl+Shift+Z or Ctrl+Y, Cmd+Shift+Z on a Mac, or `Ctx::edit`) on this element focused, or on one in
+  /// it; see [`EditEvent`].
+  pub fn on_redo(mut self, f: impl IntoEditEventHandler) -> Self {
+    NodeUpdate::on_redo(&mut self, f);
+    self
+  }
+
+  /// Select all (Ctrl+A, Cmd+A on a Mac, or `Ctx::edit`) on this element focused, or on one in it; see
+  /// [`EditEvent`].
+  pub fn on_select_all(mut self, f: impl IntoEditEventHandler) -> Self {
+    NodeUpdate::on_select_all(&mut self, f);
     self
   }
 

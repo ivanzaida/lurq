@@ -6,12 +6,12 @@
 //! press tells [`ListSelection::pick`] how it was pressed ([`Pick::of`]); Shift with the keys is a press with Shift
 //! of where the focus goes, which the engine makes for a focus group with
 //! [`shift_extends`](crate::node::FocusGroup::shift_extends), or, for a list that steps the selection with the
-//! keys itself, [`ListSelection::extend`]; Ctrl+A is [`select_all_key`].
+//! keys itself, [`ListSelection::extend`]; select all (Ctrl+A) is a row's `on_select_all`, [`select_all_handler`].
 
 use std::sync::Arc;
 
 use crate::{
-  app::events::{KeyboardEvent, MouseEvent},
+  app::events::{EditEvent, MouseEvent},
   node::{FocusStep, step_rows},
 };
 
@@ -177,14 +177,10 @@ impl<T: Clone + PartialEq> ListSelection<T> {
   }
 }
 
-/// Ctrl+A (Cmd+A) on a row of a list of which any number may be selected: `select_all`. For `on_key_down` of each
-/// row; it takes the key only while the focus is in the row.
-pub(crate) fn select_all_key(event: &KeyboardEvent, select_all: &(dyn Fn() + Send + Sync)) {
-  if !event.focus_within || event.composing || event.alt || event.shift {
-    return;
-  }
-  if (event.ctrl || event.meta) && matches!(event.key.as_str(), "a" | "A") {
-    event.prevent_default();
-    select_all();
-  }
+/// Select all (Ctrl+A, Cmd+A, an Edit menu's) on a row of a list of which any number may be selected: `select_all`.
+/// For `on_select_all` of each row, which lurq calls with the focus in the row.
+pub(crate) fn select_all_handler(
+  select_all: Arc<dyn Fn() + Send + Sync>,
+) -> impl Fn(EditEvent) + Send + Sync + 'static {
+  move |_: EditEvent| select_all()
 }

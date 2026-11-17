@@ -339,6 +339,86 @@ fn the_pad_is_a_stop_of_tab_then_its_buttons_and_its_keys_take_strokes_back() {
 }
 
 #[test]
+fn a_stroke_focuses_the_pad_and_ctrl_z_takes_it_back_in_any_layout() {
+  let signature = Signal::new(Signature::default());
+  let (mut stage, _) = told(&signature);
+  assert!(stage.tree.focused_element().is_none());
+  draw(&mut stage, &[(20.0, 40.0), (60.0, 50.0), (120.0, 40.0)]);
+  draw(&mut stage, &[(30.0, 80.0), (140.0, 70.0)]);
+  assert_eq!(signature.get().strokes.len(), 2);
+  assert_eq!(
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+      .as_deref(),
+    Some("pad"),
+    "a stroke, which gives no click, focuses the pad"
+  );
+  stage.tree.key_down("z".into(), "KeyZ".into(), false, true, false);
+  stage.tree.key_up("z".into(), "KeyZ".into(), false, true, false);
+  stage.pass();
+  assert_eq!(
+    signature.get().strokes.len(),
+    1,
+    "Ctrl+Z right after the strokes takes the last back"
+  );
+  // A Ukrainian layout: the key says "я", its place is still Z's.
+  stage.tree.key_down("я".into(), "KeyZ".into(), false, true, false);
+  stage.tree.key_up("я".into(), "KeyZ".into(), false, true, false);
+  stage.pass();
+  assert!(signature.get().is_empty(), "Ctrl+Z in a Cyrillic layout");
+  let key = |stage: &mut Stage, key: &str, code: &str, shift: bool| {
+    stage.tree.key_down(key.into(), code.into(), shift, true, false);
+    stage.tree.key_up(key.into(), code.into(), shift, true, false);
+    stage.pass();
+  };
+  key(&mut stage, "Я", "KeyZ", true);
+  assert_eq!(
+    signature.get().strokes.len(),
+    1,
+    "Ctrl+Shift+Z does the first stroke again"
+  );
+  key(&mut stage, "y", "KeyY", false);
+  assert_eq!(signature.get().strokes.len(), 2, "Ctrl+Y does the second");
+  key(&mut stage, "Z", "KeyZ", true);
+  assert_eq!(signature.get().strokes.len(), 2, "nothing more to do again");
+}
+
+#[test]
+fn undo_takes_back_a_clearing_and_a_new_stroke_forgets_what_was_taken_back() {
+  let signature = Signal::new(Signature::default());
+  let (mut stage, _) = told(&signature);
+  draw(&mut stage, &[(20.0, 40.0), (120.0, 40.0)]);
+  draw(&mut stage, &[(30.0, 80.0), (140.0, 70.0)]);
+  let two = signature.get();
+  stage.key("Delete");
+  assert!(signature.get().is_empty());
+  let key = |stage: &mut Stage, key: &str, shift: bool| {
+    stage.tree.key_down(key.into(), "KeyZ".into(), shift, true, false);
+    stage.tree.key_up(key.into(), "KeyZ".into(), shift, true, false);
+    stage.pass();
+  };
+  key(&mut stage, "z", false);
+  assert_eq!(signature.get(), two, "Ctrl+Z brings back what Delete cleared");
+  key(&mut stage, "z", false);
+  assert_eq!(signature.get().strokes.len(), 1);
+  draw(&mut stage, &[(40.0, 100.0), (150.0, 100.0)]);
+  assert_eq!(signature.get().strokes.len(), 2);
+  key(&mut stage, "Z", true);
+  assert_eq!(
+    signature.get().strokes.len(),
+    2,
+    "a new stroke forgot what was taken back"
+  );
+  // A signature the app sets: the pad's history is forgotten, and Ctrl+Z takes back its last stroke.
+  signature.set(one_stroke());
+  stage.pass();
+  key(&mut stage, "z", false);
+  assert!(signature.get().is_empty());
+}
+
+#[test]
 fn the_app_s_signature_is_drawn_scaled_to_the_pad_and_a_stroke_joins_it_in_its_own_pixels() {
   // Signed on a pad twice as large: drawn at half its size.
   let mut large = Signature::new(560.0, 248.0);

@@ -18,7 +18,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{DragEvent, KeyboardEvent, MouseButtonMask, TouchEvent},
+    events::{DragEvent, EditEvent, KeyboardEvent, MouseButtonMask, TouchEvent},
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme},
   },
   canvas::{ArcDirection, CanvasHandle, Context2D, LineCap, LineJoin},
@@ -283,9 +283,11 @@ type Told = Arc<dyn Fn(&Signature) + Send + Sync>;
 /// keeps the stroke being drawn; the signature, every stroke made, is the app's ([`Signature`]): points with their
 /// pressure where the input measures it and their time, which [`SignaturePad::on_change`] is told after each
 /// stroke, after Undo and after Clear. Undo takes back the last stroke and Clear all of them: buttons in the pad's
-/// top corner once it is signed, and Backspace (or Ctrl+Z, Cmd+Z on a Mac) and Delete on the pad focused. The pad is
-/// one stop of Tab, and its buttons the next two. To tooling it is a picture called by its label, described as signed
-/// or not.
+/// top corner once it is signed, and Backspace and Delete on the pad focused. Undo takes back a clearing too, and the
+/// pad's history is undo and redo to lurq (`on_undo`, `on_redo`): Ctrl+Z and Ctrl+Shift+Z or Ctrl+Y (Cmd+Z and
+/// Cmd+Shift+Z on a Mac) in any layout, and an Edit menu's items (`Ctx::undo`); with nothing to take back the command
+/// goes on to what holds the pad. A stroke focuses the pad. The pad is one stop of Tab, and its buttons the next two.
+/// To tooling it is a picture called by its label, described as signed or not.
 ///
 /// It is drawn on the canvas, and only when what it shows changes. Where it keeps its stroke (converted into an
 /// element in a tree, or [`SignaturePad::mount`]) it is signed on; [`SignaturePad::build`] makes the still form,
@@ -594,6 +596,34 @@ struct Live {
   drawn: Signal<u64>,
   surface: ElementRef,
   root: ElementRef,
+  history: Arc<Mutex<History>>,
+}
+
+/// What the pad's own changes go back to and forward to again: the signature before each change, and the ones taken
+/// back. Forgotten when the signature is not the last one the pad told, as when the app sets it.
+#[derive(Default)]
+struct History {
+  past: Vec<Signature>,
+  future: Vec<Signature>,
+  told: Option<Signature>,
+}
+
+impl History {
+  /// Forgets what was done when the signature `now` is not what the pad told last.
+  fn follow(&mut self, now: &Signature) {
+    if self.told.as_ref() != Some(now) {
+      self.past.clear();
+      self.future.clear();
+    }
+  }
+
+  /// The pad changes the signature from `before` to `after`: what was taken back cannot be done again.
+  fn change(&mut self, before: Signature, after: &Signature) {
+    self.follow(&before);
+    self.past.push(before);
+    self.future.clear();
+    self.told = Some(after.clone());
+  }
 }
 
 /// The stroke being drawn: its points in the pad's own pixels, when it began, and the finger that draws it (`None`
@@ -780,34 +810,67 @@ impl SignaturePadView {
     move |next: Signature| change(&next)
   }
 
-  /// What takes back the last stroke, and what takes back every one.
+  /// What takes back the pad's last change (a stroke, a clearing; the last stroke of a signature the app gave), what
+  /// does again what was taken back, each saying whether there was one, and what takes back every stroke.
   fn takers(
     &self,
+    live: &Live,
   ) -> (
-    impl Fn() + Send + Sync + Clone + 'static,
+    impl Fn() -> bool + Send + Sync + Clone + 'static,
+    impl Fn() -> bool + Send + Sync + Clone + 'static,
     impl Fn() + Send + Sync + Clone + 'static,
   ) {
     let (current, tell) = (self.core.current.clone(), self.tell());
     let undo = {
-      let (current, tell) = (current.clone(), tell.clone());
+      let (current, tell, history) = (current.clone(), tell.clone(), live.history.clone());
       move || {
-        let mut next = current();
-        while next.strokes.last().is_some_and(|stroke| stroke.points.is_empty()) {
-          next.strokes.pop();
-        }
-        if next.strokes.pop().is_some() {
-          tell(next);
-        }
+        let now = current();
+        let mut history = history.lock().unwrap();
+        history.follow(&now);
+        let back = history.past.pop().or_else(|| {
+          let mut next = now.clone();
+          while next.strokes.last().is_some_and(|stroke| stroke.points.is_empty()) {
+            next.strokes.pop();
+          }
+          next.strokes.pop().map(|_| next)
+        });
+        let Some(back) = back else {
+          return false;
+        };
+        history.future.push(now);
+        history.told = Some(back.clone());
+        drop(history);
+        tell(back);
+        true
       }
     };
+    let redo = {
+      let (current, tell, history) = (current.clone(), tell.clone(), live.history.clone());
+      move || {
+        let now = current();
+        let mut history = history.lock().unwrap();
+        history.follow(&now);
+        let Some(next) = history.future.pop() else {
+          return false;
+        };
+        history.past.push(now);
+        history.told = Some(next.clone());
+        drop(history);
+        tell(next);
+        true
+      }
+    };
+    let history = live.history.clone();
     let clear = move || {
-      let mut next = current();
-      if !next.is_empty() {
+      let now = current();
+      if !now.is_empty() {
+        let mut next = now.clone();
         next.strokes.clear();
+        history.lock().unwrap().change(now, &next);
         tell(next);
       }
     };
-    (undo, clear)
+    (undo, redo, clear)
   }
 
   /// The pad's box in the style of its root, with nothing in it yet: what takes the focus and the keys, a picture to
@@ -834,19 +897,31 @@ impl SignaturePadView {
       root = root.describe("a11y_invalid", "true");
     }
     if let Some(live) = &self.live {
-      let (undo, clear) = self.takers();
+      let (undo, redo, clear) = self.takers(live);
+      let back = undo.clone();
       root = root
         .ref_element(live.root.clone())
         .tab_index(0)
+        // Undo and redo are lurq's keys (and an Edit menu's): with nothing to take back the command goes on out.
+        .on_undo(move |event: EditEvent| {
+          if !undo() {
+            event.pass_on();
+          }
+        })
+        .on_redo(move |event: EditEvent| {
+          if !redo() {
+            event.pass_on();
+          }
+        })
         .on_key_down(move |event: KeyboardEvent| {
-          if !event.focus_within || event.alt || event.composing {
+          if !event.focus_within || event.alt || event.ctrl || event.meta || event.composing {
             return;
           }
-          let command = event.ctrl || event.meta;
           match event.key.as_str() {
-            "z" | "Z" if command && !event.shift => undo(),
-            "Backspace" if !command => undo(),
-            "Delete" if !command => clear(),
+            "Backspace" => {
+              back();
+            }
+            "Delete" => clear(),
             _ => return,
           }
           event.prevent_default();
@@ -912,7 +987,9 @@ impl SignaturePadView {
           y: point.y / scale,
           ..point
         });
+        let before = next.clone();
         next.strokes.push(SignatureStroke::new(points));
+        live.history.lock().unwrap().change(before, &next);
         tell(next);
       };
       let finish_touch = finish.clone();
@@ -977,7 +1054,7 @@ impl SignaturePadView {
   /// takes back the last stroke, gives the focus to the pad, as the buttons are gone after it.
   pub fn actions(&self) -> Option<Element> {
     let live = self.live.as_ref().filter(|_| self.signed())?;
-    let (undo, clear) = self.takers();
+    let (undo, _, clear) = self.takers(live);
     let strokes = self
       .signature
       .strokes
@@ -989,7 +1066,9 @@ impl SignaturePadView {
       .size(ButtonSize::Xs)
       .icon(icons::UNDO)
       .icon_only(true)
-      .on_click(move |_| undo());
+      .on_click(move |_| {
+        undo();
+      });
     if strokes <= 1 {
       undo = undo.focuses(&live.root);
     }
@@ -1059,6 +1138,7 @@ impl Component for SignaturePadHost {
         drawn: ctx.signal(0),
         surface: ElementRef::new(),
         root: ElementRef::new(),
+        history: Arc::default(),
       },
     }
   }

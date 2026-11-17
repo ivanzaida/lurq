@@ -10,7 +10,7 @@ use super::{
   names,
   part_style::{PartStyle, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  selection::{ListSelection, Pick, select_all_key},
+  selection::{ListSelection, Pick, select_all_handler},
   shared::{fading, glyph},
   theme::{Themed, current_theme},
 };
@@ -1117,7 +1117,9 @@ impl SortableRow {
         self.tell.clone(),
         self.keys.clone(),
       );
-      let select_all = self.select_all.clone();
+      if let Some(select_all) = self.select_all.clone() {
+        NodeUpdate::on_select_all(node, select_all_handler(select_all));
+      }
       NodeUpdate::on_key_down(node, move |event: KeyboardEvent| {
         // Escape puts dragged rows back where they were: the release tells nothing.
         if event.key == "Escape" {
@@ -1132,9 +1134,6 @@ impl SortableRow {
         }
         if !event.focus_within || event.composing {
           return;
-        }
-        if let Some(select_all) = &select_all {
-          select_all_key(&event, &**select_all);
         }
         if !event.alt || event.ctrl || event.meta || event.shift {
           return;

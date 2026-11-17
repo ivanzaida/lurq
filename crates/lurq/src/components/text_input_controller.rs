@@ -130,24 +130,23 @@ impl TextInputController {
     Ok(state.replace_selection_text(text, &keyboard))
   }
 
-  /// Takes back the last edit, as Ctrl+Z does, through the input's `on_input`. `false` where there is none.
+  /// Takes back the last edit, as Ctrl+Z does, through the input's `on_input` (told the key of
+  /// [`EditCommand::Undo`](crate::app::events::EditCommand::accelerator)). `false` where there is none.
   pub fn undo(&self) -> Result<bool, InputEditError> {
     let state = self.state()?;
     if state.history_depths().0 == 0 {
       return Ok(false);
     }
-    let keyboard = KeyboardEvent::new("z", "KeyZ", false, true, false, false, NodeId::UNASSIGNED);
-    Ok(state.undo(&keyboard))
+    Ok(state.undo(&crate::app::events::EditCommand::Undo.keyboard_event()))
   }
 
-  /// Makes again the edit last taken back, as Ctrl+Y does. `false` where there is none.
+  /// Makes again the edit last taken back, as Ctrl+Y (Cmd+Shift+Z on a Mac) does. `false` where there is none.
   pub fn redo(&self) -> Result<bool, InputEditError> {
     let state = self.state()?;
     if state.history_depths().1 == 0 {
       return Ok(false);
     }
-    let keyboard = KeyboardEvent::new("y", "KeyY", false, true, false, false, NodeId::UNASSIGNED);
-    Ok(state.redo(&keyboard))
+    Ok(state.redo(&crate::app::events::EditCommand::Redo.keyboard_event()))
   }
 
   /// Whether there is an edit to take back: what an undo button is enabled by.
