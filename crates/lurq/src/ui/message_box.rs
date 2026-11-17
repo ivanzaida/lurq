@@ -249,7 +249,7 @@ impl MessageBox {
       description: None,
       label: None,
       detail: None,
-      detail_label: Arc::from("Details"),
+      detail_label: super::current_locale().common.details.clone(),
       checkbox: None,
       answers: Vec::new(),
       dismiss_on_escape: true,

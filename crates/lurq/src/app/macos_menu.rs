@@ -226,6 +226,7 @@ pub(crate) fn sync() {
   let mtm = MainThreadMarker::new().unwrap();
   let app = NSApplication::sharedApplication(mtm);
   let bar = menu(mtm, "");
+  let words = STATE.with(|s| s.borrow().as_ref().map(|s| s.controller.words())).unwrap_or_default();
   let application = menu(mtm, &model.application.name);
   if let Some(action) = &model.application.about {
     add_action(&application, mtm, &target, action);
@@ -234,24 +235,24 @@ pub(crate) fn sync() {
     add_action(&application, mtm, &target, action);
   }
   application.addItem(&NSMenuItem::separatorItem(mtm));
-  let services = menu(mtm, "Services");
-  add_submenu(&application, mtm, "Services", &services);
+  let services = menu(mtm, &words.services);
+  add_submenu(&application, mtm, &words.services, &services);
   app.setServicesMenu(Some(&services));
   for (label, key, selector, flags) in [
     (
-      format!("Hide {}", model.application.name),
+      crate::core::fill(&words.hide_app, &[("app", &model.application.name)]),
       "h",
       sel!(hide:),
       NSEventModifierFlags::Command,
     ),
     (
-      "Hide Others".into(),
+      words.hide_others.to_string(),
       "h",
       sel!(hideOtherApplications:),
       NSEventModifierFlags::Command | NSEventModifierFlags::Option,
     ),
     (
-      "Show All".into(),
+      words.show_all.to_string(),
       "",
       sel!(unhideAllApplications:),
       NSEventModifierFlags::empty(),

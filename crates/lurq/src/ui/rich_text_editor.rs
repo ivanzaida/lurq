@@ -247,38 +247,39 @@ struct Words {
 
 impl Default for Words {
   fn default() -> Self {
-    let word = Arc::<str>::from;
+    let locale = super::current_locale();
+    let words = &locale.editing;
     Self {
       label: None,
-      toolbar: word("Formatting"),
-      style: word("Text style"),
-      paragraph: word("Paragraph"),
-      heading: Arc::new(|level| format!("Heading {level}")),
-      code_block: word("Code block"),
-      bold: word("Bold"),
-      italic: word("Italic"),
-      underline: word("Underline"),
-      strikethrough: word("Strikethrough"),
-      bullet: word("Bulleted list"),
-      ordered: word("Numbered list"),
-      quote: word("Quote"),
-      code: word("Code"),
-      link: word("Link"),
-      image: word("Image"),
-      undo: word("Undo"),
-      redo: word("Redo"),
-      more: word("More"),
-      link_placeholder: word("Paste a link"),
-      apply: word("Apply"),
-      remove_link: word("Remove link"),
-      shortcuts: word("Markdown shortcuts on"),
-      count: Arc::new(|words| {
-        if words == 1 {
-          "1 word".to_owned()
-        } else {
-          format!("{words} words")
-        }
-      }),
+      toolbar: words.formatting.clone(),
+      style: words.text_style.clone(),
+      paragraph: words.paragraph.clone(),
+      heading: {
+        let heading = words.heading.clone();
+        Arc::new(move |level| crate::core::fill(&heading, &[("level", &level.to_string())]))
+      },
+      code_block: words.code_block.clone(),
+      bold: words.bold.clone(),
+      italic: words.italic.clone(),
+      underline: words.underline.clone(),
+      strikethrough: words.strikethrough.clone(),
+      bullet: words.bulleted_list.clone(),
+      ordered: words.numbered_list.clone(),
+      quote: words.quote.clone(),
+      code: words.code.clone(),
+      link: words.link.clone(),
+      image: words.image.clone(),
+      undo: words.undo.clone(),
+      redo: words.redo.clone(),
+      more: locale.common.more.clone(),
+      link_placeholder: words.paste_link.clone(),
+      apply: locale.common.apply.clone(),
+      remove_link: words.remove_link.clone(),
+      shortcuts: words.markdown_shortcuts.clone(),
+      count: {
+        let locale = locale.clone();
+        Arc::new(move |count| locale.count(&locale.editing.words, count))
+      },
     }
   }
 }

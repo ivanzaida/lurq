@@ -71,8 +71,10 @@ pub struct FieldWords {
   pub green: Arc<str>,
   pub blue: Arc<str>,
   pub format: Arc<str>,
-  /// The square of a color picker, which sets both.
+  /// The square of a color picker, which sets both, and what it is read as, with `{saturation}` and `{brightness}`
+  /// for their percentages.
   pub saturation_and_brightness: Arc<str>,
+  pub saturation_brightness_value: Arc<str>,
   /// What a property grid is called with no title; its reset button and a picker of a property, with `{name}` for
   /// the property; the handle that sets how wide the names are.
   pub properties: Arc<str>,
@@ -130,6 +132,7 @@ impl FieldWords {
       blue: "Blue".into(),
       format: "Format".into(),
       saturation_and_brightness: "Saturation and brightness".into(),
+      saturation_brightness_value: "Saturation {saturation}%, brightness {brightness}%".into(),
       properties: "Properties".into(),
       reset: "Reset {name}".into(),
       picker: "{name} picker".into(),
@@ -190,6 +193,7 @@ impl FieldWords {
         blue: "Синій".into(),
         format: "Формат".into(),
         saturation_and_brightness: "Насиченість і яскравість".into(),
+        saturation_brightness_value: "Насиченість {saturation}%, яскравість {brightness}%".into(),
         properties: "Властивості".into(),
         reset: "Скинути: {name}".into(),
         picker: "Вибір: {name}".into(),
@@ -244,6 +248,7 @@ impl FieldWords {
         blue: "Blau".into(),
         format: "Format".into(),
         saturation_and_brightness: "Sättigung und Helligkeit".into(),
+        saturation_brightness_value: "Sättigung {saturation} %, Helligkeit {brightness} %".into(),
         properties: "Eigenschaften".into(),
         reset: "{name} zurücksetzen".into(),
         picker: "Auswahl für {name}".into(),
@@ -295,6 +300,7 @@ impl FieldWords {
         blue: "Bleu".into(),
         format: "Format".into(),
         saturation_and_brightness: "Saturation et luminosité".into(),
+        saturation_brightness_value: "Saturation {saturation} %, luminosité {brightness} %".into(),
         properties: "Propriétés".into(),
         reset: "Réinitialiser {name}".into(),
         picker: "Sélecteur : {name}".into(),
@@ -346,6 +352,7 @@ impl FieldWords {
         blue: "Azul".into(),
         format: "Formato".into(),
         saturation_and_brightness: "Saturación y brillo".into(),
+        saturation_brightness_value: "Saturación {saturation} %, brillo {brightness} %".into(),
         properties: "Propiedades".into(),
         reset: "Restablecer {name}".into(),
         picker: "Selector de {name}".into(),
@@ -401,6 +408,7 @@ impl FieldWords {
         blue: "Niebieski".into(),
         format: "Format".into(),
         saturation_and_brightness: "Nasycenie i jasność".into(),
+        saturation_brightness_value: "Nasycenie {saturation}%, jasność {brightness}%".into(),
         properties: "Właściwości".into(),
         reset: "Resetuj: {name}".into(),
         picker: "Wybór: {name}".into(),
@@ -458,6 +466,8 @@ mod tests {
       for word in [&words.reset, &words.picker] {
         assert!(word.contains("{name}"), "{language}");
       }
+      let value = &words.saturation_brightness_value;
+      assert!(value.contains("{saturation}") && value.contains("{brightness}"), "{language}");
       assert!(words.stars.forms().iter().all(|form| form.contains("{value}") && form.contains("{count}")));
       assert!(words.fields_need_attention.forms().iter().all(|form| form.contains("{count}")));
       assert!(!words.optional.is_empty() && !words.terabytes.is_empty(), "{language}");

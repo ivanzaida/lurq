@@ -108,13 +108,16 @@ impl PasswordStrength {
     }
   }
 
-  /// What the meter says of it unless the app says otherwise.
-  pub fn text(self) -> &'static str {
+  /// What the meter says of it unless the app says otherwise: the words of the app's locale
+  /// ([`Locale::fields`](crate::core::Locale::fields)) where it is said in a render, English outside one.
+  pub fn text(self) -> Arc<str> {
+    let locale = super::current_locale();
+    let words = &locale.fields;
     match self {
-      Self::Weak => "Weak password",
-      Self::Fair => "Fair password",
-      Self::Good => "Good password",
-      Self::Strong => "Strong password",
+      Self::Weak => words.weak_password.clone(),
+      Self::Fair => words.fair_password.clone(),
+      Self::Good => words.good_password.clone(),
+      Self::Strong => words.strong_password.clone(),
     }
   }
 }
@@ -178,8 +181,8 @@ impl PasswordInput {
       revealed: false,
       on_reveal: Vec::new(),
       reveal_button: true,
-      show_label: Arc::from("Show password"),
-      hide_label: Arc::from("Hide password"),
+      show_label: super::current_locale().fields.show_password.clone(),
+      hide_label: super::current_locale().fields.hide_password.clone(),
       strength: None,
       strength_text: None,
       new_password: false,
@@ -392,7 +395,7 @@ impl PasswordInput {
       strength: self.strength,
       strength_text: self
         .strength_text
-        .or_else(|| self.strength.map(|strength| Arc::from(strength.text()))),
+        .or_else(|| self.strength.map(PasswordStrength::text)),
       new_password: self.new_password,
       recipe: theme.resolve::<PasswordInput>(&case, Some(&self.rules)),
       forced: self.forced,

@@ -202,10 +202,16 @@ impl<V: RatingValue> Rating<V> {
       icon: Name::new(icons::STAR_FILL),
       empty_icon: Name::new(icons::STAR_FILL),
       label: None,
-      value_text: Arc::new(|stars, max| match stars {
-        Some(stars) => format!("{} of {max} stars", number(stars)),
-        None => "No rating".to_owned(),
-      }),
+      value_text: {
+        let locale = super::current_locale();
+        Arc::new(move |stars, max| match stars {
+          Some(stars) => crate::core::fill(
+            locale.form(&locale.fields.stars, max as usize),
+            &[("value", &number(stars)), ("count", &max.to_string())],
+          ),
+          None => locale.fields.no_rating.to_string(),
+        })
+      },
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -401,7 +407,7 @@ impl<V: RatingValue> Rating<V> {
       size: self.size,
       icon: self.icon,
       empty_icon: self.empty_icon,
-      label: self.label.unwrap_or_else(|| Arc::from("Rating")),
+      label: self.label.unwrap_or_else(|| super::current_locale().fields.rating.clone()),
       value_text: self.value_text,
       states: self.states,
       rules: self.rules,

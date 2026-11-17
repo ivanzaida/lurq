@@ -530,7 +530,7 @@ impl Sidebar {
   /// A sidebar with nothing in it, open beside the page.
   pub fn new() -> Self {
     Self {
-      label: Arc::from("Sidebar"),
+      label: super::current_locale().navigation.sidebar.clone(),
       header: None,
       header_collapsed: None,
       footer: None,
@@ -1012,7 +1012,7 @@ impl Build<'_> {
         self.opened(key, group.default_open),
         self.opened(key, group.default_open),
       );
-      let name = group.label.clone().unwrap_or_else(|| Arc::from("Group"));
+      let name = group.label.clone().unwrap_or_else(|| super::current_locale().navigation.group.clone());
       let mut button = pressable(&part, false)
         .flex(1.0)
         .justify(Justify::Start)
@@ -1793,10 +1793,10 @@ impl SidebarTrigger {
       collapsed,
       open: None,
       narrow: None,
-      collapse_label: Arc::from("Collapse sidebar"),
-      expand_label: Arc::from("Expand sidebar"),
-      open_label: Arc::from("Open sidebar"),
-      close_label: Arc::from("Close sidebar"),
+      collapse_label: super::current_locale().navigation.collapse_sidebar.clone(),
+      expand_label: super::current_locale().navigation.expand_sidebar.clone(),
+      open_label: super::current_locale().navigation.open_sidebar.clone(),
+      close_label: super::current_locale().navigation.close_sidebar.clone(),
       forced: None,
       id: None,
       key: None,

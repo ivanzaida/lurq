@@ -193,8 +193,8 @@ impl ActionBar {
       on_clear: Vec::new(),
       side: ActionBarSide::default(),
       escape_clears: false,
-      clear_label: Arc::from("Clear selection"),
-      more_label: Arc::from("More actions"),
+      clear_label: super::current_locale().navigation.clear_selection.clone(),
+      more_label: super::current_locale().navigation.more_actions.clone(),
       return_focus: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -385,7 +385,10 @@ impl ActionBar {
     let count_text = self
       .count_text
       .clone()
-      .unwrap_or_else(|| Arc::from(format!("{} selected", self.count)));
+      .unwrap_or_else(|| {
+        let locale = super::current_locale();
+        Arc::from(locale.count(&locale.common.selected, self.count))
+      });
     let recipe = theme.resolve::<ActionBar>(&case, Some(&self.rules));
     let fits = fits.filter(|_| self.count > 0);
     let compact = fits.is_some_and(|fits| {

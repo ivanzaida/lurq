@@ -194,4 +194,18 @@ mod tests {
     held.set(Locale::for_tag("de"));
     assert_eq!(&*held.get().media.play, "Wiedergabe");
   }
+
+  #[test]
+  fn a_tag_gives_every_part_its_languages_words_and_its_plural_rule() {
+    let locale = Locale::for_tag("pl-PL");
+    assert_eq!(locale.common, CommonWords::for_language("pl"));
+    assert_eq!(locale.fields, FieldWords::for_language("pl"));
+    assert_eq!(locale.navigation, NavigationWords::for_language("pl"));
+    assert_eq!(locale.data, DataWords::for_language("pl"));
+    assert_eq!(locale.editing, EditingWords::for_language("pl"));
+    assert_eq!(locale.keys, KeyWords::for_language("pl"));
+    assert_eq!(locale.plural, PluralRule::Polish);
+    assert_eq!(locale.count(&locale.data.rows, 22), "22 wiersze");
+    assert_eq!(Locale::for_tag("xx").common, CommonWords::english());
+  }
 }

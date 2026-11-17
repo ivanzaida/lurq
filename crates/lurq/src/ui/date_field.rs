@@ -775,7 +775,7 @@ impl SegmentFieldView {
           .describe("a11y_valuetext", text.clone());
       }
       _ => {
-        segment = segment.describe("a11y_valuetext", "Empty");
+        segment = segment.describe("a11y_valuetext", super::current_locale().fields.empty.clone());
       }
     }
     if self.read_only {

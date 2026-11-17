@@ -250,9 +250,9 @@ impl<V: FieldColor> ColorField<V> {
       placement: Placement::BottomStart,
       eyedropper: true,
       words: Words {
-        trigger: Arc::from("Pick a color from the screen"),
-        swatch: Arc::from("Choose color"),
-        panel: Arc::from("Color"),
+        trigger: super::current_locale().fields.pick_from_screen.clone(),
+        swatch: super::current_locale().fields.choose_color.clone(),
+        panel: super::current_locale().fields.color.clone(),
       },
       on_change: Vec::new(),
       name: None,

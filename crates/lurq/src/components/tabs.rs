@@ -434,7 +434,8 @@ pub struct TabBar {
   pub hides_with_keyboard: bool,
   /// The most places the bar has. With more tabs than that, the last place is one that lists the rest.
   pub max_items: usize,
-  /// What that place says, and the platform's symbol for it.
+  /// What that place says, and the platform's symbol for it. An empty title is the app's locale's word
+  /// ([`Locale::common`](crate::core::Locale::common)'s `more`), read where the bar is drawn.
   pub more_title: String,
   pub more_symbol: String,
   /// The bar goes out of view as a list of its tab is scrolled down, and comes back as it is scrolled up:
@@ -449,6 +450,17 @@ pub struct TabBar {
   pub floating_bottom: f32,
   pub floating_height: f32,
   pub floating_selection: Color,
+}
+
+impl TabBar {
+  /// What the place of the tabs that have none says: its title, or the app's locale's word.
+  fn more_title(&self) -> String {
+    if self.more_title.is_empty() {
+      crate::ui::current_locale().common.more.to_string()
+    } else {
+      self.more_title.clone()
+    }
+  }
 }
 
 impl Default for TabBar {
@@ -477,7 +489,7 @@ impl Default for TabBar {
       item_max_width: f32::INFINITY,
       hides_with_keyboard: true,
       max_items: 5,
-      more_title: "More".to_owned(),
+      more_title: String::new(),
       more_symbol: "ellipsis".to_owned(),
       minimizes_on_scroll: false,
       floating: false,
@@ -1066,7 +1078,7 @@ fn standard_bar(
     // The last place lists the tabs that have none. It is the chosen one while its list is open, and while
     // the tab that is shown is one of those.
     let chosen = opened || rest.iter().any(|entry| entry.active);
-    let item = TabItem::new(bar.more_title.clone()).symbol(bar.more_symbol.clone());
+    let item = TabItem::new(bar.more_title()).symbol(bar.more_symbol.clone());
     let open = more_open.clone();
     places = places.child(place(
       "tab-more-places".to_owned(),
@@ -1179,7 +1191,7 @@ fn more_list(
     .child(
       Row::new().padding_horizontal(16.0).padding_bottom(8.0).child(
         Text::styled(
-          &bar.more_title,
+          &bar.more_title(),
           TextStyle {
             font_size: 34.0,
             weight: FontWeight::Bold,

@@ -292,13 +292,16 @@ pub struct ApplicationMenu {
   pub preferences: Option<MenuAction>,
   pub quit: MenuAction,
 }
+/// Called "Application" until the app names it, with a Quit item: in the words of the app's locale
+/// ([`Locale::navigation`](crate::core::Locale::navigation)) where it is made in a render, in English outside one.
 impl Default for ApplicationMenu {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      name: "Application".into(),
+      name: locale.navigation.application.clone(),
       about: None,
       preferences: None,
-      quit: MenuAction::new("quit", "Quit").accelerator(Accelerator::command("q")),
+      quit: MenuAction::new("quit", locale.navigation.quit.clone()).accelerator(Accelerator::command("q")),
     }
   }
 }
@@ -336,6 +339,8 @@ struct MenuState {
   handler: Option<ActivateHandler>,
   waker: Option<super::window::WindowWaker>,
   pending: Vec<Arc<str>>,
+  /// The words of the app's locale that the system's own items of the menu say, once the app set a locale.
+  words: Option<Arc<crate::core::NavigationWords>>,
 }
 /// Clone into a signal effect to update labels, enabled state, or item presence.
 /// Equal models are ignored. Callbacks run when the event loop drains activations.
@@ -360,6 +365,28 @@ impl MenuController {
   }
   pub fn model(&self) -> Option<MenuBar> {
     self.inner.lock().unwrap().bar.clone()
+  }
+  /// The words the items the system puts in the menu of the app say ("Hide", "Show All"): the app's locale's,
+  /// which [`App::set_locale`](crate::app::App::set_locale) gives here, and the menu is built again in them.
+  pub(crate) fn set_words(&self, words: crate::core::NavigationWords) {
+    let waker = {
+      let mut state = self.inner.lock().unwrap();
+      if state.words.as_deref() == Some(&words) {
+        return;
+      }
+      state.words = Some(Arc::new(words));
+      state.version = state.version.wrapping_add(1);
+      state.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+  /// What [`Self::set_words`] gave, English before.
+  #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+  pub(crate) fn words(&self) -> Arc<crate::core::NavigationWords> {
+    let words = self.inner.lock().unwrap().words.clone();
+    words.unwrap_or_else(|| Arc::new(crate::core::NavigationWords::english()))
   }
   pub fn on_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
     self.inner.lock().unwrap().handler = Some(Arc::new(handler));

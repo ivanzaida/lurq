@@ -267,7 +267,7 @@ impl Tag {
     .state(TagState::Disabled, self.disabled);
     let remove_label = self
       .remove_label
-      .unwrap_or_else(|| Arc::from(format!("Remove {}", self.label)));
+      .unwrap_or_else(|| Arc::from(crate::core::fill(&super::current_locale().common.remove_named, &[("name", &self.label)])));
     let view = TagView {
       label: self.label,
       remove_label,

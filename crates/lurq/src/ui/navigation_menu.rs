@@ -461,8 +461,8 @@ impl NavigationMenu {
   /// A menu with no items, its panels closed.
   pub fn new() -> Self {
     Self {
-      label: Arc::from("Main"),
-      more_label: Arc::from("More"),
+      label: super::current_locale().navigation.main.clone(),
+      more_label: super::current_locale().common.more.clone(),
       items: Vec::new(),
       open: None,
       on_open_change: Vec::new(),

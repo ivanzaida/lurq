@@ -324,19 +324,21 @@ struct Words {
 
 impl Default for Words {
   fn default() -> Self {
+    let locale = super::current_locale();
+    let words = &locale.navigation;
     Self {
-      maximize: Arc::from("Maximize"),
-      restore: Arc::from("Restore"),
-      close: Arc::from("Close"),
-      more: Arc::from("More"),
-      float: Arc::from("Float"),
-      hide: Arc::from("Hide"),
-      put_back: Arc::from("Put back"),
-      move_left: Arc::from("Move to the left"),
-      move_right: Arc::from("Move to the right"),
-      move_top: Arc::from("Move to the top"),
-      move_bottom: Arc::from("Move to the bottom"),
-      strip: Arc::from("Hidden panels"),
+      maximize: words.maximize.clone(),
+      restore: words.restore.clone(),
+      close: locale.common.close.clone(),
+      more: locale.common.more.clone(),
+      float: words.float.clone(),
+      hide: words.hide.clone(),
+      put_back: words.put_back.clone(),
+      move_left: words.move_left.clone(),
+      move_right: words.move_right.clone(),
+      move_top: words.move_top.clone(),
+      move_bottom: words.move_bottom.clone(),
+      strip: words.hidden_panels.clone(),
     }
   }
 }
@@ -424,7 +426,7 @@ impl DockLayout {
       on_change: Vec::new(),
       on_detach: Vec::new(),
       empty: None,
-      label: Arc::from("Dock layout"),
+      label: super::current_locale().navigation.dock_layout.clone(),
       words: Words::default(),
       states: Vec::new(),
       rules: Recipe::new(),

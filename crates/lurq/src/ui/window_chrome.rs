@@ -172,10 +172,10 @@ impl WindowControls {
     Self {
       minimizable: true,
       maximizable: true,
-      minimize_label: Arc::from("Minimize"),
-      maximize_label: Arc::from("Maximize"),
-      restore_label: Arc::from("Restore"),
-      close_label: Arc::from("Close"),
+      minimize_label: super::current_locale().navigation.minimize.clone(),
+      maximize_label: super::current_locale().navigation.maximize.clone(),
+      restore_label: super::current_locale().navigation.restore.clone(),
+      close_label: super::current_locale().common.close.clone(),
       on_close: Vec::new(),
     }
   }

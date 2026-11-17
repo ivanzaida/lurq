@@ -614,7 +614,7 @@ impl TeachingTipView {
   /// styled over the theme's button by [`TeachingTipPart::Close`].
   pub fn close(&self) -> Button {
     let close = self.close.clone();
-    let button = Button::new("Close");
+    let button = Button::new(&super::current_locale().common.close);
     let button = match &self.id {
       Some(id) => button.id(format!("{id}-close")),
       None => button,
@@ -705,7 +705,14 @@ impl TeachingTipView {
       footer = footer.child(
         Row::new()
           .part(&part)
-          .child(part.text(&format!("{step} of {of}")).nowrap()),
+          .child(
+            part
+              .text(&crate::core::fill(
+                &super::current_locale().common.place_of,
+                &[("at", &step.to_string()), ("total", &of.to_string())],
+              ))
+              .nowrap(),
+          ),
       );
     }
     let mut actions = Row::new()
@@ -1195,10 +1202,10 @@ impl Tour {
     Self {
       current,
       steps: Vec::new(),
-      back: Arc::from("Back"),
-      next: Arc::from("Next"),
-      done: Arc::from("Done"),
-      skip: Arc::from("Skip"),
+      back: super::current_locale().common.back.clone(),
+      next: super::current_locale().common.next.clone(),
+      done: super::current_locale().common.done.clone(),
+      skip: super::current_locale().common.skip.clone(),
       skip_button: false,
       variant: TeachingTipVariant::Plain.into(),
       placement: Placement::Bottom,

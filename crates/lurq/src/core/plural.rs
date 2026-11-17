@@ -132,6 +132,19 @@ impl Plural {
   }
 }
 
+/// A sentence said the same after every number: what an app gives where a [`Plural`] is asked for.
+impl From<&str> for Plural {
+  fn from(word: &str) -> Self {
+    Self::same(word)
+  }
+}
+
+impl From<String> for Plural {
+  fn from(word: String) -> Self {
+    Self::same(&word)
+  }
+}
+
 /// `word` with each `{place}` it has put in: `fill("Page {at} of {total}", &[("at", "2"), ("total", "5")])` is
 /// "Page 2 of 5". A place the word does not have is left out; a place with no value stays as it is.
 ///

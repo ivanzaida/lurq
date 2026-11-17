@@ -397,8 +397,8 @@ impl Breadcrumb {
       max_shown: None,
       separator: BreadcrumbSeparator::default(),
       menu: None,
-      label: Arc::from("Breadcrumb"),
-      more_label: Arc::from("Show the hidden steps"),
+      label: super::current_locale().navigation.breadcrumb.clone(),
+      more_label: super::current_locale().navigation.show_hidden_steps.clone(),
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -417,7 +417,7 @@ impl Breadcrumb {
     Self::new(BreadcrumbStep::path(path))
       .variant(BreadcrumbVariant::Path)
       .overflow(true)
-      .label("Path")
+      .label(&super::current_locale().navigation.path)
   }
 
   /// A [`BreadcrumbVariant`], or a variant the theme's recipe names.

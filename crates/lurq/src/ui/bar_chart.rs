@@ -570,7 +570,10 @@ impl ChartPlot for BarPlot {
         };
         let name = &self.categories[category];
         let label = if self.values.len() > 1 {
-          format!("{name}, series {}", series + 1)
+          crate::core::fill(
+            &crate::ui::current_locale().data.series,
+            &[("name", name), ("number", &(series + 1).to_string())],
+          )
         } else {
           name.to_string()
         };

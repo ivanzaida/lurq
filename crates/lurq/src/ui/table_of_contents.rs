@@ -220,7 +220,7 @@ impl TableOfContents {
   pub fn new(entries: impl IntoIterator<Item = impl Into<TableOfContentsEntry>>) -> Self {
     Self {
       entries: entries.into_iter().map(Into::into).collect(),
-      title: Arc::from("On this page"),
+      title: super::current_locale().navigation.on_this_page.clone(),
       container: None,
       reading_line: 24.0,
       current: None,

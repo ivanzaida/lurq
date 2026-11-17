@@ -285,6 +285,7 @@ impl App {
   /// ```
   pub fn set_locale(&self, locale: crate::core::Locale) {
     self.shared.dates.set(crate::core::shared_date_text(locale.dates.clone()));
+    self.shared.menu.set_words(locale.navigation.clone());
     self.shared.locale.set(locale);
   }
 

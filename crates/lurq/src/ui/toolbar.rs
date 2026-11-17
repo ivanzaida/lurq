@@ -503,7 +503,7 @@ impl Toolbar {
       size: ButtonSize::Sm.into(),
       overflow: false,
       label: None,
-      more_label: Arc::from("More"),
+      more_label: super::current_locale().common.more.clone(),
       more_icon: Name::from(icons::MORE_HORIZONTAL),
       secondary: Vec::new(),
       top: false,

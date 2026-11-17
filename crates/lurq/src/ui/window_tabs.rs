@@ -373,8 +373,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       disabled: false,
       label: None,
       words: Words {
-        add: Arc::from("New tab"),
-        close: Arc::from("Close"),
+        add: super::current_locale().navigation.new_tab.clone(),
+        close: super::current_locale().common.close.clone(),
       },
       states: Vec::new(),
       rules: Recipe::new(),

@@ -66,9 +66,6 @@ names!(AiLabelState {
 /// What builds an AI label's nodes: a theme's in place of the default one.
 pub type AiLabelRenderer = Arc<dyn Fn(AiLabelView) -> Element + Send + Sync>;
 
-/// The word an AI label draws when the app gives it none.
-const AI: &str = "AI";
-
 /// An AI label: the mark on what a model made or filled in, and on what asks
 /// one. A summary that was generated, a field that was suggested, a button
 /// that drafts a reply.
@@ -103,7 +100,7 @@ impl AiLabel {
   /// A label that says "AI" after sparkles.
   pub fn new() -> Self {
     Self {
-      text: Arc::from(AI),
+      text: super::current_locale().common.ai.clone(),
       label: None,
       icon: None,
       size: AiLabelSize::default().into(),

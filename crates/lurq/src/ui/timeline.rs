@@ -737,8 +737,8 @@ impl<T: Send + Sync + 'static> Timeline<T> {
         .state(TimelineState::Pending, self.loading)
         .state(TimelineState::Loading, self.loading);
       TimelineMore {
-        label: self.more_label.unwrap_or_else(|| Arc::from("Show more")),
-        loading_text: self.loading_text.unwrap_or_else(|| Arc::from("Loading")),
+        label: self.more_label.unwrap_or_else(|| super::current_locale().common.show_more.clone()),
+        loading_text: self.loading_text.unwrap_or_else(|| super::current_locale().common.loading.clone()),
         loading: self.loading,
         on_load_more: self.on_load_more,
         horizontal,

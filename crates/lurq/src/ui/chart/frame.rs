@@ -380,7 +380,7 @@ impl ChartFrame {
       .label
       .clone()
       .or_else(|| self.props.title.clone())
-      .unwrap_or_else(|| Arc::from("Chart"))
+      .unwrap_or_else(|| crate::ui::current_locale().data.chart.clone())
   }
 
   /// The chart still: drawn, read by tooling, with nothing that follows the pointer or the keys.
@@ -453,7 +453,7 @@ impl ChartFrame {
           .part(&empty)
           .child(
             empty
-              .text(self.props.empty_text.as_deref().unwrap_or("No data"))
+              .text(self.props.empty_text.as_deref().unwrap_or(&crate::ui::current_locale().data.no_data))
               .part(&empty)
               .nowrap(),
           )
@@ -799,7 +799,7 @@ impl ChartFrame {
           }
         }
       })
-      .describe("a11y_roledescription", "chart")
+      .describe("a11y_roledescription", crate::ui::current_locale().data.chart_role.clone())
   }
 
   fn series_name(&self, series: usize) -> String {

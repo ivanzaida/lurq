@@ -524,7 +524,7 @@ impl ToastView {
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
     let mut close = pressable(&part, false)
       .describe("a11y_role", "button")
-      .describe("a11y_name", "Close")
+      .describe("a11y_name", super::current_locale().common.close.clone())
       .child(Icon::new(icons::CLOSE).size(side).build(self.theme()));
     if !self.on_close.is_empty() {
       let handlers = self.on_close.clone();

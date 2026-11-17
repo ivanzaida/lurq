@@ -367,8 +367,11 @@ impl PictureLoad {
     let percent = format!("{}%", (self.fraction * 100.0).round());
     match self.bytes {
       Some((loaded, total)) => {
-        let megabytes = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
-        format!("{percent} · {:.1} of {:.1} MB", megabytes(loaded), megabytes(total))
+        let locale = super::current_locale();
+        let megabytes = |bytes: u64| format!("{:.1}", bytes as f64 / (1024.0 * 1024.0));
+        let total = crate::core::fill(&locale.fields.megabytes, &[("size", &megabytes(total))]);
+        let said = crate::core::fill(&locale.common.place_of, &[("at", &megabytes(loaded)), ("total", &total)]);
+        format!("{percent} · {said}")
       }
       None => percent,
     }
@@ -391,12 +394,14 @@ struct Words {
 
 impl Default for Words {
   fn default() -> Self {
+    let locale = super::current_locale();
+    let words = &locale.common;
     Self {
-      error_description: Arc::from("The picture didn't load."),
-      retry: Arc::from("Try again"),
-      download: Arc::from("Download"),
-      more: Arc::from("More"),
-      open: Arc::from("Open"),
+      error_description: words.picture_failed.clone(),
+      retry: words.try_again.clone(),
+      download: words.download.clone(),
+      more: words.more.clone(),
+      open: words.open.clone(),
     }
   }
 }

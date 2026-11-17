@@ -148,17 +148,22 @@ struct Words {
   alpha: Arc<str>,
   format: Arc<str>,
   eyedropper: Arc<str>,
+  /// Whether the app told the words of the area itself: what the area says is then made of them.
+  told_area: bool,
 }
 
 impl Default for Words {
   fn default() -> Self {
+    let locale = super::current_locale();
+    let words = &locale.fields;
     Self {
-      saturation: Arc::from("Saturation"),
-      brightness: Arc::from("Brightness"),
-      hue: Arc::from("Hue"),
-      alpha: Arc::from("Alpha"),
-      format: Arc::from("Format"),
-      eyedropper: Arc::from("Pick a color from the screen"),
+      saturation: words.saturation.clone(),
+      brightness: words.brightness.clone(),
+      hue: words.hue.clone(),
+      alpha: words.alpha.clone(),
+      format: words.format.clone(),
+      eyedropper: words.pick_from_screen.clone(),
+      told_area: false,
     }
   }
 }
@@ -342,12 +347,14 @@ impl ColorPicker {
   /// The word for saturation in what the area says to tooling. "Saturation".
   pub fn saturation_label(mut self, label: &str) -> Self {
     self.words.saturation = Arc::from(label);
+    self.words.told_area = true;
     self
   }
 
   /// The word for brightness in what the area says to tooling. "Brightness".
   pub fn brightness_label(mut self, label: &str) -> Self {
     self.words.brightness = Arc::from(label);
+    self.words.told_area = true;
     self
   }
 
@@ -884,18 +891,23 @@ impl ColorPickerView {
         (1.0 - self.hsv.v) * height - side / 2.0,
       )
       .pointer_events_none();
-    let said = format!(
-      "{} {}%, {} {}%",
-      self.words.saturation,
-      percent(self.hsv.s),
-      self.words.brightness.to_lowercase(),
-      percent(self.hsv.v)
-    );
-    let name: Arc<str> = Arc::from(format!(
-      "{} and {}",
-      self.words.saturation,
-      self.words.brightness.to_lowercase()
-    ));
+    let (said, name) = if self.words.told_area {
+      let (saturation, brightness) = (&self.words.saturation, &self.words.brightness);
+      (
+        format!("{saturation} {}%, {brightness} {}%", percent(self.hsv.s), percent(self.hsv.v)),
+        Arc::from(format!("{saturation}, {brightness}")),
+      )
+    } else {
+      let locale = super::current_locale();
+      let said = crate::core::fill(
+        &locale.fields.saturation_brightness_value,
+        &[
+          ("saturation", &percent(self.hsv.s).to_string()),
+          ("brightness", &percent(self.hsv.v).to_string()),
+        ],
+      );
+      (said, locale.fields.saturation_and_brightness.clone())
+    };
     let mut area = Stack::new()
       .stack_align(StackAlignment::TopStart)
       .part(&part)
@@ -1205,17 +1217,18 @@ impl ColorPickerView {
     match self.format {
       ColorFormat::Hex => row = row.child(Row::new().flex(1.0).min_width(0.0).child(self.hex_field())),
       ColorFormat::Rgb => {
+        let locale = super::current_locale();
         let [r, g, b] = [self.color.r(), self.color.g(), self.color.b()].map(f32::from);
         row = row
-          .child(self.channel("R", "Red", r, 255.0, |model, red| {
+          .child(self.channel("R", &locale.fields.red, r, 255.0, |model, red| {
             let c = model.current();
             model.set_color(Color::new(red as u8, c.g(), c.b(), c.a()))
           }))
-          .child(self.channel("G", "Green", g, 255.0, |model, green| {
+          .child(self.channel("G", &locale.fields.green, g, 255.0, |model, green| {
             let c = model.current();
             model.set_color(Color::new(c.r(), green as u8, c.b(), c.a()))
           }))
-          .child(self.channel("B", "Blue", b, 255.0, |model, blue| {
+          .child(self.channel("B", &locale.fields.blue, b, 255.0, |model, blue| {
             let c = model.current();
             model.set_color(Color::new(c.r(), c.g(), blue as u8, c.a()))
           }));
@@ -1224,16 +1237,16 @@ impl ColorPickerView {
         let hsl = self.color.to_hsl_values();
         let hue = if hsl.s <= 0.0 { self.hsv.h } else { hsl.h };
         row = row
-          .child(self.channel("H", "Hue", hue, 360.0, |model, h| {
+          .child(self.channel("H", &self.words.hue, hue, 360.0, |model, h| {
             let hsl = model.current().to_hsl_values();
             model.set(with_hue(Hsl { h, ..hsl }, h))
           }))
-          .child(self.channel("S", "Saturation", hsl.s * 100.0, 100.0, |model, s| {
+          .child(self.channel("S", &self.words.saturation, hsl.s * 100.0, 100.0, |model, s| {
             let hsl = model.current().to_hsl_values();
             let h = model.hsv().h;
             model.set(with_hue(Hsl { s: s / 100.0, ..hsl }, h))
           }))
-          .child(self.channel("L", "Lightness", hsl.l * 100.0, 100.0, |model, l| {
+          .child(self.channel("L", &super::current_locale().fields.lightness, hsl.l * 100.0, 100.0, |model, l| {
             let hsl = model.current().to_hsl_values();
             let h = model.hsv().h;
             model.set(with_hue(Hsl { l: l / 100.0, ..hsl }, h))
@@ -1241,7 +1254,7 @@ impl ColorPickerView {
       }
     }
     if self.alpha && self.format != ColorFormat::Hex {
-      row = row.child(self.channel("A", "Alpha", self.hsv.a * 100.0, 100.0, |model, a| {
+      row = row.child(self.channel("A", &self.words.alpha, self.hsv.a * 100.0, 100.0, |model, a| {
         let hsv = model.hsv();
         model.set(Hsv { a: a / 100.0, ..hsv })
       }));
