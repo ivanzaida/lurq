@@ -485,3 +485,84 @@ fn a_theme_names_the_group_without_its_type_and_styles_a_group_of_any() {
   let (monday, tuesday) = (stage.text_quad("Monday").unwrap(), stage.text_quad("Tuesday").unwrap());
   assert!((tuesday.y - monday.y - (monday.height.max(16.0) + 30.0)).abs() < 0.01);
 }
+
+#[cfg(feature = "form")]
+mod in_a_form {
+  use std::sync::{Arc, Mutex};
+
+  use lurq::{
+    app::{component::Component, ctx::Ctx},
+    components::{Column, FormHandle, FormOptions, FormValues},
+    core::Signal,
+    node::Element,
+    ui::{Button, Checkbox},
+  };
+
+  use super::Stage;
+
+  #[derive(Clone, Default)]
+  struct Sent(Arc<Mutex<Option<FormValues>>>);
+
+  #[cfg(feature = "devtools")]
+  impl lurq::app::component::DevtoolsInspectable for Sent {
+    fn write_info(&self, _buffer: &mut Vec<lurq::app::component::ComponentInfo>) {}
+  }
+
+  impl PartialEq for Sent {
+    fn eq(&self, other: &Self) -> bool {
+      Arc::ptr_eq(&self.0, &other.0)
+    }
+  }
+
+  struct Settings {
+    form: FormHandle,
+    news: Signal<bool>,
+  }
+
+  impl Component for Settings {
+    type Props = Sent;
+
+    fn create(ctx: &mut Ctx) -> Self {
+      let sent = ctx.props::<Sent>().0.clone();
+      let form = ctx
+        .form(FormOptions::new())
+        .on_submit(move |values| *sent.lock().unwrap() = Some(values));
+      Self {
+        form,
+        news: ctx.signal(false),
+      }
+    }
+
+    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+      ctx.form_view(self.form.clone(), |_| {
+        Column::new()
+          .padding(10.0)
+          .spacing(8.0)
+          .child(
+            Checkbox::new("Send me news")
+              .bind(self.news.clone())
+              .name("news")
+              .id("news"),
+          )
+          .child(Button::new("Save").submit(true).id("save"))
+      })
+    }
+  }
+
+  #[test]
+  fn a_named_checkbox_gives_the_form_on_while_it_is_checked_and_nothing_else() {
+    let sent = Sent::default();
+    let probe = sent.clone();
+    let mut stage = Stage::new(move |ctx| ctx.mount::<Settings>(probe.clone()));
+    let submitted = |sent: &Sent| sent.0.lock().unwrap().clone().expect("submitted");
+    stage.click("save");
+    assert_eq!(
+      submitted(&sent).get_string("news"),
+      None,
+      "not checked, it gives nothing"
+    );
+    stage.click("news");
+    stage.click("save");
+    assert_eq!(submitted(&sent).get_string("news"), Some("on"));
+  }
+}

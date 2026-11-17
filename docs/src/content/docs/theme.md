@@ -74,7 +74,7 @@ The main theme accessors are:
 | `theme.control_sizes()`, `theme.icon_sizes()`, `theme.densities()`, `theme.durations()`, `theme.easings()`, `theme.opacities()`, `theme.blurs()` | Read one of the design's other scales; `set_…` replaces it. |
 | `theme.control_size_value(key)`, `icon_size_value`, `density_value`, `duration_value`, `easing_value`, `opacity_value`, `blur_value` | Read one role of a scale; `set_…_value(key, value)` sets one. |
 | `theme.focus_ring()` / `theme.set_focus_ring(...)` | Read or replace `ThemeFocusRing`. |
-| `theme.form()` / `theme.set_form(...)` | Read or replace `FormTheme`; requires the `form` feature. |
+| `theme.form()` / `theme.set_form(...)` | Deprecated: `FormTheme` is read by nothing. The form controls are styled by the recipes of the design system's components: see [Form Theme](#form-theme). |
 | `theme.apply(definition)` / `theme.definition()` | Install a whole theme at once, or read the theme back as one value. See [Themes As One Value](#themes-as-one-value). |
 
 Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for one theme value:
@@ -899,125 +899,36 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 
 ## Form Theme
 
-The form theme names the palette roles of lurq 0.61, which are [deprecated](#deprecated-roles) and still work: each follows the role that replaces it, so a theme set through the new roles reaches the form controls. The tables below show the roles as the form theme has them. The form controls move to the new roles when they are rebuilt with the design system's components.
+`FormTheme` is deprecated, with `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form`: nothing reads it. The form controls of `lurq::components` (feature `form`) are the design system's components, and a theme styles them as it styles those, by their [recipes](../design-system/): a form's field is a `ui::Field`, its text box a `ui::Input` (a `ui::Textarea` where it is multiline), its checkbox a `ui::Checkbox`, its slider a `ui::Slider`, its buttons a primary and an outline `ui::Button`. See [Forms](../forms/#form-controls). What was a role of `FormTheme` is a part or a state of one of those recipes:
 
-Form theme roles require the `form` feature:
-
-```toml
-lurq = { version = "0.61.1", features = ["form"] }
-```
-
-`FormTheme` groups compound form styling into semantic roles:
-
-| Field | Purpose |
+| `FormTheme` | The recipe |
 | --- | --- |
-| `form.field` | Label, hint, error text, and field spacing. |
-| `form.input` | Text input frame, text, placeholder, caret, focus, and error colors. |
-| `form.checkbox` | Compound checkbox colors and radius. |
-| `form.slider` | Compound slider track and thumb colors. |
-| `form.button` | Primary and secondary compound button roles. |
-
-Form text roles use typography and palette together:
+| `field.label`, `field.hint`, `field.error`, `field.spacing` | `ui::Field`: `FieldPart::Label`, `Description` (with `FieldState::Invalid` for an error), the gap of `Root` |
+| `input` | `ui::Input` and `ui::Textarea`: `InputPart::Control` (the box: height, padding, radius, fill, edge, type), `Placeholder`, the states `Invalid` and `Disabled`, the focus (`focus_visible`) |
+| `checkbox` | `ui::Checkbox`: `CheckboxPart::Box`, the states `Checked` and `Invalid` |
+| `slider` | `ui::Slider`: `SliderPart::Track`, `Fill`, `Thumb` |
+| `button.primary`, `button.secondary` | `ui::Button`: `ButtonPart::Root` and `Label` of the variants `ButtonVariant::Primary` and `Outline` |
 
 ```rust
-use lurq::app::theme::{FormTextRole, PaletteColor, TypographyStyle};
-
-FormTextRole {
-  typography: TypographyStyle::Caption,
-  color: PaletteColor::MutedForeground,
+use lurq::{
+  app::theme::{PaletteColor, RadiusSize, TypographyStyle},
+  ui::{self, ButtonPart, ButtonVariant, FieldPart, InputPart},
 };
+
+// 0.62: form.field.label, form.input.radius and form.button.primary.background, through `set_form`.
+let theme = app.theme();
+theme.patch_recipe::<ui::Field>(|recipe| {
+  recipe.base(FieldPart::Label, |s| {
+    s.typography(TypographyStyle::Label).foreground(PaletteColor::MutedForeground)
+  })
+});
+theme.patch_recipe::<ui::Input>(|recipe| recipe.base(InputPart::Control, |s| s.radius(RadiusSize::Lg)));
+theme.patch_recipe::<ui::Button>(|recipe| {
+  recipe.variant(ButtonVariant::Primary, ButtonPart::Root, |s| s.background(PaletteColor::Success))
+});
 ```
 
-### Field Roles
-
-`theme.form().field` is a `FormFieldTheme`.
-
-| Field | Default |
-| --- | --- |
-| `spacing` | `SpacingSize::Xs` |
-| `label` | `TypographyStyle::FieldLabel` + `PaletteColor::TextPrimary` |
-| `hint` | `TypographyStyle::Caption` + `PaletteColor::TextMuted` |
-| `error` | `TypographyStyle::Caption` + `PaletteColor::Danger` |
-
-### Input Roles
-
-`theme.form().input` is a `FormInputTheme`.
-
-| Field | Default |
-| --- | --- |
-| `height` | `36px` |
-| `padding` | horizontal `10px`, vertical `8px` |
-| `radius` | `RadiusSize::Md` |
-| `background` | `PaletteColor::SurfaceInput` |
-| `border` | `PaletteColor::Border` |
-| `border_focus` | `PaletteColor::BorderFocus` |
-| `background_error` | `PaletteColor::DangerMuted` |
-| `border_error` | `PaletteColor::Danger` |
-| `text` | `TypographyStyle::Body` + `PaletteColor::TextPrimary` |
-| `placeholder` | `TypographyStyle::Body` + `PaletteColor::TextMuted` |
-| `caret` | `PaletteColor::BorderFocus` |
-
-### Button Roles
-
-`theme.form().button` is a `FormButtonTheme` with `primary` and `secondary` `FormButtonRole`s.
-
-Both button roles own layout values (`width`, `height`, `padding`) and semantic theme references (`radius`, background roles, border roles, text role). Compound form controls draw their default borders with `BorderSize::Sm`. Defaults:
-
-| Role | Background | Border | Text |
-| --- | --- | --- | --- |
-| `primary` | `Accent` | `Accent` | `Button` + `TextInverse` |
-| `secondary` | `SurfaceInput` | `BorderStrong` | `Button` + `TextPrimary` |
-
-Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`. Both roles draw a `border_focus` border (`BorderFocus`) while the button is [focus-visible](../focus-navigation/#focus-visible): after Tab or a key press, not after a click.
-
-### Checkbox And Slider Roles
-
-Compound checkbox defaults:
-
-| Field | Default |
-| --- | --- |
-| `background` | `SurfaceInput` |
-| `border` | `Border` |
-| `border_hover` | `BorderFocus` |
-| `checked_background` | `Accent` |
-| `checked_border` | `Accent` |
-| `checked_background_hover` | `AccentHover` |
-| `border_focus` | `BorderFocus` |
-| `radius` | `RadiusSize::Sm` |
-
-Compound slider defaults:
-
-| Field | Default |
-| --- | --- |
-| `track` | `Border` |
-| `track_hover` | `BorderStrong` |
-| `thumb` | `Accent` |
-| `thumb_hover` | `AccentHover` |
-| `thumb_border_focus` | `BorderFocus` |
-
-### Updating Form Roles
-
-Read the current form theme, modify the semantic roles, then replace it:
-
-```rust
-use lurq::app::theme::{
-  FormTextRole, PaletteColor, RadiusSize, TypographyStyle,
-};
-
-let mut form = app.theme().form().clone();
-
-form.field.label = FormTextRole {
-  typography: TypographyStyle::Label,
-  color: PaletteColor::MutedForeground,
-};
-
-form.input.radius = RadiusSize::Lg;
-form.input.border_focus = PaletteColor::Info;
-form.button.primary.background = PaletteColor::Success;
-form.button.primary.background_hover = PaletteColor::PrimaryHover;
-
-app.theme().set_form(form);
-```
+A recipe of a component styles every one of it, in a form or not: an app that wants its form's controls alone to look another way gives them a theme of their own (`Ctx::in_theme`) or uses the components themselves with `style(..)` (see [Forms](../forms/#form-controls)).
 
 ## Concrete Values
 

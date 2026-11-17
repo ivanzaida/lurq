@@ -622,7 +622,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 
 | Builder | |
 | --- | --- |
-| `new(&str, impl FieldControl)` | Its label and its control: an `Input`, a `Textarea`, another component, any `Element` (an engine node goes in with `.into()`) |
+| `new(&str, impl FieldControl)` | Its label and its control: an `Input`, a `Textarea`, another component, any `Element` (an engine node goes in with `.into()`). An empty label draws none above the control and names it nothing: a checkbox with its own label beside it, and the field's description under it |
 | `description(&str)` | What the control is for, under it |
 | `error(&str)` | What is wrong, in place of the description; the field is invalid |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | The description in the destructive, warning or success color, and the control judged so |
@@ -652,6 +652,7 @@ Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
 - The field's description, or its error while it has one, is the control's description to what reads the tree (`a11y_description`), whatever the control: the field puts it on each outermost node in the control that says what it is (`a11y_role`) or takes the focus, so a radio group is described and not each radio in it. `lurq_inspect` reports it as `description`.
 - A press of the label focuses the control: the first node under what holds it that takes the focus (`.focuses(&ElementRef)` on the label, the ref on the row that holds the control). A control that is disabled is not focused, and a disabled field's label focuses nothing. A renderer that holds the control another way puts `view.focus` on what holds it.
 - An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
+- **In a form.** The form controls of `lurq::components` (feature `form`) are these components bound to a form's control: `FormTextInput` is a field holding an input (a textarea where it is multiline), `FormCheckboxInput` a field with no label above a checkbox with its label beside it, `FormSliderInput` and `FormRangeSliderInput` a field holding a slider as wide as it, and `FormPrimaryButton` and `FormSecondaryButton` a primary and an outline button as wide as what holds them. The form's error is the field's error, a required control has the field's mark, a disabled one (or one of a form that is submitting) is disabled, and every one of them is as wide as what holds it. They are styled by these recipes and no other: see [Forms](../forms/#form-controls).
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Fluid`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
 
@@ -808,6 +809,7 @@ Checkbox::new("Select blur.rs").label_hidden(true).checked(row.get());
 | `on_change(handler)` | Called on a press with what the checkbox is to be: checked if it was not, or was indeterminate. Bound, it is called after the signal is set, and not when the app sets it. A second handler is called after the first |
 | `invalid(bool)` | What it holds is wrong: the box is edged in the destructive color |
 | `label_hidden(bool)` | The box alone. The label is still what the checkbox is called |
+| `name(..)` | The name it has in a form (feature `form`): checked, it gives the form `on`, as the engine's checkbox does, and nothing while it is not |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A press of the box or of the label asks for the other state; a press of an indeterminate one asks for checked. Tab reaches the box, Space and Enter press it, and the focus ring is the box's.
@@ -919,6 +921,7 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 | `orientation(SliderOrientation)` | `Horizontal`, or `Vertical`: 16 wide and 140 high, the least value at the bottom. `SliderOrientation` is `ui::Orientation` |
 | `length(f32)` | How long the slider is along its track: its width across, its height up |
 | `label(&str)` | What the slider is called, to what reads the tree. The slider shows no text: the field it is in does |
+| `name(..)` | The name of its value in a form (feature `form`); a range slider gives its low value and its high one under it |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the slider's node |
 
 - It is the engine's [`Slider`](../styling-events/#slider-styling) dressed by the recipe: a drag of the thumb, a press on the track and the keys set the signal, snapped to the step and kept in the range. Tab reaches it wherever it is (`tab_index(0)`), and the focus ring is the thumb's. A vertical slider is dragged along its height, and the up and down arrows move it.

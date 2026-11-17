@@ -483,7 +483,7 @@ Controls whose visuals are drawn from part styles have part-level focus styles, 
 
 For a checkbox, slider or select that should mark every focus, put a `.focused(...)` style on the control itself.
 
-The compound form controls take their focus border from the form theme: `form.input.border_focus`, `form.checkbox.border_focus`, `form.slider.thumb_border_focus`, and `border_focus` on both `form.button` roles, all `PaletteColor::Ring` by default. The buttons, the checkbox and the slider draw it while focus-visible; the text input draws it for any focus. See [Form Theme](../theme/#form-theme).
+The compound form controls are the design system's components and draw their focus as those do, from their recipes: a ring in `PaletteColor::Ring` around the buttons, the checkbox's box and the slider's thumb while they are focus-visible, and a line of 2 in `Ring` inside the text box for any focus. See [Forms](../forms/#form-controls).
 
 ## Testing Focus
 

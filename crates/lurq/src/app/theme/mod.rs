@@ -33,7 +33,9 @@ pub use border::{BorderSize, ThemeBorderSizes};
 pub use breakpoints::{Breakpoint, ThemeBreakpoints};
 pub use caret::{CaretHeight, CaretMode, ThemeCaret};
 pub use definition::ThemeDefinition;
+// Kept so that a program written for 0.62 compiles: nothing reads them.
 #[cfg(feature = "form")]
+#[allow(deprecated)]
 pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
   FormTheme,
@@ -106,7 +108,9 @@ struct ThemeInner {
   text_marks: Arc<ThemeTextMarks>,
   #[cfg(feature = "markdown")]
   markdown: ThemeMarkdown,
+  /// What `set_form` was given, kept to be read back: nothing draws with it.
   #[cfg(feature = "form")]
+  #[allow(deprecated)]
   form: FormTheme,
   /// What the app decided about reduced motion; `None` follows the system.
   reduced_motion: Option<bool>,
@@ -195,6 +199,7 @@ impl Theme {
         #[cfg(feature = "markdown")]
         markdown: definition.markdown,
         #[cfg(feature = "form")]
+        #[allow(deprecated)]
         form: definition.form,
         reduced_motion: None,
         system_reduced_motion: false,
@@ -885,7 +890,15 @@ impl Theme {
     self.set_typography(fonts.into());
   }
 
+  /// The styles of the form controls of 0.62, as [`Self::set_form`] set them. Nothing reads them: the form controls
+  /// are the design system's components, styled by the theme's recipes.
   #[cfg(feature = "form")]
+  #[deprecated(
+    since = "0.63.0",
+    note = "the form controls are the design system's components: read their recipes, \
+            `theme.resolve::<ui::Input>(..)` and those of `ui::Field`, `ui::Checkbox`, `ui::Slider` and `ui::Button`"
+  )]
+  #[allow(deprecated)]
   pub fn form(&self) -> ThemeRef<'_, FormTheme> {
     ThemeRef {
       inner: self.inner.read().unwrap(),
@@ -893,7 +906,16 @@ impl Theme {
     }
   }
 
+  /// Keeps the styles of the form controls of 0.62, which nothing reads: the form controls are the design system's
+  /// components, styled by the theme's recipes.
   #[cfg(feature = "form")]
+  #[deprecated(
+    since = "0.63.0",
+    note = "the form controls are the design system's components: style them with the theme's recipes, \
+            `theme.patch_recipe::<ui::Field>(..)` and those of `ui::Input`, `ui::Textarea`, `ui::Checkbox`, \
+            `ui::Slider` and `ui::Button`"
+  )]
+  #[allow(deprecated)]
   pub fn set_form(&self, form: FormTheme) {
     self.mutate_inner(|inner| inner.form = form);
   }

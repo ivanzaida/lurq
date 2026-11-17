@@ -375,6 +375,33 @@ fn a_field_is_its_label_its_control_and_its_description_6_apart() {
 }
 
 #[test]
+fn a_field_with_an_empty_label_has_its_control_at_the_top_and_names_it_nothing() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Field::new("", Input::new(Signal::new(String::new())).full_width(true).id("name"))
+          .description("Shown in the title bar.")
+          .id("field"),
+      )
+      .into()
+  });
+  let (_, field_top, ..) = stage.bounds("field");
+  let (_, y, _, height) = stage.bounds("name");
+  assert_eq!(y, field_top, "no label above the control");
+  let description = stage.text_quad("Shown in the title bar.").unwrap();
+  assert!((description.y - (y + height) - 6.0).abs() < 1.0);
+  #[cfg(feature = "mcp")]
+  {
+    let name = stage
+      .tree
+      .get_element_by_id_mut("name")
+      .and_then(|element| element.description("a11y_name"));
+    assert_eq!(name, None, "the control is not called by an empty label");
+  }
+}
+
+#[test]
 fn an_error_takes_the_place_of_the_description_in_the_destructive_color() {
   let stage = Stage::new(|_| {
     Column::new()
