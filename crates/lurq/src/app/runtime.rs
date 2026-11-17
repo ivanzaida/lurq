@@ -910,8 +910,6 @@ pub struct Tree {
   render_glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "raster")]
   render_images: Vec<crate::images::ImageCmd>,
-  #[cfg(feature = "canvas")]
-  render_svgs: Vec<crate::svg::SvgCmd>,
   render_layers: Vec<crate::layout::opacity_layer::LayerCmd>,
   render_backdrops: Vec<crate::layout::backdrop::BackdropCmd>,
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
@@ -1386,8 +1384,6 @@ impl Tree {
       render_glyphs: Vec::new(),
       #[cfg(feature = "raster")]
       render_images: Vec::new(),
-      #[cfg(feature = "canvas")]
-      render_svgs: Vec::new(),
       render_layers: Vec::new(),
       render_backdrops: Vec::new(),
       opacity_groups: Vec::new(),
@@ -3137,12 +3133,6 @@ impl Tree {
     let mut image_sources = Vec::new();
     #[cfg(feature = "raster")]
     let mut video_sources = Vec::new();
-    #[cfg(feature = "canvas")]
-    let svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
 
     // `LURQ_GLYPH_DEBUG` — collect the marked text runs' bboxes+orders so the
     // end of the build can report which rects paint over them.
@@ -3684,8 +3674,6 @@ impl Tree {
       &glyphs,
       #[cfg(feature = "raster")]
       &images,
-      #[cfg(feature = "canvas")]
-      &svgs,
       &mut layers,
     );
     self.opacity_groups = opacity_groups;
@@ -3795,8 +3783,6 @@ impl Tree {
       glyphs,
       #[cfg(feature = "raster")]
       images,
-      #[cfg(feature = "canvas")]
-      svgs,
       layers,
       backdrops,
       atlas: glyph_engine.atlas(),
@@ -3946,8 +3932,6 @@ impl Tree {
       mut glyphs,
       #[cfg(feature = "raster")]
       mut images,
-      #[cfg(feature = "canvas")]
-      mut svgs,
       mut layers,
       mut backdrops,
       atlas: _,
@@ -3964,11 +3948,6 @@ impl Tree {
     {
       images.clear();
       self.render_images = images;
-    }
-    #[cfg(feature = "canvas")]
-    {
-      svgs.clear();
-      self.render_svgs = svgs;
     }
     self.scheduled_redraw_due = false;
     self.frame_count += 1;

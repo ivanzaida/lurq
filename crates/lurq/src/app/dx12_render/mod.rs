@@ -18,8 +18,6 @@ use std::{
 };
 
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
-#[cfg(feature = "canvas")]
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_UINT;
 #[cfg(feature = "raster")]
 use windows::Win32::Graphics::{
   Direct3D12::{D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_STATE_COMMON},
@@ -116,8 +114,6 @@ use crate::app::{
 };
 #[cfg(feature = "raster")]
 use crate::render::gpu::ImageInstance;
-#[cfg(feature = "canvas")]
-use crate::render::gpu::SvgVertexGpu;
 use crate::{
   app::{
     profile_support::{profile_elapsed, profile_if, profile_scope},
@@ -907,8 +903,6 @@ struct Dx12State {
   image_pipeline: ImagePipeline,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: ImagePipeline,
-  #[cfg(feature = "canvas")]
-  svg_pipeline: SvgPipeline,
   glyph_atlas: Option<GlyphAtlasTexture>,
   #[cfg(feature = "raster")]
   image_textures: HashMap<u64, CachedImageTexture>,
@@ -1013,12 +1007,6 @@ struct GlyphPipeline {
 
 #[cfg(feature = "raster")]
 struct ImagePipeline {
-  root_signature: ID3D12RootSignature,
-  pipeline_state: ID3D12PipelineState,
-}
-
-#[cfg(feature = "canvas")]
-struct SvgPipeline {
   root_signature: ID3D12RootSignature,
   pipeline_state: ID3D12PipelineState,
 }
@@ -1635,91 +1623,6 @@ impl ImagePipeline {
   }
 }
 
-#[cfg(feature = "canvas")]
-impl SvgPipeline {
-  unsafe fn new(device: &ID3D12Device, format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT) -> Result<Self> {
-    let root_signature = create_rect_root_signature(device)?;
-    let vs = compile_shader(include_bytes!("shaders/svg.hlsl"), b"vs_main\0", b"vs_5_0\0")?;
-    let ps = compile_shader(include_bytes!("shaders/svg.hlsl"), b"ps_main\0", b"ps_5_0\0")?;
-    let input_elements = svg_input_elements();
-    let mut rtv_formats = [DXGI_FORMAT_UNKNOWN; 8];
-    rtv_formats[0] = format;
-
-    let blend = D3D12_RENDER_TARGET_BLEND_DESC {
-      BlendEnable: TRUE,
-      LogicOpEnable: FALSE,
-      SrcBlend: D3D12_BLEND_SRC_ALPHA,
-      DestBlend: D3D12_BLEND_INV_SRC_ALPHA,
-      BlendOp: D3D12_BLEND_OP_ADD,
-      SrcBlendAlpha: D3D12_BLEND_ONE,
-      DestBlendAlpha: D3D12_BLEND_INV_SRC_ALPHA,
-      BlendOpAlpha: D3D12_BLEND_OP_ADD,
-      LogicOp: D3D12_LOGIC_OP_NOOP,
-      RenderTargetWriteMask: D3D12_COLOR_WRITE_ENABLE_ALL.0 as u8,
-    };
-
-    let mut desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
-      pRootSignature: ManuallyDrop::new(Some(root_signature.clone())),
-      VS: shader_bytecode(&vs),
-      PS: shader_bytecode(&ps),
-      DS: D3D12_SHADER_BYTECODE::default(),
-      HS: D3D12_SHADER_BYTECODE::default(),
-      GS: D3D12_SHADER_BYTECODE::default(),
-      StreamOutput: Default::default(),
-      BlendState: D3D12_BLEND_DESC {
-        AlphaToCoverageEnable: FALSE,
-        IndependentBlendEnable: FALSE,
-        RenderTarget: [blend; 8],
-      },
-      SampleMask: u32::MAX,
-      RasterizerState: D3D12_RASTERIZER_DESC {
-        FillMode: D3D12_FILL_MODE_SOLID,
-        CullMode: D3D12_CULL_MODE_NONE,
-        FrontCounterClockwise: FALSE,
-        DepthBias: 0,
-        DepthBiasClamp: 0.0,
-        SlopeScaledDepthBias: 0.0,
-        DepthClipEnable: TRUE,
-        MultisampleEnable: FALSE,
-        AntialiasedLineEnable: FALSE,
-        ForcedSampleCount: 0,
-        ConservativeRaster: D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF,
-      },
-      DepthStencilState: D3D12_DEPTH_STENCIL_DESC {
-        DepthEnable: FALSE,
-        DepthWriteMask: D3D12_DEPTH_WRITE_MASK_ZERO,
-        DepthFunc: D3D12_COMPARISON_FUNC_ALWAYS,
-        StencilEnable: FALSE,
-        StencilReadMask: 0,
-        StencilWriteMask: 0,
-        FrontFace: Default::default(),
-        BackFace: Default::default(),
-      },
-      InputLayout: D3D12_INPUT_LAYOUT_DESC {
-        pInputElementDescs: input_elements.as_ptr(),
-        NumElements: input_elements.len() as u32,
-      },
-      IBStripCutValue: D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
-      PrimitiveTopologyType: D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-      NumRenderTargets: 1,
-      RTVFormats: rtv_formats,
-      DSVFormat: DXGI_FORMAT_UNKNOWN,
-      SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-      NodeMask: 0,
-      CachedPSO: Default::default(),
-      Flags: D3D12_PIPELINE_STATE_FLAG_NONE,
-    };
-
-    let pipeline_state = device.CreateGraphicsPipelineState(&desc)?;
-    ManuallyDrop::drop(&mut desc.pRootSignature);
-
-    Ok(Self {
-      root_signature,
-      pipeline_state,
-    })
-  }
-}
-
 fn render_target_view_desc() -> D3D12_RENDER_TARGET_VIEW_DESC {
   D3D12_RENDER_TARGET_VIEW_DESC {
     Format: RENDER_TARGET_FORMAT,
@@ -2193,28 +2096,6 @@ fn image_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
   ]
 }
 
-#[cfg(feature = "canvas")]
-fn svg_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 2] {
-  [
-    input_element(
-      0,
-      DXGI_FORMAT_R32G32_FLOAT,
-      0,
-      0,
-      D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-      0,
-    ),
-    input_element(
-      1,
-      DXGI_FORMAT_R32G32B32A32_FLOAT,
-      0,
-      8,
-      D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-      0,
-    ),
-  ]
-}
-
 fn input_element(
   semantic_index: u32,
   format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
@@ -2471,8 +2352,6 @@ enum OrderedDraw {
   Glyph(GlyphRun),
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "canvas")]
-  Svg(usize),
 }
 
 impl OrderedDraw {
@@ -2483,8 +2362,6 @@ impl OrderedDraw {
       Self::Glyph(GlyphRun { start, count, .. }) => PaintedDraw::Glyphs { start, count },
       #[cfg(feature = "raster")]
       Self::Image(index) => PaintedDraw::Image(index),
-      #[cfg(feature = "canvas")]
-      Self::Svg(index) => PaintedDraw::Svg(index),
     }
   }
 
@@ -2746,8 +2623,6 @@ impl Dx12State {
     let image_pipeline = ImagePipeline::new(&device, RENDER_TARGET_FORMAT)?;
     #[cfg(feature = "raster")]
     let nv12_image_pipeline = ImagePipeline::new_nv12(&device, RENDER_TARGET_FORMAT)?;
-    #[cfg(feature = "canvas")]
-    let svg_pipeline = SvgPipeline::new(&device, RENDER_TARGET_FORMAT)?;
 
     let command_allocators = [
       device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT)?,
@@ -2792,8 +2667,6 @@ impl Dx12State {
       image_pipeline,
       #[cfg(feature = "raster")]
       nv12_image_pipeline,
-      #[cfg(feature = "canvas")]
-      svg_pipeline,
       glyph_atlas: None,
       #[cfg(feature = "raster")]
       image_textures: HashMap::new(),
@@ -3216,8 +3089,6 @@ impl Dx12State {
     let has_draws = !list.rects.is_empty() || !list.glyphs.is_empty();
     #[cfg(feature = "raster")]
     let has_draws = has_draws || !list.images.is_empty();
-    #[cfg(feature = "canvas")]
-    let has_draws = has_draws || !list.svgs.is_empty();
     if !has_draws {
       return Ok(());
     }
@@ -3260,10 +3131,6 @@ impl Dx12State {
     #[cfg(feature = "raster")]
     for (index, image) in list.images.iter().enumerate() {
       ordered_draws.push((image.order, OrderedDraw::Image(index)));
-    }
-    #[cfg(feature = "canvas")]
-    for (index, svg) in list.svgs.iter().enumerate() {
-      ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
     }
     ordered_draws.sort_by_key(|(order, _)| *order);
 
@@ -3422,8 +3289,6 @@ impl Dx12State {
         }
         Ok(())
       }
-      #[cfg(feature = "canvas")]
-      OrderedDraw::Svg(index) => dx12_context(self.draw_svg(&list.svgs[index]), format_args!("draw dx12 svg #{index}")),
     }
   }
 
@@ -3893,56 +3758,6 @@ impl Dx12State {
         );
       }
     }
-
-    Ok(())
-  }
-
-  #[cfg(feature = "canvas")]
-  unsafe fn draw_svg(&mut self, svg: &crate::svg::SvgCmd) -> Result<()> {
-    if svg.mesh.vertices.is_empty() || svg.mesh.indices.is_empty() {
-      return Ok(());
-    }
-    let Some(scissor) = scissor_rect(self.space.clip(svg.clip), self.space.width, self.space.height) else {
-      return Ok(());
-    };
-
-    let vertices: Vec<SvgVertexGpu> = svg
-      .mesh
-      .vertices
-      .iter()
-      .map(|vertex| SvgVertexGpu {
-        position: [vertex.position[0] + svg.x, vertex.position[1] + svg.y],
-        color: vertex.color,
-      })
-      .collect();
-    let vertex_upload = self.upload_frame_pod_slice(&vertices, 16)?;
-    let index_upload = self.upload_frame_pod_slice(&svg.mesh.indices, 4)?;
-    let globals = globals_for_clip(self.space.clip(svg.clip), &self.space);
-    let globals_upload = self.upload_frame_constant(&globals)?;
-    let vertex_view = vertex_upload.vertex_view::<SvgVertexGpu>();
-    let index_view = D3D12_INDEX_BUFFER_VIEW {
-      BufferLocation: index_upload.gpu_address,
-      SizeInBytes: index_upload.size_in_bytes,
-      Format: DXGI_FORMAT_R32_UINT,
-    };
-
-    self.command_list.SetPipelineState(&self.svg_pipeline.pipeline_state);
-    self
-      .command_list
-      .SetGraphicsRootSignature(&self.svg_pipeline.root_signature);
-    self
-      .command_list
-      .SetGraphicsRootConstantBufferView(0, globals_upload.gpu_address);
-    self.command_list.RSSetScissorRects(std::slice::from_ref(&scissor));
-    self
-      .command_list
-      .IASetVertexBuffers(0, Some(std::slice::from_ref(&vertex_view)));
-    self.command_list.IASetIndexBuffer(Some(&index_view));
-    self
-      .command_list
-      .DrawIndexedInstanced(svg.mesh.indices.len() as u32, 1, 0, 0, 0);
-    profile_if! { self.draw_calls += 1; }
-    self.command_list.IASetIndexBuffer(Some(&self.quad_buffers.index_view));
 
     Ok(())
   }
@@ -5055,11 +4870,6 @@ mod tests {
         compile_shader(include_bytes!("shaders/image.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
-      }
-      #[cfg(feature = "canvas")]
-      {
-        compile_shader(include_bytes!("shaders/svg.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
-        compile_shader(include_bytes!("shaders/svg.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
       }
     }
   }

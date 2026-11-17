@@ -89,14 +89,6 @@ pub struct ImageInstance {
   pub radii: [f32; 4],
 }
 
-#[cfg(feature = "canvas")]
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SvgVertexGpu {
-  pub position: [f32; 2],
-  pub color: [f32; 4],
-}
-
 /// The uniforms of a draw: its target, and the rounded clips the fragment
 /// shaders cut it by (see [`ClipRect::rounded`](crate::layout::quad::ClipRect::rounded)).
 /// The clip's rectangle is the scissor's.

@@ -858,7 +858,6 @@ pub(crate) fn resolve_layers(
   rects: &[RectCmd],
   glyphs: &[GlyphCmd],
   #[cfg(feature = "raster")] images: &[crate::images::ImageCmd],
-  #[cfg(feature = "canvas")] svgs: &[crate::svg::SvgCmd],
   layers: &mut Vec<LayerCmd>,
 ) {
   layers.clear();
@@ -870,8 +869,6 @@ pub(crate) fn resolve_layers(
   glyphs.iter().for_each(|glyph| bounds.add_glyph(glyph));
   #[cfg(feature = "raster")]
   images.iter().for_each(|image| bounds.add_image(image));
-  #[cfg(feature = "canvas")]
-  svgs.iter().for_each(|svg| bounds.add_svg(svg));
   bounds.build(groups, viewport, scale, layers);
 }
 
@@ -937,22 +934,6 @@ pub(crate) fn image_extent(image: &crate::images::ImageCmd) -> Extent {
   clipped(extent, image.clip)
 }
 
-/// The pixels an SVG's mesh can paint, inside its clip.
-#[cfg(feature = "canvas")]
-pub(crate) fn svg_extent(svg: &crate::svg::SvgCmd) -> Extent {
-  let mesh = svg.mesh.vertices.iter().fold(EMPTY_EXTENT, |extent, vertex| {
-    let [x, y] = vertex.position;
-    union(extent, [svg.x + x, svg.y + y, svg.x + x, svg.y + y])
-  });
-  let extent = [
-    mesh[0] - AA_REACH,
-    mesh[1] - AA_REACH,
-    mesh[2] + AA_REACH,
-    mesh[3] + AA_REACH,
-  ];
-  clipped(extent, svg.clip)
-}
-
 fn union(a: Extent, b: Extent) -> Extent {
   [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
 }
@@ -990,11 +971,6 @@ impl LayerBoundsBuilder {
   #[cfg(feature = "raster")]
   fn add_image(&mut self, image: &crate::images::ImageCmd) {
     self.add(image.order, image_extent(image));
-  }
-
-  #[cfg(feature = "canvas")]
-  fn add_svg(&mut self, svg: &crate::svg::SvgCmd) {
-    self.add(svg.order, svg_extent(svg));
   }
 
   /// Layers for `groups`, outer layers first.

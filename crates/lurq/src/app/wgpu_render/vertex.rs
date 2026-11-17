@@ -1,7 +1,5 @@
 #[cfg(feature = "raster")]
 pub use crate::render::gpu::ImageInstance;
-#[cfg(feature = "canvas")]
-pub use crate::render::gpu::SvgVertexGpu;
 pub use crate::render::gpu::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 
 impl QuadVertex {
@@ -190,28 +188,6 @@ impl ImageInstance {
         wgpu::VertexAttribute {
           offset: 72,
           shader_location: 8,
-          format: wgpu::VertexFormat::Float32x4,
-        },
-      ],
-    }
-  }
-}
-
-#[cfg(feature = "canvas")]
-impl SvgVertexGpu {
-  pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-    wgpu::VertexBufferLayout {
-      array_stride: std::mem::size_of::<SvgVertexGpu>() as wgpu::BufferAddress,
-      step_mode: wgpu::VertexStepMode::Vertex,
-      attributes: &[
-        wgpu::VertexAttribute {
-          offset: 0,
-          shader_location: 0,
-          format: wgpu::VertexFormat::Float32x2,
-        },
-        wgpu::VertexAttribute {
-          offset: 8,
-          shader_location: 1,
           format: wgpu::VertexFormat::Float32x4,
         },
       ],

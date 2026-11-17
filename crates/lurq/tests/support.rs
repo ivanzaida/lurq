@@ -84,8 +84,6 @@ pub struct RenderSnapshot {
   pub image_opacities: Vec<f32>,
   #[cfg(feature = "image")]
   pub images: Vec<ImageSnapshot>,
-  #[cfg(feature = "canvas")]
-  pub svg_orders: Vec<usize>,
   pub layers: Vec<lurq::layout::opacity_layer::LayerCmd>,
   pub backdrops: Vec<lurq::layout::backdrop::BackdropCmd>,
 }
@@ -200,8 +198,6 @@ impl RenderEngine for CapturingRenderEngine {
           uv_max: image.uv_max,
         })
         .collect(),
-      #[cfg(feature = "canvas")]
-      svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
       layers: list.layers.clone(),
       backdrops: list.backdrops.clone(),
     });
@@ -221,8 +217,6 @@ fn empty_snapshot() -> RenderSnapshot {
     image_opacities: vec![],
     #[cfg(feature = "image")]
     images: vec![],
-    #[cfg(feature = "canvas")]
-    svg_orders: vec![],
     layers: vec![],
     backdrops: vec![],
   }
