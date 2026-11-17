@@ -591,7 +591,7 @@ pub use textarea::{
   TextareaView,
 };
 pub use theme::{
-  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_theme, in_theme,
+  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_theme, in_theme, touch_form,
 };
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
 pub use time_picker::{

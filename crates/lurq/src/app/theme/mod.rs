@@ -527,7 +527,9 @@ impl Theme {
     self.mutate_inner(|inner| inner.densities.set(role, value));
   }
 
-  /// The density the theme is at: [`Density::Default`] unless set. The rules
+  /// The density the theme is at: unless set, [`Density::Touch`] on iOS and Android and [`Density::Default`]
+  /// elsewhere, the browser too ([`Density::platform_default`]). At `Touch` the components that have a touch
+  /// form take it ([`ui::touch_form`](crate::ui::touch_form)). The rules
   /// of a recipe for a density ([`Recipe::density`](crate::ui::Recipe::density))
   /// hold while the theme is at it, and what draws rows of its own reads it:
   /// `theme.density_value(theme.density())` is the height of a row.

@@ -157,6 +157,23 @@ token_table! {
   }
 }
 
+/// Whether the platform is one a finger points on: iOS and Android.
+const FINGER_PLATFORM: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
+impl Density {
+  /// The density a theme starts at on the platform the app is built for: [`Touch`](Self::Touch) on iOS and
+  /// Android, [`Default`](Self::Default) on a desktop and in the browser. Every theme lurq makes starts here,
+  /// and an app sets another with `theme.set_density(..)` or in a `ThemeDefinition`.
+  pub fn platform_default() -> Self {
+    Self::starting_on(FINGER_PLATFORM)
+  }
+
+  /// The density a theme starts at on a platform a finger points on (`finger`) or on another.
+  pub(crate) fn starting_on(finger: bool) -> Self {
+    if finger { Self::Touch } else { Self::Default }
+  }
+}
+
 token_table! {
   /// How long a change takes to show.
   MotionDuration,
@@ -274,5 +291,18 @@ mod tests {
       .map(|role| durations.get(*role).as_millis())
       .collect();
     assert_eq!(lengths, [100, 160, 240, 400]);
+  }
+
+  #[test]
+  fn a_theme_starts_at_touch_where_a_finger_points_and_at_the_default_elsewhere() {
+    use super::Density;
+    assert_eq!(Density::starting_on(true), Density::Touch, "iOS and Android");
+    assert_eq!(
+      Density::starting_on(false),
+      Density::Default,
+      "a desktop and the browser"
+    );
+    let here = cfg!(any(target_os = "ios", target_os = "android"));
+    assert_eq!(Density::platform_default(), Density::starting_on(here));
   }
 }

@@ -309,6 +309,17 @@ pub fn current_breakpoint() -> Option<Breakpoint> {
   breakpoint.and_then(|breakpoint| breakpoint.get())
 }
 
+/// Whether what is being built takes its touch form, dressed for a finger: swipes in place of buttons over its
+/// sides, larger targets, dots in place of arrows, a phone's chrome. It is the theme's density and nothing else:
+/// the theme at [`Density::Touch`](crate::app::theme::Density::Touch), where a theme starts on iOS and Android
+/// ([`Density::platform_default`](crate::app::theme::Density::platform_default)). The window's width is not
+/// asked: a narrow window of a desktop is a narrow room, laid out narrow, and still a desktop's. Every component
+/// with a touch form reads it, and a component's own prop for its form (`variant(..)`, `touch(bool)`) wins over it.
+/// What reads it is rendered again when the density changes.
+pub fn touch_form() -> bool {
+  current_theme().density() == crate::app::theme::Density::Touch
+}
+
 pub(crate) fn enter_theme(
   theme: Theme,
   breakpoint: Option<Memo<Option<Breakpoint>>>,

@@ -966,7 +966,8 @@ impl Component for PicturePage {
         "variant",
         "PictureVariant",
         "by the density",
-        "Desktop, Phone: the phone's in an app for a finger (Density::Touch), unless told. A large picture runs          edge to edge, its bar is always there with no buttons, and a long press brings its actions in a sheet.",
+        "Desktop, Phone: the phone's in an app for a finger (Density::Touch), unless told. A large picture runs \
+         edge to edge, its bar is always there with no buttons, and a long press brings its actions in a sheet.",
       ),
       ("disabled", "bool", "false", "Half the opacity; it takes nothing."),
     ];
@@ -1116,7 +1117,9 @@ impl Component for PicturePage {
         ),
         Section::new(
           "On a phone",
-          "In an app for a finger (the theme at `Density::Touch`) a large picture runs edge to edge with no corners            and no line, and its bar is always there with no buttons: there is no pointer to bring it in. A tap            opens it, and a long press brings its actions, Download and the menu's items, in an action sheet.",
+          "In an app for a finger (the theme at `Density::Touch`) a large picture runs edge to edge with no corners \
+           and no line, and its bar is always there with no buttons: there is no pointer to bring it in. A tap \
+           opens it, and a long press brings its actions, Download and the menu's items, in an action sheet.",
           self.frame.demo(
             8,
             on_a_phone,

@@ -523,6 +523,12 @@ components of its own.
   page), measured before paint (`ElementRef::observe_rect_before_paint`), not by the window's breakpoint: a narrow
   panel of a wide window is a narrow room too. A page's `kit::fit` is for a scene that is a picture of a desktop
   window, not for a component that could not get narrower.
+- **A phone's form is chosen by `ui::touch_form()`, never by the width.** Whether a component is dressed for a finger
+  (swipes, targets of 44, dots for arrows, a phone's chrome) is the theme's density, `Density::Touch`, where a theme
+  starts on iOS and Android, and nothing else: `variant: None => ui::touch_form()`, with the component's own prop
+  (`variant(..)`, `touch(bool)`) over it. A narrow window of a desktop is a narrow room: the desktop's form laid out
+  in it. Its test takes the touch form at a wide window at `Touch`, and the desktop's at 320 at the default; its
+  page shows the touch form by the prop or a stage at `Touch`, so that a desktop sees both.
 - **Nothing is hidden and no text is made smaller to fit**, and the wide form stays as it is: a change for a narrow
   window is a greatest width, a wrap that a wide window never reaches, or a branch on `phone()` or on a measured
   room.

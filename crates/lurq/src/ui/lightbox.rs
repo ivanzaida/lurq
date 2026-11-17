@@ -397,8 +397,9 @@ impl Lightbox {
     self
   }
 
-  /// The form ([`LightboxVariant`]): the phone's where the window is narrower than the theme's `Sm` and the
-  /// lightbox is over it, unless told.
+  /// The form ([`LightboxVariant`]): the phone's where the theme is at the density of an app for a finger
+  /// ([`Density::Touch`](crate::app::theme::Density::Touch), [`touch_form`](super::touch_form)), whatever the
+  /// window's width, unless told. In a narrow window of a desktop it is the desktop's, laid out narrow.
   pub fn variant(mut self, variant: impl Into<Name>) -> Self {
     self.variant = Some(variant.into());
     self
@@ -669,12 +670,11 @@ impl Component for LightboxHost {
       self.scroll.set_scroll(0.0, 0.0);
     }
     let max = lightbox.zoom_max;
+    // The phone's form is for a finger, which the theme's density says; a narrow window is a desktop's still,
+    // and the desktop's form lays itself out in the room it has.
     let phone = match lightbox.variant {
       Some(variant) => variant == Name::from(LightboxVariant::Phone),
-      None => {
-        !lightbox.inline
-          && !super::current_breakpoint().is_some_and(|breakpoint| breakpoint >= crate::app::theme::Breakpoint::Sm)
-      }
+      None => super::touch_form(),
     };
     // Over the whole of a phone's screen it keeps clear of what the system draws over its edges.
     let safe = match phone && !lightbox.inline {

@@ -324,7 +324,7 @@ fn a_subtree_is_in_a_theme_of_its_own() {
 fn a_rule_for_a_breakpoint_reaches_a_button_when_the_window_is_that_wide() {
   use lurq::app::theme::Breakpoint;
   let app = App::new();
-  // A finger's button on a narrow window, the design's from the medium breakpoint up.
+  // A taller button on a narrow window, the design's from the medium breakpoint up.
   app.theme().patch_recipe::<Button>(|rules| {
     rules
       .base(ButtonPart::Root, |s| s.height(48.0))
@@ -373,6 +373,76 @@ fn a_rule_for_a_density_holds_while_the_theme_is_at_it() {
   theme.set_density(Density::Touch);
   stage.pass();
   assert_eq!(stage.bounds("save").3, 48.0);
+}
+
+/// What `ui::touch_form()` said in each render of a scene, with the window's breakpoint beside it.
+type Said = Arc<std::sync::Mutex<Vec<(bool, Option<lurq::app::theme::Breakpoint>)>>>;
+
+/// A window of `width` that writes down what `ui::touch_form()` says in each of its renders.
+fn telling(app: App, width: f32, said: &Said) -> Stage {
+  let said = said.clone();
+  Stage::first_frame_in(app, width, 400.0, move |_| {
+    said
+      .lock()
+      .unwrap()
+      .push((lurq::ui::touch_form(), lurq::ui::current_breakpoint()));
+    Text::new("here").into()
+  })
+}
+
+#[test]
+fn the_touch_form_is_the_density_of_the_theme_and_not_the_width_of_the_window() {
+  use lurq::app::theme::{Breakpoint, Density};
+  let last = |said: &Said| *said.lock().unwrap().last().unwrap();
+
+  // A narrow window of a desktop is not a phone: below every breakpoint, at the default density.
+  let said = Said::default();
+  let app = App::new();
+  let theme = app.theme().clone();
+  let mut stage = telling(app, 320.0, &said);
+  assert_eq!(last(&said), (false, None));
+  // At a finger's density it is the touch form, and what read it is rendered again.
+  theme.set_density(Density::Touch);
+  stage.pass();
+  assert_eq!(last(&said), (true, None));
+  for density in [Density::Compact, Density::Comfortable, Density::Default] {
+    theme.set_density(density);
+    stage.pass();
+    assert!(!last(&said).0, "{density:?} is no finger's");
+  }
+
+  // A wide window at a finger's density is the touch form too.
+  let said = Said::default();
+  let app = App::new();
+  app.theme().set_density(Density::Touch);
+  let _stage = telling(app, 1440.0, &said);
+  let (touch, breakpoint) = last(&said);
+  assert!(touch);
+  assert!(breakpoint >= Some(Breakpoint::Lg), "{breakpoint:?}");
+
+  // A subtree in a theme of its own takes that theme's.
+  let finger = Theme::new();
+  finger.set_density(Density::Touch);
+  assert!(lurq::ui::in_theme(&finger, lurq::ui::touch_form));
+  assert!(!lurq::ui::in_theme(&Theme::new(), lurq::ui::touch_form));
+}
+
+#[test]
+fn a_theme_starts_at_the_density_of_its_platform() {
+  use lurq::app::theme::Density;
+  let finger = cfg!(any(target_os = "ios", target_os = "android"));
+  let expected = if finger { Density::Touch } else { Density::Default };
+  assert_eq!(Density::platform_default(), expected);
+  for theme in [
+    Theme::new(),
+    Theme::legacy(),
+    Theme::from_definition(ThemeDefinition::bare()),
+  ] {
+    assert_eq!(theme.density(), expected);
+  }
+  assert_eq!(App::new().theme().density(), expected);
+  // Outside a render it is the neutral theme's, at the platform's density.
+  assert_eq!(lurq::ui::touch_form(), finger);
 }
 
 #[test]

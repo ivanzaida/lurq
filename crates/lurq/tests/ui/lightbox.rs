@@ -765,7 +765,7 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
   use lurq::app::events::TouchPhase;
   let open = Signal::new(true);
   let shown = open.clone();
-  let mut stage = Stage::first_frame(390.0, 844.0, move |_| {
+  let mut stage = Stage::first_frame_in(for_a_finger(), 390.0, 844.0, move |_| {
     Column::new()
       .size(390.0, 844.0)
       .child(Lightbox::new(shown.clone(), pictures()).id("viewer"))
@@ -775,7 +775,7 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
   settled(&mut stage);
   assert!(
     stage.tree.get_element_by_id("viewer-zoom-in").is_none(),
-    "a phone's window: the phone's form"
+    "an app for a finger: the phone's form"
   );
   let (x, y) = stage.center("viewer-stage");
   let mut drag = |stage: &mut Stage, by: f32| {
@@ -796,6 +796,106 @@ fn a_drag_down_closes_it_and_a_short_one_does_not() {
   assert!(open.get(), "not far enough");
   drag(&mut stage, 220.0);
   assert!(!open.get(), "far enough: it closed");
+}
+
+/// An app whose theme is at the density of a finger, as an app on a phone starts.
+fn for_a_finger() -> lurq::app::App {
+  let app = lurq::app::App::new();
+  app.theme().set_density(lurq::app::theme::Density::Touch);
+  app
+}
+
+/// Whether the lightbox `viewer` is in the phone's form: the dots under the picture, and no zoom buttons.
+fn phones(stage: &mut Stage) -> bool {
+  let dots = stage.tree.get_element_by_id("viewer-page-0").is_some();
+  let zoom = stage.tree.get_element_by_id("viewer-zoom-in").is_some();
+  assert_ne!(dots, zoom, "one form or the other");
+  dots
+}
+
+#[test]
+fn in_an_app_for_a_finger_it_is_the_phones_form_however_wide_the_window_is() {
+  for (width, height) in [(1440.0, 900.0), (1000.0, 700.0), (390.0, 844.0), (320.0, 640.0)] {
+    let mut stage = Stage::first_frame_in(for_a_finger(), width, height, move |_| {
+      Column::new()
+        .size(width, height)
+        .child(Lightbox::new(Signal::new(true), pictures()).id("viewer"))
+        .into()
+    });
+    settled(&mut stage);
+    assert!(phones(&mut stage), "over a window of {width}");
+    assert_eq!(stage.bounds("viewer"), (0.0, 0.0, width, height), "the whole screen");
+  }
+  // In a page too, and told otherwise it is the desktop's.
+  for (variant, phone) in [(None, true), (Some(LightboxVariant::Desktop), false)] {
+    let mut stage = Stage::first_frame_in(for_a_finger(), 1000.0, 700.0, move |_| {
+      let lightbox = Lightbox::new(Signal::new(true), pictures())
+        .inline(true)
+        .width(420.0)
+        .height(290.0)
+        .id("viewer");
+      Row::new()
+        .child(match variant {
+          Some(variant) => lightbox.variant(variant),
+          None => lightbox,
+        })
+        .into()
+    });
+    settled(&mut stage);
+    assert_eq!(phones(&mut stage), phone, "{variant:?}");
+  }
+}
+
+#[test]
+fn a_narrow_window_of_a_desktop_has_the_desktops_form_laid_out_to_fit() {
+  for (width, height) in [(390.0, 844.0), (320.0, 640.0)] {
+    let mut stage = Stage::first_frame(width, height, move |_| {
+      Column::new()
+        .size(width, height)
+        .child(
+          Lightbox::new(Signal::new(true), pictures())
+            .index(Signal::new(1))
+            .on_download(|_| {})
+            .id("viewer"),
+        )
+        .into()
+    });
+    settled(&mut stage);
+    assert!(
+      !phones(&mut stage),
+      "a window of {width} at the default density: the desktop's"
+    );
+    assert_eq!(stage.bounds("viewer"), (0.0, 0.0, width, height));
+    for id in [
+      "viewer-close",
+      "viewer-download",
+      "viewer-zoom-in",
+      "viewer-zoom-out",
+      "viewer-previous",
+      "viewer-next",
+      "viewer-thumb-0",
+      "viewer-thumb-2",
+    ] {
+      let (x, y, w, h) = stage.bounds(id);
+      assert!(
+        x >= 0.0 && x + w <= width + 0.5 && y >= 0.0 && y + h <= height + 0.5,
+        "{id} is in a window of {width}: {w} at {x}"
+      );
+    }
+    // Told, it is the phone's in a narrow window as in a wide one.
+    let mut stage = Stage::first_frame(width, height, move |_| {
+      Column::new()
+        .size(width, height)
+        .child(
+          Lightbox::new(Signal::new(true), pictures())
+            .variant(LightboxVariant::Phone)
+            .id("viewer"),
+        )
+        .into()
+    });
+    settled(&mut stage);
+    assert!(phones(&mut stage));
+  }
 }
 
 #[test]

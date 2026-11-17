@@ -649,7 +649,7 @@ How much room a row of a list, a menu or a table takes. Roles are named by `Dens
 | `Comfortable` | `comfortable` | `44.0` | Room to breathe |
 | `Touch` | `touch` | `48.0` | A row a finger can press |
 
-A theme is at one density: `Default` unless set. `theme.set_density(Density::Compact)` puts it at another, and everything drawn from the theme is built again; `theme.density()` reads it, and it is part of a `ThemeDefinition` (`density`).
+A theme is at one density. Unless set it is the platform's, `Density::platform_default()`: `Touch` on iOS and Android, `Default` on Windows, macOS, Linux and in the browser (where a page may be on a phone, but nothing says so before it is shown; an app that knows sets `Touch`). Every theme lurq makes starts there, `Theme::new()`, `Theme::legacy()` and a bare one alike. `theme.set_density(Density::Compact)` puts it at another, and everything drawn from the theme is built again; `theme.density()` reads it, and it is part of a `ThemeDefinition` (`density`).
 
 ```rust
 use lurq::app::theme::Density;
@@ -662,6 +662,7 @@ let row = theme.density_value(theme.density());
 - A recipe has rules for a density, which hold while the theme is at it: see [Density](../design-system/#density).
 - The density is a setting of the theme, not of the window: a theme for a subtree ([`Ctx::in_theme`](../design-system/#one-instance-one-place-one-subtree)) can be at another, for a dense inspector beside a roomy page.
 - `Button` does not change with the density: a control has its sizes (`ControlSize`). A theme that wants its controls to follow the density says so in rules.
+- At `Touch` the components that have a form for a finger take it: the lightbox's phone viewer, the picture's phone form, the video player's touch form. The density alone chooses it, never the window's width: see [the touch form](../design-system/#the-touch-form) and `ui::touch_form()`.
 
 ## Motion
 

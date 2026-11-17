@@ -1352,6 +1352,42 @@ fn touch(told: &Told) -> VideoPlayer {
 }
 
 #[test]
+fn in_an_app_for_a_finger_it_is_the_touch_form_unless_told() {
+  use lurq::app::{App, theme::Density};
+  let finger = || {
+    let app = App::new();
+    app.theme().set_density(Density::Touch);
+    app
+  };
+  let told = Told::default();
+  // Mounted, as wide as a desktop's window, and built still in the theme it is given.
+  for (app, told_touch, touch) in [
+    (finger(), None, true),
+    (finger(), Some(false), false),
+    (App::new(), None, false),
+    (App::new(), Some(true), true),
+  ] {
+    let made = told.clone();
+    let mut stage = Stage::first_frame_in(app, 1000.0, 600.0, move |ctx| {
+      let player = player(&made).width(720.0);
+      let player = match told_touch {
+        Some(on) => player.touch(on),
+        None => player,
+      };
+      Column::new().size(1000.0, 600.0).child(player.mount(ctx)).into()
+    });
+    stage.pass();
+    assert_eq!(has(&mut stage, "v-rewind"), touch, "{told_touch:?}: ten seconds back");
+    assert_eq!(has(&mut stage, "v-mute"), !touch, "{told_touch:?}: the volume");
+  }
+  let theme = Theme::new();
+  theme.set_density(Density::Touch);
+  let made = told.clone();
+  let mut stage = stage(move |_| player(&made).width(720.0).build(&theme));
+  assert!(has(&mut stage, "v-rewind"), "built in a theme for a finger");
+}
+
+#[test]
 fn the_touch_form_is_the_boards() {
   let told = Told::default();
   let made = told.clone();
