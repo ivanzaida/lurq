@@ -14,6 +14,18 @@ lurq = "0.62.0"
 
 Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the gallery in `crates/gallery`, and macros in `crates/lurq_macros`.
 
+## Platforms
+
+| Platform | Supported |
+| --- | --- |
+| Windows | Yes |
+| macOS | Yes |
+| iOS | Yes ([iOS](../ios/)) |
+| The browser (WebGPU, WebGL2) | Yes ([In a browser](#in-a-browser), [Web](../web/)) |
+| Linux | **No** |
+
+**Linux is not supported.** lurq is built and checked on Linux so that the crate publishes and its documentation builds, but nobody runs it there: there is no Linux machine to try a window, input, the clipboard, file dialogs, fonts or the GPU on, and what lurq does for the other systems (the system's appearance, reduced motion, menus, media, touch) is not written for Linux desktops. An app may build for Linux; what it does there is not tested, and issues that only Linux shows are not worked on.
+
 ## Run The Gallery
 
 The gallery is the best executable reference: a page for every component of the design system, and under **Engine** a page for each of the engine's primitives (layout, sizing, position, grid, sticky, scroll, virtualized lists, paint, borders, transforms, theme, images, SVG, canvas, animation, presence, text, rich text, text input, events, reactivity, components, context, persistent storage, drag and drop, the router, the engine's own controls and overlays). Each page starts with a playground whose controls are the props, and shows the code of what it draws.
