@@ -109,6 +109,21 @@ fn route() -> String {
   option("--route").unwrap_or_else(|| "/".to_owned())
 }
 
+/// What the gallery draws through: `--backend vulkan`, `dx12`, `gl` or `metal`, or what lurq takes by itself
+/// (Direct3D 12 on Windows). For looking at a page as another backend draws it.
+#[cfg(not(target_arch = "wasm32"))]
+fn backends() -> Option<lurq::app::wgpu_render::WgpuBackends> {
+  use lurq::app::wgpu_render::WgpuBackends;
+  let named = option("--backend")?;
+  Some(match named.to_ascii_lowercase().as_str() {
+    "vulkan" => WgpuBackends::VULKAN,
+    "dx12" => WgpuBackends::DX12,
+    "gl" => WgpuBackends::GL,
+    "metal" => WgpuBackends::METAL,
+    _ => panic!("--backend is vulkan, dx12, gl or metal"),
+  })
+}
+
 /// The size to open the window at: `--size 800x600`, or a desktop's.
 fn size() -> (u32, u32) {
   let Some(size) = option("--size") else {
@@ -146,7 +161,10 @@ fn main() {
   run(
     App::new().enable_media_disk_cache(cache_folder()),
     route(),
-    WgpuRenderEngine::new,
+    || match backends() {
+      Some(backends) => WgpuRenderEngine::new().with_backends(backends),
+      None => WgpuRenderEngine::new(),
+    },
   );
   // A page waits for its GPU device and its fonts first; see `web`.
   #[cfg(target_arch = "wasm32")]

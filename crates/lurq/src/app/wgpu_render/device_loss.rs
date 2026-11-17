@@ -364,7 +364,16 @@ pub(super) fn taken<T>(device: &wgpu::Device, make: impl FnOnce() -> T) -> Optio
 }
 
 /// Whether `device` is lost, as `lost` was told or as its card says now.
+///
+/// wgpu is asked first what it has to tell: of some losses (a device that was destroyed) it tells only when it
+/// is next asked, and nothing but its word tells of a loss where the card cannot be asked itself (Vulkan). Not
+/// asked, the engine drew a frame with a lost device it took for a whole one, and what failed in that frame
+/// ended the program.
 pub(super) fn is_lost(device: &wgpu::Device, lost: &AtomicBool) -> bool {
+  if lost.load(Ordering::Acquire) {
+    return true;
+  }
+  let _ = device.poll(wgpu::PollType::Poll);
   if lost.load(Ordering::Acquire) {
     return true;
   }
@@ -467,6 +476,71 @@ mod refused {
     assert!(bound(&view(&first)).is_none(), "a view of another device is bound");
     // A view of the device's own is bound as ever, before and after one that was refused.
     assert!(bound(&view(&second)).is_some());
+  }
+}
+
+/// A device of another backend than Direct3D 12, where only wgpu tells of a loss.
+#[cfg(test)]
+mod told_by_wgpu {
+  use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  };
+
+  #[test]
+  fn a_vulkan_device_that_wgpu_says_is_lost_is_lost_and_ends_nothing() {
+    let instance = super::super::new_instance(wgpu::Backends::VULKAN);
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+      eprintln!("skipped: no card with Vulkan here");
+      return;
+    };
+    let (device, queue) = pollster::block_on(adapter.request_device(&super::super::device_descriptor(
+      &adapter,
+      wgpu::Features::empty(),
+      &wgpu::Limits::default(),
+    )))
+    .expect("a device");
+    let lost = Arc::new(AtomicBool::new(false));
+    super::watch(&device, &lost, &adapter);
+    assert!(!super::is_lost(&device, &lost));
+    // Drawn with, it is whole.
+    queue.submit([device.create_command_encoder(&Default::default()).finish()]);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    assert!(!super::is_lost(&device, &lost));
+
+    // No card of Vulkan's is asked whether its device is there: wgpu tells. Destroying the device is what makes
+    // wgpu tell without a card that is really reset.
+    device.destroy();
+    // wgpu tells of it when it is next asked, and the engine asks before each frame: nothing else is to ask.
+    assert!(
+      !lost.load(Ordering::Acquire),
+      "wgpu tells of a device that was destroyed only when it is asked"
+    );
+    assert!(
+      super::is_lost(&device, &lost),
+      "asked before the frame, wgpu tells of the loss"
+    );
+    assert!(lost.load(Ordering::Acquire));
+    assert!(super::happened());
+
+    // What is asked of the device now fails, and ends nothing.
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+      label: None,
+      size: wgpu::Extent3d {
+        width: 16,
+        height: 16,
+        depth_or_array_layers: 1,
+      },
+      mip_level_count: 1,
+      sample_count: 1,
+      dimension: wgpu::TextureDimension::D2,
+      format: wgpu::TextureFormat::Rgba8Unorm,
+      usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+      view_formats: &[],
+    });
+    let _view = texture.create_view(&Default::default());
+    queue.submit([device.create_command_encoder(&Default::default()).finish()]);
+    let _ = device.poll(wgpu::PollType::Poll);
   }
 }
 
