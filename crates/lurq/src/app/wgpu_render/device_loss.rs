@@ -527,7 +527,11 @@ mod told_by_wgpu {
     atomic::{AtomicBool, Ordering},
   };
 
+  /// Run by itself (`--ignored`), as the tests of Direct3D 12 above: the loss it makes is the whole test
+  /// program's (`happened`, the card that is waited for), and an engine of another test that asks for a device
+  /// within a moment of it is told to wait, and draws no frame.
   #[test]
+  #[ignore = "a loss is the whole test program's: run alone, with --ignored"]
   fn a_vulkan_device_that_wgpu_says_is_lost_is_lost_and_ends_nothing() {
     let instance = super::super::new_instance(wgpu::Backends::VULKAN);
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
