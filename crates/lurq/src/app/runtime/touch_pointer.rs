@@ -1130,6 +1130,19 @@ impl Tree {
     taken
   }
 
+  /// The touches down whose ids are in `ids`, and where each is, in physical pixels.
+  #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+  pub(crate) fn held_touches(&self, ids: std::ops::Range<u64>) -> Vec<(u64, (f32, f32))> {
+    let scale = self.scale_factor();
+    self
+      .touch_pointer
+      .touches
+      .iter()
+      .filter(|touch| ids.contains(&touch.id))
+      .map(|touch| (touch.id, (touch.position.0 * scale, touch.position.1 * scale)))
+      .collect()
+  }
+
   /// Whether a touch of this id is down: it started and has not ended.
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn touch_is_down(&self, id: u64) -> bool {

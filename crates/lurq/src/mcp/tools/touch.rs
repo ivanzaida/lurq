@@ -207,7 +207,7 @@ fn timeline(
 }
 
 /// Plays the moments on `tree`, at `point` in physical pixels, on a clock that ends now.
-fn play(tree: &mut Tree, moments: &[Moment], point: (f32, f32)) {
+fn play(tree: &mut Tree, moments: &[Moment], point: (f32, f32), lift: bool) {
   let scale = tree.scale_factor();
   let total = moments.last().map_or(0.0, |moment| moment.at);
   let now = Instant::now();
@@ -232,6 +232,10 @@ fn play(tree: &mut Tree, moments: &[Moment], point: (f32, f32)) {
       }
       tree.finger_at(FIRST_FINGER + index as u64, phase, x, y, None, false, at);
     }
+    // Held to be looked at: the fingers stay down until `lift`.
+    if !lift && moment.fingers.is_empty() {
+      break;
+    }
     for (index, finger) in down.iter().enumerate().skip(moment.fingers.len()).rev() {
       let (x, y) = place(*finger);
       tree.finger_at(FIRST_FINGER + index as u64, TouchPhase::End, x, y, None, false, at);
@@ -242,8 +246,25 @@ fn play(tree: &mut Tree, moments: &[Moment], point: (f32, f32)) {
   tree.request_redraw();
 }
 
+/// Lifts the fingers a gesture played with `lift: false` left down, where they are. How many it lifted.
+fn lift_held(tree: &mut Tree) -> usize {
+  let held = tree.held_touches(FIRST_FINGER..FIRST_FINGER + 8);
+  let now = Instant::now();
+  for (id, (x, y)) in &held {
+    tree.finger_at(*id, TouchPhase::End, *x, *y, None, false, now);
+  }
+  tree.request_redraw();
+  held.len()
+}
+
 pub(super) fn touch_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Value) -> McpToolResult {
   let gesture = arg_str(args, "gesture").ok_or("`gesture` is required")?.to_owned();
+  if gesture == "lift" {
+    let window = super::windows::requested_window(args);
+    let target = window_tree_mut(tree, &window, state.include_devtools)?;
+    let lifted = crate::app::events::with_synthetic_input(|| lift_held(target));
+    return Ok(McpToolOutput::Json(serde_json::json!({ "ok": true, "lifted": lifted })));
+  }
   let (window, point) = resolve_point(tree, state, args, "ref", "x", "y")?;
   let target = window_tree_mut(tree, &window, state.include_devtools)?;
   let scale = target.scale_factor();
@@ -255,7 +276,8 @@ pub(super) fn touch_tool(tree: &mut Tree, state: &McpState, args: &serde_json::V
     (None, Some(point)) => point,
     (None, None) => return Err("this gesture needs a `ref` or `x`/`y` coordinates".into()),
   };
-  crate::app::events::with_synthetic_input(|| play(target, &moments, point));
+  let lift = args.get("lift").and_then(serde_json::Value::as_bool).unwrap_or(true);
+  crate::app::events::with_synthetic_input(|| play(target, &moments, point, lift));
   Ok(McpToolOutput::Json(serde_json::json!({
     "ok": true,
     "gesture": gesture,

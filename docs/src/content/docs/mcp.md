@@ -127,7 +127,9 @@ real time, so `lurq_wait` before a screenshot.
 | `three_finger_swipe` | `direction` | left undoes, right redoes, on the focus |
 | `three_finger_pinch` | `scale` | below 1 copies, above 1 pastes |
 
-Coordinates are a `ref` or `x`/`y` in screenshot pixels, the gesture's middle; distances and speeds are logical
+`lift: false` leaves the fingers down where the gesture ends, to take a screenshot of what is under way (the loupe of
+a long press in text, a pinch half way); the gesture `lift` lifts them. Coordinates are a `ref` or `x`/`y` in
+screenshot pixels, the gesture's middle; distances and speeds are logical
 pixels. An edge pan starts at its edge, across from `x`/`y` or at the edge's middle. As with `lurq_interact`, nothing
 MCP does reads the person's clipboard: a three-finger pinch out is refused as a synthetic Ctrl+V is. A pinch in
 copies what is selected to the clipboard, as Ctrl+C would.
