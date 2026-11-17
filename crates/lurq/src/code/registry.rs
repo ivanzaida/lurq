@@ -1,4 +1,4 @@
-//! The highlighter of each language: lurq's own for the languages it knows, an app's where it registered one.
+//! The tokenizer of each language: lurq's own for the languages it knows, an app's where it registered one.
 
 use std::{
   collections::HashMap,
@@ -19,12 +19,12 @@ use crate::core::Signal;
 /// Any `Fn(&str) -> Vec<CodeToken>` is one, and so is a [`CodeLanguage`](super::CodeLanguage), the table lurq's own
 /// are written in. The tokens it gives are in bytes of the code; they need not cover it (what none covers is plain),
 /// and those that are empty, out of the code, off a character's boundary or over another are left out.
-pub trait Highlighter: Send + Sync + 'static {
+pub trait Tokenizer: Send + Sync + 'static {
   /// The tokens of `code`.
   fn tokens(&self, code: &str) -> Vec<CodeToken>;
 }
 
-impl<F> Highlighter for F
+impl<F> Tokenizer for F
 where
   F: Fn(&str) -> Vec<CodeToken> + Send + Sync + 'static,
 {
@@ -33,64 +33,64 @@ where
   }
 }
 
-static NEXT_HIGHLIGHTER: AtomicU64 = AtomicU64::new(1);
+static NEXT_TOKENIZER: AtomicU64 = AtomicU64::new(1);
 
-/// A highlighter as lurq keeps it: shared, and told from every other one, so that what it gave for a code is kept
+/// A tokenizer as lurq keeps it: shared, and told from every other one, so that what it gave for a code is kept
 /// and not asked again.
 ///
-/// Made once and cloned, it is one highlighter: a block given a clone in every render takes its tokens from what
+/// Made once and cloned, it is one tokenizer: a block given a clone in every render takes its tokens from what
 /// the first render kept. Made anew in each render, each is a new one and the code is tokenized again.
 #[derive(Clone)]
-pub struct CodeHighlighter {
+pub struct CodeTokenizer {
   id: u64,
-  highlighter: Arc<dyn Highlighter>,
+  tokenizer: Arc<dyn Tokenizer>,
 }
 
-impl CodeHighlighter {
-  pub fn new(highlighter: impl Highlighter) -> Self {
+impl CodeTokenizer {
+  pub fn new(tokenizer: impl Tokenizer) -> Self {
     Self {
-      id: NEXT_HIGHLIGHTER.fetch_add(1, Ordering::Relaxed),
-      highlighter: Arc::new(highlighter),
+      id: NEXT_TOKENIZER.fetch_add(1, Ordering::Relaxed),
+      tokenizer: Arc::new(tokenizer),
     }
   }
 
-  /// The tokens of `code`, in order and none over another: what this highlighter gave for the same code before,
+  /// The tokens of `code`, in order and none over another: what this tokenizer gave for the same code before,
   /// where it is still kept.
   pub fn tokens(&self, code: &str) -> Arc<[CodeToken]> {
-    cache::tokens(self.id, code, || super::normalized(code, self.highlighter.tokens(code)))
+    cache::tokens(self.id, code, || super::normalized(code, self.tokenizer.tokens(code)))
   }
 
-  /// What tells this highlighter from every other: the same for its clones.
+  /// What tells this tokenizer from every other: the same for its clones.
   pub fn id(&self) -> u64 {
     self.id
   }
 }
 
-impl<H: Highlighter> From<H> for CodeHighlighter {
-  fn from(highlighter: H) -> Self {
-    Self::new(highlighter)
+impl<H: Tokenizer> From<H> for CodeTokenizer {
+  fn from(tokenizer: H) -> Self {
+    Self::new(tokenizer)
   }
 }
 
-impl PartialEq for CodeHighlighter {
+impl PartialEq for CodeTokenizer {
   fn eq(&self, other: &Self) -> bool {
     self.id == other.id
   }
 }
 
-impl fmt::Debug for CodeHighlighter {
+impl fmt::Debug for CodeTokenizer {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_tuple("CodeHighlighter").field(&self.id).finish()
+    f.debug_tuple("CodeTokenizer").field(&self.id).finish()
   }
 }
 
-impl crate::app::component::DevtoolsInspectable for CodeHighlighter {}
+impl crate::app::component::DevtoolsInspectable for CodeTokenizer {}
 
-/// A language with a highlighter: the name it was registered by, and its other names.
+/// A language with a tokenizer: the name it was registered by, and its other names.
 struct Language {
   name: Arc<str>,
   aliases: Vec<Arc<str>>,
-  highlighter: CodeHighlighter,
+  tokenizer: CodeTokenizer,
 }
 
 #[derive(Default)]
@@ -99,7 +99,7 @@ struct Registry {
   languages: HashMap<Arc<str>, Language>,
   /// The language each name and alias is, in lowercase.
   names: HashMap<Arc<str>, Arc<str>>,
-  /// What a render that read a name's highlighter follows: set when the highlighter of that name changes. A name
+  /// What a render that read a name's tokenizer follows: set when the tokenizer of that name changes. A name
   /// with none has one too, so that what showed its code plain shows it in colors once one is registered.
   changes: HashMap<Arc<str>, Signal<u64>>,
 }
@@ -109,7 +109,7 @@ static REGISTRY: LazyLock<RwLock<Registry>> = LazyLock::new(|| {
   for language in super::languages::all() {
     let name = language.name();
     let aliases: Vec<Arc<str>> = language.aliases_of().to_vec();
-    registry.insert(&name, &aliases, CodeHighlighter::new(language));
+    registry.insert(&name, &aliases, CodeTokenizer::new(language));
   }
   RwLock::new(registry)
 });
@@ -124,23 +124,22 @@ fn key(language: &str) -> Arc<str> {
 }
 
 impl Registry {
-  /// Gives `name`'s language `highlighter`, with `aliases` as other names of it. The names whose highlighter
+  /// Gives `name`'s language `tokenizer`, with `aliases` as other names of it. The names whose tokenizer
   /// changed, with the one it had.
   fn insert(
     &mut self,
     name: &str,
     aliases: &[Arc<str>],
-    highlighter: CodeHighlighter,
-  ) -> (Vec<Arc<str>>, Option<CodeHighlighter>) {
+    tokenizer: CodeTokenizer,
+  ) -> (Vec<Arc<str>>, Option<CodeTokenizer>) {
     let name = key(name);
     let own = self.names.get(&name).cloned().unwrap_or_else(|| name.clone());
     let language = self.languages.entry(own.clone()).or_insert_with(|| Language {
       name: own.clone(),
       aliases: Vec::new(),
-      highlighter: highlighter.clone(),
+      tokenizer: tokenizer.clone(),
     });
-    let replaced =
-      (language.highlighter != highlighter).then(|| std::mem::replace(&mut language.highlighter, highlighter));
+    let replaced = (language.tokenizer != tokenizer).then(|| std::mem::replace(&mut language.tokenizer, tokenizer));
     let mut moved = Vec::new();
     for alias in std::iter::once(&name).chain(aliases) {
       let alias = key(alias);
@@ -183,29 +182,29 @@ fn tell(names: Vec<Arc<str>>) {
   }
 }
 
-/// Registers `highlighter` for `language` (`"sql"`, case aside): the code of that language, in every code block,
-/// Markdown document, inline code and code field of the app, is colored by it from now on, and what shows it now is
-/// drawn again. A language that has a highlighter, lurq's own among them, has this one in its place, under each of
+/// Registers `tokenizer` for `language` (`"sql"`, case aside): the code of that language, in every code block,
+/// Markdown document, inline code and code field of the app, is told apart by it from now on, and what shows it now is
+/// drawn again. A language that has a tokenizer, lurq's own among them, has this one in its place, under each of
 /// its names (`rs` is Rust's too).
 ///
-/// The registry is the process's: an app has one. `App::register_highlighter` says the same.
-pub fn register_highlighter(language: &str, highlighter: impl Into<CodeHighlighter>) {
-  register_highlighter_with_aliases(language, &[], highlighter);
+/// The registry is the process's: an app has one. `App::register_tokenizer` says the same.
+pub fn register_tokenizer(language: &str, tokenizer: impl Into<CodeTokenizer>) {
+  register_tokenizer_with_aliases(language, &[], tokenizer);
 }
 
-/// As [`register_highlighter`], and `aliases` are other names of the language (`"psql"`, `"postgres"`): a name
+/// As [`register_tokenizer`], and `aliases` are other names of the language (`"psql"`, `"postgres"`): a name
 /// that was another language's is this one's now.
-pub fn register_highlighter_with_aliases(language: &str, aliases: &[&str], highlighter: impl Into<CodeHighlighter>) {
+pub fn register_tokenizer_with_aliases(language: &str, aliases: &[&str], tokenizer: impl Into<CodeTokenizer>) {
   let aliases: Vec<Arc<str>> = aliases.iter().map(|alias| Arc::from(*alias)).collect();
-  let (changed, replaced) = REGISTRY.write().insert(language, &aliases, highlighter.into());
+  let (changed, replaced) = REGISTRY.write().insert(language, &aliases, tokenizer.into());
   if let Some(replaced) = replaced {
     cache::forget(replaced.id());
   }
   tell(changed);
 }
 
-/// Takes the highlighter of `language` away: its code is plain text from now on. Whether it had one.
-pub fn remove_highlighter(language: &str) -> bool {
+/// Takes the tokenizer of `language` away: its code is plain text from now on. Whether it had one.
+pub fn remove_tokenizer(language: &str) -> bool {
   let name = key(language);
   let removed = {
     let mut registry = REGISTRY.write();
@@ -218,14 +217,14 @@ pub fn remove_highlighter(language: &str) -> bool {
     registry.names.retain(|_, language| *language != own);
     language
   };
-  cache::forget(removed.highlighter.id());
+  cache::forget(removed.tokenizer.id());
   tell(std::iter::once(removed.name).chain(removed.aliases).collect());
   true
 }
 
-/// The highlighter of `language`, by its name or an alias, case aside; `None` for one with none, whose code is
-/// plain. Read in a render, it renders that again when the language's highlighter changes.
-pub fn highlighter(language: &str) -> Option<CodeHighlighter> {
+/// The tokenizer of `language`, by its name or an alias, case aside; `None` for one with none, whose code is
+/// plain. Read in a render, it renders that again when the language's tokenizer changes.
+pub fn tokenizer(language: &str) -> Option<CodeTokenizer> {
   let name = key(language);
   let (found, change) = {
     let registry = REGISTRY.read();
@@ -233,7 +232,7 @@ pub fn highlighter(language: &str) -> Option<CodeHighlighter> {
       .names
       .get(&name)
       .and_then(|own| registry.languages.get(own))
-      .map(|language| language.highlighter.clone());
+      .map(|language| language.tokenizer.clone());
     (found, registry.changes.get(&name).cloned())
   };
   let change = change.unwrap_or_else(|| {
@@ -248,13 +247,13 @@ pub fn highlighter(language: &str) -> Option<CodeHighlighter> {
   found
 }
 
-/// Whether `language` has a highlighter: lurq's own or the app's.
+/// Whether `language` has a tokenizer: lurq's own or the app's.
 pub fn knows(language: &str) -> bool {
   let name = key(language);
   REGISTRY.read().names.contains_key(&name)
 }
 
-/// Every language with a highlighter, by the name it was registered by, with its other names, in the order of
+/// Every language with a tokenizer, by the name it was registered by, with its other names, in the order of
 /// their names.
 pub fn languages() -> Vec<(Arc<str>, Vec<Arc<str>>)> {
   let registry = REGISTRY.read();
@@ -267,11 +266,11 @@ pub fn languages() -> Vec<(Arc<str>, Vec<Arc<str>>)> {
   all
 }
 
-/// The tokens of `code` in `language`, by the language's highlighter; none for a language with none. What the
-/// highlighter gave for the same code before is not asked again.
+/// The tokens of `code` in `language`, by the language's tokenizer; none for a language with none. What the
+/// tokenizer gave for the same code before is not asked again.
 pub fn tokens(code: &str, language: &str) -> Arc<[CodeToken]> {
-  match highlighter(language) {
-    Some(highlighter) if !code.is_empty() => highlighter.tokens(code),
+  match tokenizer(language) {
+    Some(tokenizer) if !code.is_empty() => tokenizer.tokens(code),
     _ => Arc::from([]),
   }
 }

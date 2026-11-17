@@ -1,8 +1,8 @@
-//! A language as a table: what lurq's own highlighters are, and what an app describes a language of its own with.
+//! A language as a table: what lurq's own tokenizers are, and what an app describes a language of its own with.
 
 use std::{collections::HashMap, sync::Arc};
 
-use super::{CodeToken, Highlighter, ScanState, TokenName, token};
+use super::{CodeToken, ScanState, TokenName, Tokenizer, token};
 
 /// What the scanner reads a language's code as.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -148,7 +148,7 @@ pub enum KeyRule {
 /// with the same table, or changes one of lurq's, and registers it:
 ///
 /// ```
-/// use lurq::code::{CodeLanguage, StringForm, register_highlighter, token};
+/// use lurq::code::{CodeLanguage, StringForm, register_tokenizer, token};
 ///
 /// let ini = CodeLanguage::new("ini")
 ///   .aliases(&["cfg"])
@@ -157,10 +157,10 @@ pub enum KeyRule {
 ///   .words(token::CONSTANT_LANGUAGE, &["true", "false"])
 ///   .keys(lurq::code::KeyRule::Equals)
 ///   .sections(true);
-/// register_highlighter("ini", ini);
+/// register_tokenizer("ini", ini);
 ///
 /// // Rust, with one more word.
-/// register_highlighter("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
+/// register_tokenizer("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
 /// ```
 #[derive(Clone, Debug)]
 pub struct CodeLanguage {
@@ -503,7 +503,7 @@ impl CodeLanguage {
   }
 }
 
-impl Highlighter for CodeLanguage {
+impl Tokenizer for CodeLanguage {
   fn tokens(&self, code: &str) -> Vec<CodeToken> {
     CodeLanguage::tokens(self, code)
   }

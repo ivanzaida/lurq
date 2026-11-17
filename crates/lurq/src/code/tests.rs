@@ -147,7 +147,7 @@ fn a_name_is_looked_up_dropping_its_tail() {
 }
 
 #[test]
-fn a_highlighters_tokens_are_made_fit_to_draw() {
+fn a_tokenizers_tokens_are_made_fit_to_draw() {
   let code = "héllo wörld";
   let tokens = super::normalized(
     code,

@@ -430,8 +430,8 @@ an alias.
 
 ## Code is colored by the names of its tokens
 
-A component that shows code takes its tokens from the language's highlighter, or one it is given
-(`ui::code_tokens::code_tokens`, which reads `lurq::code`'s registry so that a render follows a highlighter replaced),
+A component that shows code takes its tokens from the language's tokenizer, or one it is given
+(`ui::code_tokens::code_tokens`, which reads `lurq::code`'s registry so that a render follows a tokenizer replaced),
 and draws each token with `ui::code_tokens::TokenStyles`: the recipe's part of the token's name, then the theme's
 `CodeScheme`, dropping the tail of a name neither has. It never maps a kind of token to a palette role itself, and
 never tokenizes per line what one call gives for the whole code (a string or a comment runs over lines).

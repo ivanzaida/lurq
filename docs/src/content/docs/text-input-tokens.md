@@ -168,10 +168,10 @@ function of the value, `TextInput::tokens_with(f)` gives the input that function
 value the input holds, after every edit and when the app sets the value, and what it gave for a value is kept while
 the value is the same. A render that gives the input another function asks it again.
 
-A code field is one: `TextInput::code_language("sql")` colors its value by the highlighter registered for the
+A code field is one: `TextInput::code_language("sql")` colors its value as told apart by the tokenizer registered for the
 language and the theme's code colors, a name's weight and leaning in the input's own type
 (`InputTokenStyle::weight`, `font_style`), as a code block colors its code ([Highlighting
-code](../resources-media/#highlighting-code)), and `code_highlighter(h)` by a highlighter of its own.
+code](../resources-media/#highlighting-code)), and `code_tokenizer(h)` by a tokenizer of its own.
 
 ```rust
 use lurq::{components::TextInput, core::Signal};

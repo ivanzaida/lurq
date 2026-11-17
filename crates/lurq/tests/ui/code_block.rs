@@ -11,7 +11,7 @@ use lurq::{
     events::ScrollPhase,
     theme::{CodeScheme, PaletteColor, ThemePalette},
   },
-  code::{CodeHighlighter, CodeToken, token},
+  code::{CodeToken, CodeTokenizer, token},
   components::Column,
   core::Signal,
   layout::{
@@ -134,7 +134,7 @@ fn the_words_of_rust_are_in_the_colors_of_their_roles() {
   let code = run(&stage, " main");
   assert_eq!(code.style.color, light(PaletteColor::Foreground));
   assert_eq!(code.style.font_size, 13.0);
-  // A language with no highlighter is one run in the code's color.
+  // A language with no tokenizer is one run in the code's color.
   let stage = staged(|| {
     CodeBlock::new("IDENTIFICATION DIVISION.\nPROGRAM-ID. NOTES.")
       .language("cobol")
@@ -551,27 +551,27 @@ fn a_theme_with_no_code_colors_draws_code_in_one() {
 }
 
 #[test]
-fn an_apps_highlighter_for_a_language_colors_what_shows_it_and_a_new_one_draws_it_again() {
+fn an_apps_tokenizer_for_a_language_colors_what_shows_it_and_a_new_one_draws_it_again() {
   const LANGUAGE: &str = "lang-of-the-block-tests";
   let mut stage = staged(|| CodeBlock::new("alpha beta").language(LANGUAGE).selectable(false));
   assert_eq!(runs(&stage).iter().flatten().count(), 1, "plain while it has none");
-  lurq::code::register_highlighter(LANGUAGE, |_: &str| vec![CodeToken::new(0..5, token::KEYWORD)]);
+  lurq::code::register_tokenizer(LANGUAGE, |_: &str| vec![CodeToken::new(0..5, token::KEYWORD)]);
   stage.pass();
   assert_eq!(run(&stage, "alpha").style.color, light(PaletteColor::Info));
   // Registered again, in place of the first: what showed it is drawn by the new one.
   stage
     .app
-    .register_highlighter(LANGUAGE, |_: &str| vec![CodeToken::new(6..10, token::STRING)]);
+    .register_tokenizer(LANGUAGE, |_: &str| vec![CodeToken::new(6..10, token::STRING)]);
   stage.pass();
   assert_eq!(run(&stage, "beta").style.color, light(PaletteColor::Success));
   assert_eq!(run(&stage, "alpha ").style.color, light(PaletteColor::Foreground));
 }
 
 #[test]
-fn a_blocks_own_highlighter_is_over_its_languages_and_what_it_gave_is_kept() {
+fn a_blocks_own_tokenizer_is_over_its_languages_and_what_it_gave_is_kept() {
   let asked = Arc::new(AtomicUsize::new(0));
   let counter = asked.clone();
-  let own = CodeHighlighter::new(move |code: &str| {
+  let own = CodeTokenizer::new(move |code: &str| {
     counter.fetch_add(1, Ordering::SeqCst);
     vec![CodeToken::new(0..code.find(' ').unwrap_or(code.len()), token::STRING)]
   });
@@ -581,7 +581,7 @@ fn a_blocks_own_highlighter_is_over_its_languages_and_what_it_gave_is_kept() {
     let _ = seen.get();
     CodeBlock::new("fn main() {}")
       .language("rust")
-      .highlighter(own.clone())
+      .tokenizer(own.clone())
       .selectable(false)
   });
   assert_eq!(
@@ -589,7 +589,7 @@ fn a_blocks_own_highlighter_is_over_its_languages_and_what_it_gave_is_kept() {
     light(PaletteColor::Success),
     "the block's own"
   );
-  // Rendered again with the same code, the block does not ask its highlighter again.
+  // Rendered again with the same code, the block does not ask its tokenizer again.
   for next in 1..4 {
     tick.set(next);
     stage.pass();

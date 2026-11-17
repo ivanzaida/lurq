@@ -5,7 +5,7 @@ use super::{
   token,
 };
 
-/// Every language lurq registers a highlighter for at start.
+/// Every language lurq registers a tokenizer for at start.
 pub(super) fn all() -> Vec<CodeLanguage> {
   vec![
     CodeLanguage::rust(),

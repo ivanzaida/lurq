@@ -6,7 +6,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use super::recipe::{Name, ResolvedRecipe};
 use crate::{
   app::theme::{CodeScheme, CodeStyle, Theme},
-  code::{CodeHighlighter, CodeToken, TokenName},
+  code::{CodeToken, CodeTokenizer, TokenName},
   components::{InputToken, InputTokenStyle, InputTokens},
   layout::{
     quad::RichTextSpan,
@@ -15,16 +15,12 @@ use crate::{
   node::{TextColor, color::Color},
 };
 
-/// The tokens of `code`: by `highlighter` where it is given, by the highlighter registered for `language`
-/// otherwise, none where neither is. Read in a render, the language's renders that again when its highlighter
+/// The tokens of `code`: by `tokenizer` where it is given, by the tokenizer registered for `language`
+/// otherwise, none where neither is. Read in a render, the language's renders that again when its tokenizer
 /// changes.
-pub(crate) fn code_tokens(
-  code: &str,
-  language: Option<&str>,
-  highlighter: Option<&CodeHighlighter>,
-) -> Arc<[CodeToken]> {
-  match (highlighter, language) {
-    (Some(highlighter), _) if !code.is_empty() => highlighter.tokens(code),
+pub(crate) fn code_tokens(code: &str, language: Option<&str>, tokenizer: Option<&CodeTokenizer>) -> Arc<[CodeToken]> {
+  match (tokenizer, language) {
+    (Some(tokenizer), _) if !code.is_empty() => tokenizer.tokens(code),
     (None, Some(language)) => crate::code::tokens(code, language),
     _ => Arc::from([]),
   }
@@ -196,7 +192,7 @@ impl TokenStyles {
 }
 
 impl crate::components::TextInput {
-  /// Colors its value as code in `language`, as a code block colors it: by the highlighter registered for the
+  /// Colors its value as code in `language`, as a code block colors it: told apart by the tokenizer registered for the
   /// language, each token in the color, the weight and the leaning the theme's code colors give its name, in the
   /// input's own type, again after every edit. The colors are the theme's as the input is built.
   ///
@@ -209,15 +205,15 @@ impl crate::components::TextInput {
   /// ```
   pub fn code_language(self, language: &str) -> Self {
     let language: Arc<str> = Arc::from(language);
-    // The language's highlighter as it is now: a render after it is replaced builds the input again.
-    let _ = crate::code::highlighter(&language);
+    // The language's tokenizer as it is now: a render after it is replaced builds the input again.
+    let _ = crate::code::tokenizer(&language);
     self.code_tokens(move |value| code_tokens(value, Some(&language), None))
   }
 
-  /// Colors its value as code by `highlighter`, as [`code_language`](Self::code_language) does by a language's.
-  pub fn code_highlighter(self, highlighter: impl Into<CodeHighlighter>) -> Self {
-    let highlighter = highlighter.into();
-    self.code_tokens(move |value| highlighter.tokens(value))
+  /// Colors its value as code by `tokenizer`, as [`code_language`](Self::code_language) does by a language's.
+  pub fn code_tokenizer(self, tokenizer: impl Into<CodeTokenizer>) -> Self {
+    let tokenizer = tokenizer.into();
+    self.code_tokens(move |value| tokenizer.tokens(value))
   }
 
   fn code_tokens(self, tokens: impl Fn(&str) -> Arc<[CodeToken]> + Send + Sync + 'static) -> Self {
@@ -346,10 +342,10 @@ mod tests {
   }
 
   #[test]
-  fn a_code_field_takes_a_highlighter_of_its_own() {
+  fn a_code_field_takes_a_tokenizer_of_its_own() {
     let value = Signal::new("alpha beta".to_owned());
     let input: Element = TextInput::new(value.clone())
-      .code_highlighter(|code: &str| vec![CodeToken::new(0..code.find(' ').unwrap_or(0), token::STRING)])
+      .code_tokenizer(|code: &str| vec![CodeToken::new(0..code.find(' ').unwrap_or(0), token::STRING)])
       .into();
     let drawn = drawn(&input, &value);
     let success = TextColor::Palette(PaletteColor::Success);

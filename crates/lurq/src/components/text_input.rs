@@ -212,7 +212,7 @@ impl TextInput {
   /// Draws tokens that follow the value: `tokens` is asked for the tokens of each value the input holds, after every
   /// edit and when the app sets the value, and what it gave for a value is kept while the value is the same. A
   /// render that gives the input another asks it again. What an editable code field is colored by:
-  /// [`code_language`](Self::code_language) gives it the tokens of a language's highlighter.
+  /// [`code_language`](Self::code_language) gives it the tokens of a language's tokenizer.
   ///
   /// ```
   /// use lurq::{

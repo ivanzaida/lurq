@@ -822,7 +822,7 @@ The caret is centered in its line. Among the rows of a multiline input it is nev
 
 ## Code
 
-`theme.code_scheme()` is how code is colored, in every code block, Markdown fence, `InlineCode` given a language and code field: a `CodeScheme`, a `CodeStyle` (a color, a weight, whether it leans) for each name of a token. A name it has nothing for is looked up dropping its tail (`keyword.control.rust`, then `keyword.control`, then `keyword`), each of the three from the most particular name that says it; a name none says is in the code's own color. What names a token is the highlighter of its language ([Highlighting code](../resources-media/#highlighting-code)).
+`theme.code_scheme()` is how code is colored, in every code block, Markdown fence, `InlineCode` given a language and code field: a `CodeScheme`, a `CodeStyle` (a color, a weight, whether it leans) for each name of a token. A name it has nothing for is looked up dropping its tail (`keyword.control.rust`, then `keyword.control`, then `keyword`), each of the three from the most particular name that says it; a name none says is in the code's own color. What names a token is the tokenizer of its language ([Highlighting code](../resources-media/#highlighting-code)).
 
 ```rust
 use lurq::{

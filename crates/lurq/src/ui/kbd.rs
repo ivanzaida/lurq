@@ -15,7 +15,7 @@ use crate::{
     Accelerator,
     theme::{BorderSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  code::{CodeHighlighter, CodeToken},
+  code::{CodeToken, CodeTokenizer},
   components::Row,
   core::KeyWords,
   layout::Alignment,
@@ -630,12 +630,12 @@ pub type InlineCodeRenderer = Arc<dyn Fn(InlineCodeView) -> Element + Send + Syn
 /// ```
 ///
 /// It is read and not operated, and is not cut: it is as wide as its text. Given a [`language`](Self::language), its
-/// words are colored as a code block colors them, by the language's highlighter and the theme's code colors. To what
-/// reads the tree it is `code`, called by its text.
+/// words are colored as a code block colors them: told apart by the language's tokenizer, in the theme's code colors.
+/// To what reads the tree it is `code`, called by its text.
 pub struct InlineCode {
   text: Arc<str>,
   language: Option<Arc<str>>,
-  highlighter: Option<CodeHighlighter>,
+  tokenizer: Option<CodeTokenizer>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -648,7 +648,7 @@ impl InlineCode {
     Self {
       text: Arc::from(text),
       language: None,
-      highlighter: None,
+      tokenizer: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -656,8 +656,8 @@ impl InlineCode {
     }
   }
 
-  /// The language of the text (`rust`, `sql`): its words are colored by the language's highlighter, in the theme's
-  /// code colors, as in a code block. Plain where the language has no highlighter.
+  /// The language of the text (`rust`, `sql`): its words are told apart by the language's tokenizer and drawn in the
+  /// theme's code colors, as in a code block. Plain where the language has no tokenizer.
   ///
   /// ```
   /// use lurq::ui::InlineCode;
@@ -669,9 +669,9 @@ impl InlineCode {
     self
   }
 
-  /// Tells the tokens of the text apart with `highlighter`, in place of its language's.
-  pub fn highlighter(mut self, highlighter: impl Into<CodeHighlighter>) -> Self {
-    self.highlighter = Some(highlighter.into());
+  /// Tells the tokens of the text apart with `tokenizer`, in place of its language's.
+  pub fn tokenizer(mut self, tokenizer: impl Into<CodeTokenizer>) -> Self {
+    self.tokenizer = Some(tokenizer.into());
     self
   }
 
@@ -722,8 +722,8 @@ impl InlineCode {
       breakpoint: super::current_breakpoint(),
       states: self.states,
     };
-    let colored = self.language.is_some() || self.highlighter.is_some();
-    let tokens = code_tokens(&self.text, self.language.as_deref(), self.highlighter.as_ref());
+    let colored = self.language.is_some() || self.tokenizer.is_some();
+    let tokens = code_tokens(&self.text, self.language.as_deref(), self.tokenizer.as_ref());
     let view = InlineCodeView {
       text: self.text,
       language: self.language,
@@ -749,7 +749,7 @@ impl From<InlineCode> for Element {
 pub struct InlineCodeView {
   pub text: Arc<str>,
   pub language: Option<Arc<str>>,
-  /// The tokens of the text, where it has a language or a highlighter.
+  /// The tokens of the text, where it has a language or a tokenizer.
   pub tokens: Option<Arc<[CodeToken]>>,
   /// The style of each part.
   pub recipe: ResolvedRecipe,

@@ -2,18 +2,18 @@
 //! of Markdown and an editable code field color their code by.
 //!
 //! A token is a run of the code and a **name** with a dotted hierarchy, as TextMate and tree-sitter name them:
-//! `keyword`, `keyword.control`, `string.escape`, `function.macro`. The names lurq's own highlighters give are
+//! `keyword`, `keyword.control`, `string.escape`, `function.macro`. The names lurq's own tokenizers give are
 //! constants of [`token`]; any other name is allowed, and its color is looked up dropping the tail
 //! ([`lookup_names`]: `keyword.control.rust`, then `keyword.control`, then `keyword`, then plain), in the theme's
 //! code colors (`app::theme::CodeScheme`) or a block's own.
 //!
-//! What tells a language's code apart is its **highlighter**, one for each language: lurq registers its own for the
+//! What tells a language's code apart is its **tokenizer**, one for each language: lurq registers its own for the
 //! languages it knows ([`CodeLanguage`], a table each of them is written in), and an app registers its own for any
-//! language, in place of lurq's or for one lurq does not know ([`register_highlighter`]). A language with none is
+//! language, in place of lurq's or for one lurq does not know ([`register_tokenizer`]). A language with none is
 //! plain text.
 //!
 //! ```
-//! use lurq::code::{CodeToken, register_highlighter, tokens, token};
+//! use lurq::code::{CodeToken, register_tokenizer, tokens, token};
 //!
 //! let code = "let app = App::new(); // one";
 //! let named: Vec<_> = tokens(code, "rust")
@@ -24,8 +24,8 @@
 //! assert_eq!(named[2], ("App", token::TYPE));
 //! assert_eq!(named.last(), Some(&("// one", token::COMMENT)));
 //!
-//! // An app's own highlighter for a language of its own: every word that starts with `$` is a variable.
-//! register_highlighter("dollars", |code: &str| {
+//! // An app's own tokenizer for a language of its own: every word that starts with `$` is a variable.
+//! register_tokenizer("dollars", |code: &str| {
 //!   let mut found = Vec::new();
 //!   let mut at = 0;
 //!   for word in code.split(' ') {
@@ -53,15 +53,15 @@ use std::ops::Range;
 
 pub use language::{BlockComment, CodeLanguage, CodeMode, KeyRule, NumberForms, StringForm};
 pub use registry::{
-  CodeHighlighter, Highlighter, highlighter, knows, languages, register_highlighter, register_highlighter_with_aliases,
-  remove_highlighter, tokens,
+  CodeTokenizer, Tokenizer, knows, languages, register_tokenizer, register_tokenizer_with_aliases, remove_tokenizer,
+  tokenizer, tokens,
 };
 pub use scan::ScanState;
 
 /// The name of a kind of token: an interned name, cheap to copy and compare, that reads as a `&str`.
 pub type TokenName = crate::app::theme::RoleName;
 
-/// The names lurq's own highlighters give their tokens, and the theme's code colors know. A highlighter may give
+/// The names lurq's own tokenizers give their tokens, and the theme's code colors know. A tokenizer may give
 /// any other name, more particular (`keyword.control.rust`) or of its own (`markup.heading`).
 pub mod token {
   /// A word of the language: `fn`, `let`, `select`.

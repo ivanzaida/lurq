@@ -23,7 +23,7 @@ use crate::{
     theme::{BorderSize, CodeScheme, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Window,
   },
-  code::{CodeHighlighter, CodeToken},
+  code::{CodeToken, CodeTokenizer},
   components::{Column, LineGutter, Row, TextInput},
   core::{ElementRef, Signal},
   layout::{
@@ -141,10 +141,10 @@ type CopyHandler = Arc<dyn Fn(&str) + Send + Sync>;
 ///   .on_copy(|code| println!("copied {} bytes", code.len()));
 /// ```
 ///
-/// Its code is in the family of code, each word in the color of what it is: the highlighter registered for its
+/// Its code is in the family of code, each word in the color of what it is: the tokenizer registered for its
 /// language tells its tokens apart ([`crate::code`]: lurq's own for Rust, TOML, JSON, JavaScript and TypeScript,
 /// shells, Python, CSS, HTML and XML, YAML, SQL and Markdown, or the app's), or the block's own
-/// ([`highlighter`](Self::highlighter)); each token is in the style the recipe gives a part of its name
+/// ([`tokenizer`](Self::tokenizer)); each token is in the style the recipe gives a part of its name
 /// ([`token_style`](Self::token_style)) or the theme's code colors give it (`Theme::set_code_color`), dropping the
 /// tail of a name neither has. Its lines are one line each that scrolls sideways (or wraps, with
 /// [`wrap`](Self::wrap)). Its bar names it (its title, or its language) and copies it whole. A person selects its
@@ -158,7 +158,7 @@ type CopyHandler = Arc<dyn Fn(&str) + Send + Sync>;
 pub struct CodeBlock {
   code: Arc<str>,
   language: Option<Arc<str>>,
-  highlighter: Option<CodeHighlighter>,
+  tokenizer: Option<CodeTokenizer>,
   scheme: Option<Arc<CodeScheme>>,
   title: Option<Arc<str>>,
   label: Option<Arc<str>>,
@@ -193,7 +193,7 @@ impl CodeBlock {
     Self {
       code: Arc::from(code.strip_suffix('\n').unwrap_or(code)),
       language: None,
-      highlighter: None,
+      tokenizer: None,
       scheme: None,
       title: None,
       label: None,
@@ -219,22 +219,22 @@ impl CodeBlock {
     }
   }
 
-  /// The language of the code (`rust`, `toml`): whose highlighter colors its words (`code::register_highlighter`
+  /// The language of the code (`rust`, `toml`): whose tokenizer tells its words apart (`code::register_tokenizer`
   /// gives a language one), what the bar shows where the block has no title, and what tooling is told. A language
-  /// with no highlighter is plain text.
+  /// with no tokenizer is plain text.
   pub fn language(mut self, language: &str) -> Self {
     self.language = Some(Arc::from(language));
     self
   }
 
-  /// Tells the tokens of this block's code apart with `highlighter`, in place of its language's. Made once and
+  /// Tells the tokens of this block's code apart with `tokenizer`, in place of its language's. Made once and
   /// cloned into each render, what it gave is kept and not asked again.
   ///
   /// ```
-  /// use lurq::{code::{CodeHighlighter, CodeToken, token}, ui::CodeBlock};
+  /// use lurq::{code::{CodeTokenizer, CodeToken, token}, ui::CodeBlock};
   ///
   /// // Every line that starts with `>` is a prompt.
-  /// let prompts = CodeHighlighter::new(|code: &str| {
+  /// let prompts = CodeTokenizer::new(|code: &str| {
   ///   let mut at = 0;
   ///   let mut found = Vec::new();
   ///   for line in code.split('\n') {
@@ -245,10 +245,10 @@ impl CodeBlock {
   ///   }
   ///   found
   /// });
-  /// let session = CodeBlock::new("> help\nusage: ...").highlighter(prompts.clone());
+  /// let session = CodeBlock::new("> help\nusage: ...").tokenizer(prompts.clone());
   /// ```
-  pub fn highlighter(mut self, highlighter: impl Into<CodeHighlighter>) -> Self {
-    self.highlighter = Some(highlighter.into());
+  pub fn tokenizer(mut self, tokenizer: impl Into<CodeTokenizer>) -> Self {
+    self.tokenizer = Some(tokenizer.into());
     self
   }
 
@@ -469,7 +469,7 @@ impl CodeBlock {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let tokens = code_tokens(&self.code, self.language.as_deref(), self.highlighter.as_ref());
+    let tokens = code_tokens(&self.code, self.language.as_deref(), self.tokenizer.as_ref());
     let shown = host.and_then(|host| host.follow.window.get());
     let window = self.windowed(host.is_some()).then(|| CodeWindow {
       lines: shown.map(|(start, end, _)| start..end),
@@ -482,7 +482,7 @@ impl CodeBlock {
     let view = CodeBlockView {
       code: self.code,
       language: self.language,
-      highlighter: self.highlighter,
+      tokenizer: self.tokenizer,
       scheme: self.scheme,
       tokens,
       lines_window: window,
@@ -659,11 +659,11 @@ struct Copied {
 pub struct CodeBlockView {
   pub code: Arc<str>,
   pub language: Option<Arc<str>>,
-  /// The block's own highlighter, where it has one in place of its language's.
-  pub highlighter: Option<CodeHighlighter>,
+  /// The block's own tokenizer, where it has one in place of its language's.
+  pub tokenizer: Option<CodeTokenizer>,
   /// The block's own code colors, where it has them in place of the theme's.
   pub scheme: Option<Arc<CodeScheme>>,
-  /// The tokens of the code, in bytes of it: by its highlighter, or its language's.
+  /// The tokens of the code, in bytes of it: by its tokenizer, or its language's.
   pub tokens: Arc<[CodeToken]>,
   lines_window: Option<CodeWindow>,
   pub title: Option<Arc<str>>,
@@ -842,7 +842,7 @@ impl CodeBlockView {
     let tokens = if code == &*self.code {
       self.tokens.clone()
     } else {
-      code_tokens(code, self.language.as_deref(), self.highlighter.as_ref())
+      code_tokens(code, self.language.as_deref(), self.tokenizer.as_ref())
     };
     self.token_styles().spans(code, 0..code.len(), &tokens)
   }

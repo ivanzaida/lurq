@@ -10,7 +10,7 @@ use std::{
   sync::{LazyLock, Mutex},
 };
 
-use lurq::code::{CodeHighlighter, CodeToken, Highlighter, token};
+use lurq::code::{CodeToken, CodeTokenizer, Tokenizer, token};
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
 
 /// The grammars syntect comes with, loaded once.
@@ -103,21 +103,21 @@ fn definition_of(scope: Scope) -> bool {
   DEFINITION.is_prefix_of(scope)
 }
 
-/// A highlighter of syntect's, for one of its grammars.
+/// A tokenizer of syntect's, for one of its grammars.
 pub struct Syntect {
   syntax: &'static SyntaxReference,
 }
 
 impl Syntect {
-  /// The highlighter of syntect's grammar for `language` (a name, or a file's extension: `rust`, `rs`, `go`), where
+  /// The tokenizer of syntect's grammar for `language` (a name, or a file's extension: `rust`, `rs`, `go`), where
   /// syntect has one.
-  pub fn for_language(language: &str) -> Option<CodeHighlighter> {
+  pub fn for_language(language: &str) -> Option<CodeTokenizer> {
     let syntax = SYNTAXES.find_syntax_by_token(language)?;
-    Some(CodeHighlighter::new(Self { syntax }))
+    Some(CodeTokenizer::new(Self { syntax }))
   }
 }
 
-impl Highlighter for Syntect {
+impl Tokenizer for Syntect {
   fn tokens(&self, code: &str) -> Vec<CodeToken> {
     let mut tokens: Vec<CodeToken> = Vec::new();
     let mut state = ParseState::new(self.syntax);
@@ -158,19 +158,19 @@ impl Highlighter for Syntect {
 /// The languages the gallery registers syntect for at start: lurq has none of its own for them.
 pub const LANGUAGES: [&str; 3] = ["go", "c", "java"];
 
-/// Registers syntect's grammars for [`LANGUAGES`]: a block of Go or C in the gallery is colored by syntect, in the
+/// Registers syntect's grammars for [`LANGUAGES`]: a block of Go or C in the gallery is told apart by syntect, in the
 /// theme's code colors.
 pub fn register(app: &lurq::app::App) {
   for language in LANGUAGES {
-    if let Some(highlighter) = Syntect::for_language(language) {
-      app.register_highlighter(language, highlighter);
+    if let Some(tokenizer) = Syntect::for_language(language) {
+      app.register_tokenizer(language, tokenizer);
     }
   }
 }
 
-/// syntect's highlighter for Rust, made once: the gallery's page switches a block to it.
-pub fn rust() -> CodeHighlighter {
-  static RUST: LazyLock<Option<CodeHighlighter>> = LazyLock::new(|| Syntect::for_language("rust"));
+/// syntect's tokenizer for Rust, made once: the gallery's page switches a block to it.
+pub fn rust() -> CodeTokenizer {
+  static RUST: LazyLock<Option<CodeTokenizer>> = LazyLock::new(|| Syntect::for_language("rust"));
   RUST.clone().expect("syntect has a grammar of Rust")
 }
 

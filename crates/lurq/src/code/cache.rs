@@ -1,6 +1,6 @@
-//! What each highlighter gave for a code, kept so that a render does not tokenize again what did not change.
+//! What each tokenizer gave for a code, kept so that a render does not tokenize again what did not change.
 //!
-//! Kept by the highlighter and the code: a highlighter registered in place of another is another, so what the old one
+//! Kept by the tokenizer and the code: a tokenizer registered in place of another is another, so what the old one
 //! gave is never taken for the new one's, and it is forgotten at once. The cache holds a few hundred codes and a few
 //! megabytes of them, and lets the one used longest ago go first.
 
@@ -14,9 +14,9 @@ use parking_lot::Mutex;
 
 use super::CodeToken;
 
-/// How many codes are kept, of every highlighter together.
+/// How many codes are kept, of every tokenizer together.
 const MOST_CODES: usize = 256;
-/// How many bytes of code are kept, of every highlighter together.
+/// How many bytes of code are kept, of every tokenizer together.
 const MOST_BYTES: usize = 32 << 20;
 
 struct Kept {
@@ -40,7 +40,7 @@ fn hash(code: &str) -> u64 {
   hasher.finish()
 }
 
-/// What the highlighter `id` gave for `code`, or what `tokenize` gives, kept. The highlighter is asked with the cache
+/// What the tokenizer `id` gave for `code`, or what `tokenize` gives, kept. The tokenizer is asked with the cache
 /// let go.
 pub(super) fn tokens(id: u64, code: &str, tokenize: impl FnOnce() -> Vec<CodeToken>) -> Arc<[CodeToken]> {
   let key = (id, hash(code));
@@ -80,7 +80,7 @@ pub(super) fn tokens(id: u64, code: &str, tokenize: impl FnOnce() -> Vec<CodeTok
   tokens
 }
 
-/// Forgets what the highlighter `id` gave: it is no language's now.
+/// Forgets what the tokenizer `id` gave: it is no language's now.
 pub(super) fn forget(id: u64) {
   let mut cache = CACHE.lock();
   let mut freed = 0;

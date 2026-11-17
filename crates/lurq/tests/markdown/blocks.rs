@@ -306,7 +306,7 @@ fn a_quote_and_a_code_block_are_the_systems() {
 }
 
 #[test]
-fn a_fence_is_colored_by_its_languages_highlighter_and_a_new_one_draws_it_again() {
+fn a_fence_is_colored_by_its_languages_tokenizer_and_a_new_one_draws_it_again() {
   // lurq's own for SQL and YAML, and a language of the app's, which has none yet.
   let source = "```sql\nSELECT 1\n```\n\n```yaml\nname: x\n```\n\n```lang-of-the-markdown-tests\nalpha beta\n```\n";
   let (mut app, mut tree) = mount(MarkdownProps::new(source).width(400.0));
@@ -322,8 +322,8 @@ fn a_fence_is_colored_by_its_languages_highlighter_and_a_new_one_draws_it_again(
     Some(palette(&app, PaletteColor::Foreground)),
     "plain"
   );
-  // A highlighter registered for it: the block, mounted and kept while its code is the same, is drawn again.
-  app.register_highlighter("lang-of-the-markdown-tests", |_: &str| {
+  // A tokenizer registered for it: the block, mounted and kept while its code is the same, is drawn again.
+  app.register_tokenizer("lang-of-the-markdown-tests", |_: &str| {
     vec![lurq::code::CodeToken::new(0..5, lurq::code::token::STRING)]
   });
   for _ in 0..2 {

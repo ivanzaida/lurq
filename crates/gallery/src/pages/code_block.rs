@@ -10,7 +10,7 @@ use lurq::{
     ctx::Ctx,
     theme::{CodeScheme, CodeStyle},
   },
-  code::CodeHighlighter,
+  code::CodeTokenizer,
   components::Column,
   core::Signal,
   node::{Element, color::Color},
@@ -52,7 +52,7 @@ const BUILD_SH: &str = "#!/usr/bin/env bash\n# Builds the gallery and opens it o
 
 const README_MD: &str = "# Notes\n\nA *small* app of **notes**, built with `lurq`: see [the guide](https://lurq.dev).\n\n- one note a line\n- 1 000 words at most\n> Kept on the disk.\n\n```sh\ncargo run\n```";
 
-/// What the page shows of a language lurq has no highlighter for: syntect's, registered at the gallery's start.
+/// What the page shows of a language lurq has no tokenizer for: syntect's, registered at the gallery's start.
 const MAIN_GO: &str = "package main\n\nimport \"fmt\"\n\n// main prints the notes.\nfunc main() {\n\tnotes := []string{\"lurq\", \"code\"}\n\tfor i, note := range notes {\n\t\tfmt.Printf(\"%d: %s\\n\", i, note)\n\t}\n}";
 
 /// Ten thousand lines, made once.
@@ -212,7 +212,7 @@ impl CodeBlockPage {
           block = block.max_height(height);
         }
         if let Some(syntect) = &syntect {
-          block = block.highlighter(syntect.clone());
+          block = block.tokenizer(syntect.clone());
         }
         if scheme == 1 {
           block = block.code_scheme(ember());
@@ -257,7 +257,7 @@ impl CodeBlockPage {
       code_lines.push("    .selectable(false)".to_owned());
     }
     if syntect.is_some() {
-      code_lines.push(format!("    .highlighter(Syntect::for_language({language:?}))"));
+      code_lines.push(format!("    .tokenizer(Syntect::for_language({language:?}))"));
     }
     if scheme == 1 {
       code_lines.push("    .code_scheme(ember())".to_owned());
@@ -361,8 +361,8 @@ impl CodeBlockPage {
           flag("selectable", &self.selectable),
           divider(),
           prop(
-            "highlighter",
-            "impl Into<CodeHighlighter>",
+            "tokenizer",
+            "impl Into<CodeTokenizer>",
             self.playground.select(2, &by_label(&TOKENIZERS), &tokenizer, {
               let chosen = self.tokenizer.clone();
               move |index| chosen.set(index)
@@ -470,7 +470,7 @@ impl Component for CodeBlockPage {
     let own_scheme = self.own_scheme.get().min(1);
     let mut note = CodeBlock::new(NOTE).language("rust").title("note.rs");
     if own == 1 {
-      note = note.highlighter(syntect_code::rust());
+      note = note.tokenizer(syntect_code::rust());
     }
     if own_scheme == 1 {
       note = note.code_scheme(ember());
@@ -501,7 +501,7 @@ impl Component for CodeBlockPage {
     ];
     if own == 1 {
       own_code.push("    // src/syntect_code.rs: syntect's scopes as lurq's names".to_owned());
-      own_code.push("    .highlighter(Syntect::for_language(\"rust\"))".to_owned());
+      own_code.push("    .tokenizer(Syntect::for_language(\"rust\"))".to_owned());
     }
     if own_scheme == 1 {
       own_code.push("    // ember(): CodeScheme::new().color(\"keyword\", ..).style(\"comment\", ..)".to_owned());
@@ -523,13 +523,13 @@ impl Component for CodeBlockPage {
         "language",
         "&str",
         "",
-        "Whose highlighter colors its words (lurq's for Rust, TOML, JSON, JavaScript, TypeScript, shells, Python, \
+        "Whose tokenizer tells its words apart (lurq's for Rust, TOML, JSON, JavaScript, TypeScript, shells, Python, \
          CSS, HTML, XML, YAML, SQL and Markdown, or the app's), what the bar shows where it has no title, and what \
          tooling is told. A language with none is plain.",
       ),
       (
-        "highlighter",
-        "impl Into<CodeHighlighter>",
+        "tokenizer",
+        "impl Into<CodeTokenizer>",
         "the language's",
         "A tokenizer of the block's own in place of its language's: any Fn(&str) -> Vec<CodeToken>, or a \
          CodeLanguage table.",
@@ -716,28 +716,28 @@ impl Component for CodeBlockPage {
         ),
         Section::new(
           "Your own tokenizer",
-          "A highlighter tells a language's tokens apart and names them (keyword, string.escape, function.macro); \
+          "A tokenizer tells a language's tokens apart and names them (keyword, string.escape, function.macro); \
            the theme's code colors draw each name, dropping the tail of a name they have nothing for. The same code \
            by lurq's own tokenizer and by syntect's grammar of Rust, which this gallery plugs in as an app would \
            (src/syntect_code.rs), in the theme's colors or in a scheme of the app's.",
           self.frame.demo(
             5,
             tokenizers,
-            ".highlighter(..) · .code_scheme(..)",
+            ".tokenizer(..) · .code_scheme(..)",
             &own_code_refs(&own_code),
           ),
         ),
         Section::new(
           "A language lurq does not know",
-          "lurq has no highlighter for Go: the gallery registers syntect's for it at start, and every block of Go \
-           is colored by it. Registered for a language lurq knows, an app's highlighter replaces lurq's.",
+          "lurq has no tokenizer for Go: the gallery registers syntect's for it at start, and every block of Go \
+           is told apart by it. Registered for a language lurq knows, an app's tokenizer replaces lurq's.",
           self.frame.demo(
             6,
             go,
-            "app.register_highlighter(\"go\", ..)",
+            "app.register_tokenizer(\"go\", ..)",
             &[
               "// At start, once:",
-              "app.register_highlighter(\"go\", Syntect::for_language(\"go\").unwrap());",
+              "app.register_tokenizer(\"go\", Syntect::for_language(\"go\").unwrap());",
               "",
               "CodeBlock::new(main_go).language(\"go\").title(\"main.go\").mount(ctx)",
             ],

@@ -156,7 +156,7 @@ fn main() {
 
 /// Opens the gallery's window on `route`, drawn by the engines `engine` makes.
 fn run(mut app: App, route: String, engine: impl Fn() -> WgpuRenderEngine + 'static) {
-  // The languages lurq has no highlighter of its own for, by syntect's grammars.
+  // The languages lurq has no tokenizer of its own for, by syntect's grammars.
   syntect_code::register(&app);
   let mut tree = Tree::new();
   tree.set_render_engine_factory(move || Box::new(engine()));
