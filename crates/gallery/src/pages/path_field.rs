@@ -249,7 +249,7 @@ impl Component for PathFieldPage {
       value: ctx.signal(BOARD.to_owned()),
       placeholder: ctx.signal("Choose a folder".to_owned()),
       browse_label: ctx.signal("Browse…".to_owned()),
-      kind: ctx.signal(0),
+      kind: ctx.signal(1),
       size: ctx.signal(0),
       invalid: ctx.signal(false),
       read_only: ctx.signal(false),
