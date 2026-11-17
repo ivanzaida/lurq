@@ -23,14 +23,16 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   2. **A code palette in the theme**: a name → color map of its own, for the light and the dark scheme, defaulting to
      the roles used now (so a theme left alone looks as today); `set_code_color`, a whole scheme, and a block's own
      `.token_style(name, ..)` (color, weight, italic) override it.
-  3. **A tokenizer is pluggable**: a `Highlighter` trait (or any `Fn(&str, &str) -> Vec<CodeToken>`), set for the
-     app and per block, falling back to lurq's own for a language the app's does not know. lurq's own becomes a
+  3. **A tokenizer is pluggable, one per language**: a `Highlighter` trait (or any `Fn(&str) -> Vec<CodeToken>`) is
+     registered for a language and its aliases (`App::register_highlighter("sql", ..)`); registering one for a
+     language that has one replaces it (lurq's own included). A language with none registered is plain text. A block
+     may still take its own (`.highlighter(..)`) over the registry. lurq's own becomes a
      table-driven scanner with a public language table (Rust, TOML, JSON, JS/TS, shell, Python, CSS, HTML/XML, YAML,
      SQL, Markdown), no dependency, wasm-safe. **No `syntect` or tree-sitter adapter in lurq**: the gallery crate
      shows one as an example of plugging a tokenizer in.
 - **With it.** A cache of tokens by code, language and tokenizer; a long block draws the lines in view; `InlineCode`
   takes a language; the editable text's tokens use the same highlighter and colors.
-- **State.** Decided; to be built on its own branch.
+- **State.** Decided; to be built in a session of its own.
 
 ### Link Preview works from the link alone; every field overrides
 
