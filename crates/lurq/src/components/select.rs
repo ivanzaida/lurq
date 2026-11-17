@@ -209,6 +209,11 @@ where
 /// multi-select binds a `Signal<Vec<T>>`. Options pair a value with a label;
 /// the selected value(s) are derived by comparing the bound signal against the
 /// option values each render, so the control stays in sync reactively.
+///
+/// It is the engine's select, which [`ui::Select`](crate::ui::Select), [`ui::Combobox`](crate::ui::Combobox) and
+/// [`ui::MultiSelect`](crate::ui::MultiSelect) dress with the design system's recipes: an app normally wants one of
+/// them. This one is drawn in a [`SelectStyle`](crate::node::SelectStyle), whose colors come from the theme
+/// through the recipe the theme keeps for it.
 pub struct Select<T>
 where
   T: SignalValue,

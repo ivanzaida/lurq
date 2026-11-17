@@ -17,6 +17,7 @@ use crate::{
 /// The values of a theme that layout and paint read.
 pub(super) struct ThemeValues {
   palette: ThemePalette,
+  control_fills: super::control_fill::ControlFills,
   border_sizes: ThemeBorderSizes,
   spacing: ThemeSpacing,
   radii: ThemeRadii,
@@ -32,6 +33,7 @@ impl ThemeValues {
   fn of(theme: &Theme) -> Self {
     Self {
       palette: theme.palette().clone(),
+      control_fills: super::control_fill::ControlFills::of(theme),
       border_sizes: theme.border_sizes().clone(),
       spacing: theme.spacing().clone(),
       radii: theme.radii().clone(),
@@ -50,6 +52,7 @@ impl LayoutEngine {
   fn swap_theme_values(&self, values: ThemeValues) -> ThemeValues {
     ThemeValues {
       palette: self.palette.replace(values.palette),
+      control_fills: self.control_fills.replace(values.control_fills),
       border_sizes: self.border_sizes.replace(values.border_sizes),
       spacing: self.spacing.replace(values.spacing),
       radii: self.radii.replace(values.radii),

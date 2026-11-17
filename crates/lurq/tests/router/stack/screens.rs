@@ -98,6 +98,12 @@ impl Component for Saving {
   }
 }
 
+/// A bar of the platform's glass: the design's is solid, and what a person's settings do to a bar that lets the
+/// screen show through is asked of one that does.
+fn glass() -> NavigationBar {
+  NavigationBar::new().background(lurq::node::color::Color::new(249, 249, 249, 224))
+}
+
 struct Root {
   router: RouterHandle,
 }
@@ -108,7 +114,7 @@ impl Component for Root {
   fn create(ctx: &mut Ctx) -> Self {
     let router = ctx.router(Routes::new().layout(
       "/",
-      |ctx| StackOutlet::mount_with(ctx, StackOutletProps::new().bar(NavigationBar::new())),
+      |ctx| StackOutlet::mount_with(ctx, StackOutletProps::new().bar(glass())),
       |routes| {
         routes
           .route("/first", |ctx| ctx.mount::<First>(()))
