@@ -24,6 +24,13 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** The engine already recognizes every gesture from touch events (`app/runtime/touch_pointer.rs`); on a
   desktop nothing feeds it. A `Coarse` pointer without the mouse acting as a finger shows the phone's forms but none
   of their gestures work.
+- **An app writes its handlers once.** A finger is already the pointer in lurq: a tap clicks (`on_click`), a finger's
+  drag is a drag (`on_drag_*`), what a person does by touch or by mouse reaches the same handler, and the
+  components that have a gesture take its desktop twin too (a context menu opens on a right click and on a long
+  press; a zoom on a pinch and on the wheel). Emulation feeds the mouse into that same path as fingers, so an app
+  with breakpoints, one code base for a phone and a desktop, adds no `on_touch` beside its `on_click` to be tried
+  on a PC; `on_touch_*`, `on_pinch`, `on_swipe` are for what only a finger does. A finger hovers nothing, so under
+  emulation nothing shows its hovered style, as on a phone.
 - **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
 - **State.** Waiting for Ivan's go; to follow the Pointer work on `claude/touch-form`.
 
