@@ -838,7 +838,7 @@ impl Component for ScrollPage {
         ),
         Section::new(
           "A bar that answers the pointer",
-          "The bars of the demo's own window: shown while the content overflows, a thumb in the primary color \
+          "Bars as a window of an app may draw them: shown while the content overflows, a thumb in the primary color \
            that turns to another under the pointer, by a closure. The second says the same with roles of the \
            theme, and has another color while the thumb is dragged.",
           self.frame.demo(

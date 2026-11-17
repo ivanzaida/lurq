@@ -1037,7 +1037,7 @@ impl Component for ControlsPage {
         ),
         Section::new(
           "Form",
-          "The demo's form: two named fields, a box, and buttons that clear the fields, put them back and submit. \
+          "A form of two named fields, a box, and buttons that clear the fields, put them back and submit. \
            Enter in a field submits it too. Empty the user or spoil the email and submit: the form refuses and \
            says why under the field.",
           self.frame.demo(
@@ -1131,7 +1131,7 @@ impl Component for ControlsPage {
         ),
         Section::new(
           "What the controls hold",
-          "The demo's snapshot of the state: the value of every control on this page, read from its signal.",
+          "A snapshot of the state: the value of every control on this page, read from its signal.",
           self.frame.demo(
             5,
             self.snapshot(),

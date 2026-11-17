@@ -64,7 +64,7 @@ const THEME: [&str; 6] = [
 
 /// What the terminal shows.
 const TERMINAL: [&str; 4] = [
-  "$ cargo run -p demo",
+  "$ cargo run -p gallery",
   "   Compiling lurq v0.62.0",
   "    Finished `dev` in 4.21s",
   "     Running `target/debug/demo`",

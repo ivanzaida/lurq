@@ -159,18 +159,18 @@ This gives renderer-facing visibility for the dirty-rect path without changing t
 
 ### Atlas Upload Probe
 
-The demo app includes an `Atlas Upload Probe` route that warms the atlas with ASCII text, then introduces Latin extensions, symbols, Cyrillic, Greek, currency signs, and arrows over timed updates. This gives the renderer a live scenario where new glyphs are packed after the atlas already exists.
+The gallery's **Glyph Atlas** page (`/engine/glyph-atlas`, in its Engine group) is the probe: it warms the atlas with ASCII text, then introduces Latin extensions, symbols, Cyrillic, Greek, currency signs, and arrows over timed updates. This gives the renderer a live scenario where new glyphs are packed after the atlas already exists.
 
 Run it with profiling enabled:
 
 ```powershell
-cargo run -p demo --features perf_profile -- --atlas-upload-probe --renderer wgpu --profile-log
+cargo run -p gallery --features perf_profile -- --route /engine/glyph-atlas --renderer wgpu --profile-log
 ```
 
 For DX12 on Windows:
 
 ```powershell
-cargo run -p demo --features perf_profile -- --atlas-upload-probe --renderer dx12 --profile-log
+cargo run -p gallery --features perf_profile -- --route /engine/glyph-atlas --renderer dx12 --profile-log
 ```
 
 The default log path is `target/perf_profile.log`. Look for `atlas=<bytes>B <rects> rects <full> full` in presented frames. Warm steady frames should report zero atlas upload bytes; timed glyph-introduction frames should report dirty rect uploads instead of repeated full-atlas uploads.
