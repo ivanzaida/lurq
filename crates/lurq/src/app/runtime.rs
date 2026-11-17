@@ -99,6 +99,8 @@ mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
+#[cfg(test)]
+mod text_object_copy_tests;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
 mod menu_row;
@@ -4754,6 +4756,28 @@ impl Tree {
     }
   }
 
+  /// Moves the focus on to the next stop of Tab after where it is or was, or to the one before where nothing
+  /// follows: what `FocusHandle::focus_onward` asks.
+  fn focus_onward(&mut self) {
+    let target = {
+      let Some(root) = &self.root else {
+        return;
+      };
+      let focused = self.focused_node.zip(self.focused_path.as_deref());
+      let start = self
+        .focus_start
+        .as_ref()
+        .filter(|_| focused.is_none())
+        .map(|start| start.point(root, &self.dropped_nodes));
+      let moved = self.focus_moving_layers();
+      tab_navigation::onward_stop(root, &self.dropped_nodes, &moved, focused, start)
+    };
+    if let Some(target) = target {
+      self.focus_node(target);
+      self.scroll_focused_into_view();
+    }
+  }
+
   /// Moves focus off a node its Row/Column dropped to make room
   /// (`ShrinkLimit::Drop`): a dropped node is not drawn, so it must not keep
   /// taking keys.
@@ -6384,6 +6408,9 @@ impl Tree {
       .unwrap_or_default()
     {
       self.scroll_state_to(&state, x, y);
+    }
+    if self.root_ctx.as_ref().is_some_and(Ctx::take_focus_onward_request) {
+      self.focus_onward();
     }
     let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
       return;
@@ -13435,13 +13462,10 @@ fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
 /// The selected text of a selectable text node, without what a rich text
 /// draws as presentation (a link's isolate marks and trailing runs).
 fn selected_content(node: &Node, state: &TextState, value: &str) -> Option<String> {
-  #[cfg(feature = "markdown")]
   if let NodeKind::RichText { .. } = node.node_kind() {
     let range = state.selected_range(value)?;
     return Some(node.rich_text_content(value, range)).filter(|text| !text.is_empty());
   }
-  #[cfg(not(feature = "markdown"))]
-  let _ = node;
   state.selected_text(value)
 }
 

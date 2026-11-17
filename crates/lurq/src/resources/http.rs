@@ -6,13 +6,14 @@ use super::LoadError;
 
 /// Reads all of what is at `address`, with `headers` on the request. It fails where the server answers an
 /// error, where it takes longer than `timeout`, and where there is more than `max_bytes`, which is known from
-/// the length the server says or as soon as more has come. `told` hears how far it has come after each read
-/// and stops it by answering `false`.
+/// the length the server says or as soon as more has come; where `cut`, it reads the first `max_bytes` and ends
+/// there with them. `told` hears how far it has come after each read and stops it by answering `false`.
 pub(super) fn fetch(
   address: &str,
   headers: &[(Arc<str>, Arc<str>)],
   timeout: Duration,
   max_bytes: u64,
+  cut: bool,
   mut told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
   let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -26,7 +27,7 @@ pub(super) fn fetch(
   let response = request.call().map_err(error_of)?;
   let body = response.into_body();
   let total = body.content_length();
-  if total.is_some_and(|total| total > max_bytes) {
+  if !cut && total.is_some_and(|total| total > max_bytes) {
     return Err(LoadError::TooLarge { limit: max_bytes });
   }
   let mut reader = body.into_reader();
@@ -41,6 +42,10 @@ pub(super) fn fetch(
       return Ok(bytes);
     }
     bytes.extend_from_slice(&chunk[..read]);
+    if bytes.len() as u64 >= max_bytes && cut {
+      bytes.truncate(usize::try_from(max_bytes).unwrap_or(usize::MAX));
+      return Ok(bytes);
+    }
     if bytes.len() as u64 > max_bytes {
       return Err(LoadError::TooLarge { limit: max_bytes });
     }
@@ -108,7 +113,7 @@ mod tests {
     let (address, served) = serve_once(ok(&body));
     let headers = [(Arc::from("X-Asked-By"), Arc::from("lurq"))];
     let mut steps = Vec::new();
-    let bytes = fetch(&address, &headers, SECOND, 1 << 20, |loaded, total| {
+    let bytes = fetch(&address, &headers, SECOND, 1 << 20, false, |loaded, total| {
       steps.push((loaded, total));
       true
     })
@@ -123,13 +128,13 @@ mod tests {
     let (address, served) =
       serve_once(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, |_, _| true),
+      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
       Err(LoadError::NotFound)
     );
     served.join().unwrap();
     let (address, served) = serve_once(b"HTTP/1.1 503 Busy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, |_, _| true),
+      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
       Err(LoadError::Status(503))
     );
     served.join().unwrap();
@@ -139,8 +144,25 @@ mod tests {
   fn more_than_the_limit_is_not_read() {
     let (address, served) = serve_once(ok(&[1u8; 4096]));
     assert_eq!(
-      fetch(&address, &[], SECOND, 1024, |_, _| true),
+      fetch(&address, &[], SECOND, 1024, false, |_, _| true),
       Err(LoadError::TooLarge { limit: 1024 })
+    );
+    served.join().unwrap();
+  }
+
+  #[test]
+  fn a_read_of_the_start_ends_with_the_start_and_no_error() {
+    let body: Vec<u8> = (0..4096u32).map(|n| n as u8).collect();
+    let (address, served) = serve_once(ok(&body));
+    assert_eq!(
+      fetch(&address, &[], SECOND, 1000, true, |_, _| true),
+      Ok(body[..1000].to_vec())
+    );
+    served.join().unwrap();
+    let (address, served) = serve_once(ok(&body[..10]));
+    assert_eq!(
+      fetch(&address, &[], SECOND, 1000, true, |_, _| true),
+      Ok(body[..10].to_vec())
     );
     served.join().unwrap();
   }
@@ -149,7 +171,7 @@ mod tests {
   fn a_load_that_is_stopped_ends() {
     let (address, served) = serve_once(ok(&[1u8; 300_000]));
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, |_, _| false),
+      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| false),
       Err(LoadError::Cancelled)
     );
     served.join().unwrap();

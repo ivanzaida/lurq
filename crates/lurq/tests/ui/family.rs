@@ -825,3 +825,44 @@ fn an_invalid_group_has_a_line_in_the_destructive_color() {
     "a line in the destructive color"
   );
 }
+
+#[test]
+fn a_link_with_an_address_opens_it_after_the_app_is_told_unless_a_handler_refuses() {
+  let opened = Arc::new(Mutex::new(Vec::<String>::new()));
+  let log = opened.clone();
+  let _held = lurq::app::open_url::stand_in(move |url| log.lock().unwrap().push(url.to_owned()));
+  let told = Arc::new(AtomicUsize::new(0));
+  let counted = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let counted = counted.clone();
+    Row::new()
+      .padding(20.0)
+      .child(
+        Link::new("lurq.dev")
+          .href("https://lurq.dev")
+          .id("site")
+          .on_click(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+          }),
+      )
+      .child(
+        Link::new("Kept")
+          .href("https://lurq.dev/kept")
+          .id("kept")
+          .on_click(|event: lurq::app::events::MouseEvent| event.prevent_default()),
+      )
+      .child(Link::new("Off").href("https://lurq.dev/off").disabled(true).id("off"))
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.click("site");
+  assert_eq!(told.load(Ordering::SeqCst), 2, "the app is still told");
+  stage.click("kept");
+  stage.click("off");
+  assert_eq!(
+    *opened.lock().unwrap(),
+    ["https://lurq.dev", "https://lurq.dev"],
+    "opened by a click and by Enter, not where a handler refused it nor where it is disabled"
+  );
+}

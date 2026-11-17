@@ -94,6 +94,7 @@ mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod link;
+mod link_preview;
 mod list_item;
 mod listbox;
 mod media_captions;
@@ -380,6 +381,10 @@ pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, Ligh
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
+pub use link_preview::{
+  LINK_PREVIEW_PICTURE_RATIO, LinkImage, LinkPreview, LinkPreviewPart, LinkPreviewRenderer, LinkPreviewState,
+  LinkPreviewVariant, LinkPreviewView,
+};
 pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,

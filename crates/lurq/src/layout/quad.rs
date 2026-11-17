@@ -478,10 +478,29 @@ pub enum QuadContent {
   None,
 }
 
+/// A run of a paragraph's text in a style of its own: what [`Text::rich`](crate::components::Text::rich) is made
+/// of.
 #[derive(Clone, PartialEq)]
 pub struct RichTextSpan {
   pub text: String,
   pub style: TextStyle,
+}
+
+impl RichTextSpan {
+  pub fn new(text: impl Into<String>, style: TextStyle) -> Self {
+    Self {
+      text: text.into(),
+      style,
+    }
+  }
+
+  /// The place of an element in the paragraph's line: one
+  /// [`OBJECT_CHARACTER`](crate::components::OBJECT_CHARACTER) in `style`, which the element the paragraph is
+  /// given for it ([`Text::object`](crate::components::Text::object)) stands on. The style is the line's: the
+  /// element keeps the line's height.
+  pub fn object(style: TextStyle) -> Self {
+    Self::new(crate::components::OBJECT_CHARACTER, style)
+  }
 }
 
 #[cfg(test)]

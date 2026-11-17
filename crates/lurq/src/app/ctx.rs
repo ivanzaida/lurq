@@ -863,6 +863,9 @@ impl Timer {
 #[derive(Default)]
 struct ElementRequests {
   focus: Option<ElementRef>,
+  /// The focus is to go on as Tab would from where it is, or was, and back where nothing follows: see
+  /// [`FocusHandle::focus_onward`].
+  focus_onward: bool,
   scroll_into_view: Option<ElementRef>,
   /// An element to scroll to the start of what scrolls it.
   scroll_into_view_start: Option<ElementRef>,
@@ -874,6 +877,38 @@ struct ElementRequests {
   scroll_states_to_top: Vec<crate::layout::layout_kind::ScrollState>,
   /// The scroll containers to take to an offset, by their states: the last asked of each.
   scroll_states_to: Vec<(crate::layout::layout_kind::ScrollState, f32, f32)>,
+}
+
+/// What moves the focus from a handler, which has no `Ctx`: made by [`Ctx::focus_handle`], kept by a component and
+/// given to its handlers. Its requests are carried out once the render that follows them is reconciled, as
+/// [`Ctx::focus`]'s are.
+#[derive(Clone)]
+pub struct FocusHandle {
+  requests: Arc<Mutex<ElementRequests>>,
+  window: Option<crate::app::window::Window>,
+}
+
+impl FocusHandle {
+  fn wake(&self) {
+    if let Some(window) = &self.window {
+      window.wake();
+    }
+  }
+
+  /// Focuses `element`, as [`Ctx::focus`] does.
+  pub fn focus(&self, element: &ElementRef) {
+    self.requests.lock().focus = Some(element.clone());
+    self.wake();
+  }
+
+  /// Moves the focus on to the next stop of Tab after where it is, or after where it was where what had it has
+  /// left the tree; to the stop before where nothing follows; and nowhere where there is no stop. What a control
+  /// that takes itself out of the tree asks where nothing better is known: the close of a preview in a draft, a
+  /// chip a person removed. The focus is never left to nothing.
+  pub fn focus_onward(&self) {
+    self.requests.lock().focus_onward = true;
+    self.wake();
+  }
 }
 
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
@@ -2475,6 +2510,12 @@ impl Ctx {
     self.app_ref().window_opener()
   }
 
+  /// Opens `url` in the app the system keeps for it: a web page in the browser. It is
+  /// [`open_url`](crate::app::open_url()), which a handler with no `Ctx` calls too.
+  pub fn open_url(&self, url: &str) -> Result<(), crate::app::OpenUrlError> {
+    crate::app::open_url(url)
+  }
+
   /// Mutates the same shared services as the App passed to the tree.
   pub fn app_ref_mut(&mut self) -> &mut App {
     self.app.as_mut().expect("app ref not set")
@@ -2664,6 +2705,7 @@ impl Ctx {
       || requests.scroll_range_into_view.is_some()
       || requests.blur
       || requests.scroll_to_top
+      || requests.focus_onward
   }
 
   /// Runs a command of editing on what has the focus, as its key does: Undo, Redo, Cut, Copy, Paste or Select All.
@@ -2771,6 +2813,19 @@ impl Ctx {
       None => {}
     }
     safe_area
+  }
+
+  /// What moves the focus from a handler, which has no `Ctx`: [`FocusHandle::focus`] and
+  /// [`FocusHandle::focus_onward`].
+  pub fn focus_handle(&self) -> FocusHandle {
+    FocusHandle {
+      requests: self.element_requests.clone(),
+      window: self.window.clone(),
+    }
+  }
+
+  pub(crate) fn take_focus_onward_request(&self) -> bool {
+    std::mem::take(&mut self.element_requests.lock().focus_onward)
   }
 
   pub(crate) fn focus_request(&self) -> Option<ElementRef> {

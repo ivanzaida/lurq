@@ -79,7 +79,6 @@ impl LayoutEngine {
       return;
     }
     let height = line_height.min(result.size.height).max(1.0);
-    #[cfg(feature = "markdown")]
     let generated = Self::generated_span_rects(node, result);
     let palette = self.palette.borrow();
     for (highlight, lines) in highlights {
@@ -106,14 +105,11 @@ impl LayoutEngine {
       });
       // A rich text's presentation spans (a link's isolate marks) are not
       // its text: a highlight leaves them out, as a selection does.
-      #[cfg(feature = "markdown")]
       let pieces = lines.into_iter().flat_map(|line| {
         super::inline_links::without_rects(line.x, line.y, line.width, height, &generated)
           .into_iter()
           .map(move |(x, width)| (x, line.y, width))
       });
-      #[cfg(not(feature = "markdown"))]
-      let pieces = lines.into_iter().map(|line| (line.x, line.y, line.width));
       for (x, y, width) in pieces {
         // A padding less than none draws inside the line, never less than a pixel.
         let (fill_width, fill_height) = ((width + 2.0 * pad_x).max(1.0), (height + 2.0 * pad_y).max(1.0));

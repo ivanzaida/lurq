@@ -44,10 +44,6 @@ pub(crate) mod control_fill;
 mod flex_shrink;
 mod foreground;
 mod grid_layout;
-#[cfg(feature = "markdown")]
-pub(crate) mod inline_links;
-#[cfg(not(feature = "markdown"))]
-#[path = "layout_engine/inline_links_none.rs"]
 pub(crate) mod inline_links;
 mod input_gutter;
 mod input_layout;
@@ -75,6 +71,7 @@ mod text_decorations;
 mod text_highlights;
 mod text_input_quads;
 mod text_layout_output;
+pub(crate) mod text_objects;
 mod theme_scope;
 mod track_layout;
 
@@ -1549,7 +1546,7 @@ impl LayoutEngine {
         spans: self.painted_spans(if node.children().is_empty() {
           spans.clone()
         } else {
-          self.painted_rich_text_spans(node, spans)
+          self.painted_rich_text_spans(node, spans, result)
         }),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         // Text that paints underlines or links is drawn from the top of its
@@ -1979,7 +1976,6 @@ impl LayoutEngine {
               clip,
             )
           }
-          #[cfg(feature = "markdown")]
           NodeKind::RichText { .. } => match Self::inline_text_frame(result) {
             Some((top, text_height)) => (abs_x, abs_y + top, result.size.width, text_height, clip),
             None => (abs_x, abs_y, result.size.width, result.size.height, clip),
@@ -2630,7 +2626,6 @@ impl LayoutEngine {
     }
     // A paragraph places its links itself: a link laid out on its own has no
     // box, so a changed link lays its paragraph out again.
-    #[cfg(feature = "markdown")]
     if matches!(node.node_kind(), NodeKind::RichText { .. }) {
       return None;
     }
@@ -3210,7 +3205,6 @@ impl LayoutEngine {
     }
     self.lay_out_text_selection(glyph_engine, node, &mut result);
     self.lay_out_text_decorations(glyph_engine, node, &mut result);
-    #[cfg(feature = "markdown")]
     self.lay_out_inline_text(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
     self.lay_out_input_objects(glyph_engine, node, &mut result);
@@ -3326,6 +3320,17 @@ impl LayoutEngine {
         );
       }
       NodeKind::RichText { state, spans, .. } => {
+        // A paragraph's objects take the width of their elements in its lines.
+        if let Some((spans, _)) = self.object_spans(glyph_engine, node, spans, constraints.max_width) {
+          return self.layout_rich_text_node(
+            glyph_engine,
+            &spans,
+            state,
+            constraints,
+            node.text_wrap,
+            node.text_overflow,
+          );
+        }
         return self.layout_rich_text_node(
           glyph_engine,
           spans,
@@ -3615,7 +3620,6 @@ impl LayoutEngine {
       carets: None,
       text_top: 0.0,
       decoration: None,
-      #[cfg(feature = "markdown")]
       inline: None,
     };
     Self::text_result(state, size, output)
@@ -3653,7 +3657,6 @@ impl LayoutEngine {
       carets: None,
       text_top: 0.0,
       decoration: None,
-      #[cfg(feature = "markdown")]
       inline: None,
     };
     Self::text_result(state, size, output)

@@ -53,6 +53,8 @@ pub type LinkRenderer = Arc<dyn Fn(LinkView) -> Element + Send + Sync>;
 /// use lurq::ui::Link;
 ///
 /// let docs = Link::new("Read the docs").external(true).on_click(|_| println!("to the docs"));
+/// // A page on the web: a press opens it in the browser.
+/// let site = Link::new("lurq.dev").href("https://lurq.dev").external(true);
 /// ```
 ///
 /// Where it goes is what its press does: an app with a router goes to a
@@ -63,6 +65,7 @@ pub struct Link {
   label: Arc<str>,
   trailing_icon: Option<Name>,
   external: bool,
+  href: Option<Arc<str>>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -78,6 +81,7 @@ impl Link {
       label: Arc::from(label),
       trailing_icon: None,
       external: false,
+      href: None,
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -98,6 +102,14 @@ impl Link {
   /// after its text, where it has no trailing icon of its own.
   pub fn external(mut self, external: bool) -> Self {
     self.external = external;
+    self
+  }
+
+  /// The address it goes to: a press opens it in the browser ([`open_url`](crate::app::open_url())), after the
+  /// link's [`on_click`](Self::on_click) handlers are told, unless one of them calls `prevent_default`. An app
+  /// with a router gives it none, and goes to its route in `on_click`.
+  pub fn href(mut self, url: &str) -> Self {
+    self.href = Some(Arc::from(url.trim()));
     self
   }
 
@@ -169,6 +181,7 @@ impl Link {
       trailing_icon: self
         .trailing_icon
         .or_else(|| self.external.then(|| Name::from(icons::ARROW_UP_RIGHT))),
+      href: self.href,
       disabled: self.disabled,
       recipe: theme.resolve::<Link>(&case, Some(&self.rules)),
       forced: self.forced,
@@ -195,6 +208,8 @@ pub struct LinkView {
   pub label: Arc<str>,
   /// The name of the icon after its text, if it has one: its own, or the arrow of an external link.
   pub trailing_icon: Option<Name>,
+  /// The address a press opens, where it has one.
+  pub href: Option<Arc<str>>,
   pub disabled: bool,
   /// The style of each part of this link.
   pub recipe: ResolvedRecipe,
@@ -221,6 +236,16 @@ impl LinkView {
     let mut root = pressable(&self.part(LinkPart::Root), self.disabled).interaction_group(true);
     for handler in &self.on_click {
       root = root.on_click(handler.clone());
+    }
+    // Opened after the app was told, where none of its handlers refused it.
+    if let Some(url) = self.href.clone().filter(|_| !self.disabled) {
+      root = root.on_click(move |event: crate::app::events::MouseEvent| {
+        if !event.default_prevented()
+          && let Err(error) = crate::app::open_url(&url)
+        {
+          tracing::warn!("the link did not open {url}: {error}");
+        }
+      });
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
