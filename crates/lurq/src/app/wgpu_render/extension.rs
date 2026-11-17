@@ -13,6 +13,9 @@ pub struct SharedWgpuContext {
   pub device: wgpu::Device,
   pub queue: wgpu::Queue,
   pub surface_format: wgpu::TextureFormat,
+  /// The device's number in the order of devices and of the views given to slots: it tells a view of this
+  /// device from one of a device that was lost.
+  pub(crate) number: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

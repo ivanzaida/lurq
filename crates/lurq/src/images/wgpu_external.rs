@@ -144,14 +144,33 @@ impl WgpuExternalImageSlot {
   /// valid for as long as the slot contains the view.
   ///
   /// A view given within an extension's `initialize` or `prepare` is known to be of the device of that
-  /// extension's engine; given from elsewhere, it is taken to be of the device that draws when it is given.
-  /// When that device is lost and another takes its place, the view is drawn no more, until one of the
-  /// device that draws now is given.
+  /// extension's engine; given from elsewhere, it is taken to be of the device that draws when it is given,
+  /// which a view given late by another thread may not be:
+  /// [`set_texture_view_of`](Self::set_texture_view_of) is for that. When the device is lost and another
+  /// takes its place, the view is drawn no more, until one of the device that draws now is given.
   pub fn set_texture_view(&self, view: wgpu::TextureView, width: u32, height: u32) -> u64 {
+    self.give(view, width, height, RUNS_FOR.get())
+  }
+
+  /// As [`set_texture_view`](Self::set_texture_view), for a view given from anywhere: another thread of the
+  /// app's renderer, a callback. `gpu` is the context the extension was given, with whose device the
+  /// texture was made. A view given after its device was lost is then known for what it is and is not
+  /// drawn, where one given without its context would be taken for a view of the device that draws now.
+  pub fn set_texture_view_of(
+    &self,
+    gpu: &crate::app::wgpu_render::SharedWgpuContext,
+    view: wgpu::TextureView,
+    width: u32,
+    height: u32,
+  ) -> u64 {
+    self.give(view, width, height, Some(gpu.number))
+  }
+
+  fn give(&self, view: wgpu::TextureView, width: u32, height: u32, of: Option<u64>) -> u64 {
     let mut state = self.state.inner.write();
     state.version = state.version.wrapping_add(1);
     state.view = Some(view);
-    state.of = RUNS_FOR.get();
+    state.of = of;
     state.given = next_in_order();
     state.width = width.max(1);
     state.height = height.max(1);
@@ -224,7 +243,7 @@ mod tests {
   #[test]
   fn a_view_is_of_the_device_it_was_given_for_and_of_no_device_made_after_it() {
     use super::{WgpuExternalImageSnapshot, for_device, next_in_order};
-    let Some(view) = any_view() else {
+    let Some((view, gpu)) = any_view() else {
       eprintln!("skipped: no card to make a texture on");
       return;
     };
@@ -259,6 +278,19 @@ mod tests {
     assert_eq!(slot.version(), version + 1, "an empty slot is another picture");
     let weak = slot.state.downgrade();
     assert!(weak.is(&slot.state) && weak.upgrade().is_some());
+    // Given with its context, from anywhere: of that context's device, whichever draws when it is given.
+    let fourth = next_in_order();
+    let view = {
+      for_device(second, || slot.set_texture_view(any_view().unwrap().0, 4, 4));
+      snapshot(&slot).view
+    };
+    let lost = crate::app::wgpu_render::SharedWgpuContext { number: first, ..gpu };
+    slot.set_texture_view_of(&lost, view, 4, 4);
+    assert!(snapshot(&slot).is_of(first));
+    assert!(
+      !snapshot(&slot).is_of(fourth),
+      "a view of a lost device, given late, is not the next one's"
+    );
     // One extension's run within another's leaves the outer one's device as it was.
     for_device(first, || {
       for_device(second, || {});
@@ -266,11 +298,12 @@ mod tests {
     });
   }
 
-  /// A view of a texture of any device, for what does not look at which device it is of.
-  fn any_view() -> Option<wgpu::TextureView> {
+  /// A view of a texture of any device, for what does not look at which device it is of, and the context of
+  /// that device.
+  fn any_view() -> Option<(wgpu::TextureView, crate::app::wgpu_render::SharedWgpuContext)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-    let (device, _) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
       label: None,
       size: wgpu::Extent3d {
@@ -285,6 +318,14 @@ mod tests {
       usage: wgpu::TextureUsages::TEXTURE_BINDING,
       view_formats: &[],
     });
-    Some(texture.create_view(&Default::default()))
+    let gpu = crate::app::wgpu_render::SharedWgpuContext {
+      instance,
+      adapter,
+      device,
+      queue,
+      surface_format: wgpu::TextureFormat::Rgba8Unorm,
+      number: 0,
+    };
+    Some((texture.create_view(&Default::default()), gpu))
   }
 }
