@@ -918,9 +918,12 @@ impl CodeBlockView {
           }
         })
         .collect::<Vec<_>>();
-      column = column.child(Element::from_node(
-        Node::rich_text(spans).text_wrap(false).text_align(TextAlign::Right),
-      ));
+      let mut numbers = Node::rich_text(spans).text_wrap(false).text_align(TextAlign::Right);
+      if !whole {
+        // A chunk's numbers stand at the end of a column as wide as the block's longest, under each other's ends.
+        numbers = numbers.width(Dimension::Pct(100.0));
+      }
+      column = column.child(Element::from_node(numbers));
       row = row.child(column);
     }
     row = row.child(code);
