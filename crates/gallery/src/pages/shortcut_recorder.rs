@@ -101,18 +101,19 @@ impl ShortcutRecorderPage {
     let record = self.playground.recorder();
     let forced = self.playground.forced();
     let shown = {
-      let (plain, held) = (plain.clone(), self.shortcut.clone());
-      Shown::built(move |ctx| {
-        plain(held)
-          .force(forced)
-          .on_change(move |shortcut: &Option<Accelerator>| {
-            record(match shortcut {
-              Some(shortcut) => format!("on_change(Some({shortcut}))"),
-              None => "on_change(None)".to_owned(),
-            })
-          })
-          .mount(ctx)
-      })
+      let recorder = self
+        .playground
+        .styled(
+          plain(self.shortcut.clone())
+            .force(forced)
+            .on_change(move |shortcut: &Option<Accelerator>| {
+              record(match shortcut {
+                Some(shortcut) => format!("on_change(Some({shortcut}))"),
+                None => "on_change(None)".to_owned(),
+              })
+            }),
+        );
+      Shown::built(move |ctx| recorder.mount(ctx))
     };
 
     let mut code = vec![

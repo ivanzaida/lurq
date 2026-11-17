@@ -191,7 +191,7 @@ impl ColorPickerPage {
       Spec {
         title: "Color Picker",
         make: Arc::new(move || make().into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: "232 wide · radius 8".to_owned(),

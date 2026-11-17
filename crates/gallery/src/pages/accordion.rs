@@ -86,16 +86,24 @@ impl AccordionPage {
     // The accordion is bound to the page's signals, as an app's is, and each change is counted.
     let record = self.playground.recorder();
     let shown: Element = if multiple {
-      Accordion::multiple(self.played_many.clone(), questions(item_disabled))
-        .on_change(move |open: &[usize]| record(format!("on_change({open:?})")))
-        .disabled(disabled)
-        .style(AccordionPart::Root, |s| s.width(WIDE))
+      self
+        .playground
+        .styled(
+          Accordion::multiple(self.played_many.clone(), questions(item_disabled))
+            .on_change(move |open: &[usize]| record(format!("on_change({open:?})")))
+            .disabled(disabled)
+            .style(AccordionPart::Root, |s| s.width(WIDE)),
+        )
         .into()
     } else {
-      Accordion::optional(self.played_one.clone(), questions(item_disabled))
-        .on_change(move |open: &Option<usize>| record(format!("on_change({open:?})")))
-        .disabled(disabled)
-        .style(AccordionPart::Root, |s| s.width(WIDE))
+      self
+        .playground
+        .styled(
+          Accordion::optional(self.played_one.clone(), questions(item_disabled))
+            .on_change(move |open: &Option<usize>| record(format!("on_change({open:?})")))
+            .disabled(disabled)
+            .style(AccordionPart::Root, |s| s.width(WIDE)),
+        )
         .into()
     };
 

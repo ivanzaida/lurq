@@ -207,7 +207,7 @@ impl RichTextEditorPage {
       self.full_width.clone(),
     ];
     let (min, max) = (self.min_rows.clone(), self.max_rows.clone());
-    let shown = plain().force(self.playground.forced());
+    let shown = self.playground.styled(plain().force(self.playground.forced()));
     let make = {
       let plain = plain.clone();
       move || plain().into()

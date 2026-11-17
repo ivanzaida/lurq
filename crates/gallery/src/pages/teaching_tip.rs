@@ -124,7 +124,12 @@ impl TeachingTipPage {
       .spacing(12.0)
       .child(target("Panels", icons::LAYERS, &self.anchor))
       .child(toggle(if open { "Hide the tip" } else { "Show the tip" }, &self.open))
-      .child(plain(self.anchor.clone(), self.open.clone()).mount(ctx));
+      .child(
+        self
+          .playground
+          .styled(plain(self.anchor.clone(), self.open.clone()))
+          .mount(ctx),
+      );
 
     let mut code = vec![
       "// open: Signal<bool>, anchor: ElementRef".to_owned(),

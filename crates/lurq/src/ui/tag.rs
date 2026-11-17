@@ -406,9 +406,29 @@ impl TagView {
   }
 }
 
+impl crate::ui::Styled for Tag {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Tag {
   const NAME: &'static str = "tag";
   type Renderer = TagRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TagPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TagState::declared()
+  }
 
   /// The design's tag (`pencil/lurq-design-system.pen`, Tag): 24 high, padded
   /// 8, the corners of a small radius, in the fill of what is secondary with a

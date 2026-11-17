@@ -569,9 +569,29 @@ impl HoverCardView {
   }
 }
 
+impl crate::ui::Styled for HoverCard {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for HoverCard {
   const NAME: &'static str = "hover-card";
   type Renderer = HoverCardRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    HoverCardPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    HoverCardState::declared()
+  }
 
   /// The design's hover card (`pencil/lurq-design-system.pen`, Hover Card):
   /// a panel 300 wide in the popover's colors, with an edge of 1 in the

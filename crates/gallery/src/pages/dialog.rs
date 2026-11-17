@@ -161,10 +161,12 @@ impl DialogPage {
       })
     };
     let dismissed = record.clone();
-    let dialog = make(self.open.clone())
-      .footer(footer("Cancel", ButtonVariant::Outline))
-      .footer(footer("Confirm", ButtonVariant::Primary))
-      .on_dismiss(move || dismissed("on_dismiss()".to_owned()));
+    let dialog = self.playground.styled(
+      make(self.open.clone())
+        .footer(footer("Cancel", ButtonVariant::Outline))
+        .footer(footer("Confirm", ButtonVariant::Primary))
+        .on_dismiss(move || dismissed("on_dismiss()".to_owned())),
+    );
     let shown = Row::new().child(opener("Open dialog", &self.open)).child(dialog);
 
     let mut code = vec![

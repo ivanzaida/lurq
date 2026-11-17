@@ -189,7 +189,7 @@ impl StatCardPage {
       Spec {
         title: "Stat Card",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: props.click,
         facts: "144".to_owned(),

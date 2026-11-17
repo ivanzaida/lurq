@@ -1266,10 +1266,30 @@ impl TabsView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for Tabs<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every tabs have the one recipe and renderer, whatever their values are.
 impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   const NAME: &'static str = "tabs";
   type Renderer = TabsRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TabsPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TabsState::declared()
+  }
 
   /// The design's tabs (`pencil/lurq-design-system.pen`, Tabs, Tabs/Line,
   /// Tabs/Pill, Tabs/Vertical, Tabs/Overflow).

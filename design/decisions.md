@@ -61,7 +61,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   picked and restyled live (color, radius, padding, shadow…), the code beside it for one instance
   (`.style(Part, ..)`) and for all of them (`theme.patch_recipe::<X>(..)`). Built once in
   `crates/gallery/src/playground.rs` from the parts and states each component already declares.
-- **State.** Decided; to be built after the engine primitives' pages are merged (both touch the playground).
+- **State.** Built (`claude/gallery-styling-578adc`, 2026-11-17): the Styling page (`/styling`), the playground's
+  Styling tab beside its props on every component's page, and in `lurq::ui` `Themed::parts`/`states` (`Declared`)
+  and the `Styled` trait that every builder implements.
 
 ### The gallery's Engine group replaces the demo
 

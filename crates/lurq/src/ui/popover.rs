@@ -469,9 +469,25 @@ impl PopoverView {
   }
 }
 
+impl crate::ui::Styled for Popover {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Popover {
   const NAME: &'static str = "popover";
   type Renderer = PopoverRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PopoverPart::declared()
+  }
 
   /// The design's popover (`pencil/lurq-design-system.pen`, Popover): a panel
   /// 292 wide in the popover's colors, with an edge of 1 in the border's

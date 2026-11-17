@@ -971,9 +971,29 @@ impl CarouselView {
   }
 }
 
+impl crate::ui::Styled for Carousel {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Carousel {
   const NAME: &'static str = "carousel";
   type Renderer = CarouselRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CarouselPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CarouselState::declared()
+  }
 
   /// The design's carousel (`pencil/lurq-design-system.pen`, Carousel): the slides between two round outline
   /// buttons of 36 with arrows of 16, 12 from them, and under them, 12 down, dots of 6 that are 6 apart, in

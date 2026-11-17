@@ -144,7 +144,7 @@ impl MonthPickerPage {
       Spec {
         title: "Month Picker",
         make,
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!("value {}", value.map_or("None".to_owned(), |month| month.to_string())),

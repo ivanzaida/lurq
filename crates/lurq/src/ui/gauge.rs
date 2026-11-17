@@ -444,9 +444,25 @@ impl GaugeView {
   }
 }
 
+impl crate::ui::Styled for Gauge {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Gauge {
   const NAME: &'static str = "gauge";
   type Renderer = GaugeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    GaugePart::declared()
+  }
 
   /// The design's gauge (`pencil/lurq-design-system.pen`, Gauge, in Slider & Progress' Meters): 140 wide, a half
   /// ring 140 across and 72 high whose inner edge is 0.78 of its outer, so 15.4 thick: the track in the secondary

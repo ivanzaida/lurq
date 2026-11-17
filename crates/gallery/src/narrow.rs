@@ -312,19 +312,18 @@ fn past(route: &str, width: u32) -> Vec<Found> {
     .collect()
 }
 
-/// Every page, at a phone's width and at the least the window has. One test, one page after another: a page
-/// leaves the width of its card for the next to start with, which two at once would take from each other.
-#[test]
-fn nothing_runs_past_its_box_in_a_narrow_window() {
-  let only: Option<Vec<String>> = std::env::var("NARROW_PAGES")
+/// The pages `NARROW_PAGES` names, or all of them.
+fn only() -> Option<Vec<String>> {
+  std::env::var("NARROW_PAGES")
     .ok()
-    .map(|pages| pages.split(',').map(str::to_owned).collect());
+    .map(|pages| pages.split(',').map(str::to_owned).collect())
+}
+
+/// What runs past its box at 390 and 320 on each page `chosen` keeps, and not at a desktop's width.
+fn narrow_faults(chosen: impl Fn(&str) -> bool) -> Vec<String> {
   let mut lines = Vec::new();
   for page in PAGES {
-    if only
-      .as_ref()
-      .is_some_and(|only| !only.iter().any(|path| path == page.path))
-    {
+    if !chosen(page.path) {
       continue;
     }
     let wide = past(page.path, WIDE);
@@ -354,9 +353,47 @@ fn nothing_runs_past_its_box_in_a_narrow_window() {
       }
     }
   }
+  lines
+}
+
+/// Every page, at a phone's width and at the least the window has. One test, one page after another: a page
+/// leaves the width of its card for the next to start with, which two at once would take from each other.
+#[test]
+fn nothing_runs_past_its_box_in_a_narrow_window() {
+  let only = only();
+  let lines = narrow_faults(|path| only.as_ref().is_none_or(|only| only.iter().any(|named| named == path)));
   assert!(
     lines.is_empty(),
     "{} run past their boxes in a narrow window:\n{}",
+    lines.len(),
+    lines.join("\n")
+  );
+}
+
+/// The styling section of a playground, open in place of the props, at a phone's width and at the least the window
+/// has: pages whose components declare many parts and states, and a page with nothing to style. `NARROW_PAGES`
+/// names others.
+#[test]
+fn the_styling_section_holds_in_a_narrow_window() {
+  const STYLED: [&str; 7] = [
+    "/button",
+    "/switch",
+    "/tabs",
+    "/table",
+    "/date-picker",
+    "/sidebar",
+    "/engine/layout",
+  ];
+  crate::playground::open_styling_first(true);
+  let only = only();
+  let lines = narrow_faults(|path| match &only {
+    Some(only) => only.iter().any(|named| named == path),
+    None => STYLED.contains(&path),
+  });
+  crate::playground::open_styling_first(false);
+  assert!(
+    lines.is_empty(),
+    "{} run past their boxes in the styling section:\n{}",
     lines.len(),
     lines.join("\n")
   );

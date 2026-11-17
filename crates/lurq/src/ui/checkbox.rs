@@ -390,9 +390,29 @@ fn edge(color: PaletteColor) -> Border {
   Border::inside(BorderSize::Sm, color)
 }
 
+impl crate::ui::Styled for Checkbox {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Checkbox {
   const NAME: &'static str = "checkbox";
   type Renderer = CheckboxRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CheckboxPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CheckboxState::declared()
+  }
 
   /// The design's checkbox (`pencil/lurq-design-system.pen`, Checkbox): a
   /// box of 16 with the small radius and an inner edge of 1 in the color of
@@ -790,9 +810,29 @@ impl CheckboxGroupView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for CheckboxGroup<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static> Themed for CheckboxGroup<T> {
   const NAME: &'static str = "checkbox_group";
   type Renderer = CheckboxGroupRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CheckboxGroupPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CheckboxGroupState::declared()
+  }
 
   /// The design's checkboxes (`pencil/lurq-design-system.pen`, Toggles): one
   /// under the other, 12 apart, as its radios are.

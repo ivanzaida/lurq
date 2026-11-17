@@ -88,9 +88,11 @@ impl PaginationPage {
       }
     };
     let record = self.playground.recorder();
-    let pagination = plain()
-      .force(self.playground.forced())
-      .on_change(move |to| record(format!("on_change({to})")));
+    let pagination = self.playground.styled(
+      plain()
+        .force(self.playground.forced())
+        .on_change(move |to| record(format!("on_change({to})"))),
+    );
 
     let mut code = vec![
       "// page: Signal<usize>, from 1".to_owned(),

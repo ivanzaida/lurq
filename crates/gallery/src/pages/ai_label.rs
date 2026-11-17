@@ -159,7 +159,7 @@ impl AiLabelPage {
           let props = props.clone();
           Arc::new(move || props.label().into())
         },
-        shown: Shown::of(props.label()),
+        shown: Shown::of(self.playground.styled(props.label())),
         fill: false,
         forceable: false,
         facts: "radius 4".to_owned(),

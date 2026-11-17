@@ -89,7 +89,7 @@ impl AlertPage {
       }
     };
     let record = self.playground.recorder();
-    let mut alert = plain().force(self.playground.forced());
+    let mut alert = self.playground.styled(plain().force(self.playground.forced()));
     if closable {
       alert = alert.on_close(move || record("on_close".to_owned()));
     }

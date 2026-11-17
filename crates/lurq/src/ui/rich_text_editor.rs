@@ -2076,9 +2076,29 @@ fn mark_shortcut(kept: &Kept, key: &str) -> bool {
   true
 }
 
+impl crate::ui::Styled for RichTextEditor {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for RichTextEditor {
   const NAME: &'static str = "rich_text_editor";
   type Renderer = RichTextEditorRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    RichTextEditorPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    RichTextEditorState::declared()
+  }
 
   /// The design's rich text editor (`pencil/lurq-design-system.pen`, Rich Text Editor): a box 560 wide in the
   /// background's color, with an edge of 1 in the border's color and the large radius. Its bar is 40 high on

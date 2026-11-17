@@ -610,7 +610,9 @@ impl DockLayoutPage {
     };
     let changed = record.clone();
     let detached = record.clone();
-    let layout = plain(Some(&record))
+    let layout = self
+      .playground
+      .styled(plain(Some(&record)))
       .on_change(move |after| {
         changed(format!(
           "on_change: {} · {} chars",

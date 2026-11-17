@@ -159,7 +159,8 @@ impl EventCalendarPage {
       let (build, playground) = (build.clone(), &self.playground);
       Shown::built(move |ctx| {
         let (select, more) = (record.clone(), record.clone());
-        let calendar = build()
+        let calendar = playground
+          .styled(build())
           .force(forced)
           .on_select(move |event: &&str| select(format!("on_select({event:?})")))
           .on_more(move |date| more(format!("on_more({date})")))

@@ -408,9 +408,29 @@ impl WaveformView {
   }
 }
 
+impl crate::ui::Styled for Waveform {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Waveform {
   const NAME: &'static str = "waveform";
   type Renderer = WaveformRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    WaveformPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    WaveformState::declared()
+  }
 
   /// The design's waveform (`pencil/lurq-design-system.pen`, Media/Waveform): bars 3 wide and 2 apart, fully
   /// round, at most 24 high and no lower than they are wide; the played ones in the primary color, the rest in the

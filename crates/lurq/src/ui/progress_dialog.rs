@@ -690,9 +690,29 @@ fn detail_parts() -> DisclosureParts {
   }
 }
 
+impl crate::ui::Styled for ProgressDialog {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ProgressDialog {
   const NAME: &'static str = "progress_dialog";
   type Renderer = ProgressDialogRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ProgressDialogPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ProgressDialogState::declared()
+  }
 
   /// The design's progress dialog (`pencil/lurq-design-system.pen`, Progress
   /// Dialog): a dialog's panel 420 wide, padded 20 with 12 between its parts.

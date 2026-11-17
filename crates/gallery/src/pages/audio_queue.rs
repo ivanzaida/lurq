@@ -200,7 +200,7 @@ impl AudioQueuePage {
         shown: Shown::built(move |ctx| {
           held(
             playground
-              .measure(Column::new().width(FILL).child(queue.mount(ctx)))
+              .measure(Column::new().width(FILL).child(playground.styled(queue).mount(ctx)))
               .width(FILL),
           )
           .into()

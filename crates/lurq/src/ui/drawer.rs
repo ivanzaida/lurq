@@ -458,9 +458,29 @@ impl DrawerView {
   }
 }
 
+impl crate::ui::Styled for Drawer {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Drawer {
   const NAME: &'static str = "drawer";
   type Renderer = DrawerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DrawerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DrawerState::declared()
+  }
 
   /// The design's drawer (`pencil/lurq-design-system.pen`, Mobile/Navigation
   /// Drawer): a panel 300 wide in the background's colors with a line of the

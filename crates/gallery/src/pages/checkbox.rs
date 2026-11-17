@@ -146,7 +146,7 @@ impl CheckboxPage {
       Spec {
         title: "Checkbox",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(checkbox),
+        shown: Shown::of(self.playground.styled(checkbox)),
         fill: false,
         forceable: true,
         facts,

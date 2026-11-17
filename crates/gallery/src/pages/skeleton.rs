@@ -139,7 +139,11 @@ impl SkeletonPage {
     // On the stage the skeleton is in the row that is measured: the column gives it a width, and is not it.
     let staged: Element = Column::new()
       .width(300.0)
-      .child(self.playground.measure(Self::skeleton(form, lines, animation).0))
+      .child(
+        self
+          .playground
+          .measure(self.playground.styled(Self::skeleton(form, lines, animation).0)),
+      )
       .into();
     let (_, call) = Self::skeleton(form, lines, animation);
     let (to_form, to_lines, to_animation) = (self.form.clone(), self.lines.clone(), self.animation.clone());

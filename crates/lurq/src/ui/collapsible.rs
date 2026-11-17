@@ -463,9 +463,29 @@ pub(crate) fn opening(recipe: Recipe, open: Name, panel: Name, body: Name) -> Re
     })
 }
 
+impl crate::ui::Styled for Collapsible {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Collapsible {
   const NAME: &'static str = "collapsible";
   type Renderer = CollapsibleRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CollapsiblePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CollapsibleState::declared()
+  }
 
   /// The design's collapsible (`pencil/lurq-design-system.pen`, Collapsible):
   /// a header with its label in the label's type and, at its end, the

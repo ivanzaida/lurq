@@ -701,9 +701,29 @@ impl ListItemView {
   }
 }
 
+impl crate::ui::Styled for ListItem {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ListItem {
   const NAME: &'static str = "list_item";
   type Renderer = ListItemRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ListItemPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ListItemState::declared()
+  }
 
   /// The design's list item (`pencil/lurq-design-system.pen`, List Item, with the Contained List, the Settings Row
   /// and the mobile rows beside it): a row of 52 with a title and a description, the avatar of 32 before them and
@@ -1189,9 +1209,29 @@ impl ListView {
   }
 }
 
+impl crate::ui::Styled for List {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for List {
   const NAME: &'static str = "list";
   type Renderer = ListRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ListPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ListState::declared()
+  }
 
   /// The design's lists (`pencil/lurq-design-system.pen`, the list of List Items, the Contained List and the mobile
   /// grouped list): the rows of a list 2 apart; with lines between them, touching, a line of 1 in the border's color

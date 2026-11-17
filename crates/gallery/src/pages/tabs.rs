@@ -117,16 +117,18 @@ impl TabsPage {
         .label("Settings")
     };
     let (record, set) = (self.playground.recorder(), self.selected.clone());
-    let shown = Tabs::controlled(selected, tabs(), move |index| {
-      set.set(*index);
-      record(format!("on_change({index})"));
-    })
-    .variant(variant)
-    .orientation(orientation)
-    .disabled(disabled)
-    .manual(manual)
-    .label("Settings")
-    .force(self.playground.forced());
+    let shown = self
+      .playground
+      .styled(Tabs::controlled(selected, tabs(), move |index| {
+        set.set(*index);
+        record(format!("on_change({index})"));
+      }))
+      .variant(variant)
+      .orientation(orientation)
+      .disabled(disabled)
+      .manual(manual)
+      .label("Settings")
+      .force(self.playground.forced());
 
     let mut code = vec![
       "// section: Signal<usize>".to_owned(),

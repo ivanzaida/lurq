@@ -241,7 +241,7 @@ impl DatePickerPage {
       Spec {
         title: "Date Picker",
         make,
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!(

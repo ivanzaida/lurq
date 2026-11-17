@@ -156,7 +156,7 @@ impl WindowChromePage {
     });
     let shown = {
       let make = make.clone();
-      make().force(forced).controls(
+      self.playground.styled(make()).force(forced).controls(
         WindowControls::new()
           .minimizable(minimizable)
           .maximizable(maximizable)

@@ -143,7 +143,7 @@ impl TogglePlay {
       Spec {
         title: "Toggle",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(toggle),
+        shown: Shown::of(self.playground.styled(toggle)),
         fill: false,
         forceable: true,
         facts: if on { "on".to_owned() } else { "off".to_owned() },
@@ -257,7 +257,7 @@ impl LinkPlay {
       Spec {
         title: "Link",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(link),
+        shown: Shown::of(self.playground.styled(link)),
         fill: false,
         forceable: true,
         facts: String::new(),
@@ -393,7 +393,7 @@ impl SegmentedPlay {
             .disabled(disabled)
             .into()
         }),
-        shown: Shown::of(control),
+        shown: Shown::of(self.playground.styled(control)),
         fill: full_width,
         forceable: true,
         facts: format!("chosen: {}", VIEWS[chosen].0),
@@ -520,7 +520,7 @@ impl ButtonGroupPlay {
           }
           group.into()
         }),
-        shown: Shown::of(group),
+        shown: Shown::of(self.playground.styled(group)),
         fill: false,
         forceable: false,
         facts: format!("{buttons} buttons"),
@@ -608,7 +608,9 @@ impl ToggleGroupPlay {
       .map(|(index, (label, glyph, _))| Choice::new(index, label).icon(*glyph).icon_only(icon_only));
     // A group of one and one of any number are two types: each is an element.
     let group: Element = if multiple {
-      ToggleGroup::multiple(many, choices)
+      self
+        .playground
+        .styled(ToggleGroup::multiple(many, choices))
         .on_change(move |on| {
           let names: Vec<&str> = on.iter().map(|index| MARKS[*index].0).collect();
           record(format!("on_change: [{}]", names.join(", ")));
@@ -618,7 +620,9 @@ impl ToggleGroupPlay {
         .disabled(disabled)
         .into()
     } else {
-      ToggleGroup::new(one, choices)
+      self
+        .playground
+        .styled(ToggleGroup::new(one, choices))
         .on_change(move |index| record(format!("on_change: {}", MARKS[*index].0)))
         .label("Marks")
         .size(SIZES[size].0)

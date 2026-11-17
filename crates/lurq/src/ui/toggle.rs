@@ -351,9 +351,29 @@ impl ToggleView {
   }
 }
 
+impl crate::ui::Styled for Toggle {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Toggle {
   const NAME: &'static str = "toggle";
   type Renderer = ToggleRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TogglePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ToggleState::declared()
+  }
 
   /// The design's toggle (`pencil/lurq-design-system.pen`, Toggle): a
   /// button's height, padded 10, with no fill until the pointer is on it or

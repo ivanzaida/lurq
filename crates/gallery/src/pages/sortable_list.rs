@@ -98,9 +98,9 @@ impl SortableListPage {
         })
         .collect()
     };
-    let build = {
+    let list_of = {
       let (set, set_selected, record) = (self.played.clone(), self.played_selected.clone(), record.clone());
-      move |ctx: &mut Ctx, order: Vec<Id>, selected: Vec<Id>| -> Element {
+      move |order: Vec<Id>, selected: Vec<Id>| {
         let (one, many) = (set.clone(), set.clone());
         let (told_one, told_many, told_selected) = (record.clone(), record.clone(), record.clone());
         let set_selected = set_selected.clone();
@@ -128,12 +128,16 @@ impl SortableListPage {
             set_selected.set(next.to_vec());
           });
         }
-        list.mount(ctx)
+        list
       }
     };
+    let build = {
+      let list_of = list_of.clone();
+      move |ctx: &mut Ctx, order: Vec<Id>, selected: Vec<Id>| -> Element { list_of(order, selected).mount(ctx) }
+    };
     let shown = {
-      let (build, order, selected) = (build.clone(), order.clone(), selected.clone());
-      Shown::built(move |ctx| build(ctx, order, selected))
+      let (list_of, order, selected, playground) = (list_of.clone(), order.clone(), selected.clone(), &self.playground);
+      Shown::built(move |ctx| playground.styled(list_of(order, selected)).mount(ctx))
     };
     {
       let (build, order, selected) = (build.clone(), self.played.clone(), self.played_selected.clone());

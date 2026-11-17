@@ -179,7 +179,7 @@ impl InfoLabelPage {
     }
     let shown = {
       let (props, playground) = (props.clone(), &self.playground);
-      Shown::built(move |ctx| room(playground.measure(props.label().mount(ctx))).into()).measured()
+      Shown::built(move |ctx| room(playground.measure(playground.styled(props.label()).mount(ctx))).into()).measured()
     };
     self.playground.card(
       ctx,

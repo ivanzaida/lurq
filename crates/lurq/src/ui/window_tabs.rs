@@ -1437,10 +1437,30 @@ impl WindowTabsView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for WindowTabs<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every window tabs have the one recipe and renderer, whatever their values are.
 impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
   const NAME: &'static str = "window_tabs";
   type Renderer = WindowTabsRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    WindowTabsPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    WindowTabsState::declared()
+  }
 
   /// The design's window tabs (`pencil/lurq-design-system.pen`, Window Tabs).
   ///

@@ -847,9 +847,29 @@ impl FieldView {
   }
 }
 
+impl crate::ui::Styled for Field {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Field {
   const NAME: &'static str = "field";
   type Renderer = FieldRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    FieldPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    FieldState::declared()
+  }
 
   /// The design's field (`pencil/lurq-design-system.pen`, Field): 260 wide,
   /// its label above its control and its description under it, 6 apart. The

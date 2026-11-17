@@ -1003,9 +1003,29 @@ fn only(theme: &Theme, style: PartStyle) -> ResolvedPart {
     .part(name)
 }
 
+impl crate::ui::Styled for Sheet {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Sheet {
   const NAME: &'static str = "sheet";
   type Renderer = SheetRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SheetPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SheetState::declared()
+  }
 
   /// The design's sheet (`pencil/lurq-design-system.pen`, Sheet and Drawer).
   /// At the start or the end: a panel 320 wide and as high as the window, in

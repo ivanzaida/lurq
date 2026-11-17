@@ -357,9 +357,29 @@ impl CalloutView {
   }
 }
 
+impl crate::ui::Styled for Callout {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Callout {
   const NAME: &'static str = "callout";
   type Renderer = CalloutRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CalloutPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CalloutState::declared()
+  }
 
   /// The design's callout (`pencil/lurq-design-system.pen`, Callout): a box
   /// as wide as the room it is given in the muted form of the variant's

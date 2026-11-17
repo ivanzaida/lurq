@@ -557,9 +557,29 @@ impl TableOfContentsView {
   }
 }
 
+impl crate::ui::Styled for TableOfContents {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for TableOfContents {
   const NAME: &'static str = "table_of_contents";
   type Renderer = TableOfContentsRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TableOfContentsPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TableOfContentsState::declared()
+  }
 
   /// The design's list (`pencil/lurq-design-system.pen`, Table of Contents `i7m0J`): 200 wide, its entries 2
   /// apart under a title in the mono face at 11, in capitals a pixel apart, in `MutedForeground`, 12 in and 6 over

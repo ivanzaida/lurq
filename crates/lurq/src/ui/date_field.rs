@@ -1240,9 +1240,29 @@ pub type DateFieldRenderer = Arc<dyn Fn(SegmentFieldView) -> Element + Send + Sy
 /// A date field as a renderer sees it.
 pub type DateFieldView = SegmentFieldView;
 
+impl<V: FieldValue<Date>> crate::ui::Styled for DateField<V> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<V: FieldValue<Date>> Themed for DateField<V> {
   const NAME: &'static str = "date_field";
   type Renderer = DateFieldRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DateFieldPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DateFieldState::declared()
+  }
 
   /// The design's date field (`pencil/lurq-design-system.pen`, Date Field): a box 180 by 36 on the background, an edge
   /// of 1 in the color of an input's and the medium radius, 10 of padding. Its segments, 2 apart, are in the mono type

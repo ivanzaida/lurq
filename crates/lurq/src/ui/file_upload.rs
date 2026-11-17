@@ -1079,9 +1079,29 @@ impl super::FieldControl for DropZone {
   }
 }
 
+impl crate::ui::Styled for FileUpload {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for FileUpload {
   const NAME: &'static str = "file_upload";
   type Renderer = FileUploadRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    FileUploadPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    FileUploadState::declared()
+  }
 
   /// The design's file upload (`pencil/lurq-design-system.pen`, File Upload): 300 wide, the outline button "Choose
   /// files" with the upload icon, and 8 under it a list of the files 8 apart. A file is a row with an edge of 1 in

@@ -182,9 +182,11 @@ impl TreeViewPage {
     let load = self.play_load.clone();
     // A tree of one and a tree of any number are of two types: what both are given is said once.
     let forced = self.playground.forced();
+    let playground = &self.playground;
     macro_rules! dressed {
       ($tree:expr) => {
-        $tree
+        playground
+          .styled($tree)
           .label("Files")
           .guides(guides)
           .force(forced)

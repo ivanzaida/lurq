@@ -26,6 +26,7 @@ mod scene;
 mod shell;
 #[cfg(test)]
 mod speed;
+mod styling;
 mod syntect_code;
 mod tabs;
 #[cfg(target_arch = "wasm32")]

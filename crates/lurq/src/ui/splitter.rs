@@ -1294,9 +1294,29 @@ impl SplitterView {
   }
 }
 
+impl crate::ui::Styled for Splitter {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Splitter {
   const NAME: &'static str = "splitter";
   type Renderer = SplitterRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SplitterPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SplitterState::declared()
+  }
 
   /// The design's splitter (`pencil/lurq-design-system.pen`, Splitter Handle and Resizable): panes with a line of 1
   /// between them in the color of an edge; under the pointer the line is 3 wide in the ring's color, and dragged in

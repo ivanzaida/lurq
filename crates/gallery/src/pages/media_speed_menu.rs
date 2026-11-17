@@ -99,7 +99,9 @@ impl MediaSpeedMenuPage {
     let record = self.playground.recorder();
     let (change, dismiss, open_change) = (record.clone(), record.clone(), record);
     let (chosen, offered) = (self.rate.clone(), rates.clone());
-    let menu = plain(self.play_open.clone(), self.play_anchor.clone())
+    let menu = self
+      .playground
+      .styled(plain(self.play_open.clone(), self.play_anchor.clone()))
       .force(self.playground.forced())
       .on_change(move |to| {
         if let Some(index) = offered.iter().position(|offered| f64::from(*offered) == to) {

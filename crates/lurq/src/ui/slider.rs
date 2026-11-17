@@ -684,9 +684,29 @@ pub(super) fn engine_part(style: &PartStyle, theme: &Theme) -> SliderPartStyle {
   part
 }
 
+impl crate::ui::Styled for Slider {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Slider {
   const NAME: &'static str = "slider";
   type Renderer = SliderRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SliderPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SliderState::declared()
+  }
 
   /// The design's slider (`pencil/lurq-design-system.pen`, Slider): 240 by
   /// 16, a track of 4 in the secondary color, filled in the primary color up

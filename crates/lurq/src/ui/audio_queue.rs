@@ -699,9 +699,29 @@ impl AudioQueueView {
   }
 }
 
+impl crate::ui::Styled for AudioQueue {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for AudioQueue {
   const NAME: &'static str = "audio_queue";
   type Renderer = AudioQueueRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AudioQueuePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    AudioQueueState::declared()
+  }
 
   /// The design's queue row (`pencil/lurq-design-system.pen`, Audio Player/Queue Row `U2PYO0`): 48 high, padded 8,
   /// 12 between its parts, `radius-md`. The number 20 wide in mono 12 in the muted ink, the artwork 32 with

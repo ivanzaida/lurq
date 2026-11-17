@@ -160,7 +160,7 @@ impl SliderPage {
       Spec {
         title: "Slider",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(slider),
+        shown: Shown::of(self.playground.styled(slider)),
         fill: false,
         forceable: true,
         facts: format!("value {value}"),

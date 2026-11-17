@@ -229,7 +229,7 @@ impl SidebarPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let props = self.props();
     let record = self.playground.recorder();
-    let shown = window(board(&props, record).mount(ctx), &props, PLAYED);
+    let shown = window(self.playground.styled(board(&props, record)).mount(ctx), &props, PLAYED);
     let shown = staged("played", self.frame.stage_room(), &props, shown);
 
     let mut code = vec![

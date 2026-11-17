@@ -156,7 +156,7 @@ impl RadioCardPage {
       Spec {
         title: "Radio Card",
         make: Arc::new(move || plain(Box::new(|_| {})).into()),
-        shown: Shown::of(group),
+        shown: Shown::of(self.playground.styled(group)),
         fill: false,
         forceable: false,
         facts: format!("selected: {}", DENSITIES[selected].0),

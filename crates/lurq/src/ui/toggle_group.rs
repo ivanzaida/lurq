@@ -425,9 +425,29 @@ impl Toggles {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for ToggleGroup<T, V> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for ToggleGroup<T, V> {
   const NAME: &'static str = "toggle_group";
   type Renderer = ToggleGroupRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ToggleGroupPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ToggleGroupState::declared()
+  }
 
   /// The design's group (`pencil/lurq-design-system.pen`, Toggle Group): a
   /// line around the toggles and one between them, the corners of a control.

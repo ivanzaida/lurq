@@ -108,10 +108,11 @@ impl LightboxPage {
       }
     };
     let live = {
-      let (plain, record) = (plain.clone(), record.clone());
+      let (plain, record, playground) = (plain.clone(), record.clone(), &self.playground);
       move |_: &mut Ctx| -> Element {
         let (turned, closer, dismissed) = (record.clone(), record.clone(), record.clone());
-        let mut lightbox = plain()
+        let mut lightbox = playground
+          .styled(plain())
           .on_index_change(move |index| turned(format!("on_index_change({index})")))
           .on_zoom_change(move |zoom| closer(format!("on_zoom_change({zoom:.2})")))
           .on_dismiss(move || dismissed("on_dismiss".to_owned()));

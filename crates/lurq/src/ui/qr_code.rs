@@ -487,9 +487,29 @@ impl QrCodeView {
   }
 }
 
+impl crate::ui::Styled for QrCode {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for QrCode {
   const NAME: &'static str = "qr_code";
   type Renderer = QrCodeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    QrCodePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    QrCodeState::declared()
+  }
 
   /// The design's QR code (`pencil/lurq-design-system.pen`, QR Code): a card with an edge of 1 inside it in the
   /// border's color, `radius-lg` round, 10 of padding, white, with modules of near black on it, in the light

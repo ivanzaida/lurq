@@ -145,6 +145,7 @@ impl MediaVolumePage {
       }
     });
     let playground = &self.playground;
+    let control = playground.styled(control);
     let shown = if on_media {
       Shown::built(move |ctx| {
         let mounted = control.mount(ctx);

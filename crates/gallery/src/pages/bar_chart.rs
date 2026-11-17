@@ -146,18 +146,22 @@ impl BarChartPage {
       }
     };
     let shown_chart = {
+      let playground = &self.playground;
       let make = make.clone();
       let (selected, hidden) = (selected.clone(), hidden.clone());
       move |ctx: &mut Ctx| {
         let (selected, selected_to, hidden_to) = (selected.clone(), selected_to.clone(), hidden_to.clone());
-        make()
-          .hidden(hidden.clone())
-          .on_hidden_change(move |hidden| hidden_to(format!("on_hidden_change({hidden:?})")))
-          .on_select(move |point| {
-            selected.set(Some(point));
-            selected_to(format!("on_select(series {}, index {})", point.series, point.index));
-          })
-          .key("played")
+        playground
+          .styled(
+            make()
+              .hidden(hidden.clone())
+              .on_hidden_change(move |hidden| hidden_to(format!("on_hidden_change({hidden:?})")))
+              .on_select(move |point| {
+                selected.set(Some(point));
+                selected_to(format!("on_select(series {}, index {})", point.series, point.index));
+              })
+              .key("played"),
+          )
           .mount(ctx)
       }
     };

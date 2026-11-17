@@ -920,9 +920,29 @@ pub(crate) fn disclosure_recipe(recipe: Recipe, parts: &DisclosureParts, open: N
   opening(recipe, open, parts.panel, parts.content)
 }
 
+impl crate::ui::Styled for MessageBox {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for MessageBox {
   const NAME: &'static str = "message_box";
   type Renderer = MessageBoxRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MessageBoxPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MessageBoxState::declared()
+  }
 
   /// The design's message box (`pencil/lurq-design-system.pen`, Message Box
   /// and Desktop Dialogs): a dialog's panel 400 wide, padded 20 with 16

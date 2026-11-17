@@ -179,7 +179,7 @@ impl ScrollAreaPage {
           let plain = plain.clone();
           move || plain().into()
         }),
-        shown: Shown::of(plain()),
+        shown: Shown::of(self.playground.styled(plain())),
         fill: false,
         forceable: false,
         facts: format!("{name} · {}", bars.to_lowercase()),

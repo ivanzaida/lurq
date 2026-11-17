@@ -2102,9 +2102,29 @@ impl Component for AudioPlayerHost {
   }
 }
 
+impl crate::ui::Styled for AudioPlayer {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for AudioPlayer {
   const NAME: &'static str = "audio_player";
   type Renderer = AudioPlayerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AudioPlayerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    AudioPlayerState::declared()
+  }
 
   /// The design's audio player (`pencil/lurq-design-system.pen`, Audio Player `nKkbL`).
   ///

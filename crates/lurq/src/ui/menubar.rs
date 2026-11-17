@@ -669,9 +669,29 @@ impl MenubarView {
   }
 }
 
+impl crate::ui::Styled for Menubar {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Menubar {
   const NAME: &'static str = "menubar";
   type Renderer = MenubarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MenubarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MenubarState::declared()
+  }
 
   /// The design's menubar (`pencil/lurq-design-system.pen`, Menubar): a bar 36 tall of the background's color,
   /// padded 4, with the medium radius and an edge of 1 in the border's color, its titles 2 apart. A title is 28

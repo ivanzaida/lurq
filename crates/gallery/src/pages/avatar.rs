@@ -159,13 +159,18 @@ impl AvatarPage {
     };
     let shown = {
       let (avatar, group) = (avatar.clone(), group.clone());
-      move || -> Element {
+      move |playground: Option<&Playground>| -> Element {
+        let avatar = avatar();
+        let avatar = match playground {
+          Some(playground) => playground.styled(avatar),
+          None => avatar,
+        };
         Row::new()
           .spacing(40.0)
           .padding(4.0)
           .align_items(Alignment::Center)
           .overflow_visible()
-          .child(avatar())
+          .child(avatar)
           .child(group())
           .into()
       }
@@ -252,8 +257,11 @@ impl AvatarPage {
       ctx,
       Spec {
         title: "Avatar",
-        make: Arc::new(shown.clone()),
-        shown: Shown::of(shown()),
+        make: Arc::new({
+          let shown = shown.clone();
+          move || shown(None)
+        }),
+        shown: Shown::of(shown(Some(&self.playground))),
         fill: false,
         forceable: false,
         facts: facts.join(" · "),
