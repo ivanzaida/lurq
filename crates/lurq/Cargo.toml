@@ -1,6 +1,6 @@
 [package]
 name = "lurq"
-version = "0.61.1"
+version = "0.62.0"
 edition = "2024"
 description = "A Rust UI toolkit with typed components, retained state, reactive signals, GPU rendering, and DevTools."
 license = "MIT"
@@ -15,38 +15,17 @@ keywords = ["ui", "gui", "reactive", "wgpu", "devtools"]
 categories = ["gui", "rendering"]
 
 [features]
-default = []
-# `png` encodes a clipboard image to store it (`ClipboardImage::to_png`).
-clipboard = ["dep:arboard", "dep:png"]
-form = []
-image = ["raster", "dep:image"]
-# Shared raw RGBA transport and GPU composition; no image codecs.
-raster = ["dep:core-video-sys"]
-# Playing a video or a sound: `lurq::media`, `ui::VideoPlayer::source` and `ui::AudioPlayer::source`. On Windows it
-# decodes with Media Foundation and plays its sound through WASAPI; on macOS and iOS it plays a sound with the
-# system's `AVAudioPlayer`. A sound at an address is loaded with `http`.
-media = [
-    "raster",
-    "dep:objc2-avf-audio",
-    "windows/Win32_Graphics_Direct3D11",
-    "windows/Win32_Media_Audio",
-    "windows/Win32_Media_MediaFoundation",
-    "windows/Win32_System_Com",
-    "windows/Win32_System_Com_StructuredStorage",
-    "windows/Win32_System_Variant",
-    "windows/Win32_UI_Shell",
-]
-# `png` writes a signature as a PNG file (`ui::Signature::to_png`).
-canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon", "dep:png"]
-i18n = []
-markdown = ["dep:pulldown-cmark", "dep:unicode-bidi", "dep:unicode-linebreak"]
-persistent_storage = ["dep:redb"]
-query = []
-serde = ["dep:serde_json"]
-tokio = ["dep:tokio"]
-svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
-render = ["dep:bytemuck"]
-# On Windows it has Direct3D 11 to read the frames of a decoder that is on another card than the one it draws on.
+# A desktop app: a window, its GPU renderer, the clipboard, the file dialog, pictures, drawing, forms, routes and
+# queries. A browser app takes none of it (`arboard` has no browser) and names its own list:
+# `default-features = false, features = ["webgl", "image", "canvas", "form", "router", "query"]`.
+default = ["winit", "wgpu", "clipboard", "file_dialog", "image", "canvas", "form", "router", "query"]
+
+# --- The window and the GPU ---
+
+# The window, its events and its loop (`lurq::app::WinitWindow`).
+winit = ["dep:winit"]
+# The GPU renderer: Vulkan, Metal, Direct3D 12 or WebGPU, as wgpu picks. On Windows it has Direct3D 11 to read the
+# frames of a decoder that is on another card than the one it draws on.
 wgpu = [
     "render",
     "dep:wgpu",
@@ -63,27 +42,79 @@ wgpu = [
 # own implementation is neither in a browser unless told that the page has one thread, which a page built
 # without atomics has.
 webgl = ["wgpu", "wgpu/webgl", "wgpu/fragile-send-sync-non-atomic-wasm"]
-# It has Direct3D 11 to read the frames of a decoder that is on another card than the one it draws on.
+# lurq's own Direct3D 12 renderer on Windows, beside `wgpu`. It has Direct3D 11 to read the frames of a decoder
+# that is on another card than the one it draws on.
 dx12 = ["render", "windows/Win32_Graphics_Direct3D11"]
-winit = ["dep:winit"]
+
+# --- What the system gives ---
+
+# The system clipboard (`lurq::clipboard`); `png` encodes a clipboard image to store it (`ClipboardImage::to_png`).
+clipboard = ["dep:arboard", "dep:png"]
+# The system's dialog for files to open behind `lurq::files::FileDialog` (`rfd`; none on iOS).
+file_dialog = ["dep:rfd"]
+
+# --- Pictures and drawing ---
+
+# Pictures from files and bytes: PNG, JPEG, WebP, GIF, BMP and TIFF (`lurq::images`, `ui::Picture`).
+image = ["raster", "dep:image"]
+# Drawing: `lurq::canvas` and what draws with it (`ui` charts, `Sparkline`, `Gauge`, `SignaturePad`), and SVG
+# (`lurq::svg`, an SVG picture or icon). `png` writes a signature as a PNG file (`ui::Signature::to_png`); it is
+# the version `image` reads with, so a build has one.
+canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon", "dep:png", "dep:usvg"]
+# Playing a video or a sound: `lurq::media`, `ui::VideoPlayer::source` and `ui::AudioPlayer::source`. On Windows it
+# decodes with Media Foundation and plays its sound through WASAPI; on macOS and iOS it plays a sound with the
+# system's `AVAudioPlayer`. A sound at an address is loaded with `http`.
+media = [
+    "raster",
+    "dep:objc2-avf-audio",
+    "windows/Win32_Graphics_Direct3D11",
+    "windows/Win32_Media_Audio",
+    "windows/Win32_Media_MediaFoundation",
+    "windows/Win32_System_Com",
+    "windows/Win32_System_Com_StructuredStorage",
+    "windows/Win32_System_Variant",
+    "windows/Win32_UI_Shell",
+]
+# Internal: pixels in memory and their way to the GPU, under `image`, `canvas` and `media`. Not for an app to name.
+raster = ["dep:core-video-sys"]
+# Internal: what the renderers share, under `wgpu`, `dx12` and `canvas`. Not for an app to name.
+render = ["dep:bytemuck"]
+# A GPU capture of the next whole frame of a window, encoded as a PNG by `image`. `devtools` and `mcp` take it.
+screenshot = ["image"]
+
+# --- What an app is built of ---
+
+# Forms: form handles, their controls' values, validation and submission (`Ctx::form`).
+form = []
+# Routes: `lurq::router`, links, outlets and the history of navigation.
+router = []
+# Queries: `lurq::query` and `#[query]`, shared reads that are kept and invalidated by type.
+query = []
+# Markdown: parsing it and the components that show and edit it (`ui::Markdown`, `ui::RichTextEditor`).
+markdown = ["dep:pulldown-cmark", "dep:unicode-bidi", "dep:unicode-linebreak"]
 # Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of
 # the app are loaded by every build.
 http = ["dep:ureq"]
-# The name `http` had before 0.63: it means nothing else. To be removed.
-resources = ["http"]
-screenshot = ["dep:image"]
+# `ui::find_matches` takes a regular expression where its options say so (`FindOptions::regex`).
+regex = ["dep:regex"]
+# Values kept on the disk between runs (`lurq::persistent_storage`, `#[derive(PersistentValue)]`).
+persistent_storage = ["dep:redb"]
+# JSON: an app's translations read from JSON (`I18n::from_json`), and the Profiler's recording files.
+serde = ["dep:serde_json"]
+# Futures run on a Tokio handle the app gives `App`.
+tokio = ["dep:tokio"]
+
+# --- For the developer ---
+
+# DevTools: the inspector of the element tree, components and signals, and the Profiler.
 # `serde_json` writes and reads the Profiler tab's recording files.
 # `inventory` gathers the inspectors types register, so that DevTools reads a value it is given with no bound.
 devtools = ["screenshot", "dep:rfd", "dep:serde_json", "dep:inventory", "perf_profile"]
-# The system's dialog for files to open behind `lurq::files::FileDialog` (`rfd`; none on iOS).
-file_dialog = ["dep:rfd"]
+# Timings of each frame's phases, read by the Profiler and the MCP server's profiling tools.
 perf_profile = []
 # `lurq::app::profiler::CountingAllocator`, a global allocator wrapper the
 # application installs so profiling sessions report allocations per frame.
 counting_allocator = ["perf_profile"]
-router = []
-# `ui::find_matches` takes a regular expression where its options say so (`FindOptions::regex`).
-regex = ["dep:regex"]
 # Embeddable MCP server: lets an AI agent drive and inspect a running lurq app
 # (screenshot, read the element tree, click/type, navigate). Off by default;
 # nothing listens unless the app also calls `Tree::enable_mcp`.
@@ -178,9 +209,13 @@ web-sys = { version = "0.3", features = [
     "HtmlCanvasElement",
     "HtmlElement",
     "Location",
+    # What the page says of the device's pointer (`app::Pointer`).
+    "MediaQueryList",
     "MouseEvent",
     "Navigator",
     "Node",
+    # A pen's pointer events, which winit gives as the mouse's (`winit_shell::web::PenPointer`).
+    "PointerEvent",
     "PopStateEvent",
     "WheelEvent",
     "Window",
@@ -208,6 +243,8 @@ windows = { version = "0.62.2", features = [
     "Win32_System_Threading",
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
+    # `ShellExecuteW`, which opens an address (`app::open_url`).
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

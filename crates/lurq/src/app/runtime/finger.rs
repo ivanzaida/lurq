@@ -1,5 +1,6 @@
-//! One finger as the pointer. winit reports a touch screen as `WindowEvent::Touch` only, with no mouse events, so
-//! the shell turns the first finger into the pointer and scroll input the tree already takes. The timings and
+//! One finger as the pointer. A touch screen is reported as touches only, with no mouse events, so the tree turns
+//! the first finger into the pointer and scroll input it already takes ([`Tree::finger`]): a shell gives it every
+//! touch winit reports, the desktop's emulation of a phone its mouse as fingers, and MCP its gestures. The timings and
 //! distances are UIKit's, so a list here answers a finger as a `UIScrollView` does.
 //!
 //! Where nothing under the finger scrolls, and on a control that is dragged (a slider, a scrollbar), the finger
@@ -28,32 +29,29 @@
 
 use std::{collections::VecDeque, time::Duration};
 
-use winit::event::TouchPhase;
-
+use super::{TouchMomentum, TouchRoute, Tree};
 use crate::{
-  app::{events::ScrollPhase, runtime::TouchMomentum},
+  app::events::{ScrollPhase, TouchPhase},
   time::Instant,
 };
 
 /// How far apart two taps may land and still be a double tap, in logical pixels.
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-pub(super) const DOUBLE_TAP_DISTANCE: f32 = 40.0;
+pub(crate) const DOUBLE_TAP_DISTANCE: f32 = 40.0;
 /// How long after a tap the next one is still a double tap; UIKit's.
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-pub(super) const DOUBLE_TAP_INTERVAL: Duration = Duration::from_millis(350);
+pub(crate) const DOUBLE_TAP_INTERVAL: Duration = Duration::from_millis(350);
 /// How far a finger may travel and still tap, in logical pixels.
 const TAP_SLOP: f64 = 10.0;
 /// How long a finger rests over content that scrolls before it presses; a scroll view's delay of content
 /// touches.
 pub(super) const PRESS_DELAY: Duration = Duration::from_millis(150);
 /// How long what a tap landed on goes on showing as pressed, so that a quick tap shows.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(super) const TAP_HIGHLIGHT: Duration = Duration::from_millis(80);
 /// How long a finger rests over content that scrolls before it no longer scrolls it.
 pub(super) const LONG_PRESS: Duration = Duration::from_millis(500);
 /// The time between two steps of content springing back from past an end.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-pub(super) const SPRING_STEP: Duration = Duration::from_millis(4);
+pub(crate) const SPRING_STEP: Duration = Duration::from_millis(4);
 /// The time between two steps of momentum. Shorter than any display's frame, so every frame has a step.
 const FLING_STEP: Duration = Duration::from_millis(4);
 
@@ -152,7 +150,6 @@ impl Default for TouchPointer {
 
 impl TouchPointer {
   /// Takes the app's momentum; a scroll that is under way keeps going by it.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(super) fn set_momentum(&mut self, momentum: TouchMomentum) {
     self.momentum = momentum;
   }
@@ -171,10 +168,10 @@ impl TouchPointer {
     scrolls: impl FnOnce((f64, f64)) -> bool,
   ) -> Vec<TouchAction> {
     match phase {
-      TouchPhase::Started => self.started(id, position, now, springing, scrolls),
-      TouchPhase::Moved => self.moved(id, position, now, scale),
-      TouchPhase::Ended => self.ended(id, position, now, scale),
-      TouchPhase::Cancelled => self.cancelled(id, position),
+      TouchPhase::Start => self.started(id, position, now, springing, scrolls),
+      TouchPhase::Move => self.moved(id, position, now, scale),
+      TouchPhase::End => self.ended(id, position, now, scale),
+      TouchPhase::Cancel => self.cancelled(id, position),
     }
   }
 
@@ -447,7 +444,6 @@ impl TouchPointer {
 
   /// The fingers became a gesture's: whatever the pointer was doing ends, without a click and without momentum,
   /// and the fingers are no longer followed.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(super) fn abandon(&mut self) -> Vec<TouchAction> {
     self.fling = None;
     match std::mem::replace(&mut self.state, State::Idle) {
@@ -465,7 +461,6 @@ impl TouchPointer {
   }
 
   /// A handler took the long press the shell was just given: the finger clicks nothing when it lifts.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(super) fn long_press_taken(&mut self) {
     if let State::Dragging { taken, .. } = &mut self.state {
       *taken = true;
@@ -520,7 +515,6 @@ fn scroll(anchor: (f64, f64), delta: (f64, f64), phase: ScrollPhase) -> TouchAct
 }
 
 /// Whether the actions end a scroll: of a finger, or of its momentum.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub(super) fn ends_scroll(actions: &[TouchAction]) -> bool {
   actions.iter().any(|action| {
     matches!(
@@ -570,4 +564,139 @@ fn lift_velocity(
   }
   let limit = (f64::from(momentum.max_speed) * scale / speed).min(1.0);
   Some((velocity.0 * limit, velocity.1 * limit))
+}
+
+impl Tree {
+  /// Gives the tree a finger's event as a touch screen reports it, `x` and `y` in physical pixels: the finger's own
+  /// events first, to what it landed on (see [`touch_event`](Self::touch_event)), then, where the finger is the
+  /// tree's (no handler took it, no gesture has it), the pointer it stands for: a press, a tap, a scroll with its
+  /// momentum, a long press. Tells whose the finger was.
+  ///
+  /// This is the one way a finger reaches an app: a shell gives it every touch winit reports, the emulation of a
+  /// phone on a desktop the mouse as fingers ([`App::emulate`](crate::app::App::emulate)), and MCP its gestures.
+  /// What time brings (the press of a finger that rested, a long press, momentum, content springing back) comes
+  /// with [`finger_tick`](Self::finger_tick).
+  ///
+  /// It happens now, or at the time of the tree's clock of presses where one is set
+  /// ([`set_press_clock`](Self::set_press_clock)).
+  pub fn finger(&mut self, id: u64, phase: TouchPhase, x: f32, y: f32, force: Option<f32>) -> TouchRoute {
+    let now = self.press_clock.unwrap_or_else(Instant::now);
+    self.finger_at(id, phase, x, y, force, false, now)
+  }
+
+  /// [`finger`](Self::finger) of a finger or, where `pen`, of a pen, at a time of the caller's.
+  #[allow(clippy::too_many_arguments)]
+  pub(crate) fn finger_at(
+    &mut self,
+    id: u64,
+    phase: TouchPhase,
+    x: f32,
+    y: f32,
+    force: Option<f32>,
+    pen: bool,
+    now: Instant,
+  ) -> TouchRoute {
+    if phase == TouchPhase::Start {
+      self.touch_pointer.pen = pen;
+    }
+    // A finger on a selection's handle drags it, and is nothing else's.
+    let scale = self.scale_factor();
+    if self.touch_text_finger(id, phase, x / scale, y / scale) {
+      return TouchRoute::Taken;
+    }
+    let route = self.touch_event_at(id, phase, x, y, force, now);
+    let scale = f64::from(self.scale_factor());
+    let (x, y) = (f64::from(x), f64::from(y));
+    let actions = match route {
+      TouchRoute::Pointer => {
+        let momentum = self.touch_momentum();
+        self.finger.set_momentum(momentum);
+        // A finger that lands on content springing back holds it where it is.
+        let springing = phase == TouchPhase::Start && self.touch_scroll_catch();
+        let scrolls = phase == TouchPhase::Start && self.touch_scrolls_at(x as f32, y as f32);
+        self.finger.touch(id, phase, (x, y), now, scale, springing, |_| scrolls)
+      }
+      // Two fingers pinch or rotate: what the first one did as the pointer ends without a click.
+      TouchRoute::Gesture => self.finger.abandon(),
+      TouchRoute::Taken => return route,
+    };
+    let lifted =
+      ends_scroll(&actions) && (route != TouchRoute::Pointer || matches!(phase, TouchPhase::End | TouchPhase::Cancel));
+    self.apply_finger_actions(actions, false);
+    if lifted {
+      self.page_after_finger_scroll(now);
+    }
+    route
+  }
+
+  /// Runs what time brings a finger: its press after resting, its long press, the next step of its momentum, and
+  /// content springing back from past an end or on its way to a page. A shell calls it every turn of its loop
+  /// while [`finger_deadline`](Self::finger_deadline) says so; a test, at the times of its own clock.
+  pub fn finger_tick(&mut self, now: Instant) {
+    let actions = self.finger.tick(now);
+    if !self.apply_finger_actions(actions, true)
+      && let Some((end, velocity)) = self.finger.end_fling()
+    {
+      self.apply_finger_actions(vec![end], true);
+      self.touch_scroll_bounce(velocity.0 as f32, velocity.1 as f32, now);
+    }
+    self.touch_tick(now);
+  }
+
+  /// When [`finger_tick`](Self::finger_tick) next has something to do: a finger's press or long press, a step of
+  /// momentum, or of content springing back.
+  pub fn finger_deadline(&self) -> Option<Instant> {
+    self
+      .finger
+      .next_deadline()
+      .into_iter()
+      .chain(self.touch_animating().then(|| Instant::now() + SPRING_STEP))
+      .min()
+  }
+
+  /// A finger's scroll just ended. A list that scrolls by pages has no momentum: it goes on to a page, from how
+  /// fast the finger lifted.
+  fn page_after_finger_scroll(&mut self, now: Instant) {
+    if !self.touch_scroll_pages() {
+      return;
+    }
+    let velocity = match self.finger.end_fling() {
+      Some((end, velocity)) => {
+        self.apply_finger_actions(vec![end], false);
+        velocity
+      }
+      None => (0.0, 0.0),
+    };
+    self.touch_scroll_page(velocity.0 as f32, velocity.1 as f32, now);
+  }
+
+  /// Gives the tree what a finger came to. `false` when the actions scrolled and the last scroll moved nothing.
+  fn apply_finger_actions(&mut self, actions: Vec<TouchAction>, momentum: bool) -> bool {
+    let mut moved = true;
+    for action in actions {
+      match action {
+        TouchAction::Move { x, y } => self.touch_pointer_move(x as f32, y as f32),
+        TouchAction::Press { x, y } => self.touch_press(x as f32, y as f32),
+        TouchAction::Release { x, y } => self.touch_release(x as f32, y as f32),
+        TouchAction::Tap { x, y } => self.touch_tap(x as f32, y as f32, TAP_HIGHLIGHT),
+        TouchAction::LongPress { x, y } => {
+          if self.touch_long_press(x as f32, y as f32) {
+            self.finger.long_press_taken();
+          }
+        }
+        TouchAction::CancelPress { x, y } => self.touch_cancel_press(x as f32, y as f32),
+        TouchAction::Settle => self.touch_scroll_settle(),
+        TouchAction::ScrollTarget { x, y, dx, dy } => {
+          self.touch_scroll_begin(x as f32, y as f32, dx as f32, dy as f32);
+        }
+        TouchAction::Scroll { x, y, dx, dy, phase } => {
+          let scrolled = self.touch_scroll(x as f32, y as f32, dx as f32, dy as f32, phase, momentum);
+          if matches!(phase, ScrollPhase::Scroll) {
+            moved = scrolled;
+          }
+        }
+      }
+    }
+    moved
+  }
 }

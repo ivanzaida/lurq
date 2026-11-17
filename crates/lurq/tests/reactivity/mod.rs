@@ -15,7 +15,6 @@ mod dirty_tracking {
 }
 mod component_root_decoration;
 mod effect;
-#[cfg(feature = "i18n")]
 mod i18n;
 mod lookup_refresh;
 mod measured_rect;

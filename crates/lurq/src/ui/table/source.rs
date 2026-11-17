@@ -83,7 +83,6 @@ impl<R> PartialEq for Arrived<R> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<R> crate::app::component::DevtoolsInspectable for Arrived<R> {}
 
 enum Block<R> {

@@ -115,6 +115,46 @@ The shell drives timers, async work, animation deadlines, and requested redraws.
 
 Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, the window title, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](../ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
 
+### A Phone On A Desktop
+
+`App::emulate(Device::phone())` runs an app on a desktop as it would be on a phone, to try its touch forms and its
+gestures with a mouse; `Device::tablet()` as on a tablet. Any app does the same with no code when `LURQ_DEVICE=phone`
+(or `tablet`) is in its environment, read as its window opens; the gallery takes `--device phone`.
+
+```rust
+use lurq::app::{App, Device};
+
+let app = App::new();
+app.emulate(Device::phone());
+// .. mount the root and run the window as always.
+```
+
+While it emulates a device:
+
+- **The window is the device's size**, in logical pixels (`Device::size`: 390 by 844 for the phone, 820 by 1180 for
+  the tablet), drawn at the monitor's scale. `Device::scale` is the device's, for an app that reads it.
+- **The safe area** is the device's (`Device::safe_area`: a phone's status bar of 47 at the top and its home
+  indicator of 34 at the bottom), and reaches what reads it as a phone's does: `ctx.safe_area()`, and the
+  components that keep clear of it (a sheet, the tab bar, the lightbox).
+- **The pointer is pinned `Coarse`**, so every component takes its touch form.
+- **The mouse is fingers.** Its moves and its left button reach the tree only as fingers, through the same path a
+  touch screen's take, and never as the mouse: a click is a tap, a double click a double tap, a drag a pan, a
+  swipe or a scroll with momentum, a drag from an edge of the window an edge pan, a press held still a long press.
+  **Alt**+drag is two fingers, the second mirrored about where the drag began, so dragging away from that point or
+  toward it pinches and around it rotates; **Alt+Shift**+drag is two fingers side by side; **Alt+Shift+Ctrl**+drag
+  three side by side, and **Alt+Shift+Ctrl** with the wheel and no button pinches three about the mouse (away
+  spreads them, a paste; toward closes them, a copy), lifted when the keys are let go. While a modifier is held the fingers are drawn as dots. A finger hovers nothing, so nothing
+  shows its hovered style. The wheel still scrolls and the keyboard still types.
+
+What is not emulated: the on-screen keyboard, the system's own gestures, a pen's hover, and a phone's speed.
+
+**For a shell of its own.** A finger reaches the tree through `Tree::finger(id, phase, x, y, force)`, in physical
+pixels: the finger's own events (`on_touch_*`), and where nothing took it the pointer it stands for (a press, a tap,
+a scroll with its momentum, a long press) and the gestures. `Tree::finger_tick(now)` runs what time brings (a long
+press, momentum, a list springing back) and `Tree::finger_deadline()` says when it next has something to do. The
+winit shell, the emulator and MCP's `lurq_touch` all go through these; a test drives them on its own clock
+(`Tree::set_press_clock`). `Tree::pen_hover(x, y)` and `pen_hover_ended()` are a pen in range that touches nothing.
+
 ## Frame And Redraw Flow
 
 `Tree` sets `needs_redraw` when state changes:

@@ -14,12 +14,16 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - The Markdown theme. Its colors are `TextColor`s, eight of its fields are gone, and `MarkdownProps::on_link_click` is `on_link_select`: see [Text And Markdown](#text-and-markdown).
 - A struct written out field by field, or a `match` with no `_` arm, over a type that gained a field or a variant: see [the table](#types-that-gained-a-variant-or-a-field).
 - With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
+- `MouseEvent::pointer`, which is `pointer_kind`: see [What Pressed](#what-pressed).
+- The Cargo features `svg`, `i18n` and `resources`, which are gone: see [Features](#features).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
 
 `FormTheme`, `theme.form()` and `theme.set_form(..)` still compile, with a warning: nothing reads them, since the form controls are the design system's components: see [The Form Controls](#the-form-controls).
 
-`lurq::components::Image` and the Cargo feature `resources` still compile too, the first with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
+`lurq::components::Image` still compiles too, with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
+
+lurq has default features now, the desktop set: an app that named no feature gets a window, a renderer, pictures, drawing, forms, routes and queries. See [Features](#features).
 
 The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appearance(..)` of the phone's sheet, tab bar, navigation bar and pull to refresh, still compile, each with a warning that names what to write: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 
@@ -30,7 +34,7 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - The form controls (`FormTextInput`, `FormCheckboxInput`, `FormSliderInput`, the two form buttons), which are the design system's field, input, checkbox, slider and buttons, styled by their recipes and no longer by `FormTheme`: see [The Form Controls](#the-form-controls).
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
-- A notch of a mouse's wheel, which is animated: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
+- A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
@@ -44,6 +48,85 @@ app.theme().apply(ThemeDefinition::legacy());
 ```
 
 That brings back the palette, the typography, the radii, the shadows and the shape of the scroll bar. It does not bring back the 0.62 look of a Markdown document or of the engine's title bar, and it changes nothing of how the engine behaves: each of those has its own section below.
+
+## Features
+
+lurq's features are fewer and it has a default. What an app writes in `Cargo.toml` changes where it names a feature that is gone, and can be shorter.
+
+### The Default Is The Desktop Set
+
+`default` is `winit`, `wgpu`, `clipboard`, `file_dialog`, `image`, `canvas`, `form`, `router` and `query`: what a desktop app takes. A desktop app names only what it adds.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "clipboard", "image", "form", "router", "markdown"] }
+# 0.63
+lurq = { version = "0.63", features = ["markdown"] }
+```
+
+An app that left something of the set out on purpose (a tool with no window, an app with no forms) turns the default off and names what it keeps:
+
+```toml
+# 0.63
+lurq = { version = "0.63", default-features = false, features = ["winit", "wgpu"] }
+```
+
+A browser app does the same: the default is for a desktop, and the system clipboard's crate does not build for a browser. See [Web](../web/#the-manifest).
+
+```toml
+# 0.63, in a browser
+lurq = { version = "0.63", default-features = false, features = ["webgl", "winit", "clipboard", "image", "canvas", "form", "router", "query"] }
+```
+
+### `svg` Is `canvas`
+
+Pictures and drawing are two features: `image` for pictures from files (the codecs) and `canvas` for what is drawn, SVG among it. `svg` is gone; `Svg`, `SvgData` and `lurq::svg` come with `canvas`.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "svg"] }
+# 0.63 (canvas is in the default)
+lurq = "0.63"
+```
+
+An SVG is always rasterized at the size it is drawn, and drawn as a picture. A 0.62 build with `svg` and without `raster` tessellated it into triangles instead, which stayed sharp under a GPU transform or a zoom; that path is gone. An SVG drawn scaled up by a transform is drawn again at its new size where its layout changes, and stretched where only the transform does.
+
+`raster` and `render` are still features, but lurq's own: `image`, `canvas`, `media` and the renderers turn them on. An app that named `raster` for raw RGBA (`ImageData`, `StreamingImage`) names `image` instead, or any of `canvas` and `media` it has.
+
+### `i18n` Is Gone
+
+`I18n`, `App::i18n`, `ctx.t` and the rest of the app's translations are in every build. The feature `i18n` is gone: take it out of the list. Translations read from JSON still need `serde`.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "i18n", "serde"] }
+# 0.63
+lurq = { version = "0.63", features = ["serde"] }
+```
+
+### `resources` Is `http`
+
+The Cargo feature that adds the network client is named for what it adds: `http`. `resources`, which 0.62 had for it, is gone.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["image", "resources"] }
+# 0.63
+lurq = { version = "0.63", features = ["http"] }
+```
+
+What it no longer decides: a file under the app's resource root is loaded by every build, with no feature, through `app.loader()`. `App::set_resource_root` is there in every build too. Only an address on the network needs `http`.
+
+### `screenshot` Takes `image`
+
+`screenshot` writes a capture as a PNG with `image`'s encoder, and turns the `image` feature on where it took the codecs' crate alone: a build with `screenshot` (and so with `devtools` or `mcp`) has `Picture` and the decoders. Nothing is written differently.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "screenshot"] }
+# 0.63
+lurq = { version = "0.63", features = ["screenshot"] }
+```
 
 ## The Theme And Palette
 
@@ -479,6 +562,36 @@ app.theme().set_smooth_scroll(false);
 
 It is the app's setting and not part of a `ThemeDefinition`: applying one leaves it. See [The mouse wheel](../styling-events/#the-mouse-wheel).
 
+### What Pressed
+
+`MouseEvent::pointer` is `MouseEvent::pointer_kind`, and `PointerKind` has a third variant, `Pen`: a pen on a touch
+screen, which taps and clicks as a finger does. The name keeps `Pointer` for what the person points with
+(`app::Pointer`, fine or coarse).
+
+```rust
+// 0.62
+if event.pointer == PointerKind::Touch { .. }
+// 0.63
+if event.pointer_kind != PointerKind::Mouse { .. }
+```
+
+A `match` on `PointerKind` with no `_` arm takes `Pen`.
+
+### A Finger's Tap And Its Click
+
+`on_click` is the action from every input, and `on_tap` the finger's gesture: a finger's tap is told as `on_tap` first
+and `on_click` after, each once, as before. A touch screen's touches reach lurq as touches on Windows, Android,
+Linux and in the browser now, as on iOS: on Windows they came as the mouse's (a tap clicked, with no `on_tap`), and
+now they are a finger's, with its gestures and a coarse pointer. What is new wherever touches come:
+
+- A tap a handler of `on_tap` takes (`prevent_default`) clicks nothing. It clicked as well.
+- A tap of two fingers or more clicks nothing. The first finger, which is the pointer, clicked.
+- Two taps in a row are no double click: `on_dblclick` hears a mouse's only, and an element that wants a finger's
+  double tap listens with `on_double_tap` (or reads `TapEvent::count`). On an element that does, a tap's click is
+  held back for the time of a double click, as a mouse's is on an element with `on_dblclick`.
+
+See [A Click Is The Action, A Tap Is The Gesture](../styling-events/#a-click-is-the-action-a-tap-is-the-gesture).
+
 ### A Disabled Element Hears The Pointer Come And Go
 
 The `on_mouse_enter` and `on_mouse_leave` of a disabled element run as the pointer comes onto it and leaves it, so a tooltip can say why it is disabled. They did not run. Nothing else of the pointer reaches it: it is not hovered, and no press, click or drop reaches it.
@@ -548,19 +661,6 @@ A value that changes because the theme does, a color of the other appearance, is
 A transition is for what the element does itself: a state, a style set on it. An app that animated a change of theme through transitions animates it another way.
 
 ## Images And Loading
-
-### The Feature `resources` Is `http`
-
-The Cargo feature that adds the network client is named for what it adds: `http`. `resources` still turns it on and will be removed; change it in `Cargo.toml` when you next touch it.
-
-```toml
-# 0.62
-lurq = { version = "0.62", features = ["image", "resources"] }
-# 0.63
-lurq = { version = "0.63", features = ["image", "http"] }
-```
-
-What it no longer decides: a file under the app's resource root is loaded by every build, with no feature, through `app.loader()`. `App::set_resource_root` is there in every build too. Only an address on the network needs `http`.
 
 ### `components::Image` Is `ui::Picture`
 
@@ -733,7 +833,8 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `StyledEdit` | `Paragraphs { range }` | A `match` arm: the kinds of the paragraphs changed, the text did not |
 | `ThemeMarkdown` | `task_item_spacing`, `bullet_gap`, `box_gap`, `bullet_indent`, `bullet_size`, `table_stripe`, `heading_2_rule`, `kbd`, `task_done`, `rule`, `image_box`, `image_height`, `image_caption`, `details_box`, `details_summary_box`, `details_summary`, `details_padding`, `footnote_reference`, `footnote`, `footnotes_rule_width` | `..ThemeMarkdown::default()` |
 | `TextHighlight` | `padding`, `border` | `TextHighlight::new(range, color)` |
-| `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end` | `..Default::default()` |
+| `EventHandlers` | `press_repeats`, `on_copy`, `focuses`, `on_press_end`, `on_double_tap` | `..Default::default()` |
+| `PointerKind` | `Pen` | A `match` arm |
 | `SelectTriggerState` | `input` | `input: None` |
 | `DragEvent` | `outside_window` | `outside_window: false` |
 | `DevToolsNode` (`devtools`) | `render` | `render: None` |

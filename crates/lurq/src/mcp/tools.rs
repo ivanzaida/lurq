@@ -18,6 +18,7 @@ mod inspect;
 mod interact;
 mod lookup;
 mod navigate;
+mod pointer;
 mod read_tree;
 mod resolve;
 mod screenshot;
@@ -29,6 +30,9 @@ mod sensitive_tests;
 mod set_value;
 #[cfg(test)]
 mod tests;
+mod touch;
+#[cfg(test)]
+mod touch_tests;
 mod wait;
 #[cfg(test)]
 mod wheel_tests;
@@ -46,10 +50,12 @@ use inspect::{act_tool, inspect_tool};
 use interact::interact_tool;
 use lookup::{find_by_class_tool, find_by_id_tool};
 use navigate::navigate_tool;
+use pointer::pointer_tool;
 pub(crate) use read_tree::format_ref_line;
 use read_tree::read_tree_tool;
 use screenshot::screenshot_tool;
 use set_value::set_value_tool;
+use touch::touch_tool;
 use wait::wait_tool;
 use windows::{menu_json, resize_tool, windows_tool};
 
@@ -142,6 +148,12 @@ fn execute_builtin(
       let _ = reply.send(set_value_tool(tree, state, &args));
     }
     BuiltinTool::Resize => resize_tool(tree, state, &args, reply),
+    BuiltinTool::Touch => {
+      let _ = reply.send(touch_tool(tree, state, &args));
+    }
+    BuiltinTool::Pointer => {
+      let _ = reply.send(pointer_tool(app, &args));
+    }
     BuiltinTool::Navigate => {
       let _ = reply.send(navigate_tool(state, &args));
     }

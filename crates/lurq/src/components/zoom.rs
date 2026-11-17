@@ -16,7 +16,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{DragEvent, GesturePhase, MouseEvent, PinchEvent, ScrollEvent},
+    events::{DragEvent, GesturePhase, MouseEvent, PinchEvent, ScrollEvent, TapEvent},
   },
   components::{ScrollBoth, Stack},
   core::{ElementRef, Signal},
@@ -312,15 +312,28 @@ impl Component for ZoomScroll {
       list = list.on_drag_move(move |event: DragEvent| scroll.scroll_by(-event.delta_x, -event.delta_y));
     }
     if let Some(double_tap) = props.double_tap {
-      list = list.on_dblclick(move |event: MouseEvent| {
-        if event.from_keyboard {
-          return;
-        }
-        event.stop_propagation();
-        let (zoom, point, at) = point_at(event.x, event.y);
-        // In at the point tapped, which stays under the finger; from anywhere further in, back out.
+      // In at the point tapped, which stays under the finger or the pointer; from anywhere further in, back out.
+      let toggle = Arc::new(move |x: f32, y: f32| {
+        let (zoom, point, at) = point_at(x, y);
         go(if zoom > min * 1.01 { min } else { min * double_tap }, point, at);
       });
+      let by_mouse = toggle.clone();
+      // A mouse's double click, and a finger's double tap, which is not a double click.
+      list = list
+        .on_dblclick(move |event: MouseEvent| {
+          if event.from_keyboard {
+            return;
+          }
+          event.stop_propagation();
+          by_mouse(event.x, event.y);
+        })
+        .on_double_tap(move |event: TapEvent| {
+          if event.fingers != 1 {
+            return;
+          }
+          event.stop_propagation();
+          toggle(event.x, event.y);
+        });
     }
     list
   }

@@ -65,6 +65,7 @@ mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
+pub(crate) mod edit_menu;
 mod editable;
 mod empty_state;
 pub(crate) mod engine_look;
@@ -94,6 +95,7 @@ mod lightbox;
 #[cfg(feature = "canvas")]
 mod line_chart;
 mod link;
+mod link_preview;
 mod list_item;
 mod listbox;
 mod media_captions;
@@ -380,6 +382,10 @@ pub use lightbox::{Lightbox, LightboxPart, LightboxRenderer, LightboxState, Ligh
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
+pub use link_preview::{
+  LINK_PREVIEW_PICTURE_RATIO, LinkImage, LinkPreview, LinkPreviewPart, LinkPreviewRenderer, LinkPreviewState,
+  LinkPreviewVariant, LinkPreviewView,
+};
 pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
@@ -590,7 +596,8 @@ pub use textarea::{
   TextareaView,
 };
 pub use theme::{
-  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_theme, in_theme,
+  Themed, UiDefinition, current_breakpoint, current_date_locale, current_locale, current_pointer, current_theme,
+  in_theme, touch_form,
 };
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
 pub use time_picker::{
@@ -678,7 +685,6 @@ macro_rules! names {
 
     // A name of the design system goes in a signal with DevTools on, as any value an app keeps does: a
     // playground's variant, a setting's size.
-    #[cfg(feature = "devtools")]
     impl $crate::app::component::DevtoolsInspectable for $type {
       fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
         formatter.value_debug(&self.as_str());
@@ -693,7 +699,6 @@ pub(crate) use names;
 macro_rules! inspectable {
   ($($type:ty),* $(,)?) => {
     $(
-      #[cfg(feature = "devtools")]
       impl $crate::app::component::DevtoolsInspectable for $type {
         fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
           formatter.value_debug(self);

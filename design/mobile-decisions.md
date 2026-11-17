@@ -10,6 +10,32 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-17
 
+### Every gesture, the emulator and MCP's touch
+
+- **Decision (Ivan: "let's add support for all the gestures, wire the emulator and MCP, and leave it in the
+  macOS/iOS handover to check and adapt").**
+  - **The gestures the engine has** stay as they are: tap (`fingers`, `count`), double tap, long press, pan, swipe,
+    the edge pan, pinch, rotate, two-finger pan, momentum, pull to refresh, swipe row, force, the pen.
+  - **The ones it lacks are added**: one-finger zoom (a double tap held and dragged, as `on_pinch`); three fingers
+    swiped left and right as `EditCommand::Undo` / `Redo`, pinched in and out as `Copy` / `Paste`, tapped as the
+    menu of editing commands (iOS's); in text, a long press shows a loupe and moves the caret, selection by touch
+    has two handles and a menu over it (the editing commands); the bounce at a scroll's edge on iOS (checked first:
+    built only if missing); a pencil's hover as hover.
+  - **The emulator** as the entry "Phone emulation on a desktop" says, now decided: `LURQ_DEVICE=phone|tablet`,
+    `App::emulate(Device::..)`, `--device` in the gallery; the mouse is fingers (a click a tap, a double click a
+    double tap, a drag a pan or a swipe, from an edge an edge pan, held still a long press, **Alt**+drag a pinch and a
+    rotation mirrored about where it began, **Alt+Shift**+drag two fingers side by side, **Alt+Shift+Ctrl**+drag
+    three fingers), the fingers drawn while a modifier is held, the window a phone's size with a safe area.
+  - **MCP** gets touch actions through `Tree::touch_event`: tap (`fingers`, `count`), long press, pan, swipe (a
+    direction and a speed), edge pan, pinch (a scale), rotate (an angle), three-finger swipe and pinch.
+  - **What only a device shows** goes into [apple-checks.md](apple-checks.md) to be checked and adapted on a Mac and
+    a phone.
+- **State.** Built on `claude/gestures-769083` (2026-11-17): `Tree::finger` is the one path of a finger, the
+  gestures, the menu of editing commands, the loupe and the handles, a pen's hover, the emulator and `lurq_touch`.
+  The bounce at a list's edge was there already (momentum carries a list past its end and it springs back,
+  `UIScrollView`'s constants): nothing was built for it. What only a device shows is in
+  [apple-checks.md](apple-checks.md) §5.
+
 ### A click is the action, a tap is the gesture
 
 - **Question.** A finger's tap sends both `on_click` (the finger is the pointer) and `on_tap` (the gesture), and an
@@ -30,7 +56,15 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   6. A pen's tap is a click and a tap, as a finger's. A pen's hover is later.
 - **Why.** One handler for the action on every platform; gestures where only a finger has them; never twice; no
   delay of every click on a phone for the sake of a double tap only some elements want.
-- **State.** Decided; to be built with the pointer on `claude/touch-form`.
+- **What a double click did, for a finger (Ivan, the same day).** `Zoom`, `Splitter` and `DocumentTabs` listen to
+  `on_double_tap` too (a held-back single tap does not matter there); `Table` and `TreeView` open a row on a single
+  tap in the touch form, so a tap on a row is never delayed.
+- **State.** Built (`claude/touch-form`, merged 2026-11-17).
+- **Since (Ivan, 2026-11-17).** What listened only to `on_dblclick` answers a finger too: `components::Zoom`
+  (`2bb08839`), `ui::Splitter` (a double tap on the handle restores the size) and `ui::DocumentTabs` (a double tap
+  keeps a preview) listen to `on_double_tap` of one finger as well; `ui::Table` and `ui::TreeView` in the touch form
+  (`ui::touch_form()`) open a row at a single tap, with no double tap listened for, so a tap is never held back; on a
+  mouse as before. Built on `claude/gestures-769083`.
 
 ### Phone emulation on a desktop
 
@@ -53,7 +87,10 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   on a PC; `on_touch_*`, `on_pinch`, `on_swipe` are for what only a finger does. A finger hovers nothing, so under
   emulation nothing shows its hovered style, as on a phone.
 - **Not emulated.** The on-screen keyboard, the system's gestures, more than two fingers, a phone's speed.
-- **State.** Waiting for Ivan's go; to follow the Pointer work on `claude/touch-form`.
+- **State.** Built on `claude/gestures-769083` (2026-11-17), as "Every gesture, the emulator and MCP's touch" above
+  says: `App::emulate`, `Device`, `LURQ_DEVICE`, the gallery's `--device`. Alt+Shift+Ctrl is three fingers side by
+  side, which swipe and tap, and with the wheel three fingers pinched about the mouse (away spreads, toward closes;
+  the keys let go lift them). The DevTools Device panel is later, on `feat/devtools`.
 
 ### The pointer, not the density, decides a component's phone form
 
@@ -70,7 +107,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   another density.
 - **Replaces.** The first idea of the same day: `Density::Touch` decides the form and is the default on phones (a WIP
   commit `8e653322` on `claude/touch-form`).
-- **State.** In work on `claude/touch-form`.
+- **State.** Built (`claude/touch-form`, merged 2026-11-17).
 
 ## Before 2026-11-17 (from the plan and the handoffs)
 
@@ -79,7 +116,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 - **Decision (plan, phase 7).** A theme at `Density::Touch` has a finger's sizes (rows of 44–48, larger targets);
   `TabBar`, `NavigationBar` and `Sheet` go on recipes, their iOS look kept as a renderer rather than hard-coded.
 - **Since 2026-11-17.** Density is sizes only; it does not choose a component's phone form (see the pointer above).
-- **State.** The density is built; the three components on recipes are in work on `claude/legacy-styled`.
+- **State.** Built: the density, and the three components on recipes (`claude/legacy-styled`, merged 2026-11-17).
 
 ### The board's Mobile frames wait for phase 7
 

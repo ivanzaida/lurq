@@ -626,7 +626,6 @@ impl PartialEq for NavigationMenuProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for NavigationMenuProps {}
 
 /// How the open panel was opened: what closes it.

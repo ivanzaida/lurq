@@ -5,11 +5,11 @@ description: Feature flags, demo commands, and the smallest useful lurq app.
 
 # Getting Started
 
-This guide targets **lurq 0.61.1**. Add the crate with the shell and renderer used by the example below:
+This guide targets **lurq 0.62.0**. Add the crate; its default features are what a desktop app needs, the window and the renderer used by the example below among them:
 
 ```toml
 [dependencies]
-lurq = { version = "0.61.1", features = ["winit", "wgpu"] }
+lurq = "0.62.0"
 ```
 
 Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the demo in `crates/demo`, and macros in `crates/lurq_macros`.
@@ -42,33 +42,51 @@ It needs the `wasm32-unknown-unknown` target and wasm-bindgen's CLI. [Web](../we
 
 ## Feature Flags
 
-`lurq` has no default features. Optional subsystems are enabled explicitly:
+`lurq`'s default features are the desktop set: a window, its GPU renderer, the system's clipboard and file dialog, pictures, drawing, forms, routes and queries. An app adds what it uses beyond them:
 
-| Feature | Enables |
-| --- | --- |
-| `winit` | The `WinitWindow` shell and desktop event loop integration. |
-| `render` | Shared render data types. Usually enabled through `wgpu` or `dx12`. |
-| `wgpu` | WGPU render engine. |
-| `webgl` | In a browser without WebGPU, the WGPU render engine draws through WebGL2; see [Web](../web/). Changes nothing outside a browser. |
-| `dx12` | DirectX 12 render engine on Windows. |
-| `raster` | Raw RGBA/native image transport, `Image`, `StreamingImage`, and `Video`; no image codecs. |
-| `canvas` | Persistent Canvas 2D, including gradients and effects; enables `raster` and `render`. |
-| `image` | `Image`, background images, and image decoding. |
-| `svg` | `Svg` and SVG tessellation/rendering. |
-| `resources` | Async local/remote resource loading. |
-| `form` | Form handles, validation, submission, and compound form controls. |
-| `router` | Routes, links, outlets, and navigation history. |
-| `markdown` | Markdown parsing and the `Markdown` component. |
-| `i18n` | Translation resources, locale switching, and reactive lookups. |
-| `serde` | JSON translation resources when combined with `i18n`. |
-| `persistent_storage` | Typed app storage, with in-memory defaults and optional `redb` files. |
-| `query` | Shared async reads, cache retention, and typed invalidation. |
-| `tokio` | Optional execution on a Tokio handle configured on `App`. |
-| `perf_profile` | Frame timing/memory instrumentation and `Tree::last_profile`; independent of `devtools`. |
-| `devtools` | Component metadata, signal values, profiler data, and the DevTools secondary window. |
-| `screenshot` | GPU capture of the next fully composed window frame to PNG. `devtools` enables it automatically. |
-| `mcp` | Embeddable [MCP server](../mcp/) so AI agents can drive and inspect a running app. Off by default; nothing listens unless the app calls `Tree::enable_mcp`. |
-| `clipboard` | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts; reading text, images and files from the clipboard. |
+```toml
+lurq = { version = "0.62.0", features = ["markdown", "http"] }
+```
+
+| Feature | Default | Enables |
+| --- | --- | --- |
+| `winit` | yes | The `WinitWindow` shell and desktop event loop integration. |
+| `wgpu` | yes | WGPU render engine: Vulkan, Metal, Direct3D 12 or WebGPU. |
+| `clipboard` | yes | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts; reading text, images and files from the clipboard. |
+| `file_dialog` | yes | The system's dialog for files to open, behind `lurq::files::FileDialog` (none on iOS). |
+| `image` | yes | Pictures from files and bytes: PNG, JPEG, WebP, GIF, BMP and TIFF decoding, `ui::Picture`, background images. |
+| `canvas` | yes | Drawing: persistent Canvas 2D with gradients and effects, the charts, `Sparkline`, `Gauge` and `SignaturePad` of `lurq::ui`, and SVG (`Svg`, `SvgData`). |
+| `form` | yes | Form handles, validation, submission, and compound form controls. |
+| `router` | yes | Routes, links, outlets, and navigation history. |
+| `query` | yes | Shared async reads, cache retention, and typed invalidation. |
+| `webgl` | | In a browser without WebGPU, the WGPU render engine draws through WebGL2; see [Web](../web/). Changes nothing outside a browser. |
+| `dx12` | | DirectX 12 render engine on Windows. |
+| `media` | | Playing a video or a sound: `lurq::media`, `ui::VideoPlayer::source` and `ui::AudioPlayer::source`. |
+| `markdown` | | Markdown parsing, the `Markdown` component and the rich text editor. |
+| `http` | | Addresses on the network, for everything that loads. A file, bytes and a resource of the app are loaded by every build. |
+| `regex` | | Regular expressions in `ui::find_matches` (`FindOptions::regex`). |
+| `persistent_storage` | | Typed app storage, with in-memory defaults and optional `redb` files. |
+| `serde` | | JSON: an app's translations read from JSON, and the Profiler's recording files. |
+| `tokio` | | Optional execution on a Tokio handle configured on `App`. |
+| `screenshot` | | GPU capture of the next fully composed window frame to PNG; takes `image`. `devtools` and `mcp` enable it. |
+| `perf_profile` | | Frame timing/memory instrumentation and `Tree::last_profile`; independent of `devtools`. |
+| `counting_allocator` | | `CountingAllocator`, a global allocator that reports allocations per frame to the profiler. |
+| `devtools` | | Component metadata, signal values, profiler data, and the DevTools secondary window. |
+| `mcp` | | Embeddable [MCP server](../mcp/) so AI agents can drive and inspect a running app. Nothing listens unless the app calls `Tree::enable_mcp`. |
+
+Translations (`I18n`, `ctx.t`) are in every build; see [Internationalization](../i18n/). `raster` and `render` are lurq's own, turned on by `image`, `canvas`, `media` and the renderers: an app does not name them.
+
+An app that leaves out part of the desktop set turns the default off and names what it keeps. The smallest app with a window:
+
+```toml
+lurq = { version = "0.62.0", default-features = false, features = ["winit", "wgpu"] }
+```
+
+A browser app names its list too: the default is for a desktop. With WebGL2 for a browser without WebGPU:
+
+```toml
+lurq = { version = "0.62.0", default-features = false, features = ["webgl", "winit", "clipboard", "image", "canvas", "form", "router", "query"] }
+```
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:
 

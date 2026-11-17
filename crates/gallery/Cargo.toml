@@ -14,12 +14,13 @@ devtools = ["lurq/devtools"]
 dx12 = ["lurq/dx12"]
 
 [dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "form", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas", "media"] }
+# What every build of the gallery takes beyond lurq's default: the pages of the find bar, Markdown and the players.
+lurq = { path = "../lurq", default-features = false, features = ["regex", "markdown", "media"] }
 
-# Addresses on the network, for the sound the Audio Player page plays from one. Not in a browser: the client is
-# not built for one, and the loader loads no address there yet.
+# A desktop takes lurq's default, the desktop set, and addresses on the network, for the sound the Audio Player
+# page plays from one. Not in a browser: the client is not built for one, and the loader loads no address there yet.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["http"] }
+lurq = { path = "../lurq", features = ["http"] }
 
 # The decoder of the Video Player page that stands for an app's own: a Direct3D 11 device that writes
 # textures lurq draws (`src/card_demo.rs`).
@@ -35,8 +36,9 @@ windows = { version = "0.62.2", features = [
 
 # The gallery as a page: `scripts/gallery-web.py`. What it asks the browser for is in `src/web.rs`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# A browser without WebGPU draws the gallery through WebGL2.
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["webgl", "form", "regex", "markdown", "canvas"] }
+# A page names lurq's features itself, as a browser app does: the desktop set, with WebGL2 for a browser without
+# WebGPU.
+lurq = { path = "../lurq", default-features = false, features = ["webgl", "winit", "clipboard", "file_dialog", "image", "canvas", "form", "router", "query"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

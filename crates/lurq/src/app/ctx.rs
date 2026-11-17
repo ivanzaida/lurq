@@ -15,12 +15,11 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "devtools")]
 use super::component::{ComponentInfo, DevtoolsInspectable};
-#[cfg(feature = "i18n")]
-use super::i18n::I18n;
 use super::{
   app_state::App,
   component::Component,
   events::MouseEvent,
+  i18n::I18n,
   theme::Theme,
   window::{Window, WindowWaker},
 };
@@ -225,6 +224,10 @@ pub(crate) struct OverlaySpec {
   pub(crate) traps_tab: bool,
   /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
   pub(crate) at: Option<(f32, f32)>,
+  /// Where it stands by that point, as by an anchor of no size: see [`Overlay::at_placed`].
+  pub(crate) at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of, top, right, bottom, left: see [`Overlay::keep_clear`].
+  pub(crate) clear: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -331,6 +334,8 @@ impl OverlaySpec {
       tab_after_anchor: self.tab_after_anchor,
       traps_tab: self.traps_tab,
       at: self.at,
+      at_placement: self.at_placement,
+      clear: self.clear,
     }
   }
 }
@@ -465,6 +470,8 @@ pub struct Overlay {
   tab_after_anchor: bool,
   traps_tab: bool,
   at: Option<(f32, f32)>,
+  at_placement: Option<Placement>,
+  clear: [f32; 4],
 }
 
 impl Overlay {
@@ -488,6 +495,8 @@ impl Overlay {
       tab_after_anchor: false,
       traps_tab: false,
       at: None,
+      at_placement: None,
+      clear: [0.0; 4],
     }
   }
 
@@ -632,6 +641,21 @@ impl Overlay {
     self
   }
 
+  /// With [`at`](Self::at), stands the overlay by the point as by an anchor of no size, at `placement` of it,
+  /// measured first: `Placement::Top` centres it above the point, and the collision strategy flips it below
+  /// where there is no room above. What lurq shows at a finger (the menu of editing commands) stands so.
+  pub(crate) fn at_placed(mut self, placement: Placement) -> Self {
+    self.at_placement = Some(placement);
+    self
+  }
+
+  /// Keeps the overlay off the window's edges by these, top, right, bottom and left, in logical pixels, where the
+  /// collision strategy clamps it: a phone's safe area.
+  pub(crate) fn keep_clear(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    self.clear = [top, right, bottom, left];
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -657,6 +681,8 @@ impl Overlay {
       tab_after_anchor: self.tab_after_anchor,
       traps_tab: self.traps_tab,
       at: self.at,
+      at_placement: self.at_placement,
+      clear: self.clear,
     })
   }
 }
@@ -864,6 +890,9 @@ impl Timer {
 #[derive(Default)]
 struct ElementRequests {
   focus: Option<ElementRef>,
+  /// The focus is to go on as Tab would from where it is, or was, and back where nothing follows: see
+  /// [`FocusHandle::focus_onward`].
+  focus_onward: bool,
   scroll_into_view: Option<ElementRef>,
   /// An element to scroll to the start of what scrolls it.
   scroll_into_view_start: Option<ElementRef>,
@@ -875,6 +904,38 @@ struct ElementRequests {
   scroll_states_to_top: Vec<crate::layout::layout_kind::ScrollState>,
   /// The scroll containers to take to an offset, by their states: the last asked of each.
   scroll_states_to: Vec<(crate::layout::layout_kind::ScrollState, f32, f32)>,
+}
+
+/// What moves the focus from a handler, which has no `Ctx`: made by [`Ctx::focus_handle`], kept by a component and
+/// given to its handlers. Its requests are carried out once the render that follows them is reconciled, as
+/// [`Ctx::focus`]'s are.
+#[derive(Clone)]
+pub struct FocusHandle {
+  requests: Arc<Mutex<ElementRequests>>,
+  window: Option<crate::app::window::Window>,
+}
+
+impl FocusHandle {
+  fn wake(&self) {
+    if let Some(window) = &self.window {
+      window.wake();
+    }
+  }
+
+  /// Focuses `element`, as [`Ctx::focus`] does.
+  pub fn focus(&self, element: &ElementRef) {
+    self.requests.lock().focus = Some(element.clone());
+    self.wake();
+  }
+
+  /// Moves the focus on to the next stop of Tab after where it is, or after where it was where what had it has
+  /// left the tree; to the stop before where nothing follows; and nowhere where there is no stop. What a control
+  /// that takes itself out of the tree asks where nothing better is known: the close of a preview in a draft, a
+  /// chip a person removed. The focus is never left to nothing.
+  pub fn focus_onward(&self) {
+    self.requests.lock().focus_onward = true;
+    self.wake();
+  }
 }
 
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
@@ -950,7 +1011,6 @@ pub struct Ctx {
   theme: Option<Theme>,
   window: Option<crate::app::window::Window>,
   breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
-  #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<App>,
   element_requests: Arc<Mutex<ElementRequests>>,
@@ -1567,7 +1627,6 @@ impl Ctx {
       theme: None,
       window: None,
       breakpoint: None,
-      #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
       element_requests: Arc::default(),
@@ -1635,7 +1694,6 @@ impl Ctx {
     self
   }
 
-  #[cfg(feature = "i18n")]
   pub(crate) fn with_i18n(mut self, i18n: I18n) -> Self {
     self.i18n = Some(i18n);
     self
@@ -2436,6 +2494,11 @@ impl Ctx {
 
   /// Current window geometry/state plus platform window commands.
   /// Reading this subscribes the component to window resize/move/scale changes.
+  /// The window of the tree being rendered, untracked; `None` where none is set.
+  pub(crate) fn window_untracked(&self) -> Option<&crate::app::window::Window> {
+    self.window.as_ref()
+  }
+
   pub fn window(&self) -> crate::app::window::WindowHandle {
     let window = self.window.as_ref().expect("window not set");
     window.track_access();
@@ -2463,6 +2526,11 @@ impl Ctx {
     self.app.as_ref().expect("app ref not set")
   }
 
+  /// The retained app services, borrowed, if a pass or mount set them.
+  pub(crate) fn app_if_set(&self) -> Option<&App> {
+    self.app.as_ref()
+  }
+
   /// The retained app services, if a pass or mount set them.
   pub(crate) fn app_handle(&self) -> Option<App> {
     self.app.clone()
@@ -2472,6 +2540,12 @@ impl Ctx {
   /// event handlers (see [`crate::app::WindowOpener`]).
   pub fn window_opener(&self) -> crate::app::WindowOpener {
     self.app_ref().window_opener()
+  }
+
+  /// Opens `url` in the app the system keeps for it: a web page in the browser. It is
+  /// [`open_url`](crate::app::open_url()), which a handler with no `Ctx` calls too.
+  pub fn open_url(&self, url: &str) -> Result<(), crate::app::OpenUrlError> {
+    crate::app::open_url(url)
   }
 
   /// Mutates the same shared services as the App passed to the tree.
@@ -2527,24 +2601,20 @@ impl Ctx {
     self.app_ref().write_bulk(entries)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
     let i18n = self.i18n.as_ref().expect("i18n not set");
     i18n.track_access();
     i18n
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t(&self, key: &str) -> Arc<str> {
     self.i18n().t(key)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_ns(&self, namespace: &str, key: &str) -> Arc<str> {
     self.i18n().t_ns(namespace, key)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_args<I, K, V>(&self, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
@@ -2554,7 +2624,6 @@ impl Ctx {
     self.i18n().t_args(key, args)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
@@ -2668,6 +2737,7 @@ impl Ctx {
       || requests.scroll_range_into_view.is_some()
       || requests.blur
       || requests.scroll_to_top
+      || requests.focus_onward
   }
 
   /// Runs a command of editing on what has the focus, as its key does: Undo, Redo, Cut, Copy, Paste or Select All.
@@ -2775,6 +2845,19 @@ impl Ctx {
       None => {}
     }
     safe_area
+  }
+
+  /// What moves the focus from a handler, which has no `Ctx`: [`FocusHandle::focus`] and
+  /// [`FocusHandle::focus_onward`].
+  pub fn focus_handle(&self) -> FocusHandle {
+    FocusHandle {
+      requests: self.element_requests.clone(),
+      window: self.window.clone(),
+    }
+  }
+
+  pub(crate) fn take_focus_onward_request(&self) -> bool {
+    std::mem::take(&mut self.element_requests.lock().focus_onward)
   }
 
   pub(crate) fn focus_request(&self) -> Option<ElementRef> {
@@ -3056,7 +3139,6 @@ impl Ctx {
       child_ctx.query_registry = self.query_registry.clone();
     }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
@@ -3153,7 +3235,6 @@ impl Ctx {
         group_ctx.query_registry = self.query_registry.clone();
       }
       group_ctx.click_outside_registry = self.click_outside_registry.clone();
-      #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
       }
@@ -3251,7 +3332,6 @@ impl Ctx {
       child_ctx.query_registry = self.query_registry.clone();
     }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
@@ -3341,6 +3421,7 @@ impl Ctx {
         self.breakpoint.clone(),
         self.app.as_ref().map(|app| app.shared.dates.clone()),
         self.app.as_ref().map(|app| app.shared.locale.clone()),
+        self.app.as_ref().map(|app| app.shared.pointer.clone()),
         self.window.clone(),
       );
     }

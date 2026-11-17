@@ -737,7 +737,6 @@ impl PartialEq for RatingProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for RatingProps {}
 
 /// What a mounted rating keeps: the stars under the pointer.

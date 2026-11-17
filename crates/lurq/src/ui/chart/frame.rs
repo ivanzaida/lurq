@@ -1235,7 +1235,6 @@ impl PartialEq for ChartHostProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ChartHostProps {}
 
 /// What keeps a mounted chart: the point under the pointer and the focused one.

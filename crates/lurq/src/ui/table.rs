@@ -272,7 +272,6 @@ pub struct TableSort {
   pub direction: SortDirection,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TableSort {}
 
 impl TableSort {
@@ -4821,7 +4820,17 @@ impl TableRow {
       // it, until it knows it is not the first of a double press.
       let press = actions.clone();
       let index = self.index;
+      // In the touch form a tap opens the row, as a double press does, and is never held back for a second one.
+      let touch = super::touch_form();
       row = row.on_click(move |event: MouseEvent| {
+        let tapped = touch && event.pointer_kind != crate::app::events::PointerKind::Mouse && !event.from_keyboard;
+        if tapped {
+          if press.selectable {
+            (press.pick)(Pick::Only);
+          }
+          (press.activate)();
+          return;
+        }
         if second_press(index, &event) {
           (press.activate)();
           return;
@@ -6182,7 +6191,6 @@ impl<R, K> PartialEq for TableProps<R, K> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<R, K> crate::app::component::DevtoolsInspectable for TableProps<R, K> {}
 
 /// What keeps a mounted table: the scroll of its rows, the widths of its columns, which rows are built.

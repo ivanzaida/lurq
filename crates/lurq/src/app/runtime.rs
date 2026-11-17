@@ -87,6 +87,11 @@ mod ime;
 mod lost_engine_tests;
 pub use ime::{AutofillPeer, KeyboardTraits, TextInputGeometry, TextInputSnapshot};
 mod edit;
+pub(crate) mod finger;
+#[cfg(test)]
+mod finger_tests;
+#[cfg(test)]
+mod gestures_tests;
 #[cfg(all(test, feature = "markdown"))]
 mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
@@ -99,6 +104,8 @@ mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
+#[cfg(test)]
+mod text_object_copy_tests;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
 mod menu_row;
@@ -116,6 +123,7 @@ pub(crate) use paste::copied_rich;
 pub use paste::{ClipboardReader, ClipboardWriter};
 pub use touch::TouchMomentum;
 pub use touch_pointer::TouchRoute;
+pub(crate) mod mouse_fingers;
 #[cfg(test)]
 mod refresh_layout_tests;
 #[cfg(all(test, feature = "devtools"))]
@@ -134,6 +142,7 @@ mod touch_pointer;
 mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
+mod touch_text;
 mod typeahead;
 mod wheel_scroll;
 mod window_controls;
@@ -506,7 +515,7 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
     let mut element: Element = self.component.render(ctx).into();
     // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
     element.node.mount_declared_components(ctx);
-    element
+    with_edit_menu(ctx, element)
   }
 
   fn after_layout(&self) {
@@ -524,6 +533,40 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn tag_name(&self) -> Arc<str> {
     component_tag_name::<C>()
   }
+}
+
+/// The app's root with the menu of editing commands a finger opened declared in it, while one is open: a layer of
+/// the window lurq shows by itself, hung from the root. A root that holds no children has none.
+fn with_edit_menu(ctx: &Ctx, mut element: Element) -> Element {
+  let Some(window) = ctx.window_untracked().cloned() else {
+    return element;
+  };
+  if window.edit_menu().is_none() || !holds_children(&element.node) {
+    return element;
+  }
+  let anchor = match &element.node.element_ref {
+    Some(anchor) => anchor.clone(),
+    None => {
+      let anchor = crate::core::ElementRef::new();
+      NodeUpdate::ref_element(&mut *element.node, anchor.clone());
+      anchor
+    }
+  };
+  if let Some(menu) = crate::ui::edit_menu::edit_menu_layer(&window, anchor) {
+    element.node.children.push(*menu.node);
+  }
+  element
+}
+
+/// Whether a node lays out children: where a layer declared among them is found.
+fn holds_children(node: &Node) -> bool {
+  matches!(
+    node.layout_kind(),
+    crate::layout::layout_kind::LayoutKind::Row { .. }
+      | crate::layout::layout_kind::LayoutKind::Column { .. }
+      | crate::layout::layout_kind::LayoutKind::Stack { .. }
+      | crate::layout::layout_kind::LayoutKind::Grid(_)
+  )
 }
 
 /// A frame capture waiting for the next rendered frame.
@@ -879,6 +922,12 @@ pub struct Tree {
   touch_scroll: touch::TouchScroll,
   touch_momentum: TouchMomentum,
   touch_pointer: touch_pointer::TouchPointerState,
+  /// The finger that is the pointer, as a touch screen's shell gives it; see [`finger`].
+  finger: finger::TouchPointer,
+  /// Text by touch: the caret's loupe and the selection's handles; see [`touch_text`].
+  touch_text: touch_text::TouchText,
+  /// Dots drawn where fingers the mouse stands for are; see [`Tree::set_touch_marks`].
+  touch_marks: Vec<(f32, f32)>,
   /// Where the sensitive text of the last full render list was painted, for
   /// captures made for inspection (`app::capture_redaction`).
   #[cfg(feature = "screenshot")]
@@ -910,8 +959,6 @@ pub struct Tree {
   render_glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "raster")]
   render_images: Vec<crate::images::ImageCmd>,
-  #[cfg(feature = "svg")]
-  render_svgs: Vec<crate::svg::SvgCmd>,
   render_layers: Vec<crate::layout::opacity_layer::LayerCmd>,
   render_backdrops: Vec<crate::layout::backdrop::BackdropCmd>,
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
@@ -1359,6 +1406,9 @@ impl Tree {
       touch_scroll: touch::TouchScroll::default(),
       touch_momentum: TouchMomentum::default(),
       touch_pointer: touch_pointer::TouchPointerState::default(),
+      finger: finger::TouchPointer::default(),
+      touch_text: touch_text::TouchText::default(),
+      touch_marks: Vec::new(),
       #[cfg(feature = "screenshot")]
       capture_redactions: Vec::new(),
       #[cfg(feature = "screenshot")]
@@ -1386,8 +1436,6 @@ impl Tree {
       render_glyphs: Vec::new(),
       #[cfg(feature = "raster")]
       render_images: Vec::new(),
-      #[cfg(feature = "svg")]
-      render_svgs: Vec::new(),
       render_layers: Vec::new(),
       render_backdrops: Vec::new(),
       opacity_groups: Vec::new(),
@@ -2390,7 +2438,6 @@ impl Tree {
       .with_theme(app.theme().clone())
       .with_window(self.window.clone())
       .with_breakpoint();
-    #[cfg(feature = "i18n")]
     {
       ctx = ctx.with_i18n(app.i18n().clone());
     }
@@ -2422,6 +2469,32 @@ impl Tree {
       crate::app::profile_support::frame_section!("ul:focus_request");
       self.apply_focus_request();
     }
+  }
+
+  /// Input of a kind came: the app's pointer follows it, unless the app pinned it or it does not follow.
+  pub(crate) fn pointer_input(&self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.input(pointer);
+    }
+  }
+
+  /// Sets what the person points with, as if the platform said so, with no input: for a test, a preview or a tool.
+  /// It applies at once, to an open lightbox too, and does not pin it: the next input of the other kind moves it
+  /// again, as [`App::follow_pointer`](crate::app::App::follow_pointer) says.
+  pub fn set_pointer(&mut self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.tell(pointer, false);
+    }
+    self.apply_reactive_updates_after_event();
+  }
+
+  /// What the person points with, as the app's pointer says.
+  pub fn pointer(&self) -> crate::app::Pointer {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or_else(crate::app::Pointer::platform_default, |app| app.shared.pointer.now())
   }
 
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
@@ -3138,18 +3211,6 @@ impl Tree {
     let mut image_sources = Vec::new();
     #[cfg(feature = "raster")]
     let mut video_sources = Vec::new();
-    #[cfg(all(feature = "svg", feature = "raster"))]
-    let svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
-    #[cfg(all(feature = "svg", not(feature = "raster")))]
-    let mut svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
 
     // `LURQ_GLYPH_DEBUG` — collect the marked text runs' bboxes+orders so the
     // end of the build can report which rects paint over them.
@@ -3602,7 +3663,7 @@ impl Tree {
           image_sources.push(Some(data.clone()));
           video_sources.push(is_video.then(|| data.clone()));
         }
-        #[cfg(all(feature = "svg", feature = "raster"))]
+        #[cfg(feature = "canvas")]
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
@@ -3639,32 +3700,6 @@ impl Tree {
           });
           image_sources.push(None);
           video_sources.push(None);
-        }
-        #[cfg(all(feature = "svg", not(feature = "raster")))]
-        QuadContent::Svg { data } => {
-          let w = quad.width * scale;
-          let h = quad.height * scale;
-          // SvgCmd carries no opacity, so the quad's fade folds into the
-          // data's own override before tessellation (it participates in the
-          // mesh identity, so faded and opaque copies never share vertices).
-          let data = if quad.opacity < 1.0 {
-            data
-              .clone()
-              .with_opacity(data.opacity_override().unwrap_or(1.0) * quad.opacity)
-          } else {
-            data.clone()
-          };
-          let mesh = crate::svg::tessellate::tessellate(&data, w, h);
-          svgs.push(crate::svg::SvgCmd {
-            order,
-            x: quad.x * scale,
-            y: quad.y * scale,
-            width: w,
-            height: h,
-            svg_id: data.id(),
-            mesh: std::sync::Arc::new(mesh),
-            clip: scaled_clip,
-          });
         }
         QuadContent::BoxShadow(shadow) => {
           rects.push(crate::layout::box_shadow::shadow_rect_cmd(
@@ -3717,8 +3752,6 @@ impl Tree {
       &glyphs,
       #[cfg(feature = "raster")]
       &images,
-      #[cfg(feature = "svg")]
-      &svgs,
       &mut layers,
     );
     self.opacity_groups = opacity_groups;
@@ -3777,6 +3810,8 @@ impl Tree {
     };
     #[cfg(not(feature = "screenshot"))]
     let perf_overlay = self.perf_overlay_enabled.then_some(self.perf_overlay_stats);
+    self.push_touch_text_marks(&mut rects, &mut glyphs, quad_count + 21_000, scale);
+    self.push_touch_marks(&mut rects, quad_count * 2 + 30_000, scale);
     self.push_autoscroll_mark(&mut rects, quad_count + 19_000, scale);
     push_perf_meter(
       &mut rects,
@@ -3828,8 +3863,6 @@ impl Tree {
       glyphs,
       #[cfg(feature = "raster")]
       images,
-      #[cfg(feature = "svg")]
-      svgs,
       layers,
       backdrops,
       atlas: glyph_engine.atlas(),
@@ -3979,8 +4012,6 @@ impl Tree {
       mut glyphs,
       #[cfg(feature = "raster")]
       mut images,
-      #[cfg(feature = "svg")]
-      mut svgs,
       mut layers,
       mut backdrops,
       atlas: _,
@@ -3997,11 +4028,6 @@ impl Tree {
     {
       images.clear();
       self.render_images = images;
-    }
-    #[cfg(feature = "svg")]
-    {
-      svgs.clear();
-      self.render_svgs = svgs;
     }
     self.scheduled_redraw_due = false;
     self.frame_count += 1;
@@ -4023,6 +4049,10 @@ impl Tree {
   pub fn mouse_move_with_meta(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A mouse or a trackpad that moves makes the pointer fine; what a finger or a pen moves as the pointer does not.
+    if !self.touch_pointer.down && !self.touch_pointer.mouse_pen {
+      self.pointer_input(crate::app::Pointer::Fine);
+    }
     self.track_pointer(x, y);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(
@@ -4148,16 +4178,19 @@ impl Tree {
         self.click_press = None;
         self.click_tracker.take_pending();
         // The second press is a press as well: every `on_mouse_up` has its `on_mouse_down`, and what is pressed
-        // shows so. Its release clicks nothing, the two presses being the double click.
+        // shows so. Its release clicks nothing, the two presses being the double click; a finger's two being a
+        // double tap, told as `on_double_tap`, and no double click.
         self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
-        self.dispatch_mouse_with_click_target(
-          x,
-          y,
-          button,
-          MouseEventKind::DoubleClick,
-          modifiers,
-          Some(click_target_id),
-        );
+        if !self.touch_pointer.down {
+          self.dispatch_mouse_with_click_target(
+            x,
+            y,
+            button,
+            MouseEventKind::DoubleClick,
+            modifiers,
+            Some(click_target_id),
+          );
+        }
         self.apply_reactive_updates_after_event();
         return;
       }
@@ -4309,6 +4342,9 @@ impl Tree {
       return;
     };
 
+    // A finger's or a pen's click: held back only where a double tap is listened for, and its second no double
+    // click (on a phone a double tap zooms).
+    let touch = self.touch_pointer.down;
     if button == MouseButton::Left
       && let ClickDispatchTarget::Node(click_target_id) = click_target
       && self.click_tracker.pending_matches(
@@ -4321,14 +4357,17 @@ impl Tree {
       )
     {
       self.click_tracker.take_pending();
-      self.dispatch_mouse_with_click_target(
-        x,
-        y,
-        button,
-        MouseEventKind::DoubleClick,
-        modifiers,
-        Some(click_target_id),
-      );
+      // The second of a finger's two taps was told as `on_double_tap`: neither tap clicks.
+      if !touch {
+        self.dispatch_mouse_with_click_target(
+          x,
+          y,
+          button,
+          MouseEventKind::DoubleClick,
+          modifiers,
+          Some(click_target_id),
+        );
+      }
       self.apply_reactive_updates_after_event();
       return;
     }
@@ -4337,11 +4376,21 @@ impl Tree {
 
     match click_target {
       ClickDispatchTarget::Node(click_target_id)
-        if button == MouseButton::Left && self.click_target_has_dblclick_handler(click_target_id) =>
+        if button == MouseButton::Left
+          && if touch {
+            self.click_target_has_double_tap_handler(click_target_id)
+          } else {
+            self.click_target_has_dblclick_handler(click_target_id)
+          } =>
       {
-        self
-          .click_tracker
-          .set_pending(press_now, position, button, modifiers, click_target_id);
+        self.click_tracker.set_pending(
+          press_now,
+          position,
+          button,
+          modifiers,
+          click_target_id,
+          self.pointer_kind_now(),
+        );
         self.needs_redraw = true;
       }
       ClickDispatchTarget::Node(click_target_id) => {
@@ -4759,6 +4808,28 @@ impl Tree {
     }
   }
 
+  /// Moves the focus on to the next stop of Tab after where it is or was, or to the one before where nothing
+  /// follows: what `FocusHandle::focus_onward` asks.
+  fn focus_onward(&mut self) {
+    let target = {
+      let Some(root) = &self.root else {
+        return;
+      };
+      let focused = self.focused_node.zip(self.focused_path.as_deref());
+      let start = self
+        .focus_start
+        .as_ref()
+        .filter(|_| focused.is_none())
+        .map(|start| start.point(root, &self.dropped_nodes));
+      let moved = self.focus_moving_layers();
+      tab_navigation::onward_stop(root, &self.dropped_nodes, &moved, focused, start)
+    };
+    if let Some(target) = target {
+      self.focus_node(target);
+      self.scroll_focused_into_view();
+    }
+  }
+
   /// Moves focus off a node its Row/Column dropped to make room
   /// (`ShrinkLimit::Drop`): a dropped node is not drawn, so it must not keep
   /// taking keys.
@@ -5027,6 +5098,7 @@ impl Tree {
     // A pass or the next click runs it, outside the delivery of its input:
     // its handlers see the source of that input, so an MCP click stays
     // synthetic input.
+    self.touch_pointer.replaying = Some(click.kind);
     with_input_source(click.source, || {
       self.dispatch_mouse_with_click_target(
         click.position.0,
@@ -5045,6 +5117,21 @@ impl Tree {
       }
       self.apply_reactive_updates_after_event();
     });
+    self.touch_pointer.replaying = None;
+  }
+
+  /// Whether the element a finger clicks, or one it is in, listens for a double tap: its click waits for one.
+  fn click_target_has_double_tap_handler(&mut self, target_id: NodeId) -> bool {
+    self.rebuild_if_dirty();
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let Some(path) = find_path_by_id(root, target_id) else {
+      return false;
+    };
+    (0..=path.len())
+      .rev()
+      .any(|depth| find_node_by_path(root, &path[..depth]).is_some_and(|node| !node.events.on_double_tap.is_empty()))
   }
 
   fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
@@ -5199,11 +5286,7 @@ impl Tree {
       alt: modifiers.alt,
       meta: modifiers.meta,
       from_keyboard: false,
-      pointer: if self.touch_pointer.down {
-        crate::app::events::PointerKind::Touch
-      } else {
-        crate::app::events::PointerKind::Mouse
-      },
+      pointer_kind: self.pointer_kind_now(),
       target_id: NodeId::UNASSIGNED,
       time: self.press_now(),
       control,
@@ -5487,7 +5570,7 @@ impl Tree {
         alt: evt.alt,
         meta: evt.meta,
         from_keyboard: false,
-        pointer: evt.pointer,
+        pointer_kind: evt.pointer_kind,
         target_id: hits
           .first()
           .map(|(node, _)| node.node_id())
@@ -6377,6 +6460,9 @@ impl Tree {
       .unwrap_or_default()
     {
       self.scroll_state_to(&state, x, y);
+    }
+    if self.root_ctx.as_ref().is_some_and(Ctx::take_focus_onward_request) {
+      self.focus_onward();
     }
     let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
       return;
@@ -7476,6 +7562,11 @@ impl Tree {
     self.press_clock = now;
   }
 
+  /// The clock of presses [`set_press_clock`](Self::set_press_clock) set, if one is.
+  pub fn press_clock(&self) -> Option<Instant> {
+    self.press_clock
+  }
+
   /// The clock of presses: the one [`Self::set_press_clock`] set, or the wall clock.
   fn press_now(&self) -> Instant {
     self.press_clock.unwrap_or_else(Instant::now)
@@ -7570,9 +7661,9 @@ impl Tree {
     let image_resources_changed = self.resolve_loading_images() || image_resources_changed;
     // What nobody waits for any more is let go: the loads of components that are gone.
     app.shared.loader.sweep();
-    #[cfg(all(feature = "svg", feature = "http"))]
+    #[cfg(all(feature = "canvas", feature = "http"))]
     let svg_resources_changed = self.resolve_resource_svgs(app);
-    #[cfg(not(all(feature = "svg", feature = "http")))]
+    #[cfg(not(all(feature = "canvas", feature = "http")))]
     let svg_resources_changed = false;
 
     let now = self.animation_clock.unwrap_or_else(Instant::now);
@@ -8300,7 +8391,7 @@ impl Tree {
     Some(img)
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_resource_svgs(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
       let changed = Self::resolve_resource_svgs_recursive(
@@ -8317,7 +8408,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_resource_svgs_recursive(
     node: &mut Node,
     loader: &crate::resources::ResourceLoader,
@@ -8352,7 +8443,7 @@ impl Tree {
     layout_dirty
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_svg_resource(
     key: &Arc<str>,
     loader: &crate::resources::ResourceLoader,
@@ -9180,6 +9271,8 @@ fn build_overlay_node(
     offset_y: spec.offset_y,
     collision: spec.collision,
     at: spec.at,
+    at_placement: spec.at_placement,
+    clear: spec.clear,
   };
   let (node, bounds) = place_overlay(
     node,
@@ -9205,6 +9298,10 @@ pub(super) struct OverlayPlacing {
   collision: CollisionStrategy,
   /// The point of the window it stands at in place of its anchor (`Overlay::at`).
   at: Option<(f32, f32)>,
+  /// Where it stands by that point (`Overlay::at_placed`).
+  at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of (`Overlay::keep_clear`).
+  clear: [f32; 4],
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -9227,6 +9324,8 @@ fn place_overlay(
     offset_y,
     collision,
     at,
+    at_placement,
+    clear,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -9244,16 +9343,43 @@ fn place_overlay(
     invalidate_layout_cache_recursive(&node);
   }
   let overlay_size = measured.size;
-  let (x, y) = match at {
-    Some(point) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
-    None => {
+  let (x, y) = match (at, at_placement) {
+    // By the point as by an anchor of no size there, flipped where the window less what it keeps clear of has no
+    // room that way.
+    (Some(point), Some(placement)) => {
+      let [top, right, bottom, left] = clear;
+      let (px, py) = (point.0 - left, point.1 - top);
+      let anchor = ElementRect {
+        x: px,
+        y: py,
+        relative_x: px,
+        relative_y: py,
+        width: 0.0,
+        height: 0.0,
+      };
+      let room = Size::new(
+        (viewport.width - left - right).max(0.0),
+        (viewport.height - top - bottom).max(0.0),
+      );
+      let placement = resolve_overlay_collision(placement, anchor, overlay_size, room, offset_x, offset_y, collision);
+      let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
+      (x + left, y + top)
+    }
+    (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
+    (None, _) => {
       let placement =
         resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
       overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
     }
   };
   let (x, y) = if matches!(collision, CollisionStrategy::Clamp | CollisionStrategy::FlipThenClamp) {
-    clamp_overlay_position(x, y, overlay_size, viewport)
+    let [top, right, bottom, left] = clear;
+    let room = Size::new(
+      (viewport.width - left - right).max(overlay_size.width.min(viewport.width)),
+      (viewport.height - top - bottom).max(overlay_size.height.min(viewport.height)),
+    );
+    let (x, y) = clamp_overlay_position(x - left, y - top, overlay_size, room);
+    clamp_overlay_position(x + left, y + top, overlay_size, viewport)
   } else {
     (x, y)
   };
@@ -9850,7 +9976,7 @@ impl ClickTracker {
       .is_some_and(|pending| now.duration_since(pending.time) > interval)
   }
 
-  /// Holds back a click of the input being delivered now, with its source.
+  /// Holds back a click of the input being delivered now, with its source and what pressed.
   fn set_pending(
     &mut self,
     now: Instant,
@@ -9858,6 +9984,7 @@ impl ClickTracker {
     button: MouseButton,
     modifiers: MouseModifiers,
     target_id: NodeId,
+    kind: crate::app::events::PointerKind,
   ) {
     self.pending_click = Some(PendingClick {
       time: now,
@@ -9866,6 +9993,7 @@ impl ClickTracker {
       modifiers,
       target_id,
       source: input_source(),
+      kind,
     });
   }
 
@@ -9883,6 +10011,8 @@ struct PendingClick {
   target_id: NodeId,
   /// Where the input that made the click came from.
   source: InputSource,
+  /// What pressed: a click held back for a finger's double tap is still a finger's when it is told.
+  kind: crate::app::events::PointerKind,
 }
 
 struct ClickPress {
@@ -9920,7 +10050,7 @@ impl MouseModifiers {
       alt: self.alt,
       meta: self.meta,
       from_keyboard: true,
-      pointer: crate::app::events::PointerKind::Mouse,
+      pointer_kind: crate::app::events::PointerKind::Mouse,
       target_id,
       time: Instant::now(),
       control: EventControl::new(),
@@ -10385,7 +10515,7 @@ impl<'t> ElementHandle<'t> {
       alt: false,
       meta: false,
       from_keyboard: false,
-      pointer: crate::app::events::PointerKind::Mouse,
+      pointer_kind: crate::app::events::PointerKind::Mouse,
       target_id: self.node_id,
       time: Instant::now(),
       control: EventControl::new(),
@@ -12591,7 +12721,7 @@ mod layout_tracking_tests {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "image", feature = "canvas", feature = "http"))]
   #[test]
   fn resource_completion_only_visits_resource_branches() {
     let mut app = App::new();
@@ -13424,13 +13554,10 @@ fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
 /// The selected text of a selectable text node, without what a rich text
 /// draws as presentation (a link's isolate marks and trailing runs).
 fn selected_content(node: &Node, state: &TextState, value: &str) -> Option<String> {
-  #[cfg(feature = "markdown")]
   if let NodeKind::RichText { .. } = node.node_kind() {
     let range = state.selected_range(value)?;
     return Some(node.rich_text_content(value, range)).filter(|text| !text.is_empty());
   }
-  #[cfg(not(feature = "markdown"))]
-  let _ = node;
   state.selected_text(value)
 }
 

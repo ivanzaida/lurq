@@ -92,7 +92,6 @@ pub struct DockState {
   pub maximized: Option<String>,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for DockState {}
 
 /// A part of the docked tree.

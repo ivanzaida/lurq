@@ -36,12 +36,12 @@ mod stack;
 pub(crate) mod stack_outlet;
 #[cfg(feature = "markdown")]
 pub(crate) mod styled_text;
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 mod svg;
 pub(crate) mod swipe_row;
 #[cfg(feature = "router")]
 pub(crate) mod tabs;
-mod text;
+pub(crate) mod text;
 mod text_input;
 mod text_input_controller;
 mod text_input_tokens;
@@ -108,17 +108,17 @@ pub use stack_outlet::{
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{
-  InlineObject, LinkClick, MarkPresence, OBJECT_CHARACTER, ParagraphKind, ParagraphMarker, ParagraphStyle,
-  ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+  InlineObject, LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, RichText,
+  SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
 };
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 pub use svg::Svg;
 pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowPart, SwipeRowProps, SwipeRowStyle};
 #[cfg(feature = "router")]
 pub use tabs::{
   TabBar, TabBarBuilder, TabBarPart, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs,
 };
-pub use text::{Text, TextOverflow};
+pub use text::{OBJECT_CHARACTER, Text, TextOverflow};
 pub use text_input::{
   ContentKind, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow,
   TextInputOverflowAnchor,
@@ -1172,6 +1172,18 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Two taps in a row on this element; see [`TapEvent`](crate::app::events::TapEvent). While it listens, a
+      /// tap's click is held back for the time of a double tap.
+      pub fn on_double_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_double_tap(node, f));
+        self
+      }
+
+      pub fn off_double_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_double_tap(node, f));
+        self
+      }
+
       /// Fingers flicked across this element; see [`SwipeEvent`](crate::app::events::SwipeEvent).
       pub fn on_swipe(mut self, f: impl $crate::node::IntoSwipeEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_swipe(node, f));
@@ -1522,6 +1534,14 @@ macro_rules! impl_into_node {
       #[cfg(feature = "form")]
       pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::name(node, name));
+        self
+      }
+
+      /// What a selection copies of the element where it stands in a line of rich text, as an object of it
+      /// ([`Text::object`](crate::components::Text::object)): a mention's name, a link's `[title](url)`. Without one
+      /// an object copies nothing, and never its object character.
+      pub fn copy_text(mut self, text: &str) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::copy_text(node, Some(std::sync::Arc::from(text))));
         self
       }
 

@@ -358,7 +358,6 @@ impl PartialEq for CarouselProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for CarouselProps {}
 
 /// The component of a carousel: what it keeps between renders.

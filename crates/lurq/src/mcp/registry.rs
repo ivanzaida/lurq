@@ -22,6 +22,8 @@ pub(crate) enum BuiltinTool {
   Act,
   SetValue,
   Resize,
+  Pointer,
+  Touch,
   Logs,
   Navigate,
   FileDialogs,
@@ -147,8 +149,8 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
           "window": { "type": "string", "description": WINDOW_PROP },
           "query": { "type": "string", "description": "Case-insensitive substring of accessible name, id, or class" },
           "role": { "type": "string", "description": "Optional exact semantic role, e.g. button or textbox" },
-          "max_depth": { "type": "integer", "minimum": 1, "description": "Maximum tree depth (default 12)" },
-          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes (default 500); with query or role, also the maximum number of matches returned (then truncated is true)" }
+          "max_depth": { "type": "integer", "minimum": 1, "description": "Maximum tree depth (default 12 for an outline; with query or role, any depth)" },
+          "max_nodes": { "type": "integer", "minimum": 1, "description": "Maximum inspected nodes of an outline (default 500); with query or role, every node is searched and this is the maximum number of matches returned (then truncated is true)" }
         }
       })),
       kind: ToolKind::Builtin(BuiltinTool::Inspect),
@@ -335,6 +337,53 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "required": ["width", "height"]
       })),
       kind: ToolKind::Builtin(BuiltinTool::Resize),
+    },
+    RegisteredTool {
+      name: "lurq_touch".into(),
+      description: "Play a gesture of fingers on a window, through the same path a touch screen's fingers take:                     the fingers' own events (on_touch_*), the pointer the first stands for (a tap clicks, a drag                     scrolls with momentum or drags), and the gestures (on_tap, on_long_press, on_pan, on_swipe,                     on_edge_pan, on_pinch, on_rotate, three fingers' undo/redo/copy/paste and editing menu). The                     gesture is played at once on a clock of its own, at the speed it says; what it leaves moving goes                     on in real time. Gestures: tap (`fingers` 1-5, `count` 1-3), double_tap, long_press                     (`duration_ms`, default 700), pan (`dx`/`dy` logical px, or `direction` and `distance`; rests                     before it lifts, no momentum), swipe (`direction`, `distance` default 200, `speed` px/s default                     1200, `fingers`), edge_pan (`edge` left/right/top/bottom, `distance`, `speed`; starts at the edge                     across from `x`/`y`, or its middle), pinch (`scale`, `distance` = start radius, `angle`), rotate                     (`angle` degrees, clockwise), zoom (one finger: a tap, then held and dragged; `scale`),                     three_finger_swipe (`direction` left undoes, right redoes), three_finger_pinch (`scale` below 1                     copies, above 1 pastes; a paste reads no clipboard). A three-finger tap is tap with fingers 3. `lift: false` leaves the fingers down at the end, for a screenshot; gesture `lift` lifts them.                     Target a `ref` or `x`/`y` in screenshot pixels. The app's pointer becomes coarse."
+        .into(),
+      scope: Scope::Interact,
+      read_only: false,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "gesture": { "type": "string", "enum": ["tap", "double_tap", "long_press", "pan", "swipe", "edge_pan", "pinch", "rotate", "zoom", "three_finger_swipe", "three_finger_pinch", "lift"] },
+          "lift": { "type": "boolean", "description": "false leaves the fingers down at the gesture's end, to be looked at (a loupe, a pinch half way); gesture lift lifts them" },
+          "ref": { "type": "string", "description": "Element handle from lurq_inspect or lurq_read_tree: the gesture's middle" },
+          "x": { "type": "number", "description": "Screenshot-pixel X (alternative to ref)" },
+          "y": { "type": "number", "description": "Screenshot-pixel Y (alternative to ref)" },
+          "fingers": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Fingers of a tap, pan or swipe (default 1)" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 3, "description": "Taps in a row (default 1)" },
+          "direction": { "type": "string", "enum": ["left", "right", "up", "down"], "description": "Way of a swipe or pan" },
+          "distance": { "type": "number", "description": "Logical px: of a swipe, pan or edge pan; a pinch's starting radius" },
+          "speed": { "type": "number", "description": "Logical px per second of a swipe, pan or edge pan" },
+          "dx": { "type": "number", "description": "Pan's travel, logical px" },
+          "dy": { "type": "number", "description": "Pan's travel, logical px" },
+          "edge": { "type": "string", "enum": ["left", "right", "top", "bottom"] },
+          "scale": { "type": "number", "description": "Pinch or zoom: the fingers' spread at the end over at the start" },
+          "angle": { "type": "number", "description": "Rotation in degrees, clockwise" },
+          "duration_ms": { "type": "number", "description": "Long press's rest, pinch's or rotation's time" },
+          "window": { "type": "string", "description": WINDOW_PROP }
+        },
+        "required": ["gesture"]
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::Touch),
+    },
+    RegisteredTool {
+      name: "lurq_pointer".into(),
+      description: "Read or set what the person points with: `fine` (a mouse, a trackpad, a pen) or `coarse` (a                     finger). Components with a touch form (the lightbox's phone viewer, the picture's phone form,                     the video player's touch form) take it while the pointer is coarse. With no arguments it                     answers the pointer, whether it is pinned and whether input moves it. `pointer` sets it, pinned                     unless `pin` is false (a pin keeps the next mouse move, an agent's too, from making it fine);                     `follow` turns following input on (which lets go of a pin) or off."
+        .into(),
+      scope: Scope::Interact,
+      read_only: false,
+      input_schema: schema(json!({
+        "type": "object",
+        "properties": {
+          "pointer": { "type": "string", "enum": ["fine", "coarse"] },
+          "pin": { "type": "boolean", "description": "Keep input from moving it (default true)" },
+          "follow": { "type": "boolean", "description": "Whether input moves the pointer; true lets go of a pin" }
+        }
+      })),
+      kind: ToolKind::Builtin(BuiltinTool::Pointer),
     },
     RegisteredTool {
       name: "lurq_logs".into(),

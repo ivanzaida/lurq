@@ -445,7 +445,6 @@ impl PartialEq for PathFieldProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PathFieldProps {}
 
 /// What a mounted path field keeps: the dialog it opened, and the field as it was rendered last, which the

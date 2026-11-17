@@ -309,6 +309,21 @@ impl Stage {
     self.pass();
   }
 
+  /// A finger's tap at a point: its own events and the pointer it stands for, as a touch screen gives them
+  /// (`Tree::finger`), timed on the clock of presses where one is set.
+  pub fn tap_at(&mut self, x: f32, y: f32) {
+    use lurq::app::events::TouchPhase;
+    self.tree.finger(1, TouchPhase::Start, x, y, None);
+    self.tree.finger(1, TouchPhase::End, x, y, None);
+    self.pass();
+  }
+
+  /// [`tap_at`](Self::tap_at) the middle of the element with the id.
+  pub fn tap(&mut self, id: &str) {
+    let (x, y) = self.center(id);
+    self.tap_at(x, y);
+  }
+
   /// Gives the presses from here on at `at` after the stage's start, on the tree's clock of presses and not the
   /// wall clock's, until called again: two presses at one time are a double press however slow the machine, and two
   /// a double press's while apart are two presses however fast. Presses before the first call are on the wall clock.

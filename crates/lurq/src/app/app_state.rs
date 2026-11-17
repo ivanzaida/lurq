@@ -5,9 +5,7 @@ use std::{
 
 use parking_lot::Mutex;
 
-#[cfg(feature = "i18n")]
-use crate::app::i18n::I18n;
-use crate::app::{glyph_engine::GlyphEngine, theme::Theme};
+use crate::app::{glyph_engine::GlyphEngine, i18n::I18n, theme::Theme};
 
 /// A request to open a new OS window that renders its own component tree.
 /// Created through [`WindowOpener::open`], drained by the runtime each loop
@@ -162,8 +160,11 @@ pub(crate) struct AppShared {
   pub(crate) dates: crate::core::AppDateText,
   /// Every word lurq writes by itself, the app's choice: [`App::set_locale`].
   pub(crate) locale: crate::core::AppLocale,
+  /// What the person points with: [`App::pointer`].
+  pub(crate) pointer: super::pointer::AppPointer,
+  /// The phone or tablet the app is run as on a desktop: [`App::emulate`].
+  pub(crate) emulated: Mutex<Option<super::Device>>,
   pub(crate) window_opener: WindowOpener,
-  #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
   pub(crate) scale_override: Mutex<Option<f32>>,
   #[cfg(feature = "tokio")]
@@ -176,7 +177,7 @@ pub(crate) struct AppShared {
   pub(crate) persistent_storage: Mutex<crate::persistent_storage::PersistentStorage>,
   #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) image_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>>,
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   pub(crate) svg_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::svg::SvgData>>,
 }
 
@@ -195,8 +196,9 @@ impl App {
         theme: Theme::new(),
         dates: crate::core::AppDateText::new(),
         locale: crate::core::AppLocale::new(),
+        pointer: super::pointer::AppPointer::new(),
+        emulated: Mutex::new(None),
         window_opener: WindowOpener::default(),
-        #[cfg(feature = "i18n")]
         i18n: I18n::new(),
         scale_override: Mutex::new(None),
         #[cfg(feature = "tokio")]
@@ -208,7 +210,7 @@ impl App {
         persistent_storage: Mutex::new(crate::persistent_storage::PersistentStorage::memory()),
         #[cfg(all(feature = "image", feature = "http"))]
         image_resource_cache: Mutex::new(std::collections::HashMap::new()),
-        #[cfg(all(feature = "svg", feature = "http"))]
+        #[cfg(all(feature = "canvas", feature = "http"))]
         svg_resource_cache: Mutex::new(std::collections::HashMap::new()),
       }),
     }
@@ -297,6 +299,71 @@ impl App {
     self.shared.locale.get()
   }
 
+  /// What the person points with: a finger ([`Pointer::Coarse`](super::Pointer::Coarse)) or a mouse, a trackpad or
+  /// a pen ([`Pointer::Fine`](super::Pointer::Fine)). It starts as the platform says
+  /// ([`Pointer::platform_default`](super::Pointer::platform_default)) and, unless the app pins it, follows the
+  /// last input: a finger makes it coarse, a mouse or a trackpad that moves makes it fine, a pen leaves it. Read in
+  /// a render, it renders that again when it changes. A component dressed for a finger asks
+  /// [`ui::touch_form`](crate::ui::touch_form).
+  pub fn pointer(&self) -> super::Pointer {
+    self.shared.pointer.get()
+  }
+
+  /// Pins what the person points with: input no longer moves it, and everything that reads it is rendered again,
+  /// an open lightbox too. A kiosk with a touch screen pins [`Pointer::Coarse`](super::Pointer::Coarse); a test
+  /// or a preview of the phone's forms on a desktop either. [`follow_pointer(true)`](Self::follow_pointer) lets go.
+  ///
+  /// ```
+  /// use lurq::app::{App, Pointer};
+  ///
+  /// let app = App::new();
+  /// app.set_pointer(Pointer::Coarse);
+  /// assert_eq!(app.pointer(), Pointer::Coarse);
+  /// ```
+  pub fn set_pointer(&self, pointer: super::Pointer) {
+    self.shared.pointer.tell(pointer, true);
+  }
+
+  /// Runs the app on a desktop as it would be on `device`, a phone or a tablet, to try its touch forms and its
+  /// gestures: the window takes the device's logical size, the device's safe area reaches what reads it
+  /// ([`Ctx::safe_area`](super::ctx::Ctx::safe_area)), the pointer is pinned [`Coarse`](super::Pointer::Coarse),
+  /// and the mouse is fingers. Called before the app's window opens; `LURQ_DEVICE=phone` (or `tablet`) in the
+  /// environment does the same for any app that did not call it.
+  ///
+  /// The mouse reaches the app only as fingers, through the same path a touch screen's take, so an app tries on a
+  /// desktop the handlers it writes once: a click is a tap (`on_tap`, then `on_click`), a double click a double
+  /// tap, a drag a pan, a swipe or a scroll with its momentum, a drag from an edge of the window an edge pan, a
+  /// press held still a long press. **Alt** and a drag is a pinch and a rotation, the second finger mirrored about
+  /// where the drag began; **Alt+Shift** and a drag two fingers side by side; **Alt+Shift+Ctrl** and a drag three
+  /// fingers side by side, and with the wheel three fingers pinched about the mouse (away spreads them, toward
+  /// closes them; letting go of the keys lifts them). The fingers are drawn while a modifier is held. A finger hovers
+  /// nothing, so nothing shows its hovered style; the wheel still scrolls and the keyboard types.
+  ///
+  /// ```
+  /// use lurq::app::{App, Device, Pointer};
+  ///
+  /// let app = App::new();
+  /// app.emulate(Device::phone());
+  /// assert_eq!(app.pointer(), Pointer::Coarse);
+  /// assert_eq!(app.emulated(), Some(Device::phone()));
+  /// ```
+  pub fn emulate(&self, device: super::Device) {
+    self.set_pointer(super::Pointer::Coarse);
+    *self.shared.emulated.lock() = Some(device);
+  }
+
+  /// The phone or tablet the app is run as ([`emulate`](Self::emulate)), if any. `LURQ_DEVICE` is read when the
+  /// window opens, and is not here before.
+  pub fn emulated(&self) -> Option<super::Device> {
+    self.shared.emulated.lock().clone()
+  }
+
+  /// Whether the last input moves the pointer: on unless told. `false` keeps it where it is; `true` follows input
+  /// again, and lets go of what [`set_pointer`](Self::set_pointer) pinned.
+  pub fn follow_pointer(&self, follows: bool) {
+    self.shared.pointer.follow(follows);
+  }
+
   /// How every calendar and date picker of the app writes and reads dates, and names its months, its days and its
   /// controls, where the component is given no `.locale(..)` of its own: a
   /// [`DateLocale`](crate::core::DateLocale) (`DateLocale::for_tag("uk")`, or one with a style or a format of the
@@ -327,7 +394,12 @@ impl App {
     self.shared.window_opener.clone()
   }
 
-  #[cfg(feature = "i18n")]
+  /// Opens `url` in the app the system keeps for it: a web page in the browser. It is
+  /// [`open_url`](crate::app::open_url()), which a handler with no `App` calls too.
+  pub fn open_url(&self, url: &str) -> Result<(), crate::app::OpenUrlError> {
+    crate::app::open_url(url)
+  }
+
   pub fn i18n(&self) -> &I18n {
     &self.shared.i18n
   }

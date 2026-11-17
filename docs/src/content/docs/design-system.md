@@ -95,7 +95,7 @@ A rule `at(Breakpoint::Md, ...)` holds at that breakpoint and at every wider one
 ```rust
 use lurq::{app::theme::Breakpoint, ui::{Button, ButtonPart}};
 
-// A finger's button on a narrow window, the design's from the medium breakpoint up.
+// A taller button on a narrow window, the design's from the medium breakpoint up.
 theme.patch_recipe::<Button>(|rules| {
   rules
     .base(ButtonPart::Root, |s| s.height(48.0))
@@ -122,6 +122,25 @@ theme.set_density(Density::Compact);
 ```
 
 The design's recipe for `Button` has no rule for a density: a button has its sizes, and so have the other controls (an input, a select's box). The design's rows have: an item of a menu, a sidebar or a command palette, an option of a select, a combobox or a multi select, a row of a tree view, a tab, an accordion's header. A row moves from its height at the default by `ROW_STEPS`, 8 lower at compact and 8 and 12 higher at comfortable and touch, as a row of 36 is 28, 44 and 48; a row the design draws 32 high is 24, 40 and 44. `Recipe::row_density(selector, part, height)` writes those rules for a part of `height` at the default in the case of `selector`, and `by_density(selector, part, |style, step| ..)` any other: an accordion's header moves its padding. `Selector::density(..)` joins a density with a variant, a size or a state in one rule.
+
+### The Touch Form
+
+Some components have a form dressed for a finger: the [lightbox](#lightbox)'s phone viewer, the [picture](#picture)'s phone form, the [video player](#video-player)'s touch form. Which one they take is the person's pointer and nothing else: under a finger (`Pointer::Coarse`) the finger's, under a mouse, a trackpad or a pen (`Pointer::Fine`) the pointer's. `ui::touch_form()` says it for what is being built, and is what each of them reads; an app's own component with a touch form reads it too. The pointer starts as the platform says (`Coarse` on iOS and Android, `Fine` on a desktop, in the browser what `(pointer: coarse)` says) and follows the last input unless the app pins it: see [A Finger Or A Mouse](../styling-events/#a-finger-or-a-mouse). A component's own prop for its form (`variant(..)`, `touch(bool)`) wins over it.
+
+Neither the window's width nor the theme's density is asked. A narrow window of a desktop is a narrow room, and a component lays itself out in it (labels to an ellipsis, a row into a column, the lightbox's level giving way), but it keeps the pointer's form: a phone's chrome in a narrow desktop window would take away the buttons a mouse needs. A [density](#density) is how large rows are, at any pointer. A rule for a [breakpoint](#breakpoints) changes the layout, never the form. A lightbox that is open keeps the form it opened in until it closes, so the finger that lands on it does not change it under itself; the app setting the pointer reaches it at once.
+
+```rust
+use lurq::{app::Pointer, ui::{Lightbox, LightboxVariant}};
+
+// A kiosk with a touch screen: every component takes its touch form.
+app.set_pointer(Pointer::Coarse);
+
+// One lightbox in the phone's viewer whatever the pointer.
+Lightbox::new(open, pictures).variant(LightboxVariant::Phone);
+
+// An app's own component.
+let swipes = lurq::ui::touch_form();
+```
 
 ## Part Styles
 
@@ -494,11 +513,14 @@ Text that goes somewhere when it is pressed. It has no box, so it sits in a line
 use lurq::ui::Link;
 
 Link::new("Read the docs").external(true).on_click(move |_| navigator.push("/docs"));
+// A page on the web: a press opens it in the browser.
+Link::new("lurq.dev").href("https://lurq.dev").external(true);
 ```
 
 | Builder | |
 | --- | --- |
 | `on_click(handler)` | A click, and Enter and Space while it is focused. Where the link goes is what its press does |
+| `href(&str)` | The address a press opens in the browser ([`open_url`](../ctx/#opening-an-address)), after the `on_click` handlers are told, unless one of them calls `event.prevent_default()`. An app with a router gives none, and goes to its route in `on_click` |
 | `trailing_icon(name)`, `external(bool)` | An icon after the text; `external(true)` is the arrow of a link that leaves the app, where it has no trailing icon of its own |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
 
@@ -4867,7 +4889,7 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 | `SplitterPane::new(content)` | A pane holding `content`, laid out in its whole width from its top: a height of `Dimension::Pct(100.0)` fills it |
 | `SplitterPane::length(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
 | `SplitterPane::min(px)`, `max(px)` | The least and the most it is |
-| `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider or Enter. The pane that takes the rest does not close |
+| `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider (a finger's double tap) or Enter. The pane that takes the rest does not close |
 | `SplitterPane::label(&str)`, `id(..)`, `key(..)` | What it is called: the divider after it is called so to tooling. The id of the pane's element, and what tells it apart where panes come and go |
 | `SplitterPane::disabled(bool)` | It keeps its size: no divider beside it moves it, by the pointer or the keys, and it does not close |
 | `sizes(Signal<Vec<f32>>)` | The sizes of the panes, the app's: pixels along the splitter as a divider last left them, 0 for a closed pane, written as a divider moves and once it is first laid out |
@@ -4995,7 +5017,7 @@ DocumentTabs::new(shown.clone(), files.iter().map(|file| {
 | `on_reorder(Fn(usize, usize))` | Told that a person moved the tab at the first index to the second, both counted in the tabs as they are before and after: `tabs.insert(to, tabs.remove(from))`. By a drag along the bar, and by Ctrl+Shift+PageUp and PageDown on a focused tab. A pinned tab moves among the pinned ones, another among the others. The bar moves nothing itself |
 | `on_drag_away(Fn(&T, &DragEvent))` | Told while a person drags a tab away from the bar (farther from it than it is high, or outside the window), of mounted tabs: each move, and the release, whose `drop_result` is `Some`. While it is away the bar marks no place and moves nothing; where it goes is the app's, as a [dock layout](#dock-layout) docks it. Each call adds |
 | `on_add(Fn())` | A press of the new tab button after the tabs, which is there once this is given |
-| `on_keep(Fn(&T))` | A double press of a preview: the app keeps the document open as a tab that is no preview |
+| `on_keep(Fn(&T))` | A double press of a preview, or a finger's double tap: the app keeps the document open as a tab that is no preview |
 | `context_menu(Fn(&T) -> Vec<MenuItem>)` | The commands of a tab's [context menu](#context-menu), opened by a press of the secondary button, a long press, the Menu key or Shift+F10 on a mounted bar |
 | `label(&str)` | What the tabs are called to what reads the tree: a `tablist` of that name |
 | `close_label(&str)`, `add_label(&str)`, `more_label(&str)` | What the close control is called before the tab's name ("Close blur.rs"), the new tab button and the More button: "Close", "New tab" and "Show the hidden tabs" unless told |
@@ -5720,7 +5742,7 @@ TreeView::new(selected, items)
 | `guides(bool)` | A line down each level, under the chevron of the row it is in |
 | `label(&str)` | What the tree is called, to what reads the tree. It draws nothing |
 | `on_change(handler)` | Told the row a click or Space selects (`&T`), or, of a tree of any number, the whole new selection (`&[T]`) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it. The tree is `TreeView<T, OneSelected>` or `TreeView<T, ManySelected>`, so a handler of another type does not compile |
-| `on_activate(handler)` | Told of the row a double click or Enter activates: open the file. A row that opens opens or closes as well |
+| `on_activate(handler)` | Told of the row a double click or Enter activates, or in the touch form (`ui::touch_form()`) a tap, never held back for a second: open the file. A row that opens opens or closes as well |
 | `on_open_change(handler)` | Told of each row a press or a key opens or closes, `(&value, open)`: where a lazy row's children are brought |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws the row Tab stops on so, the first selected, else the first that is not disabled |
 | `mount(ctx)` | In place of converting it: the tree in the engine's virtual list, for thousands of rows. Give it a height |
@@ -5889,7 +5911,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `on_selection_change(\|keys: &[K]\|)` | Told the whole new selection after a press or a key that changes it, bound or not; not for one that leaves it as it is, nor when the app sets the signal |
 | `checkboxes(bool)` | Whether a table whose rows are selected has the column of checkboxes; without it a press of a row selects it |
 | `reveal(key, request)` | A mounted table brings the row of `key` into view, once for each new `request`: for a row the app selects from outside the table. It scrolls the least that shows the row and makes it the row Tab stops on; asking again with the same number does nothing |
-| `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter |
+| `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter; in the touch form (`ui::touch_form()`) a tap selects and activates the row at once, never held back for a second |
 | `density(Density)` | Rows of 36 compact, 44 at the default, 52 comfortable and touch |
 | `height(..)`, `max_height(..)` | The table's height: the header stays and the rows scroll under it |
 | `empty(element)`, `empty_text(&str)` | What stands under the header where there are no rows: by default an empty state that says "No rows", or the app's words |
@@ -7252,7 +7274,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `fullscreen_fills(VideoFullscreen)` | What a mounted player in fullscreen fills: its window as it is (`Window`, the default); its window taken to the whole screen (`Screen`); nothing, where the app lays it out itself (`App`) |
 | `picture_in_picture_window(bool)` | Whether a mounted player in picture in picture opens its small window itself (the default). Without it the value is told and drawn, and the window is the app's |
 | `in_picture_text(&str)`, `back_label(&str)` | What stands where the player was while it is in its small window, and the button that brings it back |
-| `touch(bool)` | The touch form: larger controls over a scrim, shown and hidden by a tap; two taps on a side third seek ten seconds, and more add up. On its side while in fullscreen |
+| `touch(bool)` | The touch form: larger controls over a scrim, shown and hidden by a tap; two taps on a side third seek ten seconds, and more add up. On its side while in fullscreen. Unless told, the touch form under a finger, `Pointer::Coarse` ([the touch form](#the-touch-form)), whatever its width and the density |
 | `title(&str)`, `description(&str)` | What plays and a line under it, at the top of the touch form on its side |
 | `on_back(impl Fn())` | The first button of the touch form's top row: drawn upright where a handler is given, always on its side, where it leaves fullscreen if there is none |
 | `max_width(Length)` | The most it is wide: narrower where what holds it is, its aspect kept |
@@ -7747,7 +7769,7 @@ Picture::from_resource("images/lake.jpg")
 | `on_click(handler)` | A press of the picture as a whole |
 | `selectable(bool)`, `selected(bool)`, `on_change(Fn(bool))` | A picture that can be chosen, whether it is, and what a press would make it. The picture does not keep it |
 | `lightbox(bool)`, `open(Signal<bool>)`, `on_open_change(Fn(bool))` | A press, and the last button of a large picture's bar, open the picture alone in a [lightbox](#lightbox) over the window, with its title and description; whether it is open, to read and to set; and what tells of it. Without a signal the picture keeps it. A picture that is chosen by a press is opened by the button |
-| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's where the theme is at `Density::Touch`, an app for a finger, unless told |
+| `variant(PictureVariant)` | `Desktop`, or `Phone` (the board's `Mobile/Picture`, `T9drb`): a large picture runs edge to edge with no corners and no line, its badge 16 in, its bar always there with no buttons and a title of 15, and a long press brings its actions, Download and the menu's items, in an [action sheet](#action-sheet). A picture is the phone's under a finger, `Pointer::Coarse` ([the touch form](#the-touch-form)), whatever the window's width and the density, unless told |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - A picture is a component of its own wherever it is put: `Row::new().child(Picture::from_url(..))`. It is mounted
@@ -7797,7 +7819,7 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 | `new(open, pictures)`, `picture(Picture)`, `pictures(..)` | Open while the signal says so, with the pictures it shows. Each is shown whole (`Contain`), with its `title` and `description` over its lower edge; what else a picture has over it (a bar, a badge, a mark) is not shown |
 | `index(Signal<usize>)`, `index_controlled(index, on_change)`, `on_index_change(Fn(usize))` | Which picture is shown, counted from 0. Without either the lightbox keeps it and starts at the first |
 | `zoom(Signal<f32>)`, `on_zoom_change(Fn(f64))`, `zoom_max(f32)` | How close the picture is, 1 where it fits; and the closest it is brought, 4 unless set. Turning to another picture fits it again |
-| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox over a window narrower than the theme's `Sm` is unless told. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
+| `variant(LightboxVariant)`, `on_share(Fn(usize))`, `menu_item(MenuItem)`, `menu_items(..)`, `share_label`, `more_label` | `Desktop`, or `Phone`: the phone's viewer, which a lightbox is under a finger, `Pointer::Coarse` ([the touch form](#the-touch-form)), over a window of any width and in a page, whatever the density, unless told. In a narrow window of a desktop it is the desktop's, laid out in the room it has. Open, it keeps the form it opened in until it closes (in a page, the one it was first shown in); the app setting the pointer changes it at once. On a phone, the Share button with the picture shown, and the menu behind More, which holds Download first where it is given |
 | `preload(usize)` | How many pictures each way of the one shown are brought on once its own pixels came, read by the app's loader and decoded, so that an arrow shows the next at once: 1 unless told, 0 for none, round the ends where it wraps |
 | `wrap(bool)` | Whether the first picture comes after the last |
 | `filmstrip(bool)`, `counter(bool)`, `counter_text(Fn(usize, usize) -> String)` | The strip of small pictures and the counter: both show with more than one picture unless told. The counter says "3 / 12" |
@@ -7990,6 +8012,52 @@ Watermark::new("lurq").media(logo).child(report);
 - A mark's glyphs are drawn at its angle (`TextTransformMode::Rasterized`), so it is sharp at every scale. Its color is `Foreground` at 0.12: dark on the light look, light on the dark one.
 - Parts: `WatermarkPart::Root` (what holds the content and the layer), `Layer`, `Mark` (its type, color and faintness). State: `WatermarkState::Media`. The board's numbers are `WATERMARK_GAP`, `WATERMARK_ANGLE`, `WATERMARK_OFFSET` and `WATERMARK_STAGGER`.
 - In the design the marks are "lurq internal" in the sans of 12, medium, in `foreground` at 0.12, turned 20 degrees counter-clockwise, 96 apart along a row and 44 from row to row, every other row 40 further along, over a card of 220 by 120 with an edge and `radius-lg` corners. The card is the content it covers, not the watermark's: a watermark draws no box of its own.
+
+## Link Preview
+
+What a link says about itself, shown before it is followed: the site with its icon, the title, a line of the description and the picture, as one link. A card, a row for lists and messages, and a link of 24 that stands in a sentence.
+
+```rust
+use lurq::ui::{LinkPreview, LinkPreviewVariant};
+
+// What the page says, fetched.
+LinkPreview::new("https://lurq.dev/docs/layout");
+// The app's own title over the page's; the rest is fetched.
+LinkPreview::new(url).title("Layout, the guide");
+// Everything given: nothing is fetched.
+LinkPreview::new(url).title("Layout in lurq").description("Rows, columns and gaps.").site("lurq.dev").no_image().no_icon();
+// A row, and a link in a sentence.
+LinkPreview::new(url).variant(LinkPreviewVariant::Compact);
+LinkPreview::new(url).variant(LinkPreviewVariant::Inline);
+// In a message being written: a close drops it.
+LinkPreview::new(url).on_remove(move || draft.drop_preview());
+```
+
+| Builder | |
+| --- | --- |
+| `LinkPreview::new(url)` | The address. What the page says about itself is fetched and shown, the skeleton while it is read |
+| `title(&str)`, `description(&str)`, `site(&str)` | Shown in place of the page's, one by one; what is not given is still fetched. The site is the domain of the address (no `www.`) where neither names one |
+| `image(..)`, `icon(..)` | The picture and the site's icon in place of the page's: an address, a `resources::Source`, or a `ui::Picture` (`LinkImage`) |
+| `no_image()`, `no_icon()`, `no_site()` | None of it, whatever the page has: the text alone, the link mark, the title alone |
+| `video(seconds)` | A video, its length in seconds where it is known: the play mark and the length over its picture. A page that gives `og:video` or a kind of `video.*` is one by itself |
+| `variant(LinkPreviewVariant)` | `Card` (360, the default), `Compact` (a row of 432), `Inline` (24 high) |
+| `fetcher(impl LinkFetcher)` | What fetches the page for this preview, in place of the app's (`resources::set_link_fetcher`) and of lurq's own: any `Fn(&str) -> LinkFetch`. `shared_fetcher(Arc<dyn LinkFetcher>)` shares one |
+| `on_open(Fn(&str))` | Told the address on a click, Enter or Space, in place of opening it in the browser |
+| `on_remove(Fn())` | Gives it a close button, a stop of Tab of its own after the link: the app takes the preview out of what it shows |
+| `return_focus(&ElementRef)` | Where the focus goes once the close is pressed: the draft's input. Without one it goes on to what follows the preview in the order of Tab, or to what comes before it where nothing follows ([`FocusHandle::focus_onward`](../ctx/#moving-the-focus-from-a-handler)), never to nothing |
+| `width(length)` | A width of its own in place of the form's; never wider than its room |
+| `loading(bool)` | The skeleton, whatever is known: an app that reads the page itself and has nothing to give yet |
+| `label(&str)`, `no_preview_text(&str)`, `remove_label(&str)`, `locale(&Locale)` | What tooling calls it in place of its title; "No preview for this page." and "Remove preview", which are `Locale::display`'s unless told |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the link's; the close button is `{id}-remove` |
+
+- **It works from the address alone.** As it renders it asks its fetcher for the page's `resources::LinkMeta` and is drawn again when the fetch comes further. When every field the form shows is given (the title, the description and the site, the picture and the icon given or said to be none; an inline one shows no description and no picture) the fetcher is not asked. lurq's own fetcher reads the start of the page through the app's loader and keeps what it found in memory by the address ([link previews](../resources-media/#link-previews)); it needs the feature `http`. The gallery gives its previews a fetcher of its own and fetches nothing unless told.
+- **A page that tells nothing** (no title, no description, no picture), one that could not be read, and every page in a build without `http` or in a browser, is its address (without the scheme), the link mark, and a line under it: "No preview for this page.", or what went wrong in the locale's words (`DisplayWords::link_error`: "The page was not found.", "The site answered 503."). What the app gave stands over it. A page read that names no icon has its site's `/favicon.ico` tried, through the same loader and kept by it as any load; a picture or an icon that does not load is left out, and the link mark stands for the icon.
+- **It is one link.** A click, Enter and Space open the address with [`open_url`](../ctx/#opening-an-address), unless `on_open` is given; a disabled one is no stop of Tab and opens nothing. To tooling it is a `link` named by its title (or its label) and described by its site, its description and, for a video, "Video, 4:10". Under the pointer it lifts (a card to the medium shadow) on the hover's veil and its title is underlined; from the keyboard it has the ring.
+- **Its text has a rule for its room**: in a card the title and the description each end in an ellipsis after two lines, in a row after one; an inline one's title ends in an ellipsis and its site keeps its room. Each form is as wide as the board draws it and never wider than its room; the skeleton's lines are no wider than it.
+- **In a sentence**, an inline one is an object of a rich text ([elements in a line](../styling-events/#elements-in-a-line)): `Text::rich([.., RichTextSpan::object(body), ..]).object(LinkPreview::new(url).variant(LinkPreviewVariant::Inline))`. It is as wide as it is, wraps with the words, and the line keeps its height. A selection over it copies `[title](url)` (`LinkPreviewView::copy_text`), its address alone where the page told nothing.
+- It is a component of its own, mounted where it is converted into an element (`mount(ctx)` mounts it at once): it keeps the fetch, whether the pointer is on it, and a picture that did not load. `build(theme)` is the still picture of what it was given, with nothing fetched, for a test.
+- Parts: `LinkPreviewPart::Root` (the link), `Media` (the box of the picture), `Play`, `PlayIcon`, `Length`, `Text` (the column of the site, the title and the description), `Site`, `Icon`, `Domain`, `Title`, `Description`, `Skeleton`, `Close`, `CloseIcon`. States: `LinkPreviewState::Loading`, `Media`, `Video`, `Empty`, `Removable`, `Disabled`.
+- In the design a card is 360 in `Card` with an edge of `Border`, `radius-xl` corners and the small shadow; its picture is 360 by 188 (`LINK_PREVIEW_PICTURE_RATIO`) with a line under it, its text padded 12, 16, 14 and 16 with 6 between: the site in 12 of `MutedForeground` after its icon of 16 (`radius-sm`), the title 14/500 at 1.4, the description 13 of `MutedForeground` at 1.5. A video has the play mark of 48 (a glyph of 20, white on black at 0.6) in the middle of its picture and its length in mono 11 on a dark tag 8 from the lower end; the close of a card in a composer is a disc of 28 on its picture, 8 from the top end. The compact row is 432, padded 12 with 12 between, the text (4 at its start, 4 between) beside a picture of 72 (`radius-md`); the inline link is 24 high with `radius-md` corners, padded 5 and 8 with 6 between, its title 13/500 in `Foreground` and its site 12 of `MutedForeground`. While the page is read the skeleton's lines stand for the text: 88 by 10, the width by 14, the width by 12 and 168 by 12 in a card, 88, 232 and 168 in a row, 10 apart; a square of 14 and a line of 96 in a sentence.
 
 ## Action Sheet
 

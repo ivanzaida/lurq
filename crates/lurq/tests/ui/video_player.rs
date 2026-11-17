@@ -1383,6 +1383,46 @@ fn touch(told: &Told) -> VideoPlayer {
 }
 
 #[test]
+fn under_a_finger_it_is_the_touch_form_unless_told() {
+  use lurq::app::{App, Pointer, theme::Density};
+  let pointing = |pointer: Pointer| {
+    let app = App::new();
+    app.set_pointer(pointer);
+    app
+  };
+  let told = Told::default();
+  // Mounted, as wide as a desktop's window. The density does not choose it.
+  for (app, told_touch, touch) in [
+    (pointing(Pointer::Coarse), None, true),
+    (pointing(Pointer::Coarse), Some(false), false),
+    (pointing(Pointer::Fine), None, false),
+    (pointing(Pointer::Fine), Some(true), true),
+  ] {
+    app
+      .theme()
+      .set_density(if touch { Density::Compact } else { Density::Touch });
+    let made = told.clone();
+    let mut stage = Stage::first_frame_in(app, 1000.0, 600.0, move |ctx| {
+      let player = player(&made).width(720.0);
+      let player = match told_touch {
+        Some(on) => player.touch(on),
+        None => player,
+      };
+      Column::new().size(1000.0, 600.0).child(player.mount(ctx)).into()
+    });
+    stage.pass();
+    assert_eq!(has(&mut stage, "v-rewind"), touch, "{told_touch:?}: ten seconds back");
+    assert_eq!(has(&mut stage, "v-mute"), !touch, "{told_touch:?}: the volume");
+  }
+  // Built still, under a finger.
+  let made = told.clone();
+  let mut stage = stage(move |_| player(&made).width(720.0).build(&lurq::ui::current_theme()));
+  stage.tree.set_pointer(Pointer::Coarse);
+  stage.pass();
+  assert!(has(&mut stage, "v-rewind"), "built under a finger");
+}
+
+#[test]
 fn the_touch_form_is_the_boards() {
   let told = Told::default();
   let made = told.clone();

@@ -44,10 +44,6 @@ pub(crate) mod control_fill;
 mod flex_shrink;
 mod foreground;
 mod grid_layout;
-#[cfg(feature = "markdown")]
-pub(crate) mod inline_links;
-#[cfg(not(feature = "markdown"))]
-#[path = "layout_engine/inline_links_none.rs"]
 pub(crate) mod inline_links;
 mod input_gutter;
 mod input_layout;
@@ -75,6 +71,7 @@ mod text_decorations;
 mod text_highlights;
 mod text_input_quads;
 mod text_layout_output;
+pub(crate) mod text_objects;
 mod theme_scope;
 mod track_layout;
 
@@ -90,9 +87,9 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
 const DEFAULT_SELECT_WIDTH: f32 = 160.0;
 const DEFAULT_SELECT_HEIGHT: f32 = 32.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
+#[cfg(feature = "raster")]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
+#[cfg(feature = "raster")]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
 #[cfg(feature = "perf_profile")]
@@ -952,6 +949,16 @@ impl LayoutEngine {
     self.native_text_selection.set(native);
   }
 
+  /// The theme's colors, as the frame is painted with them.
+  pub(crate) fn palette(&self) -> std::cell::Ref<'_, crate::app::theme::ThemePalette> {
+    self.palette.borrow()
+  }
+
+  /// Whether the platform draws the focused input's caret and its handles; see `set_native_text_selection`.
+  pub(crate) fn native_text_selection(&self) -> bool {
+    self.native_text_selection.get()
+  }
+
   /// The rectangles the platform shows the focused input's selection as, in the window. While the
   /// platform draws the caret the input paints its highlight over these and not over its own selection: a
   /// handle being dragged moves the platform's selection, and the input's only when it is let go.
@@ -1549,7 +1556,7 @@ impl LayoutEngine {
         spans: self.painted_spans(if node.children().is_empty() {
           spans.clone()
         } else {
-          self.painted_rich_text_spans(node, spans)
+          self.painted_rich_text_spans(node, spans, result)
         }),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         // Text that paints underlines or links is drawn from the top of its
@@ -1619,9 +1626,9 @@ impl LayoutEngine {
       }
       #[cfg(feature = "image")]
       NodeKind::ResourceImage { .. } => QuadContent::None,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
@@ -1979,7 +1986,6 @@ impl LayoutEngine {
               clip,
             )
           }
-          #[cfg(feature = "markdown")]
           NodeKind::RichText { .. } => match Self::inline_text_frame(result) {
             Some((top, text_height)) => (abs_x, abs_y + top, result.size.width, text_height, clip),
             None => (abs_x, abs_y, result.size.width, result.size.height, clip),
@@ -2630,7 +2636,6 @@ impl LayoutEngine {
     }
     // A paragraph places its links itself: a link laid out on its own has no
     // box, so a changed link lays its paragraph out again.
-    #[cfg(feature = "markdown")]
     if matches!(node.node_kind(), NodeKind::RichText { .. }) {
       return None;
     }
@@ -3210,7 +3215,6 @@ impl LayoutEngine {
     }
     self.lay_out_text_selection(glyph_engine, node, &mut result);
     self.lay_out_text_decorations(glyph_engine, node, &mut result);
-    #[cfg(feature = "markdown")]
     self.lay_out_inline_text(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
     self.lay_out_input_objects(glyph_engine, node, &mut result);
@@ -3326,6 +3330,17 @@ impl LayoutEngine {
         );
       }
       NodeKind::RichText { state, spans, .. } => {
+        // A paragraph's objects take the width of their elements in its lines.
+        if let Some((spans, _)) = self.object_spans(glyph_engine, node, spans, constraints.max_width) {
+          return self.layout_rich_text_node(
+            glyph_engine,
+            &spans,
+            state,
+            constraints,
+            node.text_wrap,
+            node.text_overflow,
+          );
+        }
         return self.layout_rich_text_node(
           glyph_engine,
           spans,
@@ -3488,7 +3503,7 @@ impl LayoutEngine {
           reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       NodeKind::Svg { data } => {
         let preferred = node
           .intrinsic_size
@@ -3504,7 +3519,7 @@ impl LayoutEngine {
           reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       NodeKind::ResourceSvg { .. } => {
         let preferred = node
           .intrinsic_size
@@ -3615,7 +3630,6 @@ impl LayoutEngine {
       carets: None,
       text_top: 0.0,
       decoration: None,
-      #[cfg(feature = "markdown")]
       inline: None,
     };
     Self::text_result(state, size, output)
@@ -3653,7 +3667,6 @@ impl LayoutEngine {
       carets: None,
       text_top: 0.0,
       decoration: None,
-      #[cfg(feature = "markdown")]
       inline: None,
     };
     Self::text_result(state, size, output)
@@ -4755,12 +4768,12 @@ impl LayoutEngine {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
-    #[cfg(all(feature = "svg", feature = "http"))]
+    #[cfg(all(feature = "canvas", feature = "http"))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
-    #[cfg(all(feature = "svg", not(feature = "http")))]
+    #[cfg(all(feature = "canvas", not(feature = "http")))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. });
 
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     if is_svg_media && aspect_ratio.is_none() {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
@@ -4852,7 +4865,7 @@ impl LayoutEngine {
     constraints.max_height = height;
   }
 
-  #[cfg(any(feature = "raster", feature = "svg"))]
+  #[cfg(feature = "raster")]
   fn apply_intrinsic_aspect_ratio(
     node: &Node,
     constraints: &mut Constraints,

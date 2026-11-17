@@ -3,9 +3,10 @@
 //!
 //! `cargo run -p gallery`, or `cargo run -p gallery -- --route /tokens` to
 //! open on a page; `--size 800x600` opens the window at a size, to see a
-//! breakpoint. Built with `--features devtools`, `--devtools` opens DevTools beside it. `--backend vulkan` draws
-//! it through another of wgpu's backends, and `--backend native-dx12`, built with `--features dx12`, through
-//! lurq's own Direct3D 12 renderer.
+//! breakpoint; `--device phone` (or `tablet`) runs it as on a phone, the mouse its fingers (`App::emulate`).
+//! Built with `--features devtools`, `--devtools` opens DevTools beside it. `--backend vulkan` draws it through
+//! another of wgpu's backends, and `--backend native-dx12`, built with `--features dx12`, through lurq's own
+//! Direct3D 12 renderer.
 //!
 //! Its pages open in tabs, as a browser's do: the strip is in the title bar, and each tab keeps its own page, its
 //! history and its scroll (see `tabs`).
@@ -144,6 +145,13 @@ fn engine() -> Box<dyn RenderEngine> {
   }
 }
 
+/// The phone or tablet to run as: `--device phone` or `--device tablet`; `LURQ_DEVICE` does the same.
+#[cfg(not(target_arch = "wasm32"))]
+fn device() -> Option<lurq::app::Device> {
+  option("--device")
+    .map(|name| lurq::app::Device::named(&name).unwrap_or_else(|| panic!("--device is phone or tablet, not {name:?}")))
+}
+
 /// The size to open the window at: `--size 800x600`, or a desktop's.
 fn size() -> (u32, u32) {
   let Some(size) = option("--size") else {
@@ -204,6 +212,10 @@ fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> +
       handle.token()
     );
     let _ = MCP.set(handle);
+  }
+  #[cfg(not(target_arch = "wasm32"))]
+  if let Some(device) = device() {
+    app.emulate(device);
   }
   tree.mount_root::<Gallery>(&mut app, GalleryProps { route });
   #[cfg(feature = "devtools")]

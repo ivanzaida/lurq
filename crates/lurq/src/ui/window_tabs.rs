@@ -827,7 +827,6 @@ impl PartialEq for WindowTabsProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for WindowTabsProps {}
 
 /// What mounted window tabs keep from one render to the next.

@@ -466,7 +466,6 @@ impl PartialEq for SeekBarProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SeekBarProps {}
 
 /// What a mounted seek bar keeps between renders: the time under the pointer, what the chip hangs from, and how

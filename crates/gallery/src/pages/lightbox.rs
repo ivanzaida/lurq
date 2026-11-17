@@ -180,7 +180,7 @@ impl LightboxPage {
         fill: false,
         forceable: false,
         facts: format!("{count} pictures · up to {closest} ×"),
-        event: "on_index_change",
+        event: "on_index_change / on_zoom_change / on_dismiss / on_download",
         code,
         tree,
         controls: vec![
@@ -338,8 +338,9 @@ impl Component for LightboxPage {
       (
         "variant",
         "LightboxVariant",
-        "by the window",
-        "Desktop, Phone: the phone's viewer over a window narrower than the theme's Sm, unless told.",
+        "by the pointer",
+        "Desktop, Phone: the phone's viewer under a finger (Pointer::Coarse), whatever the window's width and the \
+         density, unless told. A narrow window of a desktop has the desktop's, laid out narrow.",
       ),
       (
         "on_share / menu_item / menu_items",
@@ -351,7 +352,8 @@ impl Component for LightboxPage {
         "preload",
         "usize",
         "1",
-        "How many pictures each way of the one shown are brought on once it came, so that an arrow shows the next          at once; 0 for none.",
+        "How many pictures each way of the one shown are brought on once it came, so that an arrow shows the next \
+         at once; 0 for none.",
       ),
       (
         "filmstrip / counter",
@@ -444,13 +446,17 @@ impl Component for LightboxPage {
         ),
         Section::new(
           "On a phone",
-          "Over a window narrower than the theme's Sm the lightbox is the phone's viewer: black, the whole screen,            a swipe to the next picture, a pinch or a double tap closer, a drag down to close. Close, Share and More            are at the top, the caption and the dots under the picture. Shown here in a page, as a phone would show            it.",
+          "Under a finger (Pointer::Coarse: on iOS and Android, and once a finger touches the screen) the \
+           lightbox is the phone's viewer: black, the whole screen, a swipe to the next picture, a pinch or a \
+           double tap closer, a drag down to close. Close, Share and More are at the top, the caption and the dots \
+           under the picture. The window's width does not choose it: here on a desktop it is told, and shown in a \
+           page as a phone would show it. The hand over a playground points with a finger.",
           self.frame.demo(
             2,
             on_a_phone,
             ".variant(LightboxVariant::Phone)",
             &[
-              "// Over a window narrower than Sm it is the phone's on its own.",
+              "// Under a finger it is the phone's on its own.",
               "Lightbox::new(open, pictures).on_share(share).on_download(save)",
               "",
               "Lightbox::new(open, pictures).variant(LightboxVariant::Phone)",

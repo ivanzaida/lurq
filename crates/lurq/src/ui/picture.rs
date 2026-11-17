@@ -621,6 +621,15 @@ impl Picture {
     self
   }
 
+  /// The key of what it shows, where it is read from a source: what tells one picture another's for a component
+  /// that holds it.
+  pub(crate) fn source_key(&self) -> Option<u64> {
+    match &self.source {
+      Source::Encoded { source, .. } => Some(source.cache_key()),
+      _ => None,
+    }
+  }
+
   /// What the picture is called: what it shows of itself where there are no pixels, and its name to tooling
   /// that reads the tree. An `alt` text.
   pub fn label(mut self, label: &str) -> Self {
@@ -887,8 +896,9 @@ impl Picture {
     self
   }
 
-  /// The form as a whole ([`PictureVariant`]): the phone's where the theme is at the density of an app for a
-  /// finger ([`Density::Touch`](crate::app::theme::Density::Touch)), unless told.
+  /// The form as a whole ([`PictureVariant`]): the phone's where the person points with a finger
+  /// ([`Pointer::Coarse`](crate::app::Pointer::Coarse), [`touch_form`](super::touch_form)), whatever the window's
+  /// width and the theme's density, unless told.
   pub fn variant(mut self, variant: impl Into<Name>) -> Self {
     self.variant = Some(variant.into());
     self
@@ -1289,7 +1299,6 @@ impl Picture {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PictureProps {}
 
 /// What a picture keeps between renders.
@@ -1657,8 +1666,8 @@ fn view(
   let pressable = picture.pressable();
   let phone = match picture.variant {
     Some(variant) => variant == Name::from(PictureVariant::Phone),
-    // An app for a finger has no pointer to bring a bar in by hovering: the theme says so by its density.
-    None => theme.density() == crate::app::theme::Density::Touch,
+    // A finger has no hover to bring a bar in by: the person's pointer says which it is.
+    None => super::touch_form(),
   };
   // On a phone the bar says what the picture is and holds no buttons: its actions are a long press's.
   let bar_has = picture.title.is_some()

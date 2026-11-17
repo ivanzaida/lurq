@@ -58,7 +58,7 @@ other sessions build its siblings. Read this first, then the reference implement
   component needs in shared code (`shared.rs`, `part_style.rs`, `recipe.rs`, the engine) is made as small
   as it can be and named first in the handoff file.
 - **Do not run tests.** The batch is tested when all of it is merged. Make it compile and nothing more:
-  `cargo check -p lurq --features form,router --test ui_tests` and `cargo check -p gallery`. No
+  `cargo check -p lurq --test ui_tests` and `cargo check -p gallery`. No
   `cargo build`, `cargo test`, `cargo clippy`, and no running the gallery: several sessions compile at once
   on one machine.
 - Format what you changed: `rustfmt --edition 2024 --config-path rustfmt.toml <files>`.
@@ -111,7 +111,7 @@ with the recipe and the parts of any other; say in the handoff why a builder wou
 - **A panel in a layer is as wide as its content or as the recipe says, never as the layer offers**: a part with a
   growing child fills the window. Give the panel a width or a `max_width`, and test its width.
 - **When the merge reports your tests failing you run them yourself**, your own file only
-  (`cargo test -p lurq --features form,router --test ui_tests <name>`), and fix the component where it is the
+  (`cargo test -p lurq --features markdown,mcp --test ui_tests <name>`), and fix the component where it is the
   component: a test is rewritten to assert what a person would see, not loosened until it passes.
 
 What the engine and `lurq::ui` have since, for you to use and not build again: `FocusGroup` with `typeahead`,
@@ -206,6 +206,11 @@ an alias.
   `on_key_down`: which keys they are, in every layout and on a Mac, is `KeyboardEvent::edit_command()`'s alone, and
   an Edit menu runs the same handlers (`Ctx::edit`). Its own buttons for them call what the handlers call. A key of
   its own that also takes back (Backspace on a pad) stays in its `on_key_down`.
+- **An action is `on_click`; a gesture is `on_tap`/`on_swipe`/`on_pinch`/`on_long_press`.** A mouse, a finger, a
+  pen and a key all reach `on_click`, which is where a component does what it is for; a gesture is what only a finger
+  does, and a component that has one takes its desktop twin too (a long press and a right click, a pinch and the
+  wheel). Never an `on_tap` beside an `on_click` for the same action: the element would run twice. What tells a
+  finger from a mouse reads `MouseEvent::pointer_kind`.
 - **While it moves and when it ends: `on_change` and `on_change_end`**, on what is dragged or stepped: Slider,
   RangeSlider, NumberInput. (A splitter's are `on_resize` and `on_resize_end`: it holds no value.)
 - **Is this one on**: `checked` for a box that is ticked, `on` for a switch or a toggle, `selected` for one of
@@ -350,12 +355,18 @@ an alias.
   anchor finds the first.
 - **A session that moves another component's code** (a selection model shared by the tree and the listbox) merges
   the base first and often: the other session is changing that code too.
-- **The checks of a session are four**: `cargo check -p lurq` with no features (what is behind `router` or `form`
-  is used only behind it: a navbar's link could not go to a path without a router, and the library did not
-  compile without the feature), `cargo check -p lurq --features form,router --tests`,
-  `cargo check -p gallery --features mcp` and `cargo check -p gallery --features devtools`. A value kept in a
-  signal is `DevtoolsInspectable` with the last. At the merge the ui tests run with `mcp` too: the tests of what
-  tooling reads (roles, names, `a11y_checked`) are behind it.
+- **The checks of a session are five.** lurq's default features are the desktop set (`winit`, `wgpu`,
+  `clipboard`, `file_dialog`, `image`, `canvas`, `form`, `router`, `query`), on unless a command turns them off:
+  `cargo check -p lurq --no-default-features` (what is behind `router` or `form` is used only behind it: a
+  navbar's link could not go to a path without a router, and the library did not compile without the feature),
+  `cargo check -p lurq --no-default-features --features winit,wgpu --tests` (a minimal app: a test that needs a
+  form, a route, a query, a picture or a canvas is behind that feature), `cargo check -p lurq --features
+  markdown,mcp --tests`, `cargo check -p gallery --features devtools,mcp` and
+  `cargo check -p gallery --target wasm32-unknown-unknown`. A value kept in a signal is `DevtoolsInspectable`
+  with the gallery's check: the impl is written with no `cfg`, as every one in `ui` is (the trait is in every
+  build), and `ui` has no `cfg(feature = "devtools")` or `perf_profile`; what a node says to tooling is read
+  through `node::TOOLING`, `NodeUpdate::undescribe` and `with_tooling!`. At the merge every suite runs with
+  `markdown,mcp`: the tests of what tooling reads (roles, names, `a11y_checked`) are behind `mcp`.
 - **What a batch may use now**: `FocusGroup::pages`, `shift_extends`, `panel_row`; `ColumnTracks` and
   `ScrollBoth::fill_width`; `KeyboardEvent::focus_key`; `core::Date`, `YearMonth`, `DateRange`, `DateLocale`;
   `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
@@ -427,8 +438,9 @@ an alias.
   search the plan and the docs for the thing it is about.
 - **Every check the branch will meet at the merge is in the brief**, with its features. Three were not, and each
   broke the branch for a time: the gallery with `devtools` (a value a page keeps in a signal must be inspectable:
-  `inspectable!` in `ui/mod.rs`), the tests without `canvas` and `raster` (a test file that decodes a picture is
-  behind the feature), and the guard of a phone's width over every page (`cargo test -p gallery`).
+  `inspectable!` in `ui/mod.rs`), the tests of a minimal app, `--no-default-features --features winit,wgpu` (a
+  test file that decodes a picture is behind the feature), and the guard of a phone's width over every page
+  (`cargo test -p gallery`).
 - **A test does not read the machine's clock.** Three clocks can be set: `Tree::set_animation_clock`,
   `Tree::set_press_clock` (a double press, a double click in text, a click held back) and `Tree::set_timer_clock`
   (`Stage::presses_at`, `Stage::own_timers`). A test that sleeps, or that passes only when two presses land within
@@ -523,9 +535,23 @@ components of its own.
   page), measured before paint (`ElementRef::observe_rect_before_paint`), not by the window's breakpoint: a narrow
   panel of a wide window is a narrow room too. A page's `kit::fit` is for a scene that is a picture of a desktop
   window, not for a component that could not get narrower.
+- **A phone's form is chosen by `ui::touch_form()`, never by the width, never by the density.** Whether a
+  component is dressed for a finger (swipes, targets of 44, dots for arrows, a phone's chrome) is the person's
+  pointer, `app::Pointer::Coarse`, and nothing else: `variant: None => ui::touch_form()`, with the component's own
+  prop (`variant(..)`, `touch(bool)`) over it. A narrow window of a desktop is a narrow room: the desktop's form laid
+  out in it; a density is how large rows are. What is open keeps the form it opened in until it closes, so it does
+  not change under the finger that landed on it. Its test takes the touch form in a wide window under
+  `Pointer::Coarse` (`App::set_pointer`, `Tree::set_pointer`) and the desktop's at 320 under `Fine`; its page shows
+  the touch form by the prop, and every stage shows it under the playground's hand.
 - **Nothing is hidden and no text is made smaller to fit**, and the wide form stays as it is: a change for a narrow
   window is a greatest width, a wrap that a wide window never reaches, or a branch on `phone()` or on a measured
   room.
+
+- **A gesture is tried as a person makes it.** A component's gesture (a swipe of a carousel, a long press of a
+  menu, a pinch of a picture) is tested through `Tree::finger` and `finger_tick` on the tree's clock, not by calling
+  its handler, and looked at once in the gallery with `--device phone` (the mouse as fingers) or MCP's `lurq_touch`.
+  What lurq shows by itself for a gesture (the menu of editing commands) is a `ui` component in a recipe, in the
+  locale's words, never a color or a word of the engine's.
 
 ## What the engine does that surprises
 

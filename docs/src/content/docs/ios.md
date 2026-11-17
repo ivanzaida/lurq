@@ -91,6 +91,9 @@ content padded by the safe area ends above it. The focused text input is scrolle
 
 ## Touch
 
+What follows holds wherever winit tells touches, not on iOS alone: Android, a Windows or Linux touch screen and the
+browser too (see [A Finger Or A Mouse](../styling-events/#a-finger-or-a-mouse)).
+
 One finger is the pointer. `on_click`, `on_mouse_down` and the rest fire as for a mouse, with these differences,
 which are the platform's:
 
@@ -98,14 +101,15 @@ which are the platform's:
   moves more than 10 points scrolls, and there is no click. A quick tap still clicks at once.
 - **Nothing is hovered.** Hover styles are not applied under a finger.
 - **A tap shows as pressed** for a moment even when the finger was down for less than a frame.
-- `MouseEvent::pointer` is `PointerKind::Touch` for these events, for an element that must tell.
+- `MouseEvent::pointer_kind` is `PointerKind::Touch` for these events (`Pen` for a pen's), for an element that must tell.
 
 A finger's own events are separate, and bubble like the mouse's:
 
 | Handler | Event | When |
 | --- | --- | --- |
 | `on_touch_start`, `on_touch_move`, `on_touch_end`, `on_touch_cancel` | `TouchEvent` | each finger, by its `id` |
-| `on_tap` | `TapEvent` | a tap, with how many `fingers` |
+| `on_tap` | `TapEvent` | a tap, with how many `fingers` and which of a row it is (`count`: 1, 2, 3) |
+| `on_double_tap` | `TapEvent` | the second of two taps in a row |
 | `on_long_press` | `LongPressEvent` | a finger held for half a second |
 | `on_swipe` | `SwipeEvent` | a quick move, with its `direction` and `velocity` |
 | `on_pan` | `PanEvent` | a drag, from start to end |
@@ -113,6 +117,11 @@ A finger's own events are separate, and bubble like the mouse's:
 | `on_rotate` | `RotateEvent` | two fingers turning: `rotation`, in radians |
 | `on_edge_pan` | `EdgePanEvent` | a finger in from a screen edge |
 | `on_history_swipe` | `HistorySwipeEvent` | the same from the left edge (back) or the right (forward) |
+
+A double tap held and dragged zooms with one finger (`on_pinch`), three fingers swiped, pinched or tapped are the
+editing commands and their menu, and a pen's hover hovers: [every gesture](../styling-events/#every-gesture) has
+the table, with how each is made on a phone, in the emulator on a desktop and through MCP. In text, iOS draws its
+own caret, loupe and handles; elsewhere lurq draws them.
 
 ```rust
 let navigator = ctx.navigator();
@@ -131,6 +140,19 @@ Column::new()
 
 A handler of `on_touch_start` that calls `prevent_default` takes the finger: it is not the pointer, so it
 neither clicks nor scrolls. Two fingers that pinch or rotate are not the pointer either.
+
+**An action is `on_click`; a gesture is `on_tap`, `on_double_tap`, `on_swipe`, `on_pinch`, `on_long_press`.** A
+mouse, a finger, a pen, Enter and Space all reach `on_click`, so an app with one code base for a phone and a desktop
+writes its actions there once. The gestures are a finger's (and a pen's) only:
+
+- `on_tap` comes first and `on_click` after it, and an element with both runs each once. A tap a handler takes
+  (`prevent_default`) clicks nothing, as a long press that is taken does not.
+- A tap of two fingers or more never clicks: it is `on_tap` with its `fingers`. A click is always one finger's.
+- A click never waits for a second tap, except on an element that listens for one with `on_double_tap`: there the
+  single click is held back for the time of a double click (`Tree::set_double_click_interval`, timed on the clock
+  of presses), and two taps are the double tap alone, with no click. A double tap is not `on_dblclick`: on a phone
+  it zooms, and a finger never makes a double click.
+- A pen's tap is a click and a tap, as a finger's; `MouseEvent::pointer_kind` says `Pen`.
 
 ### Haptics
 

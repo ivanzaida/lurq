@@ -603,7 +603,7 @@ The hover moves whenever the pointer comes onto another node, from a row onto th
 
 While DevTools is open on the window, every change of the hover is drawn, since DevTools shows which elements are hovered. Otherwise the pointer moving over elements with none of the above draws nothing, however many of them it crosses. `ElementRef::hovered()` and `InteractionState::is_hovered()` are plain reads, not signals: they are up to date after every pointer move, but a change of them renders no component and asks for no frame. A component that renders again when the pointer comes onto an element sets a signal from `on_mouse_enter` and `on_mouse_leave`.
 
-`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
+`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, `pointer_kind` (what pressed: `PointerKind::Mouse`, `Touch` or `Pen`, as a browser's `pointerType`; a key's click and input synthesized as the mouse's are `Mouse`), the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
 
 Each `on_*` modifier appends a handler for that rendered node, so a node can have multiple handlers for the same event. Inline closures are render output: when the node is rendered again, the rendered handler list should replace the previous list.
 
@@ -634,6 +634,103 @@ Column::new()
 ```
 
 The hook listens for left clicks outside the referenced element's measured bounds. It is removed automatically when the component stops calling it during render.
+
+### A Click Is The Action, A Tap Is The Gesture
+
+`on_click` is "activate", from any input: a mouse, a finger, a pen, Enter or Space on a focused control, and input a
+tool synthesizes. An app writes its actions there, once for a phone and a desktop. `on_tap`, `on_double_tap`,
+`on_swipe`, `on_pinch`, `on_long_press` and the rest are gestures, from a finger or a pen only. A finger's tap is
+told as `on_tap` first and `on_click` after, each once; a tap a handler takes clicks nothing, a tap of two fingers
+never clicks, and a click waits for a second tap only on an element with `on_double_tap`. See
+[Touch](../ios/#touch) for the gestures.
+
+### Every Gesture
+
+Every gesture reaches the app through one path, a finger's ([`Tree::finger`](../app-runtime/#a-phone-on-a-desktop)):
+a touch screen's on a phone, a tablet or a touch laptop, the mouse's under [the emulator](../app-runtime/#a-phone-on-a-desktop),
+and an agent's through MCP's [`lurq_touch`](../mcp/#touch-gestures). An app writes its handlers once and tries them
+on a desktop.
+
+| Gesture | What it means | Event | On a phone | In the emulator | Through MCP (`lurq_touch`) |
+| --- | --- | --- | --- | --- | --- |
+| Tap | Activate; a gesture of some fingers | `on_tap` (`fingers`, `count`), then `on_click` for one finger | Touch and lift | Click | `tap` (`fingers`, `count`) |
+| Double tap | Zoom to a point; select a word in text | `on_double_tap`, `on_tap` with `count` 2 | Tap twice | Double click | `double_tap`, or `tap` with `count` 2 |
+| Long press | A context menu; in text, the caret with the loupe | `on_long_press` | Hold still half a second | Hold the button still | `long_press` (`duration_ms`) |
+| Pan | Drag what follows the fingers; scroll | `on_pan`, and the scroll with momentum | Drag | Drag | `pan` (`dx`, `dy`, or `direction` and `distance`) |
+| Swipe | A flick: next, previous, dismiss | `on_swipe` (`direction`, `fingers`, `velocity`) | Flick and lift | Drag quickly and let go | `swipe` (`direction`, `distance`, `speed`, `fingers`) |
+| Edge pan | Back (from the left) or forward (from the right) | `on_edge_pan`, then `on_history_swipe` | Drag in from an edge | Drag in from the window's edge | `edge_pan` (`edge`, `distance`) |
+| Pinch | Zoom | `on_pinch` (`scale`) | Two fingers apart or together | **Alt**+drag away from or toward where it began | `pinch` (`scale`) |
+| Rotate | Turn | `on_rotate` (`rotation`) | Two fingers turning | **Alt**+drag around where it began | `rotate` (`angle`) |
+| One-finger zoom | Zoom with one hand | `on_pinch` (down zooms in) | Tap, then land again, hold and drag | Click, then press again and drag | `zoom` (`scale`) |
+| Two fingers | A pan or a swipe of two | `on_pan`, `on_swipe` with `fingers` 2 | Two fingers together | **Alt+Shift**+drag | `pan`, `swipe` with `fingers` 2 |
+| Three-finger swipe | Undo (left), redo (right) | `on_swipe` with `fingers` 3, then `EditCommand::Undo` / `Redo` | Three fingers flicked sideways | **Alt+Shift+Ctrl**+drag sideways | `three_finger_swipe` (`direction`) |
+| Three-finger pinch | Copy (in), paste (out) | `EditCommand::Copy` / `Paste` | Three fingers pinched | **Alt+Shift+Ctrl** and the wheel, no button: away spreads them, toward closes them; let go of the keys to lift | `three_finger_pinch` (`scale`) |
+| Three-finger tap | The menu of editing commands | `on_tap` with `fingers` 3, then the menu | Three fingers tapped | **Alt+Shift+Ctrl**+click | `tap` with `fingers` 3 |
+| Pull to refresh, swipe actions | A list's | See [iOS](../ios/#pull-to-refresh) | Drag a list down; a row sideways | Drag | `pan`, `swipe` |
+| Bounce | A list pulled or thrown past its end springs back | The list's scroll | Drag or flick past an end | Drag or flick past an end | `pan`, `swipe` |
+| Pen hover | A pen near the screen hovers | `on_mouse_enter`, `on_mouse_move`, hover styles; `pointer_kind` `Pen` | An Apple Pencil over an iPad; a pen over a Windows screen; a browser's pen | The mouse hovers nothing | Not made |
+
+Three fingers' commands run as their keys would ([Editing commands](#editing-commands-undo-redo-copy-cut-paste)) on
+what has the focus, where nothing took their swipe or tap (`prevent_default`). Their tap opens **the menu of editing
+commands**: lurq shows it over the app by itself, a [`ContextMenu`](../design-system/)'s bar in the theme's
+`context_menu` recipe, its words the locale's (`locale.editing.undo`, `cut`, `copy`, `paste`, `redo`,
+`locale.common.select_all`), and choosing one leaves the focus where it was. `Window::edit_menu()` says whether it is
+open and where; `Window::set_edit_menu(None)` closes it. On iOS, where the system's text input has the focus, lurq
+leaves three fingers to the system.
+
+**Text by touch.** Where the platform draws no caret of its own (everywhere but iOS, which has its own), lurq draws
+a phone's:
+
+- a long press in a text input puts the caret under the finger with a **loupe** over it, a magnified view of the
+  text around the caret; the caret goes with the finger until it lifts, and the menu opens over it with Select all
+  and Paste;
+- a selection in the focused input while the pointer is a finger has **two handles**, a knob on a stem at each end
+  in the theme's `Primary`; a finger that lands on one drags that end;
+- a selection a finger makes (a double tap selects a word, a triple tap a line), or a handle let go, opens the menu
+  over the selection: Cut, Copy, Paste, Select all.
+
+Under emulation nothing hovers (a finger cannot), the wheel still scrolls and the keyboard still types. A gesture of
+the mouse's fingers starts where the button went down; while a modifier is held the fingers it would make are drawn
+as dots.
+
+### A Finger Or A Mouse
+
+`lurq::app::Pointer` says what the person points with: `Fine` (a mouse, a trackpad, a pen: a point a pixel wide,
+which can hover) or `Coarse` (a finger: a point a fingertip wide, which cannot). It is a fact about the device in the
+person's hand, beside the theme and not in it: a theme's density says how large rows are, the pointer says whether
+a component is dressed for a finger (see [the touch form](../design-system/#the-touch-form)).
+
+- **At the start** it is the platform's (`Pointer::platform_default()`): `Coarse` on iOS and Android, `Fine` on
+  Windows, macOS and Linux, and in the browser what the page's `(pointer: coarse)` media query says of the device's
+  primary pointer.
+- **Then it follows the last input**: a finger that touches the window makes it `Coarse`, a mouse or a trackpad that
+  moves makes it `Fine`, and a pen leaves it as it is. Only the first input of the other kind changes it; a move of
+  the kind it is at costs nothing. A laptop with a touch screen is `Coarse` after a finger and `Fine` after the
+  trackpad; an iPad with a trackpad the same.
+- **Where touches come from.** The shell gives a finger to the tree as a touch on every platform winit tells touches
+  on: iOS, Android, Windows (a touch screen), Linux (X11 and Wayland) and the browser (pointer events whose
+  `pointerType` is `touch`); macOS has no touch screen. Windows also makes mouse messages of every touch; the shell
+  drops them (they carry the system's mark, `MI_WP_SIGNATURE`), so a tap is one click and not two. A pen is told
+  where the platform tells it: an Apple Pencil on iOS (it has an angle), a pen on Windows (it comes as pointer input
+  with its pressure, a finger as `WM_TOUCH` with none), and a pen in the browser, which winit gives as the mouse and
+  the shell knows by the event's `pointerType`. On Android and Linux winit does not say a touch is a pen's: it is a
+  finger's there. A pen in the browser clicks and is `PointerKind::Pen`, but has no `on_tap`, since it reaches lurq
+  as the mouse.
+- **The app pins it** with `App::set_pointer(Pointer::Coarse)`: a kiosk with a touch screen, a preview of the phone's
+  forms on a desktop. Input then does not move it. `App::follow_pointer(false)` keeps it where it is without
+  pinning a value, and `follow_pointer(true)` follows input again, letting go of a pin.
+- **It is read in a render**, and what read it is rendered again when it changes: `ui::current_pointer()` in a
+  builder, `app.pointer()` with the app at hand. `ui::touch_form()` is `current_pointer() == Pointer::Coarse`.
+- **A test** sets it with no input, `Tree::set_pointer(Pointer::Coarse)` (not pinned), and reads it with
+  `Tree::pointer()`. Tooling reads and sets it with the MCP tool [`lurq_pointer`](../mcp/#built-in-tools).
+
+```rust
+use lurq::app::{App, Pointer};
+
+let app = App::new();
+// A kiosk: every component takes its touch form, whatever moves.
+app.set_pointer(Pointer::Coarse);
+```
 
 ## Keyboard And Focus
 
@@ -773,6 +870,62 @@ Button::new("Undo")
   .focusable(false)
   .on_click(move |_| edit.run(EditCommand::Undo))
 ```
+
+## Rich Text
+
+`Text::rich(spans)` is a paragraph of runs, each a `RichTextSpan` in a `TextStyle` of its own: a word in another
+weight, a run in another color. It is laid out, wrapped, drawn and selected as one text.
+
+```rust
+use lurq::{
+  components::Text,
+  layout::{quad::RichTextSpan, text_style::{FontWeight, TextStyle}},
+};
+
+let body = TextStyle { font_size: 14.0, ..TextStyle::default() };
+let bold = TextStyle { weight: FontWeight::Bold, ..body.clone() };
+Text::rich([
+  RichTextSpan::new("Saved ", body.clone()),
+  RichTextSpan::new("3 files", bold),
+  RichTextSpan::new(".", body),
+]);
+```
+
+### Elements in a line
+
+A rich text holds elements in its lines: a mention, a chip, a picture among the words, an inline link preview. Each is
+an object of the text, a span that is one `OBJECT_CHARACTER` (U+FFFC, `RichTextSpan::object(style)`), and the element
+the text is given for it with `.object(element)`: the first for the first object, in the order of the text
+(`.objects(elements)` gives several). It is in every build.
+
+```rust
+use lurq::{
+  components::Text,
+  layout::quad::RichTextSpan,
+  ui::{LinkPreview, LinkPreviewVariant},
+};
+
+Text::rich([
+  RichTextSpan::new("The gaps are explained in ", body.clone()),
+  RichTextSpan::object(body.clone()),
+  RichTextSpan::new(" — read it before the review.", body),
+])
+.object(LinkPreview::new(url).variant(LinkPreviewVariant::Inline));
+```
+
+- The element is laid out by itself, no wider than the paragraph, and the object takes its width in the line. It
+  breaks as a word does, before it and after it and never inside, so it goes to the next line with the words around
+  it.
+- The line keeps the height of its text, and the element stands on the middle of it: one taller than the line stands
+  over it and under it, and the paragraph draws it whole. An element that changes its size lays its line out again.
+- It is an element like any other, unlike an input's objects (`TextInput::objects`), which take neither the pointer
+  nor the focus: a press reaches what is in it, Tab stops at what it holds in the order of the text, and tooling reads
+  it. The object's character draws nothing.
+- A selection, and `Text::highlights`, go across an object as across a word: its carets are where it is drawn.
+  A copy of a selection over it gives what the element says it copies, `.copy_text("[Layout](https://lurq.dev)")`
+  on it or on anything in it (the first, depth first), and nothing where it says nothing: never its character. An
+  inline `ui::LinkPreview` copies `[title](url)`.
+- An object character the text is given no element for is a character like any other.
 
 ## Text Selection
 
@@ -1042,7 +1195,7 @@ Checkbox::new(enabled)
   })
 ```
 
-With `image` and `resources`, the indicator can come from the app resource loader:
+With `image`, the indicator can come from the app resource loader:
 
 ```rust
 Checkbox::new(enabled)
@@ -1300,7 +1453,7 @@ Slider::new(value)
   .thumb(|style| style.size(16.0, 16.0).background_image(thumb).background_cover())
 ```
 
-With `image` and `resources`, pass resource paths instead:
+With `image`, pass resource paths instead:
 
 ```rust
 Slider::new(value)

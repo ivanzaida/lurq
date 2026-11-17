@@ -105,7 +105,7 @@ pub(super) fn tab_move(
   reverse: bool,
 ) -> TabMove {
   if let Some(trap) = trap {
-    return match next_stop(trap, dropped, moved, focused.map(|(id, _)| id), None, reverse) {
+    return match next_stop(trap, dropped, moved, focused.map(|(id, _)| id), None, reverse, true) {
       Some(target) => TabMove::Focus(target),
       None => TabMove::Stay,
     };
@@ -117,11 +117,31 @@ pub(super) fn tab_move(
     Some(path) => find_node_by_path(root, path),
     None => Some(root),
   };
-  match scope.and_then(|scope| next_stop(scope, dropped, moved, focused.map(|(id, _)| id), start, reverse)) {
+  match scope.and_then(|scope| next_stop(scope, dropped, moved, focused.map(|(id, _)| id), start, reverse, true)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
   }
+}
+
+/// The stop after where the focus is, or was where what had it left the tree (`start`), in the topmost modal or
+/// the window; the stop before it where nothing follows; none where there is no stop. Tab does not go round.
+pub(super) fn onward_stop(
+  root: &Node,
+  dropped: &[NodeId],
+  moved: &[(OwnedElementRef, &Node)],
+  focused: Option<(NodeId, &[usize])>,
+  start: Option<StartPoint>,
+) -> Option<FocusTarget> {
+  let modal = top_modal_path(root);
+  let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
+  let scope = match &modal {
+    Some(path) => find_node_by_path(root, path)?,
+    None => root,
+  };
+  let focused = focused.map(|(id, _)| id);
+  next_stop(scope, dropped, moved, focused, start, false, false)
+    .or_else(|| next_stop(scope, dropped, moved, focused, start, true, false))
 }
 
 /// Path of the topmost open modal. Modals are direct children of the overlay
@@ -220,6 +240,7 @@ fn next_stop<'a>(
   focused: Option<NodeId>,
   start: Option<StartPoint>,
   reverse: bool,
+  wrap: bool,
 ) -> Option<FocusTarget> {
   let mut walk = Walk {
     focused,
@@ -260,17 +281,19 @@ fn next_stop<'a>(
 
   let last = stops.len() - 1;
   let current = focused.and_then(|id| stops.iter().position(|stop| stop.target.input_id == id));
+  // Past the last stop, or before the first, Tab goes round where `wrap`; otherwise there is none.
+  let round = |at: usize| wrap.then_some(at);
   let next = match (current, walk.focused_order) {
-    (Some(index), _) if reverse => index.checked_sub(1).unwrap_or(last),
-    (Some(index), _) => (index + 1) % stops.len(),
+    (Some(index), _) if reverse => index.checked_sub(1).or_else(|| round(last))?,
+    (Some(index), _) => Some(index + 1).filter(|next| *next <= last).or_else(|| round(0))?,
     // Focus is on a node that is not a stop (a clicked button without a tab
     // index): continue from its place in tree order, like a browser.
     (None, Some(order)) => {
       let key = stop_key(0, order);
       if reverse {
-        stops.iter().rposition(|stop| stop.key < key).unwrap_or(last)
+        stops.iter().rposition(|stop| stop.key < key).or_else(|| round(last))?
       } else {
-        stops.iter().position(|stop| stop.key > key).unwrap_or(0)
+        stops.iter().position(|stop| stop.key > key).or_else(|| round(0))?
       }
     }
     // The focus was dropped (a key blurred it, what had it left the tree or was disabled) or a press on what takes
@@ -279,11 +302,11 @@ fn next_stop<'a>(
       Some((_, back)) if reverse => stops
         .iter()
         .rposition(|stop| stop.key < stop_key(0, back))
-        .unwrap_or(last),
+        .or_else(|| round(last))?,
       Some((forward, _)) => stops
         .iter()
         .position(|stop| stop.key >= stop_key(0, forward))
-        .unwrap_or(0),
+        .or_else(|| round(0))?,
       None if reverse => last,
       // Nothing has the focus: a modal opening, or Tab in a window with no focus. A stop marked to take it first.
       None => stops.iter().position(|stop| stop.autofocus).unwrap_or(0),
