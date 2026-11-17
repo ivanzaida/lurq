@@ -3542,6 +3542,14 @@ impl RenderEngine for WgpuRenderEngine {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderPresent));
+    // A device may be lost while its frame is drawn: what it was given to do tells. wgpu neither presents nor
+    // discards a frame of a lost device, and keeps it; let go of with that frame out, the surface ends the
+    // program under Vulkan (`Trying to destroy a SwapchainAcquireSemaphore that is still in use by a
+    // SurfaceTexture`), and the engine that is to take this one's place never comes. The frame's texture is
+    // destroyed first, which is what gives the frame back.
+    if self.device_is_lost() {
+      output.texture().destroy();
+    }
     output.present();
     let _present_dur = profile_elapsed!(_present_start);
     #[cfg(feature = "perf_profile")]

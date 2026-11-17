@@ -1353,25 +1353,47 @@ fn under_vulkan_the_frames_of_a_decoder_stay_on_the_card_but_for_one_nv12_textur
   );
   drop(opened);
 
-  // One NV12 texture is not given to Vulkan, whose card loses its device for it: it comes through memory.
+  // One NV12 texture is given to Vulkan on a card of AMD's, and stays there; another card is not given it (an
+  // RTX loses its device for it), and its frame comes through memory.
+  let given = crate::images::card_frames_nv12();
+  assert_eq!(given, adapter.get_info().vendor == 0x1002);
   let (nv12, handle) = decoder.texture(DXGI_FORMAT_NV12, WIDE, HIGH);
   let mut bytes = vec![77_u8; (WIDE * HIGH) as usize];
   bytes.extend((0..WIDE * HIGH / 4).flat_map(|_| [90_u8, 160]));
   decoder.write(&nv12, &bytes, WIDE);
   decoder.signal();
+  decoder.settle();
   // SAFETY: the handle is of an NV12 texture made to be shared, given away.
   let frames = unsafe { CardFrames::new(vec![CardSurface::Nv12(handle)]) };
   frames.show(CardFrame::of(0));
   let mut opened = open(&frames, (WIDE, HIGH));
-  assert_eq!(frames.way(), Some(CardFramesWay::Memory));
-  assert!(
-    comes(&device, || {
-      opened.pick(&queue);
-      opened.drawn().is_some()
-    }),
-    "the NV12 frame never comes through memory"
-  );
-  assert_eq!(drawn_grays(&device, &queue, &opened), Some(((77, 77), (90, 160))));
+  if given {
+    assert_eq!(
+      frames.way(),
+      Some(CardFramesWay::Card),
+      "Vulkan takes one NV12 texture on this card"
+    );
+    opened.pick(&queue);
+    let (_, slot) = opened.drawn().expect("the NV12 frame is drawn");
+    // What Vulkan draws of its two planes is the gray and the color Direct3D wrote.
+    let pixels = drawn(&device, &queue, &slot.textures()[0], WIDE, HIGH);
+    assert!(
+      pixels.chunks(4).all(|pixel| pixel[..3] == [77, 90, 160]),
+      "the gray and the color of the NV12 frame: {:?}",
+      &pixels[..4]
+    );
+  } else {
+    assert_eq!(frames.way(), Some(CardFramesWay::Memory));
+    assert!(
+      comes(&device, || {
+        opened.pick(&queue);
+        opened.drawn().is_some()
+      }),
+      "the NV12 frame never comes through memory"
+    );
+    assert_eq!(drawn_grays(&device, &queue, &opened), Some(((77, 77), (90, 160))));
+  }
+  drop(opened);
   // And the device is whole after all of it.
   queue.submit([device.create_command_encoder(&Default::default()).finish()]);
   device
@@ -1409,23 +1431,29 @@ fn under_vulkan_a_media_gives_red_green_and_blue_converted_on_the_card() {
   let memory = in_memory.data_arc();
   let (wide, high) = (width as usize, height as usize);
 
-  // A renderer of Vulkan says which card it draws on, and that it does not draw one NV12 texture where it is.
+  // A renderer of Vulkan says which card it draws on, and whether it draws one NV12 texture where it is: on a
+  // card of AMD's it does, and the media gives its frames as it decodes them; elsewhere it converts them.
   assert!(card_frames::announce_vulkan(&device, &adapter));
-  assert!(!crate::images::card_frames_nv12());
+  let nv12 = crate::images::card_frames_nv12();
+  assert_eq!(nv12, adapter.get_info().vendor == 0x1002);
   let late = opened();
   let on_card = first_frame(&late, true);
   assert_eq!((on_card.width(), on_card.height()), (width, height));
   assert_eq!(
     on_card.format(),
-    ImagePixelFormat::Rgba8,
-    "the frames are red, green and blue"
+    if nv12 {
+      ImagePixelFormat::Nv12
+    } else {
+      ImagePixelFormat::Rgba8
+    },
+    "the frames are NV12 where the card draws that, and red, green and blue where it does not"
   );
   let frames = on_card
     .native()
     .and_then(|native| native.payload::<CardFrames>())
     .expect("the frames of the card")
     .clone();
-  assert!(frames.is_rgba());
+  assert_eq!(frames.is_rgba(), !nv12);
 
   // The renderer takes the textures as they are: nothing is copied through memory.
   let leases = card_frames::Leases::default();
@@ -1448,6 +1476,29 @@ fn under_vulkan_a_media_gives_red_green_and_blue_converted_on_the_card() {
   );
   opened.pick(&queue);
   let (_, slot) = opened.drawn().expect("the media's frame is drawn");
+  if nv12 {
+    // The frame as it was decoded: every sample of gray and of color is memory's.
+    let pixels = drawn(&device, &queue, &slot.textures()[0], width, height);
+    assert_eq!(
+      differing(&pixels, &memory, wide, high),
+      (0, 0, 0),
+      "the pixels that differ in gray and in color of {}, and the most one is off by",
+      wide * high
+    );
+    eprintln!("one NV12 texture, drawn by Vulkan where it is: the frame memory gives, sample for sample");
+    let before = frames.count();
+    late.play();
+    let started = Instant::now();
+    while frames.count() < before + 6 && started.elapsed() < Duration::from_secs(5) {
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    late.pause();
+    assert!(frames.count() >= before + 6, "the media does not play");
+    assert_eq!(late.state().error, None);
+    crate::images::set_card_frames_adapter(None);
+    crate::images::set_card_frames_nv12(true);
+    return;
+  }
   assert_eq!(slot.textures()[0].format(), wgpu::TextureFormat::Bgra8Unorm);
   assert_eq!(
     (slot.textures()[0].width(), slot.textures()[0].height()),
@@ -1529,5 +1580,33 @@ fn under_vulkan_a_media_gives_red_green_and_blue_converted_on_the_card() {
   assert!(frames.count() >= before + 6, "the media does not play");
   assert_eq!(late.state().error, None);
   crate::images::set_card_frames_adapter(None);
+  crate::images::set_card_frames_nv12(true);
+}
+
+#[test]
+fn a_device_lost_soon_after_vulkan_was_given_an_nv12_texture_ends_the_giving() {
+  let _alone = ON_THE_CARD.lock();
+  // A card of AMD's is one the texture is tried on, and no other is.
+  assert!(card_frames::nv12_is_tried_on(0x1002));
+  assert!(!card_frames::nv12_is_tried_on(0x10DE) && !card_frames::nv12_is_tried_on(0x8086));
+  // A device lost with no NV12 texture given to Vulkan changes nothing.
+  card_frames::nv12_was_given(None);
+  crate::images::set_card_frames_nv12(true);
+  card_frames::a_device_is_lost();
+  assert!(!card_frames::nv12_is_lost());
+  assert!(crate::images::card_frames_nv12());
+  // Nor one lost long after the texture was given: it was drawn all that while.
+  card_frames::nv12_was_given(Some(Instant::now() - Duration::from_secs(60)));
+  card_frames::a_device_is_lost();
+  assert!(!card_frames::nv12_is_lost());
+  // Lost a moment after: it is lost for that texture, and none is given again, on any card.
+  card_frames::nv12_was_given(Some(Instant::now()));
+  card_frames::a_device_is_lost();
+  assert!(card_frames::nv12_is_lost());
+  assert!(
+    !crate::images::card_frames_nv12(),
+    "what decodes into one NV12 texture is told to give another kind"
+  );
+  card_frames::forget_the_lost_nv12();
   crate::images::set_card_frames_nv12(true);
 }

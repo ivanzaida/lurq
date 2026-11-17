@@ -48,6 +48,8 @@ fn say(lost: &AtomicBool) {
   if first {
     card::lost_on_the_card_of(lost);
     super::forget_instances_after_a_loss();
+    #[cfg(all(windows, feature = "raster"))]
+    super::card_frames::a_device_is_lost();
   }
   #[cfg(target_arch = "wasm32")]
   let _ = first;

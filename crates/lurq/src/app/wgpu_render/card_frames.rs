@@ -13,13 +13,20 @@
 //! ([`Leases`]).
 //!
 //! Under Vulkan the same holds: a texture Direct3D shares is given to Vulkan by its handle
-//! (`VK_KHR_external_memory_win32`), and drawn where it is. Vulkan cannot ask the texture what it is, nor a
+//! (`VK_KHR_external_memory_win32`), and drawn where it is; one NV12 texture on some cards alone
+//! ([`vulkan_takes_nv12`]). Vulkan cannot ask the texture what it is, nor a
 //! fence of Direct3D how far it is: a Direct3D 11 device of the same card is asked both ([`Readers`]).
 //!
 //! Where the renderer's device does not open the handles, for the decoder is on another card, the frames are
 //! copied through memory instead ([`Copied`]), and drawn the same way from textures of the renderer's own.
 
-use std::sync::Arc;
+use std::{
+  sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  },
+  time::{Duration, Instant},
+};
 
 use parking_lot::Mutex;
 use windows::Win32::{
@@ -101,6 +108,65 @@ pub(super) fn announce(device: &wgpu::Device) -> bool {
   true
 }
 
+/// AMD's, as a card says who made it.
+const AMD: u32 = 0x1002;
+/// A device lost this soon after Vulkan was given an NV12 texture is taken to be lost for it.
+const LOST_FOR_NV12_WITHIN: Duration = Duration::from_secs(5);
+/// When Vulkan was last given an NV12 texture.
+static NV12_GIVEN: Mutex<Option<Instant>> = Mutex::new(None);
+/// Whether a device of Vulkan was lost for an NV12 texture in this program: none is given one again.
+static NV12_LOST: AtomicBool = AtomicBool::new(false);
+
+/// Whether one NV12 texture is given to `device`, of Vulkan.
+///
+/// Vulkan has the format, and what a card does with such a texture of Direct3D is its driver's: of the two
+/// this was run on, an RTX 5080 lost its device for it, at once and each time, and the Radeon of a
+/// processor took it and drew it. So it is given to a card of AMD's and to no other, and to none once a
+/// device was lost soon after it was given ([`a_device_is_lost`]): another driver of AMD's may lose its
+/// device as the RTX did, and the program is not to lose one device after another for it.
+fn vulkan_takes_nv12(device: &wgpu::Device) -> bool {
+  device.features().contains(wgpu::Features::TEXTURE_FORMAT_NV12)
+    && nv12_is_tried_on(device.adapter_info().vendor)
+    && !NV12_LOST.load(Ordering::Acquire)
+}
+
+/// Whether a card of the maker `vendor` is one an NV12 texture is tried on.
+pub(super) fn nv12_is_tried_on(vendor: u32) -> bool {
+  vendor == AMD
+}
+
+/// A device is lost. Where Vulkan was given an NV12 texture a moment ago, it is taken to be lost for that,
+/// and no device is given one again in this program: their frames come through memory, as on a card that
+/// is known not to take them.
+pub(super) fn a_device_is_lost() {
+  if NV12_GIVEN
+    .lock()
+    .is_some_and(|given| given.elapsed() < LOST_FOR_NV12_WITHIN)
+  {
+    NV12_LOST.store(true, Ordering::Release);
+    crate::images::set_card_frames_nv12(false);
+  }
+}
+
+/// For a test: says when Vulkan was given an NV12 texture, or that it was not.
+#[cfg(test)]
+pub(super) fn nv12_was_given(at: Option<Instant>) {
+  *NV12_GIVEN.lock() = at;
+}
+
+/// For a test: whether a device was lost for an NV12 texture.
+#[cfg(test)]
+pub(super) fn nv12_is_lost() -> bool {
+  NV12_LOST.load(Ordering::Acquire)
+}
+
+/// For a test: nothing was lost for an NV12 texture, as when the program starts.
+#[cfg(test)]
+pub(super) fn forget_the_lost_nv12() {
+  NV12_LOST.store(false, Ordering::Release);
+  *NV12_GIVEN.lock() = None;
+}
+
 /// Says the same of a device of Vulkan that is given the textures Direct3D shares: on which card it draws,
 /// found among the system's cards by what wgpu says of `adapter`. Whether it said so.
 pub(super) fn announce_vulkan(device: &wgpu::Device, adapter: &wgpu::Adapter) -> bool {
@@ -126,8 +192,8 @@ pub(super) fn announce_vulkan(device: &wgpu::Device, adapter: &wgpu::Adapter) ->
     return false;
   };
   crate::images::set_card_frames_adapter(Some((card.LowPart, card.HighPart)));
-  // One NV12 texture is not given to Vulkan: what decodes into one gives red, green and blue instead.
-  crate::images::set_card_frames_nv12(false);
+  // Where one NV12 texture is not given to Vulkan, what decodes into one gives red, green and blue instead.
+  crate::images::set_card_frames_nv12(vulkan_takes_nv12(device));
   true
 }
 
@@ -159,7 +225,8 @@ fn described(format: wgpu::TextureFormat, size: wgpu::Extent3d) -> wgpu::Texture
 
 /// The texture behind `handle`, given to a `device` of Vulkan, with its size. `None` where the device is not
 /// one of Vulkan that takes textures Direct3D shares, no card opens the handle to say what it is, it is not
-/// a texture of one of `formats` or is an NV12 one, or Vulkan does not take it (another card).
+/// a texture of one of `formats`, it is an NV12 one and the card is not given those
+/// ([`vulkan_takes_nv12`]), or Vulkan does not take it (another card).
 fn open_in_vulkan(
   device: &wgpu::Device,
   readers: &mut Readers,
@@ -173,10 +240,13 @@ fn open_in_vulkan(
   let hal = unsafe { device.as_hal::<wgpu::hal::api::Vulkan>() }?;
   let (said, width, height) = readers.said_of(handle)?;
   let format = format_of(said)?;
-  // One NV12 texture is not given to Vulkan: the card this was run on lost its device for it, at once and each
-  // time. Its frames come through memory; gray and color apart, and red, green and blue, are taken.
-  if !formats.contains(&format) || format == wgpu::TextureFormat::NV12 {
+  // Gray and color apart, and red, green and blue, are taken by any card; one NV12 texture by some.
+  let nv12 = format == wgpu::TextureFormat::NV12;
+  if !formats.contains(&format) || (nv12 && !vulkan_takes_nv12(device)) {
     return None;
+  }
+  if nv12 {
+    *NV12_GIVEN.lock() = Some(Instant::now());
   }
   let size = wgpu::Extent3d {
     width,
