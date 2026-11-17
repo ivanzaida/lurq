@@ -9,39 +9,39 @@
 lurq = "0.62.0"
 ```
 
-There are no default features. Enable the window shell and renderer to run the example below:
+The default features are the desktop set, enough to run the example below:
 
 ```toml
 [dependencies]
-lurq = { version = "0.62.0", features = ["winit", "wgpu"] }
+lurq = "0.62.0"
 ```
 
-Useful optional features:
+| Feature | Default | Purpose |
+|---------|---------|---------|
+| `winit` | yes | Window shell integration |
+| `wgpu` | yes | WGPU renderer |
+| `clipboard` | yes | Clipboard shortcuts for text inputs; reading text, images and files from the clipboard |
+| `file_dialog` | yes | The system's dialog for files to open |
+| `image` | yes | Image components, image decoding and image-backed styles |
+| `canvas` | yes | Persistent Canvas 2D drawing through existing element refs (paths, gradients, shadows, blur, blend modes, isolated layers, text, clipping, raw images), charts, and SVG |
+| `form` | yes | Form state, validation, and compound form controls |
+| `router` | yes | In-process routing, nested layouts, and navigation |
+| `query` | yes | Shared typed async queries, caching, and invalidation |
+| `webgl` | | WebGL2 for the WGPU renderer in a browser without WebGPU |
+| `dx12` | | DirectX 12 renderer on Windows |
+| `media` | | Playing a video or a sound |
+| `markdown` | | Markdown parsing and components |
+| `http` | | Addresses on the network for everything that loads |
+| `regex` | | Regular expressions in find |
+| `serde` | | JSON translation-resource loading |
+| `persistent_storage` | | Typed in-memory or file-backed app storage |
+| `tokio` | | Run component futures, streams, and queries on a configured Tokio runtime |
+| `devtools` | | In-app DevTools window |
+| `mcp` | | Embeddable MCP server for AI agents to drive and inspect a running app |
+| `screenshot` | | Capture the next fully composed window frame to PNG; enabled automatically by `devtools` |
+| `perf_profile` | | Frame timing and memory counters, including `Tree::last_profile`; enabled automatically by `devtools` |
 
-| Feature | Purpose |
-|---------|---------|
-| `winit` | Window shell integration |
-| `wgpu` | WGPU renderer |
-| `webgl` | WebGL2 for the WGPU renderer in a browser without WebGPU |
-| `dx12` | DirectX 12 renderer on Windows |
-| `raster` | Raw image/video transport and composition without image codecs |
-| `image` | Image components and image-backed styles |
-| `svg` | SVG components |
-| `canvas` | Persistent Canvas 2D drawing through existing element refs; paths, gradients, shadows, blur, blend modes, isolated layers, text, clipping, and raw images |
-| `resources` | Resource loader and resource-backed images/SVGs |
-| `query` | Shared typed async queries, caching, and invalidation |
-| `form` | Form state, validation, and compound form controls |
-| `router` | In-process routing, nested layouts, and navigation |
-| `markdown` | Markdown parsing and components |
-| `i18n` | Reactive translations and locale switching |
-| `serde` | JSON translation-resource loading with `i18n` |
-| `persistent_storage` | Typed in-memory or file-backed app storage |
-| `tokio` | Run component futures, streams, and queries on a configured Tokio runtime |
-| `clipboard` | Clipboard shortcuts for text inputs; reading text, images and files from the clipboard |
-| `devtools` | In-app DevTools window |
-| `mcp` | Embeddable MCP server for AI agents to drive and inspect a running app |
-| `screenshot` | Capture the next fully composed window frame to PNG; enabled automatically by `devtools` |
-| `perf_profile` | Frame timing and memory counters, including `Tree::last_profile`; enabled automatically by `devtools` |
+Translations (`I18n`) are in every build. A browser app turns the default off and names its features; see the getting started guide.
 
 ## Example
 

@@ -44,6 +44,11 @@ Breaking:
 - `PersistentStorageSnapshotEntry` has a field more, `fields`: the fields of a stored struct, each with its value as it is written, empty for any other value. One written out field by field must add it.
 - With `devtools`, `ComponentValueChangeDebug` has a field more, `sequence`: which change it is among all the changes of every signal and memo, a later one a greater number. One written out field by field must add it.
 - With `devtools`, `DevToolsNode` has a field more, `render` (how the component rendered, `None` on a node no component rendered), and `DevToolsProps` one, `system` (the system's settings as the inspected window knows them): one written out field by field must add them.
+- lurq has default features, the desktop set: `winit`, `wgpu`, `clipboard`, `file_dialog`, `image`, `canvas`, `form`, `router` and `query`. An app that named no feature gets them; one that leaves part of the set out writes `default-features = false` and its list, and a browser app does, since the system clipboard's crate does not build for a browser. See [Features](docs/src/content/docs/migration-v0-63.md#features).
+- The feature `svg` is gone: SVG comes with `canvas`, which takes `usvg`. `cfg(feature = "svg")` in an app's code is `canvas`. `raster` and `render` are lurq's own, turned on by `image`, `canvas`, `media` and the renderers; an app does not name them.
+- The feature `i18n` is gone: `I18n`, `App::i18n` and `Ctx::t` with the rest are in every build. Translations read from JSON still need `serde`.
+- The feature `resources` is gone: it was the old name of `http`.
+- `screenshot` turns on the `image` feature (it took the `image` crate alone), so a build with `screenshot`, `devtools` or `mcp` has the decoders and `ui::Picture`'s loading.
 
 Deprecated:
 

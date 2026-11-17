@@ -14,10 +14,13 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - The Markdown theme. Its colors are `TextColor`s, eight of its fields are gone, and `MarkdownProps::on_link_click` is `on_link_select`: see [Text And Markdown](#text-and-markdown).
 - A struct written out field by field, or a `match` with no `_` arm, over a type that gained a field or a variant: see [the table](#types-that-gained-a-variant-or-a-field).
 - With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
+- The Cargo features `svg`, `i18n` and `resources`, which are gone: see [Features](#features).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
 
-`lurq::components::Image` and the Cargo feature `resources` still compile too, the first with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
+`lurq::components::Image` still compiles too, with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
+
+lurq has default features now, the desktop set: an app that named no feature gets a window, a renderer, pictures, drawing, forms, routes and queries. See [Features](#features).
 
 **What changes with no build error**
 
@@ -38,6 +41,83 @@ app.theme().apply(ThemeDefinition::legacy());
 ```
 
 That brings back the palette, the typography, the radii, the shadows and the shape of the scroll bar. It does not bring back the 0.62 look of a Markdown document or of the engine's title bar, and it changes nothing of how the engine behaves: each of those has its own section below.
+
+## Features
+
+lurq's features are fewer and it has a default. What an app writes in `Cargo.toml` changes where it names a feature that is gone, and can be shorter.
+
+### The Default Is The Desktop Set
+
+`default` is `winit`, `wgpu`, `clipboard`, `file_dialog`, `image`, `canvas`, `form`, `router` and `query`: what a desktop app takes. A desktop app names only what it adds.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "clipboard", "image", "form", "router", "markdown"] }
+# 0.63
+lurq = { version = "0.63", features = ["markdown"] }
+```
+
+An app that left something of the set out on purpose (a tool with no window, an app with no forms) turns the default off and names what it keeps:
+
+```toml
+# 0.63
+lurq = { version = "0.63", default-features = false, features = ["winit", "wgpu"] }
+```
+
+A browser app does the same: the default is for a desktop, and the system clipboard's crate does not build for a browser. See [Web](../web/#the-manifest).
+
+```toml
+# 0.63, in a browser
+lurq = { version = "0.63", default-features = false, features = ["webgl", "winit", "clipboard", "image", "canvas", "form", "router", "query"] }
+```
+
+### `svg` Is `canvas`
+
+Pictures and drawing are two features: `image` for pictures from files (the codecs) and `canvas` for what is drawn, SVG among it. `svg` is gone; `Svg`, `SvgData` and `lurq::svg` come with `canvas`.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "svg"] }
+# 0.63 (canvas is in the default)
+lurq = "0.63"
+```
+
+`raster` and `render` are still features, but lurq's own: `image`, `canvas`, `media` and the renderers turn them on. An app that named `raster` for raw RGBA (`ImageData`, `StreamingImage`) names `image` instead, or any of `canvas` and `media` it has.
+
+### `i18n` Is Gone
+
+`I18n`, `App::i18n`, `ctx.t` and the rest of the app's translations are in every build. The feature `i18n` is gone: take it out of the list. Translations read from JSON still need `serde`.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "i18n", "serde"] }
+# 0.63
+lurq = { version = "0.63", features = ["serde"] }
+```
+
+### `resources` Is `http`
+
+The Cargo feature that adds the network client is named for what it adds: `http`. `resources`, which 0.62 had for it, is gone.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["image", "resources"] }
+# 0.63
+lurq = { version = "0.63", features = ["http"] }
+```
+
+What it no longer decides: a file under the app's resource root is loaded by every build, with no feature, through `app.loader()`. `App::set_resource_root` is there in every build too. Only an address on the network needs `http`.
+
+### `screenshot` Takes `image`
+
+`screenshot` writes a capture as a PNG with `image`'s encoder, and turns the `image` feature on where it took the codecs' crate alone: a build with `screenshot` (and so with `devtools` or `mcp`) has `Picture` and the decoders. Nothing is written differently.
+
+```toml
+# 0.62
+lurq = { version = "0.62", features = ["winit", "wgpu", "screenshot"] }
+# 0.63
+lurq = { version = "0.63", features = ["screenshot"] }
+```
 
 ## The Theme And Palette
 
@@ -486,19 +566,6 @@ A value that changes because the theme does, a color of the other appearance, is
 A transition is for what the element does itself: a state, a style set on it. An app that animated a change of theme through transitions animates it another way.
 
 ## Images And Loading
-
-### The Feature `resources` Is `http`
-
-The Cargo feature that adds the network client is named for what it adds: `http`. `resources` still turns it on and will be removed; change it in `Cargo.toml` when you next touch it.
-
-```toml
-# 0.62
-lurq = { version = "0.62", features = ["image", "resources"] }
-# 0.63
-lurq = { version = "0.63", features = ["image", "http"] }
-```
-
-What it no longer decides: a file under the app's resource root is loaded by every build, with no feature, through `app.loader()`. `App::set_resource_root` is there in every build too. Only an address on the network needs `http`.
 
 ### `components::Image` Is `ui::Picture`
 

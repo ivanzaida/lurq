@@ -58,7 +58,7 @@ other sessions build its siblings. Read this first, then the reference implement
   component needs in shared code (`shared.rs`, `part_style.rs`, `recipe.rs`, the engine) is made as small
   as it can be and named first in the handoff file.
 - **Do not run tests.** The batch is tested when all of it is merged. Make it compile and nothing more:
-  `cargo check -p lurq --features form,router --test ui_tests` and `cargo check -p gallery`. No
+  `cargo check -p lurq --test ui_tests` and `cargo check -p gallery`. No
   `cargo build`, `cargo test`, `cargo clippy`, and no running the gallery: several sessions compile at once
   on one machine.
 - Format what you changed: `rustfmt --edition 2024 --config-path rustfmt.toml <files>`.
@@ -111,7 +111,7 @@ with the recipe and the parts of any other; say in the handoff why a builder wou
 - **A panel in a layer is as wide as its content or as the recipe says, never as the layer offers**: a part with a
   growing child fills the window. Give the panel a width or a `max_width`, and test its width.
 - **When the merge reports your tests failing you run them yourself**, your own file only
-  (`cargo test -p lurq --features form,router --test ui_tests <name>`), and fix the component where it is the
+  (`cargo test -p lurq --features markdown,mcp --test ui_tests <name>`), and fix the component where it is the
   component: a test is rewritten to assert what a person would see, not loosened until it passes.
 
 What the engine and `lurq::ui` have since, for you to use and not build again: `FocusGroup` with `typeahead`,
@@ -350,12 +350,18 @@ an alias.
   anchor finds the first.
 - **A session that moves another component's code** (a selection model shared by the tree and the listbox) merges
   the base first and often: the other session is changing that code too.
-- **The checks of a session are four**: `cargo check -p lurq` with no features (what is behind `router` or `form`
-  is used only behind it: a navbar's link could not go to a path without a router, and the library did not
-  compile without the feature), `cargo check -p lurq --features form,router --tests`,
-  `cargo check -p gallery --features mcp` and `cargo check -p gallery --features devtools`. A value kept in a
-  signal is `DevtoolsInspectable` with the last. At the merge the ui tests run with `mcp` too: the tests of what
-  tooling reads (roles, names, `a11y_checked`) are behind it.
+- **The checks of a session are five.** lurq's default features are the desktop set (`winit`, `wgpu`,
+  `clipboard`, `file_dialog`, `image`, `canvas`, `form`, `router`, `query`), on unless a command turns them off:
+  `cargo check -p lurq --no-default-features` (what is behind `router` or `form` is used only behind it: a
+  navbar's link could not go to a path without a router, and the library did not compile without the feature),
+  `cargo check -p lurq --no-default-features --features winit,wgpu --tests` (a minimal app: a test that needs a
+  form, a route, a query, a picture or a canvas is behind that feature), `cargo check -p lurq --features
+  markdown,mcp --tests`, `cargo check -p gallery --features devtools,mcp` and
+  `cargo check -p gallery --target wasm32-unknown-unknown`. A value kept in a signal is `DevtoolsInspectable`
+  with the gallery's check: the impl is written with no `cfg`, as every one in `ui` is (the trait is in every
+  build), and `ui` has no `cfg(feature = "devtools")` or `perf_profile`; what a node says to tooling is read
+  through `node::TOOLING`, `NodeUpdate::undescribe` and `with_tooling!`. At the merge every suite runs with
+  `markdown,mcp`: the tests of what tooling reads (roles, names, `a11y_checked`) are behind `mcp`.
 - **What a batch may use now**: `FocusGroup::pages`, `shift_extends`, `panel_row`; `ColumnTracks` and
   `ScrollBoth::fill_width`; `KeyboardEvent::focus_key`; `core::Date`, `YearMonth`, `DateRange`, `DateLocale`;
   `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
@@ -427,8 +433,9 @@ an alias.
   search the plan and the docs for the thing it is about.
 - **Every check the branch will meet at the merge is in the brief**, with its features. Three were not, and each
   broke the branch for a time: the gallery with `devtools` (a value a page keeps in a signal must be inspectable:
-  `inspectable!` in `ui/mod.rs`), the tests without `canvas` and `raster` (a test file that decodes a picture is
-  behind the feature), and the guard of a phone's width over every page (`cargo test -p gallery`).
+  `inspectable!` in `ui/mod.rs`), the tests of a minimal app, `--no-default-features --features winit,wgpu` (a
+  test file that decodes a picture is behind the feature), and the guard of a phone's width over every page
+  (`cargo test -p gallery`).
 - **A test does not read the machine's clock.** Three clocks can be set: `Tree::set_animation_clock`,
   `Tree::set_press_clock` (a double press, a double click in text, a click held back) and `Tree::set_timer_clock`
   (`Stage::presses_at`, `Stage::own_timers`). A test that sleeps, or that passes only when two presses land within
