@@ -16,7 +16,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 ## 1. It builds, links and starts
 
 - [ ] **The workspace on a Mac.** `cargo build -p lurq`, `cargo build -p gallery --features devtools,mcp`,
-  `cargo build -p demo`. Must link (no missing framework) and start.
+  `cargo build -p lurq --example lifecycle --features mcp`. Must link (no missing framework) and start.
 - [ ] **The test matrix on a Mac.** `bash target/suites2.sh` from the design-system worktree (the runs A–G of the
   feature cleanup), or by hand: every suite on `default` + `markdown,mcp`, `--no-default-features` check, a
   minimal app's tests (`--no-default-features --features winit,wgpu --tests`), `devtools` and `perf_profile`.

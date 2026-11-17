@@ -53,7 +53,7 @@ pub fn start() {
     status(None);
     // The overview, unless the address names a page: the router follows the address.
     crate::run(app, "/".to_owned(), move || {
-      WgpuRenderEngine::new().with_device(device.clone())
+      Box::new(WgpuRenderEngine::new().with_device(device.clone()))
     });
   });
 }

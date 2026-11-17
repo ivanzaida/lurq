@@ -55,7 +55,7 @@ fn panels(notes: &Signal<String>) -> Vec<DockPanel> {
       .child(ScrollVertical::new(rows).height(120.0).id("scroll")),
     DockPanel::new("blur.rs", "blur.rs").child(Text::new("fn blur() {}")),
     DockPanel::new("theme.rs", "theme.rs").child(Text::new("fn theme() {}")),
-    DockPanel::new("terminal", "Terminal").child(Text::new("$ cargo run -p demo")),
+    DockPanel::new("terminal", "Terminal").child(Text::new("$ cargo run -p gallery")),
     DockPanel::new("problems", "Problems")
       .count(3)
       .child(Text::new("3 problems")),
@@ -180,10 +180,10 @@ fn at_rest_it_is_the_boards_layout_with_its_bars_and_its_strip() {
 #[test]
 fn a_press_of_a_tab_shows_its_panel_and_tells_the_app_and_the_apps_state_tells_nobody() {
   let (state, _, told, mut stage) = fresh();
-  assert!(stage.paints("$ cargo run -p demo"));
+  assert!(stage.paints("$ cargo run -p gallery"));
   stage.click("dock-tab-problems");
   assert!(stage.paints("3 problems"));
-  assert!(!stage.paints("$ cargo run -p demo"));
+  assert!(!stage.paints("$ cargo run -p gallery"));
   assert_eq!(
     state
       .get_untracked()

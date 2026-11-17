@@ -180,22 +180,22 @@ inspection to verify a dialog or secondary-window removal. A successful primary
 close also shuts down its MCP server. Synthetic `key` input goes directly to the
 tree; use `menu_activate` to exercise the menu model headlessly.
 
-Run the interactive demo with:
+Run the interactive example with:
 
 ```sh
-cargo run -p demo --bin lifecycle --features mcp
+cargo run -p lurq --example lifecycle --features mcp
 ```
 
 It has a dirty checkbox, a deferred confirmation dialog, drawn chrome, a
 Preferences window, and File/Edit/Help menus. Save is enabled only while dirty.
 Use its explicit request-close action or an OS close request to test vetoes;
-the demo's built-in chrome close button still has the unconditional-close
+the example's built-in chrome close button still has the unconditional-close
 behavior described above.
 On Windows, exercise native close and MCP together with:
 
 ```sh
-cargo build -p demo --bin lifecycle --features mcp
-python scripts/windows-lifecycle-check.py target/debug/lifecycle.exe target/lifecycle-evidence
+cargo build -p lurq --example lifecycle --features mcp
+python scripts/windows-lifecycle-check.py target/debug/examples/lifecycle.exe target/lifecycle-evidence
 ```
 
 The main-thread native integration test runs with:
