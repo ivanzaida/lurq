@@ -156,7 +156,13 @@ impl ToolbarPage {
           .label(&label)
       }
     };
-    let shown = sized(width, self.playground.measure(plain().mount(ctx)).into());
+    let shown = sized(
+      width,
+      self
+        .playground
+        .measure(self.playground.styled(plain()).mount(ctx))
+        .into(),
+    );
 
     let mut code = vec![
       "Toolbar::new()".to_owned(),

@@ -117,7 +117,9 @@ impl TextEditingPage {
       }
     };
     let record = self.playground.recorder();
-    let shown = plain()
+    let shown = self
+      .playground
+      .styled(plain())
       .force(self.playground.forced())
       .on_input(move |event: &lurq::app::events::TextInputEvent| {
         record(format!("on_input({} characters)", event.new_value.chars().count()))

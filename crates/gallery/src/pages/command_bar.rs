@@ -181,7 +181,10 @@ impl CommandBarPage {
       let (doc, label, record) = (self.doc.clone(), label.clone(), record.clone());
       move || doc.bar(&record, secondary).label(&label).disabled(disabled)
     };
-    let bar = plain().force(self.playground.forced()).mount(ctx);
+    let bar = self
+      .playground
+      .styled(plain().force(self.playground.forced()))
+      .mount(ctx);
     let measured = Column::new()
       .width(FILL)
       .align_items(Alignment::Stretch)

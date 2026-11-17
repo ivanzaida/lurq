@@ -112,7 +112,7 @@ impl SwitchPage {
       Spec {
         title: "Switch",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(switch),
+        shown: Shown::of(self.playground.styled(switch)),
         fill: false,
         forceable: true,
         facts: if on { "on".to_owned() } else { "off".to_owned() },

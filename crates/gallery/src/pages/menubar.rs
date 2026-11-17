@@ -168,7 +168,7 @@ impl MenubarPage {
           let quiet = |_: &str| -> Box<dyn Fn() + Send + Sync> { Box::new(|| {}) };
           make(Signal::new(None), (ElementRef::new(), Signal::new(false)), &quiet).into()
         }),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: facts.join(" · "),

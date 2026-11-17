@@ -141,7 +141,7 @@ impl MenuPage {
     };
     let undo = || MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z");
     let delete = || MenuItem::new("Delete").icon(icons::TRASH).destructive(true);
-    let shown = menu(
+    let shown = self.playground.styled(menu(
       self.play_anchor.clone(),
       self.play_open.clone(),
       shaped(submenu.then(|| {
@@ -155,7 +155,7 @@ impl MenuPage {
       .on_select(told(&label)),
       undo().on_select(told("Undo")),
       delete().on_select(told("Delete")),
-    );
+    ));
     let shown: Element = if inline {
       shown.into()
     } else {

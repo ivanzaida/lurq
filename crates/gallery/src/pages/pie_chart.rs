@@ -128,11 +128,11 @@ impl PieChartPage {
       }
     };
     let shown_chart = {
-      let make = make.clone();
+      let stage = self.playground.styled(make());
       let (selected, hidden) = (selected.clone(), hidden.clone());
       move |ctx: &mut Ctx| {
         let (selected, selected_to, hidden_to) = (selected.clone(), selected_to.clone(), hidden_to.clone());
-        make()
+        stage
           .hidden(hidden.clone())
           .on_hidden_change(move |hidden| hidden_to(format!("on_hidden_change({hidden:?})")))
           .on_select(move |point| {

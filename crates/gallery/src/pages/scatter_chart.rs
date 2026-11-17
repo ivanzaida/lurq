@@ -131,7 +131,7 @@ impl ScatterChartPage {
     let record = self.playground.recorder();
     let (selected_to, hidden_to) = (record.clone(), record);
     let shown_chart = {
-      let make = make.clone();
+      let stage = self.playground.styled(make());
       let (selected, hidden) = (self.selected.clone(), self.hidden.clone());
       move |ctx: &mut Ctx| {
         let (selected, selected_to, hidden_to) = (selected.clone(), selected_to.clone(), hidden_to.clone());
@@ -139,7 +139,7 @@ impl ScatterChartPage {
           .width(FILL)
           .child(
             Column::new().width(320.0).max_width(FILL).child(
-              make()
+              stage
                 .hidden(hidden.clone())
                 .on_hidden_change(move |hidden| hidden_to(format!("on_hidden_change({hidden:?})")))
                 .on_select(move |point| {

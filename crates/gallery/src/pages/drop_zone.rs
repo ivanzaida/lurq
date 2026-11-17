@@ -120,7 +120,9 @@ impl DropZonePage {
       }
     };
     let (told, refused) = (self.playground.recorder(), self.playground.recorder());
-    let zone = make()
+    let zone = self
+      .playground
+      .styled(make())
       .force(self.playground.forced())
       .on_files(move |files| {
         // The whole path where the platform gives one (a drop or a choice on a desktop), the name where it

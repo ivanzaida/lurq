@@ -110,10 +110,12 @@ impl PathFieldPage {
       }
     };
     let (browsed, picked) = (self.playground.recorder(), self.playground.recorder());
-    let shown = make()
-      .force(self.playground.forced())
-      .on_browse(move || browsed("on_browse()".to_owned()))
-      .on_pick(move |path| picked(format!("on_pick({path:?})")));
+    let shown = self.playground.styled(
+      make()
+        .force(self.playground.forced())
+        .on_browse(move || browsed("on_browse()".to_owned()))
+        .on_pick(move |path| picked(format!("on_pick({path:?})"))),
+    );
     // A window of its own opens the dialog too.
     let mounted = make.clone();
     self.playground.window_shows(move |ctx| mounted().mount(ctx));

@@ -118,7 +118,7 @@ impl CommandPalettePage {
     // Built on the stage, in the stage's theme: the palette's input types in that theme's color.
     let shown = Shown::built(|_| {
       if inline {
-        palette(self.play_open.clone(), &told).into()
+        self.playground.styled(palette(self.play_open.clone(), &told)).into()
       } else {
         let open = self.play_open.clone();
         Column::new()
@@ -128,7 +128,7 @@ impl CommandPalettePage {
               .icon(icons::SEARCH)
               .on_click(move |_| open.set(true)),
           )
-          .child(palette(self.play_open.clone(), &told))
+          .child(self.playground.styled(palette(self.play_open.clone(), &told)))
           .into()
       }
     });

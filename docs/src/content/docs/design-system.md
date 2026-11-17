@@ -28,6 +28,8 @@ A component is a builder that goes where an element goes. It takes the theme of 
 
 Each has the design as its default. Most apps change tokens only. A brand changes recipes. A look whose controls are built differently changes renderers.
 
+The gallery shows each level live: its **Styling** page (Getting started › Styling, `cargo run -p gallery -- --route /styling`) changes a palette role, patches a recipe, styles one instance with `.style`, `.rules`, `.state` and `.force`, and gives a part a renderer of its own, each with its code and in the order they are laid. Every component's playground has a **Styling** tab beside its props: the parts and the states the component declares, a part restyled live for the one on the stage (`.style(Part, ..)`) or for every one in the stage's own theme (`theme.patch_recipe::<X>(..)`), and the Rust of both.
+
 ## Recipes
 
 A component is made of named **parts**: a button has `Root`, `Label`, `Leading` and `Trailing`. A recipe is a list of rules, and a rule says that in a case a part has a style:
@@ -269,6 +271,7 @@ Column::new().theme(&dark).background(PaletteColor::Background).child(nav);
 ```
 
 - The order, later over earlier: the theme's recipe, the rules of the place (`.rules(...)`), the instance's own (`.style(...)`).
+- Every builder of `lurq::ui` is `Styled`: a trait with `rules`, `state` and `style`, so what styles any component (a helper of the app's over several kinds, the gallery's playground) is written once: `fn pill<C: Styled>(c: C, part: impl Into<Name>) -> C { Styled::style(c, part, |s| s.radius(RadiusSize::Full)) }`.
 - `ctx.in_theme(&theme, |ctx| ...)` is the theme of everything the closure builds and mounts, and returns it as an `Element`. Components mounted in it keep the theme when they render again on their own, the one the closure returns as its root too (`ctx.in_theme(&theme, |ctx| ctx.mount::<Panel>(props))`): what it paints is in the theme after a render of its own as at its first.
 - The theme reaches the whole of the subtree. A component built in it takes its recipe and its renderers, the sizes, type, opacity and motion of its parts, its density and its icons from that theme; and the roles left on the nodes, a color of the palette, a radius, a border width, a shadow, a spacing role, a typography style, the scroll bar and the caret, are laid out and painted with that theme's values. A subtree in a dark theme inside a light window is dark.
 - `.theme(&theme)` on any element does the second half alone: the element and what is in it are laid out and painted with the values of that theme. What was built outside `in_theme` keeps the recipes it was built with, so this is for plain elements, and `in_theme` is for components.
@@ -8140,3 +8143,5 @@ fn tile(title: &str) -> Element {
 ```
 
 `theme.patch_recipe::<Tile>(...)`, `set_recipe`, a bare theme and `in_theme` then reach it as they reach lurq's own.
+
+A component says what a recipe styles of it: `Themed::parts()` and `Themed::states()`, each a `Declared`, the names and the Rust that writes them. lurq's own give their `*Part` and `*State` enums (`names!` gives each a `declared()`: `fn parts() -> Declared { SwitchPart::declared() }`); one that says nothing has the parts and the states its recipe names. A tool reads them: the gallery's playground lists them in its Styling tab. A builder of a component of one's own that has `rules` and `state` implements `Styled` with them, and is styled by what styles lurq's.

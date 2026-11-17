@@ -214,7 +214,7 @@ impl NotificationCenterPage {
       Spec {
         title: "Notification Center",
         make: Arc::new(move || plain(Signal::new(false), ElementRef::new(), Arc::new(|_| ())).into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: count > 0 && inline,
         facts: format!("{count_name} listed · {unread} unread"),

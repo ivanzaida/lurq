@@ -83,7 +83,7 @@ impl KbdPage {
 
     let plain = {
       let (keys, steps) = (keys.clone(), steps.clone());
-      move || -> Element {
+      move || {
         match form {
           0 => Kbd::new(&keys),
           1 => Kbd::shortcut(&keys),
@@ -92,7 +92,6 @@ impl KbdPage {
         .variant(variant)
         .size(size)
         .platform(platform)
-        .into()
       }
     };
 
@@ -147,8 +146,8 @@ impl KbdPage {
       ctx,
       Spec {
         title: "Kbd",
-        make: Arc::new(move || make()),
-        shown: Shown::of(plain()),
+        make: Arc::new(move || make().into()),
+        shown: Shown::of(self.playground.styled(plain())),
         fill: false,
         forceable: false,
         facts: format!("{variant_name} · {size_name} · {platform_name}"),

@@ -105,9 +105,14 @@ impl TreeSelectPage {
     let forced = self.playground.forced();
     // A select of one or none and one of any number are of two types: what both are given is said once.
     macro_rules! dressed {
-      ($select:expr, $record:expr, $placeholder:expr) => {{
+      ($select:expr, $record:expr, $placeholder:expr, $playground:expr) => {{
         let opened = $record;
-        $select
+        let select = $select;
+        let select = match $playground {
+          Some(playground) => playground.styled(select),
+          None => select,
+        };
+        select
           .label("File")
           .placeholder($placeholder)
           .size(size)
@@ -124,7 +129,7 @@ impl TreeSelectPage {
     }
     let build = {
       let (set, record, placeholder) = (self.played.clone(), record.clone(), placeholder.clone());
-      move |ctx: &mut Ctx, chosen: Vec<Id>| -> Element {
+      move |ctx: &mut Ctx, chosen: Vec<Id>, playground: Option<&Playground>| -> Element {
         let (set, changed) = (set.clone(), record.clone());
         if multiple {
           dressed!(
@@ -133,7 +138,8 @@ impl TreeSelectPage {
               set.set(next.to_vec());
             }),
             record.clone(),
-            &placeholder
+            &placeholder,
+            playground
           )
           .mount(ctx)
         } else {
@@ -143,19 +149,20 @@ impl TreeSelectPage {
               set.set(next.iter().copied().collect());
             }),
             record.clone(),
-            &placeholder
+            &placeholder,
+            playground
           )
           .mount(ctx)
         }
       }
     };
     let shown = {
-      let (build, chosen) = (build.clone(), chosen.clone());
-      Shown::built(move |ctx| build(ctx, chosen))
+      let (build, chosen, playground) = (build.clone(), chosen.clone(), &self.playground);
+      Shown::built(move |ctx| build(ctx, chosen, Some(playground)))
     };
     {
       let (build, chosen) = (build.clone(), self.played.clone());
-      self.playground.window_shows(move |ctx| build(ctx, chosen.get()));
+      self.playground.window_shows(move |ctx| build(ctx, chosen.get(), None));
     }
     let make = {
       let (chosen, placeholder) = (chosen.clone(), placeholder.clone());
@@ -165,14 +172,16 @@ impl TreeSelectPage {
           dressed!(
             TreeSelect::controlled_multiple(chosen.clone(), project(), |_| {}),
             quiet,
-            &placeholder
+            &placeholder,
+            None::<&Playground>
           )
           .into()
         } else {
           dressed!(
             TreeSelect::controlled_optional(chosen.last().copied(), project(), |_| {}),
             quiet,
-            &placeholder
+            &placeholder,
+            None::<&Playground>
           )
           .into()
         }

@@ -147,7 +147,9 @@ impl TourPage {
     };
     let record = self.playground.recorder();
     let (changed, finished, dismissed) = (record.clone(), record.clone(), record);
-    let tour = plain(self.step.clone(), &self.anchors)
+    let tour = self
+      .playground
+      .styled(plain(self.step.clone(), &self.anchors))
       .on_change(move |to| {
         changed(match to {
           Some(step) => format!("on_change(Some({step}))"),

@@ -536,6 +536,7 @@ impl VideoPlayerPage {
       // No wider than the stage, as an app's player is no wider than its window: in a window as narrow as a
       // phone the width chosen is more than there is, and half a player scrolled to shows nothing of its bar.
       let room = self.playground.stage_room();
+      let playground = &self.playground;
       move |ctx: &mut Ctx| {
         let say = |name: &'static str| {
           let record = record.clone();
@@ -554,7 +555,7 @@ impl VideoPlayerPage {
           say("on_picture_in_picture_change"),
           say("on_retry"),
         );
-        let mut player = make(false);
+        let mut player = playground.styled(make(false));
         // The stage scrolls to what is wider than it, so it has no width to be a share of: the room is told.
         if room > 0.0 {
           player = player.max_width(room);

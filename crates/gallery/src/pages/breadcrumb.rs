@@ -148,6 +148,7 @@ impl BreadcrumbPage {
         back.set(index + 1);
       }
     });
+    let shown = self.playground.styled(shown);
 
     let mut code = vec!["Breadcrumb::new([".to_owned()];
     for (index, (label, route)) in WAY.iter().take(steps).enumerate() {

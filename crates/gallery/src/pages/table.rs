@@ -296,7 +296,9 @@ impl TablePage {
     let (set_sort, set_selected) = (self.played_sort.clone(), self.played_selected.clone());
     let (sorted_to, changed, clicked, activated) = (record.clone(), record.clone(), record.clone(), record);
     let (table, sort_now, selected_now) = build(Some(recorded));
-    let mut shown = table
+    let mut shown = self
+      .playground
+      .styled(table)
       .force(self.playground.forced())
       .sort_controlled(sort_now.clone(), move |next| {
         sorted_to(format!("on_sort_change({next:?})"));

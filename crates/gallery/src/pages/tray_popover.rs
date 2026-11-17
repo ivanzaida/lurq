@@ -213,7 +213,7 @@ impl TrayPopoverPage {
       Spec {
         title: "Tray Popover",
         make: Arc::new(move || plain(Signal::new(true), Signal::new(false), Arc::new(|_| ())).into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!("{} · in the flow", tone_name.to_lowercase()),

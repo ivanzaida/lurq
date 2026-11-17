@@ -256,7 +256,7 @@ impl NumberInputPage {
       Spec {
         title: "Number Input",
         make: Arc::new(move || plain().into()),
-        shown: Shown::of(input),
+        shown: Shown::of(self.playground.styled(input)),
         fill: false,
         forceable: true,
         facts: format!("value {value}"),

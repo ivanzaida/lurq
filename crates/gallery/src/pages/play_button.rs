@@ -121,11 +121,13 @@ impl PlayButtonPage {
       }
     };
     let (record, set, ended) = (self.playground.recorder(), self.playing.clone(), self.replay.clone());
-    let button = plain().force(self.playground.forced()).on_change(move |next| {
-      set.set(next);
-      ended.set(false);
-      record(format!("on_change({next})"));
-    });
+    let button = self
+      .playground
+      .styled(plain().force(self.playground.forced()).on_change(move |next| {
+        set.set(next);
+        ended.set(false);
+        record(format!("on_change({next})"));
+      }));
     let overlay = variant == 1;
     let shown = if overlay {
       let playground = &self.playground;

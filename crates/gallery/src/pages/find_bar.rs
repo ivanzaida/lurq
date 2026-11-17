@@ -231,7 +231,11 @@ impl FindBarPage {
         bar
       }
     };
-    let bar = plain().force(self.playground.forced()).mount(ctx);
+    let bar = self
+      .playground
+      .styled(plain())
+      .force(self.playground.forced())
+      .mount(ctx);
     // A count the page makes up marks nothing: the marks are of what the page found.
     let text = if count == 0 {
       self.search.text()

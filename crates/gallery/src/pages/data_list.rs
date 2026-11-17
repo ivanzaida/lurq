@@ -46,7 +46,7 @@ impl DataListPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (orientation, badge, long) = (self.orientation.get(), self.badge.get(), self.long.get());
     let vertical = orientation.is_vertical();
-    let make = move || -> Element {
+    let make = move |playground: Option<&Playground>| -> Element {
       let mut list = DataList::new()
         .orientation(orientation)
         .text("Version", "0.60.0")
@@ -63,7 +63,12 @@ impl DataListPage {
       } else {
         list.text("Status", "Stable")
       };
-      list.style(DataListPart::Root, |s| s.width(320.0)).into()
+      let list = list.style(DataListPart::Root, |s| s.width(320.0));
+      match playground {
+        Some(playground) => playground.styled(list),
+        None => list,
+      }
+      .into()
     };
 
     let mut code = vec!["DataList::new()".to_owned()];
@@ -103,8 +108,8 @@ impl DataListPage {
       ctx,
       Spec {
         title: "Data List",
-        make: Arc::new(make.clone()),
-        shown: Shown::of(make()),
+        make: Arc::new(move || make(None)),
+        shown: Shown::of(make(Some(&self.playground))),
         fill: false,
         forceable: false,
         facts: format!("{} items", if long { 5 } else { 4 }),

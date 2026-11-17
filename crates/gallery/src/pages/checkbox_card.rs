@@ -154,7 +154,7 @@ impl CheckboxCardPage {
       Spec {
         title: "Checkbox Card",
         make: Arc::new(make),
-        shown: Shown::of(card),
+        shown: Shown::of(self.playground.styled(card)),
         fill: full_width,
         forceable: true,
         facts: format!("checked: {checked}"),

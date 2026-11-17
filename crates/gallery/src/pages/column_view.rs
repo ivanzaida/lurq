@@ -179,8 +179,8 @@ impl ColumnViewPage {
       .on_activate(move |id| activated(format!("on_activate({id:?})")))
     };
     let shown = {
-      let (dressed, path) = (dressed.clone(), path.clone());
-      Shown::built(move |ctx| dressed(path).mount(ctx))
+      let (dressed, path, playground) = (dressed.clone(), path.clone(), &self.playground);
+      Shown::built(move |ctx| playground.styled(dressed(path)).mount(ctx))
     };
     let make = {
       let path = path.clone();

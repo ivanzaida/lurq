@@ -213,7 +213,8 @@ impl TableOfContentsPage {
       let (build, playground) = (build.clone(), &self.playground);
       Shown::built(move |ctx| {
         let (changed, selected) = (record.clone(), record.clone());
-        let contents = build()
+        let contents = playground
+          .styled(build())
           .force(forced)
           .on_change(move |index| changed(format!("on_change({index})")))
           .on_select(move |index| selected(format!("on_select({index})")))

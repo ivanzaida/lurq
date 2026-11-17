@@ -215,7 +215,7 @@ impl MentionsPage {
             .child(make(Signal::new(String::new()), &MentionsController::new()))
             .into()
         }),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: true,
         forceable: true,
         facts: format!("{size_name} · {} mentions", mentioned.len()),

@@ -113,13 +113,17 @@ impl Props {
   }
 
   fn shown(&self) -> Element {
+    self.shown_with(self.spinner())
+  }
+
+  fn shown_with(&self, spinner: Spinner) -> Element {
     if self.overlay {
       LoadingOverlay::new(self.loading, activity())
         .style("root", |s| s.radius(lurq::app::theme::RadiusSize::Lg))
-        .spinner(self.spinner())
+        .spinner(spinner)
         .into()
     } else {
-      self.spinner().into()
+      spinner.into()
     }
   }
 
@@ -263,7 +267,7 @@ impl SpinnerPage {
           let props = props.clone();
           Arc::new(move || props.shown())
         },
-        shown: Shown::of(props.shown()),
+        shown: Shown::of(props.shown_with(self.playground.styled(props.spinner()))),
         fill: false,
         forceable: false,
         facts: if props.overlay && !props.loading {

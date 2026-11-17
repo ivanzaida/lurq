@@ -166,9 +166,11 @@ impl PropertyGridPage {
       }
     };
     let told = self.playground.recorder();
-    let grid = make()
-      .force(self.playground.forced())
-      .on_change(move |id| told(format!("on_change({id:?})")));
+    let grid = self.playground.styled(
+      make()
+        .force(self.playground.forced())
+        .on_change(move |id| told(format!("on_change({id:?})"))),
+    );
 
     let mut code = vec!["PropertyGrid::new()".to_owned()];
     if flags[0].1 {

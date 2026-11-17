@@ -25,6 +25,7 @@ mod scene;
 mod shell;
 #[cfg(test)]
 mod speed;
+mod styling;
 mod tabs;
 #[cfg(target_arch = "wasm32")]
 mod web;

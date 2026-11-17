@@ -255,13 +255,21 @@ impl CalendarPage {
     let forced = self.playground.forced();
     let record = self.playground.recorder();
     let shown: Element = match mode {
-      Mode::Date => dressed(Calendar::new(self.date.clone()), settings, &self.month, &self.memory)
-        .force(forced)
-        .on_change(move |date: Date| record(format!("on_change({date})")))
+      Mode::Date => self
+        .playground
+        .styled(
+          dressed(Calendar::new(self.date.clone()), settings, &self.month, &self.memory)
+            .force(forced)
+            .on_change(move |date: Date| record(format!("on_change({date})"))),
+        )
         .into(),
-      Mode::Range => dressed(Calendar::new(self.range.clone()), settings, &self.month, &self.memory)
-        .force(forced)
-        .on_change(move |range: DateRange| record(format!("on_change({range})")))
+      Mode::Range => self
+        .playground
+        .styled(
+          dressed(Calendar::new(self.range.clone()), settings, &self.month, &self.memory)
+            .force(forced)
+            .on_change(move |range: DateRange| record(format!("on_change({range})"))),
+        )
         .into(),
     };
     let detached = DateMemory::new();

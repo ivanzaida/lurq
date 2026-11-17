@@ -158,10 +158,12 @@ impl SheetPage {
       })
     };
     let dismissed = record.clone();
-    let sheet = make(self.open.clone())
-      .footer(footer("Cancel", ButtonVariant::Outline))
-      .footer(footer("Save", ButtonVariant::Primary))
-      .on_dismiss(move || dismissed("on_dismiss()".to_owned()));
+    let sheet = self.playground.styled(
+      make(self.open.clone())
+        .footer(footer("Cancel", ButtonVariant::Outline))
+        .footer(footer("Save", ButtonVariant::Primary))
+        .on_dismiss(move || dismissed("on_dismiss()".to_owned())),
+    );
     let shown = Row::new().child(opener("Open sheet", &self.open)).child(sheet);
 
     let mut code = vec![

@@ -236,7 +236,7 @@ impl BarListPage {
       Spec {
         title: "Bar List",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: props.select,
         facts: format!("{} rows", props.count),

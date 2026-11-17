@@ -127,7 +127,9 @@ impl SplitterPage {
     let record = self.playground.recorder();
     // A change of a prop lays the panes out again from what they are given.
     let key = format!("{vertical}-{min}-{max}-{collapsible}-{nested}-{grip}-{framed}-{disabled}");
-    let splitter = plain()
+    let splitter = self
+      .playground
+      .styled(plain())
       .key(key)
       .force(self.playground.forced())
       .on_resize_end(move |sizes| {

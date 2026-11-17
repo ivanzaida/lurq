@@ -47,13 +47,16 @@ impl CalloutPage {
     let (icon, bar) = (self.icon.get(), self.bar.get());
     let make = {
       let (text, title) = (text.clone(), title.clone());
-      move || -> Element {
+      move |playground: Option<&Playground>| -> Element {
         let mut callout = Callout::new(&text).variant(variant).bar(bar);
         if !title.is_empty() {
           callout = callout.title(&title);
         }
         if !icon {
           callout = callout.icon(None);
+        }
+        if let Some(playground) = playground {
+          callout = playground.styled(callout);
         }
         Column::new().width(380.0).child(callout).into()
       }
@@ -99,8 +102,11 @@ impl CalloutPage {
       ctx,
       Spec {
         title: "Callout",
-        make: Arc::new(make.clone()),
-        shown: Shown::of(make()),
+        make: Arc::new({
+          let make = make.clone();
+          move || make(None)
+        }),
+        shown: Shown::of(make(Some(&self.playground))),
         fill: false,
         forceable: false,
         facts: format!("{variant_name} · note"),

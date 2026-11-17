@@ -191,7 +191,7 @@ impl FieldsetPage {
       Spec {
         title: "Fieldset",
         make: Arc::new(make),
-        shown: Shown::of(fieldset),
+        shown: Shown::of(self.playground.styled(fieldset)),
         fill: full_width,
         forceable: false,
         facts: if disabled { "disabled" } else { "enabled" }.to_owned(),

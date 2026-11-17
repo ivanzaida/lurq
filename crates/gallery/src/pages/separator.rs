@@ -75,10 +75,13 @@ impl SeparatorPage {
       move |measured: Option<&Playground>| -> Element {
         let separator: Element = match (measured, orientation) {
           (None, _) => plain().into(),
-          (Some(playground), SeparatorOrientation::Horizontal) => playground.measure(plain()).width(FILL).into(),
-          (Some(playground), SeparatorOrientation::Vertical) => {
-            playground.measure(plain()).align_items(Alignment::Stretch).into()
+          (Some(playground), SeparatorOrientation::Horizontal) => {
+            playground.measure(playground.styled(plain())).width(FILL).into()
           }
+          (Some(playground), SeparatorOrientation::Vertical) => playground
+            .measure(playground.styled(plain()))
+            .align_items(Alignment::Stretch)
+            .into(),
         };
         match orientation {
           SeparatorOrientation::Horizontal => Column::new()

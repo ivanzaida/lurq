@@ -240,7 +240,7 @@ impl TokenInputPage {
       Spec {
         title: "Token Input",
         make: Arc::new(move || Column::new().width(360.0).child(plain()).into()),
-        shown: Shown::of(input),
+        shown: Shown::of(self.playground.styled(input)),
         fill: true,
         forceable: true,
         facts: format!("{size_name} · {found} in the list · draft {typed_now:?} · Enter or {separator_name}"),

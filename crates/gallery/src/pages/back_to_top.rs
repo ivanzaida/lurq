@@ -186,10 +186,10 @@ impl BackToTopPage {
         .window_shows(move |ctx| reader(&scroll, make().mount(ctx)).into());
     }
     let shown = {
-      let (make, scroll) = (make.clone(), scroll.clone());
+      let (make, scroll, playground) = (make.clone(), scroll.clone(), &self.playground);
       // The size under the stage is the scene's: the button is gone while the list is at its top, and what is
       // gone has no size to say.
-      Shown::built(move |ctx| reader(&scroll, make().mount(ctx)).into())
+      Shown::built(move |ctx| reader(&scroll, playground.styled(make()).mount(ctx)).into())
     };
     self.playground.card(
       ctx,
