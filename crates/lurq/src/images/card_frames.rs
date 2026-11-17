@@ -28,7 +28,8 @@ use parking_lot::{Mutex, RwLock};
 /// (`IDXGIResource1::CreateSharedHandle`, or `ID3D12Device::CreateSharedHandle`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CardSurface {
-  /// One NV12 texture: the gray, and under it the color at half the size.
+  /// One NV12 texture: the gray, and under it the color at half the size. Drawn where it is under
+  /// Direct3D 12; under Vulkan on some cards alone, which [`card_frames_nv12`] says.
   Nv12(isize),
   /// Two textures: the gray (`R8`), and the color at half the size (`R8G8`), as a decoder gives them that
   /// cannot write one NV12 texture.
@@ -349,8 +350,11 @@ pub fn set_card_frames_nv12(drawn: bool) {
 }
 
 /// Whether one NV12 texture ([`CardSurface::Nv12`]) is drawn where the decoder put it. Under Direct3D 12 it
-/// is; under Vulkan it is not, and its frames are copied through memory: a decoder gives gray and color
-/// apart ([`CardSurface::Planes`]) or red, green and blue ([`CardSurface::Rgba`]) there, which are.
+/// is, on every card. Under Vulkan it is on a card of AMD's and on no other: on a card of NVIDIA's Vulkan
+/// and Direct3D 11 do not agree where such a texture keeps its color, and the device is lost over it, so
+/// its frames are copied through memory there ([`CardFramesWay::Memory`]). Where this says no, a decoder
+/// gives gray and color apart ([`CardSurface::Planes`]) or red, green and blue ([`CardSurface::Rgba`]),
+/// which are drawn where they are under Vulkan on every card, or the app draws through Direct3D 12.
 pub fn card_frames_nv12() -> bool {
   NV12.load(Ordering::Acquire)
 }
