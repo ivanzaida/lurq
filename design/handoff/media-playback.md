@@ -256,7 +256,7 @@ A player asks its media whether it plays when it is rendered, and runs its clock
 - **`crates/mobile_demo`** has `media`, a feature `http` of its own (`CARGO_FEATURES=http` to Xcode's build), and a screen **Sound** (`src/sound.rs`): a media driven by buttons with its state in plain lines, and two of the design system's players, of a file and of an address.
 - **The cache on the disk is the same code on every system**, and was run on Windows alone. On a Mac and a phone a sound it keeps is opened by `AVAudioPlayer` from its file (`initWithContentsOfURL`), which was written before and never run; the demo's folder on a phone is `Library/Caches` of its container, found through `HOME`. `apple-verification.md` has the entries for both.
 - **`tests/media_tests.rs` and the audio player's tests of a source are built on macOS too**; the tests of a video, and the one that reads Windows' meters, are Windows'.
-- **Other than these**, `Media::open` and `Media::sound` say the build has no decoder for the system. A video on macOS has the pixel-buffer path in the renderer and needs AVFoundation or VideoToolbox behind `Media`; a browser needs an `<audio>` or `<video>` element, or WebCodecs.
+- **Other than these**, `Media::open` and `Media::sound` say the build has no decoder for the system. A video on macOS has the pixel-buffer path in the renderer and needs AVFoundation or VideoToolbox behind `Media` (what is to be built for it, step by step, is section 8 of `design/apple-checks.md`); a browser needs an `<audio>` or `<video>` element, or WebCodecs.
 
 ## Checked
 

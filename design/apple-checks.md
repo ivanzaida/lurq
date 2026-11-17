@@ -138,3 +138,46 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
   a value inspected, the profiler records.
 - [ ] **MCP** on a Mac: the gallery's log gives the address and the token; the tree is read, a screenshot is taken,
   a click and a key reach the window, `lurq_pointer` reads and sets the pointer.
+
+## 8. A video with no copy on Apple's systems: what is to be built
+
+Asked for by Ivan on 2026-11-17, when the same was finished on Windows (`design/handoff/media-playback.md`). On
+Windows a video's frames stay on the graphics card from the decoder to the screen (`images::CardFrames`), under
+three renderers. None of that is Apple's: `CardFrames` is Direct3D's shared textures and is compiled on Windows
+alone. What Apple's systems have is one older piece, and the rest is to be built. In the order to do it:
+
+- [ ] **1. Run what exists, which was never run.** The `wgpu` renderer on Metal draws a `CVPixelBuffer` where it is:
+  `NativeImageData::from_macos_cv_pixel_buffer_nv12(width, height, MacosCvPixelBuffer::retain(buffer))`, whose two
+  planes become Metal textures through `CVMetalTextureCache` (`create_macos_native_nv12_cached_image_texture` in
+  `wgpu_render/mod.rs`). Write a small example that decodes a clip with VideoToolbox or `AVAssetReader` (output
+  `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange`, `kCVPixelBufferMetalCompatibilityKey` and an IOSurface) and
+  gives each buffer to a `ui::Video`. It must show the picture with the colors of the same frame decoded to memory,
+  never lock the buffer's bytes, and hold its memory over some minutes of playing.
+- [ ] **2. Mend what that run shows of the piece.** Read, not run, these are weak: a texture cache is made and let
+  go of for each plane of each frame, where one for the device is meant; the planes are taken to be as large as
+  the picture, so a buffer larger than its picture (a codec's 1088 rows for 1080) has no crop; and any buffer is
+  taken for 8 bits and gray from 16 to 235 (see 7).
+- [ ] **3. Frames that change in one image.** On Windows one image shows a ring of textures: the decoder calls
+  `CardFrames::show(frame)` and gets its texture back by the frame's lease. On a Mac an app makes a new image for
+  every frame, which rebuilds what shows it. Decide and build one of: a kind of surface of `CardFrames` that is a
+  pixel buffer, or a sibling type with the same `show`, `crop`, lease and `way()`. "One type for all of them" was
+  talked of and not built (the handoff's "Not done").
+- [ ] **4. A video in lurq's own player.** `Media::open` says the build shows no video here; `media/apple.rs` plays a
+  sound alone. Behind it goes AVFoundation: an `AVPlayer` with an `AVPlayerItemVideoOutput` gives pixel buffers
+  timed against its own sound, and has seek and speed, which leaves lurq's clock to follow it as it follows
+  `AVAudioPlayer` now. VideoToolbox with lurq's own clock is the other way, and more to write. Then
+  `ui::VideoPlayer::source` plays on a Mac as on Windows, through 1 and 3.
+- [ ] **5. iOS.** The pixel buffer's type and the renderer's path are `target_os = "macos"`: compile and run them for
+  iOS, where `CVMetalTextureCache` is the same.
+- [ ] **6. The gallery and the tests.** The Video Player page's table of decoders (`crates/gallery/src/card_demo.rs`)
+  and `wgpu_render/card_frames_tests.rs` are Windows'. A stand-in decoder that writes pixel buffers gives the page
+  its rows on a Mac, and the tests their first one: a frame drawn from the buffer is the frame memory gives.
+- [ ] **7. Color and depth.** One matrix is in the shader: BT.709 with gray from 16 to 235. A buffer of the full
+  range (`420f`), of BT.601 or BT.2020, or of ten bits is drawn wrong or not at all. The same is not done on
+  Windows.
+- [ ] **8. Not looked at.** A Mac with two graphics cards (Intel ones, an external card) and a card taken away
+  while the app runs. An IOSurface is shared between cards by the system, which Windows' textures are not, so
+  what was built there for a decoder on another card may not be needed.
+
+What a Mac gives for nothing, once 1 holds: an app with a decoder of its own (VideoToolbox) is drawn with no copy
+today, by `from_macos_cv_pixel_buffer_nv12`, one image a frame.
