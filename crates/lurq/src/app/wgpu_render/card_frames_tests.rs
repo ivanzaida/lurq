@@ -1212,7 +1212,8 @@ fn a_media_whose_card_is_reset_is_opened_again_where_it_was() {
 
 /// A device of Vulkan that takes textures Direct3D shares, with its adapter; `None` where the card has none.
 fn vulkan_device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
-  let instance = wgpu::Instance::new(super::instance_descriptor(wgpu::Backends::VULKAN));
+  // The program's one instance among Vulkan: a second one beside it ends the program.
+  let instance = super::new_instance(wgpu::Backends::VULKAN);
   let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
   let (device, queue) = pollster::block_on(adapter.request_device(&super::device_descriptor(
     &adapter,
@@ -1377,4 +1378,156 @@ fn under_vulkan_the_frames_of_a_decoder_stay_on_the_card_but_for_one_nv12_textur
     .poll(wgpu::PollType::wait_indefinitely())
     .expect("the card answers");
   crate::images::set_card_frames_adapter(None);
+  crate::images::set_card_frames_nv12(true);
+}
+
+/// The red, green and blue lurq's own NV12 pipeline draws of a sample of gray and its two of color: BT.709,
+/// gray from 16 to 235.
+fn drawn_of(gray: u8, u: u8, v: u8) -> [f32; 3] {
+  let c = (f32::from(gray) - 16.0).max(0.0) / 255.0;
+  let (u, v) = (f32::from(u) / 255.0 - 0.5, f32::from(v) / 255.0 - 0.5);
+  [
+    1.164383 * c + 1.792741 * v,
+    1.164383 * c - 0.213249 * u - 0.532909 * v,
+    1.164383 * c + 2.112402 * u,
+  ]
+  .map(|part| part.clamp(0.0, 1.0) * 255.0)
+}
+
+#[test]
+fn under_vulkan_a_media_gives_red_green_and_blue_converted_on_the_card() {
+  let Some((adapter, device, queue)) = vulkan_device() else {
+    eprintln!("skipped: no card with Vulkan that takes the textures Direct3D shares");
+    return;
+  };
+  let _alone = ON_THE_CARD.lock();
+  // Nothing draws on a card yet: the frame goes through memory, and is what the picture is told by.
+  crate::images::set_card_frames_adapter(None);
+  let early = opened();
+  let in_memory = first_frame(&early, false);
+  let (width, height) = (in_memory.width(), in_memory.height());
+  let memory = in_memory.data_arc();
+  let (wide, high) = (width as usize, height as usize);
+
+  // A renderer of Vulkan says which card it draws on, and that it does not draw one NV12 texture where it is.
+  assert!(card_frames::announce_vulkan(&device, &adapter));
+  assert!(!crate::images::card_frames_nv12());
+  let late = opened();
+  let on_card = first_frame(&late, true);
+  assert_eq!((on_card.width(), on_card.height()), (width, height));
+  assert_eq!(
+    on_card.format(),
+    ImagePixelFormat::Rgba8,
+    "the frames are red, green and blue"
+  );
+  let frames = on_card
+    .native()
+    .and_then(|native| native.payload::<CardFrames>())
+    .expect("the frames of the card")
+    .clone();
+  assert!(frames.is_rgba());
+
+  // The renderer takes the textures as they are: nothing is copied through memory.
+  let leases = card_frames::Leases::default();
+  let mut readers = card_copies::Readers::default();
+  let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[],
+  });
+  let mut opened = card_frames::Opened::open(&device, &frames, (width, height), &leases, &mut readers, |_, _| {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: None,
+      layout: &layout,
+      entries: &[],
+    })
+  });
+  assert_eq!(
+    frames.way(),
+    Some(CardFramesWay::Card),
+    "Vulkan draws the media's frames where they are"
+  );
+  opened.pick(&queue);
+  let (_, slot) = opened.drawn().expect("the media's frame is drawn");
+  assert_eq!(slot.textures()[0].format(), wgpu::TextureFormat::Bgra8Unorm);
+  assert_eq!(
+    (slot.textures()[0].width(), slot.textures()[0].height()),
+    (width, height),
+    "the texture is as large as the picture: the part past the picture was left on the decoder's side"
+  );
+  let pixels = read(&device, &queue, &slot.textures()[0], 4);
+
+  // The picture is the one memory gives, converted as lurq's own pipeline converts it. Where the color is the
+  // same all around a pixel the two are told apart by the conversion alone, and there they agree. At an edge of
+  // color the card's video processor smooths between its samples of color in its own way, and the two differ:
+  // those are few.
+  let color = |x: usize, y: usize| {
+    let at = wide * high + (y / 2) * wide + (x / 2) * 2;
+    (memory[at], memory[at + 1])
+  };
+  let (mut flat, mut flat_sum, mut flat_most, mut far) = (0_usize, 0.0_f64, 0.0_f32, 0_usize);
+  for y in 0..high {
+    for x in 0..wide {
+      let (u, v) = color(x, y);
+      let told = drawn_of(memory[y * wide + x], u, v);
+      let pixel = &pixels[(y * wide + x) * 4..][..4];
+      // Blue, green, red, as the texture has them.
+      let off = (0..3)
+        .map(|part| (f32::from(pixel[2 - part]) - told[part]).abs())
+        .fold(0.0_f32, f32::max);
+      far += usize::from(off > 24.0);
+      assert_eq!(pixel[3], 255, "the frame is opaque");
+      let around = [
+        (-2_i32, 0_i32),
+        (2, 0),
+        (0, -2),
+        (0, 2),
+        (-2, -2),
+        (2, 2),
+        (-2, 2),
+        (2, -2),
+      ];
+      let same = around.iter().all(|(dx, dy)| {
+        let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+        nx < 0 || ny < 0 || nx >= wide as i32 || ny >= high as i32 || color(nx as usize, ny as usize) == (u, v)
+      });
+      if same {
+        flat += 1;
+        flat_sum += f64::from(off);
+        flat_most = flat_most.max(off);
+      }
+    }
+  }
+  let all = (wide * high) as f64;
+  let (flat_part, flat_mean, far) = (flat as f64 / all, flat_sum / flat.max(1) as f64, far as f64 / all);
+  eprintln!(
+    "converted on the card: flat color is {:.0}% of the picture, off by {flat_mean:.2} a pixel, {flat_most:.0} at most; {:.2}% of all pixels are off by more than 24",
+    flat_part * 100.0,
+    far * 100.0
+  );
+  assert!(flat_part > 0.5, "the clip has flat color to tell the conversion by");
+  assert!(
+    flat_mean < 3.0,
+    "the conversion on the card is not lurq's own: off by {flat_mean:.2} a pixel where the color is flat"
+  );
+  assert!(
+    far < 0.08,
+    "{:.2}% of the pixels are far off: more than its edges of color",
+    far * 100.0
+  );
+  // And it is a picture: the clip's first frame is not one flat color.
+  let first = &pixels[..3];
+  assert!(pixels.chunks(4).any(|pixel| pixel[..3] != *first));
+
+  // It plays on: more frames are shown, each in a texture of its own turn.
+  let before = frames.count();
+  late.play();
+  let started = Instant::now();
+  while frames.count() < before + 6 && started.elapsed() < Duration::from_secs(5) {
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  late.pause();
+  assert!(frames.count() >= before + 6, "the media does not play");
+  assert_eq!(late.state().error, None);
+  crate::images::set_card_frames_adapter(None);
+  crate::images::set_card_frames_nv12(true);
 }

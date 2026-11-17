@@ -18,7 +18,7 @@ use std::{
   any::Any,
   sync::{
     Arc,
-    atomic::{AtomicU8, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
   },
 };
 
@@ -292,4 +292,20 @@ pub fn set_card_frames_adapter(adapter: Option<(u32, i32)>) {
 /// memory where there is none.
 pub fn card_frames_adapter() -> Option<(u32, i32)> {
   *ADAPTER.read()
+}
+
+/// Whether what draws [`CardFrames`] draws one NV12 texture where it is.
+static NV12: AtomicBool = AtomicBool::new(true);
+
+/// Says whether what draws [`CardFrames`] draws one NV12 texture ([`CardSurface::Nv12`]) where it is. A
+/// renderer says so with the card it draws on.
+pub fn set_card_frames_nv12(drawn: bool) {
+  NV12.store(drawn, Ordering::Release);
+}
+
+/// Whether one NV12 texture ([`CardSurface::Nv12`]) is drawn where the decoder put it. Under Direct3D 12 it
+/// is; under Vulkan it is not, and its frames are copied through memory: a decoder gives gray and color
+/// apart ([`CardSurface::Planes`]) or red, green and blue ([`CardSurface::Rgba`]) there, which are.
+pub fn card_frames_nv12() -> bool {
+  NV12.load(Ordering::Acquire)
 }

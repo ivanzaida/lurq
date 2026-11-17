@@ -530,6 +530,39 @@ fn instance_descriptor(backends: WgpuBackends) -> wgpu::InstanceDescriptor {
   descriptor
 }
 
+/// The instances of wgpu the program has, by the backends each was made among.
+#[cfg(not(target_arch = "wasm32"))]
+static INSTANCES: std::sync::Mutex<Vec<(WgpuBackends, wgpu::Instance)>> = std::sync::Mutex::new(Vec::new());
+
+/// The instance of wgpu among `backends`: one for the program, which every engine and every device made
+/// ahead shares.
+///
+/// Each engine had its own, and so each window. Under Vulkan a program with two of them alive ended with an
+/// access violation when one was let go of, on the card this was run on, each time it was tried; one
+/// instance with a device for each window does not. Under Direct3D 12 either way holds.
+#[cfg(not(target_arch = "wasm32"))]
+fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+  let mut instances = INSTANCES.lock().unwrap();
+  if let Some((_, instance)) = instances.iter().find(|(among, _)| *among == backends) {
+    return instance.clone();
+  }
+  let instance = wgpu::Instance::new(instance_descriptor(backends));
+  instances.push((backends, instance.clone()));
+  instance
+}
+
+/// After a device is lost, an instance of Direct3D 12 alone is made anew for what takes the device's place,
+/// as it was before the instance was shared: what it knows of the cards is from before the loss. One that
+/// may draw through Vulkan is kept, for a second one beside it is what ends the program there.
+#[cfg(not(target_arch = "wasm32"))]
+fn forget_instances_after_a_loss() {
+  INSTANCES
+    .lock()
+    .unwrap()
+    .retain(|(among, _)| among.contains(WgpuBackends::VULKAN));
+}
+
+#[cfg(target_arch = "wasm32")]
 fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
   wgpu::Instance::new(instance_descriptor(backends))
 }
@@ -4457,6 +4490,17 @@ fn canvas_image_flag(native: &Option<crate::images::NativeImageData>) -> f32 {
   if native
     .as_ref()
     .is_some_and(|n| n.backend() == crate::images::NativeImageBackend::Canvas)
+  {
+    return 1.;
+  }
+  // A card's frame of red, green and blue is in a texture whose format does not say that its bytes are encoded
+  // as a screen's are, which they are, as a canvas's: taken for bytes of linear light, the frame was drawn
+  // lighter than it is (a red of 255, 24, 0 as 255, 86, 0).
+  #[cfg(windows)]
+  if native
+    .as_ref()
+    .and_then(|n| n.payload::<crate::images::CardFrames>())
+    .is_some_and(crate::images::CardFrames::is_rgba)
   {
     return 1.;
   }

@@ -9,7 +9,8 @@ mod wgpu_external;
 
 #[cfg(windows)]
 pub use card_frames::{
-  CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface, card_frames_adapter, set_card_frames_adapter,
+  CardCrop, CardFrame, CardFrames, CardFramesWay, CardLease, CardSurface, card_frames_adapter, card_frames_nv12,
+  set_card_frames_adapter, set_card_frames_nv12,
 };
 #[cfg(feature = "image")]
 pub use decoded::{

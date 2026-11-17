@@ -97,6 +97,7 @@ pub(super) fn announce(device: &wgpu::Device) -> bool {
   // SAFETY: as above.
   let card = unsafe { hal.raw_device().GetAdapterLuid() };
   crate::images::set_card_frames_adapter(Some((card.LowPart, card.HighPart)));
+  crate::images::set_card_frames_nv12(true);
   true
 }
 
@@ -125,6 +126,8 @@ pub(super) fn announce_vulkan(device: &wgpu::Device, adapter: &wgpu::Adapter) ->
     return false;
   };
   crate::images::set_card_frames_adapter(Some((card.LowPart, card.HighPart)));
+  // One NV12 texture is not given to Vulkan: what decodes into one gives red, green and blue instead.
+  crate::images::set_card_frames_nv12(false);
   true
 }
 

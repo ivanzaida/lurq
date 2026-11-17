@@ -47,6 +47,7 @@ fn say(lost: &AtomicBool) {
   #[cfg(not(target_arch = "wasm32"))]
   if first {
     card::lost_on_the_card_of(lost);
+    super::forget_instances_after_a_loss();
   }
   #[cfg(target_arch = "wasm32")]
   let _ = first;
