@@ -11,6 +11,20 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### The gallery shows how to style
+
+- **Question.** lurq styles at four levels — the theme's tokens, a component's recipe in the theme (parts by
+  variant, size, state, density, breakpoint), one instance (`.style(part, ..)`, `.rules`, `.state`, `.force`), a
+  renderer — and the gallery shows none of it: the props tables leave styling out, the playground has no view of a
+  component's parts, Getting Started has no page on it.
+- **Decision (Ivan).** A page of its own, **Styling**, in Getting Started: the four levels with live examples (a
+  palette role changes everything, a recipe patched changes every button, `.style` one button, a renderer of one's
+  own). And in every playground **a section of its own for styling**: the component's parts and states, a part
+  picked and restyled live (color, radius, padding, shadow…), the code beside it for one instance
+  (`.style(Part, ..)`) and for all of them (`theme.patch_recipe::<X>(..)`). Built once in
+  `crates/gallery/src/playground.rs` from the parts and states each component already declares.
+- **State.** Decided; to be built after the engine primitives' pages are merged (both touch the playground).
+
 ### Code highlighting is pluggable, its token names open, its colors the theme's
 
 - **Question.** `ui::CodeBlock` and Markdown color code with lurq's own scanner, which knows Rust alone, into seven
