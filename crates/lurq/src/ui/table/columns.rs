@@ -30,7 +30,6 @@ pub struct ColumnLayout {
   pub columns: Vec<ColumnPlace>,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ColumnLayout {}
 
 impl ColumnLayout {

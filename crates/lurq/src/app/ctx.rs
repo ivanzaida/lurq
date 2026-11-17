@@ -15,12 +15,11 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "devtools")]
 use super::component::{ComponentInfo, DevtoolsInspectable};
-#[cfg(feature = "i18n")]
-use super::i18n::I18n;
 use super::{
   app_state::App,
   component::Component,
   events::MouseEvent,
+  i18n::I18n,
   theme::Theme,
   window::{Window, WindowWaker},
 };
@@ -950,7 +949,6 @@ pub struct Ctx {
   theme: Option<Theme>,
   window: Option<crate::app::window::Window>,
   breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
-  #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<App>,
   element_requests: Arc<Mutex<ElementRequests>>,
@@ -1567,7 +1565,6 @@ impl Ctx {
       theme: None,
       window: None,
       breakpoint: None,
-      #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
       element_requests: Arc::default(),
@@ -1635,7 +1632,6 @@ impl Ctx {
     self
   }
 
-  #[cfg(feature = "i18n")]
   pub(crate) fn with_i18n(mut self, i18n: I18n) -> Self {
     self.i18n = Some(i18n);
     self
@@ -2527,24 +2523,20 @@ impl Ctx {
     self.app_ref().write_bulk(entries)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
     let i18n = self.i18n.as_ref().expect("i18n not set");
     i18n.track_access();
     i18n
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t(&self, key: &str) -> Arc<str> {
     self.i18n().t(key)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_ns(&self, namespace: &str, key: &str) -> Arc<str> {
     self.i18n().t_ns(namespace, key)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_args<I, K, V>(&self, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
@@ -2554,7 +2546,6 @@ impl Ctx {
     self.i18n().t_args(key, args)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
@@ -3056,7 +3047,6 @@ impl Ctx {
       child_ctx.query_registry = self.query_registry.clone();
     }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
@@ -3153,7 +3143,6 @@ impl Ctx {
         group_ctx.query_registry = self.query_registry.clone();
       }
       group_ctx.click_outside_registry = self.click_outside_registry.clone();
-      #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
       }
@@ -3251,7 +3240,6 @@ impl Ctx {
       child_ctx.query_registry = self.query_registry.clone();
     }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }

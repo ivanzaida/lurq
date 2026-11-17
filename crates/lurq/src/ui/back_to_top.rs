@@ -383,7 +383,6 @@ impl PartialEq for BackToTopProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for BackToTopProps {}
 
 /// What the host reads of the scroll after each layout: its state, and how far down it shows the button.

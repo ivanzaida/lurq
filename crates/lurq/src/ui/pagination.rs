@@ -162,7 +162,6 @@ enum Fit {
 }
 
 /// A signal's value is something DevTools can inspect: this one has nothing to show.
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for Fit {}
 
 /// What a mounted pagination's host gives the pagination it builds: what holds the summary and the buttons, what
@@ -508,7 +507,6 @@ impl PartialEq for PaginationProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PaginationProps {}
 
 /// What a mounted pagination has measured, and what it chooses by.

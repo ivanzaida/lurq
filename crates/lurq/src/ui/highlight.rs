@@ -246,7 +246,6 @@ impl PartialEq for HighlightProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for HighlightProps {}
 
 /// What a mounted highlight keeps: the current mark it last brought into

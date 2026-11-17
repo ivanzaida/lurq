@@ -51,7 +51,7 @@ pub(crate) enum PaintedDraw {
   },
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg(usize),
 }
 
@@ -342,7 +342,7 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
           }
           notes.image(image);
         }
-        #[cfg(feature = "svg")]
+        #[cfg(feature = "canvas")]
         PaintedDraw::Svg(index) => notes.svg(&self.list.svgs[index]),
       }
     }
@@ -362,7 +362,7 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
         .map_or_else(ClipRect::default, |glyph| glyph.clip),
       #[cfg(feature = "raster")]
       PaintedDraw::Image(index) => self.list.images[index].clip,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       PaintedDraw::Svg(index) => self.list.svgs[index].clip,
     };
     // A pixel more than the clip on every side, which saves rounding it.
@@ -396,7 +396,7 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
       }
       #[cfg(feature = "raster")]
       PaintedDraw::Image(index) => crate::layout::opacity_layer::image_extent(&self.list.images[index]),
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       PaintedDraw::Svg(index) => crate::layout::opacity_layer::svg_extent(&self.list.svgs[index]),
     };
     known.set(Some(extent));
@@ -716,7 +716,7 @@ impl Notes {
     self.f32(*opacity);
   }
 
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   fn svg(&mut self, svg: &crate::svg::SvgCmd) {
     let crate::svg::SvgCmd {
       order: _,

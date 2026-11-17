@@ -1120,7 +1120,6 @@ impl PartialEq for SignaturePadProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SignaturePadProps {}
 
 /// The component of a pad: the stroke being drawn.

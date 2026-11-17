@@ -79,7 +79,7 @@ fn list(clear_color: Color, rects: Vec<RectCmd>, glyphs: Vec<GlyphCmd>, layers: 
     glyphs,
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     svgs: Vec::new(),
     layers,
     backdrops: Vec::new(),

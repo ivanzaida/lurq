@@ -954,7 +954,6 @@ impl PartialEq for TeachingTipProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TeachingTipProps {}
 
 /// The layer's own open signal while the app's is `true`, and what is told
@@ -1546,7 +1545,6 @@ impl PartialEq for TourProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TourProps {}
 
 /// What shows a tour's step.

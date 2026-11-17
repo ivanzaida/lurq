@@ -534,6 +534,8 @@ pub(crate) trait NodeUpdate {
   /// Attach a semantic annotation surfaced to tooling (the devtools tree and
   /// the MCP `lurq_read_tree`). A no-op unless a tooling feature is enabled.
   fn describe(&mut self, name: Arc<str>, value: Arc<str>);
+  /// Takes back what the node said of itself to tooling under `name`. A no-op unless a tooling feature is enabled.
+  fn undescribe(&mut self, name: &str);
   fn child(&mut self, child: Node);
   fn id(&mut self, id: impl Into<Arc<str>>);
   fn class(&mut self, class: impl Into<Arc<str>>);
@@ -1274,6 +1276,13 @@ impl NodeUpdate for Node {
     self.debug.debug_attrs.push((name, value));
     #[cfg(not(any(feature = "devtools", feature = "mcp")))]
     let _ = (name, value);
+  }
+
+  fn undescribe(&mut self, name: &str) {
+    #[cfg(any(feature = "devtools", feature = "mcp"))]
+    self.debug.debug_attrs.retain(|(said, _)| &**said != name);
+    #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+    let _ = name;
   }
 
   fn child(&mut self, child: Node) {
@@ -3378,14 +3387,14 @@ impl Node {
     )
   }
 
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   pub fn svg(data: crate::svg::SvgData) -> Self {
     let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Svg { data: data.clone() }, vec![]);
     node.intrinsic_size = Some(Size::new(data.viewbox_width(), data.viewbox_height()));
     node
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   pub fn resource_svg(path: &str) -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
   }
@@ -5267,6 +5276,13 @@ impl Node {
     std::borrow::Cow::Owned(attrs)
   }
 
+  /// What the node says of itself to tooling: nothing without a tooling feature, which keeps none of it.
+  #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+  #[allow(dead_code)]
+  pub fn debug_attrs(&self) -> std::borrow::Cow<'_, [(Arc<str>, Arc<str>)]> {
+    std::borrow::Cow::Borrowed(&[])
+  }
+
   pub(crate) fn node_kind(&self) -> &NodeKind {
     &self.node_kind
   }
@@ -6475,9 +6491,9 @@ impl Node {
           fit: old_fit,
         },
       ) => path == old_path && fit == old_fit,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       (NodeKind::ResourceSvg { path }, NodeKind::ResourceSvg { path: old_path }) => path == old_path,
       _ => false,
     }

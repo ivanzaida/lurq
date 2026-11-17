@@ -1343,7 +1343,6 @@ impl PartialEq for VideoPlayerProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for VideoPlayerProps {}
 
 /// What keeps a mounted player's timer, width and menus.
@@ -1800,7 +1799,6 @@ impl PartialEq for PictureProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PictureProps {}
 
 /// The small window of a player in picture in picture: the player as large as the window, in its minimal form,

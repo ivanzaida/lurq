@@ -82,7 +82,7 @@ pub(crate) mod render;
 pub mod responsive;
 #[cfg(test)]
 mod size_budget;
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 pub mod svg;
 pub mod ui;
 

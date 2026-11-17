@@ -150,9 +150,9 @@ mod settings_card;
 mod shared;
 mod sheet;
 mod shortcut_recorder;
+mod sidebar;
 #[cfg(feature = "canvas")]
 mod signature_pad;
-mod sidebar;
 mod skeleton;
 mod slider;
 mod sortable_list;
@@ -190,8 +190,8 @@ mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
-mod waveform;
 mod watermark;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -245,8 +245,8 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
-pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
+pub use cascader::{Cascader, CascaderPart, CascaderRenderer, CascaderSize, CascaderState, CascaderView};
 #[cfg(feature = "canvas")]
 pub use chart::ChartLabel;
 #[cfg(feature = "canvas")]
@@ -470,9 +470,7 @@ pub use property_grid::{
   CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
   PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
 };
-pub use qr_code::{
-  QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect,
-};
+pub use qr_code::{QrCode, QrCodePart, QrCodeRenderer, QrCodeState, QrCodeView, QrLevel, QrMatrix, QrRect};
 #[cfg(feature = "canvas")]
 pub use radar_chart::{RadarChart, RadarChartPart};
 pub use radio::{
@@ -522,14 +520,14 @@ pub use shortcut_recorder::{
   ShortcutCheck, ShortcutRecorder, ShortcutRecorderPart, ShortcutRecorderRenderer, ShortcutRecorderSize,
   ShortcutRecorderState, ShortcutRecorderView, ShortcutValue,
 };
+pub use sidebar::{
+  Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
+  SidebarState, SidebarTrigger, SidebarView,
+};
 #[cfg(feature = "canvas")]
 pub use signature_pad::{
   Signature, SignaturePad, SignaturePadPart, SignaturePadRenderer, SignaturePadState, SignaturePadView, SignaturePoint,
   SignatureStroke,
-};
-pub use sidebar::{
-  Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
-  SidebarState, SidebarTrigger, SidebarView,
 };
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{
@@ -639,11 +637,11 @@ pub use video_player::{
   VideoPlayerMenu, VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerTouch,
   VideoPlayerView,
 };
-pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use watermark::{
   WATERMARK_ANGLE, WATERMARK_GAP, WATERMARK_OFFSET, WATERMARK_STAGGER, Watermark, WatermarkPart, WatermarkRenderer,
   WatermarkState, WatermarkView,
 };
+pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,
@@ -679,7 +677,6 @@ macro_rules! names {
 
     // A name of the design system goes in a signal with DevTools on, as any value an app keeps does: a
     // playground's variant, a setting's size.
-    #[cfg(feature = "devtools")]
     impl $crate::app::component::DevtoolsInspectable for $type {
       fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
         formatter.value_debug(&self.as_str());
@@ -694,7 +691,6 @@ pub(crate) use names;
 macro_rules! inspectable {
   ($($type:ty),* $(,)?) => {
     $(
-      #[cfg(feature = "devtools")]
       impl $crate::app::component::DevtoolsInspectable for $type {
         fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
           formatter.value_debug(self);

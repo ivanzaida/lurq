@@ -650,7 +650,6 @@ impl PartialEq for TooltipProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TooltipProps {}
 
 /// How long a tooltip stays after the pointer left the element or the
@@ -966,16 +965,14 @@ impl Component for TooltipHost {
 
     let text = tooltip.text.clone();
     let describe = move |node: Node| {
-      // What tooling is told is kept only where there is tooling to tell.
-      #[cfg(any(feature = "devtools", feature = "mcp"))]
-      // Named by what it says of itself, or by a text in it: a button by its label.
-      let named = node
-        .debug_attrs()
-        .iter()
-        .any(|(name, value)| &**name == "a11y_name" && !value.trim().is_empty())
+      // Named by what it says of itself, or by a text in it: a button by its label. What tooling is told is kept
+      // only where there is tooling to tell.
+      let named = !crate::node::TOOLING
+        || node
+          .debug_attrs()
+          .iter()
+          .any(|(name, value)| &**name == "a11y_name" && !value.trim().is_empty())
         || says_something(&node);
-      #[cfg(not(any(feature = "devtools", feature = "mcp")))]
-      let named = true;
       let mut node = node
         .ref_element(anchor.clone())
         .on_mouse_enter(enter.clone())
@@ -996,7 +993,6 @@ impl Component for TooltipHost {
 /// Whether `node` or something in it is a text that says something: what
 /// names an element to what reads the tree where nothing else does. An icon
 /// is a glyph of the private use areas, which says nothing.
-#[cfg(any(feature = "devtools", feature = "mcp"))]
 fn says_something(node: &Node) -> bool {
   let private = |c: char| matches!(c, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{10FFFF}');
   node

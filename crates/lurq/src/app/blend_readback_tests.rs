@@ -98,7 +98,7 @@ fn scene(backdrop: Color, scrim: Color, image_id: u64) -> RenderList {
     rects: vec![rect(0.0, scrim)],
     glyphs: vec![glyph(COLUMN, scrim)],
     images: vec![image(COLUMN * 2.0, scrim, image_id)],
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     svgs: Vec::new(),
     layers: Vec::new(),
     backdrops: Vec::new(),

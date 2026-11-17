@@ -858,7 +858,7 @@ pub(crate) fn resolve_layers(
   rects: &[RectCmd],
   glyphs: &[GlyphCmd],
   #[cfg(feature = "raster")] images: &[crate::images::ImageCmd],
-  #[cfg(feature = "svg")] svgs: &[crate::svg::SvgCmd],
+  #[cfg(feature = "canvas")] svgs: &[crate::svg::SvgCmd],
   layers: &mut Vec<LayerCmd>,
 ) {
   layers.clear();
@@ -870,7 +870,7 @@ pub(crate) fn resolve_layers(
   glyphs.iter().for_each(|glyph| bounds.add_glyph(glyph));
   #[cfg(feature = "raster")]
   images.iter().for_each(|image| bounds.add_image(image));
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   svgs.iter().for_each(|svg| bounds.add_svg(svg));
   bounds.build(groups, viewport, scale, layers);
 }
@@ -938,7 +938,7 @@ pub(crate) fn image_extent(image: &crate::images::ImageCmd) -> Extent {
 }
 
 /// The pixels an SVG's mesh can paint, inside its clip.
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 pub(crate) fn svg_extent(svg: &crate::svg::SvgCmd) -> Extent {
   let mesh = svg.mesh.vertices.iter().fold(EMPTY_EXTENT, |extent, vertex| {
     let [x, y] = vertex.position;
@@ -992,7 +992,7 @@ impl LayerBoundsBuilder {
     self.add(image.order, image_extent(image));
   }
 
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   fn add_svg(&mut self, svg: &crate::svg::SvgCmd) {
     self.add(svg.order, svg_extent(svg));
   }

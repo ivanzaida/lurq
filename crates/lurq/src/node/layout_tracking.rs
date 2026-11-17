@@ -58,7 +58,7 @@ impl Node {
       // Keep controls pollable for resource images in any of those styles.
       #[cfg(all(feature = "image", feature = "http"))]
       NodeKind::Checkbox { .. } | NodeKind::Slider { .. } => subtree.resource_images = true,
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       NodeKind::ResourceSvg { .. } => subtree.resource_svgs = true,
       #[cfg(feature = "image")]
       NodeKind::LoadingImage { .. } => subtree.loading_images = true,

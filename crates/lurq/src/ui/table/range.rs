@@ -40,7 +40,6 @@ pub struct CellRange<K> {
   pub columns: Arc<[Arc<str>]>,
 }
 
-#[cfg(feature = "devtools")]
 impl<K> crate::app::component::DevtoolsInspectable for CellRange<K> {}
 
 impl<K> CellRange<K> {

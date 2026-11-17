@@ -246,7 +246,6 @@ impl PartialEq for ActionSheetProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ActionSheetProps {}
 
 /// The component of an action sheet, which keeps nothing: it asks the window for its safe area.

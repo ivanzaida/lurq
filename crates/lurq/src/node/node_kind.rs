@@ -224,11 +224,11 @@ pub(crate) enum NodeKind {
     /// How the pixels fill the node's box once they are loaded.
     fit: crate::node::BackgroundSize,
   },
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg {
     data: crate::svg::SvgData,
   },
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   ResourceSvg {
     path: Arc<str>,
   },
@@ -251,9 +251,9 @@ impl NodeKind {
       Self::Image { .. } | Self::Video { .. } => false,
       #[cfg(feature = "image")]
       Self::LoadingImage { .. } | Self::ResourceImage { .. } => false,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       Self::Svg { .. } => false,
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       Self::ResourceSvg { .. } => false,
     }
   }

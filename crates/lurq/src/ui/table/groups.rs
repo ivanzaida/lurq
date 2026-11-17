@@ -24,7 +24,6 @@ pub struct GroupKey {
   pub values: Vec<String>,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for GroupKey {}
 
 impl GroupKey {

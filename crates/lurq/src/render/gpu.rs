@@ -89,7 +89,7 @@ pub struct ImageInstance {
   pub radii: [f32; 4],
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SvgVertexGpu {

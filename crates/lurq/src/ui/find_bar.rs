@@ -714,7 +714,6 @@ impl PartialEq for FindBarProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for FindBarProps {}
 
 /// The room to read what is typed that a field keeps before the options in it, and the least it keeps before the

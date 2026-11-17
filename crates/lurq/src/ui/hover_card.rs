@@ -645,7 +645,6 @@ impl PartialEq for HoverCardProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for HoverCardProps {}
 
 /// What puts away a card the pointer opened.

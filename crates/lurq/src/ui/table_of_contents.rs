@@ -626,7 +626,6 @@ impl PartialEq for Props {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for Props {}
 
 /// The entry a scroll marks, of sections whose tops and bottoms in the window are `spans`: the last whose top has come

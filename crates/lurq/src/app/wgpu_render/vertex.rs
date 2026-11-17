@@ -1,6 +1,6 @@
 #[cfg(feature = "raster")]
 pub use crate::render::gpu::ImageInstance;
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 pub use crate::render::gpu::SvgVertexGpu;
 pub use crate::render::gpu::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 
@@ -197,7 +197,7 @@ impl ImageInstance {
   }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 impl SvgVertexGpu {
   pub fn desc() -> wgpu::VertexBufferLayout<'static> {
     wgpu::VertexBufferLayout {

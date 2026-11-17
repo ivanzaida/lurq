@@ -625,7 +625,6 @@ impl PartialEq for BreadcrumbProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for BreadcrumbProps {}
 
 /// What a mounted breadcrumb that overflows gives the breadcrumb it builds: where each step was laid out, and which

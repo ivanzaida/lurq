@@ -1402,7 +1402,6 @@ impl<T, M: RowSelection<T>> PartialEq for TreeViewHostProps<T, M> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T, M: RowSelection<T>> crate::app::component::DevtoolsInspectable for TreeViewHostProps<T, M> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("TreeView", format!("{} items at the top", self.tree.items.len()));
@@ -1658,7 +1657,6 @@ impl PartialEq for TreeRowProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TreeRowProps {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("TreeRow", format!("row {}", self.index));

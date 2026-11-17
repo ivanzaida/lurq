@@ -149,7 +149,7 @@ enum OrderedDraw {
   Glyph(GlyphRun),
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg(usize),
 }
 
@@ -161,7 +161,7 @@ impl OrderedDraw {
       Self::Glyph(GlyphRun { start, count, .. }) => PaintedDraw::Glyphs { start, count },
       #[cfg(feature = "raster")]
       Self::Image(index) => PaintedDraw::Image(index),
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       Self::Svg(index) => PaintedDraw::Svg(index),
     }
   }
@@ -182,7 +182,7 @@ enum ActivePipeline {
   Image,
   #[cfg(feature = "raster")]
   Nv12Image,
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg,
   Layer,
 }
@@ -190,14 +190,14 @@ enum ActivePipeline {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActiveVertexBuffer {
   CommonQuad,
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActiveIndexBuffer {
   CommonU16,
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   SvgU32,
 }
 
@@ -404,9 +404,9 @@ pub struct WgpuRenderEngine {
   image_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   svg_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   svg_bgl: Option<wgpu::BindGroupLayout>,
   surface: Option<wgpu::Surface<'static>>,
   surface_config: Option<wgpu::SurfaceConfiguration>,
@@ -691,9 +691,9 @@ impl WgpuRenderEngine {
       image_pipeline: None,
       #[cfg(feature = "raster")]
       nv12_image_pipeline: None,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       svg_pipeline: None,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       svg_bgl: None,
       surface: None,
       surface_config: None,
@@ -913,7 +913,7 @@ impl WgpuRenderEngine {
       self.image_pipeline = None;
       self.nv12_image_pipeline = None;
     }
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     {
       self.svg_bgl = None;
       self.svg_pipeline = None;
@@ -1401,7 +1401,7 @@ impl WgpuRenderEngine {
     };
 
     // --- SVG pipeline ---
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     let (svg_pipeline, svg_bgl) = {
       use vertex::SvgVertexGpu;
       let svg_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1514,7 +1514,7 @@ impl WgpuRenderEngine {
       self.image_pipeline = Some(image_pipeline);
       self.nv12_image_pipeline = Some(nv12_image_pipeline);
     }
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     {
       self.svg_pipeline = Some(svg_pipeline);
       self.svg_bgl = Some(svg_bgl);
@@ -2173,11 +2173,11 @@ impl RenderEngine for WgpuRenderEngine {
           }
         }
         + {
-          #[cfg(feature = "svg")]
+          #[cfg(feature = "canvas")]
           {
             list.svgs.len()
           }
-          #[cfg(not(feature = "svg"))]
+          #[cfg(not(feature = "canvas"))]
           {
             0
           }
@@ -2200,7 +2200,7 @@ impl RenderEngine for WgpuRenderEngine {
         .scratch_ordered_draws
         .push((image.order, OrderedDraw::Image(index)));
     }
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     for (index, svg) in list.svgs.iter().enumerate() {
       self.scratch_ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
     }
@@ -2935,7 +2935,7 @@ impl RenderEngine for WgpuRenderEngine {
               pass.draw_indexed(0..6, 0, 0..1);
               profile_if! { _draw_calls += 1; }
             }
-            #[cfg(feature = "svg")]
+            #[cfg(feature = "canvas")]
             OrderedDraw::Svg(index) => {
               use vertex::SvgVertexGpu;
 

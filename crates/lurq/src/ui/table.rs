@@ -272,7 +272,6 @@ pub struct TableSort {
   pub direction: SortDirection,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TableSort {}
 
 impl TableSort {
@@ -6182,7 +6181,6 @@ impl<R, K> PartialEq for TableProps<R, K> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<R, K> crate::app::component::DevtoolsInspectable for TableProps<R, K> {}
 
 /// What keeps a mounted table: the scroll of its rows, the widths of its columns, which rows are built.

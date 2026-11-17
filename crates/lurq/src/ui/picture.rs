@@ -1289,7 +1289,6 @@ impl Picture {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PictureProps {}
 
 /// What a picture keeps between renders.

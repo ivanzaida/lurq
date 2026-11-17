@@ -18,7 +18,7 @@ use std::{
 };
 
 use raw_window_handle::{DisplayHandle, RawWindowHandle, WindowHandle};
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_UINT;
 #[cfg(feature = "raster")]
 use windows::Win32::Graphics::{
@@ -116,7 +116,7 @@ use crate::app::{
 };
 #[cfg(feature = "raster")]
 use crate::render::gpu::ImageInstance;
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 use crate::render::gpu::SvgVertexGpu;
 use crate::{
   app::{
@@ -907,7 +907,7 @@ struct Dx12State {
   image_pipeline: ImagePipeline,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: ImagePipeline,
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   svg_pipeline: SvgPipeline,
   glyph_atlas: Option<GlyphAtlasTexture>,
   #[cfg(feature = "raster")]
@@ -1017,7 +1017,7 @@ struct ImagePipeline {
   pipeline_state: ID3D12PipelineState,
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 struct SvgPipeline {
   root_signature: ID3D12RootSignature,
   pipeline_state: ID3D12PipelineState,
@@ -1635,7 +1635,7 @@ impl ImagePipeline {
   }
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 impl SvgPipeline {
   unsafe fn new(device: &ID3D12Device, format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT) -> Result<Self> {
     let root_signature = create_rect_root_signature(device)?;
@@ -2193,7 +2193,7 @@ fn image_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 9] {
   ]
 }
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 fn svg_input_elements() -> [D3D12_INPUT_ELEMENT_DESC; 2] {
   [
     input_element(
@@ -2471,7 +2471,7 @@ enum OrderedDraw {
   Glyph(GlyphRun),
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg(usize),
 }
 
@@ -2483,7 +2483,7 @@ impl OrderedDraw {
       Self::Glyph(GlyphRun { start, count, .. }) => PaintedDraw::Glyphs { start, count },
       #[cfg(feature = "raster")]
       Self::Image(index) => PaintedDraw::Image(index),
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       Self::Svg(index) => PaintedDraw::Svg(index),
     }
   }
@@ -2746,7 +2746,7 @@ impl Dx12State {
     let image_pipeline = ImagePipeline::new(&device, RENDER_TARGET_FORMAT)?;
     #[cfg(feature = "raster")]
     let nv12_image_pipeline = ImagePipeline::new_nv12(&device, RENDER_TARGET_FORMAT)?;
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     let svg_pipeline = SvgPipeline::new(&device, RENDER_TARGET_FORMAT)?;
 
     let command_allocators = [
@@ -2792,7 +2792,7 @@ impl Dx12State {
       image_pipeline,
       #[cfg(feature = "raster")]
       nv12_image_pipeline,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       svg_pipeline,
       glyph_atlas: None,
       #[cfg(feature = "raster")]
@@ -3216,7 +3216,7 @@ impl Dx12State {
     let has_draws = !list.rects.is_empty() || !list.glyphs.is_empty();
     #[cfg(feature = "raster")]
     let has_draws = has_draws || !list.images.is_empty();
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     let has_draws = has_draws || !list.svgs.is_empty();
     if !has_draws {
       return Ok(());
@@ -3261,7 +3261,7 @@ impl Dx12State {
     for (index, image) in list.images.iter().enumerate() {
       ordered_draws.push((image.order, OrderedDraw::Image(index)));
     }
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     for (index, svg) in list.svgs.iter().enumerate() {
       ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
     }
@@ -3422,7 +3422,7 @@ impl Dx12State {
         }
         Ok(())
       }
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       OrderedDraw::Svg(index) => dx12_context(self.draw_svg(&list.svgs[index]), format_args!("draw dx12 svg #{index}")),
     }
   }
@@ -3897,7 +3897,7 @@ impl Dx12State {
     Ok(())
   }
 
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   unsafe fn draw_svg(&mut self, svg: &crate::svg::SvgCmd) -> Result<()> {
     if svg.mesh.vertices.is_empty() || svg.mesh.indices.is_empty() {
       return Ok(());
@@ -5056,7 +5056,7 @@ mod tests {
         compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
       }
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       {
         compile_shader(include_bytes!("shaders/svg.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/svg.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();

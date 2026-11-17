@@ -129,7 +129,7 @@ fn list(rects: Vec<RectCmd>, glyphs: Vec<GlyphCmd>) -> RenderList {
     glyphs,
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     svgs: Vec::new(),
     layers: Vec::new(),
     backdrops: Vec::new(),

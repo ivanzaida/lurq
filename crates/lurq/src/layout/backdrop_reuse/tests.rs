@@ -87,7 +87,7 @@ fn list(rects: Vec<RectCmd>, backdrops: Vec<BackdropCmd>) -> RenderList {
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     svgs: Vec::new(),
     layers: Vec::new(),
     backdrops,
@@ -134,7 +134,7 @@ impl Scene {
     for (index, image) in list.images.iter().enumerate() {
       draws.push((image.order, PaintedDraw::Image(index)));
     }
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     for (index, svg) in list.svgs.iter().enumerate() {
       draws.push((svg.order, PaintedDraw::Svg(index)));
     }
