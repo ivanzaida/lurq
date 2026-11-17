@@ -104,6 +104,13 @@ pub trait RenderEngine {
 
   fn release_window_surface(&mut self) {}
 
+  /// Whether the engine draws no more, for its graphics device is lost: the card was reset (a driver that
+  /// hung or was updated) or taken away. The tree makes another engine in its place, with what made this
+  /// one (`Tree::set_render_engine_factory`).
+  fn lost(&self) -> bool {
+    false
+  }
+
   fn wants_redraw(&self) -> bool {
     false
   }

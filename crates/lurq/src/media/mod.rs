@@ -39,6 +39,12 @@ mod apple;
 mod cache;
 #[cfg(windows)]
 mod mf;
+
+/// Has the next frame a media shows on a card find its device removed, as a card that is reset removes it.
+#[cfg(all(test, windows))]
+pub(crate) fn lose_card_for_test() {
+  mf::LOSE_CARD.store(true, std::sync::atomic::Ordering::Release);
+}
 #[cfg(windows)]
 mod output;
 

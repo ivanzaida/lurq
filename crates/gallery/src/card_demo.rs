@@ -8,6 +8,10 @@
 //! rows past the picture are bright pink, and none of it shows where the picture's part is drawn right. Each
 //! frame is shown with the value its fence will have once it is written, and with a lease that gives its
 //! texture back when lurq has finished with it; a frame for which no texture is free is skipped.
+//!
+//! One of the decoders is on another card than the one lurq draws on, as a decoder is on a machine with two:
+//! the system's card of software stands for the other card. lurq's device opens nothing of it, and its frames
+//! come through memory.
 
 use std::{
   sync::{
@@ -18,12 +22,14 @@ use std::{
   time::Duration,
 };
 
-use lurq::images::{CardCrop, CardFrame, CardFrames, CardSurface, ImageData, NativeImageData, card_frames_adapter};
+use lurq::images::{
+  CardCrop, CardFrame, CardFrames, CardFramesWay, CardSurface, ImageData, NativeImageData, card_frames_adapter,
+};
 use windows::{
   Win32::{
     Foundation::{HMODULE, LUID},
     Graphics::{
-      Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1},
+      Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1},
       Direct3D11::{
         D3D11_BIND_SHADER_RESOURCE, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_FENCE_FLAG_SHARED,
         D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
@@ -60,12 +66,22 @@ pub enum Kind {
   Planes,
   /// One texture of red, green and blue.
   Rgba,
+  /// A texture of gray and one of color, of a decoder on another card than the one lurq draws on.
+  OtherCard,
 }
 
 /// A decoder that runs, and the image of its frames. It stops when this is dropped.
 pub struct Decoded {
   pub image: ImageData,
+  frames: CardFrames,
   stop: Arc<AtomicBool>,
+}
+
+impl Decoded {
+  /// How the frames come to the screen, once lurq has opened them.
+  pub fn way(&self) -> Option<CardFramesWay> {
+    self.frames.way()
+  }
 }
 
 impl Drop for Decoded {
@@ -79,7 +95,7 @@ impl Drop for Decoded {
 pub fn start(kind: Kind) -> Option<Decoded> {
   let adapter = card_frames_adapter()?;
   let stop = Arc::new(AtomicBool::new(false));
-  let (told, image) = mpsc::channel();
+  let (told, made) = mpsc::channel();
   let stopped = stop.clone();
   std::thread::Builder::new()
     .name("gallery-card-decoder".to_owned())
@@ -88,8 +104,8 @@ pub fn start(kind: Kind) -> Option<Decoded> {
       let _ = unsafe { run(kind, adapter, &stopped, &told) };
     })
     .ok()?;
-  let image = image.recv_timeout(Duration::from_secs(5)).ok()?;
-  Some(Decoded { image, stop })
+  let (image, frames) = made.recv_timeout(Duration::from_secs(5)).ok()?;
+  Some(Decoded { image, frames, stop })
 }
 
 /// The textures of one surface: its only one, or the gray's and the color's.
@@ -140,17 +156,28 @@ unsafe fn texture(
   }
 }
 
-unsafe fn run(kind: Kind, adapter: (u32, i32), stop: &AtomicBool, told: &mpsc::Sender<ImageData>) -> Result<()> {
+unsafe fn run(
+  kind: Kind,
+  adapter: (u32, i32),
+  stop: &AtomicBool,
+  told: &mpsc::Sender<(ImageData, CardFrames)>,
+) -> Result<()> {
   unsafe {
-    let cards: IDXGIFactory4 = CreateDXGIFactory1()?;
-    let card: IDXGIAdapter = cards.EnumAdapterByLuid(LUID {
-      LowPart: adapter.0,
-      HighPart: adapter.1,
-    })?;
+    // The card lurq draws on, or for the decoder on another card the system's card of software.
+    let (card, driver) = if matches!(kind, Kind::OtherCard) {
+      (None, D3D_DRIVER_TYPE_WARP)
+    } else {
+      let cards: IDXGIFactory4 = CreateDXGIFactory1()?;
+      let card: IDXGIAdapter = cards.EnumAdapterByLuid(LUID {
+        LowPart: adapter.0,
+        HighPart: adapter.1,
+      })?;
+      (Some(card), D3D_DRIVER_TYPE_UNKNOWN)
+    };
     let (mut device, mut context): (Option<ID3D11Device>, Option<ID3D11DeviceContext>) = (None, None);
     D3D11CreateDevice(
-      &card,
-      D3D_DRIVER_TYPE_UNKNOWN,
+      card.as_ref(),
+      driver,
       HMODULE::default(),
       D3D11_CREATE_DEVICE_BGRA_SUPPORT,
       Some(&[D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0]),
@@ -183,7 +210,7 @@ unsafe fn run(kind: Kind, adapter: (u32, i32), stop: &AtomicBool, told: &mpsc::S
           });
           shared.push(CardSurface::Nv12(handle));
         }
-        Kind::Planes => {
+        Kind::Planes | Kind::OtherCard => {
           let (gray, gray_handle) = texture(&device, DXGI_FORMAT_R8_UNORM, WIDE, CODED)?;
           let (color, color_handle) = texture(&device, DXGI_FORMAT_R8G8_UNORM, WIDE / 2, CODED / 2)?;
           surfaces.push(Surface {
@@ -208,7 +235,7 @@ unsafe fn run(kind: Kind, adapter: (u32, i32), stop: &AtomicBool, told: &mpsc::S
     // SAFETY: the handles are of textures of one kind and size and of a fence, made to be shared, given away.
     let frames = CardFrames::with_fence(shared, fence_handle);
     let image = NativeImageData::from_card_frames(WIDE, HIGH, frames.clone()).image_data();
-    if told.send(image).is_err() {
+    if told.send((image, frames.clone())).is_err() {
       return Ok(());
     }
 
@@ -234,7 +261,7 @@ unsafe fn run(kind: Kind, adapter: (u32, i32), stop: &AtomicBool, told: &mpsc::S
           bytes.extend(color(number));
           context.UpdateSubresource(&surface.first, 0, None, bytes.as_ptr().cast(), WIDE, 0);
         }
-        Kind::Planes => {
+        Kind::Planes | Kind::OtherCard => {
           let (bytes, tints) = (gray(number), color(number));
           context.UpdateSubresource(&surface.first, 0, None, bytes.as_ptr().cast(), WIDE, 0);
           if let Some(second) = &surface.second {
