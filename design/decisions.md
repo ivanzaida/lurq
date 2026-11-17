@@ -46,7 +46,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **With it.** Read-only styled text holds inline elements in its line (the inline form "in a sentence"), built on
   the inline objects of the text input; `open_url` in the engine, by each platform's own call, which the preview uses
   unless `on_open` is given.
-- **State.** In work on `claude/link-preview`.
+- **State.** Built (`claude/link-preview`, merged 2026-11-17), with `Ctx::focus_handle`, `.copy_text`, inline objects without `markdown` and the `/favicon.ico` fallback.
 
 ### Cargo features
 
@@ -60,8 +60,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   call-site cfgs behind macros. The browser keeps an explicit list. Tests: seven runs (A–G) in place of five feature
   combinations. SVG is always rasterized at the size it is drawn: the tessellation an `svg`-only build had is removed
   (Ivan, the same day), as no build has it once `canvas` brings `raster`.
-- **State.** In work in the session "Clean up lurq's Cargo features" (`feature-cleanup`); first merges the 0.62.0
-  release from `master`.
+- **State.** Built (the session "Clean up lurq's Cargo features", merged 2026-11-17 with the 0.62.0 release from
+  `master`): 25 features, the desktop `default`, the runs A–G in `target/suites2.sh`.
 
 ### Editing commands in one place
 
