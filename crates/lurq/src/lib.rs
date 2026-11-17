@@ -1,6 +1,12 @@
 extern crate self as lurq;
 
 pub use lurq_macros::DevtoolsInspectable;
+/// wgpu, at the version lurq draws with: what an app's own GPU code (a
+/// [`WgpuFrameExtension`](app::wgpu_render::WgpuFrameExtension), a
+/// [`GpuViewport`](components::GpuViewport)'s texture) is written against, so
+/// that its `wgpu::Device` is lurq's type and the app pins no version of its own.
+#[cfg(feature = "wgpu")]
+pub use wgpu;
 
 /// What lurq's macros reach from the crates they are expanded in. Not for an app to name.
 #[doc(hidden)]

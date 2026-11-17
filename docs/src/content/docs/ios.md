@@ -374,6 +374,7 @@ ctx.window().on_app_event(move |event| match event {
 | `OpenUrl(url)` | The app was opened with a link: a scheme of its own (`CFBundleURLTypes` in `Info.plist`) |
 | `Shortcut(kind)` | The app was opened by one of its home screen shortcuts |
 | `Rotated(orientation)` | The way the content is turned: at the start, and whenever it changes |
+| `GraphicsDeviceLost` | The window's graphics device was lost, and lurq draws it with another: on every system ([A Lost Device](../gpu-viewport/#a-lost-device)) |
 
 ### More than one window
 

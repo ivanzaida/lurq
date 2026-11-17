@@ -326,8 +326,14 @@ mod card {
 }
 
 /// Has `lost` say when `device`, of `adapter`'s card, is lost, and has an error of a device that is lost end
-/// nothing. Any other error ends the program as it did, for it is a fault of the engine's.
-pub(super) fn watch(device: &wgpu::Device, lost: &Arc<AtomicBool>, adapter: &wgpu::Adapter) {
+/// nothing. An error of the app's own calls ends nothing either: it is logged and kept in `untold` for the
+/// extensions (see `app_errors`). Any other error ends the program as it did, for it is a fault of the engine's.
+pub(super) fn watch(
+  device: &wgpu::Device,
+  lost: &Arc<AtomicBool>,
+  adapter: &wgpu::Adapter,
+  untold: &super::app_errors::Untold,
+) {
   #[cfg(not(target_arch = "wasm32"))]
   card::remember(device, lost, adapter);
   #[cfg(target_arch = "wasm32")]
@@ -338,12 +344,23 @@ pub(super) fn watch(device: &wgpu::Device, lost: &Arc<AtomicBool>, adapter: &wgp
   });
   let removed = removed_asker(device);
   let lost = lost.clone();
+  let untold = untold.clone();
   device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
     // wgpu may say what failed before it says that the device is lost: the card is asked itself.
     if lost.load(Ordering::Acquire) || removed() {
       say(&lost);
       return;
     }
+    // wgpu tells an error on the thread that made the call, where a browser tells it later, out of any call.
+    #[cfg(not(target_arch = "wasm32"))]
+    if !super::app_errors::is_own() {
+      let error = super::WgpuAppError::from(error);
+      super::app_errors::log(&error);
+      untold.push(error);
+      return;
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = &untold;
     panic!("wgpu error: {error}");
   }));
 }
@@ -510,7 +527,11 @@ mod told_by_wgpu {
     atomic::{AtomicBool, Ordering},
   };
 
+  /// Run by itself (`--ignored`), as the tests of Direct3D 12 above: the loss it makes is the whole test
+  /// program's (`happened`, the card that is waited for), and an engine of another test that asks for a device
+  /// within a moment of it is told to wait, and draws no frame.
   #[test]
+  #[ignore = "a loss is the whole test program's: run alone, with --ignored"]
   fn a_vulkan_device_that_wgpu_says_is_lost_is_lost_and_ends_nothing() {
     let instance = super::super::new_instance(wgpu::Backends::VULKAN);
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
@@ -524,7 +545,7 @@ mod told_by_wgpu {
     )))
     .expect("a device");
     let lost = Arc::new(AtomicBool::new(false));
-    super::watch(&device, &lost, &adapter);
+    super::watch(&device, &lost, &adapter, &Default::default());
     assert!(!super::is_lost(&device, &lost));
     // Drawn with, it is whole.
     queue.submit([device.create_command_encoder(&Default::default()).finish()]);
@@ -593,7 +614,7 @@ mod tests {
     )))
     .expect("a device");
     let lost = Arc::new(AtomicBool::new(false));
-    super::watch(&device, &lost, &adapter);
+    super::watch(&device, &lost, &adapter, &Default::default());
     assert!(!super::is_lost(&device, &lost));
 
     // SAFETY: the device of this test's own is removed, as a card that is reset removes it.

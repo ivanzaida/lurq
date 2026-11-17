@@ -807,6 +807,8 @@ pub struct Tree {
   render_engine_factory: Option<RenderEngineFactory>,
   /// When an engine was last made in the place of one that was lost.
   render_engine_replaced: Option<Instant>,
+  /// Whether the window is lurq's own tooling (DevTools): its engines run none of the app's extensions.
+  draws_tooling: bool,
   root: Option<Node>,
   root_component: Option<Box<dyn AnyRootComponent>>,
   root_ctx: Option<Ctx>,
@@ -1332,6 +1334,7 @@ impl Tree {
       render_engine: None,
       render_engine_factory: None,
       render_engine_replaced: None,
+      draws_tooling: false,
       root: None,
       root_component: None,
       root_ctx: None,
@@ -1971,7 +1974,7 @@ impl Tree {
     F: Fn() -> Box<dyn RenderEngine> + 'static,
   {
     let factory: RenderEngineFactory = Arc::new(factory);
-    self.render_engine = Some((factory)());
+    self.render_engine = Some(self.engine_of(&factory));
     self.render_engine_factory = Some(factory);
     self.apply_render_engine_factory_to_secondaries();
   }
@@ -2040,13 +2043,23 @@ impl Tree {
     }
   }
 
+  /// An engine from `factory` for this tree's window. One of lurq's own tooling runs none of the app's
+  /// extensions.
+  fn engine_of(&self, factory: &RenderEngineFactory) -> Box<dyn RenderEngine> {
+    let mut engine = factory();
+    if self.draws_tooling {
+      engine.draws_tooling();
+    }
+    engine
+  }
+
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn apply_render_engine_factory_to_secondary(&self, window: &mut SecondaryWindow) {
     if window.open
       && window.tree.render_engine.is_none()
       && let Some(factory) = &self.render_engine_factory
     {
-      window.tree.render_engine = Some((factory)());
+      window.tree.render_engine = Some(window.tree.engine_of(factory));
       window.tree.render_engine_factory = Some(factory.clone());
     }
   }
@@ -2057,7 +2070,7 @@ impl Tree {
     };
     for window in &mut self.secondary_windows {
       if window.open {
-        window.tree.render_engine = Some((factory)());
+        window.tree.render_engine = Some(window.tree.engine_of(&factory));
         window.tree.render_engine_factory = Some(factory.clone());
       }
     }
@@ -2072,7 +2085,7 @@ impl Tree {
       return;
     };
     if window.open && window.tree.render_engine.is_none() {
-      window.tree.render_engine = Some((factory)());
+      window.tree.render_engine = Some(window.tree.engine_of(&factory));
       window.tree.render_engine_factory = Some(factory.clone());
     }
   }
@@ -2177,6 +2190,7 @@ impl Tree {
   #[cfg(feature = "devtools")]
   pub fn mount_devtools(&mut self, app: &mut App) {
     let mut devtools = Tree::new();
+    devtools.draws_tooling = true;
     let selected_path = self.devtools_state.selected_path.lock().unwrap().clone();
     devtools.mount_root::<DevTools>(
       app,
@@ -2759,7 +2773,7 @@ impl Tree {
     for window in &mut self.secondary_windows {
       window.tree.replace_lost_render_engine();
     }
-    let mut engine = (factory)();
+    let mut engine = self.engine_of(&factory);
     engine.resize(
       self.viewport_physical.width as u32,
       self.viewport_physical.height as u32,
@@ -2776,6 +2790,11 @@ impl Tree {
     }
     self.request_redraw();
     self.window.wake();
+    // The app hears of it once lurq has let go of what was made with the lost device and has an engine in its
+    // place: what it makes again from here is made with the new device.
+    self
+      .window
+      .dispatch_app_event(&crate::app::window::AppEvent::GraphicsDeviceLost);
   }
 
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
@@ -3892,9 +3911,11 @@ impl Tree {
     let _gpu_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _render_phase = self.profiling.context.phase(crate::app::profiler::Phase::Render);
+    let scale_factor = self.scale_factor();
     let Some(render_engine) = &mut self.render_engine else {
       return report;
     };
+    render_engine.set_scale_factor(scale_factor);
     #[cfg(feature = "canvas")]
     {
       let _canvas_start = profile_scope!();
@@ -7117,10 +7138,12 @@ impl Tree {
 
     let gpu_wall_start = Instant::now();
     let _gpu_start = profile_scope!();
+    let scale_factor = self.scale_factor();
     let Some(render_engine) = &mut self.render_engine else {
       self.cached_render_list = Some(cached);
       return Some(false);
     };
+    render_engine.set_scale_factor(scale_factor);
     #[cfg(feature = "perf_profile")]
     let _render_phase = self.profiling.context.phase(crate::app::profiler::Phase::Render);
     #[cfg(feature = "canvas")]

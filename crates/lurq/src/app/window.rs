@@ -28,7 +28,7 @@ pub struct WindowInfo {
 }
 
 /// What the system tells an app about itself, heard with `ctx.window().on_app_event(..)`. A phone tells all of
-/// it; a desktop shell tells none of it yet.
+/// it; a desktop tells [`GraphicsDeviceLost`](Self::GraphicsDeviceLost) alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppEvent {
   /// The app is in front and takes input.
@@ -51,6 +51,13 @@ pub enum AppEvent {
   /// ([`WindowOpener`](crate::app::WindowOpener)) is shown there; while it opens none the place stays empty,
   /// and a display shows what the device does.
   WindowAsked { external: bool },
+  /// The graphics device the window was drawn with was lost (its card was reset, by a driver that hung or was
+  /// updated, or taken away), and lurq draws the window with another from its next frame. Told to each window
+  /// whose engine was replaced, once lurq let go of everything of its own made with the lost device and the
+  /// app's `WgpuFrameExtension`s were told (`device_lost`). What the app made with the lost device itself, a
+  /// texture or a pipeline it keeps outside an extension, is gone: it lets go of it and makes it again with the
+  /// new device, which its extensions are given.
+  GraphicsDeviceLost,
 }
 
 /// A way a phone is held, and so the way an app's content is turned. Several are joined with `|` into the
@@ -648,7 +655,6 @@ impl Window {
   }
 
   /// Gives the window's handler something the system said of the app.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(crate) fn dispatch_app_event(&self, event: &AppEvent) {
     // Never hold the state lock across application code.
     let handler = self.inner.read().unwrap().app_event_handler.clone();

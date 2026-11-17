@@ -2,6 +2,8 @@
 mod decoded_image;
 mod dnd;
 mod engine_looks;
+#[cfg(all(feature = "wgpu", feature = "image", feature = "canvas"))]
+mod gpu_viewport;
 mod refresh;
 mod sheet;
 mod swipe_row;

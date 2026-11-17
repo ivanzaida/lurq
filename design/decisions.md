@@ -11,6 +11,49 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### `GpuViewport` has no limits that are defects
+
+- **Question.** The guide to `GpuViewport` (`docs/src/content/docs/gpu-viewport.md`) listed eight limits an app had to
+  work around: lurq did not re-export wgpu; the frame had no scale factor and only the unclipped rectangle; a
+  viewport with no size was one pixel square; nothing checked a texture's format; a validation error of the app's own
+  wgpu calls ended the program; the `dx12` renderer failed a frame with a viewport; each window had a device of its
+  own, so a slot could not be shown in two, and DevTools' window ran the app's extensions; and only an extension heard
+  of a lost device. Ivan: known defects are fixed, not documented.
+- **Decision (the session given the task, as the task left each shape to it).**
+  1. `lurq::wgpu` is wgpu itself, re-exported with the `wgpu` feature: an app writes `use lurq::wgpu;` and pins
+     nothing.
+  2. `WgpuFrameInfo::scale_factor` is the window's, and `WgpuFrameInfo::visible_viewport(id)` is the part of the
+     viewport that is shown (cut by its parents' clips and the window's edges, `None` when none of it is), beside
+     `viewport(id)`, the whole box. Both in physical pixels; the engine is told the scale with the frame
+     (`RenderEngine::set_scale_factor`, called by the tree before each frame).
+  3. A `GpuViewport` with no size is 300 by 150 logical pixels, as lurq's `Canvas` is and as a browser's `<canvas>`
+     is: a surface the app draws on has one default size in lurq, and it is seen. Given one side, the other stays
+     the canvas's, as a `Canvas`'s does: there is no picture whose shape it keeps, and a viewport that took a
+     picture's would not grow with flex. Filling the container was not taken: a fill is nothing in a column as
+     high as its content, and the viewport would vanish as it did at one pixel. A size required in `new` was not
+     taken: most viewports are sized by flex and percentages, not numbers.
+  4. `set_texture_view` returns `Result<u64, WgpuTextureError>` and logs what it refuses: a texture without
+     `TEXTURE_BINDING`, not 2D, multisampled, or of a format lurq's image shader cannot read as filtered color
+     (integer, depth and stencil, 32-bit float). Everything else is shown right: an sRGB format is decoded by the
+     card, and a linear one (`Rgba8Unorm`, `Rgba16Float`) holds linear color, which is what a shader writes into it;
+     both are encoded once for the window. A slot that refuses a view keeps the one it had.
+  5. A wgpu error of the app's own calls ends nothing: what an extension's `initialize`, `prepare`, `device_lost` and
+     `shutdown` cause is caught in error scopes lurq pushes around them, and what the app causes elsewhere (a thread
+     of its own) reaches the device's handler outside lurq's own work. Each is logged and given to the extensions of
+     the device's engines, `WgpuFrameExtension::error(&WgpuAppError)`. An error of lurq's own work ends the program as
+     before. In a browser only the extension's calls can be told apart, the browser telling the rest later.
+  6. The `dx12` renderer leaves a viewport's box empty, what is under it showing through, and says once in the log
+     that it draws no `GpuViewport`. Sampling a wgpu texture there would need the texture shared between two APIs'
+     devices; an app that draws its own GPU code takes the `wgpu` renderer.
+  7. The `wgpu` engines of an app's windows share one device by default: an engine made without `with_device` takes
+     the device of another engine on its thread with the same backends, features and limits, while one draws, and
+     makes one otherwise. `WgpuRenderEngine::with_own_device()` keeps one apart. So one slot can be shown in two
+     windows: both draw the slot's one view, each stretched to its box. lurq's DevTools window runs none of the app's
+     extensions (`RenderEngine::draws_tooling`).
+  8. A lost device is an app event: `AppEvent::GraphicsDeviceLost`, told to each window's `on_app_event` handler
+     once its engine was replaced, after the extensions were told and before the window is drawn with the new device.
+- **State.** Built on `claude/gpu-viewport-8dee02` (2026-11-17), to be merged.
+
 ### lurq's own Direct3D 12 renderer draws the frames of a card
 
 - **Question.** `images::CardFrames` (a video's frames kept on the graphics card) were drawn by the `wgpu` renderer alone; under `Dx12RenderEngine` a video went through memory and an app's decoder was not drawn.
