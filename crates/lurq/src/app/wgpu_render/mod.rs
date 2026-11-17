@@ -1,9 +1,12 @@
 #[cfg(feature = "canvas")]
 mod canvas;
 #[cfg(all(windows, feature = "raster"))]
+mod card_copies;
+#[cfg(all(windows, feature = "raster"))]
 mod card_frames;
 #[cfg(all(test, windows, feature = "raster", feature = "media"))]
 mod card_frames_tests;
+mod device_loss;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
@@ -392,6 +395,10 @@ pub struct WgpuRenderEngine {
   backends: wgpu::Backends,
   /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`].
   prepared: Option<WgpuDevice>,
+  /// Whether the device is lost: the card was reset or taken away.
+  lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  /// How many frames to let pass before a device that was not given is asked for again.
+  device_wait: u32,
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
@@ -424,6 +431,9 @@ pub struct WgpuRenderEngine {
   /// The leases of the card's frames that are drawn no more, until the card has finished with them.
   #[cfg(all(feature = "raster", windows))]
   card_leases: card_frames::Leases,
+  /// A device on each of the machine's cards, for frames the renderer's own card does not open.
+  #[cfg(all(feature = "raster", windows))]
+  card_readers: card_copies::Readers,
   #[cfg(feature = "raster")]
   image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
@@ -559,6 +569,10 @@ fn device_descriptor(
 /// `webgl` feature WebGL2's where it has not. [`WgpuDevice::backend`] says
 /// which.
 ///
+/// A device that is lost (its card was reset or taken away) is made again, once for all the engines that
+/// share it: the engine that takes the place of a lost one asks this for its device, and is given another.
+/// Not in a browser, where a device is not waited for.
+///
 /// ```no_run
 /// # async fn start() {
 /// use lurq::app::{
@@ -573,14 +587,25 @@ fn device_descriptor(
 /// ```
 #[derive(Clone)]
 pub struct WgpuDevice {
-  instance: wgpu::Instance,
-  adapter: wgpu::Adapter,
-  device: wgpu::Device,
-  queue: wgpu::Queue,
+  /// The device as it is now: another one after a loss, and none while the card gives none.
+  made: std::sync::Arc<parking_lot::Mutex<Option<MadeDevice>>>,
+  /// Among which the device was asked for, and is asked for again.
+  backends: WgpuBackends,
+  backend: WgpuBackend,
   /// The surface of the page's canvas, which the adapter was asked for, until the engine that draws to the
   /// canvas takes it.
   #[cfg(target_arch = "wasm32")]
   surface: std::rc::Rc<std::cell::RefCell<Option<wgpu::Surface<'static>>>>,
+}
+
+/// A device with what it was made of, and what says that it is lost.
+#[derive(Clone)]
+struct MadeDevice {
+  instance: wgpu::Instance,
+  adapter: wgpu::Adapter,
+  device: wgpu::Device,
+  queue: wgpu::Queue,
+  lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Why [`WgpuDevice::request`] has no device: no adapter (a browser without WebGPU), or one that refused the device.
@@ -605,7 +630,40 @@ impl WgpuDevice {
   /// is WebGPU, and `WgpuBackends::BROWSER_WEBGPU` for WebGPU alone.
   pub async fn request_with(backends: WgpuBackends) -> Result<Self, WgpuDeviceError> {
     #[cfg(not(target_arch = "wasm32"))]
+    let made = Self::ask(backends).await?;
+    #[cfg(target_arch = "wasm32")]
+    let (made, surface) = Self::ask(backends).await?;
+    Ok(Self {
+      backend: made.adapter.get_info().backend,
+      // In a browser nothing of wgpu's goes to another thread, and this is shared as on any system.
+      #[allow(clippy::arc_with_non_send_sync)]
+      made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
+      backends,
+      #[cfg(target_arch = "wasm32")]
+      surface: std::rc::Rc::new(std::cell::RefCell::new(Some(surface))),
+    })
+  }
+
+  /// Asks for an adapter among `backends` and its device, as an engine does for its first frame.
+  #[cfg(not(target_arch = "wasm32"))]
+  async fn ask(backends: WgpuBackends) -> Result<MadeDevice, WgpuDeviceError> {
     let instance = new_instance(backends);
+    let (adapter, device, queue) = Self::ask_of(&instance, None).await?;
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Where it is lost, the engines that draw with it are replaced, and are given another.
+    device_loss::watch(&device, &lost);
+    Ok(MadeDevice {
+      instance,
+      adapter,
+      device,
+      queue,
+      lost,
+    })
+  }
+
+  /// Asks for an adapter among `backends` for the page's canvas, and its device.
+  #[cfg(target_arch = "wasm32")]
+  async fn ask(backends: WgpuBackends) -> Result<(MadeDevice, wgpu::Surface<'static>), WgpuDeviceError> {
     // WebGL gives a device for a canvas, so the page's canvas is there before the device is.
     #[cfg(target_arch = "wasm32")]
     let (instance, surface) = {
@@ -626,13 +684,27 @@ impl WgpuDevice {
       .map_err(|error| WgpuDeviceError(format!("the page's canvas cannot be drawn to: {error}")))?;
       (instance, surface)
     };
+    let (adapter, device, queue) = Self::ask_of(&instance, Some(&surface)).await?;
+    let made = MadeDevice {
+      instance,
+      adapter,
+      device,
+      queue,
+      lost: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    Ok((made, surface))
+  }
+
+  /// The adapter of `instance` that draws to `surface`, or any where there is none to draw to yet, and its
+  /// device.
+  async fn ask_of(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'static>>,
+  ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), WgpuDeviceError> {
     let adapter = instance
       .request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
-        #[cfg(not(target_arch = "wasm32"))]
-        compatible_surface: None,
-        #[cfg(target_arch = "wasm32")]
-        compatible_surface: Some(&surface),
+        compatible_surface: surface,
         force_fallback_adapter: false,
       })
       .await
@@ -645,19 +717,32 @@ impl WgpuDevice {
       ))
       .await
       .map_err(|error| WgpuDeviceError(format!("failed to create device: {error}")))?;
-    Ok(Self {
-      instance,
-      adapter,
-      device,
-      queue,
-      #[cfg(target_arch = "wasm32")]
-      surface: std::rc::Rc::new(std::cell::RefCell::new(Some(surface))),
-    })
+    Ok((adapter, device, queue))
+  }
+
+  /// The device as it is now. One that is lost is let go of and another asked for, once for all that share
+  /// this; `None` while the card gives none, as Direct3D says it does not while anything holds the lost one.
+  fn current(&self) -> Option<MadeDevice> {
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
+    let mut made = self.made.lock();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      if made
+        .as_ref()
+        .is_some_and(|made| device_loss::is_lost(&made.device, &made.lost))
+      {
+        *made = None;
+      }
+      if made.is_none() {
+        *made = pollster::block_on(Self::ask(self.backends)).ok();
+      }
+    }
+    made.clone()
   }
 
   /// What the device draws through: `WgpuBackend::BrowserWebGpu` or `WgpuBackend::Gl` in a browser.
   pub fn backend(&self) -> WgpuBackend {
-    self.adapter.get_info().backend
+    self.backend
   }
 }
 
@@ -679,6 +764,8 @@ impl WgpuRenderEngine {
       instance: None,
       backends: default_backends(),
       prepared: None,
+      lost: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      device_wait: 0,
       adapter: None,
       device: None,
       queue: None,
@@ -710,6 +797,8 @@ impl WgpuRenderEngine {
       image_texture_cache: std::collections::HashMap::new(),
       #[cfg(all(feature = "raster", windows))]
       card_leases: card_frames::Leases::default(),
+      #[cfg(all(feature = "raster", windows))]
+      card_readers: card_copies::Readers::default(),
       #[cfg(feature = "raster")]
       image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
@@ -1038,9 +1127,18 @@ impl WgpuRenderEngine {
     }
   }
 
-  /// Asks for the adapter that draws to `surface` and its device, and waits for them.
+  /// Whether the device this draws with is lost.
+  fn device_is_lost(&self) -> bool {
+    self
+      .device
+      .as_ref()
+      .is_some_and(|device| device_loss::is_lost(device, &self.lost))
+  }
+
+  /// Asks for the adapter that draws to `surface` and its device, and waits for them. `None` where a device
+  /// was lost in this program and the card gives none yet: it is asked for again some frames later.
   #[cfg(not(target_arch = "wasm32"))]
-  fn request_device(&self, surface: &wgpu::Surface<'static>) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+  fn request_device(&self, surface: &wgpu::Surface<'static>) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     let adapter = pollster::block_on(
       self
         .instance
@@ -1051,20 +1149,26 @@ impl WgpuRenderEngine {
           compatible_surface: Some(surface),
           force_fallback_adapter: false,
         }),
-    )
-    .expect("no suitable GPU adapter found");
-    let (device, queue) = pollster::block_on(adapter.request_device(&device_descriptor(
+    );
+    if adapter.is_err() && device_loss::happened() {
+      return None;
+    }
+    let adapter = adapter.expect("no suitable GPU adapter found");
+    let made = pollster::block_on(adapter.request_device(&device_descriptor(
       &adapter,
       self.optional_device_features,
       &self.optional_device_limits,
-    )))
-    .expect("failed to create device");
-    (adapter, device, queue)
+    )));
+    if made.is_err() && device_loss::happened() {
+      return None;
+    }
+    let (device, queue) = made.expect("failed to create device");
+    Some((adapter, device, queue))
   }
 
   /// A browser answers through a promise, which a frame cannot wait for.
   #[cfg(target_arch = "wasm32")]
-  fn request_device(&self, _surface: &wgpu::Surface<'static>) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+  fn request_device(&self, _surface: &wgpu::Surface<'static>) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     panic!(
       "in a browser the GPU device comes from a promise: await `WgpuDevice::request()` before the window starts and \
        give the device with `WgpuRenderEngine::with_device`"
@@ -1076,9 +1180,26 @@ impl WgpuRenderEngine {
       return;
     }
 
+    // A device that was not given is not asked for in every frame.
+    if self.device_wait > 0 {
+      self.device_wait -= 1;
+      return;
+    }
+
+    // A device this was given, as it is now: another one where the first was lost.
+    let given = match &self.prepared {
+      Some(prepared) if self.device.is_none() => match prepared.current() {
+        Some(made) => Some(made),
+        None => {
+          self.device_wait = 15;
+          return;
+        }
+      },
+      _ => None,
+    };
     if self.instance.is_none() {
-      self.instance = Some(match &self.prepared {
-        Some(prepared) => prepared.instance.clone(),
+      self.instance = Some(match &given {
+        Some(made) => made.instance.clone(),
         None => new_instance(self.backends),
       });
     }
@@ -1089,9 +1210,21 @@ impl WgpuRenderEngine {
       return;
     }
 
-    let (adapter, device, queue) = match self.prepared.clone() {
-      Some(prepared) => (prepared.adapter, prepared.device, prepared.queue),
-      None => self.request_device(&surface),
+    let (adapter, device, queue) = match given {
+      Some(made) => {
+        // All that share the device lose it together.
+        self.lost = made.lost;
+        (made.adapter, made.device, made.queue)
+      }
+      None => {
+        let Some(made) = self.request_device(&surface) else {
+          self.device_wait = 15;
+          return;
+        };
+        // The device is this engine's own: where it is lost, another engine takes this one's place.
+        device_loss::watch(&made.1, &self.lost);
+        made
+      }
     };
     // What decodes a video decodes on the card this draws on, and its frames stay there.
     #[cfg(all(windows, feature = "raster"))]
@@ -1684,6 +1817,14 @@ impl RenderEngine for WgpuRenderEngine {
   }
 
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
+    // A device that is lost is asked nothing more: what it answers is errors.
+    if self.device_is_lost() {
+      #[cfg(feature = "screenshot")]
+      if let Some(capture) = self.pending_frame_capture.take() {
+        capture.target.fail("the graphics device was lost");
+      }
+      return false;
+    }
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
@@ -1692,6 +1833,14 @@ impl RenderEngine for WgpuRenderEngine {
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderInit));
     self.ensure_initialized(window, display);
+    // After a loss the card may give no device yet: the frame is not drawn, and is asked for again.
+    if self.device.is_none() || self.surface.is_none() {
+      #[cfg(feature = "screenshot")]
+      if let Some(capture) = self.pending_frame_capture.take() {
+        capture.target.fail("the graphics device was lost");
+      }
+      return false;
+    }
     self.apply_pending_surface_size();
     let _init_dur = profile_elapsed!(_init_start);
     #[cfg(feature = "perf_profile")]
@@ -2073,7 +2222,8 @@ impl RenderEngine for WgpuRenderEngine {
     #[cfg(feature = "raster")]
     let _image_upload_start = profile_scope!();
     // The frames that stay on the card: their surfaces are opened once, and the frame to draw is taken now, for
-    // the part of its texture an image is drawn from is the frame's to say.
+    // the part of its texture an image is drawn from is the frame's to say. A frame of another card is sent
+    // from memory here, before anything is drawn.
     #[cfg(all(feature = "raster", windows))]
     if let (Some(image_bgl), Some(nv12_image_bgl), Some(image_sampler)) = (
       self.image_bgl.as_ref(),
@@ -2118,14 +2268,14 @@ impl RenderEngine for WgpuRenderEngine {
             }
           };
           let size = (img.image_width, img.image_height);
-          if let Some(opened) = card_frames::Opened::open(device, frames, size, &self.card_leases, bind) {
-            self
-              .image_texture_cache
-              .insert(img.image_id, CachedImageTexture::Card(opened));
-          }
+          // Kept though nothing opens them: they are not asked for again in each frame.
+          let opened = card_frames::Opened::open(device, frames, size, &self.card_leases, &mut self.card_readers, bind);
+          self
+            .image_texture_cache
+            .insert(img.image_id, CachedImageTexture::Card(opened));
         }
         if let Some(CachedImageTexture::Card(opened)) = self.image_texture_cache.get_mut(&img.image_id) {
-          opened.pick();
+          opened.pick(queue);
         }
       }
     }
@@ -3127,6 +3277,10 @@ impl RenderEngine for WgpuRenderEngine {
       previous.target.fail("superseded before a frame was rendered");
     }
     self.render(list, window, display)
+  }
+
+  fn lost(&self) -> bool {
+    self.device_is_lost()
   }
 
   fn release_window_surface(&mut self) {

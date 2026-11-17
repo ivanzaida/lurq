@@ -83,6 +83,8 @@ mod hover;
 #[cfg(all(test, feature = "devtools"))]
 mod hover_devtools_tests;
 mod ime;
+#[cfg(all(test, feature = "screenshot", feature = "raster"))]
+mod lost_engine_tests;
 pub use ime::{AutofillPeer, KeyboardTraits, TextInputGeometry, TextInputSnapshot};
 mod edit;
 #[cfg(all(test, feature = "markdown"))]
@@ -759,6 +761,8 @@ pub struct Tree {
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
   render_engine_factory: Option<RenderEngineFactory>,
+  /// When an engine was last made in the place of one that was lost.
+  render_engine_replaced: Option<Instant>,
   root: Option<Node>,
   root_component: Option<Box<dyn AnyRootComponent>>,
   root_ctx: Option<Ctx>,
@@ -1279,6 +1283,7 @@ impl Tree {
       layout_engine: LayoutEngine::new(),
       render_engine: None,
       render_engine_factory: None,
+      render_engine_replaced: None,
       root: None,
       root_component: None,
       root_ctx: None,
@@ -1993,6 +1998,7 @@ impl Tree {
       && let Some(factory) = &self.render_engine_factory
     {
       window.tree.render_engine = Some((factory)());
+      window.tree.render_engine_factory = Some(factory.clone());
     }
   }
 
@@ -2003,6 +2009,7 @@ impl Tree {
     for window in &mut self.secondary_windows {
       if window.open {
         window.tree.render_engine = Some((factory)());
+        window.tree.render_engine_factory = Some(factory.clone());
       }
     }
   }
@@ -2017,6 +2024,7 @@ impl Tree {
     };
     if window.open && window.tree.render_engine.is_none() {
       window.tree.render_engine = Some((factory)());
+      window.tree.render_engine_factory = Some(factory.clone());
     }
   }
 
@@ -2667,7 +2675,52 @@ impl Tree {
     self.pass(app, &HeadlessSurface)
   }
 
+  /// An engine whose graphics device is lost (`RenderEngine::lost`) draws nothing again: another is made in
+  /// its place by what made it, as large as the window, and the window is drawn anew. Not more often than
+  /// once a second: an engine that is lost as soon as it is made is not made in every frame.
+  fn replace_lost_render_engine(&mut self) {
+    if !self.render_engine.as_ref().is_some_and(|engine| engine.lost()) {
+      return;
+    }
+    let Some(factory) = self.render_engine_factory.clone() else {
+      return;
+    };
+    if self
+      .render_engine_replaced
+      .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(1))
+    {
+      return;
+    }
+    self.render_engine_replaced = Some(Instant::now());
+    // The lost one first: it holds the window's surface, which the next one takes. And those of this tree's
+    // other windows with it, though nothing draws them now: they lost the same device, and Direct3D says a
+    // card gives no other to a program in which anything holds the lost one. An engine asks for its device
+    // when it first draws.
+    self.render_engine = None;
+    for window in &mut self.secondary_windows {
+      window.tree.replace_lost_render_engine();
+    }
+    let mut engine = (factory)();
+    engine.resize(
+      self.viewport_physical.width as u32,
+      self.viewport_physical.height as u32,
+    );
+    self.render_engine = Some(engine);
+    // What the canvases held was on the lost device: each is drawn again, by its painter in this pass, which
+    // goes over them as after a resize, and by who observes it.
+    #[cfg(feature = "canvas")]
+    {
+      for canvas in &self.canvas_registry {
+        canvas.content_lost();
+      }
+      self.invalidate_viewport_layout();
+    }
+    self.request_redraw();
+    self.window.wake();
+  }
+
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
+    self.replace_lost_render_engine();
     #[cfg(feature = "perf_profile")]
     let (_profile_start, _profile_phase) = self.profiling.begin_pass(self.frame_count + 1);
     #[cfg(feature = "perf_profile")]
