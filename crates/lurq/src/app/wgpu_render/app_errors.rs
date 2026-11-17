@@ -37,7 +37,9 @@ impl Drop for OwnWork {
   }
 }
 
-/// Whether an uncaptured error that comes now, on this thread, is of lurq's own work.
+/// Whether an uncaptured error that comes now, on this thread, is of lurq's own work. A browser tells an error
+/// out of any call, so this is not asked there.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(super) fn is_own() -> bool {
   OWN.get()
 }
