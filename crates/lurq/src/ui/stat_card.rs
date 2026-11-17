@@ -453,9 +453,29 @@ impl StatCardView {
   }
 }
 
+impl crate::ui::Styled for StatCard {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for StatCard {
   const NAME: &'static str = "stat_card";
   type Renderer = StatCardRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    StatCardPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    StatCardState::declared()
+  }
 
   /// The design's stat card (`pencil/lurq-design-system.pen`, Stat Card, in Charts' Examples): a card (the card's
   /// fill, an edge of 1 in the border's color, the extra large radius, the small shadow) 200 on the board and as

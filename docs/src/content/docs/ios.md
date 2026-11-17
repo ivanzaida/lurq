@@ -116,25 +116,25 @@ A finger's own events are separate, and bubble like the mouse's:
 | `on_pinch` | `PinchEvent` | two fingers moving apart or together: `scale` |
 | `on_rotate` | `RotateEvent` | two fingers turning: `rotation`, in radians |
 | `on_edge_pan` | `EdgePanEvent` | a finger in from a screen edge |
-| `on_history_swipe` | `HistorySwipeEvent` | the same from the left edge (back) or the right (forward) |
+| `on_history_swipe` | `HistorySwipeEvent` | the same from the left edge (back) or the right (forward); then [going back](../styling-events/#going-back-and-forward) |
 
 A double tap held and dragged zooms with one finger (`on_pinch`), three fingers swiped, pinched or tapped are the
 editing commands and their menu, and a pen's hover hovers: [every gesture](../styling-events/#every-gesture) has
 the table, with how each is made on a phone, in the emulator on a desktop and through MCP. In text, iOS draws its
 own caret, loupe and handles; elsewhere lurq draws them.
 
+A finger from the left edge goes back by itself: the router mounted in the window takes the command, after anything
+on the way that handles `on_history_back` (a sheet that closes on it).
+
 ```rust
-let navigator = ctx.navigator();
 Column::new()
     .on_tap(move |event: TapEvent| fingers.set(event.fingers))
-    .on_history_swipe(move |event: HistorySwipeEvent| {
-        if let Some(navigator) = &navigator {
-            match event.direction {
-                HistoryDirection::Back => navigator.back(),
-                HistoryDirection::Forward => navigator.forward(),
-            };
+    .on_history_back(move |event: HistoryEvent| {
+        if sheet_open.get_untracked() {
+            sheet_open.set(false);
+        } else {
+            event.pass_on();
         }
-        event.stop_propagation();
     })
 ```
 
@@ -374,6 +374,7 @@ ctx.window().on_app_event(move |event| match event {
 | `OpenUrl(url)` | The app was opened with a link: a scheme of its own (`CFBundleURLTypes` in `Info.plist`) |
 | `Shortcut(kind)` | The app was opened by one of its home screen shortcuts |
 | `Rotated(orientation)` | The way the content is turned: at the start, and whenever it changes |
+| `GraphicsDeviceLost` | The window's graphics device was lost, and lurq draws it with another: on every system ([A Lost Device](../gpu-viewport/#a-lost-device)) |
 
 ### More than one window
 

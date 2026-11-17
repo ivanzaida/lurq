@@ -166,6 +166,30 @@ impl WindowHandle {
     self.window.request_edit(command);
   }
 
+  /// Goes back, as Alt+← and the mouse's back button do: on the focused element and out from it
+  /// (`on_history_back`), then the router ([`NavigationCommand`](crate::app::events::NavigationCommand)). What a
+  /// native menu's item runs, whose handler has no `Ctx`. It is run once the handler that asked returns (or at the
+  /// next pass, asked from elsewhere); see [`Ctx::history_back`](crate::app::ctx::Ctx::history_back), which is the
+  /// same from a component.
+  pub fn history_back(&self) {
+    self.run_navigation(crate::app::events::NavigationCommand::Back);
+  }
+
+  /// Goes forward, as Alt+→ and the mouse's forward button do; see [`history_back`](Self::history_back).
+  pub fn history_forward(&self) {
+    self.run_navigation(crate::app::events::NavigationCommand::Forward);
+  }
+
+  /// Goes back or forward by `command`; see [`history_back`](Self::history_back).
+  pub fn run_navigation(&self, command: crate::app::events::NavigationCommand) {
+    self.window.request_navigation(crate::app::window::NavigationRequest {
+      command,
+      source: crate::app::events::NavigationSource::App,
+      origin: crate::app::window::NavigationOrigin::Focus,
+      done: None,
+    });
+  }
+
   /// The window's state this handle reads and writes.
   pub(crate) fn state(&self) -> Window {
     self.window.clone()

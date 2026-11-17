@@ -232,9 +232,29 @@ impl BlockquoteView {
   }
 }
 
+impl crate::ui::Styled for Blockquote {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Blockquote {
   const NAME: &'static str = "blockquote";
   type Renderer = BlockquoteRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BlockquotePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BlockquoteState::declared()
+  }
 
   /// The design's quote (`pencil/lurq-design-system.pen`, Blockquote `mlxnG`, in Prose and the Markdown document): a
   /// line of 2 in `Border` at its start, padded 16 after it and 4 above and below, its text 14 in italics on lines

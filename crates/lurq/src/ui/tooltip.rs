@@ -586,9 +586,29 @@ impl TooltipView {
   }
 }
 
+impl crate::ui::Styled for Tooltip {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Tooltip {
   const NAME: &'static str = "tooltip";
   type Renderer = TooltipRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TooltipPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TooltipState::declared()
+  }
 
   /// The design's tooltip (`pencil/lurq-design-system.pen`, Tooltip and
   /// Tooltip/Arrow): a box in the primary color with a radius of 6, its text

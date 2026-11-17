@@ -920,9 +920,29 @@ impl PaginationView {
   }
 }
 
+impl crate::ui::Styled for Pagination {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Pagination {
   const NAME: &'static str = "pagination";
   type Renderer = PaginationRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PaginationPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PaginationState::declared()
+  }
 
   /// The design's pagination (`pencil/lurq-design-system.pen`, Pagination
   /// and Pagination/Compact): buttons of 36, 4 apart, quiet, with the

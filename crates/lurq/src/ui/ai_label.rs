@@ -268,9 +268,29 @@ impl AiLabelView {
   }
 }
 
+impl crate::ui::Styled for AiLabel {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for AiLabel {
   const NAME: &'static str = "ai_label";
   type Renderer = AiLabelRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AiLabelPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    AiLabelState::declared()
+  }
 
   /// The design's AI label (`pencil/lurq-design-system.pen`, AI Label): 22
   /// high with the small radius, on `InfoMuted` in an edge of 1 in `Info`,

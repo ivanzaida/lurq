@@ -143,7 +143,7 @@ impl ActionBarPage {
       .height(260.0)
       .overflow_visible()
       .child(list(&self.selected, 260.0, &rows))
-      .child(plain().return_focus(rows.clone()).mount(ctx))
+      .child(self.playground.styled(plain().return_focus(rows.clone())).mount(ctx))
       .into();
 
     let mut code = vec![format!("ActionBar::new({count})")];

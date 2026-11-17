@@ -102,6 +102,9 @@ entry of the history, from the first to the current one, as a screen of its own:
   until it shows again;
 - on a touch screen a finger in from the left edge drags the top screen, and takes it back when lifted past
   half the width or fast enough;
+- the bar's way back and the finger from the edge [go back](#going-back-and-forward) from the top screen as
+  Alt+← does, so the screen hears it first: one with something unsaved that takes `on_history_back` stays, and a
+  screen a finger dragged comes back;
 - a `replace` swaps the top screen with no move.
 
 ```rust
@@ -348,6 +351,9 @@ if let Some(navigator) = ctx.navigator() {
 
 Use `push` for normal navigation and `replace` for redirects, login callbacks, initial route setup, or cases where the old path should not stay in history.
 
+`back` and `forward` move the router alone. A button of the app's own that goes back as a person does runs the
+command instead, `ctx.history_back()`: what is on the page hears it first ([below](#going-back-and-forward)).
+
 The current path is reactive:
 
 ```rust
@@ -355,6 +361,34 @@ let path = ctx.route_path();
 ```
 
 Reading it during render marks the component as dependent on route changes.
+
+## Going back and forward
+
+A mounted router is where going back ends: Alt+← (Cmd+[ on a Mac), the mouse's back button, a trackpad's swipe or a
+finger from the left edge, Android's back, a browser's back, and `ctx.history_back()` all reach it as one command,
+[`NavigationCommand`](../styling-events/#going-back-and-forward), with nothing to write. On its way the command
+passes the elements from the focus (or from under the pointer) out to the router, and an element that handles
+`on_history_back` takes it first; one that has nothing to do calls `event.pass_on()`.
+
+```rust
+use lurq::{app::events::HistoryEvent, components::Column};
+
+// A form asks before its unsaved changes are left; saved, it lets the router go back.
+Column::new()
+  .on_history_back(move |event: HistoryEvent| {
+    if unsaved.get_untracked() {
+      asking.set(true);
+    } else {
+      event.pass_on();
+    }
+  })
+  .child(form)
+```
+
+Which router: the one the command meets on its way, the innermost first, where it has an entry to go to; then the
+others mounted in the window, the innermost first. A stack inside a tab goes back before the app's router around
+it, and a router at its first entry passes the command to the one it is in. A router that is offstage (a tab not
+shown) is not asked.
 
 ## The Address Of A Page
 
@@ -370,7 +404,7 @@ From then on the two say the same:
 
 - The address has the router's path as its fragment: `index.html#/settings`, with the path's query after it (`#/search?q=lurq`). A fragment changes without the browser asking the server for anything, so the page needs no rule on the server.
 - A `push` is an entry of the browser's history as it is one of the router's, and a `replace` the same entry with another path. [Links](#links) push, so a page a person went to by a link is one the back button returns from.
-- The browser's back and forward buttons move the router, and `back`, `back_by` and `forward` move the browser.
+- The browser's back and forward buttons [go back and forward](#going-back-and-forward) as Alt+← does: a dialog that takes going back closes, and the browser is put back where the router is; with nothing taking it the router moves to the browser's entry. `back`, `back_by` and `forward` move the browser. A jump of more than one entry (a long press on the browser's back) moves the router there at once.
 - An address a person types into the bar or follows is navigated to as a `push` is, through the routes' [guards](#guards). A guard that redirects puts the path it sends to into the address; one that denies leaves the router where it is and the address says so.
 - A page loaded with a path in its address starts there, in place of the path the router was given: a reload stays on the screen it was on, and a link to a screen opens it.
 

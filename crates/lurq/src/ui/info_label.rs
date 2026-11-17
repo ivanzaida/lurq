@@ -371,9 +371,29 @@ impl InfoLabelView {
   }
 }
 
+impl crate::ui::Styled for InfoLabel {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for InfoLabel {
   const NAME: &'static str = "info_label";
   type Renderer = InfoLabelRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    InfoLabelPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    InfoLabelState::declared()
+  }
 
   /// The design's info label (`pencil/lurq-design-system.pen`, Info Label):
   /// a field label's text (13, medium) in the foreground, and 6 after it an

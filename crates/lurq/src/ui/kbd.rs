@@ -559,9 +559,29 @@ impl KbdView {
   }
 }
 
+impl crate::ui::Styled for Kbd {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Kbd {
   const NAME: &'static str = "kbd";
   type Renderer = KbdRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    KbdPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    KbdState::declared()
+  }
 
   /// The design's key (`pencil/lurq-design-system.pen`: Kbd, and the keys of the search field, the command
   /// palette, the shortcut recorder and the tablet's list of shortcuts): 20 high, padded 6, on `Muted` with an edge
@@ -807,9 +827,25 @@ impl InlineCodeView {
   }
 }
 
+impl crate::ui::Styled for InlineCode {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for InlineCode {
   const NAME: &'static str = "inline_code";
   type Renderer = InlineCodeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    InlineCodePart::declared()
+  }
 
   /// The design's inline code (`pencil/lurq-design-system.pen`: Inline Code, in the prose of Typography and the
   /// Markdown document): 13 in the family of code in `Foreground`, on `Muted` with the radius `Sm`, padded 5 across

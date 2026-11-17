@@ -1898,9 +1898,29 @@ impl From<SidebarTrigger> for Element {
   }
 }
 
+impl crate::ui::Styled for Sidebar {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Sidebar {
   const NAME: &'static str = "sidebar";
   type Renderer = SidebarRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SidebarPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SidebarState::declared()
+  }
 
   /// The design's sidebar (`pencil/lurq-design-system.pen`, Sidebar,
   /// Sidebar/Collapsed and Sidebar Item): 260 wide on the muted fill, a line

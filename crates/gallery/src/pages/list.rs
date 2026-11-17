@@ -313,7 +313,7 @@ impl ListPage {
       Spec {
         title: "List",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!("{} rows", ROWS.len()),

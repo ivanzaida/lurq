@@ -160,9 +160,29 @@ impl From<ScatterChart> for Element {
   }
 }
 
+impl crate::ui::Styled for ScatterChart {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ScatterChart {
   const NAME: &'static str = "scatter_chart";
   type Renderer = ChartRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ScatterChartPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ScatterChartState::declared()
+  }
 
   /// The chart's frame ([`chart_recipe`]) at the board's size, `Sm`, and its points: dots of 8 in their series'
   /// colors at 0.85; the line of the trend 1 wide in the muted foreground at 0.6, over the points; the point under the

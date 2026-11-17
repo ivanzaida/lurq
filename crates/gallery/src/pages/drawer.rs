@@ -136,7 +136,9 @@ impl DrawerPage {
     };
     let record = self.playground.recorder();
     let shown = layout(
-      make(self.open.clone()).on_dismiss(move || record("on_dismiss()".to_owned())),
+      self
+        .playground
+        .styled(make(self.open.clone()).on_dismiss(move || record("on_dismiss()".to_owned()))),
       side,
       &self.open,
     );

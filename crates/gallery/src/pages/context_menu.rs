@@ -122,12 +122,14 @@ impl ContextMenuPage {
           .on_select(told("Delete")),
       )
     };
-    let shown: Element = menu(
-      self.play_open.clone(),
-      submenu.then(|| (self.play_sub_anchor.clone(), self.play_sub_open.clone())),
-      &told,
-    )
-    .into();
+    let shown: Element = self
+      .playground
+      .styled(menu(
+        self.play_open.clone(),
+        submenu.then(|| (self.play_sub_anchor.clone(), self.play_sub_open.clone())),
+        &told,
+      ))
+      .into();
     let make = {
       let menu = menu.clone();
       move || -> Element {

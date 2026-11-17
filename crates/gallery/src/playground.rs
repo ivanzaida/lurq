@@ -5,7 +5,9 @@
 //! A page keeps a [`Playground`] and says, each time it renders, what is on
 //! the stage and what the panel has ([`Spec`]). The rest is the same on every
 //! page: the switch that draws the component in a state with nothing pointing
-//! at it, its measured size, the count of what it did, the tabs and Copy.
+//! at it, its measured size, the count of what it did, the tabs and Copy, and
+//! beside the props the styling section ([`crate::styling`]), which a page
+//! gets by giving its component to [`Playground::styled`].
 
 use std::sync::{
   Arc, Mutex,
@@ -22,16 +24,20 @@ use lurq::{
   },
   components::{Column, Rect, Row, ScrollBoth, ScrollHorizontal, TextInput, TextOverflow},
   core::{ElementRef, Signal, SignalValue},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{Alignment, layout_kind::Justify},
   node::{Element, border::Border},
   ui::{
-    Button, ButtonSize, ButtonVariant, Interaction, SegmentedControlPart, Switch, Tab, Tabs, TabsVariant, Toggle, icons,
+    Button, ButtonSize, ButtonVariant, Interaction, SegmentedControlPart, Styled, Switch, Tab, Tabs, TabsVariant,
+    Toggle, icons,
   },
 };
 
-use crate::kit::{
-  FILL, PANEL_ROOM, PHONE, code_block, icon, icon_tool, line, mono, name, plain_block, quiet, segmented, select,
-  set_panel_room, stage_padding, text, tool,
+use crate::{
+  kit::{
+    FILL, PANEL_ROOM, PHONE, code_block, icon, icon_tool, line, mono, name, plain_block, quiet, segmented, select,
+    set_panel_room, stage_padding, tool,
+  },
+  styling::Styling,
 };
 
 /// The least width of the card with the panel beside the stage: the panel, and a stage whose bar holds the
@@ -65,6 +71,17 @@ const FACTS: f32 = 36.0;
 const PANEL: f32 = 320.0;
 /// How wide the card of the last playground laid out was, as the bits of an `f32`: 0 until one was.
 static LAST_ROOM: AtomicU32 = AtomicU32::new(0);
+thread_local! {
+  /// Whether a playground made on this thread from now on opens on its styling section and not on its props: for
+  /// a test that lays pages out with the section shown, beside tests that lay them out with the props.
+  static STYLING_FIRST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Opens every playground made on this thread from now on at its styling section, or at its props.
+#[cfg(test)]
+pub fn open_styling_first(first: bool) {
+  STYLING_FIRST.with(|held| held.set(first));
+}
 
 /// How high the bar of the tabs is: as high as the tabs, which follow the density as a row does.
 fn tabs_height() -> f32 {
@@ -107,6 +124,10 @@ pub struct Playground {
   opposite: Theme,
   /// What the window of its own shows in place of `Spec::make`, for a component that is mounted.
   mounted: Arc<std::sync::Mutex<Option<MakeMounted>>>,
+  /// Which section the panel shows: the props, or the styling.
+  panel_tab: Signal<usize>,
+  /// What the styling section keeps.
+  styling: Styling,
 }
 
 /// What builds the component of a playground again, as its props were: for a window of its own.
@@ -277,7 +298,17 @@ impl Playground {
       other: ctx.signal(false),
       opposite: Theme::new(),
       mounted: Arc::default(),
+      panel_tab: ctx.signal(usize::from(STYLING_FIRST.with(std::cell::Cell::get))),
+      styling: Styling::new(ctx),
     }
+  }
+
+  /// The component on the stage, given to the playground's styling section: the section lists its parts and its
+  /// states and lays on it what it is asked for (`.style(..)`, `.rules(..)`, `.state(..)`), or on every one of it in
+  /// the stage's own theme. A page calls it where it builds what the stage shows: `Shown::of(playground.styled(x))`.
+  /// A page that calls it nowhere has nothing to style, and its section says so.
+  pub fn styled<C: Styled>(&self, component: C) -> C {
+    self.styling.styled(component)
   }
 
   /// What the window of its own shows: `build`, given the window's context, for a component that is mounted and
@@ -675,20 +706,53 @@ impl Playground {
       .child(body)
   }
 
-  /// The panel beside the stage: how many props were changed, Reset, and the controls.
+  /// The panel beside the stage: its two sections, the props and the styling, each with how much of it was
+  /// changed; Reset for the one shown; and the one shown.
   fn panel(&self, spec: &mut Spec<'_>) -> Column {
-    let reset = {
+    let styling = self.panel_tab.get() == 1;
+    let reset: Box<dyn Fn() + Send + Sync> = if styling {
+      let forced = self.forced.clone();
+      let reset = self.styling.reset_handle();
+      Box::new(move || {
+        reset();
+        forced.set(0);
+      })
+    } else {
       let (reset, count, events) = (spec.reset.clone(), self.count.clone(), self.events.clone());
-      move || {
+      Box::new(move || {
         reset();
         count.set(0);
         events.set(String::new());
+      })
+    };
+    let shown: Element = if styling {
+      let forced = self.forced.clone();
+      self.styling.section(spec.forceable, move |state| forced.set(state))
+    } else {
+      let mut controls = Column::new().width(FILL).padding(16.0).spacing(16.0);
+      for control in std::mem::take(&mut spec.controls) {
+        controls = controls.child(control);
+      }
+      controls.into()
+    };
+    let counted = |id: usize, label: &str, changed: usize| {
+      if changed > 0 {
+        Tab::new(id, label).count(changed as u32)
+      } else {
+        Tab::new(id, label)
       }
     };
-    let mut controls = Column::new().width(FILL).padding(16.0).spacing(16.0);
-    for control in std::mem::take(&mut spec.controls) {
-      controls = controls.child(control);
-    }
+    let tab = self.panel_tab.clone();
+    let tabs = Tabs::controlled(
+      self.panel_tab.get(),
+      [
+        counted(0, "Props", spec.changed),
+        counted(1, "Styling", self.styling.changed()),
+      ],
+      move |index| tab.set(*index),
+    )
+    .variant(TabsVariant::Line)
+    .label("What the panel shows");
     Column::new()
       .child(
         Row::new()
@@ -696,19 +760,19 @@ impl Playground {
           .height(52.0)
           .padding_left(16.0)
           .padding_right(8.0)
-          .align_items(Alignment::Center)
+          .align_items(Alignment::End)
           .justify(Justify::SpaceBetween)
           .border_bottom(line())
+          .child(Row::new().flex(1.0).min_width(0.0).child(tabs))
           .child(
             Row::new()
-              .spacing(8.0)
+              .height(52.0)
+              .flex_shrink(0.0)
               .align_items(Alignment::Center)
-              .child(text("Props", 14.0, FontWeight::SemiBold))
-              .child(quiet(&format!("{} changed", spec.changed), 11.0)),
-          )
-          .child(tool("Reset", icons::REFRESH, move || reset())),
+              .child(tool("Reset", icons::REFRESH, move || reset())),
+          ),
       )
-      .child(controls)
+      .child(shown)
   }
 
   /// The playground: the stage with its tabs, and the panel beside it, or under it in a narrow window.
@@ -740,6 +804,8 @@ impl Playground {
       ctx.breakpoint() >= Some(Breakpoint::Lg)
     };
     set_panel_room(panel_room(room));
+    // What the styling section lays is written under the code that builds the component.
+    spec.code.extend(self.styling.applied_code());
     let toolbar = self.toolbar(ctx, &spec);
     // The stage is the card less its edges, and less the panel and the line before it where that is beside it.
     let stage_room = match (room > 0.0, wide) {
@@ -747,9 +813,18 @@ impl Playground {
       (true, true) => (room - 2.0 - PANEL - 1.0).max(0.0),
       (true, false) => (room - 2.0).max(0.0),
     };
+    // The stage in its own theme while the styling section lays rules over every one of the component there: the
+    // page's look, in the appearance the stage is in. Nothing of the gallery around it is in that theme.
+    let appearance = match (ctx.theme().appearance(), self.other.get()) {
+      (Appearance::Dark, false) | (Appearance::Light, true) => Appearance::Dark,
+      _ => Appearance::Light,
+    };
+    let scoped = self.styling.stage_theme(ctx, appearance);
     // The stage in the appearance the page is not in: a theme of its own, for it and what is on it, which is
     // built in that theme.
-    let stage: Element = if self.other.get() {
+    let stage: Element = if let Some(scoped) = scoped {
+      ctx.in_theme(&scoped, |ctx| self.stage(ctx, &mut spec, stage_room))
+    } else if self.other.get() {
       self
         .opposite
         .set_preferred_appearance(Some(match ctx.theme().appearance() {

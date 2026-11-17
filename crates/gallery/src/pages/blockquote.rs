@@ -96,7 +96,7 @@ impl BlockquotePage {
           let make = make.clone();
           move || make().into()
         }),
-        shown: Shown::of(make()),
+        shown: Shown::of(self.playground.styled(make())),
         fill: true,
         forceable: false,
         facts: if paragraphs {

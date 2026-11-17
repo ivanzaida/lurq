@@ -641,9 +641,29 @@ impl DialogView {
   }
 }
 
+impl crate::ui::Styled for Dialog {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Dialog {
   const NAME: &'static str = "dialog";
   type Renderer = DialogRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DialogPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DialogState::declared()
+  }
 
   /// The design's dialog (`pencil/lurq-design-system.pen`, Dialog and
   /// Dialog/Scrollable): a panel of 420 in the popover's color with an edge

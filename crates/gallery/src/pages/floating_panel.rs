@@ -152,12 +152,12 @@ impl FloatingPanelPage {
     };
     let record = self.playground.recorder();
     let shown = {
-      let (plain, again) = (plain.clone(), self.shown.clone());
+      let (plain, again, playground) = (plain.clone(), self.shown.clone(), &self.playground);
       Shown::built(move |ctx| {
         let record: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record);
         let mut stage = Stack::new().width(canvas_width()).overflow_visible().child(canvas());
         if shown_panel {
-          stage = stage.child(plain(Some(record)).mount(ctx));
+          stage = stage.child(playground.styled(plain(Some(record))).mount(ctx));
         } else {
           stage = stage.child(
             Column::new()

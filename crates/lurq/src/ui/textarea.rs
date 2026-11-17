@@ -415,9 +415,29 @@ impl TextareaView {
   }
 }
 
+impl crate::ui::Styled for Textarea {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Textarea {
   const NAME: &'static str = "textarea";
   type Renderer = TextareaRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TextareaPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TextareaState::declared()
+  }
 
   /// The design's textarea (`pencil/lurq-design-system.pen`, Textarea, and the
   /// states the board draws for an input): a box as wide as its room, in the

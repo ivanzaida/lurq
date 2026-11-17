@@ -88,13 +88,12 @@ impl RatingPage {
     let record = self.playground.recorder();
     let forced = self.playground.forced();
     let shown = {
-      let (plain, stars) = (plain.clone(), stars.clone());
-      Shown::built(move |ctx| {
-        plain(stars)
+      let rating = self.playground.styled(
+        plain(stars.clone())
           .force(forced)
-          .on_change(move |stars| record(format!("on_change({stars})")))
-          .mount(ctx)
-      })
+          .on_change(move |stars| record(format!("on_change({stars})"))),
+      );
+      Shown::built(move |ctx| rating.mount(ctx))
     };
 
     let mut code = vec!["Rating::new(stars)".to_owned(), "    .label(\"Rating\")".to_owned()];

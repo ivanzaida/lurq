@@ -101,7 +101,7 @@ impl ToastPage {
         }
       }
     };
-    let panel = plain().force(self.playground.forced());
+    let panel = self.playground.styled(plain()).force(self.playground.forced());
     let show = {
       let (toasts, plain, record) = (self.toasts.clone(), plain.clone(), record.clone());
       Button::new("Show toast").on_click(move |_| {

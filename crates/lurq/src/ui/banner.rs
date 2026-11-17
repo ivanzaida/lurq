@@ -433,9 +433,29 @@ impl BannerView {
   }
 }
 
+impl crate::ui::Styled for Banner {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Banner {
   const NAME: &'static str = "banner";
   type Renderer = BannerRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    BannerPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    BannerState::declared()
+  }
 
   /// The design's banner (`pencil/lurq-design-system.pen`, Banner): a bar as
   /// wide as the room it is given in the muted form of the variant's color

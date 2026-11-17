@@ -440,9 +440,29 @@ impl OutcomeView {
   }
 }
 
+impl crate::ui::Styled for Outcome {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Outcome {
   const NAME: &'static str = "outcome";
   type Renderer = OutcomeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    OutcomePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    OutcomeState::declared()
+  }
 
   /// The design's result (`pencil/lurq-design-system.pen`: Result, and its states error, warning, info and not
   /// found): 300 wide, padded 24 with 16 between the mark, the text and the buttons, on `Background` with an edge of

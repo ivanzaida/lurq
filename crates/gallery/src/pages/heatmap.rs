@@ -149,10 +149,10 @@ impl HeatmapPage {
       }
     };
     let shown_chart = {
-      let make = make.clone();
+      let stage = self.playground.styled(make());
       move |ctx: &mut Ctx| {
         let (selected, record) = (selected.clone(), record.clone());
-        make()
+        stage
           .on_select(move |point| {
             selected.set(Some(point));
             record(format!("on_select(series {}, index {})", point.series, point.index));

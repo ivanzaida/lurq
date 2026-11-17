@@ -132,25 +132,29 @@ impl ListboxPage {
         .density(density)
     }
     let shown: Element = if multiple {
-      dress(
-        Listbox::multiple(self.played_many.clone(), options()),
-        follow,
-        disabled,
-        density,
-      )
-      .on_change(move |next: &[Id]| record(format!("on_change({next:?})")))
-      .force(self.playground.forced())
-      .into()
+      self
+        .playground
+        .styled(dress(
+          Listbox::multiple(self.played_many.clone(), options()),
+          follow,
+          disabled,
+          density,
+        ))
+        .on_change(move |next: &[Id]| record(format!("on_change({next:?})")))
+        .force(self.playground.forced())
+        .into()
     } else {
-      dress(
-        Listbox::new(self.played_one.clone(), options()),
-        follow,
-        disabled,
-        density,
-      )
-      .on_change(move |next: &Id| record(format!("on_change({next:?})")))
-      .force(self.playground.forced())
-      .into()
+      self
+        .playground
+        .styled(dress(
+          Listbox::new(self.played_one.clone(), options()),
+          follow,
+          disabled,
+          density,
+        ))
+        .on_change(move |next: &Id| record(format!("on_change({next:?})")))
+        .force(self.playground.forced())
+        .into()
     };
     let make = {
       let (one, many) = (self.played_one.get(), self.played_many.get());

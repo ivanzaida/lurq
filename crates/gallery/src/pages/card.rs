@@ -236,7 +236,7 @@ impl CardPage {
       Spec {
         title: "Card",
         make: Arc::new(make),
-        shown: Shown::of(card),
+        shown: Shown::of(self.playground.styled(card)),
         fill: false,
         forceable: pressable,
         facts: format!("{variant_name} · {size_name}"),

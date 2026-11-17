@@ -72,7 +72,7 @@ let engine = WgpuRenderEngine::new().with_backends(WgpuBackends::DX12);
 
 Excluded backend loaders are never initialized by that engine. Explicitly opting into Vulkan on Windows also opts back into its platform loader behavior.
 
-An engine asks for its GPU device at its first frame and waits for it. `WgpuDevice` is a device made ahead: an app awaits `WgpuDevice::request()` and gives the device to each engine the factory makes.
+An engine asks for its GPU device at its first frame and waits for it. The engines of an app's windows share one device: an engine takes the device of another window's engine on its thread that was asked for among the same backends with the same optional features and limits, while one draws, so a texture of the app's can be shown in any window. `WgpuRenderEngine::new().with_own_device()` keeps a window's device apart. `WgpuDevice` is a device made ahead: an app awaits `WgpuDevice::request()` and gives the device to each engine the factory makes.
 
 ```rust
 use lurq::app::wgpu_render::{WgpuDevice, WgpuRenderEngine};
@@ -93,7 +93,9 @@ tree.set_render_engine_factory(|| {
 });
 ```
 
-An app that draws part of its window with its own wgpu code (a 3D scene, a game or editor viewport, custom shaders) gives each engine the factory makes a frame extension, `WgpuRenderEngine::new().with_frame_extension(..)`, and shows what it draws in a `GpuViewport`. See [Drawing With Your Own GPU Code](../gpu-viewport/).
+An app that draws part of its window with its own wgpu code (a 3D scene, a game or editor viewport, custom shaders) gives each engine the factory makes a frame extension, `WgpuRenderEngine::new().with_frame_extension(..)`, and shows what it draws in a `GpuViewport`. The engine of lurq's DevTools window is made by the same factory and runs none of them. See [Drawing With Your Own GPU Code](../gpu-viewport/).
+
+When a window's graphics device is lost (its card was reset or taken away), lurq replaces the window's engine with one the factory makes and draws the window again; the window's `on_app_event` handler then hears `AppEvent::GraphicsDeviceLost`, on a desktop as on a phone. See [A Lost Device](../gpu-viewport/#a-lost-device).
 
 ## Winit Shell
 

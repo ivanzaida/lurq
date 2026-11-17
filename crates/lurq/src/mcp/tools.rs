@@ -13,6 +13,8 @@ mod held;
 #[cfg(test)]
 mod held_tests;
 #[cfg(test)]
+mod history_tests;
+#[cfg(test)]
 mod input_source_tests;
 mod inspect;
 mod interact;

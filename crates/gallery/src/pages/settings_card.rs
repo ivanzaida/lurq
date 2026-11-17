@@ -291,7 +291,7 @@ impl SettingsCardPage {
       Spec {
         title: "Settings Card",
         make: Arc::new(move || make().into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill,
         forceable: rows,
         facts: format!(

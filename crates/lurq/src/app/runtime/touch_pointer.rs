@@ -605,13 +605,15 @@ impl Tree {
         ScreenEdge::Top => (translation.1, translation.0),
         ScreenEdge::Bottom => (-translation.1, translation.0),
       };
+      // From the left or the right edge a finger goes back or forward wherever something hears it: a handler on the
+      // way, or a router anywhere in the window (`runtime/navigation.rs`).
+      let sideways = matches!(edge, ScreenEdge::Left | ScreenEdge::Right);
       let listens = || {
         session.chain.iter().any(|target| {
           find_node_by_id(root, *target).is_some_and(|node| {
-            !node.events.on_edge_pan.is_empty()
-              || (matches!(edge, ScreenEdge::Left | ScreenEdge::Right) && !node.events.on_history_swipe.is_empty())
+            !node.events.on_edge_pan.is_empty() || (sideways && !node.events.on_history_swipe.is_empty())
           })
-        })
+        }) || (sideways && super::navigation::hears_history(root))
       };
       let starts = !*came_in && inward > TRAVEL_SLOP && inward > across.abs() && listens();
       if !*came_in && !starts && session.travelled {
@@ -861,7 +863,12 @@ impl Tree {
       }
     }
     if let Some(direction) = history {
-      self.dispatch_history_swipe(session.landed.0, session.landed.1, direction);
+      self.dispatch_history_swipe(
+        session.landed.0,
+        session.landed.1,
+        direction,
+        crate::app::events::NavigationSource::Edge,
+      );
     }
     if let Some(command) = edit {
       self.three_finger_edit(command);

@@ -160,7 +160,7 @@ impl SparklinePage {
       Spec {
         title: "Sparkline",
         make: Arc::new(make),
-        shown: Shown::of(line(props)),
+        shown: Shown::of(self.playground.styled(line(props))),
         fill: false,
         forceable: false,
         facts: format!("{} values", values(props.data).len()),

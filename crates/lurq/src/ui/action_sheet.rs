@@ -419,9 +419,29 @@ impl ActionSheetView {
   }
 }
 
+impl crate::ui::Styled for ActionSheet {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for ActionSheet {
   const NAME: &'static str = "action_sheet";
   type Renderer = ActionSheetRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    ActionSheetPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    ActionSheetState::declared()
+  }
 
   /// The design's action sheet (`pencil/lurq-design-system.pen`, Mobile/Action Sheet): on the scrim, 8 in from the
   /// screen's sides and bottom, a card in `Card` with a line of `Border` and the large corners: the title 12 over

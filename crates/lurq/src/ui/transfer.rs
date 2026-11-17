@@ -923,10 +923,30 @@ impl TransferList {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> crate::ui::Styled for Transfer<T> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every transfer has the one recipe and renderer, whatever its values are.
 impl<T: Send + Sync + 'static> Themed for Transfer<T> {
   const NAME: &'static str = "transfer";
   type Renderer = TransferRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TransferPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    TransferState::declared()
+  }
 
   /// The design's transfer (`pencil/lurq-design-system.pen`, Transfer `ZAu2E`): two lists of 190 on the background in
   /// an edge of 1 in the border's color, 8 round, that cut what is in them, 12 from the buttons between them, in the

@@ -206,7 +206,7 @@ impl PersonaPage {
           let props = props.clone();
           Arc::new(move || props.persona().into())
         },
-        shown: Shown::of(props.persona()),
+        shown: Shown::of(self.playground.styled(props.persona())),
         fill: false,
         forceable: false,
         facts: format!("avatar {}", SIZES[props.size].0),

@@ -52,6 +52,8 @@ fn button_name(button: MouseButton) -> &'static str {
     MouseButton::Left => "Left",
     MouseButton::Right => "Right",
     MouseButton::Middle => "Middle",
+    MouseButton::Back => "Back",
+    MouseButton::Forward => "Forward",
     MouseButton::Other(_) => "Other",
   }
 }

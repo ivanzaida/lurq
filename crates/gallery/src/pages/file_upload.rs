@@ -140,7 +140,9 @@ impl FileUploadPage {
       self.playground.recorder(),
     );
     let (start, restart, again) = (self.upload.clone(), self.upload.clone(), self.files.clone());
-    let upload = make(FileUpload::new(self.files.clone()))
+    let upload = self
+      .playground
+      .styled(make(FileUpload::new(self.files.clone())))
       .force(self.playground.forced())
       .on_files(move |files| {
         // The whole path where the platform gives one (a drop or a choice on a desktop), the name where it

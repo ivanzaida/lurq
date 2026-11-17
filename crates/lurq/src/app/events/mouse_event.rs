@@ -4,6 +4,12 @@ pub enum MouseButton {
   Left,
   Right,
   Middle,
+  /// The mouse's back button, the first of its side buttons: on its release lurq goes back
+  /// ([`NavigationCommand::Back`](super::NavigationCommand)).
+  Back,
+  /// The mouse's forward button: on its release lurq goes forward.
+  Forward,
+  /// Another button, by the number the platform gives it.
   Other(u8),
 }
 
@@ -27,7 +33,7 @@ impl MouseButtonMask {
       MouseButton::Left => Self::LEFT.0,
       MouseButton::Right => Self::RIGHT.0,
       MouseButton::Middle => Self::MIDDLE.0,
-      MouseButton::Other(_) => Self::OTHER.0,
+      MouseButton::Back | MouseButton::Forward | MouseButton::Other(_) => Self::OTHER.0,
     };
     self.0 & bit != 0
   }

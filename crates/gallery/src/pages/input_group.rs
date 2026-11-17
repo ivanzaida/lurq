@@ -213,7 +213,7 @@ impl InputGroupPage {
       Spec {
         title: "Input Group",
         make: Arc::new(move || make().into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: on("full_width"),
         forceable: false,
         facts: format!("{size_name} · radius 6"),

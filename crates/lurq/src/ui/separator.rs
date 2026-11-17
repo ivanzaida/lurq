@@ -315,9 +315,29 @@ impl SeparatorView {
   }
 }
 
+impl crate::ui::Styled for Separator {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Separator {
   const NAME: &'static str = "separator";
   type Renderer = SeparatorRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    SeparatorPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    SeparatorState::declared()
+  }
 
   /// The design's separator (`pencil/lurq-design-system.pen`, Separator): a
   /// line of 1 in the border's color, as long as the room it is given. A

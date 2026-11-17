@@ -107,12 +107,15 @@ impl CarouselPage {
       carousel
     };
     let live = {
-      let (plain, record) = (plain.clone(), record.clone());
+      let (plain, record, playground) = (plain.clone(), record.clone(), &self.playground);
       move |_: &mut Ctx| -> Element {
         let record = record.clone();
-        plain()
-          .index(index.clone())
-          .on_index_change(move |to| record(format!("on_index_change({to})")))
+        playground
+          .styled(
+            plain()
+              .index(index.clone())
+              .on_index_change(move |to| record(format!("on_index_change({to})"))),
+          )
           .into()
       }
     };

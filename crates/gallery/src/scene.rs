@@ -14,6 +14,7 @@ use std::sync::{
 use lurq::{
   app::wgpu_render::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo},
   images::WgpuExternalImageSlot,
+  wgpu,
 };
 
 /// The largest side of the texture: a viewport larger than this is drawn from a picture this big, scaled. The
@@ -133,8 +134,9 @@ impl WgpuFrameExtension for Scene {
         depth_or_array_layers: 1,
       },
     );
+    // The texture is made to be sampled, in a format lurq reads: the slot takes it.
     if !made {
-      slot().set_texture_view(
+      let _ = slot().set_texture_view(
         texture.create_view(&wgpu::TextureViewDescriptor::default()),
         width,
         height,

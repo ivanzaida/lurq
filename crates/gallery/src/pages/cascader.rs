@@ -141,23 +141,28 @@ impl CascaderPage {
     };
     let build = {
       let (dress, set, record) = (dress.clone(), self.played.clone(), record.clone());
-      move |ctx: &mut Ctx, chosen: Option<Id>| -> Element {
+      move |ctx: &mut Ctx, chosen: Option<Id>, playground: Option<&Playground>| -> Element {
         let (set, changed, opened) = (set.clone(), record.clone(), record.clone());
-        dress(Cascader::controlled_optional(chosen, places(), move |next| {
+        let cascader = dress(Cascader::controlled_optional(chosen, places(), move |next| {
           changed(format!("on_change({next:?})"));
           set.set(*next);
         }))
-        .on_open_change(move |open| opened(format!("on_open_change({open})")))
+        .on_open_change(move |open| opened(format!("on_open_change({open})")));
+        match playground {
+          Some(playground) => playground.styled(cascader),
+          None => cascader,
+        }
         .mount(ctx)
       }
     };
     let shown = {
       let build = build.clone();
-      Shown::built(move |ctx| build(ctx, chosen))
+      let playground = &self.playground;
+      Shown::built(move |ctx| build(ctx, chosen, Some(playground)))
     };
     {
       let (build, chosen) = (build.clone(), self.played.clone());
-      self.playground.window_shows(move |ctx| build(ctx, chosen.get()));
+      self.playground.window_shows(move |ctx| build(ctx, chosen.get(), None));
     }
     let make = move || -> Element { dress(Cascader::controlled_optional(chosen, places(), |_| {})).into() };
 

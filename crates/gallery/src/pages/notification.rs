@@ -104,7 +104,9 @@ impl NotificationPage {
       }
     };
     let record = self.playground.recorder();
-    let shown = plain(Arc::new(record)).force(self.playground.forced());
+    let shown = self
+      .playground
+      .styled(plain(Arc::new(record)).force(self.playground.forced()));
     let make = {
       let plain = plain.clone();
       move || Column::new().width(340.0).child(plain(Arc::new(|_| ()))).into()

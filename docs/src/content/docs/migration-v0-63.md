@@ -16,6 +16,7 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - With `devtools`, a call of `lurq::app::devtools::load_fonts`, which is gone: see [DevTools](#devtools).
 - `MouseEvent::pointer`, which is `pointer_kind`: see [What Pressed](#what-pressed).
 - The Cargo features `svg`, `i18n` and `resources`, which are gone: see [Features](#features).
+- `WgpuExternalImageSlot::set_texture_view`, which returns a `Result`: see [Drawing With Your Own GPU Code](#drawing-with-your-own-gpu-code).
 
 The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
 
@@ -35,9 +36,11 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - The engine's custom title bar, which is drawn in the theme's roles: see [Windows And Chrome](#windows-and-chrome).
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
 - A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
+- Going back: the mouse's side buttons, Alt+← and Alt+→ (Cmd+[ and Cmd+] on a Mac), a swipe and Android's back move the mounted router by themselves, and an `on_history_swipe` handler that moved it too moves it twice: see [Back And Forward](#back-and-forward).
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
+- A `GpuViewport` with no size, the device the windows of an app draw with, and the DevTools window, which runs none of the app's frame extensions: see [Drawing With Your Own GPU Code](#drawing-with-your-own-gpu-code).
 
 **The quickest way to keep the 0.62 look**
 
@@ -592,6 +595,47 @@ now they are a finger's, with its gestures and a coarse pointer. What is new whe
 
 See [A Click Is The Action, A Tap Is The Gesture](../styling-events/#a-click-is-the-action-a-tap-is-the-gesture).
 
+### Back And Forward
+
+Going back is one command now, `NavigationCommand`, and a mounted router takes it by itself: the mouse's side buttons,
+Alt+← and Alt+→ (Cmd+[ and Cmd+] on a Mac), a keyboard's Back key, Android's back, a trackpad's swipe between pages
+and a finger from the left or the right edge all go back and forward with nothing written. See
+[Going back and forward](../styling-events/#going-back-and-forward).
+
+The mouse's side buttons are `MouseButton::Back` and `MouseButton::Forward`, where they were `MouseButton::Other(4)`
+and `Other(5)`. A `match` on `MouseButton` with no `_` arm takes them.
+
+```rust
+// 0.62
+if event.button == MouseButton::Other(4) { router.back(); }
+// 0.63: nothing to write for the router; an element that goes back from something of its own
+.on_history_back(move |event: HistoryEvent| {
+    if !viewer.previous() {
+        event.pass_on();
+    }
+})
+```
+
+`on_history_swipe` is told as before, and its default is the command now. A handler that moved the router itself
+moves it a second time: take the handler away, or call `event.prevent_default()` in it where it does something else
+with the swipe. `stop_propagation` alone does not stop the command.
+
+```rust
+// 0.62
+.on_history_swipe(move |event: HistorySwipeEvent| {
+    match event.direction {
+        HistoryDirection::Back => navigator.back(),
+        HistoryDirection::Forward => navigator.forward(),
+    };
+    event.stop_propagation();
+})
+// 0.63: nothing; the router goes back by itself
+```
+
+`HistoryDirection` is `NavigationCommand`, under its old name too. A finger from the left or the right edge is taken
+as the gesture wherever a router is mounted in the window, where it was taken only over an element with
+`on_history_swipe` or `on_edge_pan`: such a finger scrolls and presses nothing.
+
 ### A Disabled Element Hears The Pointer Come And Go
 
 The `on_mouse_enter` and `on_mouse_leave` of a disabled element run as the pointer comes onto it and leaves it, so a tooltip can say why it is disabled. They did not run. Nothing else of the pointer reaches it: it is not hovered, and no press, click or drop reaches it.
@@ -803,6 +847,44 @@ The DevTools window is drawn in the design system's theme, light or dark with th
 
 `ComponentContextDebug` can no longer be written out: beside `kind` and `type_name` it has `reactive`, and what a provided context holds and how that changed, read with `value()` and `history()`. Code that built one takes it from a snapshot instead: `DevToolsNode::contexts`, of `DevToolsSnapshot::from_tree(&tree)`. See [Inspectable Contexts](../devtools/#inspectable-contexts).
 
+## Drawing With Your Own GPU Code
+
+### `set_texture_view` Returns A Result
+
+`WgpuExternalImageSlot::set_texture_view` checks the texture it is given and returns `Result<u64, WgpuTextureError>`, where it returned the slot's version. A texture lurq cannot sample (made without `TextureUsages::TEXTURE_BINDING`, not 2D, multisampled, or of an integer, depth or 32-bit float format) is refused, with a line in the log, and the slot keeps the view it had: it drew nothing before, and said nothing.
+
+```rust
+// 0.62
+self.slot.set_texture_view(view, width, height);
+
+// 0.63
+self.slot
+  .set_texture_view(view, width, height)
+  .expect("a 2D texture to be sampled, in a format lurq reads");
+```
+
+An sRGB and a linear format both show the colors they hold: see [The Texture](../gpu-viewport/#the-texture).
+
+### wgpu Comes From lurq
+
+`lurq::wgpu` is the wgpu lurq draws with. An app that pinned `wgpu = "=29.0.4"` to match lurq can drop the line and write `use lurq::wgpu;`; one that keeps it compiles as before, while the versions agree.
+
+### A Viewport With No Size
+
+A `GpuViewport` given no size is 300 by 150 logical pixels, as a `Canvas` is. It was one pixel square, so an app that gave it no size saw nothing; one given a width or a height alone keeps the other at the canvas's, where it took the square's shape. A viewport given both sides is as it was.
+
+### One Device For The Windows
+
+The `wgpu` engines of an app's windows share one device: an engine takes the device of another window's engine on its thread that was asked for with the same backends, features and limits. Each had a device of its own, so a view of one window's device was drawn in no other. Nothing is to be written for it. A window that must keep a device apart is made with `WgpuRenderEngine::new().with_own_device()`.
+
+The engine of lurq's DevTools window, which the factory makes too, no longer runs the app's frame extensions: they were initialized and prepared for it as for a window of the app's.
+
+### The Rest Of The GPU Changes
+
+- A wgpu call of the app's that wgpu finds invalid no longer ends the program: lurq logs it and tells the extension (`WgpuFrameExtension::error`). An app that counted on the panic reads the log or implements `error`.
+- lurq's `dx12` renderer leaves a `GpuViewport`'s box empty, where a frame with one in it failed whole.
+- `SharedWgpuContext` has a field of lurq's own and can no longer be written out field by field; an extension is given one, as before.
+
 ## Types That Gained A Variant Or A Field
 
 A `match` with no `_` arm must take a new variant. A struct written out field by field must add a new field, or end with the rest from a default.
@@ -818,6 +900,7 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `RadiusSize` | `Xl`, `Full` | A `match` arm |
 | `ScrollBarStyle` | `thumb_inset`, `thumb_hovered_color`, `thumb_pressed_color` | `..ScrollBarStyle::default()` |
 | `ShrinkLimit` | `ContentFirst` | A `match` arm |
+| `MouseButton` | `Back`, `Forward` (the side buttons, which were `Other(4)` and `Other(5)`) | A `match` arm |
 | `BackgroundColor` | `CurrentForeground` | A `match` arm |
 | `GradientKind` | `Corners` | A `match` arm |
 | `AnimatableValue` | `Percent(f32)`, `Dash { dash, gap }`, `Fit { px, content }` | A `match` arm |
@@ -841,3 +924,4 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `DevToolsProps` (`devtools`) | `system` | The inspected window's settings, `window.info().system` |
 | `ComponentValueChangeDebug` (`devtools`) | `sequence` | `sequence: 0` |
 | `PersistentStorageSnapshotEntry` | `fields` | `fields: Vec::new()` |
+| `AppEvent` | `GraphicsDeviceLost` | A `match` arm: the window's graphics device was lost, and lurq draws it with another |

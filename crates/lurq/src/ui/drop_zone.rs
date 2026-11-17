@@ -645,9 +645,29 @@ pub(crate) fn deliver(
   }
 }
 
+impl crate::ui::Styled for DropZone {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for DropZone {
   const NAME: &'static str = "drop_zone";
   type Renderer = DropZoneRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    DropZonePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    DropZoneState::declared()
+  }
 
   /// The design's drop zone (`pencil/lurq-design-system.pen`, Drop Zone): 320 by 140 on the muted fill, with the
   /// large radius and an edge of 1.5 in the input's color inside it; in its middle the upload icon of 20 in the

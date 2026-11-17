@@ -643,9 +643,29 @@ impl PasswordInputView {
   }
 }
 
+impl crate::ui::Styled for PasswordInput {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for PasswordInput {
   const NAME: &'static str = "password_input";
   type Renderer = PasswordInputRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    PasswordInputPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    PasswordInputState::declared()
+  }
 
   /// The design's password input (`pencil/lurq-design-system.pen`, Password Input): an input whose dots are 1
   /// apart, with an eye of 16 in the muted foreground at the end of the box, 12 from its edge and 8 after the text.

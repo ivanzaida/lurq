@@ -144,7 +144,7 @@ impl PopconfirmPage {
       Spec {
         title: "Popconfirm",
         make: Arc::new(move || make(ElementRef::new(), Signal::new(false), None).into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: false,
         facts: (if self.open.get() { "open" } else { "closed" }).to_owned(),

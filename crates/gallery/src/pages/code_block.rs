@@ -220,11 +220,14 @@ impl CodeBlockPage {
       }
     };
     let shown = {
-      let make = make.clone();
+      let (make, playground) = (make.clone(), &self.playground);
       Shown::built(move |ctx| {
-        make()
-          .force(forced)
-          .on_copy(move |code| record(format!("on_copy({} lines)", code.lines().count())))
+        playground
+          .styled(
+            make()
+              .force(forced)
+              .on_copy(move |code| record(format!("on_copy({} lines)", code.lines().count()))),
+          )
           .mount(ctx)
       })
     };

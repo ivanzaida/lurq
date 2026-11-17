@@ -727,9 +727,29 @@ impl AngleSliderView {
   }
 }
 
+impl crate::ui::Styled for AngleSlider {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for AngleSlider {
   const NAME: &'static str = "angle_slider";
   type Renderer = AngleSliderRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    AngleSliderPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    AngleSliderState::declared()
+  }
 
   /// The design's angle slider (`pencil/lurq-design-system.pen`, Angle Slider, in Advanced Inputs): a circle of 64 on
   /// the background with a ring of 1.5 in the input's color inside it, the angle in the middle in the mono type of 13

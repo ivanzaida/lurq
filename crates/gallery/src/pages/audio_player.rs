@@ -845,9 +845,16 @@ impl AudioPlayerPage {
         make: Arc::new(move || plain().build(&lurq::ui::current_theme())),
         shown: if mini {
           let width = WINDOWS[window_index].1;
-          Shown::built(move |ctx| window(width, playground.measure(player.mount(ctx)).width(FILL)).into()).measured()
+          Shown::built(move |ctx| {
+            window(
+              width,
+              playground.measure(playground.styled(player).mount(ctx)).width(FILL),
+            )
+            .into()
+          })
+          .measured()
         } else {
-          Shown::built(move |ctx| player.mount(ctx))
+          Shown::built(move |ctx| playground.styled(player).mount(ctx))
         },
         fill: true,
         forceable: true,

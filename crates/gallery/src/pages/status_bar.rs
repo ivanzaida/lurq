@@ -125,7 +125,7 @@ impl StatusBarPage {
         Column::new()
           .width(width)
           .overflow_visible()
-          .child(playground.measure(build().mount(ctx)).width(FILL))
+          .child(playground.measure(playground.styled(build()).mount(ctx)).width(FILL))
           .into()
       })
       .measured()

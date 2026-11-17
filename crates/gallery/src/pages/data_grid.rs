@@ -664,9 +664,9 @@ impl DataGridPage {
         ".height(400.0)".to_owned(),
         ".mount(ctx)".to_owned(),
       ];
-      grid.mount(ctx)
+      self.playground.styled(grid).mount(ctx)
     } else {
-      grid.mount(ctx)
+      self.playground.styled(grid).mount(ctx)
     };
     self.playground.card(
       ctx,

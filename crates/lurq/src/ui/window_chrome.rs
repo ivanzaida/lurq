@@ -1114,12 +1114,32 @@ impl WindowChromeView {
   }
 }
 
+impl crate::ui::Styled for WindowChrome {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// The most a title before tabs takes of the bar, so that the tabs keep their room.
 const TAB_LEAD_TITLE_MAX: f32 = 220.0;
 
 impl Themed for WindowChrome {
   const NAME: &'static str = "window_chrome";
   type Renderer = WindowChromeRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    WindowChromePart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    WindowChromeState::declared()
+  }
 
   /// The design's window chrome (`pencil/lurq-design-system.pen`, Window): a bar on `Muted` with a line of `Border`
   /// under it, its title 13 in `Foreground`, by platform:

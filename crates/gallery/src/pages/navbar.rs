@@ -238,8 +238,9 @@ impl NavbarPage {
     let record = self.playground.recorder();
     // Built on the stage, in the stage's theme: the search field in the bar types in that theme's color.
     let room = self.frame.stage_room();
+    let bar = self.playground.styled(navbar(&props, record));
     let shown = Shown::built(|ctx| {
-      let shown = window(navbar(&props, record).mount(ctx), &props, WINDOW);
+      let shown = window(bar.mount(ctx), &props, WINDOW);
       staged("played", room, &props, shown)
     });
 

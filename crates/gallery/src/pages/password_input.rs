@@ -218,7 +218,7 @@ impl PasswordInputPage {
       Spec {
         title: "Password Input",
         make: Arc::new(move || make().into()),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · {strength_name}"),

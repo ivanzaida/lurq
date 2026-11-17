@@ -194,7 +194,7 @@ impl ExpandableTilePage {
       Spec {
         title: "Expandable Tile",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: full_width,
         forceable: true,
         facts: if open { "open".to_owned() } else { "closed".to_owned() },

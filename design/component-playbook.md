@@ -206,6 +206,12 @@ an alias.
   `on_key_down`: which keys they are, in every layout and on a Mac, is `KeyboardEvent::edit_command()`'s alone, and
   an Edit menu runs the same handlers (`Ctx::edit`). Its own buttons for them call what the handlers call. A key of
   its own that also takes back (Backspace on a pad) stays in its `on_key_down`.
+- **Going back is lurq's command, never a component's keys.** A component that goes back from something of its own
+  (a dialog that closes, a viewer's picture before, a wizard's step) gives its root `.on_history_back` (and
+  `.on_history_forward`), and calls `event.pass_on()` where it has nowhere to go, so that the router goes back. It
+  never matches Alt+←, Cmd+[, the mouse's side buttons or a swipe: which they are is `NavigationCommand`'s alone. Its
+  own way back (a stack's bar) runs the command (`Ctx::history_runner`, `run_in` from its part), not the router's
+  `back()`, so that what is on the page hears it first.
 - **An action is `on_click`; a gesture is `on_tap`/`on_swipe`/`on_pinch`/`on_long_press`.** A mouse, a finger, a
   pen and a key all reach `on_click`, which is where a component does what it is for; a gesture is what only a finger
   does, and a component that has one takes its desktop twin too (a long press and a right click, a pinch and the
@@ -338,6 +344,12 @@ an alias.
   is resolved on the item's part (`Disabled`), not on the root (`ItemDisabled`); where the component's own state of
   that name reaches the item's part too, the item's has a word of its own (`Unavailable`, `OptionDisabled`).
 - A component that wraps another lists the inner one's states it shows in its own enum.
+- **A component declares its parts and its states.** Its `impl Themed` gives `fn parts() -> Declared { XPart::declared() }`
+  and `fn states() -> Declared { XState::declared() }` (`names!` gives `declared()`), and the builder implements
+  `Styled` (`type Component`, `rules`, `state`) with the bounds of the impl that has its `rules`. The gallery's
+  playground reads them for its Styling tab, and its page gives the stage's instance to
+  `self.playground.styled(..)`: a component that declares nothing shows only what its recipe names, and a page that
+  does not call it says it has no parts to style.
 
 ## What the eighth batch and the QA pass taught
 

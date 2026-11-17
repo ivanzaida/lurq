@@ -1655,9 +1655,29 @@ impl NavigationMenuView {
   }
 }
 
+impl crate::ui::Styled for NavigationMenu {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for NavigationMenu {
   const NAME: &'static str = "navigation-menu";
   type Renderer = NavigationMenuRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    NavigationMenuPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    NavigationMenuState::declared()
+  }
 
   /// The design's navigation menu (`pencil/lurq-design-system.pen`, Navigation Menu): items 4 apart, each 36 tall,
   /// padded 12 at the sides with the medium radius, its text 13/500 in the foreground and, where it opens a panel, a

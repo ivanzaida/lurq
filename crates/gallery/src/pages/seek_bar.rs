@@ -172,11 +172,13 @@ impl SeekBarPage {
       self.playground.recorder(),
       self.playground.recorder(),
     );
-    let bar = plain()
-      .force(self.playground.forced())
-      .on_change(move |to| record(format!("on_change({to})")))
-      .on_change_end(move |to| record_end(format!("on_change_end({to})")))
-      .on_hover(move |time| record_hover(format!("on_hover({time:?})")));
+    let bar = self.playground.styled(
+      plain()
+        .force(self.playground.forced())
+        .on_change(move |to| record(format!("on_change({to})")))
+        .on_change_end(move |to| record_end(format!("on_change_end({to})")))
+        .on_hover(move |time| record_hover(format!("on_hover({time:?})"))),
+    );
 
     let mut code = vec![
       "// position: Signal<f32>, in seconds".to_owned(),

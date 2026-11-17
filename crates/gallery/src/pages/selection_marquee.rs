@@ -188,9 +188,9 @@ impl SelectionMarqueePage {
       }
     };
     let shown_on_stage = {
-      let build = build.clone();
       let record: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record);
-      Shown::built(move |ctx| build(Some(record)).mount(ctx))
+      let stage = self.playground.styled(build(Some(record)));
+      Shown::built(move |ctx| stage.mount(ctx))
     };
     {
       let build = build.clone();

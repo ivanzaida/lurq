@@ -74,10 +74,11 @@ impl GalleryPage {
       gallery
     };
     let live = {
-      let (plain, record) = (plain.clone(), record.clone());
+      let (plain, record, playground) = (plain.clone(), record.clone(), &self.playground);
       move |_: &mut Ctx| -> Element {
         let (opened, picked, pressed) = (record.clone(), record.clone(), record.clone());
-        plain()
+        playground
+          .styled(plain())
           .selected(chosen.clone())
           .on_open_change(move |at| opened(format!("on_open_change({at:?})")))
           .on_selection_change(move |keys| picked(format!("on_selection_change({keys:?})")))
@@ -226,7 +227,9 @@ impl Component for GalleryPage {
       .align_items(Alignment::End)
       .id("gallery-board")
       .child(item(
-        Gallery::new(pictures_of(&self.shots, 8)).width(392.0).id("gallery-eight"),
+        Gallery::new(pictures_of(&self.shots, 8))
+          .width(392.0)
+          .id("gallery-eight"),
         "eight pictures · four in a row, 92 × 68, 8 apart",
       ))
       .child(item(

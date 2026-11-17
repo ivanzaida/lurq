@@ -7,7 +7,10 @@
 
 use super::{EventControl, Tree, hit_test_tree};
 use crate::{
-  app::events::{HistoryDirection, HistorySwipeEvent, ScrollPhase, is_synthetic_input},
+  app::{
+    events::{HistoryDirection, HistorySwipeEvent, NavigationSource, ScrollPhase, is_synthetic_input},
+    window::NavigationOrigin,
+  },
   core::NodeId,
   time::{Duration, Instant},
 };
@@ -110,12 +113,19 @@ impl Tree {
       return;
     }
     if let Some(direction) = self.history_swipes.scroll(phase, delta, taken, Instant::now()) {
-      self.dispatch_history_swipe(x, y, direction);
+      self.dispatch_history_swipe(x, y, direction, NavigationSource::Swipe);
     }
   }
 
-  /// Delivers a swipe to the elements under `(x, y)`, innermost first, until one stops its propagation.
-  pub(super) fn dispatch_history_swipe(&mut self, x: f32, y: f32, direction: HistoryDirection) {
+  /// Delivers a swipe to the elements under `(x, y)`, innermost first, until one stops its propagation; then, unless
+  /// one prevented its default, goes back or forward from there (`runtime/navigation.rs`).
+  pub(super) fn dispatch_history_swipe(
+    &mut self,
+    x: f32,
+    y: f32,
+    direction: HistoryDirection,
+    source: NavigationSource,
+  ) {
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return;
     };
@@ -140,6 +150,9 @@ impl Tree {
       if event.propagation_stopped() {
         break;
       }
+    }
+    if !event.default_prevented() {
+      self.dispatch_navigation(direction, source, &NavigationOrigin::Point(x, y));
     }
   }
 }

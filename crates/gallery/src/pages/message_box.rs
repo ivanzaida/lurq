@@ -177,7 +177,7 @@ impl MessageBoxPage {
     let recorded: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record);
     let shown = Row::new()
       .child(opener("Replace file…", &self.open))
-      .child(make(self.open.clone(), Some(recorded)));
+      .child(self.playground.styled(make(self.open.clone(), Some(recorded))));
 
     let mut code = vec![
       "// open: Signal<bool>".to_owned(),

@@ -581,9 +581,29 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
     .child(part.text(content).width(fill))
 }
 
+impl crate::ui::Styled for Card {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 impl Themed for Card {
   const NAME: &'static str = "card";
   type Renderer = CardRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    CardPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    CardState::declared()
+  }
 
   /// The design's card (`pencil/lurq-design-system.pen`, Card and
   /// Card/Simple): a surface as wide as the room it is given, in the card's color with an edge of the

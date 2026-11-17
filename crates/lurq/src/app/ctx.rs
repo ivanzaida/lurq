@@ -986,6 +986,79 @@ impl EditRunner {
   }
 }
 
+/// What goes back or forward in a window from a handler, as the keys and the mouse's side buttons do:
+/// [`Ctx::history_runner`].
+#[derive(Clone)]
+pub struct HistoryRunner {
+  window: Option<crate::app::window::Window>,
+}
+
+impl HistoryRunner {
+  /// Goes back once the event that asked is handled; see [`Ctx::history_back`].
+  pub fn back(&self) {
+    self.run(crate::app::events::NavigationCommand::Back);
+  }
+
+  /// Goes forward once the event that asked is handled; see [`Ctx::history_forward`].
+  pub fn forward(&self) {
+    self.run(crate::app::events::NavigationCommand::Forward);
+  }
+
+  /// Goes back or forward by `command`, on what has the focus and out from it.
+  pub fn run(&self, command: crate::app::events::NavigationCommand) {
+    self.request(command, crate::app::window::NavigationOrigin::Focus, None);
+  }
+
+  /// Goes back or forward from a part of the window, the element `part` is on: from the focused element where it
+  /// is in that part, otherwise from the last element in it that has a handler for the command, or from the part
+  /// itself; then out from there, as from the focus. What a back button of a panel runs, which has the focus itself
+  /// and stands beside what goes back.
+  pub fn run_in(&self, part: &crate::core::ElementRef, command: crate::app::events::NavigationCommand) {
+    self.request(command, crate::app::window::NavigationOrigin::Part(part.clone()), None);
+  }
+
+  /// As [`run_in`](Self::run_in), from `source`, with `done` told whether something took the command.
+  #[cfg_attr(not(feature = "router"), allow(dead_code))]
+  pub(crate) fn run_in_then(
+    &self,
+    part: &crate::core::ElementRef,
+    command: crate::app::events::NavigationCommand,
+    source: crate::app::events::NavigationSource,
+    done: impl FnOnce(bool) + Send + Sync + 'static,
+  ) {
+    let request = crate::app::window::NavigationRequest {
+      command,
+      source,
+      origin: crate::app::window::NavigationOrigin::Part(part.clone()),
+      done: Some(Box::new(done)),
+    };
+    match &self.window {
+      Some(window) => window.request_navigation(request),
+      None => {
+        if let Some(done) = request.done {
+          done(false);
+        }
+      }
+    }
+  }
+
+  fn request(
+    &self,
+    command: crate::app::events::NavigationCommand,
+    origin: crate::app::window::NavigationOrigin,
+    done: Option<crate::app::window::NavigationDone>,
+  ) {
+    if let Some(window) = &self.window {
+      window.request_navigation(crate::app::window::NavigationRequest {
+        command,
+        source: crate::app::events::NavigationSource::App,
+        origin,
+        done,
+      });
+    }
+  }
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   subtree_dirty: Arc<AtomicBool>,
@@ -2768,6 +2841,41 @@ impl Ctx {
   /// ```
   pub fn edit_runner(&self) -> EditRunner {
     EditRunner {
+      window: self.window.clone(),
+    }
+  }
+
+  /// Goes back, as Alt+← (Cmd+[ on a Mac), the mouse's back button and Android's back do: on the focused element
+  /// and out from it, innermost first, its `on_history_back` handlers and the routers mounted there, until one takes
+  /// it; then the routers mounted elsewhere in the window, the innermost first
+  /// ([`NavigationCommand`](crate::app::events::NavigationCommand)). What a menu's item or a button runs, through
+  /// [`Ctx::history_runner`], which a handler keeps: a dialog open over the page closes on it where it hears it, as
+  /// on a key.
+  ///
+  /// It is run once the event that asked is handled, on what has the focus then. With no window (a component
+  /// rendered with no tree) it does nothing.
+  pub fn history_back(&self) {
+    self.history_runner().back();
+  }
+
+  /// Goes forward, as Alt+→ (Cmd+] on a Mac) and the mouse's forward button do; see [`Ctx::history_back`].
+  pub fn history_forward(&self) {
+    self.history_runner().forward();
+  }
+
+  /// What goes back or forward ([`Ctx::history_back`]), to keep in a handler: a menu's item, a toolbar's button.
+  /// Reading it does not render the component again when the window changes.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, components::Button, node::Element};
+  ///
+  /// # fn build(ctx: &mut Ctx) -> Element {
+  /// let history = ctx.history_runner();
+  /// Button::new("Back").on_click(move |_| history.back()).into()
+  /// # }
+  /// ```
+  pub fn history_runner(&self) -> HistoryRunner {
+    HistoryRunner {
       window: self.window.clone(),
     }
   }

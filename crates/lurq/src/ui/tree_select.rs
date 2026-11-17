@@ -1125,10 +1125,26 @@ impl TreeSelectView {
   }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::ui::Styled for TreeSelect<T, V> {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
 /// Every tree select has the one recipe and renderer, whatever its values are and however many it holds.
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for TreeSelect<T, V> {
   const NAME: &'static str = "tree_select";
   type Renderer = TreeSelectRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    TreeSelectPart::declared()
+  }
 
   /// The design's tree select (`pencil/lurq-design-system.pen`, Tree Select): a select's trigger, 260 by 36 on the
   /// background in an edge of 1 in the color of an input's, 6 round, its text 12 from its edge in the body's type

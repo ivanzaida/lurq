@@ -82,19 +82,21 @@ impl TransferPage {
     };
     let build = {
       let (dress, played, record) = (dress.clone(), self.played.clone(), record.clone());
-      move |ctx: &mut Ctx| -> Element {
+      move |ctx: &mut Ctx, style: &dyn Fn(Transfer<Id>) -> Transfer<Id>| -> Element {
         let (changed, checked) = (record.clone(), record.clone());
-        dress(Transfer::new(played.clone(), features(item_disabled)))
+        dress(style(Transfer::new(played.clone(), features(item_disabled))))
           .on_change(move |value| changed(format!("on_change({value:?})")))
           .on_checked_change(move |value| checked(format!("on_checked_change({value:?})")))
           .mount(ctx)
       }
     };
     let shown = {
-      let build = build.clone();
-      Shown::built(move |ctx| build(ctx))
+      let (build, playground) = (build.clone(), &self.playground);
+      Shown::built(move |ctx| build(ctx, &|transfer| playground.styled(transfer)))
     };
-    self.playground.window_shows(move |ctx| build(ctx));
+    self
+      .playground
+      .window_shows(move |ctx| build(ctx, &|transfer| transfer));
     let make = {
       let (dress, value) = (dress.clone(), self.played.get());
       move || -> Element { dress(Transfer::controlled(value.clone(), features(item_disabled), |_| {})).into() }

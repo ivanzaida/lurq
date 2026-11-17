@@ -91,7 +91,11 @@ impl TooltipPage {
       .variant(ButtonVariant::Outline)
       .icon("copy")
       .on_click(move |_| record(format!("pressed: {words:?} went")));
-    let shown = plain().force_open(open.then_some(true)).mount(ctx, button);
+    let shown = self
+      .playground
+      .styled(plain())
+      .force_open(open.then_some(true))
+      .mount(ctx, button);
 
     let mut code = vec![format!("Tooltip::new({text:?})")];
     if !shortcut.is_empty() {

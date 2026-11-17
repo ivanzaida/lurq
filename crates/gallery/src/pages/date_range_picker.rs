@@ -169,7 +169,7 @@ impl DateRangePickerPage {
       Spec {
         title: "Date Range Picker",
         make,
-        shown: Shown::of(shown),
+        shown: Shown::of(self.playground.styled(shown)),
         fill: false,
         forceable: true,
         facts: format!(
