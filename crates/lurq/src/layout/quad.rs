@@ -402,7 +402,7 @@ impl Quad {
         uv_min: *uv_min,
         uv_max: *uv_max,
       },
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       QuadContent::Svg { data } => QuadContent::Svg { data: data.clone() },
       QuadContent::BoxShadow(shadow) => QuadContent::BoxShadow(*shadow),
       QuadContent::None => QuadContent::None,
@@ -468,7 +468,7 @@ pub enum QuadContent {
     uv_min: [f32; 2],
     uv_max: [f32; 2],
   },
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg {
     data: crate::svg::SvgData,
   },

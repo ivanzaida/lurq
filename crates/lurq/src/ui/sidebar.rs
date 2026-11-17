@@ -688,7 +688,6 @@ impl PartialEq for SidebarProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for SidebarProps {}
 
 /// What a sidebar keeps between renders.

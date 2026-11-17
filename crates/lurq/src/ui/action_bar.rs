@@ -470,7 +470,6 @@ impl PartialEq for ActionBarProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ActionBarProps {}
 
 /// What a mounted bar keeps from one render to the next: whether the focus is

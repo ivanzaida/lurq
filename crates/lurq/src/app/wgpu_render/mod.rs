@@ -152,8 +152,6 @@ enum OrderedDraw {
   Glyph(GlyphRun),
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "svg")]
-  Svg(usize),
 }
 
 impl OrderedDraw {
@@ -164,8 +162,6 @@ impl OrderedDraw {
       Self::Glyph(GlyphRun { start, count, .. }) => PaintedDraw::Glyphs { start, count },
       #[cfg(feature = "raster")]
       Self::Image(index) => PaintedDraw::Image(index),
-      #[cfg(feature = "svg")]
-      Self::Svg(index) => PaintedDraw::Svg(index),
     }
   }
 
@@ -185,23 +181,17 @@ enum ActivePipeline {
   Image,
   #[cfg(feature = "raster")]
   Nv12Image,
-  #[cfg(feature = "svg")]
-  Svg,
   Layer,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActiveVertexBuffer {
   CommonQuad,
-  #[cfg(feature = "svg")]
-  Svg,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActiveIndexBuffer {
   CommonU16,
-  #[cfg(feature = "svg")]
-  SvgU32,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -425,10 +415,6 @@ pub struct WgpuRenderEngine {
   image_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "svg")]
-  svg_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "svg")]
-  svg_bgl: Option<wgpu::BindGroupLayout>,
   surface: Option<wgpu::Surface<'static>>,
   surface_config: Option<wgpu::SurfaceConfiguration>,
   surface_format: Option<wgpu::TextureFormat>,
@@ -854,10 +840,6 @@ impl WgpuRenderEngine {
       image_pipeline: None,
       #[cfg(feature = "raster")]
       nv12_image_pipeline: None,
-      #[cfg(feature = "svg")]
-      svg_pipeline: None,
-      #[cfg(feature = "svg")]
-      svg_bgl: None,
       surface: None,
       surface_config: None,
       surface_format: None,
@@ -1107,11 +1089,6 @@ impl WgpuRenderEngine {
       self.nv12_image_bgl = None;
       self.image_pipeline = None;
       self.nv12_image_pipeline = None;
-    }
-    #[cfg(feature = "svg")]
-    {
-      self.svg_bgl = None;
-      self.svg_pipeline = None;
     }
 
     self.vertex_buffer = None;
@@ -1711,63 +1688,6 @@ impl WgpuRenderEngine {
       )
     };
 
-    // --- SVG pipeline ---
-    #[cfg(feature = "svg")]
-    let (svg_pipeline, svg_bgl) = {
-      use vertex::SvgVertexGpu;
-      let svg_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("lurq_svg_bgl"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-          binding: 0,
-          visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-          ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-          },
-          count: None,
-        }],
-      });
-      let svg_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("lurq_svg_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/svg.wgsl").into()),
-      });
-      let svg_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("lurq_svg_pl"),
-        bind_group_layouts: &[Some(&svg_bgl)],
-        immediate_size: 0,
-      });
-      let svg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("lurq_svg_pipeline"),
-        layout: Some(&svg_pipeline_layout),
-        vertex: wgpu::VertexState {
-          module: &svg_shader,
-          entry_point: Some("vs_main"),
-          buffers: &[SvgVertexGpu::desc()],
-          compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-          module: &svg_shader,
-          entry_point: Some("fs_main"),
-          targets: &[Some(wgpu::ColorTargetState {
-            format,
-            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-            write_mask: wgpu::ColorWrites::ALL,
-          })],
-          compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-          topology: wgpu::PrimitiveTopology::TriangleList,
-          ..Default::default()
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        multiview_mask: None,
-        cache: None,
-      });
-      (svg_pipeline, svg_bgl)
-    };
-
     // --- Persistent uniform/storage buffers ---
     let globals_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("lurq_globals"),
@@ -1824,11 +1744,6 @@ impl WgpuRenderEngine {
     {
       self.image_pipeline = Some(image_pipeline);
       self.nv12_image_pipeline = Some(nv12_image_pipeline);
-    }
-    #[cfg(feature = "svg")]
-    {
-      self.svg_pipeline = Some(svg_pipeline);
-      self.svg_bgl = Some(svg_bgl);
     }
     self.quad_bgl = Some(quad_bgl);
     self.glyph_bgl = Some(glyph_bgl);
@@ -2569,28 +2484,16 @@ impl RenderEngine for WgpuRenderEngine {
     // Draws in paint order, across the pipelines.
     self.scratch_ordered_draws.clear();
     self.scratch_ordered_draws.reserve(
-      list.rects.len()
-        + list.glyphs.len()
-        + {
-          #[cfg(feature = "raster")]
-          {
-            list.images.len()
-          }
-          #[cfg(not(feature = "raster"))]
-          {
-            0
-          }
+      list.rects.len() + list.glyphs.len() + {
+        #[cfg(feature = "raster")]
+        {
+          list.images.len()
         }
-        + {
-          #[cfg(feature = "svg")]
-          {
-            list.svgs.len()
-          }
-          #[cfg(not(feature = "svg"))]
-          {
-            0
-          }
-        },
+        #[cfg(not(feature = "raster"))]
+        {
+          0
+        }
+      },
     );
     for (index, rect) in list.rects.iter().enumerate() {
       self.scratch_ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
@@ -2608,10 +2511,6 @@ impl RenderEngine for WgpuRenderEngine {
       self
         .scratch_ordered_draws
         .push((image.order, OrderedDraw::Image(index)));
-    }
-    #[cfg(feature = "svg")]
-    for (index, svg) in list.svgs.iter().enumerate() {
-      self.scratch_ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
     }
     self.scratch_ordered_draws.sort_by_key(|(order, _)| *order);
     let ordered_draws = std::mem::take(&mut self.scratch_ordered_draws);
@@ -3357,68 +3256,6 @@ impl RenderEngine for WgpuRenderEngine {
                 active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
               }
               pass.draw_indexed(0..6, 0, 0..1);
-              profile_if! { _draw_calls += 1; }
-            }
-            #[cfg(feature = "svg")]
-            OrderedDraw::Svg(index) => {
-              use vertex::SvgVertexGpu;
-
-              let svg_cmd = &list.svgs[*index];
-              if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
-                continue;
-              }
-
-              let svg_globals = globals_for_clip(space.clip(svg_cmd.clip), &space);
-              let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lurq_svg_globals"),
-                contents: bytemuck::bytes_of(&svg_globals),
-                usage: wgpu::BufferUsages::UNIFORM,
-              });
-
-              let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("lurq_svg_bg"),
-                layout: self.svg_bgl.as_ref().unwrap(),
-                entries: &[wgpu::BindGroupEntry {
-                  binding: 0,
-                  resource: svg_globals_buf.as_entire_binding(),
-                }],
-              });
-
-              if !set_scissor(&mut pass, space.clip(svg_cmd.clip), &space) {
-                continue;
-              }
-
-              let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
-                .mesh
-                .vertices
-                .iter()
-                .map(|v| SvgVertexGpu {
-                  position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
-                  color: v.color,
-                })
-                .collect();
-
-              let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lurq_svg_vb"),
-                contents: bytemuck::cast_slice(&gpu_verts),
-                usage: wgpu::BufferUsages::VERTEX,
-              });
-              let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lurq_svg_ib"),
-                contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
-                usage: wgpu::BufferUsages::INDEX,
-              });
-
-              if active_pipeline != Some(ActivePipeline::Svg) {
-                pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
-                active_pipeline = Some(ActivePipeline::Svg);
-              }
-              pass.set_bind_group(0, &svg_bg, &[]);
-              pass.set_vertex_buffer(0, vb.slice(..));
-              active_vertex_buffer = Some(ActiveVertexBuffer::Svg);
-              pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-              active_index_buffer = Some(ActiveIndexBuffer::SvgU32);
-              pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
               profile_if! { _draw_calls += 1; }
             }
           }

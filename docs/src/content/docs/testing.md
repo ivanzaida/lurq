@@ -10,23 +10,25 @@ The repo has focused Rust tests under `crates/lurq/tests`. They are the best ref
 ## Run Tests
 
 ```powershell
-cargo test -p lurq --features http
+cargo test -p lurq --features markdown,mcp
 ```
 
-With feature combinations:
+lurq's default features (the desktop set) are on in every command here unless it says `--no-default-features`.
+With the other feature combinations:
 
 ```powershell
-cargo test -p lurq --features "image svg http devtools"
-cargo test -p lurq --features "winit wgpu image svg http devtools clipboard"
+cargo test -p lurq --features "http devtools"
+cargo check -p lurq --no-default-features
+cargo check -p lurq --no-default-features --features winit,wgpu --tests
 ```
 
 The combinations above do not enable every subsystem. Check feature-specific behavior explicitly:
 
 ```powershell
-cargo test -p lurq --features query,tokio --test query_tests
-cargo test -p lurq --features form,router,persistent_storage,i18n --lib --tests
+cargo test -p lurq --features tokio --test query_tests
+cargo test -p lurq --features persistent_storage --lib --tests
 cargo test -p lurq --all-features --doc
-cargo test -p lurq --features canvas --test canvas_tests
+cargo test -p lurq --test canvas_tests
 cargo check --workspace --all-features --all-targets --locked
 ```
 
@@ -35,7 +37,7 @@ The publish workflow in `.github/workflows/publish-crates.yml` defines release v
 On Windows, the render readback tests draw into a hidden window of their own and compare both native backends with CSS blending and with the box-shadow formula; the box-shadow capture check runs a themed scene through layout and both backends and requires identical captures:
 
 ```powershell
-cargo test -p lurq --features wgpu,dx12,raster,screenshot --lib readback -- --ignored --test-threads=1
+cargo test -p lurq --features dx12,screenshot --lib readback -- --ignored --test-threads=1
 cargo run -p lurq --example box_shadow_capture_check --features screenshot,wgpu,dx12
 ```
 

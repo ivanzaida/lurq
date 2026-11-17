@@ -5,9 +5,7 @@ use std::{
 
 use parking_lot::Mutex;
 
-#[cfg(feature = "i18n")]
-use crate::app::i18n::I18n;
-use crate::app::{glyph_engine::GlyphEngine, theme::Theme};
+use crate::app::{glyph_engine::GlyphEngine, i18n::I18n, theme::Theme};
 
 /// A request to open a new OS window that renders its own component tree.
 /// Created through [`WindowOpener::open`], drained by the runtime each loop
@@ -165,7 +163,6 @@ pub(crate) struct AppShared {
   /// What the person points with: [`App::pointer`].
   pub(crate) pointer: super::pointer::AppPointer,
   pub(crate) window_opener: WindowOpener,
-  #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
   pub(crate) scale_override: Mutex<Option<f32>>,
   #[cfg(feature = "tokio")]
@@ -178,7 +175,7 @@ pub(crate) struct AppShared {
   pub(crate) persistent_storage: Mutex<crate::persistent_storage::PersistentStorage>,
   #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) image_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>>,
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   pub(crate) svg_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::svg::SvgData>>,
 }
 
@@ -199,7 +196,6 @@ impl App {
         locale: crate::core::AppLocale::new(),
         pointer: super::pointer::AppPointer::new(),
         window_opener: WindowOpener::default(),
-        #[cfg(feature = "i18n")]
         i18n: I18n::new(),
         scale_override: Mutex::new(None),
         #[cfg(feature = "tokio")]
@@ -211,7 +207,7 @@ impl App {
         persistent_storage: Mutex::new(crate::persistent_storage::PersistentStorage::memory()),
         #[cfg(all(feature = "image", feature = "http"))]
         image_resource_cache: Mutex::new(std::collections::HashMap::new()),
-        #[cfg(all(feature = "svg", feature = "http"))]
+        #[cfg(all(feature = "canvas", feature = "http"))]
         svg_resource_cache: Mutex::new(std::collections::HashMap::new()),
       }),
     }
@@ -361,7 +357,6 @@ impl App {
     self.shared.window_opener.clone()
   }
 
-  #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
     &self.shared.i18n
   }

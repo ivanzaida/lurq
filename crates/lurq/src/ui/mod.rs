@@ -679,7 +679,6 @@ macro_rules! names {
 
     // A name of the design system goes in a signal with DevTools on, as any value an app keeps does: a
     // playground's variant, a setting's size.
-    #[cfg(feature = "devtools")]
     impl $crate::app::component::DevtoolsInspectable for $type {
       fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
         formatter.value_debug(&self.as_str());
@@ -694,7 +693,6 @@ pub(crate) use names;
 macro_rules! inspectable {
   ($($type:ty),* $(,)?) => {
     $(
-      #[cfg(feature = "devtools")]
       impl $crate::app::component::DevtoolsInspectable for $type {
         fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
           formatter.value_debug(self);

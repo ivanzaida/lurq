@@ -1099,7 +1099,6 @@ impl<T> PartialEq for ColumnViewProps<T> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T> crate::app::component::DevtoolsInspectable for ColumnViewProps<T> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("ColumnView", format!("{} items at the top", self.view.items.len()));

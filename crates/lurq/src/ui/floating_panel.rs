@@ -1640,7 +1640,6 @@ impl PartialEq for PanelProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PanelProps {}
 
 /// What a mounted panel keeps.
@@ -1881,7 +1880,6 @@ impl PartialEq for LayerProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for LayerProps {}
 
 /// What a mounted layer keeps: the keys of its panels, the one in front last, and the key of the active one where the

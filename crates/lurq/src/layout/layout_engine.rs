@@ -90,9 +90,9 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
 const DEFAULT_SELECT_WIDTH: f32 = 160.0;
 const DEFAULT_SELECT_HEIGHT: f32 = 32.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
+#[cfg(feature = "raster")]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
+#[cfg(feature = "raster")]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
 #[cfg(feature = "perf_profile")]
@@ -1619,9 +1619,9 @@ impl LayoutEngine {
       }
       #[cfg(feature = "image")]
       NodeKind::ResourceImage { .. } => QuadContent::None,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
@@ -3488,7 +3488,7 @@ impl LayoutEngine {
           reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       NodeKind::Svg { data } => {
         let preferred = node
           .intrinsic_size
@@ -3504,7 +3504,7 @@ impl LayoutEngine {
           reach: crate::layout::layout_result::Reach::UNKNOWN,
         };
       }
-      #[cfg(all(feature = "svg", feature = "http"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       NodeKind::ResourceSvg { .. } => {
         let preferred = node
           .intrinsic_size
@@ -4755,12 +4755,12 @@ impl LayoutEngine {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
-    #[cfg(all(feature = "svg", feature = "http"))]
+    #[cfg(all(feature = "canvas", feature = "http"))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
-    #[cfg(all(feature = "svg", not(feature = "http")))]
+    #[cfg(all(feature = "canvas", not(feature = "http")))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. });
 
-    #[cfg(feature = "svg")]
+    #[cfg(feature = "canvas")]
     if is_svg_media && aspect_ratio.is_none() {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
@@ -4852,7 +4852,7 @@ impl LayoutEngine {
     constraints.max_height = height;
   }
 
-  #[cfg(any(feature = "raster", feature = "svg"))]
+  #[cfg(feature = "raster")]
   fn apply_intrinsic_aspect_ratio(
     node: &Node,
     constraints: &mut Constraints,

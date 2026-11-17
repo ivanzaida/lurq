@@ -1578,7 +1578,6 @@ impl<T> PartialEq for Props<T> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T> crate::app::component::DevtoolsInspectable for Props<T> {}
 
 /// What a mounted event calendar keeps between renders.

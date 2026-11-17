@@ -702,7 +702,6 @@ impl PartialEq for MediaVolumeProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for MediaVolumeProps {}
 
 /// A mounted volume control: it keeps whether the pointer is over it, whether the focus is in it, and whether its

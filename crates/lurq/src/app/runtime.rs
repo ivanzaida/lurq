@@ -910,8 +910,6 @@ pub struct Tree {
   render_glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "raster")]
   render_images: Vec<crate::images::ImageCmd>,
-  #[cfg(feature = "svg")]
-  render_svgs: Vec<crate::svg::SvgCmd>,
   render_layers: Vec<crate::layout::opacity_layer::LayerCmd>,
   render_backdrops: Vec<crate::layout::backdrop::BackdropCmd>,
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
@@ -1386,8 +1384,6 @@ impl Tree {
       render_glyphs: Vec::new(),
       #[cfg(feature = "raster")]
       render_images: Vec::new(),
-      #[cfg(feature = "svg")]
-      render_svgs: Vec::new(),
       render_layers: Vec::new(),
       render_backdrops: Vec::new(),
       opacity_groups: Vec::new(),
@@ -2390,7 +2386,6 @@ impl Tree {
       .with_theme(app.theme().clone())
       .with_window(self.window.clone())
       .with_breakpoint();
-    #[cfg(feature = "i18n")]
     {
       ctx = ctx.with_i18n(app.i18n().clone());
     }
@@ -3164,18 +3159,6 @@ impl Tree {
     let mut image_sources = Vec::new();
     #[cfg(feature = "raster")]
     let mut video_sources = Vec::new();
-    #[cfg(all(feature = "svg", feature = "raster"))]
-    let svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
-    #[cfg(all(feature = "svg", not(feature = "raster")))]
-    let mut svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
 
     // `LURQ_GLYPH_DEBUG` — collect the marked text runs' bboxes+orders so the
     // end of the build can report which rects paint over them.
@@ -3628,7 +3611,7 @@ impl Tree {
           image_sources.push(Some(data.clone()));
           video_sources.push(is_video.then(|| data.clone()));
         }
-        #[cfg(all(feature = "svg", feature = "raster"))]
+        #[cfg(feature = "canvas")]
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
@@ -3665,32 +3648,6 @@ impl Tree {
           });
           image_sources.push(None);
           video_sources.push(None);
-        }
-        #[cfg(all(feature = "svg", not(feature = "raster")))]
-        QuadContent::Svg { data } => {
-          let w = quad.width * scale;
-          let h = quad.height * scale;
-          // SvgCmd carries no opacity, so the quad's fade folds into the
-          // data's own override before tessellation (it participates in the
-          // mesh identity, so faded and opaque copies never share vertices).
-          let data = if quad.opacity < 1.0 {
-            data
-              .clone()
-              .with_opacity(data.opacity_override().unwrap_or(1.0) * quad.opacity)
-          } else {
-            data.clone()
-          };
-          let mesh = crate::svg::tessellate::tessellate(&data, w, h);
-          svgs.push(crate::svg::SvgCmd {
-            order,
-            x: quad.x * scale,
-            y: quad.y * scale,
-            width: w,
-            height: h,
-            svg_id: data.id(),
-            mesh: std::sync::Arc::new(mesh),
-            clip: scaled_clip,
-          });
         }
         QuadContent::BoxShadow(shadow) => {
           rects.push(crate::layout::box_shadow::shadow_rect_cmd(
@@ -3743,8 +3700,6 @@ impl Tree {
       &glyphs,
       #[cfg(feature = "raster")]
       &images,
-      #[cfg(feature = "svg")]
-      &svgs,
       &mut layers,
     );
     self.opacity_groups = opacity_groups;
@@ -3854,8 +3809,6 @@ impl Tree {
       glyphs,
       #[cfg(feature = "raster")]
       images,
-      #[cfg(feature = "svg")]
-      svgs,
       layers,
       backdrops,
       atlas: glyph_engine.atlas(),
@@ -4005,8 +3958,6 @@ impl Tree {
       mut glyphs,
       #[cfg(feature = "raster")]
       mut images,
-      #[cfg(feature = "svg")]
-      mut svgs,
       mut layers,
       mut backdrops,
       atlas: _,
@@ -4023,11 +3974,6 @@ impl Tree {
     {
       images.clear();
       self.render_images = images;
-    }
-    #[cfg(feature = "svg")]
-    {
-      svgs.clear();
-      self.render_svgs = svgs;
     }
     self.scheduled_redraw_due = false;
     self.frame_count += 1;
@@ -7631,9 +7577,9 @@ impl Tree {
     let image_resources_changed = self.resolve_loading_images() || image_resources_changed;
     // What nobody waits for any more is let go: the loads of components that are gone.
     app.shared.loader.sweep();
-    #[cfg(all(feature = "svg", feature = "http"))]
+    #[cfg(all(feature = "canvas", feature = "http"))]
     let svg_resources_changed = self.resolve_resource_svgs(app);
-    #[cfg(not(all(feature = "svg", feature = "http")))]
+    #[cfg(not(all(feature = "canvas", feature = "http")))]
     let svg_resources_changed = false;
 
     let now = self.animation_clock.unwrap_or_else(Instant::now);
@@ -8361,7 +8307,7 @@ impl Tree {
     Some(img)
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_resource_svgs(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
       let changed = Self::resolve_resource_svgs_recursive(
@@ -8378,7 +8324,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_resource_svgs_recursive(
     node: &mut Node,
     loader: &crate::resources::ResourceLoader,
@@ -8413,7 +8359,7 @@ impl Tree {
     layout_dirty
   }
 
-  #[cfg(all(feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_svg_resource(
     key: &Arc<str>,
     loader: &crate::resources::ResourceLoader,
@@ -12656,7 +12602,7 @@ mod layout_tracking_tests {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "svg", feature = "http"))]
+  #[cfg(all(feature = "image", feature = "canvas", feature = "http"))]
   #[test]
   fn resource_completion_only_visits_resource_branches() {
     let mut app = App::new();

@@ -406,7 +406,6 @@ impl<K> PartialEq for GalleryProps<K> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<K> crate::app::component::DevtoolsInspectable for GalleryProps<K> {}
 
 /// The component of a gallery: what it keeps between renders.

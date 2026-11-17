@@ -1042,7 +1042,6 @@ impl PartialEq for ToolbarProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ToolbarProps {}
 
 /// What a toolbar keeps from one render to the next.

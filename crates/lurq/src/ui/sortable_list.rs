@@ -1090,8 +1090,7 @@ impl SortableRow {
     NodeUpdate::ref_element(node, at);
     NodeUpdate::focus_entry(node, self.entry);
     // The list item said it is a button, being pressed: it is a row of this list.
-    #[cfg(any(feature = "devtools", feature = "mcp"))]
-    node.debug.debug_attrs.retain(|(name, _)| &**name != "a11y_role");
+    NodeUpdate::undescribe(node, "a11y_role");
     NodeUpdate::describe(
       node,
       Arc::from("a11y_role"),
@@ -1256,7 +1255,6 @@ impl<T> PartialEq for SortableListProps<T> {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl<T> crate::app::component::DevtoolsInspectable for SortableListProps<T> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("SortableList", format!("{} rows", self.list.items.len()));

@@ -1827,7 +1827,6 @@ impl PartialEq for AudioPlayerProps {
   }
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for AudioPlayerProps {}
 
 /// What a mounted player keeps from one render to the next.

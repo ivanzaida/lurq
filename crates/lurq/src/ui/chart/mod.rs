@@ -162,7 +162,6 @@ pub struct ChartPoint {
   pub index: usize,
 }
 
-#[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for ChartPoint {}
 
 impl ChartPoint {

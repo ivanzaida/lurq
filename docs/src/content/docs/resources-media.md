@@ -5,15 +5,17 @@ description: Fonts, images, SVGs, background images, animated images, and async 
 
 # Resources And Media
 
-Media APIs are feature-gated. Enable only what the app needs.
+Media APIs are feature-gated. `image` and `canvas` are in lurq's default features; the rest an app turns on.
 
 | Feature | Public APIs |
 | --- | --- |
-| `raster` | `Image`, `ImageData`, `StreamingImage`, `Video`, and raw RGBA/native image transport. |
-| `image` | Enables `raster` plus image decoding and image-backed style helpers. |
-| `svg` | `Svg`, `SvgData`. |
-| `http` | Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of the app are loaded by every build. Until 0.63 it was `resources`, which still turns it on. |
+| `image` (default) | `Image`, `ImageData`, `StreamingImage`, `Video`, raw RGBA/native image transport, image decoding and image-backed style helpers. |
+| `canvas` (default) | `Svg`, `SvgData`, beside the Canvas 2D. |
+| `media` | Playing a video or a sound. |
+| `http` | Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of the app are loaded by every build. Until 0.63 it was `resources`. |
 | `markdown` | Markdown parsing and `Markdown::mount`. |
+
+The raw transport (`ImageData`, `StreamingImage`) is lurq's internal `raster` feature, which `image`, `canvas` and `media` each turn on.
 
 ## Fonts
 
@@ -94,7 +96,7 @@ Image::new(image).size(240.0, 160.0)
 
 Supported formats come from the `image` dependency configuration: PNG, JPEG, WebP, GIF, BMP, and TIFF. GIF and animated WebP preserve animation frames.
 
-Raw RGBA only requires `raster` (also enabled by `canvas` and `image`):
+Raw RGBA needs any of `image`, `canvas` or `media`:
 
 ```rust
 let pixels = vec![255; 64 * 64 * 4];
@@ -188,7 +190,7 @@ While it picks, the pointer is a cross and a loupe follows it: the pixels around
 
 ## Resource Images
 
-With `image` and `resources`, let the runtime load files relative to the resource root.
+With `image`, let the runtime load files relative to the resource root.
 
 ```rust
 let mut app = lurq::app::App::new();
@@ -228,7 +230,7 @@ Slider::new(value)
 
 ## SVG
 
-With `svg`, construct SVGs from bytes or strings.
+With `canvas`, construct SVGs from bytes or strings.
 
 ```rust
 use lurq::{components::Svg, node::color::Color, svg::SvgData};
@@ -239,7 +241,7 @@ let icon = SvgData::from_str(r#"<svg viewBox="0 0 24 24"></svg>"#)
 Svg::new(icon).size(24.0, 24.0)
 ```
 
-With `svg` and `resources`:
+With `canvas` and `http`:
 
 ```rust
 Svg::from_resource("icons/search.svg").size(18.0, 18.0)
@@ -382,7 +384,7 @@ The document draws every block of the design's (`pencil/lurq-design-system.pen`,
 - **Lists**: a number at the end of a column of 18 in the muted foreground; a bullet of 5, a dot at the first level and a ring under it (a selection over a bulleted item still copies its `-`). **Tasks** (`- [ ]`, `- [x]`) are the checkbox's look, a done one's words in the muted foreground. A task's box is read only, taking neither the pointer nor the focus, unless the app takes its change: `.on_task_change(|index, checked| ..)` is told the task's index among the document's tasks and whether it is checked now, and the app writes that into its source.
 - **Quotes** are `ui::Blockquote`: a line of 2 at their start, their words 14 in italics in the muted foreground. **Code blocks** are `ui::CodeBlock`: a bar named by the language, with the button that copies the code, over the code in the family of code, colored by what each word is where it knows the language. Both look as the theme's `blockquote` and `code_block` recipes say, one look wherever they are.
 - **Tables**: a box of the middle radius, the header on the muted fill, every other body row striped, a line between two columns, the columns of one width and each aligned as its delimiter row says.
-- **The rule** (`---`): a line of 1 in the border's color. **An image** that stands alone: the image where the app draws images (`image` and `resources`), or else a box of its place, with its caption under it: its title, or its words.
+- **The rule** (`---`): a line of 1 in the border's color. **An image** that stands alone: the image where the app draws images (`image`), or else a box of its place, with its caption under it: its title, or its words.
 - **Admonitions**, GitHub's: `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]` on a quote's first line. Each is a `ui::Callout` with a bar, in the tone of its kind: info, success, neutral, warning, destructive.
 - **Details**: `<details>` with a `<summary>`, which opens and closes what it holds; `<details open>` is open to begin with. The parser reads them from the HTML blocks around the Markdown in them.
 - **Footnotes**: a reference is its number in the info color, numbered by the first reference to each, and goes to its footnote; the footnotes stand at the end of the document under a short rule, each with the way back to where the text first refers to it.
