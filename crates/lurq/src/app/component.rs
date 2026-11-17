@@ -750,7 +750,7 @@ pub trait Component: Send + Sync + 'static {
 /// };
 ///
 /// /// What an app writes.
-/// #[derive(Clone, PartialEq)]
+/// #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 /// pub struct Clock {
 ///   key: Option<Arc<str>>,
 /// }

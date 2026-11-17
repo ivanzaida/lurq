@@ -20,8 +20,11 @@ pub use decoded::{
   decode_image, decoded_images, wait_for_decoded_images,
 };
 pub use image_data::{ImageData, ImageKind, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage};
-#[cfg(target_os = "macos")]
-pub use image_data::{MacosCvPixelBuffer, MacosCvPixelBufferNv12Image};
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub use image_data::{
+  CvPixelBufferFrames, MacosCvPixelBuffer, MacosCvPixelBufferNv12Image, cv_pixel_buffer_frames_drawn,
+  set_cv_pixel_buffer_frames_drawn,
+};
 pub(crate) use render::ImageCmd;
 #[cfg(feature = "wgpu")]
 pub use wgpu_external::{WgpuExternalImageSlot, WgpuTextureError};

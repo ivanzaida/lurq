@@ -21,6 +21,23 @@ use lurq::{
   node::color::Color,
 };
 
+/// Presses and lets go of `key` with the platform's shortcut key held: Ctrl, or Command on Apple's platforms,
+/// where Ctrl+A, Ctrl+C or Ctrl+Z is no command. `code` is the key's place, as `"KeyA"`.
+pub fn shortcut(tree: &mut Tree, key: &str, code: &str, shift: bool) {
+  let apple = cfg!(target_vendor = "apple");
+  tree.key_down_with_meta(key.to_owned(), code.to_owned(), shift, !apple, false, apple);
+  tree.key_up_with_meta(key.to_owned(), code.to_owned(), shift, !apple, false, apple);
+}
+
+/// Redo from the keyboard: Ctrl+Y, or Cmd+Shift+Z on Apple's platforms, which have no Cmd+Y.
+pub fn redo(tree: &mut Tree) {
+  if cfg!(target_vendor = "apple") {
+    shortcut(tree, "Z", "KeyZ", true);
+  } else {
+    shortcut(tree, "y", "KeyY", false);
+  }
+}
+
 pub fn default_app() -> App {
   App::new()
 }

@@ -141,7 +141,9 @@ fn a_ghost_is_drawn_after_the_text_on_its_baseline_while_the_caret_is_at_the_end
   assert_eq!(ghost.len(), 10, "the ten letters of the suggestion");
   let end = typed.last().unwrap();
   assert!(
-    ghost[0].x >= end.x + end.width - 2.5 && ghost[0].x < end.x + end.width + 4.0,
+    // A glyph's box is wider than its letter by what the rasterizer leaves around the ink, more on a Mac than on
+    // Windows: the suggestion starts past the middle of the last letter's box, and not a letter further on.
+    ghost[0].x > end.x + end.width / 2.0 && ghost[0].x < end.x + end.width + 4.0,
     "right after what is typed: {} after {}",
     ghost[0].x,
     end.x + end.width

@@ -10,6 +10,23 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-17
 
+### A finger that taps while another is held clicks what it taps
+
+- **Question.** On a phone, with three toasts up and one finger held on them so that they stay spread, a tap of
+  another finger on a toast's Close did nothing. The engine has one finger as the pointer: a second one that lands
+  is part of a gesture or nothing, and "a click is always one finger" ("A click is the action, a tap is the
+  gesture", point 3).
+- **Decision (Ivan, 2026-11-17, at the phone: "я думаю у нас пройоб в двигуні на трек більше 1 пальця").** A tap
+  of two fingers is two that are down together and lift as one tap; that still clicks nothing. A finger that lands
+  while another is already pressing, away from any gesture of the two (no pinch, no rotation, no scroll it joins),
+  and lifts where it landed, is a tap of its own: it clicks what it is on, as a second finger presses a second
+  button on a phone. The finger that was held goes on as it was: its press, its drag and what it holds are not
+  touched, and nothing under the second finger is shown as pressed or hovered, since the pointer is the first
+  finger's.
+- **Why.** UIKit gives each finger to the view it landed on; a person holds one thing and taps another without
+  thinking of it. The pointer stays one, so that a drag is never ended by another finger.
+- **State.** In work on `feat/design-system`.
+
 ### Every gesture, the emulator and MCP's touch
 
 - **Decision (Ivan: "let's add support for all the gestures, wire the emulator and MCP, and leave it in the

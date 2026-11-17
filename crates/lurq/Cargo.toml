@@ -62,11 +62,15 @@ image = ["raster", "dep:image"]
 # the version `image` reads with, so a build has one.
 canvas = ["raster", "render", "dep:tiny-skia", "dep:lyon", "dep:png", "dep:usvg"]
 # Playing a video or a sound: `lurq::media`, `ui::VideoPlayer::source` and `ui::AudioPlayer::source`. On Windows it
-# decodes with Media Foundation and plays its sound through WASAPI; on macOS and iOS it plays a sound with the
-# system's `AVAudioPlayer`. A sound at an address is loaded with `http`.
+# decodes with Media Foundation and plays its sound through WASAPI; on macOS and iOS it plays a video with the
+# system's `AVPlayer` and a sound with its `AVAudioPlayer`. A sound at an address is loaded with `http`.
 media = [
     "raster",
     "dep:objc2-avf-audio",
+    "dep:objc2-av-foundation",
+    "dep:objc2-core-media",
+    "dep:objc2-core-video",
+    "dep:objc2-core-foundation",
     "windows/Win32_Graphics_Direct3D11",
     "windows/Win32_Media_Audio",
     "windows/Win32_Media_MediaFoundation",
@@ -266,24 +270,32 @@ block2 = "0.6"
 # The scripts cosmic-text asks a fallback font for; see `glyph_engine::ios_fallback`.
 unicode-script = "0.5"
 # What `lurq::media` gives the system's player of a sound and is given back by it.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "NSData", "NSError", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "NSData", "NSError", "NSURL", "NSArray", "NSDictionary", "NSValue"] }
 
 # The sound of `lurq::media` on macOS and iOS: the system's `AVAudioPlayer`. The data, the addresses and the
 # errors it takes and gives are `objc2-foundation`'s, in each system's own table.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioPlayer"], optional = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
+# A frame of a video that stays on the graphics card (`images::CvPixelBufferFrames`): the buffer of pixels the
+# system's decoder gives, and Metal's textures of it, which the `wgpu` renderer draws where they are.
 core-foundation-sys = "0.8"
 core-video-sys = { version = "0.1", default-features = false, optional = true }
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat"], optional = true }
+wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioPlayer"], optional = true }
+# Its video: the system's `AVPlayer`, the output its frames are taken from, the times it is asked for and the
+# buffers of pixels it gives.
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVPlayer", "AVPlayerItem", "AVPlayerItemOutput", "AVPlayerItemTrack", "AVAssetTrack", "AVMediaFormat", "objc2-core-media", "objc2-core-video", "objc2-core-foundation", "block2"], optional = true }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"], optional = true }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn", "CVHostTime"], optional = true }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFString"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # `objc2-core-foundation` gives `NSPoint` for `NSEvent::mouseLocation` (the pointer during a file drag).
 # `NSColorSampler` and `block2` for `lurq::eyedropper`: the system's sampler of a color from the screen.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder", "objc2-core-foundation", "NSColor", "NSColorSampler", "NSColorSpace", "block2"] }
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation", "NSData", "NSError", "NSURL"] }
-wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation", "NSData", "NSError", "NSURL", "NSArray", "NSDictionary", "NSValue"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -466,6 +478,11 @@ required-features = ["markdown"]
 [[bench]]
 name = "text_chat"
 harness = false
+
+[[test]]
+name = "media_video_apple"
+harness = false
+required-features = ["media"]
 
 [[test]]
 name = "native_macos"

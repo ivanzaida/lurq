@@ -336,6 +336,19 @@ impl Stage {
     self.tree.key_up(key.to_owned(), key.to_owned(), false, false, false);
     self.pass();
   }
+
+  /// A letter with the platform's shortcut key: Ctrl+`letter`, or Cmd+`letter` on Apple's platforms.
+  pub fn shortcut(&mut self, letter: &str) {
+    let code = format!("Key{}", letter.to_ascii_uppercase());
+    crate::support::shortcut(&mut self.tree, letter, &code, false);
+    self.pass();
+  }
+
+  /// Redo from the keyboard: Ctrl+Y, or Cmd+Shift+Z on Apple's platforms.
+  pub fn redo(&mut self) {
+    crate::support::redo(&mut self.tree);
+    self.pass();
+  }
 }
 
 impl Stage {

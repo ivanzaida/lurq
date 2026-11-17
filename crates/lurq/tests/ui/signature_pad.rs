@@ -322,8 +322,7 @@ fn the_pad_is_a_stop_of_tab_then_its_buttons_and_its_keys_take_strokes_back() {
   assert!(stage.has_ring(light(PaletteColor::Ring)), "the ring is around the pad");
   stage.key("Backspace");
   assert_eq!(signature.get().strokes.len(), 2);
-  stage.tree.key_down("z".into(), "KeyZ".into(), false, true, false);
-  stage.tree.key_up("z".into(), "KeyZ".into(), false, true, false);
+  stage.shortcut("z");
   stage.pass();
   assert_eq!(signature.get().strokes.len(), 1, "Ctrl+Z takes back a stroke");
   stage.key("Tab");
@@ -355,8 +354,7 @@ fn a_stroke_focuses_the_pad_and_ctrl_z_takes_it_back_in_any_layout() {
     Some("pad"),
     "a stroke, which gives no click, focuses the pad"
   );
-  stage.tree.key_down("z".into(), "KeyZ".into(), false, true, false);
-  stage.tree.key_up("z".into(), "KeyZ".into(), false, true, false);
+  stage.shortcut("z");
   stage.pass();
   assert_eq!(
     signature.get().strokes.len(),
@@ -364,13 +362,11 @@ fn a_stroke_focuses_the_pad_and_ctrl_z_takes_it_back_in_any_layout() {
     "Ctrl+Z right after the strokes takes the last back"
   );
   // A Ukrainian layout: the key says "я", its place is still Z's.
-  stage.tree.key_down("я".into(), "KeyZ".into(), false, true, false);
-  stage.tree.key_up("я".into(), "KeyZ".into(), false, true, false);
+  crate::support::shortcut(&mut stage.tree, "я", "KeyZ", false);
   stage.pass();
   assert!(signature.get().is_empty(), "Ctrl+Z in a Cyrillic layout");
   let key = |stage: &mut Stage, key: &str, code: &str, shift: bool| {
-    stage.tree.key_down(key.into(), code.into(), shift, true, false);
-    stage.tree.key_up(key.into(), code.into(), shift, true, false);
+    crate::support::shortcut(&mut stage.tree, key, code, shift);
     stage.pass();
   };
   key(&mut stage, "Я", "KeyZ", true);
@@ -379,8 +375,8 @@ fn a_stroke_focuses_the_pad_and_ctrl_z_takes_it_back_in_any_layout() {
     1,
     "Ctrl+Shift+Z does the first stroke again"
   );
-  key(&mut stage, "y", "KeyY", false);
-  assert_eq!(signature.get().strokes.len(), 2, "Ctrl+Y does the second");
+  stage.redo();
+  assert_eq!(signature.get().strokes.len(), 2, "Ctrl+Y (Cmd+Shift+Z) does the second");
   key(&mut stage, "Z", "KeyZ", true);
   assert_eq!(signature.get().strokes.len(), 2, "nothing more to do again");
 }
@@ -395,8 +391,7 @@ fn undo_takes_back_a_clearing_and_a_new_stroke_forgets_what_was_taken_back() {
   stage.key("Delete");
   assert!(signature.get().is_empty());
   let key = |stage: &mut Stage, key: &str, shift: bool| {
-    stage.tree.key_down(key.into(), "KeyZ".into(), shift, true, false);
-    stage.tree.key_up(key.into(), "KeyZ".into(), shift, true, false);
+    crate::support::shortcut(&mut stage.tree, key, "KeyZ", shift);
     stage.pass();
   };
   key(&mut stage, "z", false);

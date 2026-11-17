@@ -9,9 +9,9 @@ use std::{
   time::Duration,
 };
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use core_foundation_sys::base::{CFRelease, CFRetain};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
 #[cfg(feature = "image")]
 use image::{AnimationDecoder, ImageFormat, codecs};
@@ -87,7 +87,7 @@ pub enum NativeImageBackend {
   CardFrames,
   #[cfg(feature = "wgpu")]
   WgpuExternalRgba,
-  #[cfg(target_os = "macos")]
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
   MacosCvPixelBufferNv12,
 }
 
@@ -103,18 +103,18 @@ pub struct NativeImageData {
   continuous_redraw: bool,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub struct MacosCvPixelBuffer {
   ptr: CVPixelBufferRef,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 unsafe impl Send for MacosCvPixelBuffer {}
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 unsafe impl Sync for MacosCvPixelBuffer {}
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl MacosCvPixelBuffer {
   /// # Safety
   ///
@@ -131,16 +131,104 @@ impl MacosCvPixelBuffer {
   pub fn as_ptr(&self) -> CVPixelBufferRef {
     self.ptr
   }
+
+  /// A buffer of two planes, gray and color at half the size, `width` by `height` (an even number each way),
+  /// that Metal draws where it is: for a decoder of the app's own that has its frames in memory. The decoder
+  /// writes a frame into it ([`write_nv12`](Self::write_nv12)) and shows it
+  /// ([`CvPixelBufferFrames::show`]); what the system's decoders give is such a buffer already. `None` where the
+  /// system makes none of that size.
+  pub fn nv12(width: u32, height: u32) -> Option<Self> {
+    use core_foundation_sys::{
+      base::kCFAllocatorDefault,
+      dictionary::{CFDictionaryCreate, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks},
+      number::kCFBooleanTrue,
+    };
+    use core_video_sys::pixel_buffer::{
+      CVPixelBufferCreate, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey,
+      kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+    };
+    if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+      return None;
+    }
+    // SAFETY: the dictionaries are made of the system's own keys and values, which they retain, and are let
+    // go once the buffer is made; the buffer is this wrapper's from then on.
+    unsafe {
+      let dictionary = |keys: &[*const std::ffi::c_void], values: &[*const std::ffi::c_void]| {
+        CFDictionaryCreate(
+          kCFAllocatorDefault,
+          keys.as_ptr(),
+          values.as_ptr(),
+          keys.len() as isize,
+          &kCFTypeDictionaryKeyCallBacks,
+          &kCFTypeDictionaryValueCallBacks,
+        )
+      };
+      // A surface of the system's own, which is what Metal makes a texture of.
+      let surface = dictionary(&[], &[]);
+      let attributes = dictionary(
+        &[
+          kCVPixelBufferIOSurfacePropertiesKey.cast(),
+          kCVPixelBufferMetalCompatibilityKey.cast(),
+        ],
+        &[surface.cast(), kCFBooleanTrue.cast()],
+      );
+      let mut buffer: CVPixelBufferRef = std::ptr::null_mut();
+      let status = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width as usize,
+        height as usize,
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        // The binding of CoreVideo names the dictionary by another version of CoreFoundation's: one type.
+        attributes.cast(),
+        &mut buffer,
+      );
+      CFRelease(attributes.cast());
+      CFRelease(surface.cast());
+      (status == 0 && !buffer.is_null()).then_some(Self { ptr: buffer })
+    }
+  }
+
+  /// Writes a frame into a buffer of two planes: `write` is given the rows of gray and how many bytes a row is,
+  /// then the rows of color (a byte of blue-difference and one of red-difference for each two pixels across
+  /// and down) and how many bytes a row of those is. A row is at least as long as the picture is wide.
+  /// `false` where the buffer is not of two planes, or could not be held to be written.
+  pub fn write_nv12(&self, write: impl FnOnce(&mut [u8], usize, &mut [u8], usize)) -> bool {
+    use core_video_sys::pixel_buffer::{
+      CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeightOfPlane,
+      CVPixelBufferGetPlaneCount, CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
+    };
+    // SAFETY: the buffer is held while its planes are written, and each plane holds its rows of `stride` bytes.
+    unsafe {
+      if CVPixelBufferGetPlaneCount(self.ptr) != 2 || CVPixelBufferLockBaseAddress(self.ptr, 0) != 0 {
+        return false;
+      }
+      let plane = |index: usize| {
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(self.ptr, index);
+        let rows = CVPixelBufferGetHeightOfPlane(self.ptr, index);
+        let start = CVPixelBufferGetBaseAddressOfPlane(self.ptr, index).cast::<u8>();
+        (!start.is_null()).then(|| (std::slice::from_raw_parts_mut(start, stride * rows), stride))
+      };
+      let written = match (plane(0), plane(1)) {
+        (Some((gray, gray_stride)), Some((color, color_stride))) => {
+          write(gray, gray_stride, color, color_stride);
+          true
+        }
+        _ => false,
+      };
+      CVPixelBufferUnlockBaseAddress(self.ptr, 0);
+      written
+    }
+  }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl Clone for MacosCvPixelBuffer {
   fn clone(&self) -> Self {
     unsafe { Self::retain(self.ptr) }
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl Drop for MacosCvPixelBuffer {
   fn drop(&mut self) {
     unsafe {
@@ -149,10 +237,71 @@ impl Drop for MacosCvPixelBuffer {
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 #[derive(Clone)]
 pub struct MacosCvPixelBufferNv12Image {
   pub pixel_buffer: MacosCvPixelBuffer,
+}
+
+/// The frames of a video that stay on the graphics card, on macOS and iOS: the buffer of pixels the system's
+/// decoder gave for the frame to show, two planes of gray and of color, which the `wgpu` renderer draws on Metal
+/// where it is. What decodes shows each frame as it comes ([`show`](Self::show)); the image of these frames
+/// ([`NativeImageData::from_cv_pixel_buffer_frames`]) is drawn again by itself.
+///
+/// The buffer is one Metal can make a texture of (`kCVPixelBufferMetalCompatibilityKey`), of the kind
+/// `420v`. Whether a renderer that draws such frames is there is [`cv_pixel_buffer_frames_drawn`]; where none
+/// is, what decodes copies its frames into an image of memory.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[derive(Clone, Default)]
+pub struct CvPixelBufferFrames {
+  state: Arc<CvPixelBufferFramesState>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[derive(Default)]
+struct CvPixelBufferFramesState {
+  shown: Mutex<Option<MacosCvPixelBuffer>>,
+  count: AtomicU64,
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+impl CvPixelBufferFrames {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// `buffer` is the frame to show from now on.
+  pub fn show(&self, buffer: MacosCvPixelBuffer) {
+    *self.state.shown.lock() = Some(buffer);
+    self.state.count.fetch_add(1, Ordering::AcqRel);
+  }
+
+  /// The frame to show, where one was shown.
+  pub fn shown(&self) -> Option<MacosCvPixelBuffer> {
+    self.state.shown.lock().clone()
+  }
+
+  /// How many frames were shown: the version of an image of these frames.
+  pub(crate) fn count(&self) -> u64 {
+    self.state.count.load(Ordering::Acquire)
+  }
+}
+
+/// Whether something draws [`CvPixelBufferFrames`] where they are: the `wgpu` renderer, once it draws on Metal.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+static CV_PIXEL_BUFFER_FRAMES_DRAWN: AtomicBool = AtomicBool::new(false);
+
+/// Told by a renderer that draws [`CvPixelBufferFrames`] where they are, and by one that no longer does.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub fn set_cv_pixel_buffer_frames_drawn(drawn: bool) {
+  CV_PIXEL_BUFFER_FRAMES_DRAWN.store(drawn, Ordering::Release);
+}
+
+/// Whether a renderer draws [`CvPixelBufferFrames`] where they are. Where none does, a decoder copies its frames
+/// into an image of memory (`ImageData::streaming_nv12`), which every renderer draws.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub fn cv_pixel_buffer_frames_drawn() -> bool {
+  CV_PIXEL_BUFFER_FRAMES_DRAWN.load(Ordering::Acquire)
 }
 
 #[derive(Clone)]
@@ -644,6 +793,11 @@ impl NativeImageData {
       return frames.count();
     }
 
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(frames) = self.payload::<CvPixelBufferFrames>() {
+      return frames.count();
+    }
+
     self.version.load(Ordering::Acquire)
   }
 
@@ -655,6 +809,11 @@ impl NativeImageData {
 
     #[cfg(windows)]
     if self.payload::<super::CardFrames>().is_some() {
+      return;
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if self.payload::<CvPixelBufferFrames>().is_some() {
       return;
     }
 
@@ -679,7 +838,7 @@ impl NativeImageData {
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl NativeImageData {
   pub fn from_macos_cv_pixel_buffer_nv12(width: u32, height: u32, pixel_buffer: MacosCvPixelBuffer) -> Self {
     Self::new_with_continuous_redraw(
@@ -688,6 +847,18 @@ impl NativeImageData {
       ImagePixelFormat::Nv12,
       NativeImageBackend::MacosCvPixelBufferNv12,
       MacosCvPixelBufferNv12Image { pixel_buffer },
+      true,
+    )
+  }
+
+  /// An image of `frames`, whose picture is `width` by `height`: drawn again by itself as frames come.
+  pub fn from_cv_pixel_buffer_frames(width: u32, height: u32, frames: CvPixelBufferFrames) -> Self {
+    Self::new_with_continuous_redraw(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::MacosCvPixelBufferNv12,
+      frames,
       true,
     )
   }

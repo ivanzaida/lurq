@@ -202,8 +202,7 @@ fn a_click_on_a_cross_takes_its_token_away_as_an_edit_that_undo_brings_back() {
   assert_eq!(edits.lock().unwrap().as_slice(), ["rust naga "]);
   assert_eq!(crosses(&stage).len(), 2);
 
-  stage.tree.key_down("z".into(), "KeyZ".into(), false, true, false);
-  stage.tree.key_up("z".into(), "KeyZ".into(), false, true, false);
+  stage.shortcut("z");
   stage.pass();
   assert_eq!(value.get(), "rust wgpu naga ");
 }

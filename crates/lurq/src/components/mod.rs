@@ -906,6 +906,13 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether a finger that lands on the element drags it at once and scrolls nothing, where it is inside
+      /// content that scrolls: see `Node::finger_drags`. Off by default.
+      pub fn finger_drags(mut self, drags: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::finger_drags(node, drags));
+        self
+      }
+
       /// Whether a drag that starts on the element scrolls the scroll container around it while the pointer is
       /// at the container's edge or past it, and tells the drag's `on_drag_move` after each step: see
       /// `Node::drag_autoscroll`. Off by default.

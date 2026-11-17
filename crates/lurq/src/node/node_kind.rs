@@ -57,6 +57,9 @@ pub enum KeyboardKind {
   Phone,
   /// Letters with a key that says Search.
   Search,
+  /// No keyboard on the screen: a field whose value is chosen from what a tap of it opens (a date, a time), which
+  /// a keyboard over it would hide. A keyboard attached to the device types into it all the same.
+  None,
 }
 
 /// What a text input holds, for a platform that fills inputs in from what it knows of the person: a phone

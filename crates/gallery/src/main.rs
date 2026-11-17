@@ -14,6 +14,8 @@
 
 #[cfg(windows)]
 mod card_demo;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod cv_demo;
 mod doc;
 mod icon;
 mod kit;
@@ -140,7 +142,8 @@ fn device() -> Option<lurq::app::Device> {
     .map(|name| lurq::app::Device::named(&name).unwrap_or_else(|| panic!("--device is phone or tablet, not {name:?}")))
 }
 
-/// The size to open the window at: `--size 800x600`, or a desktop's.
+/// The size to open the window at: `--size 800x600`, or a desktop's. On iOS the window is the screen.
+#[cfg(not(target_os = "ios"))]
 fn size() -> (u32, u32) {
   let Some(size) = option("--size") else {
     return (1440, 900);
@@ -246,13 +249,22 @@ fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> +
   tree.mount_root::<Gallery>(&mut app, GalleryProps { route });
   #[cfg(feature = "devtools")]
   tree.mount_devtools(&mut app);
-  let (width, height) = size();
   let window = WinitWindow::new(app, tree)
     .with_title("lurq gallery")
     .with_icon(icon::icon())
-    .with_size(width, height)
-    .with_min_size(320, 480)
     .with_decorations(false);
+  // On iOS a window with a size is that size, in the corner of the screen; without one it covers the screen, and
+  // turns with the device.
+  #[cfg(target_os = "ios")]
+  let window = {
+    use lurq::app::window::Orientation;
+    window.with_orientations(Orientation::Portrait | Orientation::LandscapeLeft | Orientation::LandscapeRight)
+  };
+  #[cfg(not(target_os = "ios"))]
+  let window = {
+    let (width, height) = size();
+    window.with_size(width, height).with_min_size(320, 480)
+  };
   #[cfg(all(feature = "perf_profile", not(target_arch = "wasm32")))]
   let window = match profile_log() {
     Some(path) => {

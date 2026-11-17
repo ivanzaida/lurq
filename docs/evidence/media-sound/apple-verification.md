@@ -27,8 +27,8 @@ The same media, players and tests run on Windows, where they were run and listen
 | --- | --- | --- |
 | `Media::sound` of a file, of bytes | plays | to be checked |
 | `Media::sound` of an address (feature `http`) | loaded whole, kept, plays | to be checked |
-| `Media::sound` of an address without `http`, or larger than the loader reads whole (64 MiB) | the system reads it as it plays | **an error, by design**: `AVAudioPlayer` reads no network |
-| `Media::open` (a video, with its sound) | plays | **an error, by design**: "this build shows no video on this system yet" |
+| `Media::sound` of an address without `http`, or larger than the loader reads whole (64 MiB) | the system reads it as it plays | the system's `AVPlayer` reads it as it plays (since 2026-11-17; to be checked by ear) |
+| `Media::open` (a video, with its sound) | plays | plays, with the system's `AVPlayer` (since 2026-11-17; see "A video" below) |
 | A speed other than 1 | the pitch rises with it | the system keeps the pitch; it takes 0.5 to 2 |
 
 ## What the code takes on trust
@@ -189,8 +189,7 @@ Around them:
       new output, or stop (then the media is paused where it was, by guess 2).
 - [ ] The window closed while the player plays: the sound stops.
 - [ ] The playground's player opened in a window of its own (the button at the end of the bar over the stage): it is shown there with no source, so that one sound is not heard twice.
-- [ ] **Video Player**, the section with the clip: the player says it cannot play, with "this build shows no
-      video on this system yet" under it. That is what it is meant to say for now.
+- [ ] **Video Player**, the section with the clip: see "A video" below.
 
 ## iOS
 
@@ -259,7 +258,39 @@ it plays, its speed and volume, and its error.
 - [ ] The phone locked while it plays.
 - [ ] A simulator is enough for everything but the ring switch, the call and the headphones.
 
+## A video
+
+Since 2026-11-17 `Media::open` plays on these systems (`crates/lurq/src/media/apple/video.rs`), written and run on
+a Mac. The system's `AVPlayer` decodes, is heard and reads an address; an `AVPlayerItemVideoOutput` gives the
+frames as two planes (gray, and color at half the size), which are copied into the image a `Video` draws.
+
+- **The player is the main thread's.** It is made, told and let go by work given to the main queue; the media's
+  thread asks the output for frames and reads what the main thread last saw of the player (every 50 ms while it
+  plays). In a process whose main thread runs no loop, a video waits to open for as long as it is held.
+- **So the test harness cannot run its checks**: `cargo test -p lurq --features media --test media_video_apple`
+  is a program whose main thread runs its loop, and runs the five checks of `tests/media/video.rs`, the same ones
+  `media_tests` runs on Windows.
+- **Bytes are a file** of the system's temporary folder (`lurq-media-<pid>-<n>.<ending>`) for as long as the
+  media lives; the ending is told from the bytes, since the player tells a file's kind by its name first.
+- **The end is read, not told**, as a sound's: the player stands though it was told to play, within 0.3 s of
+  its end.
+- **Known gaps:** a clip its track turns (a phone held upright) is drawn as it was filmed; the frames go
+  through memory once, though the renderer draws a `CVPixelBuffer` where it is on macOS.
+
+To look at, in the gallery (Components, Media, **Video Player**):
+
+- [ ] The section with the clip: color bars with a time burned in, `0:00 / 0:15`. Play: the picture moves, a
+      tone is heard, the time goes on. Pause, the seek bar (press and drag), the speed, the volume and mute.
+      Left to its end: it stops at `0:15`; play: from its start.
+- [ ] The playground, **source**: `Bytes`, `A file` (a clip of your own by its path), `An address`.
+- [ ] On a phone: the same, in the gallery for iOS.
+
 ## What was found
 
-Nothing yet. Write here, with the date, the system and its version: which entries held, which did not and
-what happened in place of what is written, and the output of a test that failed.
+**2026-11-17, a Mac (Apple silicon, macOS 27).** `media_tests`: nine pass. Two things were wrong and are fixed:
+a sound paused moved its clock after the pause, and one played again from its end was read as stopped before
+the player said it played (guess 2; `STARTING`). A third came up once in a dozen runs: played from just before
+its end, the player stood somewhere that was neither its start nor its end, and the sound was taken for
+stopped by the system; the media's own clock is asked too now, and thirty runs pass. `media_video_apple`: five
+pass, three runs. In the gallery the clip opens with its first frame, plays, and its time goes on. Nothing
+here was listened to: every media in the tests is silenced.

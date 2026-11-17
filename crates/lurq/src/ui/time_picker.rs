@@ -826,6 +826,14 @@ impl TimePickerView {
     if !self.read_only {
       control = control.on_blur(move || blur.commit(&blur_text, false));
     }
+    // Under a finger the whole field opens the panel, as its button does, and no keyboard comes up over it: a
+    // time is chosen there, not typed.
+    if super::touch_form() && !self.read_only && !self.disabled {
+      let tapped = self.model.clone();
+      control = control
+        .keyboard(components::KeyboardKind::None)
+        .on_click(move |_: MouseEvent| tapped.set_open(true));
+    }
     control
   }
 

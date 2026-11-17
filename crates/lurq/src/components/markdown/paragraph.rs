@@ -57,9 +57,9 @@ use crate::{
 const ROOM: char = '\u{2060}';
 /// Where a line may break before a box: a space of no width.
 const BREAK: char = '\u{200b}';
-/// A space of a sentence, in its ems: about what a sans face gives it (Segoe UI 0.27, Inter 0.28), for the room a
-/// box adds beside it to reach the design's gap.
-const SPACE_EM: f32 = 0.27;
+/// A space of a sentence, in its ems: about what the platform's sans face gives it, for the room a box adds beside
+/// it to reach the design's gap. San Francisco, on Apple's platforms, gives 0.205; Segoe UI 0.27 and Inter 0.28.
+const SPACE_EM: f32 = if cfg!(target_vendor = "apple") { 0.205 } else { 0.27 };
 
 /// The room beside a box: its span, the side it stands on, and what it widens by beside a space.
 struct Room {

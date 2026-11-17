@@ -193,6 +193,10 @@ impl Tree {
   pub fn keyboard_traits(&self) -> Option<KeyboardTraits> {
     let state = self.focused_text_input_state()?;
     let (kind, return_key) = state.keyboard();
+    // An input that asks for none has nothing for a keyboard on the screen to be.
+    if kind == crate::node::node_kind::KeyboardKind::None {
+      return None;
+    }
     Some(KeyboardTraits {
       secure: state.is_masked(),
       kind,

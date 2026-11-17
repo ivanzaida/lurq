@@ -26,7 +26,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement, Timeout},
-    events::{KeyboardEvent, MouseEvent},
+    events::{GesturePhase, KeyboardEvent, MouseEvent, PanEvent},
     theme::{MotionDuration, MotionEasing, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, Stack},
@@ -64,6 +64,10 @@ pub const VIDEO_PLAYER_TAP_SEEKS: f64 = 10.0;
 /// How long the mark of a double tap stays after the last tap.
 pub const VIDEO_PLAYER_MARK_STAYS: Duration = Duration::from_millis(800);
 
+/// How far a drag down takes a player in fullscreen before letting go leaves fullscreen, and how fast a throw
+/// down does: a lightbox's.
+const VIDEO_PLAYER_DROP_LEAVES: f32 = 120.0;
+const VIDEO_PLAYER_THROW_LEAVES: f32 = 900.0;
 /// How soon a second press of the picture asks for fullscreen.
 pub const VIDEO_PLAYER_DOUBLE_PRESS: Duration = Duration::from_millis(500);
 
@@ -1204,6 +1208,10 @@ struct Live {
   screen: Arc<AtomicBool>,
   /// How large it was laid out where it stands, before it filled its window: the room it keeps there.
   rested: Arc<Mutex<(f32, f32)>>,
+  /// In fullscreen: how far down a finger has dragged it, and whether the drag is the player's to leave
+  /// fullscreen by.
+  dropped: Signal<f32>,
+  taken: Arc<AtomicBool>,
   /// The window it took to the whole screen, to give back. It is the window the player is rendered in when it
   /// goes there: the window a component is created under is not always its own (the root of a second window is
   /// mounted before that window is).
@@ -1297,6 +1305,8 @@ impl Live {
       filling: Arc::default(),
       screen: Arc::default(),
       rested: Arc::default(),
+      dropped: Signal::new(0.0),
+      taken: Arc::default(),
       window: Arc::default(),
       picture: None,
       told: None,
@@ -1429,6 +1439,8 @@ impl Component for VideoPlayerHost {
       filling: Arc::default(),
       screen: Arc::default(),
       rested: Arc::default(),
+      dropped: ctx.signal(0.0),
+      taken: Arc::default(),
       window: Arc::default(),
       picture: Some(picture),
       told: Some(told),
@@ -1565,6 +1577,20 @@ impl Component for VideoPlayerHost {
     // around it moves while it is away and it comes back to the same place.
     let rested = *live.rested.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let (width, height, most) = (player.width, player.height, player.max_width);
+    // A finger that drags it down leaves fullscreen, as a picture that fills a phone's screen is closed: far
+    // enough, or thrown. It follows the finger until then.
+    let leave = {
+      let (tell, poke) = (player.fullscreen.teller(), live.poke());
+      move || {
+        tell(false);
+        poke();
+      }
+    };
+    let (dropped, taken) = (live.dropped.clone(), live.taken.clone());
+    let drop = live.dropped.get();
+    // Over the whole of a phone's screen it keeps clear of what the system draws over its edges: the black goes
+    // under them, the picture and the controls do not.
+    let safe = ctx.safe_area();
     let mut inside = player;
     inside.width = Some(Length::Fill);
     inside.height = Some(Length::Fill);
@@ -1585,11 +1611,39 @@ impl Component for VideoPlayerHost {
     if let Some(most) = most.and_then(|most| most.resolve(&theme)) {
       place = place.max_width(most);
     }
+    let full = Dimension::Pct(100.0);
     let layer = Modal::new(
       Stack::new()
-        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .size(full, full)
         .background(Color::new(0, 0, 0, 255))
-        .child(filled.render_themed()),
+        .padding_top(safe.top)
+        .padding_bottom(safe.bottom)
+        .padding_left(safe.left)
+        .padding_right(safe.right)
+        .on_pan(move |event: PanEvent| match event.phase {
+          GesturePhase::Start => {
+            let down = event.translation_y > 0.0 && event.translation_y.abs() > event.translation_x.abs();
+            if down && event.fingers == 1 {
+              event.prevent_default();
+              taken.store(true, Ordering::Relaxed);
+              dropped.set(event.translation_y);
+            }
+          }
+          GesturePhase::Change if taken.load(Ordering::Relaxed) => dropped.set(event.translation_y.max(0.0)),
+          GesturePhase::End if taken.swap(false, Ordering::Relaxed) => {
+            dropped.set(0.0);
+            if event.translation_y > VIDEO_PLAYER_DROP_LEAVES || event.velocity_y > VIDEO_PLAYER_THROW_LEAVES {
+              leave();
+            }
+          }
+          _ => {}
+        })
+        .child(
+          Stack::new()
+            .size(full, full)
+            .offset(0.0, drop)
+            .child(filled.render_themed()),
+        ),
     )
     .target(Root)
     .takes_focus(true);

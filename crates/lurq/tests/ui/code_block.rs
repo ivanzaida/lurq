@@ -463,10 +463,8 @@ fn from_the_keyboard_the_code_is_a_stop_whose_caret_selects_and_copies() {
   stage.pass();
   assert_eq!(selected(&mut stage).as_deref(), Some("fn"));
   // Ctrl+A takes it all, Ctrl+C copies it.
-  stage.tree.key_down("a".into(), "KeyA".into(), false, true, false);
-  stage.tree.key_up("a".into(), "KeyA".into(), false, true, false);
-  stage.tree.key_down("c".into(), "KeyC".into(), false, true, false);
-  stage.tree.key_up("c".into(), "KeyC".into(), false, true, false);
+  stage.shortcut("a");
+  stage.shortcut("c");
   stage.pass();
   assert_eq!(selected(&mut stage).as_deref(), Some(MAIN));
   assert_eq!(*written.0.lock().unwrap(), [MAIN]);
@@ -763,15 +761,13 @@ fn a_long_block_selected_whole_from_the_keyboard_copies_all_of_it() {
   stage.tree.set_clipboard_writer(Some(written.clone()));
   // Tab reaches its room, Ctrl+A takes the code whole and Ctrl+C copies all ten thousand lines.
   stage.key("Tab");
-  stage.tree.key_down("a".into(), "KeyA".into(), false, true, false);
-  stage.tree.key_up("a".into(), "KeyA".into(), false, true, false);
+  stage.shortcut("a");
   stage.pass();
   assert!(
     !fills(&stage, light(PaletteColor::Selection)).is_empty(),
     "the lines on the selection's color"
   );
-  stage.tree.key_down("c".into(), "KeyC".into(), false, true, false);
-  stage.tree.key_up("c".into(), "KeyC".into(), false, true, false);
+  stage.shortcut("c");
   stage.pass();
   assert_eq!(written.0.lock().unwrap().last(), Some(&whole));
   // A press in the code lets the whole go.

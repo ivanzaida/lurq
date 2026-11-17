@@ -15,18 +15,30 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 
 ## 1. It builds, links and starts
 
-- [ ] **The workspace on a Mac.** `cargo build -p lurq`, `cargo build -p gallery --features devtools,mcp`,
+- [x] **The workspace on a Mac.** `cargo build -p lurq`, `cargo build -p gallery --features devtools,mcp`,
   `cargo build -p lurq --example lifecycle --features mcp`. Must link (no missing framework) and start.
-- [ ] **The test matrix on a Mac.** `bash target/suites2.sh` from the design-system worktree (the runs A–G of the
+  2026-11-17: all three link; the gallery starts and draws.
+- [x] **The test matrix on a Mac.** `bash target/suites2.sh` from the design-system worktree (the runs A–G of the
   feature cleanup), or by hand: every suite on `default` + `markdown,mcp`, `--no-default-features` check, a
-  minimal app's tests (`--no-default-features --features winit,wgpu --tests`), `devtools` and `perf_profile`.
+  minimal app's tests (`--no-default-features --features winit,wgpu --tests`), `devtools` and `perf_profile`;
+  and the checks of a video, which the harness cannot run on a Mac (`--features media --test media_video_apple`).
   All green, the same counts as on Windows give or take what is Windows-only.
-- [ ] **`http` on Apple.** Never compiled there (its TLS, `ring`, needs Apple's C compiler):
+  2026-11-17: green, `native_macos` with the Mac unlocked (behind the login window its window is never key).
+  What failed was fixed: the tests pressed Ctrl for the editing commands,
+  which are Cmd on Apple (`support::shortcut`, `Stage::shortcut`, `redo`); some counted on Segoe UI's or
+  Consolas's widths; the first layout of an app resolves its theme once, which the allocation tests now leave
+  out; and two were lurq's own (Markdown's gap beside a key, the sound's clock at a pause and its play again).
+- [x] **`http` on Apple.** Never compiled there (its TLS, `ring`, needs Apple's C compiler):
   `cargo build -p lurq --features http` on the Mac, and for `aarch64-apple-ios`. Link Preview, a picture at an
-  address and a sound at an address depend on it.
+  address and a sound at an address depend on it. 2026-11-17: builds for both; those pages are not looked at yet.
 - [ ] **The phone app.** Build `crates/mobile_demo` for the simulator and a device from Xcode
   (`crates/mobile_demo/ios/MobileDemo.xcodeproj`; Xcode runs `ios/build-rust.sh`). It starts and draws.
-- [ ] **The gallery on iOS**, if it is built for it: Ivan's tabs, the pages at a phone's width, the pointer toggle.
+  2026-11-17: builds for both; starts and draws on the iPhone 17 simulator; installed and launched on an iPhone,
+  whose screen is still to be looked at.
+- [ ] **The gallery on iOS** (`crates/gallery/ios/Gallery.xcodeproj`, built as the phone app is, its bundle
+  `<BUNDLE_ID_PREFIX>.lurq.gallery`): Ivan's tabs, the pages at a phone's width, the pointer toggle.
+  2026-11-17: made; on the iPhone 17 simulator it covers the screen at a phone's width, its header under the
+  status bar. The tabs, the pages one by one and the pointer toggle are still to be looked at.
 
 ## 2. Drawing on Metal
 
@@ -129,8 +141,13 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
   whether lurq should set a playback category is a decision to take then.
 - [ ] **The cache on the disk** keeps a sound in the app's own cache folder (`mobile_demo`'s `cache_folder()`), and
   a second play reads it from there.
-- [ ] **A video on macOS and iOS does not play** (no decoder yet): the player says so in the locale's words, and
-  nothing crashes.
+- [ ] **A video plays on macOS and iOS** (the system's `AVPlayer`, since 2026-11-17; see
+  [decisions.md](decisions.md)): Video Player page, the section with the clip, and the playground with a source.
+  It opens with its first frame and its length; play, pause, the seek bar, the speed, the volume and mute; it
+  ends and says so, and plays again from its start. Its sound is heard with its picture.
+  2026-11-17, on a Mac: `cargo test -p lurq --features media --test media_video_apple` passes (five checks, the
+  ones Windows runs), and in the gallery the clip opens, plays and its time goes on. Not yet looked at: on a
+  phone; by ear; a video at an address; a clip filmed upright (drawn on its side, a known gap).
 
 ## 7. The tools
 

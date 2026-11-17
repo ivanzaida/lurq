@@ -836,6 +836,8 @@ impl ColorPickerView {
     );
     slider_node
       .start_drag_buttons(MouseButtonMask::LEFT)
+      // A finger on the area or a rail picks from where it lands, and the page under it stays.
+      .finger_drags(true)
       .on_mouse_down(move |event: MouseEvent| {
         if event.button != MouseButton::Left {
           return;

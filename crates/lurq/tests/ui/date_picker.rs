@@ -585,3 +585,32 @@ fn its_locale_names_its_controls_and_its_props_win() {
   });
   assert_eq!(said(&mut stage, "dp-trigger", "a11y_name").as_deref(), Some("Календар"));
 }
+
+#[test]
+fn under_a_finger_a_tap_of_the_field_opens_the_calendar_and_asks_for_no_keyboard() {
+  let value = Signal::new(Some(day(11, 12)));
+  let held = value.clone();
+  let app = lurq::app::App::new();
+  app.set_pointer(lurq::app::Pointer::Coarse);
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .size(400.0, 500.0)
+      .padding(10.0)
+      .child(DatePicker::new(held.clone()).today(day(11, 9)).id("dp").mount(ctx))
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 500.0))));
+  stage.pass();
+  assert!(!opened(&mut stage));
+  // In the field, well clear of its button.
+  let (x, y, width, height) = stage.bounds("dp");
+  stage.tap_at(x + width - 20.0, y + height / 2.0);
+  assert!(opened(&mut stage), "the whole field opens it");
+  // Closed, the focus is the field's again, which asks for no keyboard on the screen: a date is chosen.
+  stage.key("Escape");
+  assert!(!opened(&mut stage));
+  assert_eq!(focused(&stage).as_deref(), Some("dp"), "the field has the focus");
+  assert!(stage.tree.keyboard_traits().is_none(), "and no keyboard comes up");
+}

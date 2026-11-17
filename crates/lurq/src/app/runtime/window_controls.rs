@@ -37,7 +37,7 @@ impl Tree {
 
   /// Has the tree leave where the window's controls are in the window's state after each layout, for the shell
   /// to answer the system from.
-  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  #[cfg_attr(not(all(feature = "winit", any(windows, target_os = "macos"))), allow(dead_code))]
   pub(crate) fn publish_window_controls(&mut self) {
     self.publishes_window_controls = true;
     self.leave_window_controls();

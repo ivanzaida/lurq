@@ -321,13 +321,7 @@ fn ctrl_a_then_backspace_clears_the_code_and_typing_over_it_starts_again() {
   let bound = code.clone();
   let mut stage = staged(move || InputOtp::new(bound.clone()).id("code"));
   stage.key("Tab");
-  let ctrl_a = |stage: &mut Stage| {
-    stage
-      .tree
-      .key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
-    stage.tree.key_up("a".to_owned(), "KeyA".to_owned(), false, true, false);
-    stage.pass();
-  };
+  let ctrl_a = |stage: &mut Stage| stage.shortcut("a");
   ctrl_a(&mut stage);
   stage.key("Backspace");
   assert_eq!(code.get(), "", "the whole code goes");

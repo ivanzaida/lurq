@@ -2,7 +2,9 @@
 //!
 //! A media decodes on a thread of its own with the system's decoder (Media Foundation on Windows), keeps its own
 //! clock, and puts each frame into an image a [`Video`](crate::components::Video) draws: the window is drawn
-//! again for a new frame, and no component is rendered for it. Its sound goes to the system's default output,
+//! again for a new frame, and no component is rendered for it. On macOS and iOS the system's player (`AVPlayer`)
+//! decodes and is heard, and the media's thread takes its frames and follows its clock; that player is the main
+//! thread's, so a video opens there in a process whose main thread runs its loop, as an app's does. Its sound goes to the system's default output,
 //! and the media's clock then follows what is heard. What holds a media tells it to play, to pause, to go to a
 //! time, how fast to go and how loud to be, asks it where it is ([`Media::state`]), and is woken when that
 //! changes in a way a clock does not tell: it opened, it ended, it failed.
@@ -19,8 +21,9 @@
 //! decoder to the screen: decoded there, copied there once, drawn there. Elsewhere it is copied through memory
 //! once.
 //!
-//! What is not here yet: a speed that keeps the pitch of the sound (faster is higher); a video at an address
-//! read through the app's loader (the system reads it itself where it can).
+//! What is not here yet: a speed that keeps the pitch of the sound on Windows (faster is higher; Apple's players
+//! keep it); a video at an address read through the app's loader (the system reads it itself where it can); on
+//! macOS and iOS, a clip its track turns is drawn as it was filmed.
 
 use std::{
   collections::VecDeque,

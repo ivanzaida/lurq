@@ -393,6 +393,13 @@ pub struct VideoPlayerPage {
   ways: Signal<Vec<Option<lurq::images::CardFramesWay>>>,
   #[cfg(windows)]
   _decoders: Interval,
+  /// On macOS and iOS: the decoder that stands for an app's own, once something draws its frames where they are.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  decoder: Arc<std::sync::Mutex<Option<crate::cv_demo::Decoded>>>,
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  decoding: Signal<bool>,
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  _decoders: Interval,
   _clock: Interval,
 }
 
@@ -999,6 +1006,28 @@ impl Component for VideoPlayerPage {
     });
     #[cfg(windows)]
     decoders.start();
+    // On macOS and iOS it starts once the window draws on Metal: a page made with the window is made before the
+    // window has its device.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let (decoder, decoding) = (
+      Arc::new(std::sync::Mutex::new(None::<crate::cv_demo::Decoded>)),
+      ctx.signal(false),
+    );
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let decoders = ctx.create_interval(TICK, {
+      let (decoder, decoding) = (decoder.clone(), decoding.clone());
+      move || {
+        if decoding.get() {
+          return;
+        }
+        if let Some(started) = crate::cv_demo::start() {
+          *decoder.lock().expect("the decoder of the page") = Some(started);
+          decoding.set(true);
+        }
+      }
+    });
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    decoders.start();
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 3),
@@ -1037,6 +1066,12 @@ impl Component for VideoPlayerPage {
       #[cfg(windows)]
       ways,
       #[cfg(windows)]
+      _decoders: decoders,
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      decoder,
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      decoding,
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
       _decoders: decoders,
       _clock: clock,
     }
@@ -1102,7 +1137,11 @@ impl Component for VideoPlayerPage {
           .max_width(Length::Fill)
           .key("clip")
           .mount(ctx),
-        "the gallery's clip · 15 s of 640 × 360, decoded by Media Foundation",
+        if cfg!(windows) {
+          "the gallery's clip · 15 s of 640 × 360, decoded by Media Foundation"
+        } else {
+          "the gallery's clip · 15 s of 640 × 360, played by the system's AVPlayer"
+        },
       ))
       .into();
     #[cfg(target_arch = "wasm32")]
@@ -1172,9 +1211,36 @@ impl Component for VideoPlayerPage {
       .label("Decoders and how their frames come to the screen")
       .into()
     };
-    #[cfg(not(windows))]
+    // On macOS and iOS: the frames of a thread of the gallery, drawn where it wrote them.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let decoded: Element = {
+      let image = self
+        .decoding
+        .get()
+        .then(|| {
+          self
+            .decoder
+            .lock()
+            .expect("the decoder of the page")
+            .as_ref()
+            .map(|decoded| decoded.image.clone())
+        })
+        .flatten();
+      match image {
+        Some(image) => items()
+          .child(item(
+            lurq::components::Video::new(image)
+              .stretch()
+              .size(Dimension::Px(320.0), Dimension::Px(180.0)),
+            "320 × 180, thirty frames a second · drawn on the card, where the decoder wrote them",
+          ))
+          .into(),
+        None => quiet("Nothing draws frames of the card in this run: it takes Metal.", 13.0).into(),
+      }
+    };
+    #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
     let decoded: Element = quiet(
-      "Frames of a decoder of the app's own are drawn on Windows so far.",
+      "Frames of a decoder of the app's own are drawn on Windows, macOS and iOS so far.",
       13.0,
     )
     .into();
@@ -1475,33 +1541,63 @@ impl Component for VideoPlayerPage {
         ),
         Section::new(
           "Frames of a decoder of your own",
-          "An app that decodes by itself (a stream, a codec the system has not) gives lurq the textures its \
-           frames are in, and lurq draws them where they are: a frame is never in the memory of the program. \
-           Each row is a decoder, which a thread of the gallery stands for: the three ways one gives a \
-           frame, and one on another card than the window's, as on a laptop with two. The last column is \
-           what frames.way() says: on the card, the frame is drawn where the decoder put it, with no copy; \
-           through memory, it is copied once, which is how a frame of another card comes. The textures are \
-           larger than the picture, as a codec's are, with pink past the picture, none of which shows.",
+          if cfg!(windows) {
+            "An app that decodes by itself (a stream, a codec the system has not) gives lurq the textures its \
+             frames are in, and lurq draws them where they are: a frame is never in the memory of the program. \
+             Each row is a decoder, which a thread of the gallery stands for: the three ways one gives a \
+             frame, and one on another card than the window's, as on a laptop with two. The last column is \
+             what frames.way() says: on the card, the frame is drawn where the decoder put it, with no copy; \
+             through memory, it is copied once, which is how a frame of another card comes. The textures are \
+             larger than the picture, as a codec's are, with pink past the picture, none of which shows."
+          } else {
+            "An app that decodes by itself (a stream, a codec the system has not, a camera) gives lurq the \
+             buffers its frames are in, and lurq draws them where they are, on Metal: a frame is not copied on \
+             its way to the screen. A thread of the gallery stands for the decoder: it writes a moving test \
+             picture into buffers of the system's that Metal makes textures of, three in turn, and shows each. \
+             The system's own decoders give such buffers already, and a video lurq plays comes the same way."
+          },
           self.frame.demo(
             6,
             decoded,
-            "Video::new(NativeImageData::from_card_frames(w, h, frames).image_data())",
-            &[
-              "// once: the textures the decoder writes, by their shared handles, and its fence",
-              "let frames = unsafe { CardFrames::with_fence(surfaces, fence) };",
-              "let image = NativeImageData::from_card_frames(1920, 1080, frames.clone()).image_data();",
-              "",
-              "// the decoder's thread, for each frame",
-              "frames.show(",
-              "  CardFrame::of(surface)",
-              "    .crop(CardCrop { left: 0, top: 0, width: 1920, height: 1080 })",
-              "    .ready_at(fence_value)",
-              "    .lease(gives_the_surface_back),",
-              ");",
-              "",
-              "// the screen",
-              "Video::new(image)",
-            ],
+            if cfg!(windows) {
+              "Video::new(NativeImageData::from_card_frames(w, h, frames).image_data())"
+            } else {
+              "Video::new(NativeImageData::from_cv_pixel_buffer_frames(w, h, frames).image_data())"
+            },
+            if cfg!(windows) {
+              &[
+                "// once: the textures the decoder writes, by their shared handles, and its fence",
+                "let frames = unsafe { CardFrames::with_fence(surfaces, fence) };",
+                "let image = NativeImageData::from_card_frames(1920, 1080, frames.clone()).image_data();",
+                "",
+                "// the decoder's thread, for each frame",
+                "frames.show(",
+                "  CardFrame::of(surface)",
+                "    .crop(CardCrop { left: 0, top: 0, width: 1920, height: 1080 })",
+                "    .ready_at(fence_value)",
+                "    .lease(gives_the_surface_back),",
+                ");",
+                "",
+                "// the screen",
+                "Video::new(image)",
+              ]
+            } else {
+              &[
+                "// once: the frames, and the image of them",
+                "let frames = CvPixelBufferFrames::new();",
+                "let image = NativeImageData::from_cv_pixel_buffer_frames(1920, 1080, frames.clone()).image_data();",
+                "",
+                "// the decoder's thread, for each frame: a buffer the system's decoder gave,",
+                "frames.show(unsafe { MacosCvPixelBuffer::retain(pixel_buffer) });",
+                "// or one of the app's own, written into from memory",
+                "let buffer = MacosCvPixelBuffer::nv12(1920, 1080)?;",
+                "buffer.write_nv12(|gray, gray_stride, color, color_stride| decode_into(gray, color));",
+                "frames.show(buffer);",
+                "",
+                "// the screen",
+                "Video::new(image)",
+              ]
+            },
           ),
         ),
         Section::new(

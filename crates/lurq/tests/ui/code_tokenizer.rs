@@ -194,8 +194,7 @@ fn a_code_fields_tokenizer_is_told_each_edit_in_order_and_that_it_is_gone() {
   stage.key("Backspace");
   assert!(stage.tree.paste(ClipboardContent::text("(b)")));
   stage.pass();
-  stage.tree.key_down("z".into(), "KeyZ".into(), false, true, false);
-  stage.tree.key_up("z".into(), "KeyZ".into(), false, true, false);
+  stage.shortcut("z");
   stage.pass();
   assert_eq!(value.get_untracked(), "fn a");
   assert_eq!(

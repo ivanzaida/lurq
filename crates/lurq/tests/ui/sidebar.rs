@@ -816,6 +816,53 @@ fn over_the_page_its_header_and_footer_stay_while_its_items_scroll() {
 }
 
 #[test]
+fn over_the_page_it_opens_again_where_its_items_were_scrolled() {
+  let open = Signal::new(true);
+  let held = open.clone();
+  let mut stage = stage(move |ctx| {
+    let mut sidebar = Sidebar::new().id("sidebar").narrow(true).open(held.clone());
+    for index in 0..40 {
+      sidebar = sidebar.item(SidebarItem::new(&format!("Page {index}")).id(format!("page-{index}")));
+    }
+    Row::new()
+      .size(1024.0, 300.0)
+      .child(sidebar.mount(ctx))
+      .child(page())
+      .into()
+  });
+  stage.tree.resize(1024, 300);
+  stage.pass();
+  let top = stage.bounds("page-0").1;
+  stage
+    .tree
+    .wheel(100.0, 150.0, 0.0, -360.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  let scrolled = stage.bounds("page-0").1;
+  assert!(
+    scrolled < top - 100.0,
+    "scrolled: the first item from {top} to {scrolled}"
+  );
+  open.set(false);
+  stage.pass();
+  stage.pass();
+  let shown = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .any(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("Page ")))
+  };
+  assert!(!shown(&stage), "closed, none of its items is painted");
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(
+    close(stage.bounds("page-0").1, scrolled),
+    "open again, the first item at {} and not back at {scrolled}",
+    stage.bounds("page-0").1
+  );
+}
+
+#[test]
 fn a_heading_has_its_mark_of_28_on_the_primary_fill() {
   let mut stage = stage(|ctx| layout(ctx, board()));
   let (_, _, _, height) = stage.bounds("heading");
@@ -1099,4 +1146,38 @@ fn built_in_a_theme_it_takes_that_theme_s_recipe() {
     300.0,
     "the recipe of the theme it was built in"
   );
+}
+
+#[test]
+fn over_the_page_on_a_phone_its_items_keep_clear_of_the_status_bar_and_the_home_indicator() {
+  let scene = |safe: bool| {
+    let mut stage = stage(|ctx| {
+      let mut sidebar = Sidebar::new().id("sidebar").narrow(true).open(Signal::new(true));
+      for index in 0..40 {
+        sidebar = sidebar.item(SidebarItem::new(&format!("Page {index}")).id(format!("page-{index}")));
+      }
+      Row::new()
+        .size(390.0, 844.0)
+        .child(sidebar.mount(ctx))
+        .child(page())
+        .into()
+    });
+    stage.tree.resize(390, 844);
+    if safe {
+      stage.tree.window().set_safe_area(lurq::app::window::SafeAreaInsets {
+        top: 59.0,
+        bottom: 34.0,
+        ..Default::default()
+      });
+    }
+    stage.pass();
+    stage.pass();
+    stage
+  };
+  let (mut plain, mut phone) = (scene(false), scene(true));
+  let (at, on_a_phone) = (plain.bounds("page-0").1, phone.bounds("page-0").1);
+  assert_eq!(on_a_phone, at + 59.0, "its first item is under the status bar");
+  // The panel itself goes under both, in its color.
+  let (_, y, _, height) = phone.bounds("sidebar");
+  assert!(y <= 59.0 && y + height <= 844.0 - 34.0 + 0.5, "what it holds ends over the home indicator: {y} {height}");
 }

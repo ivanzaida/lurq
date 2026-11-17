@@ -21,6 +21,11 @@ pub struct WindowInfo {
   pub is_full_screen: bool,
   pub is_decorated: bool,
   pub is_focused: bool,
+  /// Whether the system draws the window's controls itself, over those of a title bar the app draws: on macOS the
+  /// three lights of a window whose bar marks its controls (`.window_control(..)`), which are then the system's
+  /// own, where the app's are, with what the system does at them (the menu of tilings under the pointer, full
+  /// screen at a press). A bar of the app's leaves the room of its controls and draws none of them.
+  pub native_controls: bool,
   /// The edges of the window the system draws over or cuts off; see [`SafeAreaInsets`].
   pub safe_area: SafeAreaInsets,
   /// What the person set for the whole system; see [`SystemSettings`].
@@ -589,6 +594,7 @@ impl Window {
           is_full_screen: false,
           is_decorated: true,
           is_focused: true,
+          native_controls: false,
           safe_area: SafeAreaInsets::default(),
           system: SystemSettings::default(),
         },
@@ -993,6 +999,26 @@ impl Window {
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);
+  }
+
+  /// The system draws the window's controls over the app's own, or no longer does.
+  #[cfg_attr(not(all(feature = "winit", target_os = "macos")), allow(dead_code))]
+  pub(crate) fn set_native_controls(&self, native: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.native_controls == native {
+        return;
+      }
+      inner.info.native_controls = native;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  /// Where the window's controls are, as the tree last laid them out.
+  #[cfg_attr(not(all(feature = "winit", target_os = "macos")), allow(dead_code))]
+  pub(crate) fn control_regions(&self) -> Arc<controls::WindowControlRegions> {
+    self.inner.read().unwrap().controls.clone()
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]

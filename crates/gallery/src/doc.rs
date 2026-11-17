@@ -272,8 +272,12 @@ fn prose(content: &str, size: f32) -> Text {
   .color(PaletteColor::MutedForeground)
 }
 
-/// The root of the repository the gallery was built from.
+/// The root of the repository the gallery was built from. None on a phone or a tablet: the app has no way to the
+/// files, and nothing there to open them with.
 fn repository() -> Option<PathBuf> {
+  if cfg!(target_os = "ios") {
+    return None;
+  }
   Some(Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?.to_path_buf())
 }
 

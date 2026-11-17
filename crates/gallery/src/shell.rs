@@ -4,7 +4,7 @@
 use lurq::{
   app::{
     ctx::Ctx,
-    events::KeyboardEvent,
+    events::{EdgePanEvent, KeyboardEvent, ScreenEdge},
     theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Appearance,
   },
@@ -68,18 +68,36 @@ pub fn shell(ctx: &mut Ctx, state: &Shell, open: &OpenTabs) -> Element {
   let current = page_at(&router.path().get()).path;
   let find = state.search_open.clone();
   let new_tab = open.clone();
+  // On a phone on its side the side bar and the page keep clear of the notch. The bottom is left to the pages:
+  // what scrolls goes under the home indicator, and a page with a bar of its own pads by the safe area itself.
+  let safe = ctx.safe_area();
+  // As narrow as a phone the side bar lies over the page, and a finger coming in from the left edge opens it, as
+  // its button does: the finger is then the side bar's, and does not also go back in the history.
+  let narrow = !lurq::ui::current_breakpoint().is_some_and(|breakpoint| breakpoint >= Breakpoint::Md);
+  let side = state.sidebar_open.clone();
   // What is behind the cards is the theme's canvas. A card, the header and a control are surfaces on it, so each
   // stands out from what it is on.
   Column::new()
     .size(FILL, FILL)
     .background(PaletteColor::Canvas)
     .foreground(PaletteColor::Foreground)
+    .on_edge_pan(move |event: EdgePanEvent| {
+      if !narrow || event.edge != ScreenEdge::Left || event.default_prevented() {
+        return;
+      }
+      event.prevent_default();
+      if !side.get_untracked() {
+        side.set(true);
+      }
+    })
     .child(header(ctx, state))
     .child(search(state, open))
     .child(
       Row::new()
         .width(FILL)
         .flex(1.0)
+        .padding_left(safe.left)
+        .padding_right(safe.right)
         .align_items(Alignment::Stretch)
         .child(sidebar(ctx, state, open, current))
         .child(Column::new().flex(1.0).min_width(0.0).child(open.outlet(ctx))),
@@ -383,10 +401,15 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
       .justify(Justify::Center)
       .child(search_field(state, roomy))
   };
+  // On a phone the header reaches under the status bar and the notch, and keeps what is in it clear of them.
+  let safe = ctx.safe_area();
+  let edge = if narrow { 12.0 } else { 20.0 };
   Row::new()
     .width(FILL)
-    .height(HEADER)
-    .padding_horizontal(if narrow { 12.0 } else { 20.0 })
+    .height(HEADER + safe.top)
+    .padding_top(safe.top)
+    .padding_left(edge + safe.left)
+    .padding_right(edge + safe.right)
     .spacing(if narrow { 8.0 } else { 16.0 })
     .align_items(Alignment::Center)
     .background(PaletteColor::Background)

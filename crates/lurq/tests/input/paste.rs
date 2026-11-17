@@ -387,8 +387,8 @@ fn focused_cell(heard: Arc<Mutex<Vec<String>>>) -> (Tree, Arc<Written>) {
 fn ctrl_c_on_a_focused_element_that_is_not_an_input_writes_what_its_handler_says() {
   let heard = Arc::new(Mutex::new(Vec::new()));
   let (mut runtime, written) = focused_cell(heard.clone());
-  runtime.key_down("c".into(), "KeyC".into(), false, true, false);
-  runtime.key_down("x".into(), "KeyX".into(), false, true, false);
+  crate::support::shortcut(&mut runtime, "c", "KeyC", false);
+  crate::support::shortcut(&mut runtime, "x", "KeyX", false);
   assert_eq!(*heard.lock().unwrap(), ["copy cut=false", "copy cut=true"]);
   assert_eq!(*written.0.lock().unwrap(), ["a\tb\nc\td", "a\tb\nc\td"]);
 }
@@ -397,7 +397,7 @@ fn ctrl_c_on_a_focused_element_that_is_not_an_input_writes_what_its_handler_says
 fn ctrl_v_on_a_focused_element_that_is_not_an_input_reaches_its_handlers_with_the_clipboard() {
   let heard = Arc::new(Mutex::new(Vec::new()));
   let (mut runtime, _) = focused_cell(heard.clone());
-  runtime.key_down("v".into(), "KeyV".into(), false, true, false);
+  crate::support::shortcut(&mut runtime, "v", "KeyV", false);
   assert_eq!(*heard.lock().unwrap(), ["paste secret"]);
   assert!(
     runtime.paste(ClipboardContent::text("given")),
@@ -413,7 +413,7 @@ fn a_copy_nothing_hears_writes_nothing() {
   let mut runtime = focus(runtime);
   let written = Arc::new(Written::default());
   runtime.set_clipboard_writer(Some(written.clone()));
-  runtime.key_down("c".into(), "KeyC".into(), false, true, false);
+  crate::support::shortcut(&mut runtime, "c", "KeyC", false);
   assert!(written.0.lock().unwrap().is_empty());
   assert!(
     !runtime.paste(ClipboardContent::text("given")),

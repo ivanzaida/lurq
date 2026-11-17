@@ -163,9 +163,15 @@ fn an_open_palette_is_the_boards_panel_near_the_top_of_the_window() {
   assert!(stage.text_quad("Suggestions").unwrap().y < ry);
   assert!(ry > y + 44.0, "under the search row of 44");
   assert_eq!(highlighted(&mut stage), ["dark"]);
-  // A shortcut is drawn as a menu draws it: the mono type at 11, muted, at the row's end.
-  assert_eq!(stage.text("Ctrl+D"), (light(PaletteColor::MutedForeground), 11.0));
-  let shortcut = stage.text_quad("Ctrl+D").unwrap();
+  // A shortcut is drawn as a menu draws it: the mono type at 11, muted, at the row's end; with a Mac's glyphs on
+  // Apple's platforms.
+  let ctrl_d = if cfg!(target_vendor = "apple") {
+    "⌃D"
+  } else {
+    "Ctrl+D"
+  };
+  assert_eq!(stage.text(ctrl_d), (light(PaletteColor::MutedForeground), 11.0));
+  let shortcut = stage.text_quad(ctrl_d).unwrap();
   assert!((rx + rw - 8.0 - (shortcut.x + shortcut.width)).abs() < 0.5);
   // A detail is after its label, muted; a disabled row is dimmed.
   let (label, detail) = (

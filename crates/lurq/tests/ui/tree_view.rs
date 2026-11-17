@@ -409,7 +409,7 @@ fn with_multiple_ctrl_adds_shift_selects_a_range_and_space_and_ctrl_a_select_too
   stage.key(" ");
   assert_eq!(selected.get(), ["lib.rs"]);
   // Ctrl+A: every row shown.
-  key_with(&mut stage, "a", false, true);
+  stage.shortcut("a");
   assert_eq!(selected.get().len(), 7);
   assert_eq!(selected.get().last(), Some(&"lib.rs"));
 }
@@ -634,8 +634,7 @@ fn shift_with_the_keys_and_ctrl_a_select_rows_that_are_not_built() {
   stage.pass();
   assert_eq!(selected.get().len(), 9);
   // Ctrl+A: every row shown.
-  stage.tree.key_down("a".to_owned(), "a".to_owned(), false, true, false);
-  stage.pass();
+  stage.shortcut("a");
   assert_eq!(selected.get().len(), 10100);
 }
 

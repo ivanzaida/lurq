@@ -29,7 +29,7 @@
 
 use std::{collections::VecDeque, time::Duration};
 
-use super::{TouchMomentum, TouchRoute, Tree};
+use super::{ElementHandle, TouchMomentum, TouchRoute, Tree, hit_test_tree};
 use crate::{
   app::events::{ScrollPhase, TouchPhase},
   time::Instant,
@@ -133,6 +133,9 @@ struct Fling {
 #[derive(Debug)]
 pub(super) struct TouchPointer {
   state: State,
+  /// The fingers that landed while another was pressing, each with where it landed: one that lifts there taps
+  /// what it is on, beside the finger that is the pointer.
+  beside: Vec<(u64, (f64, f64))>,
   fling: Option<Fling>,
   /// How a scroll goes on after the finger lifts; the app's, from the tree.
   momentum: TouchMomentum,
@@ -142,6 +145,7 @@ impl Default for TouchPointer {
   fn default() -> Self {
     Self {
       state: State::Idle,
+      beside: Vec::new(),
       fling: None,
       momentum: TouchMomentum::default(),
     }
@@ -152,6 +156,45 @@ impl TouchPointer {
   /// Takes the app's momentum; a scroll that is under way keeps going by it.
   pub(super) fn set_momentum(&mut self, momentum: TouchMomentum) {
     self.momentum = momentum;
+  }
+
+  /// Whether another finger than `id` is the pointer, with its press sent.
+  fn pressed_by_another(&self, id: u64) -> bool {
+    match &self.state {
+      State::Dragging { id: held, .. } | State::Pending { id: held, pressed: true, .. } => *held != id,
+      _ => false,
+    }
+  }
+
+  /// A finger's event, where the finger is one beside the pointer: it landed while another was pressing, and is
+  /// none of the pointer's. `None` for a finger that is not. `Some(true)` as it lifts where it landed: a tap of
+  /// its own.
+  pub(super) fn beside(&mut self, id: u64, phase: TouchPhase, position: (f64, f64), scale: f64) -> Option<bool> {
+    if phase == TouchPhase::Start {
+      if !self.pressed_by_another(id) {
+        return None;
+      }
+      self.beside.push((id, position));
+      return Some(false);
+    }
+    let at = self.beside.iter().position(|(held, _)| *held == id)?;
+    let start = self.beside[at].1;
+    let near = (position.0 - start.0).hypot(position.1 - start.1) <= TAP_SLOP * scale;
+    match phase {
+      // One that travels is no tap: it is nothing from then on.
+      TouchPhase::Move if near => Some(false),
+      TouchPhase::End => {
+        self.beside.remove(at);
+        Some(near)
+      }
+      _ => {
+        self.beside[at].1 = (f64::INFINITY, f64::INFINITY);
+        if phase == TouchPhase::Cancel {
+          self.beside.remove(at);
+        }
+        Some(false)
+      }
+    }
   }
 
   /// Takes one touch event. `scale` is the window's scale factor; `springing` tells that the finger landed while
@@ -607,6 +650,16 @@ impl Tree {
     let route = self.touch_event_at(id, phase, x, y, force, now);
     let scale = f64::from(self.scale_factor());
     let (x, y) = (f64::from(x), f64::from(y));
+    // A finger that landed while another was pressing is none of the pointer's: lifted where it landed, it taps
+    // what it is on, and the finger that is held goes on as it was.
+    if route == TouchRoute::Pointer
+      && let Some(tapped) = self.finger.beside(id, phase, (x, y), scale)
+    {
+      if tapped {
+        self.tap_beside(x as f32, y as f32);
+      }
+      return route;
+    }
     let actions = match route {
       TouchRoute::Pointer => {
         let momentum = self.touch_momentum();
@@ -627,6 +680,29 @@ impl Tree {
       self.page_after_finger_scroll(now);
     }
     route
+  }
+
+  /// A tap of a finger beside the one that is the pointer, at the point in physical pixels: what it is on is
+  /// clicked, the innermost element there that listens for a click, with nothing pressed or hovered on the way,
+  /// since the pointer is the other finger's.
+  fn tap_beside(&mut self, x: f32, y: f32) {
+    let scale = self.scale_factor();
+    let (x, y) = (x / scale, y / scale);
+    self.rebuild_if_dirty();
+    let target = {
+      let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
+        return;
+      };
+      let mut hits = Vec::new();
+      hit_test_tree(root, layout, 0.0, 0.0, x, y, &self.layout_engine.radii(), &mut hits);
+      hits
+        .iter()
+        .find(|(node, _)| !node.events.on_click.is_empty())
+        .map(|(node, _)| node.node_id())
+    };
+    if let Some(node_id) = target {
+      ElementHandle { tree: self, node_id }.click();
+    }
   }
 
   /// Runs what time brings a finger: its press after resting, its long press, the next step of its momentum, and

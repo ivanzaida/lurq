@@ -1,13 +1,15 @@
-//! The thread of a sound on macOS and iOS: the system's own player of a sound (`AVAudioPlayer`) plays a file or
-//! bytes, and the media's clock follows where the player says it is.
+//! The thread of a media on macOS and iOS. What is only heard ([`Media::sound`](super::Media::sound)) is played by
+//! the system's own player of a sound (`AVAudioPlayer`), a file or bytes, and the media's clock follows where the
+//! player says it is. What is seen ([`Media::open`](super::Media::open)) is played by the system's player of a
+//! video (`AVPlayer`): see [`video`].
 //!
-//! Only what is heard is played here ([`Media::sound`](super::Media::sound)): a video has no decoder on these
-//! systems yet, and says so. An address is a sound once the app's loader has loaded it whole, which is what a
-//! media does before it comes here; an address the loader could not load (a build without `http`, or more than
-//! the loader reads whole) says so, since this player reads no network.
+//! An address is a sound once the app's loader has loaded it whole, which is what a media does before it comes
+//! here; an address the loader could not load (a build without `http`, or more than the loader reads whole) is
+//! played by the player of a video, without its picture, since that player reads an address and this one does
+//! not.
 //!
-//! Written on Windows and compiled for both systems, and not run by who wrote it: what to check on a Mac and on
-//! a phone is in `docs/evidence/media-sound/apple-verification.md`.
+//! Written on Windows; its tests (`tests/media_tests.rs`) pass on a Mac since 2026-11-17, muted. What is still to
+//! check by ear, and on a phone, is in `docs/evidence/media-sound/apple-verification.md`.
 
 use std::{
   sync::Arc,
@@ -23,18 +25,22 @@ use objc2_foundation::{NSData, NSError, NSURL};
 
 use super::{Command, MediaError, Opened, Shared};
 
+mod video;
+
 /// How often the thread looks at the player while it plays: where it is, and whether it came to its end.
 const STEP: Duration = Duration::from_millis(20);
 /// The media's clock is set to the player's where they are this far apart, in seconds.
 const APART: f64 = 0.03;
+/// How long a player told to play may still say it does not: started again from its end, it says so for a moment
+/// after `play` returned. Not playing past this, it stopped.
+const STARTING: Duration = Duration::from_millis(500);
 
 /// Runs a sound to its end: opens `opened`, and does what it is told until nothing holds the media.
 pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
-  if !heard {
-    shared.fail(MediaError::Unavailable(Arc::from(
-      "this build shows no video on this system yet: it plays a sound (Media::sound)",
-    )));
-    return;
+  // What is seen is the system's player of a video's, and so is a sound at an address that was not loaded whole
+  // (more than the loader reads, or a build without `http`): that player reads an address by itself as it plays.
+  if !heard || matches!(opened, Opened::Url(_)) {
+    return video::run(shared, opened, !heard);
   }
   // What the system makes while the thread runs is let go when the thread ends.
   autoreleasepool(|_| match open(opened) {
@@ -67,12 +73,8 @@ fn open(opened: Opened) -> Result<Retained<AVAudioPlayer>, MediaError> {
       }
       // The player tells what the bytes are from the bytes themselves.
       Opened::Bytes(bytes, _) => AVAudioPlayer::initWithData_error(AVAudioPlayer::alloc(), &NSData::with_bytes(&bytes)),
-      Opened::Url(_) => {
-        return Err(MediaError::Unavailable(Arc::from(
-          "a sound at an address is loaded by the app's loader, which could not load this one: the feature \
-           `http`, and no more than the loader reads whole",
-        )));
-      }
+      // Played by the player of a video, which reads an address: see `run`.
+      Opened::Url(_) => return Err(MediaError::Unsupported),
     }
   }
   .map_err(|error| failed(&error))?;
@@ -102,6 +104,8 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
     shared.wake();
     // How many of the times it was sent somewhere it has done.
     let mut gone = 0_u64;
+    // When it was told to play, until the player says it plays.
+    let mut starting: Option<Instant> = None;
     loop {
       let playing = shared.inner().playing;
       // Nothing to do until it is told something, unless it plays.
@@ -124,6 +128,7 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
             if player.play() {
               inner.since = Instant::now();
               inner.playing = true;
+              starting = Some(Instant::now());
               drop(inner);
               // Who draws it may have asked whether it plays before this thread heard the command.
               shared.wake();
@@ -135,10 +140,12 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
           }
           Command::Pause => {
             player.pause();
+            // The media held its clock where it was when it was told, and says so: the player goes on from there.
             let mut inner = shared.inner();
-            inner.at = player.currentTime();
+            player.setCurrentTime(inner.at);
             inner.since = Instant::now();
             inner.playing = false;
+            starting = None;
           }
           Command::Seek(to) => {
             gone += 1;
@@ -169,7 +176,11 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
       if !inner.playing {
         continue;
       }
+      if !player.isPlaying() && starting.is_some_and(|told| told.elapsed() < STARTING) {
+        continue;
+      }
       if player.isPlaying() {
+        starting = None;
         // The media's clock is the player's: what is heard is where it is.
         let heard = player.currentTime();
         if inner.sent == gone && (heard - inner.position()).abs() > APART {
@@ -179,8 +190,11 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
       } else {
         // The player stopped by itself. At the end of what it plays it is back at its start; anywhere else the
         // system stopped it (a call, another app's sound, the headphones pulled out), and it is paused there.
+        // Where the player says it is right after its end is not always its start: the media's own clock, which
+        // went on from where it was told to play, says it came to the end too.
         let at = player.currentTime();
-        let over = duration.is_none_or(|duration| at <= 0.05 || at >= duration - 0.3);
+        let clock = inner.position();
+        let over = duration.is_none_or(|duration| at <= 0.05 || at.max(clock) >= duration - 0.3);
         inner.at = match (over, inner.duration) {
           (true, Some(duration)) => duration,
           _ => at,

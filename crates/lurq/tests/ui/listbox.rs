@@ -244,7 +244,7 @@ fn of_many_ctrl_toggles_shift_chooses_a_range_and_space_and_ctrl_a_choose_too() 
   stage.key(" ");
   assert_eq!(chosen.get(), ["metal", "vulkan", "dx12"]);
   // Ctrl+A: every option that can be chosen.
-  key_with(&mut stage, "a", false, true);
+  stage.shortcut("a");
   assert_eq!(chosen.get().len(), 4);
 }
 
@@ -485,7 +485,7 @@ fn of_thousands_shift_with_the_keys_and_ctrl_a_choose_options_that_are_not_built
   // A press of the last option alone, then Ctrl+A: every option.
   stage.click("big-4999");
   assert_eq!(chosen.get(), [4999]);
-  key_with(&mut stage, "a", false, true);
+  stage.shortcut("a");
   assert_eq!(chosen.get().len(), 5000);
 }
 

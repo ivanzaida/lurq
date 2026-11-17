@@ -209,15 +209,17 @@ impl WindowChrome {
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let mut metrics = self.metrics();
     let window = ctx.window();
-    // In full screen the window has no title bar, as a window of the system's own has none: what fills the
-    // screen (a video) is not under a bar, and no button over it closes the window in place of leaving the
-    // full screen. What took the window there takes it back.
+    // In full screen on Windows the window has no title bar, as a window of the system's own has none: no button
+    // over what fills the screen closes the window in place of leaving the full screen, and what took the window
+    // there takes it back. On macOS an app keeps its bar there, its tabs with it, as Safari and the Finder do;
+    // the system's lights come down with its own bar at the top of the screen. Either way what is laid over the
+    // whole window (a video that fills the screen, a sheet) has all of it there.
     let full_screen = window.info().is_full_screen;
-    if full_screen {
+    if full_screen && !cfg!(target_os = "macos") {
       metrics.height = 0.0;
     }
     // What is laid over the whole window keeps clear of the title bar by this.
-    window.set_title_bar_inset(if metrics.enabled { metrics.height } else { 0.0 });
+    window.set_title_bar_inset(if metrics.enabled && !full_screen { metrics.height } else { 0.0 });
     if !metrics.enabled {
       return self.content;
     }
@@ -240,7 +242,7 @@ impl WindowChrome {
       .clone()
       .or_else(|| self.content.node.background_color())
       .unwrap_or_else(|| self.title_bar.background.clone());
-    let title_bar = if full_screen {
+    let title_bar = if full_screen && !cfg!(target_os = "macos") {
       Element::new()
     } else {
       self.title_bar.render(&window, metrics.height)
@@ -755,6 +757,7 @@ mod tests {
       is_full_screen: false,
       is_decorated: false,
       is_focused: true,
+      native_controls: false,
       safe_area: Default::default(),
       system: Default::default(),
     }

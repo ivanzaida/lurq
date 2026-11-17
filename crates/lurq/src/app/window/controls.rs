@@ -89,6 +89,22 @@ impl WindowControlRegions {
     self.0.push(region);
   }
 
+  /// Where `control` is: the middle of its box, in logical pixels. Of the last drawn of them.
+  #[cfg_attr(not(all(feature = "winit", target_os = "macos")), allow(dead_code))]
+  pub(crate) fn middle_of(&self, control: WindowControl) -> Option<(f32, f32)> {
+    self
+      .0
+      .iter()
+      .rev()
+      .find(|region| region.control == control && !region.bounds.is_empty())
+      .map(|region| {
+        (
+          (region.bounds.x0 + region.bounds.x1) / 2.0,
+          (region.bounds.y0 + region.bounds.y1) / 2.0,
+        )
+      })
+  }
+
   /// The control at a point of the window, in logical pixels: the last drawn of those the point is on.
   pub(crate) fn at(&self, x: f32, y: f32) -> Option<WindowControl> {
     self

@@ -40,7 +40,12 @@ use crate::{
   },
   components::{Column, Row, ScrollVertical},
   core::{ElementRef, Signal},
-  layout::{Alignment, layout_kind::Justify, scrollbar::ScrollBarStyle, text_style::FontWeight},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ScrollState},
+    scrollbar::ScrollBarStyle,
+    text_style::FontWeight,
+  },
   node::{
     CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, border::Border as Edge, color::Color,
     dimension::Dimension, outline::Outline,
@@ -702,6 +707,9 @@ struct SidebarHost {
   revealed: Mutex<Option<Option<Arc<str>>>>,
   /// What is scrolled into view: the selected item, or what stands for it where it is not shown.
   reveal: ElementRef,
+  /// Where its items are scrolled to: over the page they are built again each time it opens, and are where they
+  /// were when it closed.
+  scroll: ScrollState,
 }
 
 impl Component for SidebarHost {
@@ -714,6 +722,7 @@ impl Component for SidebarHost {
       open: ctx.signal(false),
       revealed: Mutex::new(None),
       reveal: ElementRef::new(),
+      scroll: ScrollState::new(),
     }
   }
 
@@ -736,6 +745,7 @@ impl SidebarHost {
       open: Signal::new(false),
       revealed: Mutex::new(None),
       reveal: ElementRef::new(),
+      scroll: ScrollState::new(),
     }
   }
 }
@@ -829,6 +839,7 @@ fn build_sidebar(
     width,
     id: sidebar.id.clone(),
     key: sidebar.key.clone(),
+    scroll: host.scroll.clone(),
   };
   match theme.renderer::<Sidebar>() {
     Some(renderer) => renderer(view),
@@ -1370,6 +1381,7 @@ pub struct SidebarView {
   width: Option<f32>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  scroll: ScrollState,
 }
 
 impl SidebarView {
@@ -1463,6 +1475,7 @@ impl SidebarView {
       body = body.padding_right(self.bar_room());
     }
     let scroll = ScrollVertical::new(body)
+      .with_scroll_state(self.scroll.clone())
       .width(Dimension::Pct(100.0))
       .flex_full(1.0, 1.0, None);
     // The rail has no room for a bar beside its icons: it scrolls with the wheel and the keys, and shows none.
