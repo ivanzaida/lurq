@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::EventControl;
+use super::{EditCommand, EventControl};
 use crate::core::NodeId;
 
 #[derive(Clone)]
@@ -14,9 +14,11 @@ pub struct KeyboardEvent {
   pub target_id: NodeId,
   /// Whether a text input holds keyboard focus when this event fires.
   /// `on_key_down` handlers run before the focused input consumes the key,
-  /// so global shortcuts (e.g. an app's ctrl+z) should check this and step
-  /// aside while the user is typing — the input's own editing (including
-  /// its undo/redo) takes the key otherwise.
+  /// so global shortcuts should check this and step aside while the user is
+  /// typing — the input's own editing takes the key otherwise. An app's own
+  /// undo, redo, copy and paste are no shortcuts to check for: they are
+  /// `on_undo`, `on_redo`, `on_copy` and `on_paste` handlers, which a focused
+  /// input's own editing goes before ([`edit_command`](Self::edit_command)).
   pub text_input_focused: bool,
   /// Whether this key belongs to an input method (IME) composition, like the
   /// DOM's `isComposing`.
@@ -64,6 +66,20 @@ impl KeyboardEvent {
       focus_within: false,
       control: EventControl::new(),
     }
+  }
+
+  /// The command of editing the key is, if it is one, on the platform lurq is built for. Never with Alt held. With
+  /// the shortcut key (Ctrl, or Command on macOS and iOS): Z is [`EditCommand::Undo`] and Shift+Z
+  /// [`EditCommand::Redo`], as Y without Shift is except on Apple's platforms; X is [`EditCommand::Cut`], C
+  /// [`EditCommand::Copy`] and V [`EditCommand::Paste`], with Shift or without; A without Shift is
+  /// [`EditCommand::SelectAll`]. Ctrl+Insert is a copy, Shift+Insert a paste and Shift+Delete a cut. A letter is
+  /// read as the key says it where it is a Latin one, and by the key's place where it is another (in a Ukrainian
+  /// layout Z says "я" and C "с"), so the keys work in every layout.
+  ///
+  /// This is the one place lurq knows these keys: lurq runs the command on what has the focus (`on_undo`,
+  /// `on_redo`, `on_select_all`, `on_copy`, `on_paste`), and a component never matches them itself.
+  pub fn edit_command(&self) -> Option<EditCommand> {
+    EditCommand::of_key(self)
   }
 
   pub fn prevent_default(&self) {

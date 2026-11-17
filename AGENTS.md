@@ -38,3 +38,9 @@ parts, states, roles and ids, the text forms of a state (a dock's, a table's), w
 (HEX, RGB, HSL, and the letters of its channels), `SummaryKind::label` (English, as its docs say), and the title of
 the eyedropper's overlay window on Windows, which nothing shows. Numbers are written with a point in every
 language: a number's format is not in the locale yet.
+
+## Decisions are written down
+
+What Ivan decides about lurq is written in `design/decisions.md` the day it is decided, before the work on it
+starts: the question, the decision, why, and its state. Read it before working on something it names, and add to it
+when a decision is taken in a session.

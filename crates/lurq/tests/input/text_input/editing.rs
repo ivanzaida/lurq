@@ -20,6 +20,15 @@ fn shortcut_key_down(runtime: &mut Tree, key: &str, code: &str, shift: bool) {
   runtime.key_down_with_meta(key.to_owned(), code.to_owned(), shift, ctrl, false, meta);
 }
 
+/// Redo: Ctrl+Y, or Cmd+Shift+Z on a Mac, which has no Cmd+Y.
+fn redo_key_down(runtime: &mut Tree) {
+  if cfg!(target_vendor = "apple") {
+    shortcut_key_down(runtime, "Z", "KeyZ", true);
+  } else {
+    shortcut_key_down(runtime, "y", "KeyY", false);
+  }
+}
+
 fn word_nav_key_down(runtime: &mut Tree, key: &str, code: &str, shift: bool) {
   let (ctrl, alt) = if cfg!(target_vendor = "apple") {
     (false, true)
@@ -267,7 +276,7 @@ fn ctrl_y_and_ctrl_shift_z_redo_text_input_edits() {
   pointer_click(&mut runtime, x, y);
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
   shortcut_key_down(&mut runtime, "z", "KeyZ", false);
-  shortcut_key_down(&mut runtime, "y", "KeyY", false);
+  redo_key_down(&mut runtime);
   assert_eq!(value.get(), "AB");
 
   shortcut_key_down(&mut runtime, "z", "KeyZ", false);
@@ -289,7 +298,7 @@ fn new_text_input_edit_clears_redo_history() {
   runtime.key_down("B".to_owned(), "KeyB".to_owned(), false, false, false);
   shortcut_key_down(&mut runtime, "z", "KeyZ", false);
   runtime.key_down("C".to_owned(), "KeyC".to_owned(), false, false, false);
-  shortcut_key_down(&mut runtime, "y", "KeyY", false);
+  redo_key_down(&mut runtime);
 
   assert_eq!(value.get(), "AC");
 }

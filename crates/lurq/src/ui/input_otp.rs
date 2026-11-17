@@ -22,7 +22,7 @@ use super::{
 use crate::{
   animation::{AnimatableProperty, Animation, Easing, Keyframes, KeyframesId},
   app::{
-    events::{KeyboardEvent, MouseEvent, PasteEvent, TextInputEvent},
+    events::{EditCommand, KeyboardEvent, MouseEvent, PasteEvent, TextInputEvent},
     theme::{IconSize, OpacityLevel, PaletteColor, Theme, TypographyStyle},
   },
   components::{self, ContentKind, KeyboardKind, Row, Stack},
@@ -827,6 +827,12 @@ impl InputOtpView {
       if !event.focus_within || disabled || event.composing {
         return;
       }
+      // Select all (its key read where lurq reads it): the whole code selected, so Backspace or Delete then clears
+      // it. The input selects its text as well.
+      if event.edit_command() == Some(EditCommand::SelectAll) {
+        editor.cursor.all.store(true, Ordering::Relaxed);
+        return;
+      }
       let edits = !read_only;
       match event.key.as_str() {
         "Backspace" if edits => editor.backspace(),
@@ -835,11 +841,6 @@ impl InputOtpView {
         "ArrowLeft" => editor.step(-1),
         "ArrowRight" => editor.step(1),
         "Home" | "ArrowUp" => editor.move_to(0),
-        // The whole code selected: Backspace or Delete then clears it. The input selects its text as well.
-        "a" | "A" if event.ctrl || event.meta => {
-          editor.cursor.all.store(true, Ordering::Relaxed);
-          return;
-        }
         "End" | "ArrowDown" => editor.step(isize::MAX),
         _ => return,
       }

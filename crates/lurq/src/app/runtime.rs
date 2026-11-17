@@ -84,6 +84,7 @@ mod hover;
 mod hover_devtools_tests;
 mod ime;
 pub use ime::{AutofillPeer, KeyboardTraits, TextInputGeometry, TextInputSnapshot};
+mod edit;
 #[cfg(all(test, feature = "markdown"))]
 mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
@@ -2757,6 +2758,7 @@ impl Tree {
   fn pass_inner(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
     self.set_app_ref(app);
     self.write_requested_copies();
+    self.run_requested_edits();
     let pass_started_at = Instant::now();
     {
       crate::app::profile_support::frame_section!("setup:scheduled_redraw");
@@ -4408,7 +4410,12 @@ impl Tree {
         ctrl,
         meta,
       };
-      let handled = if self.dispatch_select_key(select_key) {
+      // A command of editing first (undo, redo, cut, copy, paste, select all), on the focused element and out from
+      // it (`runtime/edit.rs`): a key that is one is no other key, whether or not something took it.
+      let edit = evt.edit_command();
+      let handled = if let Some(command) = edit {
+        self.dispatch_edit(command, Some(&evt), false)
+      } else if self.dispatch_select_key(select_key) {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
         self.focus_tab(shift)
@@ -4445,17 +4452,11 @@ impl Tree {
 
       if handled || self.dismiss_top_overlay_on_escape(&key, &code) {
         self.needs_redraw = true;
-      } else {
+      } else if edit.is_none() {
         let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
         let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
-        if blurred_text_input
-          || cleared_text_selection
-          || self.dispatch_text_input(&evt)
-          || self.clipboard_shortcut_on_focus(&evt)
-        {
+        if blurred_text_input || cleared_text_selection || self.dispatch_text_input(&evt) {
           self.needs_redraw = true;
-        } else {
-          self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
         }
       }
     }
@@ -5902,6 +5903,17 @@ impl Tree {
     } else {
       None
     };
+    // A press that begins a drag gives no click, so what the dragged element `focuses` is focused at the press, as a
+    // press that repeats focuses it: a pad signed on, a dial turned, takes its keys from the stroke on. It is found in
+    // the tree pressed, and not asked for after the render: the drag's first move may render the element anew, with
+    // a ref of that render.
+    let drag_focus = pending_drag.as_ref().and_then(|(event, ..)| {
+      let target = hits
+        .iter()
+        .find(|(node, _)| node.node_id() == event.target_id)
+        .and_then(|(node, _)| node.events.focuses.clone())?;
+      focus_target_of_ref(root, &target)
+    });
 
     #[cfg(feature = "form")]
     if !evt.default_prevented()
@@ -5996,6 +6008,9 @@ impl Tree {
     }
     if let Some(drag) = pending_text_selection_drag {
       self.dragging_text_selection = Some(drag);
+    }
+    if let Some(target) = drag_focus {
+      self.focus_node(target);
     }
     if let Some((event, handler, mut drag)) = pending_drag {
       for handler in handler {
@@ -6197,69 +6212,12 @@ impl Tree {
 
     let command = code;
     let logical = key;
-    let shortcut = Self::platform_shortcut_modifier(ctrl, meta);
     let word_navigation = Self::platform_word_navigation_modifier(ctrl, alt);
 
     let node_kind = node.node_kind().clone();
     match node_kind {
       NodeKind::TextInput { state, .. } => {
         match (logical, command) {
-          ("a" | "A", _) | (_, "KeyA") if shortcut => state.select_all(),
-          ("c" | "C", _) | (_, "KeyC") if shortcut => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            return self.write_input_copy(&state, &selected);
-          }
-          ("x" | "X", _) | (_, "KeyX") if shortcut => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            if !self.write_input_copy(&state, &selected) {
-              return false;
-            }
-            let _ = state.cut_selection(evt);
-          }
-          ("v" | "V", _) | (_, "KeyV") if shortcut => {
-            if !self.paste_from_clipboard_shortcut(evt) {
-              return false;
-            }
-          }
-          ("Insert", _) | (_, "Insert") if ctrl => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            return self.write_input_copy(&state, &selected);
-          }
-          ("Insert", _) | (_, "Insert") if shift => {
-            if !self.paste_from_clipboard_shortcut(evt) {
-              return false;
-            }
-          }
-          ("Delete", _) | (_, "Delete") if shift => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            if !self.write_input_copy(&state, &selected) {
-              return false;
-            }
-            let _ = state.cut_selection(evt);
-          }
-          ("z" | "Z", _) | (_, "KeyZ") if shortcut && shift => {
-            if !state.redo(evt) {
-              return false;
-            }
-          }
-          ("z" | "Z", _) | (_, "KeyZ") if shortcut => {
-            if !state.undo(evt) {
-              return false;
-            }
-          }
-          ("y" | "Y", _) | (_, "KeyY") if shortcut => {
-            if !state.redo(evt) {
-              return false;
-            }
-          }
           ("Enter", _) | (_, "Enter") => {
             if !state.insert_newline(evt) {
               return false;
@@ -6309,32 +6267,6 @@ impl Tree {
     }
 
     true
-  }
-
-  fn dispatch_selectable_text_clipboard(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, meta: bool) -> bool {
-    let command = code;
-    let logical = key;
-    let shortcut = Self::platform_shortcut_modifier(ctrl, meta);
-    if !matches!(
-      (logical, command),
-      ("c" | "C", _) | (_, "KeyC") if shortcut
-    ) && !matches!(
-      (logical, command),
-      ("Insert", _) | (_, "Insert") if ctrl && !shift
-    ) {
-      return false;
-    }
-
-    let Some(root) = &self.root else {
-      return false;
-    };
-    let Some(layout) = &self.last_layout else {
-      return false;
-    };
-    let Some(selected) = selected_selectable_text(root, layout) else {
-      return false;
-    };
-    self.write_clipboard_text(&selected)
   }
 
   /// The key held for a shortcut, and the one for moving by words: Command and Option on Apple's platforms,
@@ -6396,27 +6328,10 @@ impl Tree {
     let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
       return;
     };
-    fn find(root: &Node, reference: &OwnedElementRef) -> Option<FocusTarget> {
-      if root
-        .element_ref
-        .as_ref()
-        .is_some_and(|current| current.same_handle(reference))
-      {
-        fn control(node: &Node) -> Option<NodeId> {
-          if node.is_focusable() {
-            Some(node.node_id())
-          } else {
-            node.children().iter().find_map(control)
-          }
-        }
-        return control(root).map(|input_id| FocusTarget {
-          input_id,
-          event_id: root.node_id(),
-        });
-      }
-      root.children().iter().find_map(|child| find(child, reference))
-    }
-    let target = self.root.as_ref().and_then(|root| find(root, &reference));
+    let target = self
+      .root
+      .as_ref()
+      .and_then(|root| focus_target_of_ref(root, &reference));
     if target.is_some() || discard_missing {
       self.root_ctx.as_ref().unwrap().take_focus_request();
     }
@@ -7258,6 +7173,13 @@ impl Tree {
     }
     {
       crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
+    // A command an Edit menu's item or a tool asked for runs on what has the focus once the event is done and the
+    // focus it moved is where it goes (a menu that closed gave it back), and what it changed is rendered.
+    if self.run_requested_edits() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
       self.apply_focus_request();
     }
     if let Some((group, key)) = self.pressed_focus_key.take() {
@@ -10815,6 +10737,32 @@ fn element_refs_along_path(root: &Node, path: &[usize]) -> Vec<OwnedElementRef> 
     refs.extend(current.element_ref.iter().cloned());
   }
   refs
+}
+
+/// The element of `reference` in the tree under `root` as the focus takes it: the first node in it, or itself, that
+/// takes the focus, and the element whose handlers hear of it.
+fn focus_target_of_ref(root: &Node, reference: &OwnedElementRef) -> Option<FocusTarget> {
+  if root
+    .element_ref
+    .as_ref()
+    .is_some_and(|current| current.same_handle(reference))
+  {
+    fn control(node: &Node) -> Option<NodeId> {
+      if node.is_focusable() {
+        Some(node.node_id())
+      } else {
+        node.children().iter().find_map(control)
+      }
+    }
+    return control(root).map(|input_id| FocusTarget {
+      input_id,
+      event_id: root.node_id(),
+    });
+  }
+  root
+    .children()
+    .iter()
+    .find_map(|child| focus_target_of_ref(child, reference))
 }
 
 fn find_node_by_path<'a>(node: &'a Node, path: &[usize]) -> Option<&'a Node> {

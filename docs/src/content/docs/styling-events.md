@@ -697,6 +697,83 @@ Row::new()
 - An element that is disabled or inert, or in one that is, captures nothing.
 - Where two capture at once, the first in the order of the tree takes the keys.
 
+### Editing commands: undo, redo, copy, cut, paste
+
+The keys every app shares are lurq's to know, in one place: `KeyboardEvent::edit_command()` says which
+`EditCommand` a key is, if any, and lurq runs it on what has the focus. A component or an app never matches these keys
+itself; it says what it does for the command.
+
+| Command | Keys (Cmd in place of Ctrl on macOS and iOS) |
+| --- | --- |
+| `EditCommand::Undo` | Ctrl+Z |
+| `EditCommand::Redo` | Ctrl+Shift+Z, Ctrl+Y (not on a Mac) |
+| `EditCommand::Cut` | Ctrl+X, Shift+Delete |
+| `EditCommand::Copy` | Ctrl+C, Ctrl+Insert |
+| `EditCommand::Paste` | Ctrl+V, Shift+Insert |
+| `EditCommand::SelectAll` | Ctrl+A |
+
+No key with Alt held is a command (AltGr is Ctrl+Alt on Windows, and types letters). A letter is read as the key says it
+where it is a Latin one, and by the key's place where it says another: in a Ukrainian layout Ctrl+Z says "я" and
+still takes back, Ctrl+С copies; on a German keyboard, which says Z where a US one has Y, Z is still undo.
+`EditCommand::accelerator()` is the combination to show beside an Edit menu's item or in a tool's tooltip (Ctrl+Y for
+redo, Cmd+Shift+Z on a Mac), as an `Accelerator`.
+
+A command is run on the focused element and out from it:
+
+1. A focused text input does it to its own text where it can: takes back an edit it has, does one again, copies or
+   cuts its selection, pastes, selects its text.
+2. Otherwise the handlers of the focused element, then of each ancestor, innermost first: `on_undo`, `on_redo`
+   and `on_select_all` are told an `EditEvent`. A handler that had nothing to do calls `event.pass_on()`; an
+   element whose handlers all passed it on did nothing, and the command goes on to the element around it. The first
+   element that does not pass it on takes it, and no element further out is told. A copy or a cut is an `on_copy`'s
+   ([Copy](#copy)), taken where a handler set a text, and a paste an `on_paste`'s ([Paste](#paste)).
+3. A copy that nothing took copies the text selected on the page (a [selectable text](#text-selection)), focused or
+   not.
+
+With nothing focused nothing is told. A key goes to every `on_key_down` handler before it is a command: one that
+prevents its default (an app that binds Ctrl+Z to something else) keeps it from being one, as an element that
+[takes every key](#taking-every-key) does. A key that is a command is no other key, whether or not something took it.
+
+```rust
+use lurq::{app::events::EditEvent, components::Column};
+
+// A pad with a history of its own, in a form whose app keeps one too: Ctrl+Z on the pad takes back its last
+// stroke, and with no stroke left the form's history goes back.
+Column::new()
+  .on_undo(move |_: EditEvent| form_history.undo())
+  .child(
+    pad
+      .tab_index(0)
+      .on_undo(move |event: EditEvent| {
+        if !strokes.undo() {
+          event.pass_on();
+        }
+      })
+      .on_redo(move |event: EditEvent| {
+        if !strokes.redo() {
+          event.pass_on();
+        }
+      }),
+  )
+```
+
+An Edit menu or a toolbar runs a command without a key: `ctx.edit(EditCommand::Undo)` in a render, or the
+`EditRunner` of `ctx.edit_runner()` kept in a handler, and `WindowHandle::edit(command)` where there is no `Ctx`, as
+in the handler of a native menu (on macOS a native item's key equivalent takes the key before the window sees it, so
+an Edit menu with Cmd+Z runs `edit(EditCommand::Undo)` itself). The command is run once the event that asked is
+handled, on what has the focus then: after a menu that closed gave the focus back to what had it. So a tool that runs
+it takes no focus itself (`.focusable(false)`). A paste asked for while lurq delivers synthetic input (an MCP client's
+press of the menu item) reads no clipboard.
+
+```rust
+use lurq::{app::events::EditCommand, components::Button};
+
+let edit = ctx.edit_runner();
+Button::new("Undo")
+  .focusable(false)
+  .on_click(move |_| edit.run(EditCommand::Undo))
+```
+
 ## Text Selection
 
 Plain text is not selectable by default. Opt in with `.selectable(true)`:
@@ -1064,7 +1141,7 @@ TextInput::styled(code.clone(), mono)
 
 #### Paste
 
-A paste into a text input delivers one `PasteEvent` before the text is inserted: `Ctrl+V`, `Shift+Insert`, a `WindowHandle::paste_from_clipboard()` request (for an app's own Paste menu item or context menu) and `Tree::paste(content)` all go through it. The event carries everything the clipboard holds, as [`lurq::clipboard::read_clipboard`](../resources-media/#clipboard) reads it: text, an RGBA image (a screenshot) and file paths (files copied in Explorer or Finder), any of them at once. Handlers run on the input first and bubble to its ancestors (`stop_propagation()` ends that); unless one calls `prevent_default()`, the text is inserted at the caret. An image or files without a handler do nothing.
+A paste into a text input delivers one `PasteEvent` before the text is inserted: `Ctrl+V`, `Shift+Insert`, an [Edit menu's Paste](#editing-commands-undo-redo-copy-cut-paste) (`ctx.edit(EditCommand::Paste)`), a `WindowHandle::paste_from_clipboard()` request (for an app's own Paste menu item or context menu) and `Tree::paste(content)` all go through it. The event carries everything the clipboard holds, as [`lurq::clipboard::read_clipboard`](../resources-media/#clipboard) reads it: text, an RGBA image (a screenshot) and file paths (files copied in Explorer or Finder), any of them at once. Handlers run on the input first and bubble to its ancestors (`stop_propagation()` ends that); unless one calls `prevent_default()`, the text is inserted at the caret. An image or files without a handler do nothing.
 
 ```rust
 use lurq::{app::events::PasteEvent, components::TextInput};
@@ -1092,7 +1169,7 @@ A styled input with kinds of paragraphs that keeps its formatting through the cl
 
 #### Copy
 
-A copy or a cut on a focused element that is not a text input (a cell of a [data grid](../design-system/#data-grid), a canvas) delivers one `CopyEvent`: `Ctrl+C` and `Ctrl+Insert` copy, `Ctrl+X` and `Shift+Delete` cut (`Cmd` on macOS). Handlers run on the focused element first and bubble to its ancestors; one says what goes on the clipboard with `event.set_text(..)` (a later call takes the place of an earlier one), and the engine writes it once they have run. `event.is_cut()` tells a cut, whose handler takes away what it copied. With no text set nothing is written; with no `on_copy` handler on the way, a selectable text is copied as before.
+A copy or a cut on a focused element that is not a text input (a cell of a [data grid](../design-system/#data-grid), a canvas) delivers one `CopyEvent`: `Ctrl+C` and `Ctrl+Insert` copy, `Ctrl+X` and `Shift+Delete` cut (`Cmd` on macOS, in any layout), and so do an [Edit menu's](#editing-commands-undo-redo-copy-cut-paste) Copy and Cut. Handlers run on the focused element first and bubble to its ancestors; one says what goes on the clipboard with `event.set_text(..)` (a later call takes the place of an earlier one), and the engine writes it once they have run. `event.is_cut()` tells a cut, whose handler takes away what it copied. With no text set nothing is written, and a selectable text with a selection is copied as where no `on_copy` handler is on the way.
 
 ```rust
 use lurq::{app::events::{CopyEvent, PasteEvent}, components::Row};

@@ -199,6 +199,13 @@ an alias.
 - **An edit of text: `on_input(&TextInputEvent)`**, before the edit, which it may refuse. What a filter is asked
   for after an edit is `on_query(&str)`, beside `query(Signal<String>)`. `on_submit` is Enter in a field that has
   something to submit: Input, SearchField, Combobox.
+- **Undo, redo, copy, paste and select all are lurq's keys, never a component's.** A component that takes things
+  back (a pad's strokes, a canvas's shapes) gives its root `.on_undo` and `.on_redo`, and one that copies, pastes or
+  selects all of its items `.on_copy`, `.on_paste` and `.on_select_all`; a handler with nothing to do calls
+  `event.pass_on()` so the element around gets it. It never matches Ctrl+Z, Ctrl+Y, Ctrl+C, Ctrl+V or Ctrl+A in an
+  `on_key_down`: which keys they are, in every layout and on a Mac, is `KeyboardEvent::edit_command()`'s alone, and
+  an Edit menu runs the same handlers (`Ctx::edit`). Its own buttons for them call what the handlers call. A key of
+  its own that also takes back (Backspace on a pad) stays in its `on_key_down`.
 - **While it moves and when it ends: `on_change` and `on_change_end`**, on what is dragged or stepped: Slider,
   RangeSlider, NumberInput. (A splitter's are `on_resize` and `on_resize_end`: it holds no value.)
 - **Is this one on**: `checked` for a box that is ticked, `on` for a switch or a toggle, `selected` for one of

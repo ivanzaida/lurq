@@ -910,6 +910,21 @@ impl crate::app::component::DevtoolsInspectable for SafeAreaTaken {
 
 crate::register_inspectable!(SafeAreaTaken);
 
+/// What runs a command of editing on the focus of a window, from a handler: [`Ctx::edit_runner`].
+#[derive(Clone)]
+pub struct EditRunner {
+  window: Option<crate::app::window::Window>,
+}
+
+impl EditRunner {
+  /// Runs `command` on what has the focus once the event that asked is handled; see [`Ctx::edit`].
+  pub fn run(&self, command: crate::app::events::EditCommand) {
+    if let Some(window) = &self.window {
+      window.request_edit(command);
+    }
+  }
+}
+
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
   subtree_dirty: Arc<AtomicBool>,
@@ -2653,6 +2668,38 @@ impl Ctx {
       || requests.scroll_range_into_view.is_some()
       || requests.blur
       || requests.scroll_to_top
+  }
+
+  /// Runs a command of editing on what has the focus, as its key does: Undo, Redo, Cut, Copy, Paste or Select All.
+  /// A focused text input does it to its own text first; otherwise the focused element's handlers (`on_undo`,
+  /// `on_redo`, `on_select_all`, `on_copy`, `on_paste`), and its ancestors' innermost first, until one takes it
+  /// ([`EditCommand`](crate::app::events::EditCommand)). What an Edit menu's item or a toolbar's tool runs, through
+  /// [`Ctx::edit_runner`], which a handler keeps.
+  ///
+  /// It is run once the event that asked is handled, on what has the focus then: after the focus the event moved is
+  /// where it goes (a menu that closed gave it back to what had it). So a control that runs it does not keep the
+  /// focus itself: a tool of a bar that is not focusable (`.focusable(false)`), or an item of a menu. A paste asked
+  /// for while lurq delivers synthetic input (an MCP client's click) reads no clipboard. With no window (a component
+  /// rendered with no tree) it does nothing.
+  pub fn edit(&self, command: crate::app::events::EditCommand) {
+    self.edit_runner().run(command);
+  }
+
+  /// What runs a command of editing on what has the focus ([`Ctx::edit`]), to keep in a handler: an Edit menu's
+  /// item, a toolbar's tool. Reading it does not render the component again when the window changes.
+  ///
+  /// ```
+  /// use lurq::{app::{ctx::Ctx, events::EditCommand}, components::Button, node::Element};
+  ///
+  /// # fn build(ctx: &mut Ctx) -> Element {
+  /// let edit = ctx.edit_runner();
+  /// Button::new("Undo").focusable(false).on_click(move |_| edit.run(EditCommand::Undo)).into()
+  /// # }
+  /// ```
+  pub fn edit_runner(&self) -> EditRunner {
+    EditRunner {
+      window: self.window.clone(),
+    }
   }
 
   /// Takes the focus from whatever has it, after the current render: a text input being typed into is left,

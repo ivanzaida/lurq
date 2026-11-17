@@ -27,7 +27,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement},
-    events::{ClipboardImage, KeyboardEvent, MouseEvent, PasteEvent},
+    events::{ClipboardImage, EditCommand, KeyboardEvent, MouseEvent, PasteEvent},
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{
@@ -1330,6 +1330,12 @@ impl RichTextEditorView {
     };
     let command = if cfg!(target_vendor = "apple") { "Cmd" } else { "Ctrl" };
     let keys = |keys: &str| format!("{command}+{keys}");
+    // Which keys are undo and redo is lurq's to know: the text in the box takes them as any input does.
+    let edit_keys = |edit: EditCommand| {
+      let accelerator = edit.accelerator();
+      let shift = if accelerator.modifiers.shift { "Shift+" } else { "" };
+      keys(&format!("{shift}{}", accelerator.key.to_uppercase()))
+    };
     let words = &self.words;
     match tool {
       RichTextTool::Style => ToolbarItem::element(self.style_select()),
@@ -1411,7 +1417,7 @@ impl RichTextEditorView {
           editor.undo();
         }),
       ))
-      .shortcut(&keys("Z")),
+      .shortcut(&edit_keys(EditCommand::Undo)),
       RichTextTool::Redo => ToolbarItem::from(self.button(
         &words.redo,
         icons::REDO,
@@ -1421,7 +1427,7 @@ impl RichTextEditorView {
           editor.redo();
         }),
       ))
-      .shortcut(&keys("Y")),
+      .shortcut(&edit_keys(EditCommand::Redo)),
     }
   }
 

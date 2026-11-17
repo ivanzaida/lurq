@@ -1014,9 +1014,10 @@ macro_rules! impl_into_node {
         self
       }
 
-      /// A copy or a cut from the focused element where it is not a text input (Ctrl+C, Ctrl+X): on the
-      /// element, or on an ancestor it bubbles to. The handler says what goes on the clipboard with
-      /// `set_text`; a cut also takes away what it copied.
+      /// A copy or a cut from the focused element where it is not a text input (Ctrl+C, Ctrl+X, or an Edit menu's
+      /// `Ctx::edit(EditCommand::Copy)`): on the element, or on an ancestor it bubbles to. The handler says what goes
+      /// on the clipboard with `set_text`; a cut also takes away what it copied. A handler that sets no text passes
+      /// it on, and a text selected on the page is copied where none set one.
       pub fn on_copy(mut self, f: impl $crate::node::IntoCopyEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_copy(node, f));
         self
@@ -1024,6 +1025,48 @@ macro_rules! impl_into_node {
 
       pub fn off_copy(mut self, f: impl $crate::node::IntoCopyEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_copy(node, f));
+        self
+      }
+
+      /// Undo on the focused element, or on one in it: Ctrl+Z (Cmd+Z on a Mac), or an Edit menu's Undo
+      /// (`Ctx::edit(EditCommand::Undo)`). The handler takes back the last change of what the element holds; one that has nothing to
+      /// take back calls `event.pass_on()`, and the command goes on out to the elements around, innermost first, to
+      /// the first that takes it. A focused text input takes back its own edits first. Which keys are undo is lurq's
+      /// to know (`KeyboardEvent::edit_command`): a component never matches them itself. See
+      /// [`EditEvent`]($crate::app::events::EditEvent).
+      pub fn on_undo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_undo(node, f));
+        self
+      }
+
+      pub fn off_undo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_undo(node, f));
+        self
+      }
+
+      /// Redo on the focused element, or on one in it: Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z on a Mac), or an Edit
+      /// menu's Redo (`Ctx::edit(EditCommand::Redo)`). As [`on_undo`](Self::on_undo), for what was taken back.
+      pub fn on_redo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_redo(node, f));
+        self
+      }
+
+      pub fn off_redo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_redo(node, f));
+        self
+      }
+
+      /// Select all on the focused element, or on one in it: Ctrl+A (Cmd+A on a Mac), or an Edit menu's Select All
+      /// (`Ctx::edit(EditCommand::SelectAll)`). The handler selects every item of what it holds; one that selects
+      /// nothing (a list of which one item is chosen) calls `event.pass_on()`. A focused text input selects its text
+      /// itself. As [`on_undo`](Self::on_undo).
+      pub fn on_select_all(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_select_all(node, f));
+        self
+      }
+
+      pub fn off_select_all(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_select_all(node, f));
         self
       }
 
@@ -1321,7 +1364,8 @@ macro_rules! impl_into_node {
       /// on, as `Ctx::focus` finds it. What a label does for its control. A click on
       /// something under the element that takes the focus itself focuses that instead, and a disabled target is
       /// not focused. A button given one gives the focus on when it is pressed, by a click or by the keyboard: a
-      /// link to a field.
+      /// link to a field. On an element that is dragged, the press that begins a drag focuses `target` too, as the
+      /// drag gives no click.
       pub fn focuses(mut self, target: &$crate::core::ElementRef) -> Self {
         let target = target.clone();
         self.update_node(|node| node.events.focuses = Some(target));

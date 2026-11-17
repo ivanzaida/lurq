@@ -157,6 +157,15 @@ impl WindowHandle {
     self.window.request_copy(text.into());
   }
 
+  /// Runs a command of editing on what has the focus, as its key does
+  /// ([`EditCommand`](crate::app::events::EditCommand)): what an Edit menu's item runs, a native one's too, whose
+  /// handler has no `Ctx` (on macOS a native item's key equivalent, Cmd+Z, takes the key before the window sees it).
+  /// It is run once the handler that asked returns (or at the next pass, asked from elsewhere); see
+  /// [`Ctx::edit`](crate::app::ctx::Ctx::edit), which is the same from a component.
+  pub fn edit(&self, command: crate::app::events::EditCommand) {
+    self.window.request_edit(command);
+  }
+
   /// The window's state this handle reads and writes.
   pub(crate) fn state(&self) -> Window {
     self.window.clone()

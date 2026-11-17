@@ -24,7 +24,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{KeyboardEvent, MouseButton, MouseEvent},
+    events::{EditEvent, KeyboardEvent, MouseButton, MouseEvent},
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -1142,6 +1142,11 @@ impl TreeRow {
           (press.pick)(Pick::of(&event, false));
         }
       });
+      if multiple {
+        // Select all (Ctrl+A, an Edit menu's) selects every row.
+        let select_all = actions.select_all.clone();
+        row = row.on_select_all(move |_: EditEvent| select_all());
+      }
       row = row.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.composing || event.alt {
           return;
@@ -1152,10 +1157,6 @@ impl TreeRow {
           "Enter" if !command && !event.shift => {
             event.prevent_default();
             (actions.activate)();
-          }
-          "a" | "A" if command && multiple && !event.shift => {
-            event.prevent_default();
-            (actions.select_all)();
           }
           // The focus moves on with the key, as it does without Shift; the selection goes with it.
           "ArrowUp" if event.shift && !command => (actions.extend)(Reach::Back),

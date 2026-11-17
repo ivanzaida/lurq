@@ -336,6 +336,17 @@ fn a_press_focuses_the_dial_and_the_keys_go_on_from_it() {
 }
 
 #[test]
+fn a_drag_round_focuses_the_dial_too() {
+  let angle = Signal::new(0.0);
+  let read = angle.clone();
+  let mut stage = scene(move || AngleSlider::new(read.clone()));
+  drag(&mut stage, &[90.0, 110.0, 130.0]);
+  assert_eq!(angle.get(), 130.0);
+  stage.key("ArrowRight");
+  assert_eq!(angle.get(), 131.0, "a drag, which gives no click, focused it");
+}
+
+#[test]
 fn a_forced_focus_draws_the_ring_with_nothing_pointing_at_it() {
   let stage = scene(|| AngleSlider::controlled(45.0, |_| {}).force(Some(Interaction::FocusVisible)));
   assert!(stage.has_ring(light(PaletteColor::Ring)));

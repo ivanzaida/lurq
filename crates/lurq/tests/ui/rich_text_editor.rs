@@ -567,7 +567,12 @@ fn undo_and_redo_are_off_until_there_is_something_to_take_back() {
   // The keys are the text input's own.
   editor.shortcut("z", "KeyZ", false, false);
   assert!(editor.document().spans.is_empty());
-  editor.shortcut("y", "KeyY", false, false);
+  // Redo: Ctrl+Y, or Cmd+Shift+Z on a Mac, which has no Cmd+Y.
+  if cfg!(target_vendor = "apple") {
+    editor.shortcut("Z", "KeyZ", true, false);
+  } else {
+    editor.shortcut("y", "KeyY", false, false);
+  }
   assert_eq!(editor.document().spans.len(), 1);
   assert_eq!(editor.told().len(), 5, "each of them is a change the app is told");
 }
