@@ -7,3 +7,8 @@ docs/.astro
 .assets
 .idea
 .tmp
+
+# Python caches and Claude Code local state (the shared settings stay tracked)
+__pycache__/
+.claude/*
+!.claude/settings.json
