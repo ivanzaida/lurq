@@ -2725,8 +2725,17 @@ impl Tree {
   /// An engine whose graphics device is lost (`RenderEngine::lost`) draws nothing again: another is made in
   /// its place by what made it, as large as the window, and the window is drawn anew. Not more often than
   /// once a second: an engine that is lost as soon as it is made is not made in every frame.
-  fn replace_lost_render_engine(&mut self) {
-    if !self.render_engine.as_ref().is_some_and(|engine| engine.lost()) {
+  ///
+  /// The engines of this tree's other windows go with it, whichever of them found the loss: the shell asks
+  /// this of the main window's tree before it draws any of them.
+  pub(crate) fn replace_lost_render_engine(&mut self) {
+    let lost = |engine: &Option<Box<dyn RenderEngine>>| engine.as_ref().is_some_and(|engine| engine.lost());
+    if !lost(&self.render_engine)
+      && !self
+        .secondary_windows
+        .iter()
+        .any(|window| lost(&window.tree.render_engine))
+    {
       return;
     }
     let Some(factory) = self.render_engine_factory.clone() else {
@@ -2742,7 +2751,9 @@ impl Tree {
     // The lost one first: it holds the window's surface, which the next one takes. And those of this tree's
     // other windows with it, though nothing draws them now: they lost the same device, and Direct3D says a
     // card gives no other to a program in which anything holds the lost one. An engine asks for its device
-    // when it first draws.
+    // when it first draws. This window's goes too where another window's found the loss, for the same
+    // reason: left holding the lost device, it kept the other window from the card (that one drew on another
+    // card from then on, and on a machine with one card on nothing).
     self.render_engine = None;
     for window in &mut self.secondary_windows {
       window.tree.replace_lost_render_engine();

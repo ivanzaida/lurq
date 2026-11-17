@@ -228,6 +228,8 @@ impl Dx12RenderCadence {
 }
 
 pub struct Dx12RenderEngine {
+  /// Whether the device was found lost, and the engine waits for the tree to make another in its place.
+  lost: bool,
   #[cfg(feature = "canvas")]
   canvases: Vec<crate::canvas::CanvasHandle>,
   #[cfg(feature = "canvas")]
@@ -253,6 +255,7 @@ impl Default for Dx12RenderEngine {
 impl Dx12RenderEngine {
   pub fn new() -> Self {
     Self {
+      lost: false,
       state: None,
       #[cfg(feature = "canvas")]
       canvases: Vec::new(),
@@ -403,7 +406,22 @@ impl RenderEngine for Dx12RenderEngine {
     self.height = height.max(1);
   }
 
+  /// The device is lost: it was found so while a frame was drawn, or it says so itself, which an engine of a
+  /// window that is not drawn finds no other way. The tree makes another engine in the place of every
+  /// window's at once: a card has one device for a program, and gives it again whole only once nothing holds
+  /// the lost one.
+  fn lost(&self) -> bool {
+    self.lost
+      || self.state.as_ref().is_some_and(|state| {
+        // SAFETY: the device is asked a question.
+        state.device_lost || unsafe { state.device.GetDeviceRemovedReason() }.is_err()
+      })
+  }
+
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, _display: DisplayHandle<'_>) -> bool {
+    // Asked to draw though it said it is lost: nothing makes another in its place (a tree with no factory),
+    // and it makes its device again by itself.
+    self.lost = false;
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
@@ -440,7 +458,8 @@ impl RenderEngine for Dx12RenderEngine {
         self.height
       );
       if let Err(err) = unsafe { state.resize(self.width, self.height) } {
-        if is_dxgi_device_lost(&err) {
+        let lost = is_dxgi_device_lost(&err);
+        if lost {
           let reason = unsafe { state.device_removed_reason_code() };
           tracing::warn!(
             "native dx12 device lost while resizing swapchain; resetting renderer: error={err:?} removed_reason={}",
@@ -458,6 +477,7 @@ impl RenderEngine for Dx12RenderEngine {
           );
         }
         self.state = None;
+        self.lost = lost;
         return false;
       }
     }
@@ -473,6 +493,7 @@ impl RenderEngine for Dx12RenderEngine {
     let _render_profile = match unsafe { state.render(list, _profile_context) } {
       Ok(profile) => profile,
       Err(err) => {
+        let lost = is_dxgi_device_lost(&err);
         if is_dx12_frame_not_ready(&err) {
           tracing::trace!("native dx12 frame skipped while waiting for previous GPU work: {err:?}");
           return false;
@@ -492,6 +513,7 @@ impl RenderEngine for Dx12RenderEngine {
           tracing::error!("failed to render native dx12 frame: {err:?}");
         }
         self.state = None;
+        self.lost = lost;
         return false;
       }
     };
