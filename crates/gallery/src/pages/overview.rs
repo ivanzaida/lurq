@@ -38,7 +38,11 @@ impl Component for Overview {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let components = PAGES.iter().filter(|page| page.group != Group::GettingStarted).count();
+    let components = PAGES
+      .iter()
+      .filter(|page| !matches!(page.group, Group::GettingStarted | Group::Engine))
+      .count();
+    let engine = PAGES.iter().filter(|page| page.group == Group::Engine).count();
     // Side by side where each has room for its words, one under another in a window as narrow as a phone.
     let here = Grid::with_columns(if phone() { 1 } else { 3 })
       .gap(16.0)
@@ -129,6 +133,22 @@ impl Component for Overview {
           "What a theme changes",
           "Three layers, each with the design as its default.",
           card().padding(20.0).child(layers),
+        ),
+        Section::new(
+          "Under the components",
+          "What the design system is built of is the engine's, and an app can use it as it is.",
+          card().padding(20.0).child(
+            muted(
+              &format!(
+                "The Engine group at the end of the side bar has {engine} pages, one for each of the engine's \
+                 primitives: rows, columns and stacks, grids, scrolling, paint, transforms, text, images, canvas, \
+                 animation, the reactive model, the router. They are built as these pages are, with a playground \
+                 first."
+              ),
+              TypographyStyle::Body,
+            )
+            .width(FILL),
+          ),
         ),
       ],
     )

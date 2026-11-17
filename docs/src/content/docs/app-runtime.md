@@ -93,6 +93,8 @@ tree.set_render_engine_factory(|| {
 });
 ```
 
+An app that draws part of its window with its own wgpu code (a 3D scene, a game or editor viewport, custom shaders) gives each engine the factory makes a frame extension, `WgpuRenderEngine::new().with_frame_extension(..)`, and shows what it draws in a `GpuViewport`. See [Drawing With Your Own GPU Code](../gpu-viewport/).
+
 ## Winit Shell
 
 `WinitWindow` creates the OS window, forwards events to `Tree`, and calls `Tree::pass`.

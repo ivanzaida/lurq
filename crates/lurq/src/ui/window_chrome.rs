@@ -318,8 +318,8 @@ impl WindowChrome {
     self
   }
 
-  /// The window's title, shown in the bar (not in a bar with tabs) and given to the window, where the system shows
-  /// it (the task bar, the window switcher). It ends with an ellipsis where the bar has no room for it.
+  /// The window's title, shown in the bar (before the tabs in a bar with tabs) and given to the window, where the
+  /// system shows it (the task bar, the window switcher). It ends with an ellipsis where the bar has no room for it.
   pub fn title(mut self, title: &str) -> Self {
     self.title = Some(Arc::from(title));
     self
@@ -345,9 +345,9 @@ impl WindowChrome {
     self
   }
 
-  /// Tabs in the bar ([`WindowTabs`](super::WindowTabs)): the bar is the board's bar with tabs, higher, with no
-  /// title and no line under it, the tabs on its bottom edge so that the selected one runs into the content. The
-  /// bar's room the tabs leave still drags the window.
+  /// Tabs in the bar ([`WindowTabs`](super::WindowTabs)): the bar is the board's bar with tabs, higher, with no line
+  /// under it, the app's icon and title (where it has them) before the tabs, the tabs on its bottom edge so that the
+  /// selected one runs into the content. The bar's room the tabs leave still drags the window.
   pub fn tabs(mut self, tabs: impl Into<Element>) -> Self {
     self.tabs = Some(tabs.into());
     self
@@ -786,6 +786,41 @@ impl WindowChromeView {
     Some(row.into())
   }
 
+  /// What stands before the tabs in a bar with tabs: the app's icon (where `with_icon` and the platform shows one)
+  /// and its title, which does not grow and ends with an ellipsis where the bar has no room, centred on the bar's
+  /// height while the tabs stand on its bottom edge. `None` where there is neither.
+  pub fn tab_lead(&mut self, with_icon: bool) -> Option<Element> {
+    let icon = if with_icon { self.icon() } else { None };
+    let title = self.title.clone().map(|title| {
+      let part = self.part(WindowChromePart::Title);
+      let mut row = Row::new()
+        .flex_shrink(1.0)
+        .min_width(0.0)
+        .max_width(TAB_LEAD_TITLE_MAX)
+        .align_items(Alignment::Center)
+        .child(one_line(&part, &title));
+      if let Some(id) = &self.id {
+        row = row.id(format!("{id}-title"));
+      }
+      Element::from(row)
+    });
+    if icon.is_none() && title.is_none() {
+      return None;
+    }
+    let gap = self.part(WindowChromePart::Bar).rest().gap.unwrap_or_default();
+    Some(
+      Row::new()
+        .height(Dimension::Pct(100.0))
+        .align_items(Alignment::Center)
+        .spacing(gap)
+        .flex_shrink(1.0)
+        .min_width(0.0)
+        .padding_right(gap)
+        .with_children([icon, title].into_iter().flatten())
+        .into(),
+    )
+  }
+
   /// The room that keeps a centred title in the middle: as wide as what stands on the bar's other side.
   pub fn balance(&self) -> Element {
     Row::new().part(&self.part(WindowChromePart::Balance)).into()
@@ -962,9 +997,15 @@ impl WindowChromeView {
     let mut bar = self.bar();
     if self.has_tabs() {
       bar = bar.with_children(
-        [self.tabs(), Some(self.drag_room()), self.trailing()]
-          .into_iter()
-          .flatten(),
+        [
+          self.tab_lead(true),
+          self.leading(),
+          self.tabs(),
+          Some(self.drag_room()),
+          self.trailing(),
+        ]
+        .into_iter()
+        .flatten(),
       );
     } else {
       let gap = self.part(WindowChromePart::Bar).rest().gap.unwrap_or_default();
@@ -985,9 +1026,15 @@ impl WindowChromeView {
     let mut bar = self.bar().child(self.controls());
     if self.has_tabs() {
       bar = bar.with_children(
-        [self.leading(), self.tabs(), Some(self.drag_room()), self.trailing()]
-          .into_iter()
-          .flatten(),
+        [
+          self.tab_lead(false),
+          self.leading(),
+          self.tabs(),
+          Some(self.drag_room()),
+          self.trailing(),
+        ]
+        .into_iter()
+        .flatten(),
       );
     } else {
       bar = bar
@@ -1005,9 +1052,15 @@ impl WindowChromeView {
     let mut bar = self.bar();
     if self.has_tabs() {
       bar = bar.with_children(
-        [self.leading(), self.tabs(), Some(self.drag_room()), self.trailing()]
-          .into_iter()
-          .flatten(),
+        [
+          self.tab_lead(false),
+          self.leading(),
+          self.tabs(),
+          Some(self.drag_room()),
+          self.trailing(),
+        ]
+        .into_iter()
+        .flatten(),
       );
     } else {
       bar = bar
@@ -1026,7 +1079,7 @@ impl WindowChromeView {
     if self.has_tabs() {
       bar = bar.with_children(
         [
-          self.icon(),
+          self.tab_lead(true),
           self.leading(),
           self.tabs(),
           Some(self.drag_room()),
@@ -1061,6 +1114,9 @@ impl WindowChromeView {
   }
 }
 
+/// The most a title before tabs takes of the bar, so that the tabs keep their room.
+const TAB_LEAD_TITLE_MAX: f32 = 220.0;
+
 impl Themed for WindowChrome {
   const NAME: &'static str = "window_chrome";
   type Renderer = WindowChromeRenderer;
@@ -1080,9 +1136,9 @@ impl Themed for WindowChrome {
   /// - KDE: 32 high, 8 in at the start and 6 at the end; the box icon 16 at the start, the title 13/400 in the middle;
   ///   round controls of 22, 6 apart, a chevron down 16, a chevron up 16 and a cross 14; close on `Destructive`.
   ///
-  /// A bar with tabs is 40 high (44 on GNOME, 38 on KDE), has no title and no line under it, and holds its tabs on
-  /// its bottom edge. The window is `Background` in an edge of `Border`, its corners 8 on Windows, 12 on macOS and
-  /// GNOME, 6 on KDE.
+  /// A bar with tabs is 40 high (44 on GNOME, 38 on KDE), has the icon and the title before its tabs (where the app
+  /// gave them, Ivan 2026-11-17: the board draws none), no line under it, and holds its tabs on its bottom edge. The
+  /// window is `Background` in an edge of `Border`, its corners 8 on Windows, 12 on macOS and GNOME, 6 on KDE.
   fn recipe() -> Recipe {
     use PaletteColor::{
       Background, Destructive, DestructiveForeground, DestructiveHover, Foreground, Input, Muted, MutedForeground,

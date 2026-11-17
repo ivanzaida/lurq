@@ -3,7 +3,7 @@ use std::{ops::Range, sync::Arc};
 
 use crate::{
   app::theme::{IconGlyph, TypographyStyle},
-  layout::text_style::TextStyle,
+  layout::text_style::{FontStyle, FontWeight, TextStyle},
   node::{TextColor, radius_value::RadiusValue, spacing_value::SpacingValue},
 };
 
@@ -20,6 +20,8 @@ pub struct InputTokenStyle {
   pub(crate) radius: RadiusValue,
   pub(crate) typography: Option<TypographyStyle>,
   pub(crate) text: Option<TextStyle>,
+  pub(crate) weight: Option<FontWeight>,
+  pub(crate) font_style: Option<FontStyle>,
   pub(crate) height: Option<f32>,
   pub(crate) border: Option<(f32, TextColor)>,
   pub(crate) icon: Option<InputTokenIcon>,
@@ -37,12 +39,27 @@ impl InputTokenStyle {
       radius: 0.0.into(),
       typography: None,
       text: None,
+      weight: None,
+      font_style: None,
       height: None,
       border: None,
       icon: None,
       hovered: None,
       selected: None,
     }
+  }
+
+  /// The weight of the token's text, over its type: the input's own, or [`Self::text_style`]'s. A code field's
+  /// bold keyword is in the input's family and size.
+  pub fn weight(mut self, weight: FontWeight) -> Self {
+    self.weight = Some(weight);
+    self
+  }
+
+  /// Whether the token's text leans, over its type, as [`Self::weight`] is.
+  pub fn font_style(mut self, style: FontStyle) -> Self {
+    self.font_style = Some(style);
+    self
   }
 
   /// The room at both ends of the text, inside the fill. [`Self::padding_end`] sets the end's apart.

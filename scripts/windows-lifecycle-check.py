@@ -1,6 +1,6 @@
-"""Exercise the lifecycle demo through MCP and real WM_CLOSE messages.
+"""Exercise the lifecycle example through MCP and real WM_CLOSE messages.
 
-Build: cargo build -p demo --bin lifecycle --features mcp
+Build: cargo build -p lurq --example lifecycle --features mcp
 Run: python scripts/windows-lifecycle-check.py <path-to-lifecycle.exe> <evidence-dir>
 Only windows belonging to the process launched by this script are addressed.
 """
@@ -110,7 +110,7 @@ def native_close(pid, title):
 def run(binary, evidence):
     evidence.mkdir(parents=True, exist_ok=True)
     for dirty in (True, False):
-        with (evidence / f"demo-{dirty}.log").open("w") as log:
+        with (evidence / f"lifecycle-{dirty}.log").open("w") as log:
             environment = dict(os.environ, RUST_LOG="video=trace")
             environment.pop("LURQ_VIDEO_LOGS", None)
             process = subprocess.Popen([str(binary)], stdout=log, stderr=log, env=environment)
@@ -150,7 +150,7 @@ def run(binary, evidence):
                 if process.poll() is None:
                     process.terminate()
                     process.wait(timeout=5)
-        output = (evidence / f"demo-{dirty}.log").read_text()
+        output = (evidence / f"lifecycle-{dirty}.log").read_text()
         assert "[video:timeline]" not in output and "video::watch::lurq" not in output, output
         print("PASS", "dirty veto, cancel, MCP, secondary, menu and confirm" if dirty else "clean native close", flush=True)
 

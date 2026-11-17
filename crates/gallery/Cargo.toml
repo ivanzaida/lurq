@@ -10,21 +10,28 @@ default = []
 # Lets the running app be driven and captured over lurq's MCP server.
 mcp = ["lurq/mcp"]
 devtools = ["lurq/devtools"]
-# lurq's own Direct3D 12 renderer, to see the gallery through it: `--backend native-dx12`.
-dx12 = ["lurq/dx12"]
+# What a frame costs, written for each frame to the file `--profile-log` names: the Glyph Atlas page's probe.
+perf_profile = ["lurq/perf_profile"]
 
 [dependencies]
 # What every build of the gallery takes beyond lurq's default: the pages of the find bar, Markdown and the players.
 lurq = { path = "../lurq", default-features = false, features = ["regex", "markdown", "media"] }
+# The tokenizer of another crate the Code Block page plugs into lurq, as an app would (`src/syntect_code.rs`): the
+# gallery's alone, never lurq's. Its grammars are read by its own regular expressions, which build for the browser.
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 
 # A desktop takes lurq's default, the desktop set, and addresses on the network, for the sound the Audio Player
-# page plays from one. Not in a browser: the client is not built for one, and the loader loads no address there yet.
+# page plays from one, and the store on the disk the Persistent Storage page writes to. Not in a browser: the
+# client is not built for one, the loader loads no address there yet, and the store is a file.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-lurq = { path = "../lurq", features = ["http"] }
+lurq = { path = "../lurq", features = ["http", "persistent_storage"] }
+# The GPU Viewport page's picture, made on the device lurq draws with (`src/scene.rs`): the version lurq takes.
+wgpu = "=29.0.4"
 
 # The decoder of the Video Player page that stands for an app's own: a Direct3D 11 device that writes
-# textures lurq draws (`src/card_demo.rs`).
+# textures lurq draws (`src/card_demo.rs`). And DirectX 12, which `--renderer dx12` draws the gallery with.
 [target.'cfg(windows)'.dependencies]
+lurq = { path = "../lurq", features = ["dx12"] }
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",

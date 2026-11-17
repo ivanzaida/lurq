@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Feature flags, demo commands, and the smallest useful lurq app.
+description: Feature flags, the gallery, and the smallest useful lurq app.
 ---
 
 # Getting Started
@@ -12,23 +12,29 @@ This guide targets **lurq 0.62.0**. Add the crate; its default features are what
 lurq = "0.62.0"
 ```
 
-Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the demo in `crates/demo`, and macros in `crates/lurq_macros`.
+Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the gallery in `crates/gallery`, and macros in `crates/lurq_macros`.
 
-## Run The Demo
+## Run The Gallery
 
-The demo is the best executable reference because it exercises layout, sizing, positioning, scrolling, input, events, reactivity, components, contexts, animation, transforms, resources, and DevTools.
-
-```powershell
-cargo run -p demo
-```
-
-On Windows, the demo can also use the DirectX 12 renderer:
+The gallery is the best executable reference: a page for every component of the design system, and under **Engine** a page for each of the engine's primitives (layout, sizing, position, grid, sticky, scroll, virtualized lists, paint, borders, transforms, theme, images, SVG, canvas, animation, presence, text, rich text, text input, events, reactivity, components, context, persistent storage, drag and drop, the router, the engine's own controls and overlays). Each page starts with a playground whose controls are the props, and shows the code of what it draws.
 
 ```powershell
-cargo run -p demo -- --renderer dx12
+cargo run -p gallery
 ```
 
-The demo manifest already enables its UI and renderer features. Its default renderer is `wgpu`; pass `--renderer wgpu` or `--renderer dx12` to choose explicitly. Add `--features perf_profile` for frame timings or `--features mcp` for the demo's MCP integration.
+Open it on a page with `--route`, for example the engine's layout:
+
+```powershell
+cargo run -p gallery -- --route /engine/layout
+```
+
+On Windows, the gallery can also use the DirectX 12 renderer:
+
+```powershell
+cargo run -p gallery -- --renderer dx12
+```
+
+Its default renderer is `wgpu`; pass `--renderer wgpu` or `--renderer dx12` to choose explicitly. Add `--features perf_profile` and `--profile-log` for frame timings, `--features devtools` for DevTools (F12, or `--devtools` at start), or `--features mcp` to drive it over MCP.
 
 ## In A Browser
 

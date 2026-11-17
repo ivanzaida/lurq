@@ -34,6 +34,52 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Decision (Ivan, 2026-11-17: nobody uses it).** Frames on the card and a lost device are not done for wgpu's OpenGL backend on Windows. A video there goes through memory, as before.
 - **State.** Decided.
 
+### Back and forward in one place
+
+- **Question.** Going back and forward is spread like undo was: `router.back()`/`forward()`, `on_history_swipe`
+  (a trackpad's swipe, a finger from the edge), the stack's back button calling the navigator; the mouse's side
+  buttons arrive as `MouseButton::Other(4/5)` and lead nowhere; Alt+←/→ (Cmd+[ / ] on a Mac), Android's back and a
+  browser's back are not handled.
+- **Decision (Ivan).** One command, as `EditCommand` is: `NavigationCommand::Back` / `Forward`, given by every
+  source — the mouse's side buttons, Alt+← / Alt+→ (Cmd+[ / Cmd+] on Apple), a trackpad's history swipe, a finger
+  from the edge, Android's back, a browser's back and forward. Element events **`on_history_back` /
+  `on_history_forward`** (named after `on_history_swipe`, for consistency), dispatched from the focused element
+  outward, a handler that does nothing passing it on (a dialog may close on back instead of leaving the page). With
+  none taking it, the mounted router goes back or forward. `Ctx` runs the same from a menu or a button; MCP and the
+  emulator too. `on_history_swipe` and `StackOutlet` move onto it.
+- **State.** Decided; to be built in a session of its own.
+
+### The gallery shows how to style
+
+- **Question.** lurq styles at four levels — the theme's tokens, a component's recipe in the theme (parts by
+  variant, size, state, density, breakpoint), one instance (`.style(part, ..)`, `.rules`, `.state`, `.force`), a
+  renderer — and the gallery shows none of it: the props tables leave styling out, the playground has no view of a
+  component's parts, Getting Started has no page on it.
+- **Decision (Ivan).** A page of its own, **Styling**, in Getting Started: the four levels with live examples (a
+  palette role changes everything, a recipe patched changes every button, `.style` one button, a renderer of one's
+  own). And in every playground **a section of its own for styling**: the component's parts and states, a part
+  picked and restyled live (color, radius, padding, shadow…), the code beside it for one instance
+  (`.style(Part, ..)`) and for all of them (`theme.patch_recipe::<X>(..)`). Built once in
+  `crates/gallery/src/playground.rs` from the parts and states each component already declares.
+- **State.** Decided; to be built after the engine primitives' pages are merged (both touch the playground).
+
+### The gallery's Engine group replaces the demo
+
+- **Question.** The gallery was to replace `crates/demo`, but it had no page for the engine's primitives (layout,
+  scroll, paint, text, motion, the reactive model), which only the demo showed, as hand-made pages in a theme of
+  their own.
+- **Decision (Ivan).** The gallery gets a group of pages for the engine, built as its component pages are (a
+  playground first, then sections with their code), with every demo page's content and the primitives the demo
+  never showed (`Canvas`, `Svg`, `VirtualizedList`, `GpuViewport`, `ZoomScroll`, drag and drop, rich text, the
+  router and outlets, the engine's own controls and overlays). Then `crates/demo` is removed; `crates/mobile_demo`
+  stays. The group is named **Engine** (the session that built it chose, as the task left the name to it): its pages are not all primitives (signals, context, persistent storage and
+  events are the app's model, not boxes), the demo called itself the engine's, and a group's name in the side bar is
+  one short word, as Actions, Data and Desktop are. Its pages live under `/engine/…`, so a primitive and the design
+  system's component of the same name (`/slider`, `/engine/controls`) never share a route. What the demo's binary did
+  besides its pages moved: `--renderer dx12` and `--profile-log` to the gallery, the lifecycle window and the
+  continuous video probe to `lurq`'s examples.
+- **State.** Built (`claude/gallery-engine`, merged 2026-11-17); `crates/demo` is gone.
+
 ### Code highlighting is pluggable, its token names open, its colors the theme's
 
 - **Question.** `ui::CodeBlock` and Markdown color code with lurq's own scanner, which knows Rust alone, into seven
@@ -58,8 +104,17 @@ dropped). When a decision is replaced, the old entry stays and says what replace
      SQL, Markdown), no dependency, wasm-safe. **No `syntect` or tree-sitter adapter in lurq**: the gallery crate
      shows one as an example of plugging a tokenizer in.
 - **With it.** A cache of tokens by code, language and tokenizer; a long block draws the lines in view; `InlineCode`
-  takes a language; the editable text's tokens use the same highlighter and colors.
-- **State.** Decided; to be built in a session of its own.
+  takes a language; the editable text's tokens use the same tokenizer and colors.
+- **State.** Built on `claude/code-highlight-ef7166` (2026-11-17), to be merged: `lurq::code` (`CodeToken` with a
+  dotted name, `Tokenizer`, `CodeTokenizer`, the registry and its cache, `CodeLanguage` and the scanner, thirteen
+  languages), `CodeScheme` and `CodeStyle` in the theme, `CodeBlock::tokenizer`, `token_style` and `code_scheme`, a
+  long block windowed past 400 lines (in its own room, or in the window where it has no greatest height),
+  `InlineCode::language`, `TextInput::tokens_with` and `code_language`, and the gallery's `syntect` adapter
+  (`crates/gallery/src/syntect_code.rs`). A tokenizer with state, the same day: `Tokenizer::tokens_from` with a
+  `LineState` (any `Clone + PartialEq` value, kept by lurq at each line's start of a code field's text and of a
+  mounted block's code, an edit re-tokenized from its line until the states agree; lurq's scanner and the gallery's
+  syntect go by line), `TokenizerHandle::invalidate` (from `register_tokenizer` or `CodeTokenizer::handle`), and
+  `tokens_in`, `edited` (a `CodeEdit` in tree-sitter's shape) and `dropped` for a code field's `BufferId`.
 
 ### Link Preview works from the link alone; every field overrides
 

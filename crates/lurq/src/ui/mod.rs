@@ -46,6 +46,7 @@ mod checkbox;
 mod chip;
 mod choice_card;
 mod code_block;
+mod code_tokens;
 mod collapsible;
 mod color_field;
 mod color_picker;
@@ -274,8 +275,8 @@ pub use choice_card::{
   RadioCardGroup,
 };
 pub use code_block::{
-  CODE_BLOCK_COPIED_FOR, CODE_BLOCK_ROW_HEIGHT, CodeBlock, CodeBlockPart, CodeBlockRenderer, CodeBlockState,
-  CodeBlockView,
+  CODE_BLOCK_COPIED_FOR, CODE_BLOCK_ROW_HEIGHT, CODE_BLOCK_WINDOWED_LINES, CodeBlock, CodeBlockPart,
+  CodeBlockRenderer, CodeBlockState, CodeBlockView,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use color_field::{

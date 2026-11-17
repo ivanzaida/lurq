@@ -1,0 +1,14 @@
+"""The module's doc,
+over two lines."""
+import os
+from typing import Optional
+
+@dataclass(frozen=True)
+class Note(Base):
+    title: str = r"raw\n"
+    count: int = 0x1F
+
+    def render(self, width=80) -> Optional[str]:
+        if self.count is None or not width:
+            return None
+        return f"{self.title}: {width:>4}" + b'\x00'.decode()  # done

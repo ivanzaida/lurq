@@ -20,8 +20,8 @@ mod banner;
 mod bar_chart;
 mod bar_list;
 mod blockquote;
-mod bulleted_list;
 mod breadcrumb;
+mod bulleted_list;
 mod button;
 mod calendar;
 mod callout;
@@ -50,6 +50,7 @@ mod drawer;
 mod drop_zone;
 mod editable;
 mod empty_state;
+pub mod engine;
 mod event_calendar;
 mod expandable_tile;
 mod family;
@@ -57,8 +58,8 @@ mod family_play;
 mod fieldset;
 mod file_upload;
 mod find_bar;
-mod form_controls;
 mod floating_panel;
+mod form_controls;
 mod gallery;
 mod gauge;
 mod heatmap;
@@ -95,8 +96,8 @@ mod overview;
 mod pagination;
 mod password_input;
 mod path_field;
-mod picture;
 mod persona;
+mod picture;
 mod pie_chart;
 mod play_button;
 mod popconfirm;
@@ -120,8 +121,8 @@ mod separator;
 mod settings_card;
 mod sheet;
 mod shortcut_recorder;
-mod signature_pad;
 mod sidebar;
+mod signature_pad;
 mod skeleton;
 mod slider;
 mod sortable_list;
@@ -145,18 +146,18 @@ mod time_picker;
 mod timeline;
 mod toast;
 mod toggletip;
-mod tour;
-mod tray_popover;
 mod token_input;
 mod tokens;
 mod toolbar;
 mod tooltip;
+mod tour;
 mod transfer;
+mod tray_popover;
 mod tree_select;
 mod tree_view;
 mod video_player;
-mod waveform;
 mod watermark;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -173,11 +174,13 @@ pub enum Group {
   Charts,
   Media,
   Desktop,
+  /// The engine's primitives under the design system: layout, paint, text, motion, the reactive model.
+  Engine,
 }
 
 impl Group {
   /// The groups in the order of the side bar.
-  pub const ALL: [Group; 9] = [
+  pub const ALL: [Group; 10] = [
     Self::GettingStarted,
     Self::Actions,
     Self::Inputs,
@@ -187,6 +190,7 @@ impl Group {
     Self::Charts,
     Self::Media,
     Self::Desktop,
+    Self::Engine,
   ];
 
   pub fn name(self) -> &'static str {
@@ -200,6 +204,7 @@ impl Group {
       Self::Charts => "Charts",
       Self::Media => "Media",
       Self::Desktop => "Desktop",
+      Self::Engine => "Engine",
     }
   }
 }
@@ -1492,6 +1497,262 @@ pub const PAGES: &[Page] = &[
     about: "link preview unfurl url address page site favicon domain title description picture thumbnail opengraph og twitter card video play length skeleton loading nothing to show compact row inline sentence composer close remove open browser fetcher fetch cache LinkPreview LinkPreviewVariant LinkMeta LinkFetcher PageFetcher set_link_fetcher on_open on_remove no_image no_icon no_site video",
     group: Group::Media,
     mount: |ctx| ctx.mount::<link_preview::LinkPreviewPage>(()),
+  },
+  Page {
+    path: "/engine/layout",
+    name: "Layout",
+    icon: Some("columns"),
+    about: "engine primitive row column stack box axis justify align_items alignment stretch flex grow spacing wrap start center end space between around evenly Row Column Stack Justify Alignment",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::layout::LayoutPage>(()),
+  },
+  Page {
+    path: "/engine/sizing",
+    name: "Sizing",
+    icon: Some("resize-horizontal"),
+    about: "engine primitive size width height dimension px percent pct auto fill padding spacer min max min_width max_width min_height max_height aspect ratio aspect_ratio Spacer Dimension Padding",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::sizing::SizingPage>(()),
+  },
+  Page {
+    path: "/engine/position",
+    name: "Position",
+    icon: Some("crosshair"),
+    about: "engine primitive position offset relative absolute absolute_position offset_by_size centre center point stack alignment nine points overflow visible clip Stack StackAlignment",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::position::PositionPage>(()),
+  },
+  Page {
+    path: "/engine/grid",
+    name: "Grid",
+    icon: Some("grid"),
+    about: "engine primitive grid columns rows tracks fr px auto gap column_span row_span grid_column grid_row named cells form labels flow align_items justify_items Grid GridTrack",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::grid::GridPage>(()),
+  },
+  Page {
+    path: "/engine/sticky",
+    name: "Sticky",
+    icon: Some("pin"),
+    about: "engine primitive sticky header footer inset top bottom left first row first column corner table scroll container scrollbars_clear_of_sticky Sticky",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::sticky::StickyPage>(()),
+  },
+  Page {
+    path: "/engine/scroll",
+    name: "Scroll",
+    icon: Some("resize-vertical"),
+    about: "engine primitive scroll vertical horizontal both scroll bar scrollbar thumb track overlay reserved visibility on hover scrollbar_hovered scroll_to_top_of scroll_into_view scroll_by offset reach bottom ScrollVertical ScrollHorizontal ScrollBoth ScrollState ScrollBarStyle ScrollBarVisibility ScrollBarPlacement",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::scroll::ScrollPage>(()),
+  },
+  Page {
+    path: "/engine/virtualized-list",
+    name: "Virtualized List",
+    icon: Some("list"),
+    about: "engine primitive virtualized list virtual window rows thousands item height estimate_height overscan reveal_key reveal row load more on_bottom_reached mount_keyed scroll VirtualizedList",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::virtualized_list::VirtualizedListPage>(()),
+  },
+  Page {
+    path: "/engine/zoom-scroll",
+    name: "Zoom Scroll",
+    icon: Some("zoom-in"),
+    about: "engine primitive zoom scroll pinch wheel wheel_zoom double tap double click drag_pan scale pan range min max scrollbars ZoomScroll ZoomScrollProps",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::zoom_scroll::ZoomScrollPage>(()),
+  },
+  Page {
+    path: "/engine/visual",
+    name: "Visual",
+    icon: Some("layers"),
+    about: "engine primitive background color fill radius rounded corners shadow box_shadow elevation glow inset blur layer blur backdrop blur frosted glass clip overflow opacity group BoxShadow ShadowStyle",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::visual::VisualPage>(()),
+  },
+  Page {
+    path: "/engine/borders",
+    name: "Borders",
+    icon: Some("square"),
+    about: "engine primitive border width color inside outside center dashed dash gap corners radius per side corner_radius BorderSize Border BorderPlacement",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::borders::BordersPage>(()),
+  },
+  Page {
+    path: "/engine/transform",
+    name: "Transform",
+    icon: Some("rotate-left"),
+    about: "engine primitive transform rotate scale skew translate compose then subtree slot hit testing sharp rasterized text Transform2D TextTransformMode",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::transform::TransformPage>(()),
+  },
+  Page {
+    path: "/engine/style",
+    name: "Style",
+    icon: Some("sparkles"),
+    about: "engine primitive style foreground disabled focus ring outline underline strikethrough line limit max lines ellipsis hovered pressed focused transition paint reduced motion",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::style::StylePage>(()),
+  },
+  Page {
+    path: "/engine/theme",
+    name: "Theme",
+    icon: Some("moon"),
+    about: "engine primitive theme definition legacy neutral design appearance light dark palette roles deprecated type scale radii elevations control sizes font sans family serif in_theme ThemeDefinition Theme PaletteColor",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::theme::ThemePage>(()),
+  },
+  Page {
+    path: "/engine/backgrounds",
+    name: "Backgrounds",
+    icon: Some("layers"),
+    about: "engine primitive background image picture box under children ImageData BackgroundSize fit cover contain stretch natural animated gif webp frames resource path set_resource_root background_image background_size",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::backgrounds::BackgroundsPage>(()),
+  },
+  Page {
+    path: "/engine/svg",
+    name: "SVG",
+    icon: Some("file-code"),
+    about: "engine primitive svg vector icon rasterized usvg color size Svg",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::svg::SvgPage>(()),
+  },
+  Page {
+    path: "/engine/canvas",
+    name: "Canvas",
+    icon: Some("compose"),
+    about: "engine primitive canvas 2d paint path fill stroke text image gradient pointer drawing CanvasHandle paint_moving offscreen Canvas",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::canvas::CanvasPage>(()),
+  },
+  Page {
+    path: "/engine/gpu-viewport",
+    name: "GPU Viewport",
+    icon: Some("dashboard"),
+    about: "engine primitive gpu viewport wgpu texture render pass device own renderer 3d GpuViewport",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::gpu_viewport::GpuViewportPage>(()),
+  },
+  Page {
+    path: "/engine/animation",
+    name: "Animation",
+    icon: Some("play-circle"),
+    about: "engine primitive animation transition easing keyframes register infinite duration delay opacity hover combined dynamic keyframes Animation Keyframes Transition Easing",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::animation::AnimationPage>(()),
+  },
+  Page {
+    path: "/engine/presence",
+    name: "Presence",
+    icon: Some("eye"),
+    about: "engine primitive presence enter exit leave mount unmount menu dialog list remove fade collapse",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::presence::PresencePage>(()),
+  },
+  Page {
+    path: "/engine/text",
+    name: "Text",
+    icon: Some("file-text"),
+    about: "engine primitive text font size weight style italic line height wrap selection color shadow overflow ellipsis Text TextStyle",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::text::TextPage>(()),
+  },
+  Page {
+    path: "/engine/rich-text",
+    name: "Rich Text",
+    icon: Some("italic"),
+    about: "engine primitive styled text rich text runs spans bold italic link inline object picture chip StyledText RichText OBJECT_CHARACTER",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::rich_text::RichTextPage>(()),
+  },
+  Page {
+    path: "/engine/text-input",
+    name: "Text Input",
+    icon: Some("text-cursor"),
+    about: "engine primitive text input field multiline rows scroll placeholder caret selection tokens styled controller TextInput TextInputController",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::text_input::TextInputPage>(()),
+  },
+  Page {
+    path: "/engine/glyph-atlas",
+    name: "Glyph Atlas",
+    icon: Some("table"),
+    about: "engine primitive glyph atlas upload text cache scripts latin cyrillic greek profile probe perf",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::glyph_atlas::GlyphAtlasPage>(()),
+  },
+  Page {
+    path: "/engine/events",
+    name: "Events",
+    icon: Some("cursor"),
+    about: "engine primitive events click double click mouse move hover pressed enter leave pointer key log on_click on_mouse_move MouseEvent",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::events::EventsPage>(()),
+  },
+  Page {
+    path: "/engine/reactivity",
+    name: "Reactivity",
+    icon: Some("pulse"),
+    about: "engine primitive reactivity signal memo derived batch timers timeout interval render count Signal Memo",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::reactivity::ReactivityPage>(()),
+  },
+  Page {
+    path: "/engine/components",
+    name: "Components",
+    icon: Some("component"),
+    about: "engine primitive component props mount keyed list for_each key state preserved shuffle Component Ctx",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::components::ComponentsPage>(()),
+  },
+  Page {
+    path: "/engine/context",
+    name: "Context",
+    icon: Some("share-nodes"),
+    about: "engine primitive context provide consume use_context theme switching locale provider reactive context",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::context::ContextPage>(()),
+  },
+  Page {
+    path: "/engine/persistent-storage",
+    name: "Persistent Storage",
+    icon: Some("drive"),
+    about: "engine primitive persistent storage redb save load reset snapshot keys values persist",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::persistent_storage::PersistentStoragePage>(()),
+  },
+  Page {
+    path: "/engine/drag-and-drop",
+    name: "Drag and Drop",
+    icon: Some("hand-grab"),
+    about: "engine primitive drag drop draggable drop zone drag container keep revert bounds movement manual snap payload follower override policy Draggable DropZone DragContainer",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::drag_and_drop::DragAndDropPage>(()),
+  },
+  Page {
+    path: "/engine/router",
+    name: "Router and Outlets",
+    icon: Some("route"),
+    about: "engine primitive router routes outlet link navigate history back params layout stack outlet tabs Router Outlet Link StackOutlet Tabs",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::router::RouterPage>(()),
+  },
+  Page {
+    path: "/engine/controls",
+    name: "Controls",
+    icon: Some("sliders"),
+    about: "engine primitive button slider range slider select checkbox options multi form field submit validators components Button Slider Select Checkbox",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::controls::ControlsPage>(()),
+  },
+  Page {
+    path: "/engine/overlays",
+    name: "Overlays",
+    icon: Some("panels"),
+    about: "engine primitive popup popover modal sheet anchor layer root parent target open placement offset collision outside press veil detent dismiss Popup Popover Modal Sheet",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::overlays::OverlaysPage>(()),
   },
 ];
 

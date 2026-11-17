@@ -160,3 +160,22 @@ bytes, with shared style allocations charged conservatively. Debug output of the
 does not expose its raw source. This remains a source-backed plain input; platform-native IME,
 clipboard and visual parity require separate native verification. Headless tests do not establish that
 result.
+
+## Tokens that follow the value
+
+`InputTokens` are of one exact value: an edit invalidates them, and the app renders new ones. Where the tokens are a
+function of the value, `TextInput::tokens_with(f)` gives the input that function: it is asked for the tokens of each
+value the input holds, after every edit and when the app sets the value, and what it gave for a value is kept while
+the value is the same. A render that gives the input another function asks it again.
+
+A code field is one: `TextInput::code_language("sql")` colors its value as told apart by the tokenizer registered for the
+language and the theme's code colors, a name's weight and leaning in the input's own type
+(`InputTokenStyle::weight`, `font_style`), as a code block colors its code ([Highlighting
+code](../resources-media/#highlighting-code)), and `code_tokenizer(h)` by a tokenizer of its own.
+
+```rust
+use lurq::{components::TextInput, core::Signal};
+
+let query = Signal::new("select * from notes".to_owned());
+TextInput::new(query).multiline().code_language("sql");
+```

@@ -13,6 +13,8 @@ lurq = { version = "0.62.0", features = ["canvas", "winit", "wgpu"] }
 
 Canvas is available starting in **lurq 0.19.0**. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
 
+To draw with your own wgpu pipelines and shaders instead of a 2D context, see [Drawing With Your Own GPU Code](../gpu-viewport/).
+
 ## Use the existing ref
 
 ```rust

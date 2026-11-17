@@ -4,9 +4,10 @@
 //! `cargo run -p gallery`, or `cargo run -p gallery -- --route /tokens` to
 //! open on a page; `--size 800x600` opens the window at a size, to see a
 //! breakpoint; `--device phone` (or `tablet`) runs it as on a phone, the mouse its fingers (`App::emulate`).
-//! Built with `--features devtools`, `--devtools` opens DevTools beside it. `--backend vulkan` draws it through
-//! another of wgpu's backends, and `--backend native-dx12`, built with `--features dx12`, through lurq's own
-//! Direct3D 12 renderer.
+//! Built with `--features devtools`, `--devtools` opens DevTools beside it. On Windows `--renderer dx12` draws it
+//! with DirectX 12 in place of wgpu, and `--backend vulkan` (or `dx12`, `gl`, `metal`) draws it through that
+//! backend of wgpu's. Built with `--features perf_profile`, `--profile-log` writes what each frame
+//! cost to `target/perf_profile.log` (or `--profile-log=<file>`): the Glyph Atlas page is its probe.
 //!
 //! Its pages open in tabs, as a browser's do: the strip is in the title bar, and each tab keeps its own page, its
 //! history and its scroll (see `tabs`).
@@ -20,9 +21,12 @@ mod kit;
 mod narrow;
 mod pages;
 mod playground;
+#[cfg(not(target_arch = "wasm32"))]
+mod scene;
 mod shell;
 #[cfg(test)]
 mod speed;
+mod syntect_code;
 mod tabs;
 #[cfg(target_arch = "wasm32")]
 mod web;
@@ -112,9 +116,9 @@ fn route() -> String {
   option("--route").unwrap_or_else(|| "/".to_owned())
 }
 
-/// What the gallery draws through: `--backend vulkan`, `dx12`, `gl` or `metal`, or what lurq takes by itself
-/// (Direct3D 12 on Windows). For looking at a page as another backend draws it. `native-dx12` is not one of
-/// wgpu's: see `engine`.
+/// What wgpu draws the gallery through: `--backend vulkan`, `dx12`, `gl` or `metal`, or what lurq takes by
+/// itself (Direct3D 12 on Windows). For looking at a page as another backend draws it. lurq's own Direct3D 12
+/// renderer is not one of wgpu's: see `renderer`.
 #[cfg(not(target_arch = "wasm32"))]
 fn backends() -> Option<lurq::app::wgpu_render::WgpuBackends> {
   use lurq::app::wgpu_render::WgpuBackends;
@@ -124,25 +128,8 @@ fn backends() -> Option<lurq::app::wgpu_render::WgpuBackends> {
     "dx12" => WgpuBackends::DX12,
     "gl" => WgpuBackends::GL,
     "metal" => WgpuBackends::METAL,
-    _ => panic!("--backend is vulkan, dx12, gl, metal or native-dx12"),
+    _ => panic!("--backend is vulkan, dx12, gl or metal"),
   })
-}
-
-/// The renderer of a window of the gallery: wgpu's, through the backend asked for, or with
-/// `--backend native-dx12` lurq's own Direct3D 12 renderer, where the gallery was built with it
-/// (`--features dx12`).
-#[cfg(not(target_arch = "wasm32"))]
-fn engine() -> Box<dyn RenderEngine> {
-  if option("--backend").is_some_and(|named| named.eq_ignore_ascii_case("native-dx12")) {
-    #[cfg(all(feature = "dx12", windows))]
-    return Box::new(lurq::app::dx12_render::Dx12RenderEngine::new());
-    #[cfg(not(all(feature = "dx12", windows)))]
-    panic!("--backend native-dx12 is of a gallery built on Windows with --features dx12");
-  }
-  match backends() {
-    Some(backends) => Box::new(WgpuRenderEngine::new().with_backends(backends)),
-    None => Box::new(WgpuRenderEngine::new()),
-  }
 }
 
 /// The phone or tablet to run as: `--device phone` or `--device tablet`; `LURQ_DEVICE` does the same.
@@ -163,6 +150,37 @@ fn size() -> (u32, u32) {
     .unwrap_or_else(|| panic!("--size is a width and a height, as in 800x600"))
 }
 
+/// What draws the window: `--renderer wgpu`, the default, or `--renderer dx12` on Windows.
+#[cfg(not(target_arch = "wasm32"))]
+fn renderer() -> fn() -> Box<dyn RenderEngine> {
+  match option("--renderer").as_deref().map(str::to_ascii_lowercase).as_deref() {
+    // The GPU Viewport page's picture is drawn by an extension of the renderer, as an app's own would be.
+    None | Some("wgpu") => || {
+      let engine = match backends() {
+        Some(backends) => WgpuRenderEngine::new().with_backends(backends),
+        None => WgpuRenderEngine::new(),
+      };
+      Box::new(engine.with_frame_extension(scene::Scene::default()))
+    },
+    #[cfg(windows)]
+    Some("dx12" | "d3d12") => || Box::new(lurq::app::dx12_render::Dx12RenderEngine::new()),
+    Some(other) => panic!("--renderer is wgpu or, on Windows, dx12, not {other:?}"),
+  }
+}
+
+/// Where `--profile-log` writes what each frame cost: the file it names, or `target/perf_profile.log` of the
+/// repository. Nothing without the option.
+#[cfg(all(feature = "perf_profile", not(target_arch = "wasm32")))]
+fn profile_log() -> Option<std::path::PathBuf> {
+  std::env::args().skip(1).find_map(|arg| {
+    if arg == "--profile-log" {
+      Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/perf_profile.log"))
+    } else {
+      arg.strip_prefix("--profile-log=").map(std::path::PathBuf::from)
+    }
+  })
+}
+
 /// The folder the gallery keeps what it loaded from addresses in, for its next run: its own, among the caches of the
 /// user. The app chooses it; lurq picks none.
 #[cfg(not(target_arch = "wasm32"))]
@@ -176,17 +194,21 @@ fn cache_folder() -> std::path::PathBuf {
   } else {
     var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| home(".cache"))
   };
-  caches
-    .unwrap_or_else(std::env::temp_dir)
-    .join("lurq-gallery")
-    .join("media")
+  caches.unwrap_or_else(std::env::temp_dir).join("lurq-gallery")
 }
 
 fn main() {
   // What a page loads from an address (the Audio Player's sound) is kept on the disk, and is there the next
   // time the gallery is opened.
   #[cfg(not(target_arch = "wasm32"))]
-  run(App::new().enable_media_disk_cache(cache_folder()), route(), engine);
+  {
+    let mut app = App::new().enable_media_disk_cache(cache_folder().join("media"));
+    // What the Persistent Storage page saves is in a file of the gallery's own, there the next time it is opened.
+    if let Err(error) = app.set_persistent_storage_path(cache_folder().join("storage.redb")) {
+      eprintln!("the gallery's store did not open: {error}");
+    }
+    run(app, route(), renderer());
+  }
   // A page waits for its GPU device and its fonts first; see `web`.
   #[cfg(target_arch = "wasm32")]
   web::start();
@@ -194,8 +216,11 @@ fn main() {
 
 /// Opens the gallery's window on `route`, drawn by the engines `engine` makes.
 fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> + 'static) {
+  // The languages lurq has no tokenizer of its own for, by syntect's grammars.
+  syntect_code::register(&app);
   let mut tree = Tree::new();
   tree.set_render_engine_factory(engine);
+  pages::engine::prepare(&mut tree);
   #[cfg(feature = "mcp")]
   {
     use lurq::mcp::{McpConfig, Scope};
@@ -221,11 +246,34 @@ fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> +
   #[cfg(feature = "devtools")]
   tree.mount_devtools(&mut app);
   let (width, height) = size();
-  WinitWindow::new(app, tree)
+  let window = WinitWindow::new(app, tree)
     .with_title("lurq gallery")
     .with_icon(icon::icon())
     .with_size(width, height)
     .with_min_size(320, 480)
-    .with_decorations(false)
-    .run();
+    .with_decorations(false);
+  #[cfg(all(feature = "perf_profile", not(target_arch = "wasm32")))]
+  let window = match profile_log() {
+    Some(path) => {
+      use std::io::Write as _;
+      if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create the folder of the profile log");
+      }
+      let mut log = std::io::BufWriter::new(std::fs::File::create(&path).expect("create the profile log"));
+      eprintln!("writing what each frame cost to {}", path.display());
+      window.on_paint(move |tree, delta, report| {
+        let _ = writeln!(
+          log,
+          "Profile for frame delta={:.2}ms rendered={} layout_recalc={} {}",
+          delta.as_secs_f64() * 1000.0,
+          report.rendered,
+          report.layout_recalculated,
+          tree.profile()
+        );
+        let _ = log.flush();
+      })
+    }
+    None => window,
+  };
+  window.run();
 }
