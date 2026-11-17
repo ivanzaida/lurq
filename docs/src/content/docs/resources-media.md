@@ -515,6 +515,85 @@ app.register_tokenizer("rust", CodeLanguage::rust().words(token::KEYWORD, &["yee
 
 **A tokenizer of another crate** is plugged in by an adapter that names its runs. The gallery does it with `syntect` (`crates/gallery/src/syntect_code.rs`), which lurq does not depend on: syntect's scopes (`keyword.control.rust`, `string.quoted.double`, `entity.name.function`) mapped to lurq's names, registered for Go, C and Java, and given to one block of the Code Block page in place of lurq's Rust.
 
+#### A tokenizer with state
+
+A tokenizer may keep what it needs between calls: it is registered once (`register_tokenizer` takes the value, and keeps it), and a struct with a cache, a loaded grammar or a parser is as much a tokenizer as a function. Three things make one fast and correct, each a method of `Tokenizer` with a default, so a function stays one line:
+
+```rust
+use std::sync::{Arc, OnceLock};
+
+use lurq::code::{CodeToken, LineState, Tokenizer, TokenizerHandle, token};
+
+/// A tokenizer whose grammar loads after the app starts. Until it has, its code is plain.
+struct Lazy {
+  grammar: Arc<OnceLock<Vec<String>>>,
+}
+
+/// What a line of it starts in: inside a `"""` string or not.
+#[derive(Clone, PartialEq)]
+struct InString(bool);
+
+impl Lazy {
+  /// The tokens of one line, from the state it starts in; `state` is the next line's after.
+  fn line(&self, line: &str, state: &mut InString) -> Vec<CodeToken> {
+    let mut found = Vec::new();
+    if line.matches("\"\"\"").count() % 2 == 1 {
+      state.0 = !state.0;
+    }
+    if state.0 || line.contains("\"\"\"") {
+      found.push(CodeToken::new(0..line.len(), token::STRING));
+    } else if let Some(words) = self.grammar.get() {
+      let mut at = 0;
+      for word in line.split(' ') {
+        if words.iter().any(|known| known == word) {
+          found.push(CodeToken::new(at..at + word.len(), token::KEYWORD));
+        }
+        at += word.len() + 1;
+      }
+    }
+    found
+  }
+}
+
+impl Tokenizer for Lazy {
+  fn tokens(&self, code: &str) -> Vec<CodeToken> {
+    let mut state = InString(false);
+    let mut at = 0;
+    let mut found = Vec::new();
+    for line in code.split('\n') {
+      found.extend(self.line(line, &mut state).into_iter().map(|token| {
+        CodeToken::new(token.range.start + at..token.range.end + at, token.kind)
+      }));
+      at += line.len() + 1;
+    }
+    found
+  }
+
+  /// Line by line: an edit is tokenized again from its line until a line starts as it did.
+  fn tokens_from(&self, lines: &[&str], start: &LineState) -> Option<Vec<(Vec<CodeToken>, LineState)>> {
+    let mut state = start.get::<InString>().cloned().unwrap_or(InString(false));
+    Some(
+      lines
+        .iter()
+        .map(|line| (self.line(line, &mut state), LineState::new(state.clone())))
+        .collect(),
+    )
+  }
+}
+
+let grammar = Arc::new(OnceLock::new());
+let handle: TokenizerHandle = app.register_tokenizer("notes", Lazy { grammar: grammar.clone() });
+// Later, when the grammar has loaded: what showed "notes" plain is drawn again with its keywords.
+grammar.set(vec!["note".to_owned(), "due".to_owned()]).ok();
+handle.invalidate();
+```
+
+- **By line** (`tokens_from`): the tokens of a few lines from the state the first starts in, and the state each next one starts in. The state is a `LineState`, any value that is `Clone + PartialEq + Send + Sync`: a small enum (lurq's own scanner keeps its `ScanState`), or a parser's stack (the gallery's syntect keeps its `ParseState` and `ScopeStack`). lurq compares two of them, so a number would not hold a parser's stack, and a value it cannot compare would let no edit stop early. lurq keeps the state each line starts in, for a code field's text and for a mounted code block's code (a Markdown fence streamed in): an edit is tokenized again from its first changed line until a line starts in the state it started in before, and the lines after are taken as they were. One character typed in ten thousand lines tokenizes a batch of 32 lines, and the tokens are those of the whole text tokenized again. A tokenizer that does not go line by line is asked for the whole text, and what it gave is kept by the code.
+- **Stale** (`TokenizerHandle`): `register_tokenizer` gives it back, and `CodeTokenizer::handle()` gives one before a tokenizer is registered (to hand to what loads its grammar). `invalidate()` forgets what the tokenizer gave and draws again whatever shows a language it serves, or has it as a block's own: a grammar loaded later, a setting changed.
+- **Edits** (`tokens_in`, `edited`, `dropped`): for an incremental parser such as tree-sitter, which keeps a tree for each text and is told how it changed. A code field is a buffer (`BufferId`); each change of its value is told to its tokenizer in order, before the tokens after it are asked, as a `CodeEdit` in tree-sitter's `InputEdit` shape (`start_byte`, `old_end_byte`, `new_end_byte`, and the same as `CodePoint` rows and byte columns), typed, deleted, pasted and undone alike. A change of a run of the same character (a second `a` typed after an `a`) is told at the run's end. `tokens_in(buffer, code)` asks the tokens of that buffer's text, and `dropped(buffer)` says it is gone, once its field has left the tree and the focus has left it.
+
+The gallery's syntect example is a tokenizer with state: syntect's parser goes line by line from where the line before left it, which is `tokens_from` (`crates/gallery/src/syntect_code.rs`).
+
 **The colors are the theme's**: a `CodeScheme`, a style (color, weight, leaning) for each name, one for the light appearance and one for the dark ([Code](../theme/#code)). `CodeScheme::lurq()` is the theme's unless told, in the palette's roles, so code looks as the rest of the theme does in both appearances. A block styles a name over them with `.token_style(name, |s| s.foreground(..).bold().italic())`, or draws in a scheme of its own with `.code_scheme(..)`.
 
 **A long block**: a code block of more than 400 lines lays out and paints the lines in view and a chunk around them, whatever its length: in its own room where it has a greatest height, and in the window where it has none, as a long fence of a document has. Such a fence is selected on its own (select all takes its code whole) and is not one text with the document's highlights. Ten thousand lines of Rust take what a screen of them takes: the frame paints ten quads and some 13 KB of text, where it painted 140 009 quads and all 600 KB before. See [Code Block](../design-system/#code-block).

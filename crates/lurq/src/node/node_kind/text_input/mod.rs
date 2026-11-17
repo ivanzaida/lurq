@@ -195,6 +195,11 @@ impl TextInputState {
     }
   }
 
+  /// The signal it is bound to.
+  pub(crate) fn value_signal(&self) -> Signal<String> {
+    self.value.clone()
+  }
+
   pub(crate) fn value(&self) -> String {
     self.value.get_untracked()
   }

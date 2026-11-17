@@ -41,7 +41,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   languages), `CodeScheme` and `CodeStyle` in the theme, `CodeBlock::tokenizer`, `token_style` and `code_scheme`, a
   long block windowed past 400 lines (in its own room, or in the window where it has no greatest height),
   `InlineCode::language`, `TextInput::tokens_with` and `code_language`, and the gallery's `syntect` adapter
-  (`crates/gallery/src/syntect_code.rs`).
+  (`crates/gallery/src/syntect_code.rs`). A tokenizer with state, the same day: `Tokenizer::tokens_from` with a
+  `LineState` (any `Clone + PartialEq` value, kept by lurq at each line's start of a code field's text and of a
+  mounted block's code, an edit re-tokenized from its line until the states agree; lurq's scanner and the gallery's
+  syntect go by line), `TokenizerHandle::invalidate` (from `register_tokenizer` or `CodeTokenizer::handle`), and
+  `tokens_in`, `edited` (a `CodeEdit` in tree-sitter's shape) and `dropped` for a code field's `BufferId`.
 
 ### Link Preview works from the link alone; every field overrides
 

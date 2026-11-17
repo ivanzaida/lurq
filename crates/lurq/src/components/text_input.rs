@@ -436,6 +436,17 @@ impl TextInput {
     Self::from_node(crate::node::Node::text_input(value))
   }
 
+  /// The signal it is bound to.
+  pub(crate) fn value_signal(&mut self) -> Option<Signal<String>> {
+    let mut value = None;
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        value = Some(state.value_signal());
+      }
+    });
+    value
+  }
+
   pub fn styled(value: Signal<String>, style: TextStyle) -> Self {
     Self::from_node(crate::node::Node::text_input_styled(value, style))
   }

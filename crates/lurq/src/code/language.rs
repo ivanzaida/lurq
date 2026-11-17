@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use super::{CodeToken, ScanState, TokenName, Tokenizer, token};
+use super::{CodeToken, LineState, ScanState, TokenName, Tokenizer, token};
 
 /// What the scanner reads a language's code as.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -506,5 +506,19 @@ impl CodeLanguage {
 impl Tokenizer for CodeLanguage {
   fn tokens(&self, code: &str) -> Vec<CodeToken> {
     CodeLanguage::tokens(self, code)
+  }
+
+  /// Line by line, each line's state a [`ScanState`].
+  fn tokens_from(&self, lines: &[&str], start: &LineState) -> Option<Vec<(Vec<CodeToken>, LineState)>> {
+    let mut state = start.get::<ScanState>().cloned().unwrap_or_default();
+    Some(
+      lines
+        .iter()
+        .map(|line| {
+          let tokens = self.line_tokens(line, &mut state);
+          (tokens, LineState::new(state.clone()))
+        })
+        .collect(),
+    )
   }
 }

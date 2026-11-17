@@ -27,7 +27,8 @@ struct Kept {
 
 #[derive(Default)]
 struct Cache {
-  kept: HashMap<(u64, u64), Kept>,
+  /// By the tokenizer, its generation and the code's hash.
+  kept: HashMap<(u64, u64, u64), Kept>,
   bytes: usize,
   clock: u64,
 }
@@ -42,8 +43,13 @@ fn hash(code: &str) -> u64 {
 
 /// What the tokenizer `id` gave for `code`, or what `tokenize` gives, kept. The tokenizer is asked with the cache
 /// let go.
-pub(super) fn tokens(id: u64, code: &str, tokenize: impl FnOnce() -> Vec<CodeToken>) -> Arc<[CodeToken]> {
-  let key = (id, hash(code));
+pub(super) fn tokens(
+  id: u64,
+  generation: u64,
+  code: &str,
+  tokenize: impl FnOnce() -> Vec<CodeToken>,
+) -> Arc<[CodeToken]> {
+  let key = (id, generation, hash(code));
   {
     let mut cache = CACHE.lock();
     cache.clock += 1;

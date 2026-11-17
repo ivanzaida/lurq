@@ -10,7 +10,7 @@ use std::{
   sync::{LazyLock, Mutex},
 };
 
-use lurq::code::{CodeToken, CodeTokenizer, Tokenizer, token};
+use lurq::code::{CodeToken, CodeTokenizer, LineState, Tokenizer, token};
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
 
 /// The grammars syntect comes with, loaded once.
@@ -117,41 +117,86 @@ impl Syntect {
   }
 }
 
+/// What syntect needs to go on at a line's start: where its grammar is, and the scopes open.
+#[derive(Clone, PartialEq)]
+struct Resume {
+  parse: ParseState,
+  scopes: ScopeStack,
+}
+
+impl Syntect {
+  fn start(&self) -> Resume {
+    Resume {
+      parse: ParseState::new(self.syntax),
+      scopes: ScopeStack::new(),
+    }
+  }
+
+  /// The tokens of `line` (without its `\n`), in bytes of the line, from `state`, which is the next line's after.
+  fn line(&self, line: &str, state: &mut Resume) -> Vec<CodeToken> {
+    let mut tokens: Vec<CodeToken> = Vec::new();
+    // syntect's grammars read lines with their ends.
+    let ended = format!("{line}\n");
+    let Ok(ops) = state.parse.parse_line(&ended, &SYNTAXES) else {
+      return tokens;
+    };
+    let mut at = 0;
+    let mut push = |from: usize, to: usize, scopes: &ScopeStack| {
+      let Some(name) = name_inside(scopes.as_slice()) else {
+        return;
+      };
+      let range = from..to.min(line.len());
+      if range.is_empty() {
+        return;
+      }
+      match tokens.last_mut() {
+        Some(last) if last.kind == name && last.range.end == range.start => last.range.end = range.end,
+        _ => tokens.push(CodeToken::new(range, name)),
+      }
+    };
+    for (offset, op) in ops {
+      push(at, offset, &state.scopes);
+      at = offset;
+      if state.scopes.apply(&op).is_err() {
+        break;
+      }
+    }
+    push(at, ended.len(), &state.scopes);
+    tokens
+  }
+}
+
+/// A tokenizer with state: syntect's parser goes line by line from where the line before left it, which is what
+/// [`Tokenizer::tokens_from`] asks. lurq keeps that state at each line's start, and an edit is parsed again from the
+/// line it changed until a line starts as it did.
 impl Tokenizer for Syntect {
   fn tokens(&self, code: &str) -> Vec<CodeToken> {
-    let mut tokens: Vec<CodeToken> = Vec::new();
-    let mut state = ParseState::new(self.syntax);
-    let mut scopes = ScopeStack::new();
+    let mut state = self.start();
+    let mut tokens = Vec::new();
     let mut start = 0;
-    for line in code.split_inclusive('\n') {
-      let Ok(ops) = state.parse_line(line, &SYNTAXES) else {
-        break;
-      };
-      let mut at = 0;
-      let mut push = |from: usize, to: usize, scopes: &ScopeStack| {
-        let Some(name) = name_inside(scopes.as_slice()) else {
-          return;
-        };
-        let range = start + from..start + to.min(line.trim_end_matches('\n').len());
-        if range.is_empty() {
-          return;
-        }
-        match tokens.last_mut() {
-          Some(last) if last.kind == name && last.range.end == range.start => last.range.end = range.end,
-          _ => tokens.push(CodeToken::new(range, name)),
-        }
-      };
-      for (offset, op) in ops {
-        push(at, offset, &scopes);
-        at = offset;
-        if scopes.apply(&op).is_err() {
-          break;
-        }
-      }
-      push(at, line.len(), &scopes);
-      start += line.len();
+    for line in code.split('\n') {
+      tokens.extend(
+        self
+          .line(line, &mut state)
+          .into_iter()
+          .map(|token| CodeToken::new(token.range.start + start..token.range.end + start, token.kind)),
+      );
+      start += line.len() + 1;
     }
     tokens
+  }
+
+  fn tokens_from(&self, lines: &[&str], start: &LineState) -> Option<Vec<(Vec<CodeToken>, LineState)>> {
+    let mut state = start.get::<Resume>().cloned().unwrap_or_else(|| self.start());
+    Some(
+      lines
+        .iter()
+        .map(|line| {
+          let tokens = self.line(line, &mut state);
+          (tokens, LineState::new(state.clone()))
+        })
+        .collect(),
+    )
   }
 }
 

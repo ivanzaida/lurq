@@ -311,8 +311,12 @@ impl App {
   /// let app = App::new();
   /// app.register_tokenizer("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
   /// ```
-  pub fn register_tokenizer(&self, language: &str, tokenizer: impl Into<crate::code::CodeTokenizer>) {
-    crate::code::register_tokenizer(language, tokenizer);
+  pub fn register_tokenizer(
+    &self,
+    language: &str,
+    tokenizer: impl Into<crate::code::CodeTokenizer>,
+  ) -> crate::code::TokenizerHandle {
+    crate::code::register_tokenizer(language, tokenizer)
   }
 
   /// As [`Self::register_tokenizer`], with other names of the language: `("sql", &["psql"], ..)`.
@@ -321,8 +325,8 @@ impl App {
     language: &str,
     aliases: &[&str],
     tokenizer: impl Into<crate::code::CodeTokenizer>,
-  ) {
-    crate::code::register_tokenizer_with_aliases(language, aliases, tokenizer);
+  ) -> crate::code::TokenizerHandle {
+    crate::code::register_tokenizer_with_aliases(language, aliases, tokenizer)
   }
 
   /// What the person points with: a finger ([`Pointer::Coarse`](super::Pointer::Coarse)) or a mouse, a trackpad or

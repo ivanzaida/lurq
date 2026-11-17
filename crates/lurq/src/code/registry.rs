@@ -11,17 +11,52 @@ use std::{
 
 use parking_lot::RwLock;
 
-use super::{CodeToken, cache};
+use super::{BufferId, CodeEdit, CodeToken, LineState, cache};
 use crate::core::Signal;
 
-/// What tells the tokens of a language's code apart.
+/// What tells the tokens of a language's code apart and names them. It colors nothing: the theme's code colors and a
+/// block's `token_style` draw each name.
 ///
 /// Any `Fn(&str) -> Vec<CodeToken>` is one, and so is a [`CodeLanguage`](super::CodeLanguage), the table lurq's own
 /// are written in. The tokens it gives are in bytes of the code; they need not cover it (what none covers is plain),
 /// and those that are empty, out of the code, off a character's boundary or over another are left out.
+///
+/// The rest is for a tokenizer with state, and each has a default that does without it:
+/// - [`tokens_from`](Self::tokens_from) tokenizes line by line from the state a line starts in, so that lurq
+///   re-tokenizes an edited text from the line the edit changed until a line starts as it did before;
+/// - [`tokens_in`](Self::tokens_in), [`edited`](Self::edited) and [`dropped`](Self::dropped) tell it which text it
+///   tokenizes and each edit of it, as an incremental parser (tree-sitter) wants;
+/// - [`CodeTokenizer::handle`] says its tokens are stale (a grammar loaded later, a setting changed).
 pub trait Tokenizer: Send + Sync + 'static {
   /// The tokens of `code`.
   fn tokens(&self, code: &str) -> Vec<CodeToken>;
+
+  /// The tokens of each of `lines` (each without its `\n`, its tokens in bytes of the line) and the state the next
+  /// line starts in, the first starting in `start`; `None` for a tokenizer that does not go line by line, as unless
+  /// told. lurq keeps the state each line of a text starts in and gives an edited text from its first changed line,
+  /// a few lines at a time, until a line starts in the state it started in before.
+  fn tokens_from(&self, lines: &[&str], start: &LineState) -> Option<Vec<(Vec<CodeToken>, LineState)>> {
+    let _ = (lines, start);
+    None
+  }
+
+  /// The tokens of `code`, the text `buffer` holds now: an editable code field's, whose edits
+  /// [`edited`](Self::edited) was told. [`tokens`](Self::tokens) unless told.
+  fn tokens_in(&self, buffer: BufferId, code: &str) -> Vec<CodeToken> {
+    let _ = buffer;
+    self.tokens(code)
+  }
+
+  /// Told each edit of the text of `buffer`, in order, before the tokens of the text after it are asked: what an
+  /// incremental parser applies to the tree it keeps of that text.
+  fn edited(&self, buffer: BufferId, edit: &CodeEdit) {
+    let _ = (buffer, edit);
+  }
+
+  /// Told that `buffer` is gone: what the tokenizer keeps of it can go.
+  fn dropped(&self, buffer: BufferId) {
+    let _ = buffer;
+  }
 }
 
 impl<F> Tokenizer for F
@@ -44,6 +79,39 @@ static NEXT_TOKENIZER: AtomicU64 = AtomicU64::new(1);
 pub struct CodeTokenizer {
   id: u64,
   tokenizer: Arc<dyn Tokenizer>,
+  /// Set when it says its tokens are stale; what a render that used it follows.
+  generation: Signal<u64>,
+}
+
+/// What a tokenizer says its tokens are stale with: [`invalidate`](Self::invalidate) forgets what it gave and draws
+/// again what shows its tokens. From [`CodeTokenizer::handle`], before or after it is registered; it can be kept by
+/// the tokenizer itself, or by what loads its grammar.
+#[derive(Clone)]
+pub struct TokenizerHandle {
+  id: u64,
+  generation: Signal<u64>,
+}
+
+impl TokenizerHandle {
+  /// The tokens it gave are stale: lurq forgets them and asks again, and whatever shows a language it serves, or
+  /// has it as a block's own, is drawn again.
+  pub fn invalidate(&self) {
+    cache::forget(self.id);
+    self
+      .generation
+      .update(|generation| *generation = generation.wrapping_add(1));
+  }
+
+  /// The tokenizer it is of.
+  pub fn id(&self) -> u64 {
+    self.id
+  }
+}
+
+impl fmt::Debug for TokenizerHandle {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_tuple("TokenizerHandle").field(&self.id).finish()
+  }
 }
 
 impl CodeTokenizer {
@@ -51,13 +119,51 @@ impl CodeTokenizer {
     Self {
       id: NEXT_TOKENIZER.fetch_add(1, Ordering::Relaxed),
       tokenizer: Arc::new(tokenizer),
+      generation: Signal::new(0),
     }
   }
 
   /// The tokens of `code`, in order and none over another: what this tokenizer gave for the same code before,
-  /// where it is still kept.
+  /// where it is still kept. Read in a render, it renders that again when the tokenizer says its tokens are stale.
   pub fn tokens(&self, code: &str) -> Arc<[CodeToken]> {
-    cache::tokens(self.id, code, || super::normalized(code, self.tokenizer.tokens(code)))
+    let generation = self.generation.get();
+    cache::tokens(self.id, generation, code, || {
+      super::normalized(code, self.tokenizer.tokens(code))
+    })
+  }
+
+  /// What says this tokenizer's tokens are stale.
+  pub fn handle(&self) -> TokenizerHandle {
+    TokenizerHandle {
+      id: self.id,
+      generation: self.generation.clone(),
+    }
+  }
+
+  /// How many times it said its tokens are stale: what was kept at another is not its tokens now.
+  pub(crate) fn generation(&self) -> u64 {
+    self.generation.get_untracked()
+  }
+
+  /// Follows it in a render: one that said its tokens are stale renders that again.
+  pub(crate) fn track(&self) {
+    let _ = self.generation.get();
+  }
+
+  pub(crate) fn tokens_from(&self, lines: &[&str], start: &LineState) -> Option<Vec<(Vec<CodeToken>, LineState)>> {
+    self.tokenizer.tokens_from(lines, start)
+  }
+
+  pub(crate) fn tokens_in(&self, buffer: BufferId, code: &str) -> Vec<CodeToken> {
+    super::normalized(code, self.tokenizer.tokens_in(buffer, code))
+  }
+
+  pub(crate) fn edited(&self, buffer: BufferId, edit: &CodeEdit) {
+    self.tokenizer.edited(buffer, edit);
+  }
+
+  pub(crate) fn dropped(&self, buffer: BufferId) {
+    self.tokenizer.dropped(buffer);
   }
 
   /// What tells this tokenizer from every other: the same for its clones.
@@ -188,19 +294,28 @@ fn tell(names: Vec<Arc<str>>) {
 /// its names (`rs` is Rust's too).
 ///
 /// The registry is the process's: an app has one. `App::register_tokenizer` says the same.
-pub fn register_tokenizer(language: &str, tokenizer: impl Into<CodeTokenizer>) {
-  register_tokenizer_with_aliases(language, &[], tokenizer);
+///
+/// What it gives back says the tokenizer's tokens are stale, when they are: [`TokenizerHandle::invalidate`].
+pub fn register_tokenizer(language: &str, tokenizer: impl Into<CodeTokenizer>) -> TokenizerHandle {
+  register_tokenizer_with_aliases(language, &[], tokenizer)
 }
 
 /// As [`register_tokenizer`], and `aliases` are other names of the language (`"psql"`, `"postgres"`): a name
 /// that was another language's is this one's now.
-pub fn register_tokenizer_with_aliases(language: &str, aliases: &[&str], tokenizer: impl Into<CodeTokenizer>) {
+pub fn register_tokenizer_with_aliases(
+  language: &str,
+  aliases: &[&str],
+  tokenizer: impl Into<CodeTokenizer>,
+) -> TokenizerHandle {
+  let tokenizer = tokenizer.into();
+  let handle = tokenizer.handle();
   let aliases: Vec<Arc<str>> = aliases.iter().map(|alias| Arc::from(*alias)).collect();
-  let (changed, replaced) = REGISTRY.write().insert(language, &aliases, tokenizer.into());
+  let (changed, replaced) = REGISTRY.write().insert(language, &aliases, tokenizer);
   if let Some(replaced) = replaced {
     cache::forget(replaced.id());
   }
   tell(changed);
+  handle
 }
 
 /// Takes the tokenizer of `language` away: its code is plain text from now on. Whether it had one.

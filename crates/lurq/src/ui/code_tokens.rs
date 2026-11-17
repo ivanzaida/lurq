@@ -1,13 +1,21 @@
 //! How a component that shows code draws its tokens: each name in the style its recipe gives a part of that name,
 //! or the theme's code colors give it, dropping the tail of a name neither has.
 
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{
+  cell::RefCell,
+  collections::HashMap,
+  sync::{
+    Arc, LazyLock, Mutex, Weak,
+    atomic::{AtomicU64, Ordering},
+  },
+};
 
 use super::recipe::{Name, ResolvedRecipe};
 use crate::{
   app::theme::{CodeScheme, CodeStyle, Theme},
-  code::{CodeToken, CodeTokenizer, TokenName},
+  code::{BufferId, CodeEdit, CodeToken, CodeTokenizer, LineCache, TokenName},
   components::{InputToken, InputTokenStyle, InputTokens},
+  core::{Signal, Subscription},
   layout::{
     quad::RichTextSpan,
     text_style::{FontStyle, TextStyle},
@@ -19,10 +27,132 @@ use crate::{
 /// otherwise, none where neither is. Read in a render, the language's renders that again when its tokenizer
 /// changes.
 pub(crate) fn code_tokens(code: &str, language: Option<&str>, tokenizer: Option<&CodeTokenizer>) -> Arc<[CodeToken]> {
-  match (tokenizer, language) {
-    (Some(tokenizer), _) if !code.is_empty() => tokenizer.tokens(code),
-    (None, Some(language)) => crate::code::tokens(code, language),
-    _ => Arc::from([]),
+  code_tokens_kept(code, language, tokenizer, None)
+}
+
+/// As [`code_tokens`], from what `kept` holds of the text before where it is given: a text that changes (a block's
+/// code streamed in) is re-tokenized from its first changed line.
+pub(crate) fn code_tokens_kept(
+  code: &str,
+  language: Option<&str>,
+  tokenizer: Option<&CodeTokenizer>,
+  kept: Option<&std::sync::Mutex<LineCache>>,
+) -> Arc<[CodeToken]> {
+  let tokenizer = match (tokenizer, language) {
+    (Some(tokenizer), _) => Some(tokenizer.clone()),
+    (None, Some(language)) => crate::code::tokenizer(language),
+    _ => None,
+  };
+  let Some(tokenizer) = tokenizer.filter(|_| !code.is_empty()) else {
+    return Arc::from([]);
+  };
+  match kept {
+    Some(kept) => {
+      tokenizer.track();
+      kept.lock().unwrap().tokens(&tokenizer, code)
+    }
+    None => tokenizer.tokens(code),
+  }
+}
+
+static NEXT_BUFFER: AtomicU64 = AtomicU64::new(1);
+
+/// An editable code field's text as its tokenizer sees it: one for each value signal while a field holds it.
+pub(crate) struct CodeBuffer {
+  id: BufferId,
+  inner: Mutex<BufferInner>,
+}
+
+struct BufferInner {
+  /// The text the tokenizer was last told of.
+  text: String,
+  /// The tokenizer it was last tokenized by, which is told its edits and that it is gone.
+  tokenizer: Option<CodeTokenizer>,
+  lines: LineCache,
+  /// What tells the buffer each change of the value.
+  _watch: Option<Subscription<String>>,
+}
+
+/// The buffer of each value signal, while a field holds it.
+static BUFFERS: LazyLock<Mutex<HashMap<usize, Weak<CodeBuffer>>>> = LazyLock::new(Default::default);
+
+impl CodeBuffer {
+  /// The buffer of `value`: the one a field of it has, or a new one that follows its changes.
+  pub(crate) fn of(value: &Signal<String>) -> Arc<CodeBuffer> {
+    let mut buffers = BUFFERS.lock().unwrap();
+    buffers.retain(|_, buffer| buffer.strong_count() > 0);
+    if let Some(buffer) = buffers.get(&value.id()).and_then(Weak::upgrade) {
+      return buffer;
+    }
+    let buffer = Arc::new(CodeBuffer {
+      id: BufferId(NEXT_BUFFER.fetch_add(1, Ordering::Relaxed)),
+      inner: Mutex::new(BufferInner {
+        text: value.get_untracked(),
+        tokenizer: None,
+        lines: LineCache::default(),
+        _watch: None,
+      }),
+    });
+    // Each change of the value is an edit the tokenizer is told, in order, before the tokens after it are asked.
+    let weak = Arc::downgrade(&buffer);
+    let watch = value.subscribe(move |text: &String| {
+      if let Some(buffer) = weak.upgrade() {
+        buffer.changed(text);
+      }
+    });
+    buffer.inner.lock().unwrap()._watch = Some(watch);
+    buffers.insert(value.id(), Arc::downgrade(&buffer));
+    buffer
+  }
+
+  pub(crate) fn id(&self) -> BufferId {
+    self.id
+  }
+
+  fn changed(&self, text: &str) {
+    let (edit, tokenizer) = {
+      let mut inner = self.inner.lock().unwrap();
+      let Some(edit) = CodeEdit::between(&inner.text, text) else {
+        return;
+      };
+      inner.text = text.to_owned();
+      (edit, inner.tokenizer.clone())
+    };
+    if let Some(tokenizer) = tokenizer {
+      tokenizer.edited(self.id, &edit);
+    }
+  }
+
+  /// The tokens of `code`, the text the buffer holds now, by `tokenizer`: line by line from what was kept, or all of
+  /// them, the tokenizer told which buffer they are of.
+  pub(crate) fn tokens(&self, tokenizer: &CodeTokenizer, code: &str) -> Arc<[CodeToken]> {
+    let mut inner = self.inner.lock().unwrap();
+    if inner.tokenizer.as_ref() != Some(tokenizer) {
+      if let Some(old) = inner.tokenizer.replace(tokenizer.clone()) {
+        old.dropped(self.id);
+      }
+      inner.lines = LineCache::default();
+    }
+    if inner.text != code {
+      // A change the signal did not tell (a value set before the buffer was made): one edit for it.
+      if let Some(edit) = CodeEdit::between(&inner.text, code) {
+        tokenizer.edited(self.id, &edit);
+      }
+      inner.text = code.to_owned();
+    }
+    let id = self.id;
+    inner
+      .lines
+      .tokens_with(tokenizer, code, |tokenizer, code| tokenizer.tokens_in(id, code))
+  }
+}
+
+impl Drop for CodeBuffer {
+  fn drop(&mut self) {
+    let tokenizer = self.inner.get_mut().ok().and_then(|inner| inner.tokenizer.take());
+    if let Some(tokenizer) = tokenizer {
+      tokenizer.dropped(self.id);
+    }
   }
 }
 
@@ -205,19 +335,35 @@ impl crate::components::TextInput {
   /// ```
   pub fn code_language(self, language: &str) -> Self {
     let language: Arc<str> = Arc::from(language);
-    // The language's tokenizer as it is now: a render after it is replaced builds the input again.
-    let _ = crate::code::tokenizer(&language);
-    self.code_tokens(move |value| code_tokens(value, Some(&language), None))
+    // The language's tokenizer as it is now: a render after it is replaced, or after it says its tokens are stale,
+    // builds the input again.
+    if let Some(tokenizer) = crate::code::tokenizer(&language) {
+      tokenizer.track();
+    }
+    self.code_tokens(move || crate::code::tokenizer(&language))
   }
 
   /// Colors its value as code by `tokenizer`, as [`code_language`](Self::code_language) does by a language's.
   pub fn code_tokenizer(self, tokenizer: impl Into<CodeTokenizer>) -> Self {
     let tokenizer = tokenizer.into();
-    self.code_tokens(move |value| tokenizer.tokens(value))
+    tokenizer.track();
+    self.code_tokens(move || Some(tokenizer.clone()))
   }
 
-  fn code_tokens(self, tokens: impl Fn(&str) -> Arc<[CodeToken]> + Send + Sync + 'static) -> Self {
-    self.code_tokens_in(&super::theme::current_theme(), tokens)
+  /// Its value as a buffer its tokenizer is told the edits of, and its tokens by the tokenizer `resolve` gives.
+  fn code_tokens(mut self, resolve: impl Fn() -> Option<CodeTokenizer> + Send + Sync + 'static) -> Self {
+    let buffer = self.value_signal().map(|value| CodeBuffer::of(&value));
+    self.code_tokens_in(&super::theme::current_theme(), move |value| {
+      match (resolve(), &buffer) {
+        (Some(tokenizer), _) if value.is_empty() => {
+          let _ = tokenizer;
+          Arc::from([])
+        }
+        (Some(tokenizer), Some(buffer)) => buffer.tokens(&tokenizer, value),
+        (Some(tokenizer), None) => tokenizer.tokens(value),
+        (None, _) => Arc::from([]),
+      }
+    })
   }
 
   fn code_tokens_in(

@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::{
-  code_tokens::{TokenStyles, code_tokens},
+  code_tokens::{TokenStyles, code_tokens, code_tokens_kept},
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   scroll_area::{ScrollArea, ScrollAreaOrientation, ScrollAreaPart},
@@ -160,6 +160,8 @@ pub struct CodeBlock {
   language: Option<Arc<str>>,
   tokenizer: Option<CodeTokenizer>,
   scheme: Option<Arc<CodeScheme>>,
+  /// What is kept of its code's lines between renders, where what holds it keeps them.
+  kept: Option<Arc<Mutex<crate::code::LineCache>>>,
   title: Option<Arc<str>>,
   label: Option<Arc<str>>,
   line_numbers: bool,
@@ -195,6 +197,7 @@ impl CodeBlock {
       language: None,
       tokenizer: None,
       scheme: None,
+      kept: None,
       title: None,
       label: None,
       line_numbers: false,
@@ -442,6 +445,13 @@ impl CodeBlock {
     self.build_with(theme, None)
   }
 
+  /// Keeps what was tokenized of its code's lines in `kept`, which what holds it keeps between renders: a code that
+  /// changes (an answer streamed in) is re-tokenized from its first changed line.
+  pub(crate) fn kept_lines(mut self, kept: Arc<Mutex<crate::code::LineCache>>) -> Self {
+    self.kept = Some(kept);
+    self
+  }
+
   /// Whether it lays out the lines in view alone: it has more lines than [`CODE_BLOCK_WINDOWED_LINES`], and a
   /// greatest height, or a host that follows where it is in the window (`mounted`).
   fn windowed(&self, mounted: bool) -> bool {
@@ -469,7 +479,14 @@ impl CodeBlock {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let tokens = code_tokens(&self.code, self.language.as_deref(), self.tokenizer.as_ref());
+    // A block that is kept between renders re-tokenizes a code that changed from its first changed line.
+    let kept = self.kept.clone().or_else(|| host.map(|host| host.lines.clone()));
+    let tokens = code_tokens_kept(
+      &self.code,
+      self.language.as_deref(),
+      self.tokenizer.as_ref(),
+      kept.as_deref(),
+    );
     let shown = host.and_then(|host| host.follow.window.get());
     let window = self.windowed(host.is_some()).then(|| CodeWindow {
       lines: shown.map(|(start, end, _)| start..end),
@@ -1441,6 +1458,8 @@ impl crate::app::component::DevtoolsInspectable for CodeBlockProps {}
 struct CodeBlockHost {
   copied: Copied,
   follow: Follow,
+  /// What is kept of the code's lines.
+  lines: Arc<Mutex<crate::code::LineCache>>,
 }
 
 impl Component for CodeBlockHost {
@@ -1454,6 +1473,7 @@ impl Component for CodeBlockHost {
     });
     Self {
       copied: Copied { on, off },
+      lines: Arc::default(),
       follow: Follow {
         window: Signal::new(None),
         geometry: Arc::default(),

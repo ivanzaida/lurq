@@ -42,6 +42,9 @@
 mod cache;
 mod language;
 mod languages;
+mod lines;
+#[cfg(test)]
+mod lines_tests;
 mod registry;
 #[cfg(test)]
 mod registry_tests;
@@ -52,9 +55,11 @@ mod tests;
 use std::ops::Range;
 
 pub use language::{BlockComment, CodeLanguage, CodeMode, KeyRule, NumberForms, StringForm};
+pub(crate) use lines::LineCache;
+pub use lines::{BufferId, CodeEdit, CodePoint, LineState};
 pub use registry::{
-  CodeTokenizer, Tokenizer, knows, languages, register_tokenizer, register_tokenizer_with_aliases, remove_tokenizer,
-  tokenizer, tokens,
+  CodeTokenizer, Tokenizer, TokenizerHandle, knows, languages, register_tokenizer, register_tokenizer_with_aliases,
+  remove_tokenizer, tokenizer, tokens,
 };
 pub use scan::ScanState;
 
