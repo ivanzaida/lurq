@@ -42,8 +42,9 @@ wgpu = [
 # own implementation is neither in a browser unless told that the page has one thread, which a page built
 # without atomics has.
 webgl = ["wgpu", "wgpu/webgl", "wgpu/fragile-send-sync-non-atomic-wasm"]
-# lurq's own Direct3D 12 renderer on Windows, beside `wgpu`.
-dx12 = ["render"]
+# lurq's own Direct3D 12 renderer on Windows, beside `wgpu`. It has Direct3D 11 to read the frames of a decoder
+# that is on another card than the one it draws on.
+dx12 = ["render", "windows/Win32_Graphics_Direct3D11"]
 
 # --- What the system gives ---
 

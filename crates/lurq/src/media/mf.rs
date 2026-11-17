@@ -6,6 +6,10 @@
 //! of the card the renderer draws on, gives its frames as textures of it, and each is copied, on the card, into
 //! a texture the renderer has opened. Where nothing draws on a card (a test, another renderer), or the decoder
 //! gives memory all the same, a frame is copied through memory once, as it always was.
+//!
+//! Where the renderer does not draw one NV12 texture where it is (Vulkan,
+//! [`card_frames_nv12`](crate::images::card_frames_nv12)), the frame is not copied but converted, on the card
+//! still, into a texture of red, green and blue ([`Converter`]), which the renderer does draw where it is.
 
 use std::{
   collections::VecDeque,
@@ -15,17 +19,24 @@ use std::{
 
 use windows::{
   Win32::{
-    Foundation::{HMODULE, LUID},
+    Foundation::{HMODULE, LUID, RECT},
     Graphics::{
       Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1},
       Direct3D11::{
-        D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-        D3D11_QUERY_DESC, D3D11_QUERY_EVENT, D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE,
-        D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11CreateDevice, ID3D11Device,
-        ID3D11DeviceContext, ID3D11Multithread, ID3D11Query, ID3D11Texture2D,
+        D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_QUERY_DESC, D3D11_QUERY_EVENT, D3D11_RESOURCE_MISC_SHARED,
+        D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV,
+        D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+        D3D11_VIDEO_PROCESSOR_COLOR_SPACE, D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
+        D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
+        D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
+        D3D11_VPIV_DIMENSION_TEXTURE2D, D3D11_VPOV_DIMENSION_TEXTURE2D, D3D11CreateDevice, ID3D11Device,
+        ID3D11DeviceContext, ID3D11Multithread, ID3D11Query, ID3D11Texture2D, ID3D11VideoContext, ID3D11VideoDevice,
+        ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView,
+        ID3D11VideoProcessorOutputView,
       },
       Dxgi::{
-        Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
+        Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_RATIONAL, DXGI_SAMPLE_DESC},
         CreateDXGIFactory1, DXGI_SHARED_RESOURCE_READ, IDXGIAdapter, IDXGIFactory4, IDXGIResource1,
       },
     },
@@ -334,8 +345,184 @@ struct OnCard {
   /// What tells when the card has done what it was told: a copy is finished before its frame is shown.
   done: ID3D11Query,
   held: Option<Held>,
+  /// What converts a frame to red, green and blue, where the renderer does not draw an NV12 texture where it
+  /// is: the frames are then textures of red, green and blue.
+  converter: Option<Converter>,
   /// Whether the device was found removed.
   gone: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Converts the decoder's NV12 frame to red, green and blue on the card, with the card's own video processor:
+/// the part of the frame that is the picture, by the matrix lurq's own NV12 pipeline has (BT.709, 16 to 235),
+/// into a texture as large as the picture. Nothing of the frame leaves the card.
+struct Converter {
+  video: ID3D11VideoDevice,
+  context: ID3D11VideoContext,
+  made: Option<Converting>,
+}
+
+/// A video processor for frames of one size and pictures of one size, with what it reads and writes.
+struct Converting {
+  enumerator: ID3D11VideoProcessorEnumerator,
+  processor: ID3D11VideoProcessor,
+  from: (u32, u32),
+  to: (u32, u32),
+  /// The decoder's textures it has read, by their place in memory and their slice.
+  inputs: Vec<(usize, u32, ID3D11VideoProcessorInputView)>,
+  /// The frames' textures it has written, by their place in memory.
+  outputs: Vec<(usize, ID3D11VideoProcessorOutputView)>,
+}
+
+impl Converter {
+  /// What converts on `device`; `None` where the card has no video processor.
+  fn of(device: &ID3D11Device, context: &ID3D11DeviceContext) -> Option<Self> {
+    Some(Self {
+      video: device.cast().ok()?,
+      context: context.cast().ok()?,
+      made: None,
+    })
+  }
+
+  /// Converts the picture's part of slice `slice` of `decoded` into `into`.
+  unsafe fn convert(
+    &mut self,
+    decoded: &ID3D11Texture2D,
+    slice: u32,
+    shape: &Shape,
+    into: &ID3D11Texture2D,
+  ) -> Result<()> {
+    unsafe {
+      let mut said = D3D11_TEXTURE2D_DESC::default();
+      decoded.GetDesc(&mut said);
+      let (from, to) = ((said.Width, said.Height), (shape.width as u32, shape.height as u32));
+      if self.made.as_ref().is_none_or(|made| made.from != from || made.to != to) {
+        let rate = DXGI_RATIONAL {
+          Numerator: 30,
+          Denominator: 1,
+        };
+        let enumerator = self
+          .video
+          .CreateVideoProcessorEnumerator(&D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
+            InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+            InputFrameRate: rate,
+            InputWidth: from.0,
+            InputHeight: from.1,
+            OutputFrameRate: rate,
+            OutputWidth: to.0,
+            OutputHeight: to.1,
+            Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
+          })?;
+        let processor = self.video.CreateVideoProcessor(&enumerator, 0)?;
+        // What it reads is gray from 16 to 235 by the matrix of BT.709, as lurq's own NV12 pipeline takes a
+        // frame to be; what it writes is red, green and blue from 0 to 255.
+        const BT_709: u32 = 1 << 2;
+        const FROM_16_TO_235: u32 = 1 << 4;
+        self.context.VideoProcessorSetStreamColorSpace(
+          &processor,
+          0,
+          &D3D11_VIDEO_PROCESSOR_COLOR_SPACE {
+            _bitfield: BT_709 | FROM_16_TO_235,
+          },
+        );
+        self
+          .context
+          .VideoProcessorSetOutputColorSpace(&processor, &D3D11_VIDEO_PROCESSOR_COLOR_SPACE { _bitfield: 0 });
+        self
+          .context
+          .VideoProcessorSetStreamFrameFormat(&processor, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+        // The picture as it was decoded: nothing the driver would add to it by itself.
+        self
+          .context
+          .VideoProcessorSetStreamAutoProcessingMode(&processor, 0, false);
+        self.made = Some(Converting {
+          enumerator,
+          processor,
+          from,
+          to,
+          inputs: Vec::new(),
+          outputs: Vec::new(),
+        });
+      }
+      let made = self.made.as_mut().expect("the processor just made");
+      // The picture's part of the decoder's frame, which is rounded up to whole blocks.
+      let picture = RECT {
+        left: shape.left as i32,
+        top: shape.top as i32,
+        right: (shape.left + shape.width) as i32,
+        bottom: (shape.top + shape.height) as i32,
+      };
+      self
+        .context
+        .VideoProcessorSetStreamSourceRect(&made.processor, 0, true, Some(&picture));
+      let read = (decoded.as_raw() as usize, slice);
+      let input = match made
+        .inputs
+        .iter()
+        .find(|(texture, slice, _)| (*texture, *slice) == read)
+      {
+        Some((_, _, view)) => view.clone(),
+        None => {
+          let mut view = None;
+          self.video.CreateVideoProcessorInputView(
+            decoded,
+            &made.enumerator,
+            &D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+              FourCC: 0,
+              ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+              Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
+                Texture2D: D3D11_TEX2D_VPIV {
+                  MipSlice: 0,
+                  ArraySlice: slice,
+                },
+              },
+            },
+            Some(&mut view),
+          )?;
+          let view = view.expect("the view Direct3D made");
+          // A decoder has a few textures it goes around; one that has more than these is another decoder.
+          if made.inputs.len() >= 64 {
+            made.inputs.clear();
+          }
+          made.inputs.push((read.0, read.1, view.clone()));
+          view
+        }
+      };
+      let written = into.as_raw() as usize;
+      let output = match made.outputs.iter().find(|(texture, _)| *texture == written) {
+        Some((_, view)) => view.clone(),
+        None => {
+          let mut view = None;
+          self.video.CreateVideoProcessorOutputView(
+            into,
+            &made.enumerator,
+            &D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
+              ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
+              Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
+                Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 },
+              },
+            },
+            Some(&mut view),
+          )?;
+          let view = view.expect("the view Direct3D made");
+          if made.outputs.len() >= 16 {
+            made.outputs.clear();
+          }
+          made.outputs.push((written, view.clone()));
+          view
+        }
+      };
+      let mut stream = D3D11_VIDEO_PROCESSOR_STREAM {
+        Enable: true.into(),
+        pInputSurface: std::mem::ManuallyDrop::new(Some(input)),
+        ..Default::default()
+      };
+      let converted = self
+        .context
+        .VideoProcessorBlt(&made.processor, &output, 0, std::slice::from_ref(&stream));
+      std::mem::ManuallyDrop::drop(&mut stream.pInputSurface);
+      converted
+    }
+  }
 }
 
 /// The textures of a video's frames, of one size, and the frames an image draws from.
@@ -389,12 +576,18 @@ impl OnCard {
           Some(&mut done),
         )
         .ok()?;
+      // Where the renderer does not draw one NV12 texture where it is, the frames are red, green and blue.
+      let converter = match crate::images::card_frames_nv12() {
+        true => None,
+        false => Some(Converter::of(&device, &context)?),
+      };
       Some(Self {
         device,
         context,
         manager,
         done: done?,
         held: None,
+        converter,
         gone: Arc::default(),
       })
     }
@@ -426,18 +619,28 @@ impl OnCard {
     asked
   }
 
-  /// The textures of frames `width` by `height`, each shared by a handle.
+  /// The textures of frames `width` by `height`, each shared by a handle: NV12, or red, green and blue where
+  /// the frames are converted, which the video processor writes as a picture is drawn into.
   unsafe fn hold(&self, width: u32, height: u32) -> Result<Held> {
     unsafe {
+      let converted = self.converter.is_some();
       let like = D3D11_TEXTURE2D_DESC {
         Width: width,
         Height: height,
         MipLevels: 1,
         ArraySize: 1,
-        Format: DXGI_FORMAT_NV12,
+        Format: if converted {
+          DXGI_FORMAT_B8G8R8A8_UNORM
+        } else {
+          DXGI_FORMAT_NV12
+        },
         SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         Usage: D3D11_USAGE_DEFAULT,
-        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+        BindFlags: if converted {
+          (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0) as u32
+        } else {
+          D3D11_BIND_SHADER_RESOURCE.0 as u32
+        },
         CPUAccessFlags: 0,
         MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0) as u32,
       };
@@ -450,12 +653,16 @@ impl OnCard {
           texture
             .cast::<IDXGIResource1>()?
             .CreateSharedHandle(None, DXGI_SHARED_RESOURCE_READ.0, PCWSTR::null())?;
-        surfaces.push(CardSurface::Nv12(handle.0 as isize));
+        surfaces.push(if converted {
+          CardSurface::Rgba(handle.0 as isize)
+        } else {
+          CardSurface::Nv12(handle.0 as isize)
+        });
         textures.push(texture);
       }
       Ok(Held {
         textures,
-        // SAFETY: the handles are of shared NV12 textures of one size, made here and given away to be closed.
+        // SAFETY: the handles are of shared textures of one kind and size, made here and given away to be closed.
         frames: CardFrames::new(surfaces),
         width,
         height,
@@ -522,9 +729,12 @@ impl OnCard {
         bottom: shape.top as u32 + height,
         back: 1,
       };
-      self
-        .context
-        .CopySubresourceRegion(&held.textures[slot], 0, 0, 0, 0, &decoded, slice, Some(&picture));
+      match &mut self.converter {
+        Some(converter) => converter.convert(&decoded, slice, shape, &held.textures[slot])?,
+        None => self
+          .context
+          .CopySubresourceRegion(&held.textures[slot], 0, 0, 0, 0, &decoded, slice, Some(&picture)),
+      }
       // Shown once it is all there: what draws never reads a frame half copied.
       self.settle();
       held.frames.show(CardFrame::of(slot));

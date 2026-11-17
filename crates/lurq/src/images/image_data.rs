@@ -79,7 +79,9 @@ fn animation_epoch() -> Instant {
 pub enum NativeImageBackend {
   #[cfg(feature = "canvas")]
   Canvas,
-  Dx12Nv12,
+  /// An image of a test, which no renderer draws: one that every build has.
+  #[cfg(test)]
+  Test,
   /// Frames in textures of the graphics card, shared by handle: [`CardFrames`](super::CardFrames).
   #[cfg(windows)]
   CardFrames,
@@ -99,29 +101,6 @@ pub struct NativeImageData {
   payload: Arc<dyn Any + Send + Sync>,
   version: Arc<AtomicU64>,
   continuous_redraw: bool,
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-#[derive(Clone)]
-pub struct Dx12Nv12Image {
-  pub y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  pub y_plane_slice: u32,
-  pub uv_plane_slice: u32,
-  pub frame_number: Option<u32>,
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-#[derive(Clone)]
-pub struct Dx12Nv12ImageSlot {
-  state: Arc<RwLock<Dx12Nv12ImageSlotState>>,
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-struct Dx12Nv12ImageSlotState {
-  image: Dx12Nv12Image,
-  version: u64,
-  pending_external_bump: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -425,15 +404,6 @@ impl ImageData {
   }
 
   pub fn version(&self) -> u64 {
-    #[cfg(all(feature = "dx12", target_os = "windows"))]
-    if let Some(slot) = self
-      .native
-      .as_ref()
-      .and_then(|native| native.payload::<Dx12Nv12ImageSlot>())
-    {
-      return slot.version();
-    }
-
     self.streaming.as_ref().map_or_else(
       || self.native.as_ref().map_or(0, NativeImageData::version),
       |streaming| streaming.version.load(Ordering::Acquire),
@@ -541,22 +511,6 @@ impl ImageData {
     }
 
     if let Some(native) = &self.native {
-      #[cfg(all(feature = "dx12", target_os = "windows"))]
-      if let Some((native, version)) = native.dx12_nv12_slot_snapshot() {
-        let next_frame_at = native.requires_continuous_redraw().then_some(now);
-        return ImageFrameData {
-          data: Arc::new(Vec::new()),
-          animation_frames: None,
-          native: Some(native),
-          width: self.width,
-          height: self.height,
-          format: self.format,
-          frame_index: 0,
-          version,
-          next_frame_at,
-        };
-      }
-
       return ImageFrameData {
         data: Arc::new(Vec::new()),
         animation_frames: None,
@@ -683,11 +637,6 @@ impl NativeImageData {
       return state.version();
     }
 
-    #[cfg(all(feature = "dx12", target_os = "windows"))]
-    if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
-      return slot.version();
-    }
-
     // An image of the card's frames is another picture with each frame shown: who shows a frame says nothing
     // more.
     #[cfg(windows)]
@@ -704,12 +653,6 @@ impl NativeImageData {
       return;
     }
 
-    #[cfg(all(feature = "dx12", target_os = "windows"))]
-    if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
-      slot.bump_version();
-      return;
-    }
-
     #[cfg(windows)]
     if self.payload::<super::CardFrames>().is_some() {
       return;
@@ -720,126 +663,6 @@ impl NativeImageData {
 
   pub fn requires_continuous_redraw(&self) -> bool {
     self.continuous_redraw
-  }
-
-  #[cfg(all(feature = "dx12", target_os = "windows"))]
-  fn dx12_nv12_slot_snapshot(&self) -> Option<(Self, u64)> {
-    let slot = self.payload::<Dx12Nv12ImageSlot>()?;
-    let (image, version) = slot.snapshot();
-    Some((
-      Self {
-        id: self.id,
-        width: self.width,
-        height: self.height,
-        format: self.format,
-        backend: self.backend,
-        payload: Arc::new(image),
-        version: Arc::new(AtomicU64::new(version)),
-        continuous_redraw: self.continuous_redraw,
-      },
-      version,
-    ))
-  }
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-impl Dx12Nv12ImageSlot {
-  pub fn new(image: Dx12Nv12Image) -> Self {
-    Self {
-      state: Arc::new(RwLock::new(Dx12Nv12ImageSlotState {
-        image,
-        version: 0,
-        pending_external_bump: false,
-      })),
-    }
-  }
-
-  pub fn image(&self) -> Dx12Nv12Image {
-    self.state.read().image.clone()
-  }
-
-  pub fn snapshot(&self) -> (Dx12Nv12Image, u64) {
-    let state = self.state.read();
-    (state.image.clone(), state.version)
-  }
-
-  pub fn set_image(&self, image: Dx12Nv12Image) -> u64 {
-    let mut state = self.state.write();
-    state.version = state.version.wrapping_add(1);
-    state.image = image;
-    state.pending_external_bump = true;
-    state.version
-  }
-
-  pub fn version(&self) -> u64 {
-    self.state.read().version
-  }
-
-  fn bump_version(&self) -> u64 {
-    let mut state = self.state.write();
-    if state.pending_external_bump {
-      state.pending_external_bump = false;
-      return state.version;
-    }
-    state.version = state.version.wrapping_add(1);
-    state.version
-  }
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-impl NativeImageData {
-  pub fn from_dx12_nv12(
-    width: u32,
-    height: u32,
-    y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-    uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  ) -> Self {
-    Self::new_with_continuous_redraw(
-      width,
-      height,
-      ImagePixelFormat::Nv12,
-      NativeImageBackend::Dx12Nv12,
-      Dx12Nv12Image {
-        y_texture,
-        uv_texture,
-        y_plane_slice: 0,
-        uv_plane_slice: 0,
-        frame_number: None,
-      },
-      true,
-    )
-  }
-
-  pub fn from_dx12_nv12_texture(
-    width: u32,
-    height: u32,
-    texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  ) -> Self {
-    Self::new_with_continuous_redraw(
-      width,
-      height,
-      ImagePixelFormat::Nv12,
-      NativeImageBackend::Dx12Nv12,
-      Dx12Nv12Image {
-        y_texture: texture.clone(),
-        uv_texture: texture,
-        y_plane_slice: 0,
-        uv_plane_slice: 1,
-        frame_number: None,
-      },
-      true,
-    )
-  }
-
-  pub fn from_dx12_nv12_slot(width: u32, height: u32, slot: Dx12Nv12ImageSlot) -> Self {
-    Self::new_with_continuous_redraw(
-      width,
-      height,
-      ImagePixelFormat::Nv12,
-      NativeImageBackend::Dx12Nv12,
-      slot,
-      true,
-    )
   }
 }
 
@@ -1104,7 +927,7 @@ mod tests {
   #[test]
   fn continuous_native_image_requests_immediate_redraw() {
     let native =
-      NativeImageData::new_with_continuous_redraw(2, 2, ImagePixelFormat::Nv12, NativeImageBackend::Dx12Nv12, (), true);
+      NativeImageData::new_with_continuous_redraw(2, 2, ImagePixelFormat::Nv12, NativeImageBackend::Test, (), true);
     let image = native.image_data();
     let now = Instant::now();
 

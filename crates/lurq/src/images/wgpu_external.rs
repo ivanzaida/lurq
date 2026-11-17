@@ -321,14 +321,13 @@ mod tests {
   }
 
   #[test]
-  #[ignore = "crashes the test process with an access violation about every other run: a view outlives the \
-              device and instance it was made on (the second `any_view()`); the video session is fixing it"]
   fn a_view_is_of_the_device_it_was_given_for_and_of_no_device_made_after_it() {
     use super::{WgpuExternalImageSnapshot, for_device, next_in_order};
-    let Some((view, gpu)) = any_view() else {
+    let Some(gpu) = any_device() else {
       eprintln!("skipped: no card to make a texture on");
       return;
     };
+    let view = any_view_of(&gpu);
     let snapshot = |slot: &WgpuExternalImageSlot| -> WgpuExternalImageSnapshot {
       slot.state.snapshot().expect("the view that was given")
     };
@@ -362,10 +361,7 @@ mod tests {
     assert!(weak.is(&slot.state) && weak.upgrade().is_some());
     // Given with its context, from anywhere: of that context's device, whichever draws when it is given.
     let fourth = next_in_order();
-    let view = {
-      for_device(second, || slot.set_texture_view(any_view().unwrap().0, 4, 4)).unwrap();
-      snapshot(&slot).view
-    };
+    let view = any_view_of(&gpu);
     let lost = crate::app::wgpu_render::SharedWgpuContext { number: first, ..gpu };
     slot.set_texture_view_of(&lost, view, 4, 4).unwrap();
     assert!(snapshot(&slot).is_of(first));
@@ -380,13 +376,32 @@ mod tests {
     });
   }
 
-  /// A view of a texture of any device, for what does not look at which device it is of, and the context of
-  /// that device.
-  fn any_view() -> Option<(wgpu::TextureView, crate::app::wgpu_render::SharedWgpuContext)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+  /// The context of a device, for what does not look at which device a view is of. One for the whole test, of
+  /// the backend lurq takes by itself: devices of Vulkan made and let go of one after another, with a view of
+  /// each left alive, ended the test program now and then (an access violation, not in lurq's code).
+  fn any_device() -> Option<crate::app::wgpu_render::SharedWgpuContext> {
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    descriptor.backends = if cfg!(windows) {
+      wgpu::Backends::DX12
+    } else {
+      wgpu::Backends::all()
+    };
+    let instance = wgpu::Instance::new(descriptor);
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
+    Some(crate::app::wgpu_render::SharedWgpuContext {
+      instance,
+      adapter,
+      device,
+      queue,
+      surface_format: wgpu::TextureFormat::Rgba8Unorm,
+      number: 0,
+    })
+  }
+
+  /// A view of a texture of `gpu`'s device.
+  fn any_view_of(gpu: &crate::app::wgpu_render::SharedWgpuContext) -> wgpu::TextureView {
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
       label: None,
       size: wgpu::Extent3d {
         width: 4,
@@ -400,14 +415,6 @@ mod tests {
       usage: wgpu::TextureUsages::TEXTURE_BINDING,
       view_formats: &[],
     });
-    let gpu = crate::app::wgpu_render::SharedWgpuContext {
-      instance,
-      adapter,
-      device,
-      queue,
-      surface_format: wgpu::TextureFormat::Rgba8Unorm,
-      number: 0,
-    };
-    Some((texture.create_view(&Default::default()), gpu))
+    texture.create_view(&Default::default())
   }
 }

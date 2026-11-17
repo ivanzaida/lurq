@@ -24,10 +24,10 @@ use windows::{
     Graphics::{
       Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1},
       Direct3D11::{
-        D3D11_BIND_SHADER_RESOURCE, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_FENCE_FLAG_SHARED,
-        D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-        D3D11_USAGE_DEFAULT, D3D11CreateDevice, ID3D11Device, ID3D11Device5, ID3D11DeviceContext, ID3D11DeviceContext4,
-        ID3D11Fence, ID3D11Texture2D,
+        D3D11_BIND_SHADER_RESOURCE, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_FENCE_FLAG_SHARED, D3D11_QUERY_DESC,
+        D3D11_QUERY_EVENT, D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION,
+        D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11CreateDevice, ID3D11Device, ID3D11Device5, ID3D11DeviceContext,
+        ID3D11DeviceContext4, ID3D11Fence, ID3D11Texture2D,
       },
       Dxgi::{
         Common::{
@@ -51,8 +51,7 @@ use crate::{
   resources::{Loader, Source},
 };
 
-/// The tests of a media on the card run one at a time: which card draws is said once for the whole program.
-static ON_THE_CARD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+use crate::app::card_read::ON_THE_CARD;
 
 fn clip() -> std::path::PathBuf {
   std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4")
@@ -394,13 +393,21 @@ struct Decoder {
 
 impl Decoder {
   fn on_the_card_of(device: &wgpu::Device) -> Self {
-    // SAFETY: the card of wgpu's device is read, and a device of this test's own is made on it.
-    unsafe {
-      let luid: LUID = device
+    // SAFETY: the card of wgpu's device is read.
+    let luid: LUID = unsafe {
+      device
         .as_hal::<wgpu::hal::api::Dx12>()
         .expect("a device of Direct3D 12")
         .raw_device()
-        .GetAdapterLuid();
+        .GetAdapterLuid()
+    };
+    Self::on_the_card(luid)
+  }
+
+  /// A decoder on the card named `luid`.
+  fn on_the_card(luid: LUID) -> Self {
+    // SAFETY: a device of this test's own is made on the card.
+    unsafe {
       let cards: IDXGIFactory4 = CreateDXGIFactory1().unwrap();
       let card: IDXGIAdapter = cards.EnumAdapterByLuid(luid).unwrap();
       let (mut made, mut context): (Option<ID3D11Device>, Option<ID3D11DeviceContext>) = (None, None);
@@ -480,6 +487,42 @@ impl Decoder {
       self
         .context
         .UpdateSubresource(texture, 0, None, bytes.as_ptr().cast(), pitch, 0);
+    }
+  }
+
+  /// Waits until the card has done what was written so far: what a decoder with no fence does before it shows
+  /// a frame.
+  fn settle(&self) {
+    // SAFETY: a query of this device's own is made and asked.
+    unsafe {
+      let mut done = None;
+      self
+        .device
+        .CreateQuery(
+          &D3D11_QUERY_DESC {
+            Query: D3D11_QUERY_EVENT,
+            MiscFlags: 0,
+          },
+          Some(&mut done),
+        )
+        .unwrap();
+      let done = done.unwrap();
+      self.context.End(&done);
+      self.context.Flush();
+      let started = Instant::now();
+      loop {
+        let mut finished = windows::core::BOOL(0);
+        let asked = self.context.GetData(
+          &done,
+          Some((&raw mut finished).cast()),
+          std::mem::size_of::<windows::core::BOOL>() as u32,
+          0,
+        );
+        if asked.is_err() || finished.as_bool() || started.elapsed() > Duration::from_secs(2) {
+          return;
+        }
+        std::thread::yield_now();
+      }
     }
   }
 
@@ -1164,4 +1207,405 @@ fn a_media_whose_card_is_reset_is_opened_again_where_it_was() {
   media.pause();
   assert_eq!(media.state().error, None);
   crate::images::set_card_frames_adapter(None);
+}
+
+/// A device of Vulkan that takes textures Direct3D shares, with its adapter; `None` where the card has none.
+fn vulkan_device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+  // The program's one instance among Vulkan: a second one beside it ends the program.
+  let instance = super::new_instance(wgpu::Backends::VULKAN);
+  let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+  let (device, queue) = pollster::block_on(adapter.request_device(&super::device_descriptor(
+    &adapter,
+    wgpu::Features::empty(),
+    &wgpu::Limits::default(),
+  )))
+  .ok()?;
+  device
+    .features()
+    .contains(wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32)
+    .then_some((adapter, device, queue))
+}
+
+#[test]
+fn under_vulkan_the_frames_of_a_decoder_stay_on_the_card_but_for_one_nv12_texture() {
+  let Some((adapter, device, queue)) = vulkan_device() else {
+    eprintln!("skipped: no card with Vulkan that takes the textures Direct3D shares");
+    return;
+  };
+  let _alone = ON_THE_CARD.lock();
+  // The renderer says which card it draws on, found among the system's cards: the decoder decodes there.
+  crate::images::set_card_frames_adapter(None);
+  assert!(
+    !card_frames::announce(&device),
+    "a device of Vulkan is not one of Direct3D 12"
+  );
+  assert!(card_frames::announce_vulkan(&device, &adapter));
+  let (low, high) = crate::images::card_frames_adapter().expect("the card a device of Vulkan draws on");
+  let mut decoder = Decoder::on_the_card(LUID {
+    LowPart: low,
+    HighPart: high,
+  });
+  let leases = card_frames::Leases::default();
+  let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[],
+  });
+  let open = |frames: &CardFrames, picture: (u32, u32)| {
+    let mut readers = card_copies::Readers::default();
+    card_frames::Opened::open(&device, frames, picture, &leases, &mut readers, |_, _| {
+      device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &layout,
+        entries: &[],
+      })
+    })
+  };
+
+  // Gray and color apart, with a fence: taken by Vulkan, and drawn where the decoder put them.
+  let (gray, gray_handle) = decoder.texture(DXGI_FORMAT_R8_UNORM, WIDE, HIGH);
+  let (color, color_handle) = decoder.texture(DXGI_FORMAT_R8G8_UNORM, WIDE / 2, HIGH / 2);
+  // SAFETY: the handles are of textures and of a fence made to be shared, given away.
+  let frames = unsafe {
+    CardFrames::with_fence(
+      vec![CardSurface::Planes {
+        gray: gray_handle,
+        color: color_handle,
+      }],
+      decoder.fence(),
+    )
+  };
+  let mut opened = open(&frames, (WIDE, PICTURE));
+  assert_eq!(
+    frames.way(),
+    Some(CardFramesWay::Card),
+    "Vulkan takes gray and color apart"
+  );
+  opened.pick(&queue);
+  assert!(opened.drawn().is_none());
+  // Shown before it is written: not drawn until the fence, which Direct3D 11 is asked of, says so.
+  let (first, first_returned) = lease();
+  let ready = decoder.signalled + 1;
+  frames.show(CardFrame::of(0).ready_at(ready).lease(first));
+  for _ in 0..10 {
+    opened.pick(&queue);
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  assert!(opened.drawn().is_none(), "a frame that is not written yet is not drawn");
+  decoder.write(&gray, &vec![33; (WIDE * HIGH) as usize], WIDE);
+  decoder.write(&color, &vec![44; (WIDE * HIGH / 2) as usize], WIDE);
+  assert_eq!(decoder.signal(), ready);
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      opened.drawn().is_some()
+    }),
+    "the frame is never drawn"
+  );
+  // What Vulkan reads of the textures is what Direct3D wrote in them: nothing was copied.
+  assert_eq!(drawn_grays(&device, &queue, &opened), Some(((33, 33), (44, 44))));
+  // Written again, the same textures hold the next frame.
+  decoder.write(&gray, &vec![150; (WIDE * HIGH) as usize], WIDE);
+  decoder.write(&color, &vec![60; (WIDE * HIGH / 2) as usize], WIDE);
+  let ready = decoder.signal();
+  frames.show(CardFrame::of(0).ready_at(ready));
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      drawn_grays(&device, &queue, &opened) == Some(((150, 150), (60, 60)))
+    }),
+    "the next frame is never seen in the same textures"
+  );
+  // The textures hold the next frame as soon as it is written; it is the one drawn once its fence says so,
+  // and the first is given back when the card has done what drew it.
+  assert!(
+    comes(&device, || {
+      opened.pick(&queue);
+      leases.let_go_after(&queue);
+      first_returned.load(Ordering::SeqCst)
+    }),
+    "the first is never given back"
+  );
+  drop(opened);
+
+  // One texture of red, green and blue: taken too.
+  let (rgba, handle) = decoder.texture(DXGI_FORMAT_R8G8B8A8_UNORM, WIDE, HIGH);
+  let bytes: Vec<u8> = (0..WIDE * HIGH).flat_map(|_| [10_u8, 20, 30, 255]).collect();
+  decoder.write(&rgba, &bytes, WIDE * 4);
+  // SAFETY: the handle is of a texture of red, green, blue and alpha made to be shared, given away.
+  let frames = unsafe { CardFrames::new(vec![CardSurface::Rgba(handle)]) };
+  // There is no fence here: the writing is waited for, as a decoder without one waits before it shows a frame.
+  decoder.settle();
+  frames.show(CardFrame::of(0));
+  let mut opened = open(&frames, (WIDE, HIGH));
+  assert_eq!(
+    frames.way(),
+    Some(CardFramesWay::Card),
+    "Vulkan takes red, green and blue"
+  );
+  opened.pick(&queue);
+  let (_, slot) = opened.drawn().expect("the frame of red, green and blue is drawn");
+  let pixels = read(&device, &queue, &slot.textures()[0], 4);
+  assert!(
+    pixels.chunks(4).all(|pixel| pixel == [10, 20, 30, 255]),
+    "the red, green and blue of the frame: {:?}",
+    &pixels[..4]
+  );
+  drop(opened);
+
+  // One NV12 texture is given to Vulkan on a card of AMD's, and stays there; another card is not given it (an
+  // RTX loses its device for it), and its frame comes through memory.
+  let given = crate::images::card_frames_nv12();
+  assert_eq!(given, adapter.get_info().vendor == 0x1002);
+  let (nv12, handle) = decoder.texture(DXGI_FORMAT_NV12, WIDE, HIGH);
+  let mut bytes = vec![77_u8; (WIDE * HIGH) as usize];
+  bytes.extend((0..WIDE * HIGH / 4).flat_map(|_| [90_u8, 160]));
+  decoder.write(&nv12, &bytes, WIDE);
+  decoder.signal();
+  decoder.settle();
+  // SAFETY: the handle is of an NV12 texture made to be shared, given away.
+  let frames = unsafe { CardFrames::new(vec![CardSurface::Nv12(handle)]) };
+  frames.show(CardFrame::of(0));
+  let mut opened = open(&frames, (WIDE, HIGH));
+  if given {
+    assert_eq!(
+      frames.way(),
+      Some(CardFramesWay::Card),
+      "Vulkan takes one NV12 texture on this card"
+    );
+    opened.pick(&queue);
+    let (_, slot) = opened.drawn().expect("the NV12 frame is drawn");
+    // What Vulkan draws of its two planes is the gray and the color Direct3D wrote.
+    let pixels = drawn(&device, &queue, &slot.textures()[0], WIDE, HIGH);
+    assert!(
+      pixels.chunks(4).all(|pixel| pixel[..3] == [77, 90, 160]),
+      "the gray and the color of the NV12 frame: {:?}",
+      &pixels[..4]
+    );
+  } else {
+    assert_eq!(frames.way(), Some(CardFramesWay::Memory));
+    assert!(
+      comes(&device, || {
+        opened.pick(&queue);
+        opened.drawn().is_some()
+      }),
+      "the NV12 frame never comes through memory"
+    );
+    assert_eq!(drawn_grays(&device, &queue, &opened), Some(((77, 77), (90, 160))));
+  }
+  drop(opened);
+  // And the device is whole after all of it.
+  queue.submit([device.create_command_encoder(&Default::default()).finish()]);
+  device
+    .poll(wgpu::PollType::wait_indefinitely())
+    .expect("the card answers");
+  crate::images::set_card_frames_adapter(None);
+  crate::images::set_card_frames_nv12(true);
+}
+
+/// The red, green and blue lurq's own NV12 pipeline draws of a sample of gray and its two of color: BT.709,
+/// gray from 16 to 235.
+fn drawn_of(gray: u8, u: u8, v: u8) -> [f32; 3] {
+  let c = (f32::from(gray) - 16.0).max(0.0) / 255.0;
+  let (u, v) = (f32::from(u) / 255.0 - 0.5, f32::from(v) / 255.0 - 0.5);
+  [
+    1.164383 * c + 1.792741 * v,
+    1.164383 * c - 0.213249 * u - 0.532909 * v,
+    1.164383 * c + 2.112402 * u,
+  ]
+  .map(|part| part.clamp(0.0, 1.0) * 255.0)
+}
+
+#[test]
+fn under_vulkan_a_media_gives_red_green_and_blue_converted_on_the_card() {
+  let Some((adapter, device, queue)) = vulkan_device() else {
+    eprintln!("skipped: no card with Vulkan that takes the textures Direct3D shares");
+    return;
+  };
+  let _alone = ON_THE_CARD.lock();
+  // Nothing draws on a card yet: the frame goes through memory, and is what the picture is told by.
+  crate::images::set_card_frames_adapter(None);
+  let early = opened();
+  let in_memory = first_frame(&early, false);
+  let (width, height) = (in_memory.width(), in_memory.height());
+  let memory = in_memory.data_arc();
+  let (wide, high) = (width as usize, height as usize);
+
+  // A renderer of Vulkan says which card it draws on, and whether it draws one NV12 texture where it is: on a
+  // card of AMD's it does, and the media gives its frames as it decodes them; elsewhere it converts them.
+  assert!(card_frames::announce_vulkan(&device, &adapter));
+  let nv12 = crate::images::card_frames_nv12();
+  assert_eq!(nv12, adapter.get_info().vendor == 0x1002);
+  let late = opened();
+  let on_card = first_frame(&late, true);
+  assert_eq!((on_card.width(), on_card.height()), (width, height));
+  assert_eq!(
+    on_card.format(),
+    if nv12 {
+      ImagePixelFormat::Nv12
+    } else {
+      ImagePixelFormat::Rgba8
+    },
+    "the frames are NV12 where the card draws that, and red, green and blue where it does not"
+  );
+  let frames = on_card
+    .native()
+    .and_then(|native| native.payload::<CardFrames>())
+    .expect("the frames of the card")
+    .clone();
+  assert_eq!(frames.is_rgba(), !nv12);
+
+  // The renderer takes the textures as they are: nothing is copied through memory.
+  let leases = card_frames::Leases::default();
+  let mut readers = card_copies::Readers::default();
+  let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[],
+  });
+  let mut opened = card_frames::Opened::open(&device, &frames, (width, height), &leases, &mut readers, |_, _| {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: None,
+      layout: &layout,
+      entries: &[],
+    })
+  });
+  assert_eq!(
+    frames.way(),
+    Some(CardFramesWay::Card),
+    "Vulkan draws the media's frames where they are"
+  );
+  opened.pick(&queue);
+  let (_, slot) = opened.drawn().expect("the media's frame is drawn");
+  if nv12 {
+    // The frame as it was decoded: every sample of gray and of color is memory's.
+    let pixels = drawn(&device, &queue, &slot.textures()[0], width, height);
+    assert_eq!(
+      differing(&pixels, &memory, wide, high),
+      (0, 0, 0),
+      "the pixels that differ in gray and in color of {}, and the most one is off by",
+      wide * high
+    );
+    eprintln!("one NV12 texture, drawn by Vulkan where it is: the frame memory gives, sample for sample");
+    let before = frames.count();
+    late.play();
+    let started = Instant::now();
+    while frames.count() < before + 6 && started.elapsed() < Duration::from_secs(5) {
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    late.pause();
+    assert!(frames.count() >= before + 6, "the media does not play");
+    assert_eq!(late.state().error, None);
+    crate::images::set_card_frames_adapter(None);
+    crate::images::set_card_frames_nv12(true);
+    return;
+  }
+  assert_eq!(slot.textures()[0].format(), wgpu::TextureFormat::Bgra8Unorm);
+  assert_eq!(
+    (slot.textures()[0].width(), slot.textures()[0].height()),
+    (width, height),
+    "the texture is as large as the picture: the part past the picture was left on the decoder's side"
+  );
+  let pixels = read(&device, &queue, &slot.textures()[0], 4);
+
+  // The picture is the one memory gives, converted as lurq's own pipeline converts it. Where the color is the
+  // same all around a pixel the two are told apart by the conversion alone, and there they agree. At an edge of
+  // color the card's video processor smooths between its samples of color in its own way, and the two differ:
+  // those are few.
+  let color = |x: usize, y: usize| {
+    let at = wide * high + (y / 2) * wide + (x / 2) * 2;
+    (memory[at], memory[at + 1])
+  };
+  let (mut flat, mut flat_sum, mut flat_most, mut far) = (0_usize, 0.0_f64, 0.0_f32, 0_usize);
+  for y in 0..high {
+    for x in 0..wide {
+      let (u, v) = color(x, y);
+      let told = drawn_of(memory[y * wide + x], u, v);
+      let pixel = &pixels[(y * wide + x) * 4..][..4];
+      // Blue, green, red, as the texture has them.
+      let off = (0..3)
+        .map(|part| (f32::from(pixel[2 - part]) - told[part]).abs())
+        .fold(0.0_f32, f32::max);
+      far += usize::from(off > 24.0);
+      assert_eq!(pixel[3], 255, "the frame is opaque");
+      let around = [
+        (-2_i32, 0_i32),
+        (2, 0),
+        (0, -2),
+        (0, 2),
+        (-2, -2),
+        (2, 2),
+        (-2, 2),
+        (2, -2),
+      ];
+      let same = around.iter().all(|(dx, dy)| {
+        let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+        nx < 0 || ny < 0 || nx >= wide as i32 || ny >= high as i32 || color(nx as usize, ny as usize) == (u, v)
+      });
+      if same {
+        flat += 1;
+        flat_sum += f64::from(off);
+        flat_most = flat_most.max(off);
+      }
+    }
+  }
+  let all = (wide * high) as f64;
+  let (flat_part, flat_mean, far) = (flat as f64 / all, flat_sum / flat.max(1) as f64, far as f64 / all);
+  eprintln!(
+    "converted on the card: flat color is {:.0}% of the picture, off by {flat_mean:.2} a pixel, {flat_most:.0} at most; {:.2}% of all pixels are off by more than 24",
+    flat_part * 100.0,
+    far * 100.0
+  );
+  assert!(flat_part > 0.5, "the clip has flat color to tell the conversion by");
+  assert!(
+    flat_mean < 3.0,
+    "the conversion on the card is not lurq's own: off by {flat_mean:.2} a pixel where the color is flat"
+  );
+  assert!(
+    far < 0.08,
+    "{:.2}% of the pixels are far off: more than its edges of color",
+    far * 100.0
+  );
+  // And it is a picture: the clip's first frame is not one flat color.
+  let first = &pixels[..3];
+  assert!(pixels.chunks(4).any(|pixel| pixel[..3] != *first));
+
+  // It plays on: more frames are shown, each in a texture of its own turn.
+  let before = frames.count();
+  late.play();
+  let started = Instant::now();
+  while frames.count() < before + 6 && started.elapsed() < Duration::from_secs(5) {
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  late.pause();
+  assert!(frames.count() >= before + 6, "the media does not play");
+  assert_eq!(late.state().error, None);
+  crate::images::set_card_frames_adapter(None);
+  crate::images::set_card_frames_nv12(true);
+}
+
+#[test]
+fn a_device_lost_soon_after_vulkan_was_given_an_nv12_texture_ends_the_giving() {
+  let _alone = ON_THE_CARD.lock();
+  // A card of AMD's is one the texture is tried on, and no other is.
+  assert!(card_frames::nv12_is_tried_on(0x1002));
+  assert!(!card_frames::nv12_is_tried_on(0x10DE) && !card_frames::nv12_is_tried_on(0x8086));
+  // A device lost with no NV12 texture given to Vulkan changes nothing.
+  card_frames::nv12_was_given(None);
+  crate::images::set_card_frames_nv12(true);
+  card_frames::a_device_is_lost();
+  assert!(!card_frames::nv12_is_lost());
+  assert!(crate::images::card_frames_nv12());
+  // Nor one lost long after the texture was given: it was drawn all that while.
+  card_frames::nv12_was_given(Some(Instant::now() - Duration::from_secs(60)));
+  card_frames::a_device_is_lost();
+  assert!(!card_frames::nv12_is_lost());
+  // Lost a moment after: it is lost for that texture, and none is given again, on any card.
+  card_frames::nv12_was_given(Some(Instant::now()));
+  card_frames::a_device_is_lost();
+  assert!(card_frames::nv12_is_lost());
+  assert!(
+    !crate::images::card_frames_nv12(),
+    "what decodes into one NV12 texture is told to give another kind"
+  );
+  card_frames::forget_the_lost_nv12();
+  crate::images::set_card_frames_nv12(true);
 }

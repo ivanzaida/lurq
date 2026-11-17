@@ -150,6 +150,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     var color = textureSample(img_tex, img_sampler, in.uv);
+    // A canvas's texture, and a card's frame of red, green and blue: bytes encoded as a screen's are, in a
+    // format that does not say so, with the color multiplied by the alpha where there is any.
     if (in.canvas > 0.5) {
         let c = color.rgb / max(color.a, 0.000001);
         color = vec4<f32>(select(pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045)), color.a);

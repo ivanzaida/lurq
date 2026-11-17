@@ -26,6 +26,8 @@ mod canvas_frame_probe;
 pub(crate) mod capture_redaction;
 #[cfg(all(test, feature = "screenshot"))]
 pub(crate) mod capture_test_engine;
+#[cfg(all(windows, feature = "raster", any(feature = "wgpu", feature = "dx12")))]
+pub(crate) mod card_read;
 pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]

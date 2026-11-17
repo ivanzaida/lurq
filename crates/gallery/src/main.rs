@@ -5,7 +5,8 @@
 //! open on a page; `--size 800x600` opens the window at a size, to see a
 //! breakpoint; `--device phone` (or `tablet`) runs it as on a phone, the mouse its fingers (`App::emulate`).
 //! Built with `--features devtools`, `--devtools` opens DevTools beside it. On Windows `--renderer dx12` draws it
-//! with DirectX 12 in place of wgpu. Built with `--features perf_profile`, `--profile-log` writes what each frame
+//! with DirectX 12 in place of wgpu, and `--backend vulkan` (or `dx12`, `gl`, `metal`) draws it through that
+//! backend of wgpu's. Built with `--features perf_profile`, `--profile-log` writes what each frame
 //! cost to `target/perf_profile.log` (or `--profile-log=<file>`): the Glyph Atlas page is its probe.
 //!
 //! Its pages open in tabs, as a browser's do: the strip is in the title bar, and each tab keeps its own page, its
@@ -115,6 +116,22 @@ fn route() -> String {
   option("--route").unwrap_or_else(|| "/".to_owned())
 }
 
+/// What wgpu draws the gallery through: `--backend vulkan`, `dx12`, `gl` or `metal`, or what lurq takes by
+/// itself (Direct3D 12 on Windows). For looking at a page as another backend draws it. lurq's own Direct3D 12
+/// renderer is not one of wgpu's: see `renderer`.
+#[cfg(not(target_arch = "wasm32"))]
+fn backends() -> Option<lurq::app::wgpu_render::WgpuBackends> {
+  use lurq::app::wgpu_render::WgpuBackends;
+  let named = option("--backend")?;
+  Some(match named.to_ascii_lowercase().as_str() {
+    "vulkan" => WgpuBackends::VULKAN,
+    "dx12" => WgpuBackends::DX12,
+    "gl" => WgpuBackends::GL,
+    "metal" => WgpuBackends::METAL,
+    _ => panic!("--backend is vulkan, dx12, gl or metal"),
+  })
+}
+
 /// The phone or tablet to run as: `--device phone` or `--device tablet`; `LURQ_DEVICE` does the same.
 #[cfg(not(target_arch = "wasm32"))]
 fn device() -> Option<lurq::app::Device> {
@@ -138,7 +155,13 @@ fn size() -> (u32, u32) {
 fn renderer() -> fn() -> Box<dyn RenderEngine> {
   match option("--renderer").as_deref().map(str::to_ascii_lowercase).as_deref() {
     // The GPU Viewport page's picture is drawn by an extension of the renderer, as an app's own would be.
-    None | Some("wgpu") => || Box::new(WgpuRenderEngine::new().with_frame_extension(scene::Scene::default())),
+    None | Some("wgpu") => || {
+      let engine = match backends() {
+        Some(backends) => WgpuRenderEngine::new().with_backends(backends),
+        None => WgpuRenderEngine::new(),
+      };
+      Box::new(engine.with_frame_extension(scene::Scene::default()))
+    },
     #[cfg(windows)]
     Some("dx12" | "d3d12") => || Box::new(lurq::app::dx12_render::Dx12RenderEngine::new()),
     Some(other) => panic!("--renderer is wgpu or, on Windows, dx12, not {other:?}"),

@@ -921,6 +921,37 @@ fn playing_the_controls_fade_after_the_pointer_rests_and_come_back_when_it_moves
 }
 
 #[test]
+fn the_tooltip_of_a_control_goes_with_the_controls_when_they_fade() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made).playing_controlled(true, |_| {}));
+  // The pointer rests on the button that pauses: its tooltip shows.
+  let (x, y, width, height) = stage.bounds("v-play");
+  stage.tree.mouse_move(x + width / 2.0, y + height / 2.0);
+  stage.pass();
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_millis(1500));
+  stage.pass();
+  assert_eq!(bar_opacity(&mut stage), 1.0);
+  assert!(stage.paints("Pause"), "the tooltip of the button the pointer rests on");
+
+  // The controls fade out with the pointer still there: the tooltip of a button that is not seen goes too.
+  stage
+    .tree
+    .tick_timers_at(Instant::now() + VIDEO_PLAYER_HIDE_AFTER + Duration::from_millis(1700));
+  stage.pass();
+  assert_eq!(bar_opacity(&mut stage), 0.0, "faded 3 s after the pointer rests");
+  assert!(!stage.paints("Pause"), "no tooltip over controls that have faded out");
+
+  // The pointer moves on the button: the controls come back, and its tooltip with them.
+  stage.tree.mouse_move(x + width / 2.0 + 1.0, y + height / 2.0);
+  stage.pass();
+  assert_eq!(bar_opacity(&mut stage), 1.0);
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_millis(1500));
+  stage.pass();
+  assert!(stage.paints("Pause"), "the tooltip is back with the controls");
+}
+
+#[test]
 fn paused_the_controls_stay() {
   let told = Told::default();
   let made = told.clone();

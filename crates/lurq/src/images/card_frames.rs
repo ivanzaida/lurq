@@ -18,7 +18,7 @@ use std::{
   any::Any,
   sync::{
     Arc,
-    atomic::{AtomicU8, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
   },
 };
 
@@ -28,7 +28,8 @@ use parking_lot::{Mutex, RwLock};
 /// (`IDXGIResource1::CreateSharedHandle`, or `ID3D12Device::CreateSharedHandle`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CardSurface {
-  /// One NV12 texture: the gray, and under it the color at half the size.
+  /// One NV12 texture: the gray, and under it the color at half the size. Drawn where it is under
+  /// Direct3D 12; under Vulkan on some cards alone, which [`card_frames_nv12`] says.
   Nv12(isize),
   /// Two textures: the gray (`R8`), and the color at half the size (`R8G8`), as a decoder gives them that
   /// cannot write one NV12 texture.
@@ -64,6 +65,51 @@ pub struct CardCrop {
   pub top: u32,
   pub width: u32,
   pub height: u32,
+}
+
+/// Where in a texture `wide` by `high` the part `min` to `max` of a picture is, both as parts of one: the picture
+/// may be a part of its texture, the part `crop` says, or without it the part at the top left corner that is as
+/// large as `picture`. `rgba` says the texture is of red, green and blue, and not of gray and color.
+#[cfg(any(feature = "wgpu", feature = "dx12"))]
+pub(crate) fn part_of(
+  crop: Option<CardCrop>,
+  picture: (u32, u32),
+  (wide, high): (u32, u32),
+  rgba: bool,
+  min: [f32; 2],
+  max: [f32; 2],
+) -> ([f32; 2], [f32; 2]) {
+  let crop = crop.unwrap_or(CardCrop {
+    left: 0,
+    top: 0,
+    width: picture.0.min(wide),
+    height: picture.1.min(high),
+  });
+  if (crop.left, crop.top, crop.width, crop.height) == (0, 0, wide, high) || wide == 0 || high == 0 {
+    return (min, max);
+  }
+  // An edge of the picture inside the texture is drawn from a little within it: a sample at the very edge
+  // would be mixed with what lies past it, which is no part of the picture. The color is at half the size,
+  // and so a whole pixel is kept from.
+  let within = if rgba { 0.5 } else { 1.0 };
+  let edge = |at: u32, end: u32| if at > 0 && at < end { within } else { 0.0 };
+  let (left, top) = (
+    crop.left as f32 + edge(crop.left, wide),
+    crop.top as f32 + edge(crop.top, high),
+  );
+  let (right, bottom) = (crop.left + crop.width, crop.top + crop.height);
+  let (right, bottom) = (right as f32 - edge(right, wide), bottom as f32 - edge(bottom, high));
+  let (from, to) = (
+    [left / wide as f32, top / high as f32],
+    [right / wide as f32, bottom / high as f32],
+  );
+  let at = |part: [f32; 2]| {
+    [
+      from[0] + part[0] * (to[0] - from[0]),
+      from[1] + part[1] * (to[1] - from[1]),
+    ]
+  };
+  (at(min), at(max))
 }
 
 /// What is let go of when the card has finished with a frame.
@@ -292,4 +338,23 @@ pub fn set_card_frames_adapter(adapter: Option<(u32, i32)>) {
 /// memory where there is none.
 pub fn card_frames_adapter() -> Option<(u32, i32)> {
   *ADAPTER.read()
+}
+
+/// Whether what draws [`CardFrames`] draws one NV12 texture where it is.
+static NV12: AtomicBool = AtomicBool::new(true);
+
+/// Says whether what draws [`CardFrames`] draws one NV12 texture ([`CardSurface::Nv12`]) where it is. A
+/// renderer says so with the card it draws on.
+pub fn set_card_frames_nv12(drawn: bool) {
+  NV12.store(drawn, Ordering::Release);
+}
+
+/// Whether one NV12 texture ([`CardSurface::Nv12`]) is drawn where the decoder put it. Under Direct3D 12 it
+/// is, on every card. Under Vulkan it is on a card of AMD's and on no other: on a card of NVIDIA's Vulkan
+/// and Direct3D 11 do not agree where such a texture keeps its color, and the device is lost over it, so
+/// its frames are copied through memory there ([`CardFramesWay::Memory`]). Where this says no, a decoder
+/// gives gray and color apart ([`CardSurface::Planes`]) or red, green and blue ([`CardSurface::Rgba`]),
+/// which are drawn where they are under Vulkan on every card, or the app draws through Direct3D 12.
+pub fn card_frames_nv12() -> bool {
+  NV12.load(Ordering::Acquire)
 }

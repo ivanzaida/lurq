@@ -409,7 +409,7 @@ fn an_image_of_its_owners_pixels_behind_the_glass_leaves_no_known_input() {
       4,
       4,
       crate::images::ImagePixelFormat::Rgba8,
-      crate::images::NativeImageBackend::Dx12Nv12,
+      crate::images::NativeImageBackend::Test,
       (),
     )
   };
@@ -509,7 +509,7 @@ fn a_backdrop_blur_without_a_known_input_behind_another_leaves_it_none() {
     4,
     4,
     crate::images::ImagePixelFormat::Rgba8,
-    crate::images::NativeImageBackend::Dx12Nv12,
+    crate::images::NativeImageBackend::Test,
     (),
   );
   let scene = |first: [f32; 4]| {
@@ -841,7 +841,7 @@ fn a_blur_without_a_known_input_keeps_nothing() {
     4,
     4,
     crate::images::ImagePixelFormat::Rgba8,
-    crate::images::NativeImageBackend::Dx12Nv12,
+    crate::images::NativeImageBackend::Test,
     (),
   );
   let video = |native: Option<crate::images::NativeImageData>| {

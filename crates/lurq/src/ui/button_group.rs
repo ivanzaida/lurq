@@ -205,7 +205,13 @@ impl ButtonGroup {
       case = case.state(state.clone(), true);
     }
     let recipe = theme.resolve::<ButtonGroup>(&case, Some(&self.rules));
-    let item = recipe.rules_for(ButtonGroupPart::Item, ButtonPart::Root);
+    // The group pads its buttons across; a button that is an icon alone keeps its square, with its icon in the
+    // middle, as it is out of a group.
+    let item = recipe.rules_for(ButtonGroupPart::Item, ButtonPart::Root).state(
+      super::ButtonState::IconOnly,
+      ButtonPart::Root,
+      |s| s.padding_x(0.0),
+    );
     // In a line around the group a button has no fill of its own; in a filled group it has the group's.
     let of_button: Name = if self.variant == Name::from(ButtonGroupVariant::Outline) {
       ButtonVariant::Ghost.into()

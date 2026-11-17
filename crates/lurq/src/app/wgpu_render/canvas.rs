@@ -503,7 +503,8 @@ fn readback(device: &Device, queue: &Queue, texture: &wgpu::Texture, done: Compl
     buffer.slice(..).map_async(MapMode::Read, move |result| {
       let _ = tx.send(result);
     });
-    if device.poll(PollType::wait_indefinitely()).is_err() || !matches!(rx.recv(), Ok(Ok(()))) {
+    // Asked of a device that is lost, wgpu would end this thread and leave the readback unanswered.
+    if !super::device_loss::asked(&device, None, PollType::wait_indefinitely()) || !matches!(rx.recv(), Ok(Ok(()))) {
       done.finish(Err(CanvasError::RendererLost));
       return;
     }
