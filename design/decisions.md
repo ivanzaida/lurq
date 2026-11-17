@@ -34,7 +34,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   pictures and drawing: `image` (codecs) and `canvas` (drawing, with `svg` folded in); `raster` and `render`
   internal; `screenshot` uses `image`; one `png`. `resources` goes. `devtools` and `perf_profile` stay, their
   call-site cfgs behind macros. The browser keeps an explicit list. Tests: seven runs (A–G) in place of five feature
-  combinations.
+  combinations. SVG is always rasterized at the size it is drawn: the tessellation an `svg`-only build had is removed
+  (Ivan, the same day), as no build has it once `canvas` brings `raster`.
 - **State.** In work in the session "Clean up lurq's Cargo features" (`feature-cleanup`); first merges the 0.62.0
   release from `master`.
 
