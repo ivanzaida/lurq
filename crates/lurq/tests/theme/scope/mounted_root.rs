@@ -86,7 +86,7 @@ impl Component for Panel {
       let form = ctx.form(lurq::components::FormOptions::new());
       return ctx.form_view(form, |_| column);
     }
-    column.into()
+    Element::from(column)
   }
 }
 
