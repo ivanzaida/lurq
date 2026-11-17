@@ -18,7 +18,7 @@ use crate::{
   },
   components::{Column, Row},
   core::Signal,
-  files::{DroppedFile, FileKind, format_size},
+  files::{DroppedFile, FileKind},
   layout::{Alignment, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border as Edge, dimension::Dimension, node_kind::TextOverflow},
 };
@@ -319,9 +319,9 @@ impl FileUpload {
       files,
       zone: DropZone::new(),
       zone_shown: false,
-      choose_label: Arc::from("Choose files"),
-      remove_label: Arc::from("Remove"),
-      retry_label: Arc::from("Retry"),
+      choose_label: super::current_locale().fields.choose_files.clone(),
+      remove_label: super::current_locale().common.remove.clone(),
+      retry_label: super::current_locale().common.retry.clone(),
       size_text: None,
       label: None,
       invalid: false,
@@ -795,7 +795,7 @@ impl FileUploadView {
         .size()
         .map(|size| match &self.size_text {
           Some(text) => text(size),
-          None => format_size(size),
+          None => super::current_locale().fields.size(size),
         })
         .unwrap_or_default(),
     };

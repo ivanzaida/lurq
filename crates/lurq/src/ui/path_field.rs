@@ -161,7 +161,7 @@ impl PathField {
       picks: None,
       dialog: FileDialog::new(),
       icon: None,
-      browse_label: Arc::from("Browse…"),
+      browse_label: super::current_locale().fields.browse.clone(),
       on_browse: Vec::new(),
       on_pick: Vec::new(),
       full_width: false,

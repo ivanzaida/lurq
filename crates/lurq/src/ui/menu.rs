@@ -189,7 +189,7 @@ impl Menu {
       open,
       entries: Vec::new(),
       page: None,
-      back_label: Arc::from("Back"),
+      back_label: super::current_locale().common.back.clone(),
       placement: None,
       offset: None,
       collision: None,

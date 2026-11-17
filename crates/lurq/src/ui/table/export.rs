@@ -110,12 +110,13 @@ pub struct ExportLabels {
 
 impl Default for ExportLabels {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      export: "Export".into(),
-      shown_csv: "Shown rows as CSV".into(),
-      shown_tsv: "Shown rows as tab-separated".into(),
-      selected_csv: "Selected as CSV".into(),
-      selected_tsv: "Selected as tab-separated".into(),
+      export: locale.data.export.to_string(),
+      shown_csv: locale.data.shown_csv.to_string(),
+      shown_tsv: locale.data.shown_tsv.to_string(),
+      selected_csv: locale.data.selected_csv.to_string(),
+      selected_tsv: locale.data.selected_tsv.to_string(),
     }
   }
 }
@@ -213,16 +214,17 @@ pub struct GridBarLabels {
 
 impl Default for GridBarLabels {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
     Self {
-      bar: "Grid tools".into(),
-      search: "Search rows".into(),
-      filter: "Filter".into(),
-      columns: "Columns".into(),
-      export: "Export".into(),
-      density: "Density".into(),
-      comfortable: "Comfortable".into(),
-      default: "Default".into(),
-      compact: "Compact".into(),
+      bar: locale.data.grid_tools.to_string(),
+      search: locale.data.search_rows.to_string(),
+      filter: locale.data.filter.to_string(),
+      columns: locale.data.columns.to_string(),
+      export: locale.data.export.to_string(),
+      density: locale.data.density.to_string(),
+      comfortable: locale.data.comfortable.to_string(),
+      default: locale.data.default.to_string(),
+      compact: locale.data.compact.to_string(),
     }
   }
 }
@@ -231,11 +233,14 @@ impl Default for GridBarLabels {
 /// title ("Status: Passing, Failed", "Size: 10 to 20").
 pub(super) fn filter_said(filter: &super::ColumnFilter) -> String {
   use super::{ColumnFilter, TextMatch};
+  let locale = crate::ui::current_locale();
+  let words = &locale.data;
+  let fill = crate::core::fill;
   let range = |from: Option<String>, to: Option<String>| match (from, to) {
     (Some(from), Some(to)) if from == to => from,
-    (Some(from), Some(to)) => format!("{from} to {to}"),
-    (Some(from), None) => format!("from {from}"),
-    (None, Some(to)) => format!("to {to}"),
+    (Some(from), Some(to)) => fill(&words.from_to, &[("from", &from), ("to", &to)]),
+    (Some(from), None) => fill(&words.from_only, &[("from", &from)]),
+    (None, Some(to)) => fill(&words.to_only, &[("to", &to)]),
     (None, None) => String::new(),
   };
   match filter {
@@ -249,7 +254,7 @@ pub(super) fn filter_said(filter: &super::ColumnFilter) -> String {
     }
     ColumnFilter::Date { from, to } => range(from.map(|day| day.to_string()), to.map(|day| day.to_string())),
     ColumnFilter::Set(values) => values.join(", "),
-    ColumnFilter::Bool(value) => if *value { "yes" } else { "no" }.to_owned(),
+    ColumnFilter::Bool(value) => if *value { &locale.common.yes } else { &locale.common.no }.to_string(),
   }
 }
 

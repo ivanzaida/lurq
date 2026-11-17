@@ -195,12 +195,14 @@ pub(super) fn render_admonition(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
+  let locale = crate::ui::current_locale();
+  let words = &locale.editing;
   let (variant, icon, title) = match kind {
-    MarkdownAdmonitionKind::Note => (AlertVariant::Info, icons::INFO, "Note"),
-    MarkdownAdmonitionKind::Tip => (AlertVariant::Success, icons::LIGHTBULB, "Tip"),
-    MarkdownAdmonitionKind::Important => (AlertVariant::Neutral, icons::MEGAPHONE, "Important"),
-    MarkdownAdmonitionKind::Warning => (AlertVariant::Warning, icons::WARNING, "Warning"),
-    MarkdownAdmonitionKind::Caution => (AlertVariant::Destructive, icons::ALERT_OCTAGON, "Caution"),
+    MarkdownAdmonitionKind::Note => (AlertVariant::Info, icons::INFO, &words.note),
+    MarkdownAdmonitionKind::Tip => (AlertVariant::Success, icons::LIGHTBULB, &words.tip),
+    MarkdownAdmonitionKind::Important => (AlertVariant::Neutral, icons::MEGAPHONE, &words.important),
+    MarkdownAdmonitionKind::Warning => (AlertVariant::Warning, icons::WARNING, &words.warning),
+    MarkdownAdmonitionKind::Caution => (AlertVariant::Destructive, icons::ALERT_OCTAGON, &words.caution),
   };
   // Its text is the callout's: 14 at a line height of 1.5, in the design's 15.
   let mut style = base_style.clone();
@@ -390,7 +392,13 @@ pub(super) fn render_footnotes(
       let target = format!("{REFERENCE_ANCHOR}{label}");
       let back = Button::empty()
         .tab_index(0)
-        .describe("a11y_name", Arc::<str>::from(format!("Back to the reference {number}")))
+        .describe(
+          "a11y_name",
+          Arc::<str>::from(crate::core::fill(
+            &crate::ui::current_locale().editing.back_to_reference,
+            &[("number", &number.to_string())],
+          )),
+        )
         .height(line_height(&style))
         .align_items(Alignment::Center)
         .child(

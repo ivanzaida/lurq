@@ -304,8 +304,8 @@ impl Navbar {
   /// A bar with nothing in it.
   pub fn new() -> Self {
     Self {
-      label: Arc::from("Main"),
-      menu_label: Arc::from("Menu"),
+      label: super::current_locale().navigation.main.clone(),
+      menu_label: super::current_locale().navigation.menu.clone(),
       brand: None,
       items: Vec::new(),
       trailing: Vec::new(),

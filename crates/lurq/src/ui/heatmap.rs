@@ -117,9 +117,9 @@ impl Heatmap {
       range: None,
       cell_size: CELL,
       column_axis: false,
-      less_text: Arc::from("Less"),
-      more_text: Arc::from("More"),
-      missing_text: Arc::from("No value"),
+      less_text: super::current_locale().data.less.clone(),
+      more_text: super::current_locale().data.more.clone(),
+      missing_text: super::current_locale().data.no_value.clone(),
       props: ChartProps::default(),
     }
   }
@@ -254,7 +254,13 @@ impl Heatmap {
       .align_items(Alignment::Center)
       .part(&part)
       .describe("a11y_role", "img")
-      .describe("a11y_name", format!("{} to {}", self.less_text, self.more_text))
+      .describe(
+        "a11y_name",
+        crate::core::fill(
+          &super::current_locale().data.scale,
+          &[("less", &self.less_text), ("more", &self.more_text)],
+        ),
+      )
       .child(label.text(&self.less_text).part(&label).nowrap());
     for at in 0..plot.steps {
       let mut swatch = Row::new().part(&step).background(colors.step(at, plot.steps));

@@ -178,17 +178,19 @@ struct Words {
 
 impl Default for Words {
   fn default() -> Self {
+    let locale = super::current_locale();
+    let words = &locale.navigation;
     Self {
-      label: Arc::from("Pictures"),
-      close: Arc::from("Close"),
-      previous: Arc::from("Previous picture"),
-      next: Arc::from("Next picture"),
-      zoom_in: Arc::from("Zoom in"),
-      zoom_out: Arc::from("Zoom out"),
-      fit: Arc::from("Fit to the window"),
-      download: Arc::from("Download"),
-      share: Arc::from("Share"),
-      more: Arc::from("More"),
+      label: words.pictures.clone(),
+      close: locale.common.close.clone(),
+      previous: words.previous_picture.clone(),
+      next: words.next_picture.clone(),
+      zoom_in: words.zoom_in.clone(),
+      zoom_out: words.zoom_out.clone(),
+      fit: words.fit_to_window.clone(),
+      download: locale.common.download.clone(),
+      share: locale.common.share.clone(),
+      more: locale.common.more.clone(),
     }
   }
 }

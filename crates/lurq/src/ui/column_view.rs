@@ -194,7 +194,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
       autofocus: false,
       disabled: false,
       label: None,
-      loading_label: Arc::from("Loading"),
+      loading_label: super::current_locale().common.loading.clone(),
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,

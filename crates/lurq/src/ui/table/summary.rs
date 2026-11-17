@@ -40,7 +40,8 @@ impl SummaryKind {
   }
 }
 
-/// The words of a data grid's summary rows, each the app says otherwise: English unless told.
+/// The words of a data grid's summary rows, each the app says otherwise: the app's locale's
+/// ([`Locale::data`](crate::core::Locale::data)) unless told.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryLabels {
   pub sum: String,
@@ -54,13 +55,15 @@ pub struct SummaryLabels {
 
 impl Default for SummaryLabels {
   fn default() -> Self {
+    let locale = crate::ui::current_locale();
+    let words = &locale.data;
     Self {
-      sum: SummaryKind::Sum.label().into(),
-      average: SummaryKind::Average.label().into(),
-      count: SummaryKind::Count.label().into(),
-      min: SummaryKind::Min.label().into(),
-      max: SummaryKind::Max.label().into(),
-      row: "Summary".into(),
+      sum: words.sum.to_string(),
+      average: words.average.to_string(),
+      count: words.count.to_string(),
+      min: words.min.to_string(),
+      max: words.max.to_string(),
+      row: words.summary.to_string(),
     }
   }
 }

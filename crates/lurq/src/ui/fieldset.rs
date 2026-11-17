@@ -637,9 +637,9 @@ impl ErrorSummary {
       states: self.states.clone(),
     }
     .state(ErrorSummaryState::FullWidth, self.full_width);
-    let title = self.title.unwrap_or_else(|| match self.errors.len() {
-      1 => Arc::from("1 field needs attention"),
-      count => Arc::from(format!("{count} fields need attention").as_str()),
+    let title = self.title.unwrap_or_else(|| {
+      let locale = super::current_locale();
+      Arc::from(locale.count(&locale.fields.fields_need_attention, self.errors.len()))
     });
     let view = ErrorSummaryView {
       title,

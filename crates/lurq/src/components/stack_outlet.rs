@@ -150,7 +150,7 @@ pub struct NavigationBar {
   pub large_title_height: f32,
   pub inset: f32,
   /// What the way back says when the title of the screen under has no room, or there is none: the word for
-  /// going back, in the app's language.
+  /// going back. Empty, it is the app's locale's ([`Locale::common`](crate::core::Locale::common)'s `back`).
   pub back: String,
   /// Whether a long press on the way back lists the screens under, and how wide the list is.
   pub back_menu: bool,
@@ -204,7 +204,7 @@ impl NavigationBar {
       large_title_weight: FontWeight::Bold,
       large_title_height: 52.0,
       inset: 16.0,
-      back: "Back".to_owned(),
+      back: String::new(),
       back_menu: true,
       back_menu_width: 250.0,
       prompt_size: 13.0,
@@ -319,8 +319,8 @@ impl NavigationSearch {
   pub fn new(text: Signal<String>) -> Self {
     Self {
       text,
-      placeholder: "Search".to_owned(),
-      cancel: "Cancel".to_owned(),
+      placeholder: crate::ui::current_locale().common.search.to_string(),
+      cancel: crate::ui::current_locale().common.cancel.to_string(),
       hides_bar: true,
     }
   }
@@ -1609,6 +1609,7 @@ enum LabelFit {
 fn back_label_of(under: &NavigationItem, back: &str) -> String {
   match &under.back_title {
     Some(title) => title.clone(),
+    None if under.title.is_empty() && back.is_empty() => crate::ui::current_locale().common.back.to_string(),
     None if under.title.is_empty() => back.to_owned(),
     None => under.title.clone(),
   }

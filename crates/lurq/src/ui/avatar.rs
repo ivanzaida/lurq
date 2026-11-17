@@ -181,7 +181,8 @@ impl Avatar {
 
   /// The face of a group's count: "+3", called "3 more".
   pub(crate) fn count(hidden: usize) -> Self {
-    let mut avatar = Self::new(&format!("{hidden} more"));
+    let locale = super::current_locale();
+    let mut avatar = Self::new(&locale.count(&locale.common.more_count, hidden));
     avatar.text = Some(Arc::from(format!("+{hidden}")));
     avatar
   }
@@ -755,7 +756,13 @@ impl AvatarGroup {
         let names: Vec<&str> = self.avatars[..shown].iter().map(|avatar| &*avatar.name).collect();
         match hidden {
           0 => names.join(", "),
-          more => format!("{} and {more} more", names.join(", ")),
+          more => {
+            let locale = super::current_locale();
+            crate::core::fill(
+              locale.form(&locale.common.and_more, more),
+              &[("names", &names.join(", ")), ("count", &more.to_string())],
+            )
+          }
         }
       },
       |label| label.to_string(),

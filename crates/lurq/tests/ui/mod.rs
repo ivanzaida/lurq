@@ -86,6 +86,7 @@ mod lightbox;
 mod line_chart;
 mod list_item;
 mod listbox;
+mod locale;
 mod media_captions;
 mod media_speed_menu;
 mod media_time;
@@ -105,8 +106,8 @@ mod number_input;
 mod outcome;
 mod pagination;
 mod path_field;
-mod picture;
 mod persona;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;

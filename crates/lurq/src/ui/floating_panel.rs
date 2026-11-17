@@ -163,8 +163,8 @@ impl PanelHeader {
       buttons: Vec::new(),
       menu: None,
       on_close: Vec::new(),
-      more_label: Arc::from("More"),
-      close_label: Arc::from("Close"),
+      more_label: super::current_locale().common.more.clone(),
+      close_label: super::current_locale().common.close.clone(),
       level: 2,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -684,11 +684,11 @@ impl FloatingPanel {
       min_size: (160.0, 80.0),
       resizable: true,
       label: None,
-      move_label: Arc::from("Move"),
-      resize_label: Arc::from("Resize"),
-      collapse_label: Arc::from("Collapse"),
-      more_label: Arc::from("More"),
-      close_label: Arc::from("Close"),
+      move_label: super::current_locale().navigation.move_panel.clone(),
+      resize_label: super::current_locale().navigation.resize.clone(),
+      collapse_label: super::current_locale().navigation.collapse.clone(),
+      more_label: super::current_locale().common.more.clone(),
+      close_label: super::current_locale().common.close.clone(),
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -1248,7 +1248,7 @@ impl FloatingPanelView {
       .align_items(Alignment::Center)
       .describe("a11y_role", "button")
       .describe("a11y_name", format!("{} {}", self.core.move_label, self.title))
-      .describe("a11y_description", "Arrow keys move it")
+      .describe("a11y_description", super::current_locale().navigation.move_hint.clone())
       .child(glyph(&part, Name::new(icons::GRIP_VERTICAL), false));
     if self.own.mounted {
       let (mover, position, docked) = (self.mover(), self.position, self.core.docked.clone());
@@ -1434,7 +1434,10 @@ impl FloatingPanelView {
     let mut grip = pressable(&part, false)
       .describe("a11y_role", "button")
       .describe("a11y_name", format!("{} {}", self.core.resize_label, self.title))
-      .describe("a11y_description", "Arrow keys resize it")
+      .describe(
+        "a11y_description",
+        super::current_locale().navigation.resize_hint.clone(),
+      )
       .child(glyph(&part, Name::new(icons::GRIP), false));
     grip = self.resize_handle(grip, edges);
     if self.own.mounted {

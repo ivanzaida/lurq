@@ -96,10 +96,11 @@ struct Words {
 
 impl Default for Words {
   fn default() -> Self {
+    let locale = super::current_locale();
     Self {
-      label: Arc::from("Carousel"),
-      previous: Arc::from("Previous slide"),
-      next: Arc::from("Next slide"),
+      label: locale.navigation.carousel.clone(),
+      previous: locale.navigation.previous_slide.clone(),
+      next: locale.navigation.next_slide.clone(),
     }
   }
 }
@@ -326,7 +327,10 @@ impl Carousel {
   fn name_of(&self, at: usize, count: usize) -> String {
     match &self.slide_label {
       Some(label) => label(at, count),
-      None => format!("Slide {at} of {count}"),
+      None => crate::core::fill(
+        &super::current_locale().navigation.slide_of,
+        &[("at", &at.to_string()), ("total", &count.to_string())],
+      ),
     }
   }
 }
@@ -836,7 +840,10 @@ impl CarouselView {
         .align_items(Alignment::Stretch)
         .padding_right(carousel.gap)
         .describe("a11y_role", "group")
-        .describe("a11y_roledescription", "slide")
+        .describe(
+          "a11y_roledescription",
+          super::current_locale().navigation.slide_role.clone(),
+        )
         .describe("a11y_name", carousel.name_of(at + 1, count))
         .child(slide.clone());
       if self.step > 0.0 {
@@ -948,7 +955,10 @@ impl CarouselView {
       .align_items(Alignment::Center)
       .ref_element(self.root.clone())
       .describe("a11y_role", "region")
-      .describe("a11y_roledescription", "carousel")
+      .describe(
+        "a11y_roledescription",
+        super::current_locale().navigation.carousel_role.clone(),
+      )
       .describe("a11y_name", carousel.words.label.clone())
       .child(track)
       .with_children(self.dots());

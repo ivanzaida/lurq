@@ -15,6 +15,7 @@ use crate::{
     theme::{BorderSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::Row,
+  core::KeyWords,
   layout::Alignment,
   node::{Element, border::Border as Line},
 };
@@ -165,7 +166,7 @@ impl Kbd {
       platform: KeyPlatform::default(),
       variant: KbdVariant::default().into(),
       size: KbdSize::default().into(),
-      separator_text: Arc::from("then"),
+      separator_text: super::current_locale().keys.then.clone(),
       label: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -284,7 +285,14 @@ impl Kbd {
     .state(KbdState::Mac, self.platform == KeyPlatform::Mac);
     let platform = self.platform;
     let view = KbdView {
-      steps: self.steps.iter().map(|step| keys_of(step, platform)).collect(),
+      steps: {
+        let locale = super::current_locale();
+        self
+          .steps
+          .iter()
+          .map(|step| keys_of(step, platform, &locale.keys))
+          .collect()
+      },
       platform,
       variant: self.variant,
       size: self.size,
@@ -329,53 +337,54 @@ fn split(keys: &str) -> Vec<Arc<str>> {
   parted
 }
 
-/// A modifier: where a Mac puts it among the others, its word, its word on a Mac, and its glyph.
-fn modifier(folded: &str, platform: KeyPlatform) -> Option<(u8, &'static str, &'static str, &'static str)> {
+/// A modifier: where a Mac puts it among the others, its word, its word on a Mac, and its glyph, in the words of
+/// `keys`.
+fn modifier<'a>(folded: &str, platform: KeyPlatform, keys: &'a KeyWords) -> Option<(u8, &'a str, &'a str, &'a str)> {
   Some(match folded {
-    "ctrl" | "control" => (0, "Ctrl", "Ctrl", "⌃"),
-    "alt" | "option" | "opt" => (1, "Alt", "Option", "⌥"),
-    "shift" => (2, "Shift", "Shift", "⇧"),
-    "meta" => (3, "Meta", "Cmd", "⌘"),
-    "cmd" | "command" => (3, "Cmd", "Cmd", "⌘"),
-    "super" => (3, "Super", "Cmd", "⌘"),
-    "win" | "windows" => (3, "Win", "Cmd", "⌘"),
-    "mod" if platform == KeyPlatform::Mac => (3, "Ctrl", "Cmd", "⌘"),
-    "mod" => (0, "Ctrl", "Cmd", "⌘"),
+    "ctrl" | "control" => (0, &keys.ctrl, &keys.ctrl, "⌃"),
+    "alt" | "option" | "opt" => (1, &keys.alt, &keys.option, "⌥"),
+    "shift" => (2, &keys.shift, &keys.shift, "⇧"),
+    "meta" => (3, &keys.meta, &keys.cmd, "⌘"),
+    "cmd" | "command" => (3, &keys.cmd, &keys.cmd, "⌘"),
+    "super" => (3, &keys.super_key, &keys.cmd, "⌘"),
+    "win" | "windows" => (3, &keys.win, &keys.cmd, "⌘"),
+    "mod" if platform == KeyPlatform::Mac => (3, &keys.ctrl, &keys.cmd, "⌘"),
+    "mod" => (0, &keys.ctrl, &keys.cmd, "⌘"),
     _ => return None,
   })
 }
 
 /// A key that is not a modifier, by the name lurq gives it or a person writes: its label in words, its label on a
-/// Mac, and its word.
-fn named(folded: &str) -> Option<(&'static str, &'static str, &'static str)> {
+/// Mac, and its word, in the words of `keys`.
+fn named<'a>(folded: &str, keys: &'a KeyWords) -> Option<(&'a str, &'a str, &'a str)> {
   Some(match folded {
-    "enter" | "return" => ("Enter", "↩", "Enter"),
-    "escape" | "esc" => ("Esc", "Esc", "Esc"),
-    "backspace" => ("Backspace", "⌫", "Backspace"),
-    "delete" | "del" => ("Del", "⌦", "Delete"),
-    "tab" => ("Tab", "⇥", "Tab"),
-    "space" | "spacebar" => ("Space", "Space", "Space"),
-    "arrowup" => ("↑", "↑", "Up"),
-    "arrowdown" => ("↓", "↓", "Down"),
-    "arrowleft" => ("←", "←", "Left"),
-    "arrowright" => ("→", "→", "Right"),
-    "pageup" => ("Page Up", "⇞", "Page Up"),
-    "pagedown" => ("Page Down", "⇟", "Page Down"),
-    "home" => ("Home", "↖", "Home"),
-    "end" => ("End", "↘", "End"),
-    "capslock" => ("Caps Lock", "⇪", "Caps Lock"),
+    "enter" | "return" => (&keys.enter, "↩", &keys.enter),
+    "escape" | "esc" => (&keys.esc, &keys.esc, &keys.esc),
+    "backspace" => (&keys.backspace, "⌫", &keys.backspace),
+    "delete" | "del" => (&keys.delete, "⌦", &keys.delete_name),
+    "tab" => (&keys.tab, "⇥", &keys.tab),
+    "space" | "spacebar" => (&keys.space, &keys.space, &keys.space),
+    "arrowup" => ("↑", "↑", &keys.up),
+    "arrowdown" => ("↓", "↓", &keys.down),
+    "arrowleft" => ("←", "←", &keys.left),
+    "arrowright" => ("→", "→", &keys.right),
+    "pageup" => (&keys.page_up, "⇞", &keys.page_up),
+    "pagedown" => (&keys.page_down, "⇟", &keys.page_down),
+    "home" => (&keys.home, "↖", &keys.home),
+    "end" => (&keys.end, "↘", &keys.end),
+    "capslock" => (&keys.caps_lock, "⇪", &keys.caps_lock),
     _ => return None,
   })
 }
 
 /// The keys of one step as they are drawn on `platform`: on a Mac its modifiers first, in a Mac's order.
-fn keys_of(step: &[Arc<str>], platform: KeyPlatform) -> Vec<KbdKey> {
+fn keys_of(step: &[Arc<str>], platform: KeyPlatform, words: &KeyWords) -> Vec<KbdKey> {
   let mac = platform == KeyPlatform::Mac;
   let mut keys: Vec<(u8, KbdKey)> = step
     .iter()
     .map(|written| {
       if written.as_ref() == " " {
-        let space: Arc<str> = Arc::from("Space");
+        let space = words.space.clone();
         return (
           u8::MAX,
           KbdKey {
@@ -390,7 +399,7 @@ fn keys_of(step: &[Arc<str>], platform: KeyPlatform) -> Vec<KbdKey> {
         .filter(|character| !character.is_whitespace())
         .flat_map(char::to_lowercase)
         .collect();
-      if let Some((rank, word, mac_word, glyph)) = modifier(&folded, platform) {
+      if let Some((rank, word, mac_word, glyph)) = modifier(&folded, platform, words) {
         let (label, name) = if mac { (glyph, mac_word) } else { (word, word) };
         return (
           rank,
@@ -401,9 +410,13 @@ fn keys_of(step: &[Arc<str>], platform: KeyPlatform) -> Vec<KbdKey> {
           },
         );
       }
-      if let Some((word, mac_label, name)) = named(&folded) {
+      if let Some((word, mac_label, name)) = named(&folded, words) {
         let label = if mac { mac_label } else { word };
-        let name = if mac && name == "Enter" { "Return" } else { name };
+        let name = if mac && name == &*words.enter {
+          &*words.return_key
+        } else {
+          name
+        };
         return (
           u8::MAX,
           KbdKey {

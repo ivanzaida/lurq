@@ -348,7 +348,10 @@ impl Meter {
     let max = self.max;
     let text = match &self.value_text {
       Some(text) => text(self.value),
-      None => format!("{} of {}", number(self.value), number(max)),
+      None => crate::core::fill(
+        &super::current_locale().common.place_of,
+        &[("at", &number(self.value)), ("total", &number(max))],
+      ),
     };
     MeterView {
       segments,

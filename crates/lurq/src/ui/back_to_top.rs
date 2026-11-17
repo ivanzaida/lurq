@@ -69,9 +69,6 @@ names!(BackToTopState {
 /// stay the button's: what a renderer returns is put in the root, which fades.
 pub type BackToTopRenderer = Arc<dyn Fn(BackToTopView) -> Element + Send + Sync>;
 
-/// What the button is called to tooling when the app gives it no name.
-const BACK_TO_TOP: &str = "Back to top";
-
 /// A back to top button: a round button that shows once a page is scrolled
 /// down, and takes it back to its top.
 ///
@@ -132,7 +129,7 @@ impl BackToTop {
   pub fn new(scroll: &ScrollState) -> Self {
     Self {
       scroll: scroll.clone(),
-      label: Arc::from(BACK_TO_TOP),
+      label: super::current_locale().navigation.back_to_top.clone(),
       icon: Name::new(icons::ARROW_UP),
       threshold: BACK_TO_TOP_THRESHOLD,
       force_shown: None,

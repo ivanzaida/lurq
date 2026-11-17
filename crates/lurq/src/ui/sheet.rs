@@ -263,7 +263,7 @@ impl Sheet {
       footer: Vec::new(),
       size: None,
       close_button: false,
-      close_label: Arc::from("Close"),
+      close_label: super::current_locale().common.close.clone(),
       forced: None,
       grabber: None,
       dismiss_on_veil: true,

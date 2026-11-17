@@ -162,9 +162,6 @@ names!(SpinnerState {
 /// What builds a spinner's nodes: a theme's in place of the default one.
 pub type SpinnerRenderer = Arc<dyn Fn(SpinnerView) -> Element + Send + Sync>;
 
-/// What a spinner is called to tooling when the app gives it no label.
-const LOADING: &str = "Loading";
-
 /// A spinner: something is being done, and how far it is is not known.
 ///
 /// ```
@@ -356,7 +353,10 @@ impl SpinnerView {
 
   /// What the spinner is called: its label, or "Loading".
   pub fn name(&self) -> Arc<str> {
-    self.label.clone().unwrap_or_else(|| Arc::from(LOADING))
+    self
+      .label
+      .clone()
+      .unwrap_or_else(|| super::current_locale().common.loading.clone())
   }
 
   /// A length of the recipe in logical pixels, where it is one.

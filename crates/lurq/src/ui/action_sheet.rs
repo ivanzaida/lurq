@@ -118,7 +118,7 @@ impl ActionSheet {
       open,
       items: items.into_iter().collect(),
       title: None,
-      cancel_label: Arc::from("Cancel"),
+      cancel_label: super::current_locale().common.cancel.clone(),
       on_dismiss: Vec::new(),
       inline: false,
       below: 0.0,
@@ -141,7 +141,7 @@ impl ActionSheet {
     self
   }
 
-  /// What Cancel says: "Cancel" unless told.
+  /// What Cancel says: the locale's word ("Cancel" in English) unless told.
   pub fn cancel_label(mut self, label: &str) -> Self {
     self.cancel_label = Arc::from(label);
     self

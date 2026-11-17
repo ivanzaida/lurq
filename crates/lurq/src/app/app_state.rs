@@ -288,6 +288,7 @@ impl App {
       .shared
       .dates
       .set(crate::core::shared_date_text(locale.dates.clone()));
+    self.shared.menu.set_words(locale.navigation.clone());
     self.shared.locale.set(locale);
   }
 

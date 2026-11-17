@@ -176,25 +176,10 @@ impl FileKind {
   }
 }
 
-/// A size in bytes as a person reads it: `"512 B"`, `"4 KB"`, `"1.2 MB"`.
+/// A size in bytes as a person reads it: `"512 B"`, `"4 KB"`, `"1.2 MB"`, in the units of the app's locale
+/// ([`FieldWords::size`](crate::core::FieldWords::size)) where it is said in a render, in English outside one.
 pub fn format_size(bytes: u64) -> String {
-  const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
-  if bytes < 1024 {
-    return format!("{bytes} B");
-  }
-  let mut value = bytes as f64 / 1024.0;
-  let mut unit = 0;
-  while value >= 1024.0 && unit < UNITS.len() - 1 {
-    value /= 1024.0;
-    unit += 1;
-  }
-  // One decimal under ten, where it says something: 1.2 MB, but 4 KB.
-  let tenths = (value * 10.0).round() / 10.0;
-  if tenths < 10.0 && tenths.fract() != 0.0 {
-    format!("{tenths:.1} {}", UNITS[unit])
-  } else {
-    format!("{} {}", value.round() as u64, UNITS[unit])
-  }
+  crate::ui::current_locale().fields.size(bytes)
 }
 
 /// The system's dialog for files to open.

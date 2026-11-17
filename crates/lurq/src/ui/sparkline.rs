@@ -213,20 +213,25 @@ impl Sparkline {
     let least = values.iter().copied().fold(f64::INFINITY, f64::min);
     let most = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let summary = if values.is_empty() {
-      self
-        .empty_text
-        .map_or_else(|| "No data".to_owned(), |text| text.to_string())
+      self.empty_text.map_or_else(
+        || super::current_locale().data.no_data.to_string(),
+        |text| text.to_string(),
+      )
     } else {
       match &self.summary_text {
         Some(text) => text(&values),
-        None => format!(
-          "{} {} from {} to {}, the last {}",
-          values.len(),
-          if values.len() == 1 { "value" } else { "values" },
-          number(least),
-          number(most),
-          number(*values.last().unwrap_or(&0.0))
-        ),
+        None => {
+          let locale = super::current_locale();
+          crate::core::fill(
+            locale.form(&locale.data.values_summary, values.len()),
+            &[
+              ("count", &values.len().to_string()),
+              ("least", &number(least)),
+              ("most", &number(most)),
+              ("last", &number(*values.last().unwrap_or(&0.0))),
+            ],
+          )
+        }
       }
     };
     SparklineView {

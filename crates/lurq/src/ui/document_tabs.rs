@@ -383,9 +383,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
       context_menu: None,
       label: None,
       words: Words {
-        close: Arc::from("Close"),
-        add: Arc::from("New tab"),
-        more: Arc::from("Show the hidden tabs"),
+        close: super::current_locale().common.close.clone(),
+        add: super::current_locale().navigation.new_tab.clone(),
+        more: super::current_locale().navigation.show_hidden_tabs.clone(),
       },
       disabled: false,
       shortcuts: true,

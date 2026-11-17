@@ -343,7 +343,7 @@ impl Field {
 
   /// Whether the field may be left empty: "Optional" after its label. A required field shows no such mark.
   pub fn optional(mut self, optional: bool) -> Self {
-    self.optional = optional.then(|| Arc::from("Optional"));
+    self.optional = optional.then(|| super::current_locale().fields.optional.clone());
     self
   }
 
