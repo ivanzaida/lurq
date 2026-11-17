@@ -25,10 +25,10 @@ use crate::{
   },
   code::{CodeHighlighter, CodeToken},
   components::{Column, LineGutter, Row, TextInput},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::{
     Alignment,
-    layout_kind::{Justify, ScrollState},
+    layout_kind::Justify,
     quad::RichTextSpan,
     text_style::{TextAlign, TextStyle},
   },
@@ -442,11 +442,15 @@ impl CodeBlock {
     self.build_with(theme, None)
   }
 
-  /// Whether it lays out the lines in view alone: it has a greatest height, and more lines than
-  /// [`CODE_BLOCK_WINDOWED_LINES`].
-  fn windowed(&self) -> bool {
+  /// Whether it lays out the lines in view alone: it has more lines than [`CODE_BLOCK_WINDOWED_LINES`], and a
+  /// greatest height, or a host that follows where it is in the window (`mounted`).
+  fn windowed(&self, mounted: bool) -> bool {
+    (mounted || self.bounded()) && self.code.bytes().filter(|byte| *byte == b'\n').count() >= CODE_BLOCK_WINDOWED_LINES
+  }
+
+  /// Whether it has a room of its own that its code scrolls down in: a greatest height.
+  fn bounded(&self) -> bool {
     matches!(self.max_height, Some(Length::Px(_)))
-      && self.code.bytes().filter(|byte| *byte == b'\n').count() >= CODE_BLOCK_WINDOWED_LINES
   }
 
   fn build_with(self, theme: &Theme, host: Option<&CodeBlockHost>) -> Element {
@@ -466,12 +470,14 @@ impl CodeBlock {
       case = case.state(state.clone(), true);
     }
     let tokens = code_tokens(&self.code, self.language.as_deref(), self.highlighter.as_ref());
-    let window = self.windowed().then(|| CodeWindow {
-      lines: host
-        .and_then(|host| host.window.get())
-        .map(|(start, end, _)| start..end),
-      scroll: host.map(|host| host.scroll.clone()),
-      geometry: host.map(|host| host.geometry.clone()),
+    let shown = host.and_then(|host| host.follow.window.get());
+    let window = self.windowed(host.is_some()).then(|| CodeWindow {
+      lines: shown.map(|(start, end, _)| start..end),
+      width: shown.map(|(.., width)| width as f32).filter(|width| *width > 0.0),
+      follow: host.map(|host| host.follow.clone()),
+      screen: host
+        .and_then(|host| host.follow.screen_height())
+        .filter(|height| *height > 0.0),
     });
     let view = CodeBlockView {
       code: self.code,
@@ -513,7 +519,7 @@ impl CodeBlock {
 
 impl From<CodeBlock> for Element {
   fn from(block: CodeBlock) -> Self {
-    if block.windowed() {
+    if block.windowed(true) {
       let key = block.key.clone();
       let props = CodeBlockProps(Arc::new(block));
       return match key {
@@ -525,12 +531,85 @@ impl From<CodeBlock> for Element {
   }
 }
 
-/// What a windowed block keeps: the lines it lays out, how it scrolls, and how its lines stand.
+/// What a windowed block keeps: the lines it lays out, and what follows where they are.
 struct CodeWindow {
   /// The lines laid out, where a layout has said which are in view.
   lines: Option<Range<usize>>,
-  scroll: Option<ScrollState>,
-  geometry: Option<Arc<Mutex<Option<Geometry>>>>,
+  /// The width of the room the lines wrap in, where a layout has said it.
+  width: Option<f32>,
+  follow: Option<Follow>,
+  /// How high the window is.
+  screen: Option<f32>,
+}
+
+/// What a windowed block's host follows: where its lines are, the room they are seen in, and which it laid out.
+#[derive(Clone)]
+struct Follow {
+  /// The lines laid out, and the width of the room they wrap in.
+  window: Signal<Option<(usize, usize, u32)>>,
+  geometry: Arc<Mutex<Option<Geometry>>>,
+  /// The column of the lines, as high as all of them.
+  content: ElementRef,
+  /// The room the code scrolls in, where the block has a greatest height.
+  room: ElementRef,
+  /// The window, whose height bounds what of a block with no room of its own is in view.
+  screen: Arc<Mutex<Option<Window>>>,
+  /// Whether the whole code is selected, from the keyboard.
+  all: Signal<bool>,
+}
+
+impl Follow {
+  /// How high the window is now, where the block is in one that has a size.
+  fn screen_height(&self) -> Option<f32> {
+    self
+      .screen
+      .lock()
+      .unwrap()
+      .as_ref()
+      .map(|screen| screen.info().logical_size().height)
+      .filter(|height| *height > 0.0)
+  }
+
+  /// Takes the lines in view now, where they are not the lines laid out: those of the column of the lines that are
+  /// in the window, and in the block's own room where it has one.
+  fn follow(&self) {
+    let Some(geometry) = self.geometry.lock().unwrap().clone() else {
+      return;
+    };
+    if !self.content.is_attached() {
+      return;
+    }
+    let content = self.content.bounds();
+    let screen = self.screen_height().unwrap_or(f32::INFINITY);
+    let (mut top, mut bottom) = (0.0f32, screen);
+    if geometry.bounded && self.room.is_attached() {
+      let room = self.room.bounds();
+      top = top.max(room.y);
+      bottom = bottom.min(room.y + room.height);
+    }
+    let from = (top - content.y).max(0.0);
+    let to = (bottom - content.y).min(content.height);
+    let shown = self.window.get_untracked();
+    let lines = if to > from {
+      geometry.window(from, to - from)
+    } else {
+      // Out of view: the lines stay as they are.
+      match shown {
+        Some((start, end, _)) => start..end,
+        None => return,
+      }
+    };
+    // Wrapped lines take rows by the room's width: a room of another width counts them again.
+    let width = if geometry.wraps {
+      content.width.round() as u32
+    } else {
+      0
+    };
+    let next = Some((lines.start, lines.end, width));
+    if shown != next {
+      self.window.set(next);
+    }
+  }
 }
 
 /// How a windowed block's lines stand in the room it scrolls: what its host reads after a layout to find the lines in
@@ -545,6 +624,8 @@ struct Geometry {
   rows_before: Arc<[u32]>,
   /// Whether its lines wrap, and take rows by the width of the room.
   wraps: bool,
+  /// Whether the lines are seen in a room of the block's own.
+  bounded: bool,
 }
 
 impl Geometry {
@@ -1084,7 +1165,11 @@ impl CodeBlockView {
     let (start, end, top, bottom) = self.code_padding();
     let advance = self.code_style().font_size * 0.6;
     let numbers = if self.line_numbers { self.numbers_width() } else { 0.0 };
-    let room = window.scroll.as_ref().map_or(0.0, ScrollState::viewport_width) - start - end - numbers;
+    let width = window
+      .width
+      .or_else(|| window.follow.as_ref().map(|follow| follow.content.width()))
+      .unwrap_or(0.0);
+    let room = width - start - end - numbers;
     // A line that wraps takes as many rows as its characters fill at the room's width: the figures of the family of
     // code are as wide as each other.
     let chars: Vec<usize> = ranges
@@ -1107,16 +1192,22 @@ impl CodeBlockView {
       pitch,
       rows_before: rows_before.into(),
       wraps: self.wrap,
+      bounded: self.max_height.is_some(),
     };
+    // Before a layout has said which are in view: the first, as many as the room or the window shows.
     let lines = window.lines.clone().unwrap_or_else(|| {
-      let scrolled = window.scroll.as_ref().map_or(0.0, ScrollState::scroll_y);
-      geometry.window(scrolled, self.code_room_height())
+      let height = if geometry.bounded {
+        self.code_room_height()
+      } else {
+        window.screen.unwrap_or(1200.0)
+      };
+      geometry.window(0.0, height)
     });
     let lines = lines.start.min(count)..lines.end.min(count);
     let above = top + geometry.rows_before[lines.start] as f32 * pitch;
     let below = (geometry.rows_before[count] - geometry.rows_before[lines.end]) as f32 * pitch + bottom;
-    if let Some(shared) = &window.geometry {
-      *shared.lock().unwrap() = Some(geometry);
+    if let Some(follow) = &window.follow {
+      *follow.geometry.lock().unwrap() = Some(geometry);
     }
     let shown: Element = if self.wrap {
       self.wrapped_lines(&styles, &ranges, lines, (0.0, 0.0)).into()
@@ -1137,6 +1228,19 @@ impl CodeBlockView {
         .flex_full(1.0, 0.0, None)
         .min_width(longest * advance + start + end + numbers)
     };
+    if let Some(follow) = &window.follow {
+      column = column.ref_element(follow.content.clone());
+      // Selected whole from the keyboard, the code is on the selection's color; a press in it starts another.
+      if follow.all.get() {
+        column = column.background(PaletteColor::Selection);
+      }
+      let all = follow.all.clone();
+      column = column.on_mouse_down(move |_: MouseEvent| {
+        if all.get_untracked() {
+          all.set(false);
+        }
+      });
+    }
     if let Some(id) = &self.id {
       column = column.id(format!("{id}-code"));
     }
@@ -1186,9 +1290,7 @@ impl CodeBlockView {
     if !self.selectable || self.lines_window.is_some() {
       area = area.label(&self.name());
     }
-    if let Some(scroll) = self.lines_window.as_ref().and_then(|window| window.scroll.clone()) {
-      area = area.scroll_state(scroll);
-    }
+
     if let Some(Length::Px(max)) = self.max_height {
       area = area.max_height((max - header).max(0.0));
     }
@@ -1201,6 +1303,11 @@ impl CodeBlockView {
       let least = (min - header).max(0.0);
       area = area.style(ScrollAreaPart::Root, move |style| style.min_height(least));
       body = body.min_height(least);
+    }
+    if self.max_height.is_some()
+      && let Some(follow) = self.lines_window.as_ref().and_then(|window| window.follow.as_ref())
+    {
+      body = body.ref_element(follow.room.clone());
     }
     body.child(area).into()
   }
@@ -1220,6 +1327,21 @@ impl CodeBlockView {
     }
     if let Some(key) = &self.key {
       root = root.key(key.clone());
+    }
+    if let Some(follow) = self.lines_window.as_ref().and_then(|window| window.follow.as_ref()) {
+      // Its lines are not all laid out: select all, from anywhere in the block, takes the code whole, and a copy of
+      // it copies it whole.
+      let (all, code) = (follow.all.clone(), self.code.clone());
+      root = root
+        .on_select_all({
+          let all = all.clone();
+          move |_: crate::app::events::EditEvent| all.set(true)
+        })
+        .on_copy(move |event: crate::app::events::CopyEvent| {
+          if all.get_untracked() {
+            event.set_text(code.to_string());
+          }
+        });
     }
     root
   }
@@ -1319,10 +1441,7 @@ impl crate::app::component::DevtoolsInspectable for CodeBlockProps {}
 /// What keeps a mounted block's check for a while after it copied, and a long block's lines in view.
 struct CodeBlockHost {
   copied: Copied,
-  /// The lines laid out, once a layout said which are in view, and the width of the room they wrap in.
-  window: Signal<Option<(usize, usize, u32)>>,
-  scroll: ScrollState,
-  geometry: Arc<Mutex<Option<Geometry>>>,
+  follow: Follow,
 }
 
 impl Component for CodeBlockHost {
@@ -1336,39 +1455,34 @@ impl Component for CodeBlockHost {
     });
     Self {
       copied: Copied { on, off },
-      window: Signal::new(None),
-      scroll: ScrollState::new(),
-      geometry: Arc::default(),
+      follow: Follow {
+        window: Signal::new(None),
+        geometry: Arc::default(),
+        content: ElementRef::new(),
+        room: ElementRef::new(),
+        screen: Arc::default(),
+        all: ctx.signal(false),
+      },
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let block = (*ctx.props::<CodeBlockProps>().0).clone();
-    if !block.windowed() {
-      *self.geometry.lock().unwrap() = None;
+    *self.follow.screen.lock().unwrap() = super::theme::current_window();
+    if !block.windowed(true) {
+      *self.follow.geometry.lock().unwrap() = None;
     }
-    block.build_with(&current_theme(), Some(self))
+    let element = block.build_with(&current_theme(), Some(self));
+    // Where the lines or their room move (a scroll of the block's own room or of the page round it, a window of
+    // another size), the lines in view are taken before the frame is painted.
+    for watched in [&self.follow.content, &self.follow.room] {
+      let follow = self.follow.clone();
+      watched.observe_rect_before_paint(move |_| follow.follow());
+    }
+    element
   }
 
-  /// A long block takes the lines its room shows now, where they are not the lines it laid out.
   fn after_layout(&self) {
-    let Some(geometry) = self.geometry.lock().unwrap().clone() else {
-      return;
-    };
-    let height = self.scroll.viewport_height();
-    if height <= 0.0 {
-      return;
-    }
-    let lines = geometry.window(self.scroll.scroll_y(), height);
-    // Wrapped lines take rows by the room's width: a room of another width counts them again.
-    let width = if geometry.wraps {
-      self.scroll.viewport_width().round() as u32
-    } else {
-      0
-    };
-    let lines = Some((lines.start, lines.end, width));
-    if self.window.get_untracked() != lines {
-      self.window.set(lines);
-    }
+    self.follow.follow();
   }
 }

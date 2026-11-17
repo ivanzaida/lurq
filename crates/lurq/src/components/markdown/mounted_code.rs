@@ -54,6 +54,11 @@ impl Component for MountedCode {
     if let Some(language) = &props.language {
       block = block.language(language);
     }
+    // A long block lays out the lines in the window alone, as a block of its own: its lines are not one text the
+    // document's highlights and selection run through, so it is selectable by itself, and as wide as the document.
+    if props.code.bytes().filter(|byte| *byte == b'\n').count() >= crate::ui::CODE_BLOCK_WINDOWED_LINES {
+      return block.selectable(props.selectable).mount(ctx);
+    }
     let mut element = block.build(ctx.theme());
     if !props.highlights.is_empty()
       && let Some(node) = super::code_text(&mut element.node, &props.code)

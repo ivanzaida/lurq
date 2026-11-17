@@ -169,7 +169,8 @@ value the input holds, after every edit and when the app sets the value, and wha
 the value is the same. A render that gives the input another function asks it again.
 
 A code field is one: `TextInput::code_language("sql")` colors its value by the highlighter registered for the
-language and the theme's code colors, as a code block colors its code ([Highlighting
+language and the theme's code colors, a name's weight and leaning in the input's own type
+(`InputTokenStyle::weight`, `font_style`), as a code block colors its code ([Highlighting
 code](../resources-media/#highlighting-code)), and `code_highlighter(h)` by a highlighter of its own.
 
 ```rust

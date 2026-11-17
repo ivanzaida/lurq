@@ -470,9 +470,9 @@ app.register_highlighter("rust", CodeLanguage::rust().words(token::KEYWORD, &["y
 
 **The colors are the theme's**: a `CodeScheme`, a style (color, weight, leaning) for each name, one for the light appearance and one for the dark ([Code](../theme/#code)). `CodeScheme::lurq()` is the theme's unless told, in the palette's roles, so code looks as the rest of the theme does in both appearances. A block styles a name over them with `.token_style(name, |s| s.foreground(..).bold().italic())`, or draws in a scheme of its own with `.code_scheme(..)`.
 
-**A long block**: a code block of a greatest height with more than 400 lines lays out and paints the lines in view and a chunk around them, whatever its length. Ten thousand lines of Rust take what a screen of them takes: the frame paints ten quads and some 13 KB of text, where it painted 140 009 quads and all 600 KB before. See [Code Block](../design-system/#code-block).
+**A long block**: a code block of more than 400 lines lays out and paints the lines in view and a chunk around them, whatever its length: in its own room where it has a greatest height, and in the window where it has none, as a long fence of a document has. Such a fence is selected on its own (select all takes its code whole) and is not one text with the document's highlights. Ten thousand lines of Rust take what a screen of them takes: the frame paints ten quads and some 13 KB of text, where it painted 140 009 quads and all 600 KB before. See [Code Block](../design-system/#code-block).
 
-**A code field** colors its value by the same names and colors, again after every edit: `TextInput::code_language("sql")`, or `.code_highlighter(h)`. It is built on `TextInput::tokens_with(f)`, tokens asked of each value the input holds ([Source-backed input tokens](../text-input-tokens/)).
+**A code field** colors its value by the same names, colors, weights and leaning, in its own type, again after every edit: `TextInput::code_language("sql")`, or `.code_highlighter(h)`. It is built on `TextInput::tokens_with(f)`, tokens asked of each value the input holds ([Source-backed input tokens](../text-input-tokens/)).
 
 ### Links
 

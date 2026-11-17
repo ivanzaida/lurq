@@ -19,7 +19,7 @@ use lurq::{
     text_style::{FontStyle, FontWeight},
   },
   node::{Element, color::Color},
-  ui::{CodeBlock, InlineCode},
+  ui::{CodeBlock, InlineCode, Length, ScrollArea},
 };
 
 use super::stage::Stage;
@@ -670,4 +670,118 @@ fn inline_code_in_a_language_is_colored_as_a_block_is() {
   let stage = staged_element(|| InlineCode::new("let n = 42;").into());
   assert!(runs(&stage).is_empty());
   assert_eq!(stage.text("let n = 42;").0, light(PaletteColor::Foreground));
+}
+
+/// A page of a window of 800 by 600 that scrolls down: a heading, `block`, and room after it.
+fn page_with(block: impl Fn() -> CodeBlock + Send + Sync + 'static) -> Stage {
+  let app = App::new();
+  app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Light));
+  let mut stage = Stage::first_frame_in(app, 800.0, 600.0, move |_| {
+    ScrollArea::new()
+      .width(Length::Fill)
+      .height(600.0)
+      .id("page")
+      .child(
+        Column::new()
+          .width(780.0)
+          .child(Column::new().height(300.0))
+          .child(block())
+          .child(Column::new().height(300.0)),
+      )
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_long_block_with_no_greatest_height_paints_the_lines_in_the_window() {
+  let code = long_code();
+  let mut stage = page_with(move || CodeBlock::new(&code).language("rust").id("block"));
+  // As high as every line, on a page that scrolls past it.
+  let (.., height) = stage.bounds("block");
+  assert!(height > 10_000.0 * 21.0, "{height}");
+  let shown = painted_steps(&stage);
+  assert_eq!(shown.first(), Some(&0));
+  assert!(shown.len() <= 3 * 64, "{} lines painted", shown.len());
+  // The page scrolled down to the middle of the block: the lines there are painted, and the first are not.
+  stage.tree.scroll(400.0, 300.0, 0.0, -105_000.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  let shown = painted_steps(&stage);
+  assert!(
+    shown.iter().any(|step| (4_970..5_030).contains(step)),
+    "{:?}..{:?}",
+    shown.first(),
+    shown.last()
+  );
+  assert!(!shown.contains(&0));
+  assert!(shown.len() <= 4 * 64, "{} lines painted", shown.len());
+}
+
+#[test]
+fn a_long_wrapped_blocks_first_frame_is_its_settled_one() {
+  let code: String = (0..2_000)
+    .map(|index| format!("let line_{index} = \"{}\";", "word ".repeat(30)))
+    .collect::<Vec<_>>()
+    .join("\n");
+  let scene = move |_: &mut lurq::app::ctx::Ctx| -> Element {
+    Column::new()
+      .width(420.0)
+      .child(
+        CodeBlock::new(&code)
+          .language("rust")
+          .wrap(true)
+          .selectable(false)
+          .max_height(400.0)
+          .id("block"),
+      )
+      .into()
+  };
+  let mut stage = Stage::first_frame(420.0, 600.0, scene);
+  let first = stage.bounds("block-code");
+  let first_picture = stage.picture();
+  stage.frame();
+  assert_eq!(
+    stage.bounds("block-code"),
+    first,
+    "the column of the lines is as high in both"
+  );
+  assert_eq!(stage.picture(), first_picture);
+  // Each line wraps at the room's width: the column counts more rows than lines.
+  assert!(first.3 > 2_000.0 * 21.0 * 2.0, "{}", first.3);
+}
+
+#[test]
+fn a_long_block_selected_whole_from_the_keyboard_copies_all_of_it() {
+  let code = long_code();
+  let whole = code.clone();
+  let mut stage = staged(move || CodeBlock::new(&code).language("rust").max_height(400.0).id("block"));
+  let written = Arc::new(Written::default());
+  stage.tree.set_clipboard_writer(Some(written.clone()));
+  // Tab reaches its room, Ctrl+A takes the code whole and Ctrl+C copies all ten thousand lines.
+  stage.key("Tab");
+  stage.tree.key_down("a".into(), "KeyA".into(), false, true, false);
+  stage.tree.key_up("a".into(), "KeyA".into(), false, true, false);
+  stage.pass();
+  assert!(
+    !fills(&stage, light(PaletteColor::Selection)).is_empty(),
+    "the lines on the selection's color"
+  );
+  stage.tree.key_down("c".into(), "KeyC".into(), false, true, false);
+  stage.tree.key_up("c".into(), "KeyC".into(), false, true, false);
+  stage.pass();
+  assert_eq!(written.0.lock().unwrap().last(), Some(&whole));
+  // A press in the code lets the whole go.
+  let (x, y, ..) = stage.bounds("block-code");
+  stage
+    .tree
+    .mouse_down(x + 40.0, y + 30.0, lurq::app::events::MouseButton::Left);
+  stage
+    .tree
+    .mouse_up(x + 40.0, y + 30.0, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert!(fills(&stage, light(PaletteColor::Selection)).is_empty());
 }

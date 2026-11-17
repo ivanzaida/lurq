@@ -35,9 +35,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **State.** Built on `claude/code-highlight-ef7166` (2026-11-17), to be merged: `lurq::code` (`CodeToken` with a
   dotted name, `Highlighter`, `CodeHighlighter`, the registry and its cache, `CodeLanguage` and the scanner, thirteen
   languages), `CodeScheme` and `CodeStyle` in the theme, `CodeBlock::highlighter`, `token_style` and `code_scheme`, a
-  long block windowed past 400 lines, `InlineCode::language`, `TextInput::tokens_with` and `code_language`, and the
-  gallery's `syntect` adapter (`crates/gallery/src/syntect_code.rs`). A long block with no greatest height is laid out
-  whole (it has no room of its own to window).
+  long block windowed past 400 lines (in its own room, or in the window where it has no greatest height),
+  `InlineCode::language`, `TextInput::tokens_with` and `code_language`, and the gallery's `syntect` adapter
+  (`crates/gallery/src/syntect_code.rs`).
 
 ### Link Preview works from the link alone; every field overrides
 

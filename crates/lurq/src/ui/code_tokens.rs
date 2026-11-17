@@ -166,13 +166,14 @@ impl TokenStyles {
         .entry(token.kind)
         .or_insert_with(|| {
           self.style(token.kind).map(|style| {
-            let color = style.color;
-            let input = InputTokenStyle::new(color, clear);
-            if style.weight != self.base.weight || style.style != self.base.style {
-              input.text_style(style)
-            } else {
-              input
+            let mut input = InputTokenStyle::new(style.color, clear);
+            if style.weight != self.base.weight {
+              input = input.weight(style.weight);
             }
+            if style.style != self.base.style {
+              input = input.font_style(style.style);
+            }
+            input
           })
         })
         .clone();
@@ -196,8 +197,8 @@ impl TokenStyles {
 
 impl crate::components::TextInput {
   /// Colors its value as code in `language`, as a code block colors it: by the highlighter registered for the
-  /// language, each token in the color the theme's code colors give its name, again after every edit. The colors
-  /// are the theme's as the input is built; the weight and the leaning a name may have are a code block's alone.
+  /// language, each token in the color, the weight and the leaning the theme's code colors give its name, in the
+  /// input's own type, again after every edit. The colors are the theme's as the input is built.
   ///
   /// ```
   /// use lurq::{components::TextInput, core::Signal};
@@ -220,7 +221,14 @@ impl crate::components::TextInput {
   }
 
   fn code_tokens(self, tokens: impl Fn(&str) -> Arc<[CodeToken]> + Send + Sync + 'static) -> Self {
-    let theme = super::theme::current_theme();
+    self.code_tokens_in(&super::theme::current_theme(), tokens)
+  }
+
+  fn code_tokens_in(
+    self,
+    theme: &crate::app::theme::Theme,
+    tokens: impl Fn(&str) -> Arc<[CodeToken]> + Send + Sync + 'static,
+  ) -> Self {
     let scheme = theme.code_scheme();
     let clear = Color::new(0, 0, 0, 0);
     self.tokens_with(move |value| {
@@ -230,12 +238,21 @@ impl crate::components::TextInput {
         let style = styles
           .entry(token.kind)
           .or_insert_with(|| {
-            scheme.resolve(token.kind.as_str()).color.map(|color| {
-              let color = match color {
-                TextColor::Color(color) => color,
-                TextColor::Palette(role) => theme.palette_color(role),
-              };
-              InputTokenStyle::new(color, clear)
+            let style = scheme.resolve(token.kind.as_str());
+            (!style.is_empty()).then(|| {
+              // A name with a weight and no color of its own is in the code's color.
+              let color = style
+                .color
+                .clone()
+                .unwrap_or(TextColor::Palette(crate::app::theme::PaletteColor::Foreground));
+              let mut input = InputTokenStyle::new(color, clear);
+              if let Some(weight) = style.weight {
+                input = input.weight(weight);
+              }
+              if let Some(italic) = style.italic {
+                input = input.font_style(if italic { FontStyle::Italic } else { FontStyle::Normal });
+              }
+              input
             })
           })
           .clone();
@@ -287,7 +304,7 @@ mod tests {
 
   #[test]
   fn a_code_field_colors_its_value_after_every_edit() {
-    let info = TextColor::Color(super::super::theme::current_theme().palette_color(PaletteColor::Info));
+    let info = TextColor::Palette(PaletteColor::Info);
     let value = Signal::new("let x = 1;".to_owned());
     let input: Element = TextInput::new(value.clone()).multiline().code_language("rust").into();
     let first = drawn(&input, &value);
@@ -300,13 +317,42 @@ mod tests {
   }
 
   #[test]
+  fn a_code_field_draws_a_names_weight_and_leaning_in_its_own_type() {
+    use crate::{
+      app::theme::CodeStyle,
+      layout::text_style::{FontStyle, FontWeight},
+    };
+    let theme = crate::app::theme::Theme::new();
+    theme.set_code_style("keyword", CodeStyle::new().foreground(PaletteColor::Info).bold());
+    theme.set_code_style("comment", CodeStyle::new().italic());
+    let value = Signal::new("let x = 1; // one".to_owned());
+    let input: Element = TextInput::new(value.clone())
+      .code_tokens_in(&theme, |code: &str| super::code_tokens(code, Some("rust"), None))
+      .into();
+    let NodeKind::TextInput { state, .. } = input.node.node_kind() else {
+      panic!("a text input");
+    };
+    let tokens = state.tokens().expect("tokens");
+    let of = |text: &str| {
+      tokens
+        .tokens
+        .iter()
+        .find(|token| &value.get_untracked()[token.range.clone()] == text)
+        .map(|token| (token.style.weight, token.style.font_style, token.style.text.is_some()))
+    };
+    // The keyword is bold and in the theme's keyword color, the comment leans: both in the input's own type.
+    assert_eq!(of("let"), Some((Some(FontWeight::Bold), None, false)));
+    assert_eq!(of("// one"), Some((None, Some(FontStyle::Italic), false)));
+  }
+
+  #[test]
   fn a_code_field_takes_a_highlighter_of_its_own() {
     let value = Signal::new("alpha beta".to_owned());
     let input: Element = TextInput::new(value.clone())
       .code_highlighter(|code: &str| vec![CodeToken::new(0..code.find(' ').unwrap_or(0), token::STRING)])
       .into();
     let drawn = drawn(&input, &value);
-    let success = TextColor::Color(super::super::theme::current_theme().palette_color(PaletteColor::Success));
+    let success = TextColor::Palette(PaletteColor::Success);
     assert_eq!(drawn, [("alpha".to_owned(), success)]);
   }
 }
