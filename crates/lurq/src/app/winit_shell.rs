@@ -2481,6 +2481,12 @@ impl ApplicationHandler for WinitHandler {
       .find(|window| window.info().is_focused)
       .unwrap_or_else(|| self.main.tree.window().clone());
     self.app.shared.menu.drain_to(self.main.tree.window(), &in_front);
+    // What an item asked for (an edit, a way back) runs in the window's next pass: the pass is asked for now, not
+    // left to the caret's next blink.
+    if in_front.has_requests() {
+      self.main.check_redraw();
+      self.check_secondary_redraw();
+    }
     // The text of a paste the browser has answered; see `clipboard::web`.
     #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
     if let Some(text) = crate::clipboard::web::take_pasted() {

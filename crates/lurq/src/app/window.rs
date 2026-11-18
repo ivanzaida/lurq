@@ -755,6 +755,13 @@ impl Window {
     }
   }
 
+  /// Whether a command of editing, of going back or forward, or a copy was asked for and waits for the tree's next
+  /// pass: an Edit menu's item, which asks from outside any event, has the pass run at once for it.
+  pub(crate) fn has_requests(&self) -> bool {
+    let inner = self.inner.read().unwrap();
+    !inner.edits.is_empty() || !inner.navigations.is_empty() || !inner.copies.is_empty()
+  }
+
   /// The commands asked for since the last time, in order, each with whether synthetic input asked for it.
   pub(crate) fn take_edits(&self) -> Vec<(crate::app::events::EditCommand, bool)> {
     std::mem::take(&mut self.inner.write().unwrap().edits)

@@ -5201,6 +5201,7 @@ impl Tree {
 
   pub fn needs_redraw(&self) -> bool {
     self.needs_redraw
+      || self.window.has_requests()
       || !self.pending_scroll_into_view.is_empty()
       || self.has_dirty_canvas()
       || self.click_tracker.has_pending()
