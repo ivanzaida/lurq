@@ -1,0 +1,21 @@
+RICHEDIT50W
+  typed 'hello big world': ['hello big world', '']
+  typed 'hello  big' (two spaces): ['hello  big', '']
+  typed 'one,two.three': ['one,two.three', '']
+  typed 'abc', 1.5 s, 'def': ['abcdef', '']
+  typed 'hello world', 3 backspaces: ['hello wo', '']
+  typed 'abc', left, 'X': ['abXc', 'abc', '']
+RICHEDIT60W (plain text)
+  typed 'hello big world': ['hello big world', '']
+  typed 'hello  big' (two spaces): ['hello  big', '']
+  typed 'one,two.three': ['one,two.three', '']
+  typed 'abc', 1.5 s, 'def': ['abcdef', '']
+  typed 'hello world', 3 backspaces: ['hello wo', 'hello world', '']
+  typed 'abc', left, 'X': ['abXc', 'abc', '']
+EDIT
+  typed 'hello big world': ['hello big world', 'hello big worl', 'hello big world', 'hello big worl', 'hello big world', 'hello big worl', 'hello big world', 'hello big worl', 'hello big world']
+  typed 'hello  big' (two spaces): ['hello  big', 'hello  bi', 'hello  big', 'hello  bi', 'hello  big', 'hello  bi', 'hello  big', 'hello  bi', 'hello  big']
+  typed 'one,two.three': ['one,two.three', 'one,two.thre', 'one,two.three', 'one,two.thre', 'one,two.three', 'one,two.thre', 'one,two.three', 'one,two.thre', 'one,two.three']
+  typed 'abc', 1.5 s, 'def': ['abcdef', 'abcde', 'abcdef', 'abcde', 'abcdef', 'abcde', 'abcdef', 'abcde', 'abcdef']
+  typed 'hello world', 3 backspaces: ['hello world', 'hello worl', 'hello world', 'hello worl', 'hello world', 'hello worl', 'hello world', 'hello worl', 'hello world']
+  typed 'abc', left, 'X': ['abXc', 'abc', 'abXc', 'abc', 'abXc', 'abc', 'abXc', 'abc', 'abXc']
