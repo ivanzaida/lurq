@@ -84,6 +84,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   screen the system shows its lights with its own bar at the top of the screen, and the app's bar stays, its tabs
   with it, as Safari and the Finder keep theirs; what is laid over the whole window (a video that fills the screen, a
   sheet) has all of it there. Whether the window is in full screen is read again every turn. Windows is as before.
+- **In full screen the bar has no lights (Ivan, the same day, at the Mac: "дивно що маковськи три кнопки лишаються
+  на фулл скріні, там же згори в фулскріні появляється смуг сама").** The system's bar that comes down at the top
+  of the screen has the lights; the app's bar does not draw its own under it, and its tabs start where the lights
+  were.
 - **State.** Built on `feat/design-system`; looked at on a Mac out of full screen, in full screen to be looked at.
 
 ### A video plays on macOS and iOS, with the system's player

@@ -129,8 +129,8 @@ impl NativeControls {
       }
     }
     self.shown = any;
-    // In full screen the system hides its lights with its bar, until the pointer is at the top of the screen: the
-    // app draws its own there, so that the way back is seen.
+    // In full screen the system's lights are in its own bar, which comes down at the top of the screen, and the
+    // app's bar draws none (`ui::WindowChrome::controls`).
     tree.window().set_native_controls(any && window.fullscreen().is_none());
   }
 }
