@@ -11,7 +11,7 @@ Media APIs are feature-gated. `image` and `canvas` are in lurq's default feature
 | --- | --- |
 | `image` (default) | `Image`, `ImageData`, `StreamingImage`, `Video`, raw RGBA/native image transport, image decoding and image-backed style helpers. |
 | `canvas` (default) | `Svg`, `SvgData`, beside the Canvas 2D. |
-| `media` | Playing a video or a sound. |
+| `media` | Playing a video or a sound (`lurq::media`, the players' `source`), and its [events](#media-events). |
 | `http` | Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of the app are loaded by every build. Until 0.63 it was `resources`. |
 | `markdown` | Markdown parsing and `Markdown::mount`. |
 
@@ -327,6 +327,42 @@ A `LoadError` says why: `NotFound`, `Denied`, `Status(code)`, `TooLarge { limit 
 `Unsupported`, which is what a build that cannot load such a source answers. An address in a build without the
 feature `http` is one: it compiles, and fails at run time with the reason and one warning in the log. In a browser
 a file and an address are not loaded yet.
+
+## Media events
+
+A `lurq::media::Media` plays on a thread of its own (see [playing a video](../design-system/#playing-a-video)). What
+happens to it is told to the handlers an app adds, as a browser's media element tells its events:
+
+```rust
+use lurq::media::Media;
+
+let media = Media::open(app.loader(), &Source::file("clips/lake.mp4"));
+media.on_load(|info| println!("{:?} long, {:?}, sound: {}", info.duration, info.size, info.sound));
+media.on_error(|why| tracing::warn!("{why}: {}", why.detail().unwrap_or_default()));
+media.on_ended(|| println!("the end"));
+media.on_playing_change(|plays| println!("playing: {plays}"));
+media.on_waiting_change(|waits| println!("waiting: {waits}"));
+media.play();
+```
+
+| Handler | Told |
+| --- | --- |
+| `on_load(Fn(&MediaInfo))` | Once it opened and is ready to play: `duration` (`None` for what has no end), `size` of its picture (`None` for a sound), whether it has `sound` |
+| `on_error(Fn(&MediaError))` | Once it cannot play: a kind, which the locale says (`MediaWords::error`); `detail()` is what the system said, for a log. A media that failed stays failed: trying again is opening it anew |
+| `on_ended(Fn())` | Each time it played to its end, again only after it played again |
+| `on_playing_change(Fn(bool))` | Whether it plays, each time that changes once it opened: told to play or pause, it ended, it failed |
+| `on_waiting_change(Fn(bool))` | Whether it waits for what it plays once it opened (an address read slower than it plays); opening is not waiting |
+
+- **On the UI thread.** The media's thread changes its state and wakes the loop of each window of the thread that
+  first listened to it; the window's next turn (its pass, or the tick of its timers) compares the state with what it
+  last told and calls the handlers, before anything is rendered: a signal a handler sets is drawn in that frame. The
+  app polls nothing. A test's tree tells them in its `pass`.
+- **Once each time, in order.** In one turn they come as a media lives them: it opened, it waits or not, it plays or
+  not, it ended, it failed. Told to play before it opened, it says it opened and then that it plays. What it did
+  before a handler was added is told in the next turn; a handler added later hears what happens from then on.
+- **Many handlers.** Each `on_*` adds one, called after those before it. They live as long as the media.
+- `Media::on_change` stays what it was: a call from the media's own thread whenever it changed, with nothing said,
+  for what draws it (a player renders again).
 
 ## Link Previews
 

@@ -7275,6 +7275,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `ended(bool)` | It played to the end: the veil, replay in the middle and in the bar, the seek bar full. Replay tells `playing` true: the app plays again from the start |
 | `live(bool)` | No end: the LIVE badge for the time, the seek bar full (or the window that can be gone back in, given as the duration), no speed |
 | `error(&str)`, `error_description(&str)`, `on_retry(handler)` | That it cannot play: the veil, the title and the line in the middle, and no bar. The button ("Try again") is drawn once `on_retry` is given |
+| `on_load(Fn(&MediaInfo))`, `on_error(Fn(&MediaError))`, `on_ended(Fn())`, `on_waiting_change(Fn(bool))` | What its [source](#playing-a-video) tells: it opened (its length, its picture's size, whether it has sound), it cannot play (a kind, which the locale says under the error's title), it played to its end, it began or stopped waiting. A player without a source is told none of them |
 | `size(VideoPlayerSize)` | `Lg`, `Md` (compact) or `Sm` (minimal) in place of the form its width gives it |
 | `width(Length)`, `height(Length)` | Its size, in place of its form's (640 by 360 for the large one). A width with no height gives the height its aspect makes |
 | `caption_cues(&MediaCaptions)` | A track of captions: while they are on, the player shows what the track says at its position. `caption_text` given too is shown in its place |
@@ -7353,6 +7354,7 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 | `shuffle(Signal<bool>)`, `shuffle_controlled(bool, handler)`, `on_shuffle_change(Fn(bool))` | Shuffle, in the card |
 | `repeat(Signal<AudioRepeat>)`, `repeat_controlled(AudioRepeat, handler)`, `on_repeat_change(Fn(AudioRepeat))` | `Off`, `All`, `One`; a press steps it (`AudioRepeat::next`), and `One` has the `repeat-one` glyph |
 | `source(&Source)` (feature `media`) | What it plays: a file, bytes, a resource of the app, an address. The player opens it as a sound and plays it; where it is, how long it is and whether it plays, loads or failed are then the sound's, and its controls move it. An address is loaded when it is first played, once, and kept (`media::sound_cache()`). See `media-playback.md` |
+| `on_load(Fn(&MediaInfo))`, `on_error(Fn(&MediaError))`, `on_ended(Fn())`, `on_waiting_change(Fn(bool))` | What its source tells, as a [video player's](#playing-a-video): it opened (its length; a sound has no picture's size), it cannot play (a kind, which the locale says in its line), it played to its end (each end of a track that repeats; where a queue goes on to the next), it began or stopped waiting. With a source `on_playing_change` hears the sound stop and start by itself too. A player without a source is told none of them |
 | `loading(bool)` | Lines of skeleton for the texts, "-:--" for the times, an empty bar, a spinner in play, previous and next dimmed |
 | `error(Option<&str>)`, `on_retry(Fn())`, `retry_text(&str)` | What went wrong: a line in the destructive color in place of the times (in place of the bar in a row, where play turns to a retry button; in place of the description in the mini player). "Try again" at its end in the card |
 | `unheard(bool)` | A voice message not heard yet: a dot of 8 in the info color, and the whole waveform in the color of what is not played |
@@ -7673,6 +7675,24 @@ VideoPlayer::new()
 
 The player opens the source with the app's loader, decodes it with the system's decoder and draws its frames as its picture. Where it is, how long it is, and whether it plays, waits, ended or failed are the media's, in place of what the app would say. A press on a control tells the app's handlers and does what it says to the media: play, pause, the seek bar, the speed, the keys. An app that holds `playing` or `rate` (a signal, or a value it sets) moves the media by changing them. With no source the player is drawn from the values it is given, as before.
 
+What happens to the media is told to the app, as a browser's `<video>` tells it:
+
+```rust
+VideoPlayer::new()
+  .source(&Source::file("clips/lake.mp4"))
+  .on_load(|info| println!("{:?} long, {:?}, sound: {}", info.duration, info.size, info.sound))
+  .on_error(|why| tracing::warn!("{why:?}: {}", why.detail().unwrap_or_default()))
+  .on_ended(move || next.set(true))
+  .on_playing_change(move |plays| playing.set(plays))
+  .on_waiting_change(move |waits| buffering.set(waits))
+  .mount(ctx)
+```
+
+- Each is told on the UI thread, once each time it happens, in the order the media lives them: it opened, it began or stopped waiting, it began or stopped playing, it ended, it failed. A handler may set signals and move the media; what it sets is drawn in the same frame.
+- `on_ended` is told again only after it played again. `on_error` is told a kind (`core::MediaError`), whose words are the locale's (`MediaWords::error`), once until the person tries again, which opens the source anew. Waiting is reading what is not there yet once it opened (an address on Apple's systems); opening is not waiting.
+- `on_playing_change` hears a press, as without a source, and the media stopping or starting by itself: at its end, when it fails, a sound that starts over. What a press told or the app set is not told again when the media does it. A signal bound to `playing` follows the media at its end, and that is not the app pausing it.
+- A player without a source tells none of these: whether it waits, ended or failed is what the app gives it.
+
 An app that draws its own player asks for a media itself:
 
 ```rust
@@ -7682,8 +7702,16 @@ let picture = media.frame().map(Video::new); // drawn again by itself as frames 
 let state = media.state(); // duration, position, size, playing, waiting, ended, error, rate
 media.seek(42.0);
 media.set_rate(1.5);
-media.on_change(|| { /* it opened, ended, failed: from the media's thread */ });
+media.on_change(|| { /* it changed: called on the media's own thread, with nothing said */ });
+// Its events, on the UI thread, once each time: as a player's.
+media.on_load(|info| println!("{:?} by {:?}", info.duration, info.size));
+media.on_error(|why| tracing::warn!("{why}"));
+media.on_ended(|| println!("the end"));
+media.on_playing_change(|plays| println!("playing: {plays}"));
+media.on_waiting_change(|waits| println!("waiting: {waits}"));
 ```
+
+See [Media events](../resources-media/#media-events) for how they reach the UI thread.
 
 ## Playing a sound
 
@@ -7697,6 +7725,8 @@ AudioPlayer::new(position, 0.0)
 ```
 
 The player opens the source as a sound and plays it through the system's output. Where it is, how long it is, and whether it plays, loads or failed are the sound's, in place of what the app would say: the length given to `new` is drawn only until it opened. A press on a control tells the app's handlers and does what it says to the sound: play, pause, the seek bar, the volume, the mute, the speed. An app that holds `playing`, `volume`, `muted` or `rate` moves the sound by changing them. With `AudioRepeat::One` the track starts over at its end. "Try again" loads the source anew.
+
+Its events are a video player's (`on_load`, `on_error`, `on_ended`, `on_playing_change`, `on_waiting_change`): an app that plays a queue goes on to the next track in `on_ended`. A `ui::AudioQueue` is the list the app shows and plays nothing itself; the player that plays its current item tells each end.
 
 A sound at an address is loaded whole through the app's loader (its headers, its timeout, what it allows; the feature `http`), and kept: played again, by this player or another, it starts at once and asks the network for nothing. While it loads the player is drawn loading. What is kept is what the server sent, up to 64 MiB of sounds; over that, what was played longest ago is let go.
 
@@ -7747,7 +7777,7 @@ Picture::from_url("https://example.com/lake.jpg")
   .label("The lake at dusk")
   .aspect_ratio(3.0 / 2.0)
   .placeholder(PicturePlaceholder::blur("photos/lake-small.jpg"))
-  .on_error(|why| tracing::warn!("{why}"));
+  .on_error(|why| tracing::warn!("{why:?}: {}", why.detail().unwrap_or_default()));
 
 // A figure: the picture with a caption under it.
 Picture::from_resource("images/lake.jpg")
@@ -7766,7 +7796,7 @@ Picture::from_resource("images/lake.jpg")
 | `size(PictureSize)` | The form: `Lg` from 240 wide, `Md` under it, `Sm` at 96 and under, `Xs` at 40 and under. Not said, it follows the width the box gets: the width in pixels it was told, or less where its room is narrower, or the width of its room |
 | `placeholder(PicturePlaceholder)` | What the box shows while the pixels are on their way: `Skeleton` (the sheen), `blur(source)` or `blur_pixels(data)` (a small version of the picture, blurred), `None` (the box alone) |
 | `loading(bool)`, `progress(Option<f64>)`, `progress_text(Fn(PictureLoad) -> String)` | The box as while its pixels are on their way, for a picture the app is still fetching; how far the load has come, of 1, which draws a rail in place of the sheen; and the words under the rail. A picture that loads from an address shows its own progress where the server says how long it is |
-| `on_load(Fn())`, `on_error(Fn(&str))`, `on_retry(Fn())` | Told once the pixels are there; once the picture did not come, with why; and on a press of "Try again", before the picture asks again |
+| `on_load(Fn())`, `on_error(Fn(&PictureError))`, `on_retry(Fn())` | Told once the pixels are there; once the picture did not come, with why; and on a press of "Try again", before the picture asks again. Why is a kind: `NotFound`, `Denied`, `TimedOut`, `TooLarge`, `Server(status)`, `Network`, `NotAPicture` (bytes that are no picture the decoder reads), `Unavailable` (a build without `image`, an address without `http`) and `Other`; the locale says it (`MediaWords::picture_error`), and what the system or the decoder said is kept for a log (`PictureError::detail`) |
 | `error_description(&str)`, `retry_label(&str)`, `download_label(&str)`, `more_label(&str)`, `open_label(&str)` | Its words: "The picture didn't load.", "Try again", "Download", "More", "Open" |
 | `title(&str)`, `description(&str)`, `badge(element)` | What the bar along the bottom says, and what stands at the top, at the start. The bar shows under the pointer and with the focus |
 | `on_download(Fn())`, `menu_item(MenuItem)`, `menu_items(..)`, `action(element)`, `actions(..)` | The bar's Download button, the menu behind More, and buttons of the app's |

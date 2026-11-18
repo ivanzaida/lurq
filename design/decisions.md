@@ -21,7 +21,24 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   the locale, as the player shows them), `on_ended()`, `on_playing_change(bool)` (the video's too), and
   `on_waiting_change(bool)` (buffering began or ended); each told on the UI thread, once per occurrence.
   `ui::Picture::on_error` is told a kind (`PictureError`), not a sentence.
-- **State.** Decided; to be built in a session of its own.
+- **What the session that built it chose, where the decision left it open.**
+  1. A media's events are told on the thread that first listened to it: the media's thread wakes the loops of that
+     thread's windows, and each window's next turn (its pass, the tick of its timers) compares the state with what
+     it last told and calls the handlers before anything is rendered. No queue of events: a change is told by its
+     transition, so two quick changes in one turn are told as where they ended.
+  2. Order in one turn: it opened, it waits or not, it plays or not, it ended, it failed. Nothing but a failure is
+     told before it opened; opening is not waiting. A media that failed stays failed (no retry on `Media`): a
+     player's "Try again" opens a new media, whose failure is told again.
+  3. A player without a source tells none of the five (what it shows is the app's, and a handler is not told what
+     the app set). With a source, `on_playing_change` (which heard a press) hears the media stop and start by itself
+     too; what a press told or the app set is not told again, and a signal bound to `playing` that follows the media
+     at its end is not taken for the app pausing it.
+  4. `AudioQueue` plays nothing: the player that plays its current item tells each end (`on_ended`), where the app
+     goes on to the next.
+  5. `PictureError` lives in `core` beside `MediaError`, its words in `MediaWords` (the media's where they fit, and
+     three of its own). `Picture` was not in 0.62.0: no break.
+  6. Tests drive a media with no thread (`media::drive_media`, `Media::driven`, hidden from the docs).
+- **State.** Built on `claude/media-events-ab3678`; to be merged into `feat/design-system`.
 
 ### A lighter light theme: light fills, crisp lines
 
