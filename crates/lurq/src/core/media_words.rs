@@ -56,6 +56,73 @@ impl fmt::Display for MediaError {
 
 impl std::error::Error for MediaError {}
 
+/// What a media is, once it opened and is ready to play: what [`Media::on_load`](crate::media::Media::on_load) and
+/// a player's `on_load` are told.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MediaInfo {
+  /// How long it is, in seconds. `None` for what has no end.
+  pub duration: Option<f64>,
+  /// How large its picture is, in pixels. `None` for what has no picture, and for what is only heard.
+  pub size: Option<(u32, u32)>,
+  /// Whether it has sound.
+  pub sound: bool,
+}
+
+/// Why a picture did not come: what `ui::Picture::on_error` is told. It says what kind of failure it is, and the
+/// [`Locale`](super::Locale) says it in the app's language ([`MediaWords::picture_error`]); what the system, the
+/// connection or the decoder said in its own words is kept beside it, for a log.
+///
+/// ```
+/// use lurq::core::{Locale, PictureError};
+///
+/// assert_eq!(&*Locale::english().media.picture_error(&PictureError::NotAPicture(None)), "Not an image");
+/// assert_eq!(&*Locale::for_tag("uk").media.picture_error(&PictureError::NotFound), "Не знайдено");
+/// assert_eq!(PictureError::Server(404).to_string(), "Server error 404");
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PictureError {
+  /// There is no such file, or the server has none at the address.
+  NotFound,
+  /// The app's loader does not allow the address.
+  Denied,
+  /// Loading it took longer than the app's loader waits.
+  TimedOut,
+  /// It is larger than the app's loader reads whole, or than the decoder takes.
+  TooLarge,
+  /// The server answered with this status.
+  Server(u16),
+  /// The connection failed, in the words of what failed.
+  Network(Arc<str>),
+  /// What came is no picture the decoder reads: bytes of another kind, a format it has no decoder for, a broken
+  /// file, a picture with no pixels. With what the decoder said, where it said something.
+  NotAPicture(Option<Arc<str>>),
+  /// This build or this system has nothing to load or decode it with, and why: a build without the `image`
+  /// feature, an address in one without `http`, a picture in no app.
+  Unavailable(Arc<str>),
+  /// Anything else, in the system's own words: a file that could not be read.
+  Other(Arc<str>),
+}
+
+impl PictureError {
+  /// What the system, the connection or the decoder said in its own words, where it said something: for a log,
+  /// not for a person.
+  pub fn detail(&self) -> Option<&str> {
+    match self {
+      Self::Network(said) | Self::Unavailable(said) | Self::Other(said) | Self::NotAPicture(Some(said)) => Some(said),
+      _ => None,
+    }
+  }
+}
+
+/// In English, as [`Locale::english`](super::Locale::english) says it.
+impl fmt::Display for PictureError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&MediaWords::english().picture_error(self))
+  }
+}
+
+impl std::error::Error for PictureError {}
+
 /// What a media and its players say by themselves, in a locale's words. Every field is the app's to replace.
 ///
 /// ```
@@ -129,11 +196,16 @@ pub struct MediaWords {
   pub network_error: Arc<str>,
   pub unavailable: Arc<str>,
   pub failed: Arc<str>,
+  /// What a [`PictureError`] is called where a media's word does not fit it: bytes that are no picture, a picture
+  /// this build or system cannot show, and anything else.
+  pub not_a_picture: Arc<str>,
+  pub picture_unavailable: Arc<str>,
+  pub picture_failed: Arc<str>,
 }
 
 impl MediaWords {
   /// The words in the order of the fields.
-  fn of(words: [&str; 48]) -> Self {
+  fn of(words: [&str; 51]) -> Self {
     let [
       audio_player,
       video_player,
@@ -183,6 +255,9 @@ impl MediaWords {
       network_error,
       unavailable,
       failed,
+      not_a_picture,
+      picture_unavailable,
+      picture_failed,
     ] = words.map(Arc::from);
     Self {
       audio_player,
@@ -233,6 +308,9 @@ impl MediaWords {
       network_error,
       unavailable,
       failed,
+      not_a_picture,
+      picture_unavailable,
+      picture_failed,
     }
   }
 
@@ -286,6 +364,9 @@ impl MediaWords {
       "Network error",
       "Can't play on this device",
       "Can't be played",
+      "Not an image",
+      "Can't be shown",
+      "Can't be shown on this device",
     ])
   }
 
@@ -341,6 +422,9 @@ impl MediaWords {
         "Помилка мережі",
         "Не відтворюється на цьому пристрої",
         "Не вдається відтворити",
+        "Це не зображення",
+        "Не вдається показати",
+        "Не показується на цьому пристрої",
       ]),
       "de" => Self::of([
         "Audioplayer",
@@ -391,6 +475,9 @@ impl MediaWords {
         "Netzwerkfehler",
         "Auf diesem Gerät nicht abspielbar",
         "Wiedergabe nicht möglich",
+        "Kein Bild",
+        "Kann nicht angezeigt werden",
+        "Auf diesem Gerät nicht anzeigbar",
       ]),
       "fr" => Self::of([
         "Lecteur audio",
@@ -441,6 +528,9 @@ impl MediaWords {
         "Erreur réseau",
         "Lecture impossible sur cet appareil",
         "Lecture impossible",
+        "Ce n'est pas une image",
+        "Affichage impossible",
+        "Affichage impossible sur cet appareil",
       ]),
       "es" => Self::of([
         "Reproductor de audio",
@@ -491,6 +581,9 @@ impl MediaWords {
         "Error de red",
         "No se puede reproducir en este dispositivo",
         "No se puede reproducir",
+        "No es una imagen",
+        "No se puede mostrar",
+        "No se puede mostrar en este dispositivo",
       ]),
       "pl" => Self::of([
         "Odtwarzacz audio",
@@ -541,6 +634,9 @@ impl MediaWords {
         "Błąd sieci",
         "Nie można odtworzyć na tym urządzeniu",
         "Nie można odtworzyć",
+        "To nie jest obraz",
+        "Nie można wyświetlić",
+        "Nie można wyświetlić na tym urządzeniu",
       ]),
       _ => Self::english(),
     }
@@ -558,6 +654,21 @@ impl MediaWords {
       MediaError::Network(_) => self.network_error.clone(),
       MediaError::Unavailable(_) => self.unavailable.clone(),
       MediaError::Other(_) => self.failed.clone(),
+    }
+  }
+
+  /// What a picture's `error` is called: the short line for a person, in the media's words where they fit it.
+  pub fn picture_error(&self, error: &PictureError) -> Arc<str> {
+    match error {
+      PictureError::NotFound => self.not_found.clone(),
+      PictureError::Denied => self.denied.clone(),
+      PictureError::TimedOut => self.timed_out.clone(),
+      PictureError::TooLarge => self.too_large.clone(),
+      PictureError::Server(status) => Arc::from(self.server_error.replace("{status}", &status.to_string())),
+      PictureError::Network(_) => self.network_error.clone(),
+      PictureError::NotAPicture(_) => self.not_a_picture.clone(),
+      PictureError::Unavailable(_) => self.picture_unavailable.clone(),
+      PictureError::Other(_) => self.picture_failed.clone(),
     }
   }
 }
@@ -579,6 +690,14 @@ mod tests {
       assert!(words.server_error.contains("{status}"), "{language}");
       assert!(words.error(&MediaError::Server(404)).contains("404"), "{language}");
       assert!(!words.play.is_empty() && !words.failed.is_empty(), "{language}");
+      assert!(
+        words.picture_error(&PictureError::Server(404)).contains("404"),
+        "{language}"
+      );
+      assert!(
+        !words.not_a_picture.is_empty() && !words.picture_failed.is_empty(),
+        "{language}"
+      );
     }
     assert_eq!(MediaWords::for_language("xx"), MediaWords::english());
   }

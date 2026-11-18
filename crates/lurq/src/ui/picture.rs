@@ -19,7 +19,7 @@ use crate::{
     theme::{MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Row, Stack},
-  core::{ElementRef, Signal},
+  core::{ElementRef, PictureError, Signal},
   layout::{
     Alignment, StackAlignment,
     layout_kind::{Justify, SizeBounds},
@@ -366,7 +366,7 @@ enum Phase {
   #[cfg_attr(not(feature = "image"), allow(dead_code))]
   Loading(Option<(u64, u64)>),
   /// They did not come, or were no picture: why.
-  Failed(Arc<str>),
+  Failed(PictureError),
 }
 
 /// How far the load of a picture has come: what [`Picture::progress_text`] is given.
@@ -477,7 +477,7 @@ pub struct Picture {
   words: Words,
   on_retry: Vec<Action>,
   on_load: Vec<Action>,
-  on_error: Vec<Told<Arc<str>>>,
+  on_error: Vec<Told<PictureError>>,
   fallback: Option<Arc<dyn Fn() -> Element + Send + Sync>>,
   caption: Option<Arc<str>>,
   title: Option<Arc<str>>,
@@ -776,9 +776,12 @@ impl Picture {
     self
   }
 
-  /// Called once the picture did not come, with why: the load failed, or what it brought was no picture.
-  pub fn on_error(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
-    self.on_error.push(Arc::new(move |reason: Arc<str>| handler(&reason)));
+  /// Called once the picture did not come, with why: a kind (not found, not allowed, a server's error, the
+  /// network, no picture, too large, …), which the app's locale puts into words
+  /// ([`MediaWords::picture_error`](crate::core::MediaWords::picture_error)); what the system or the decoder said is
+  /// kept beside it for a log ([`PictureError::detail`]). Once for a source, and again for one asked for anew.
+  pub fn on_error(mut self, handler: impl Fn(&PictureError) + Send + Sync + 'static) -> Self {
+    self.on_error.push(Arc::new(move |error: PictureError| handler(&error)));
     self
   }
 
@@ -1436,7 +1439,7 @@ impl PictureHost {
       #[cfg(not(feature = "image"))]
       Source::Encoded { .. } => {
         let _ = ctx;
-        Phase::Failed(Arc::from(NO_CODECS))
+        Phase::Failed(PictureError::Unavailable(Arc::from(NO_CODECS)))
       }
       #[cfg(feature = "image")]
       Source::Encoded { source, cap } => self.decoded(source, *cap, ctx, &self.live.held),
@@ -1488,7 +1491,7 @@ impl PictureHost {
     let decode = |from: ImageSource| match decoded_images().load(key, cap, || from, Some(wake.clone())) {
       ImageLoadState::Loading => Phase::Loading(None),
       ImageLoadState::Ready(data) => Phase::Ready(data),
-      ImageLoadState::Failed(error) => Phase::Failed(Arc::from(error.message())),
+      ImageLoadState::Failed(error) => Phase::Failed(error.kind().clone()),
     };
     match &source.kind {
       // A file and bytes are read by what decodes them.
@@ -1505,7 +1508,7 @@ impl PictureHost {
           }
           Some(ImageLoadState::Failed(error)) => {
             *held = None;
-            return Phase::Failed(Arc::from(error.message()));
+            return Phase::Failed(error.kind().clone());
           }
           _ => {}
         }
@@ -1513,7 +1516,9 @@ impl PictureHost {
           Some((of, load)) if *of == source.cache_key() => load.clone(),
           _ => {
             let Some(app) = ctx.app_handle() else {
-              return Phase::Failed(Arc::from("the picture is in no app: nothing loads it"));
+              return Phase::Failed(PictureError::Unavailable(Arc::from(
+                "the picture is in no app: nothing loads it",
+              )));
             };
             let load = app.loader().load(source);
             *held = Some((source.cache_key(), load.clone()));
@@ -1524,7 +1529,7 @@ impl PictureHost {
         load.wake_with(wake.clone());
         match load.state() {
           LoadState::Loading { loaded, total } => Phase::Loading(total.map(|total| (loaded, total))),
-          LoadState::Failed(error) => Phase::Failed(Arc::from(error.to_string())),
+          LoadState::Failed(error) => Phase::Failed(load_failed(error, source.is_remote())),
           LoadState::Ready(bytes) => decode(ImageSource::Bytes(bytes)),
         }
       }
@@ -1551,12 +1556,30 @@ impl PictureHost {
     *told = Some((key, came));
     let mut news = self.live.news.lock();
     match phase {
-      Phase::Failed(reason) => news.extend(picture.on_error.iter().map(|handler| {
-        let (handler, reason) = (handler.clone(), reason.clone());
-        Arc::new(move || handler(reason.clone())) as Action
+      Phase::Failed(error) => news.extend(picture.on_error.iter().map(|handler| {
+        let (handler, error) = (handler.clone(), error.clone());
+        Arc::new(move || handler(error.clone())) as Action
       })),
       _ => news.extend(picture.on_load.iter().cloned()),
     }
+  }
+}
+
+/// What a load that failed is, as a picture says it: `remote` where it was read from an address, whose reading
+/// fails on the network.
+#[cfg(feature = "image")]
+fn load_failed(error: crate::resources::LoadError, remote: bool) -> PictureError {
+  use crate::resources::LoadError;
+  match error {
+    LoadError::NotFound => PictureError::NotFound,
+    LoadError::Denied => PictureError::Denied,
+    LoadError::Status(status) => PictureError::Server(status),
+    LoadError::TooLarge { .. } => PictureError::TooLarge,
+    LoadError::TimedOut => PictureError::TimedOut,
+    LoadError::Unsupported(why) => PictureError::Unavailable(Arc::from(why)),
+    LoadError::Io(said) if remote => PictureError::Network(Arc::from(said)),
+    LoadError::Io(said) => PictureError::Other(Arc::from(said)),
+    LoadError::Cancelled => PictureError::Other(Arc::from("the load was stopped")),
   }
 }
 

@@ -103,6 +103,8 @@ enum Source {
   Progress,
   /// Bytes that are no picture: the decode fails.
   Broken,
+  /// A file that is not there: the read fails.
+  Missing,
   /// No source.
   Empty,
 }
@@ -114,11 +116,12 @@ impl lurq::app::component::DevtoolsInspectable for Source {
   }
 }
 
-const SOURCES: [(&str, Source); 5] = [
+const SOURCES: [(&str, Source); 6] = [
   ("The lake", Source::Lake),
   ("Loading", Source::Loading),
   ("Loading, 42%", Source::Progress),
   ("Broken", Source::Broken),
+  ("Missing file", Source::Missing),
   ("None", Source::Empty),
 ];
 
@@ -165,6 +168,18 @@ fn broken() -> Picture {
 /// A browser's build decodes nothing: what failed is a box with no source.
 #[cfg(target_arch = "wasm32")]
 fn broken() -> Picture {
+  Picture::empty()
+}
+
+/// A file that is not there: `on_error` is told `PictureError::NotFound`.
+#[cfg(not(target_arch = "wasm32"))]
+fn missing() -> Picture {
+  Picture::from_file("photos/missing.jpg")
+}
+
+/// A browser's build reads no file: what failed is a box with no source.
+#[cfg(target_arch = "wasm32")]
+fn missing() -> Picture {
   Picture::empty()
 }
 
@@ -232,6 +247,7 @@ impl PicturePage {
           Source::Loading => Picture::empty().loading(true),
           Source::Progress => Picture::empty().loading(true).progress(0.42),
           Source::Broken => broken(),
+          Source::Missing => missing(),
           Source::Empty => Picture::empty(),
         }
         .size_px(room.0, room.1)
@@ -269,10 +285,19 @@ impl PicturePage {
     let live = {
       let (stage, record) = (self.playground.styled(plain()), record.clone());
       move |ctx: &mut Ctx| -> Element {
-        let mut picture = stage.on_click({
-          let record = record.clone();
-          move |_| record("on_click".to_owned())
-        });
+        let mut picture = stage
+          .on_click({
+            let record = record.clone();
+            move |_| record("on_click".to_owned())
+          })
+          .on_load({
+            let record = record.clone();
+            move || record("on_load".to_owned())
+          })
+          .on_error({
+            let record = record.clone();
+            move |why| record(format!("on_error(PictureError::{why:?})"))
+          });
         if actions {
           let (download, retry) = (record.clone(), record.clone());
           picture = picture
@@ -307,6 +332,7 @@ impl PicturePage {
       Source::Loading => "Picture::empty().loading(true)".to_owned(),
       Source::Progress => "Picture::empty().loading(true).progress(0.42)".to_owned(),
       Source::Broken => "Picture::from_bytes(broken_bytes)".to_owned(),
+      Source::Missing => "Picture::from_file(\"photos/missing.jpg\")".to_owned(),
       Source::Empty => "Picture::empty()".to_owned(),
     }];
     if !label.is_empty() {
@@ -368,7 +394,7 @@ impl PicturePage {
         Source::Lake => "├─ image      the pixels, placed by the fit and the anchor",
         Source::Loading => "├─ sheen      the skeleton, while the pixels are on their way",
         Source::Progress => "├─ progress   the rail of the load",
-        Source::Broken => "├─ error      its glyph, its name, that it did not load, the button",
+        Source::Broken | Source::Missing => "├─ error      its glyph, its name, that it did not load, the button",
         Source::Empty => "├─ center     the glyph and what it would be called",
       }
       .to_owned(),
@@ -895,9 +921,9 @@ impl Component for PicturePage {
       ),
       (
         "on_load / on_error",
-        "Fn() / Fn(&str)",
+        "Fn() / Fn(&PictureError)",
         "",
-        "Told once the pixels are there, and once the picture did not come, with why.",
+        "Told once the pixels are there, and once the picture did not come, with why: a kind (NotFound,          NotAPicture, Network, Server, TooLarge, …), which the locale says (MediaWords::picture_error).",
       ),
       (
         "on_retry",

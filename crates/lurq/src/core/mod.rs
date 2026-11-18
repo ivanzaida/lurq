@@ -47,7 +47,7 @@ pub use input_words::InputWords;
 pub use key_words::KeyWords;
 pub use locale::Locale;
 pub(crate) use locale::{AppLocale, english_locale};
-pub use media_words::{MediaError, MediaWords};
+pub use media_words::{MediaError, MediaInfo, MediaWords, PictureError};
 pub use memo::Memo;
 pub use navigation_words::NavigationWords;
 pub use plural::{Plural, PluralForm, PluralRule, fill};

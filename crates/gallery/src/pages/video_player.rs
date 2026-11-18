@@ -150,6 +150,20 @@ fn clip_path() -> String {
     .to_string()
 }
 
+/// What a source that opened is, as the Events tab says it: `15.0 s, 1280×720, sound`.
+pub(crate) fn media_info(info: &lurq::core::MediaInfo) -> String {
+  let mut said = vec![
+    info
+      .duration
+      .map_or("no end".to_owned(), |seconds| format!("{seconds:.1} s")),
+  ];
+  if let Some((width, height)) = info.size {
+    said.push(format!("{width}×{height}"));
+  }
+  said.push(if info.sound { "sound" } else { "no sound" }.to_owned());
+  said.join(", ")
+}
+
 /// The source the playground's player plays: none for the first of [`SOURCES`], and for a path or an address
 /// that is not typed yet.
 #[cfg(not(target_arch = "wasm32"))]
@@ -562,6 +576,13 @@ impl VideoPlayerPage {
           say("on_picture_in_picture_change"),
           say("on_retry"),
         );
+        // What its source tells: told only where one is chosen.
+        let (load, error, ended, waiting) = (
+          say("on_load"),
+          say("on_error"),
+          say("on_ended"),
+          say("on_waiting_change"),
+        );
         let mut player = playground.styled(make(false));
         // The stage scrolls to what is wider than it, so it has no width to be a share of: the room is told.
         if room > 0.0 {
@@ -580,6 +601,10 @@ impl VideoPlayerPage {
           .on_fullscreen_change(move |to| f(to.to_string()))
           .on_picture_in_picture_change(move |to| i(to.to_string()))
           .on_retry(move || t(String::new()))
+          .on_load(move |info| load(media_info(info)))
+          .on_error(move |why| error(format!("{why:?}")))
+          .on_ended(move || ended(String::new()))
+          .on_waiting_change(move |to| waiting(to.to_string()))
           .key("played")
           .mount(ctx)
       }
@@ -763,7 +788,7 @@ impl VideoPlayerPage {
         fill: false,
         forceable: true,
         facts,
-        event: "on_playing_change / on_position_change / on_volume_change / …",
+        event: "on_playing_change / on_position_change / on_load / on_ended / …",
         code,
         tree,
         controls: controls_list,
@@ -1440,6 +1465,12 @@ impl Component for VideoPlayerPage {
         "impl Fn()",
         "",
         "The error's button, drawn once this is given.",
+      ),
+      (
+        "on_load / on_error / on_ended / on_waiting_change",
+        "Fn(&MediaInfo) / Fn(&MediaError) / Fn() / Fn(bool)",
+        "",
+        "What its source tells, on the UI thread, once each time: it opened (its length, size, sound), it          failed (a kind, in the locale's words), it played to its end, it began or stopped waiting. With a          source, on_playing_change is told when the video stops by itself too. A player without a source tells          none of them.",
       ),
       (
         "size",

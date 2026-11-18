@@ -431,6 +431,8 @@ pub struct AudioPlayer {
   on_queue: Vec<Command>,
   on_expand: Vec<Command>,
   on_retry: Vec<Command>,
+  /// The handlers of its source's events.
+  events: super::media_events::MediaEvents,
   more_anchor: Option<ElementRef>,
   words: Words,
   states: Vec<Name>,
@@ -472,6 +474,7 @@ impl AudioPlayer {
       on_queue: Vec::new(),
       on_expand: Vec::new(),
       on_retry: Vec::new(),
+      events: super::media_events::MediaEvents::default(),
       more_anchor: None,
       words: Words::default(),
       states: Vec::new(),
@@ -766,6 +769,44 @@ impl AudioPlayer {
   /// handler.
   pub fn on_retry(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_retry.push(Arc::new(handler));
+    self
+  }
+
+  /// Called once its [`source`](Self::source) opened and is ready to play, with its length and whether it has sound
+  /// (a sound has no picture's size): once for a source, and again for one tried again. A sound at an address opens
+  /// once it was loaded, which is when it is first played. A player without a source is never told: what it shows
+  /// is the app's. Each call adds a handler.
+  ///
+  /// Each event of a source is told on the UI thread once each time it happens, in the order the media lives
+  /// them: it opened, it began or stopped waiting, it began or stopped playing, it ended, it failed.
+  pub fn on_load(mut self, handler: impl Fn(&crate::core::MediaInfo) + Send + Sync + 'static) -> Self {
+    self.events.load.push(Arc::new(handler));
+    self
+  }
+
+  /// Called once its [`source`](Self::source) cannot play, with why: a kind, which the app's locale puts into the
+  /// line the player shows ([`MediaWords::error`](crate::core::MediaWords::error)). Once until the person tries
+  /// again, which loads the source anew. A player without a source is never told. Each call adds a handler.
+  pub fn on_error(mut self, handler: impl Fn(&crate::core::MediaError) + Send + Sync + 'static) -> Self {
+    self.events.error.push(Arc::new(handler));
+    self
+  }
+
+  /// Called each time its [`source`](Self::source) played to its end, again only after it played again: with
+  /// [`AudioRepeat::One`] at each end, as it starts over. Where the app plays a queue
+  /// ([`AudioQueue`](super::AudioQueue)), this is where it goes on to the next. A player without a source is never
+  /// told. Each call adds a handler.
+  pub fn on_ended(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.events.ended.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with whether its [`source`](Self::source) waits for what it plays, each time that changes once it
+  /// opened: `true` when it began waiting, `false` when it goes on. Loading a sound before it opens is not
+  /// waiting. A player without a source is never told: its [`loading`](Self::loading) is the app's. Each call adds
+  /// a handler.
+  pub fn on_waiting_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.events.waiting.push(Arc::new(handler));
     self
   }
 
@@ -1858,6 +1899,8 @@ struct Played {
   /// The key of the source a person asked to play before it was opened: a sound at an address is opened, and
   /// so loaded, when it is first played.
   asked: Arc<Mutex<Option<u64>>>,
+  /// What tells the app the media's events.
+  listener: super::media_events::Listener,
   _clock: crate::app::ctx::Interval,
 }
 
@@ -1884,6 +1927,7 @@ impl Played {
       plays,
       said: Arc::default(),
       asked: Arc::default(),
+      listener: super::media_events::Listener::default(),
       _clock: clock,
     }
   }
@@ -1916,8 +1960,9 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     if !(there || asked || player.playing.value) {
       *held = None;
       played.plays.store(false, Ordering::Relaxed);
-      let (asked, beat) = (played.asked.clone(), played.beat.clone());
+      let (asked, beat, listener) = (played.asked.clone(), played.beat.clone(), played.listener.clone());
       player.playing.tell.push(Arc::new(move |to| {
+        listener.known(to);
         if to {
           *asked.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(key);
           beat.update(|count| *count += 1);
@@ -1928,6 +1973,7 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     let media = Media::sound(&loader, &source);
     let beat = played.beat.clone();
     media.on_change(move || beat.update(|count| *count += 1));
+    played.listener.listen(&media);
     // The press that opened it is a press of play: it plays once it is loaded.
     if asked {
       media.play();
@@ -1945,11 +1991,19 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
   {
     let mut said = played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if said.0 != Some(player.playing.value) {
-      // A player that starts paused has nothing to tell a media that opens paused.
-      if player.playing.value {
+      // A player that starts paused has nothing to tell a media that opens paused, and an app that answers what
+      // the media told it (it ended, it started over) tells it nothing.
+      let answers = played.listener.answers(player.playing.value);
+      if player.playing.value && !answers {
         media.play();
-      } else if said.0.is_some() {
+      } else if said.0.is_some() && !answers {
         media.pause();
+      }
+      // What the app set it is not told again when the media plays or stops.
+      if said.0.is_some() {
+        played.listener.known(player.playing.value);
+      } else {
+        played.listener.first(player.playing.value);
       }
       said.0 = Some(player.playing.value);
     }
@@ -1971,9 +2025,12 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     let beat = played.beat.clone();
     move || beat.update(|count| *count += 1)
   };
+  // The media's events go to the handlers of this render; whether it plays, to the app's own.
+  played.listener.update(&player.events, &player.playing.tell);
   player.playing.tell.push({
-    let (media, again) = (media.clone(), again.clone());
+    let (media, again, listener) = (media.clone(), again.clone(), played.listener.clone());
     Arc::new(move |to| {
+      listener.known(to);
       if to {
         media.play();
       } else {

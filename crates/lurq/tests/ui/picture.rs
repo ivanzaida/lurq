@@ -832,7 +832,8 @@ mod decoded {
 
   #[test]
   fn the_app_is_told_why_a_picture_did_not_come_and_again_when_it_is_asked_for_again() {
-    let reasons = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    use lurq::ui::PictureError;
+    let reasons = Arc::new(std::sync::Mutex::new(Vec::<PictureError>::new()));
     let tell = reasons.clone();
     let mut stage = at_start(move || {
       let tell = tell.clone();
@@ -840,17 +841,50 @@ mod decoded {
         .cache_key(0x91C7_0011)
         .size_px(320.0, 180.0)
         .id("broken")
-        .on_error(move |reason| tell.lock().unwrap().push(reason.to_owned()))
+        .on_error(move |error| tell.lock().unwrap().push(error.clone()))
     });
     settled(&mut stage);
     stage.pass();
-    assert_eq!(reasons.lock().unwrap().len(), 1);
-    assert!(!reasons.lock().unwrap()[0].is_empty(), "it says why");
+    // Bytes that are no picture: of that kind, with what the decoder said kept for a log.
+    {
+      let reasons = reasons.lock().unwrap();
+      assert_eq!(reasons.len(), 1);
+      assert!(
+        matches!(reasons[0], PictureError::NotAPicture(Some(_))),
+        "{:?}",
+        reasons[0]
+      );
+      assert!(
+        !reasons[0].detail().unwrap_or_default().is_empty(),
+        "it says why, for a log"
+      );
+      assert_eq!(reasons[0].to_string(), "Not an image");
+    }
 
     stage.click("broken-retry");
     settled(&mut stage);
     stage.pass();
     assert_eq!(reasons.lock().unwrap().len(), 2);
+  }
+
+  #[test]
+  fn a_file_that_is_not_there_is_told_as_not_found_in_the_words_of_the_apps_locale() {
+    use lurq::{core::Locale, ui::PictureError};
+    let reasons = Arc::new(std::sync::Mutex::new(Vec::<PictureError>::new()));
+    let tell = reasons.clone();
+    let mut stage = at_start(move || {
+      let tell = tell.clone();
+      Picture::from_file("no/such/folder/lake-at-dusk.png")
+        .size_px(320.0, 180.0)
+        .on_error(move |error| tell.lock().unwrap().push(error.clone()))
+    });
+    settled(&mut stage);
+    stage.pass();
+    assert_eq!(*reasons.lock().unwrap(), [PictureError::NotFound], "once, a kind");
+    assert_eq!(
+      &*Locale::for_tag("uk").media.picture_error(&PictureError::NotFound),
+      "Не знайдено"
+    );
   }
 
   #[test]
