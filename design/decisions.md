@@ -85,6 +85,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     begins the next one. Moving the caret and turning from typing to deleting end a step as on a Mac.
   - Elsewhere (Linux, a browser) as on a Mac.
   A paste, a cut, a deletion of a selection and what the app puts in are each a step of their own.
+- **A pause ends a step (Ivan, the same day, at the Mac: "я пишу частину, потім ще через 2 сек і воно все
+  зтирається", then "да - давай, і настройкою в App").** On every system, typing that comes more than a second after
+  the typing before is a step of its own, as in a browser. The app sets how long
+  (`App::set_typing_undo_pause(Some(duration))`), or none (`None`), when only the caret and the kind of edit end a
+  step.
 - **Why.** A person undoes what they typed as they would in any other app of the system.
 - **State.** In work on `feat/design-system`. Windows' grouping is written from what is known of its fields, not
   seen on a PC: to be tried there.

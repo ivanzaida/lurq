@@ -460,6 +460,8 @@ impl Component for Typed {
 fn undo_takes_back_what_was_typed_as_the_platform_groups_it_in_an_input_built_again_after_each_key() {
   let value = Signal::new(String::new());
   let mut app = App::new();
+  // A slow machine's keys are not a pause.
+  app.set_typing_undo_pause(None);
   let mut runtime = Tree::new();
   TYPED.with(|given| *given.borrow_mut() = Some(value.clone()));
   runtime.mount_root::<Typed>(&mut app, ());
@@ -476,4 +478,30 @@ fn undo_takes_back_what_was_typed_as_the_platform_groups_it_in_an_input_built_ag
   runtime.pass_headless(&mut app);
   // A run of typing on Apple's systems and elsewhere; a word with the spaces after it on Windows.
   assert_eq!(value.get(), if cfg!(windows) { "hello " } else { "" });
+}
+
+#[test]
+fn the_app_says_how_long_a_pause_ends_a_step_of_typing() {
+  let value = Signal::new(String::new());
+  let mut app = App::new();
+  app.set_typing_undo_pause(Some(std::time::Duration::from_millis(40)));
+  let mut runtime = Tree::new();
+  TYPED.with(|given| *given.borrow_mut() = Some(value.clone()));
+  runtime.mount_root::<Typed>(&mut app, ());
+  runtime.pass_headless(&mut app);
+  focus(&mut runtime, "input");
+  let mut type_in = |runtime: &mut Tree, text: &str| {
+    for character in text.chars() {
+      let key = character.to_string();
+      runtime.key_down_with_meta(key.clone(), String::new(), false, false, false, false);
+      runtime.key_up_with_meta(key, String::new(), false, false, false, false);
+      runtime.pass_headless(&mut app);
+    }
+  };
+  type_in(&mut runtime, "ab");
+  std::thread::sleep(std::time::Duration::from_millis(80));
+  type_in(&mut runtime, "cd");
+  press(&mut runtime, "z", "KeyZ", false);
+  runtime.pass_headless(&mut app);
+  assert_eq!(value.get(), "ab", "what came after the pause is taken back alone");
 }

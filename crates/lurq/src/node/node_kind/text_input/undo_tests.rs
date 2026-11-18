@@ -8,9 +8,12 @@ fn key(text: &str) -> KeyboardEvent {
   KeyboardEvent::new(text, "", false, false, false, false, NodeId::UNASSIGNED)
 }
 
+/// An input of the platform's grouping, with no pause ending a step: the steps of these tests do not hang on the time
+/// they take.
 fn input(grouping: UndoGrouping) -> TextInputState {
   let state = TextInputState::new(Signal::new(String::new()));
   state.set_undo_grouping(grouping);
+  state.set_typing_pause(None);
   state
 }
 
@@ -87,4 +90,25 @@ fn redo_brings_the_whole_step_back_and_typing_after_an_undo_is_a_new_step() {
   assert_eq!(state.value(), "abc");
   typed(&state, "de");
   assert_eq!(undone(&state), vec!["abc", ""]);
+}
+
+#[test]
+fn a_pause_in_typing_ends_the_step() {
+  for grouping in [UndoGrouping::Runs, UndoGrouping::Words] {
+    let state = input(grouping);
+    state.set_typing_pause(Some(std::time::Duration::from_millis(40)));
+    typed(&state, "part");
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    typed(&state, "more");
+    assert_eq!(undone(&state), vec!["part", ""], "{grouping:?}");
+  }
+}
+
+#[test]
+fn the_pause_is_a_second_until_the_app_says_another() {
+  assert_eq!(TYPING_UNDO_PAUSE, Some(std::time::Duration::from_secs(1)));
+  let state = TextInputState::new(Signal::new(String::new()));
+  state.set_undo_grouping(UndoGrouping::Runs);
+  typed(&state, "quick");
+  assert_eq!(undone(&state), vec![""], "keys a moment apart are one step");
 }

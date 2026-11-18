@@ -36,7 +36,7 @@ impl TextInputState {
     let old_undo_stack = old_inner.undo_stack.clone();
     let old_redo_stack = old_inner.redo_stack.clone();
     // The run of typing goes on in the input built again for what was typed, as the steps of undo do.
-    let old_typing = (old_inner.typing, old_inner.undo_grouping);
+    let old_typing = (old_inner.typing, old_inner.undo_grouping, old_inner.typing_pause);
     let old_styled = old_inner.styled.clone();
     let old_hover = (old_inner.hovered_token, old_inner.token_icon_hovered);
     let layout_dirty = if layout_signature_matches {
@@ -63,7 +63,7 @@ impl TextInputState {
     inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;
     inner.redo_stack = old_redo_stack;
-    (inner.typing, inner.undo_grouping) = old_typing;
+    (inner.typing, inner.undo_grouping, inner.typing_pause) = old_typing;
     inner.styled.copy_runtime_state_from(&old_styled);
     // The pointer is where it was: on the same token, until it moves.
     (inner.hovered_token, inner.token_icon_hovered) = old_hover;

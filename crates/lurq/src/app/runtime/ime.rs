@@ -258,6 +258,7 @@ impl Tree {
     let Some(state) = self.focused_text_input_state() else {
       return;
     };
+    state.set_typing_pause(self.typing_undo_pause());
     let changed = match event {
       // A new input method session: a composition left from an earlier one
       // (whose end the platform never reported) is stale.

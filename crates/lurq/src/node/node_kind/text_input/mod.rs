@@ -68,7 +68,14 @@ struct TypingRun {
   len: usize,
   /// Whether the last character typed was a space, after which a word begins a step on Windows.
   after_space: bool,
+  /// When it was typed: what comes after a pause longer than the app's is a step of its own.
+  at: std::time::Instant,
 }
+
+/// How long a pause in typing ends a step of undo, until the app says another: [`App::set_typing_undo_pause`].
+///
+/// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+pub(crate) const TYPING_UNDO_PAUSE: Option<std::time::Duration> = Some(std::time::Duration::from_secs(1));
 
 struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
@@ -136,6 +143,8 @@ struct TextInputInner {
   typing: Option<TypingRun>,
   /// How typing is grouped into steps of undo here.
   undo_grouping: UndoGrouping,
+  /// How long a pause in typing ends a step: the app's, given before each key ([`TextInputState::set_typing_pause`]).
+  typing_pause: Option<std::time::Duration>,
   /// The spans of a styled input and its hooks; empty for a plain one.
   styled: styled::StyledState,
 }
@@ -227,6 +236,7 @@ impl TextInputState {
         redo_stack: Vec::new(),
         typing: None,
         undo_grouping: UndoGrouping::PLATFORM,
+        typing_pause: TYPING_UNDO_PAUSE,
         styled: Default::default(),
       })),
       on_input: Arc::new(Mutex::new(Vec::new())),
@@ -610,6 +620,7 @@ impl TextInputState {
       let inner = self.inner.lock();
       inner.typing.is_some_and(|run| {
         run.kind == kind
+          && inner.typing_pause.is_none_or(|pause| run.at.elapsed() <= pause)
           && run.caret == inner.caret
           && run.len == len
           && inner.selection_anchor.is_none_or(|anchor| anchor == inner.caret)
@@ -639,7 +650,16 @@ impl TextInputState {
       caret: inner.caret,
       len,
       after_space,
+      at: std::time::Instant::now(),
     });
+  }
+
+  /// How long a pause in typing ends a step of undo, the app's ([`App::set_typing_undo_pause`]); `None` where
+  /// none does.
+  ///
+  /// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+  pub(crate) fn set_typing_pause(&self, pause: Option<std::time::Duration>) {
+    self.inner.lock().typing_pause = pause;
   }
 
   /// The caret or the selection moved, or the text was put back: what is typed next is a step of its own.

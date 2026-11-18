@@ -162,6 +162,8 @@ pub(crate) struct AppShared {
   pub(crate) locale: crate::core::AppLocale,
   /// What the person points with: [`App::pointer`].
   pub(crate) pointer: super::pointer::AppPointer,
+  /// How long a pause in typing ends a step of undo: [`App::set_typing_undo_pause`].
+  pub(crate) typing_undo_pause: Mutex<Option<std::time::Duration>>,
   /// The phone or tablet the app is run as on a desktop: [`App::emulate`].
   pub(crate) emulated: Mutex<Option<super::Device>>,
   pub(crate) window_opener: WindowOpener,
@@ -197,6 +199,7 @@ impl App {
         dates: crate::core::AppDateText::new(),
         locale: crate::core::AppLocale::new(),
         pointer: super::pointer::AppPointer::new(),
+        typing_undo_pause: Mutex::new(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE),
         emulated: Mutex::new(None),
         window_opener: WindowOpener::default(),
         i18n: I18n::new(),
@@ -214,6 +217,21 @@ impl App {
         svg_resource_cache: Mutex::new(std::collections::HashMap::new()),
       }),
     }
+  }
+
+  /// How long a pause in typing ends a step of undo in a text input: what is typed after it is taken back by an undo
+  /// of its own. A second until told otherwise; `None` for none, when a step ends only where the caret moves or
+  /// typing turns to deleting (and, on Windows, where a word begins).
+  ///
+  /// ```
+  /// use lurq::app::App;
+  /// use std::time::Duration;
+  ///
+  /// let app = App::new();
+  /// app.set_typing_undo_pause(Some(Duration::from_millis(1500)));
+  /// ```
+  pub fn set_typing_undo_pause(&self, pause: Option<std::time::Duration>) {
+    *self.shared.typing_undo_pause.lock() = pause;
   }
 
   pub fn menu_bar_support(&self) -> super::menu::MenuBarSupport {

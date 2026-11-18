@@ -2589,6 +2589,19 @@ impl Tree {
     self.apply_reactive_updates_after_event();
   }
 
+  /// How long a pause in typing ends a step of undo: the app's ([`App::set_typing_undo_pause`]).
+  ///
+  /// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+  pub(crate) fn typing_undo_pause(&self) -> Option<std::time::Duration> {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE, |app| {
+        *app.shared.typing_undo_pause.lock()
+      })
+  }
+
   /// What the person points with, as the app's pointer says.
   pub fn pointer(&self) -> crate::app::Pointer {
     self
@@ -6524,6 +6537,7 @@ impl Tree {
     let node_kind = node.node_kind().clone();
     match node_kind {
       NodeKind::TextInput { state, .. } => {
+        state.set_typing_pause(self.typing_undo_pause());
         match (logical, command) {
           ("Enter", _) | (_, "Enter") => {
             if !state.insert_newline(evt) {
