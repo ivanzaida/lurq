@@ -186,7 +186,7 @@ three renderers. None of that is Apple's: `CardFrames` is Direct3D's shared text
 alone. What Apple's systems have is one older piece, and the rest is to be built. In the order to do it:
 
 2026-11-17/18: built on `feat/design-system` (the decision is in [decisions.md](decisions.md), "A video plays on
-macOS and iOS"). 1, 3, 4 and 5 are done; 2 in part; 6 the gallery's half; 7 and 8 not.
+macOS and iOS"). 1, 3, 4, 5 and 6 are done; 2 in part; 7 and 8 not.
 
 - [x] **1. Run what exists, which was never run.** 2026-11-17: a video of the system's `AVPlayer` gives its
   buffers to the renderer, which draws them in the gallery on a Mac with the colors of the copy through memory.
@@ -198,7 +198,9 @@ macOS and iOS"). 1, 3, 4 and 5 are done; 2 in part; 6 the gallery's half; 7 and 
   gives each buffer to a `ui::Video`. It must show the picture with the colors of the same frame decoded to memory,
   never lock the buffer's bytes, and hold its memory over some minutes of playing.
 - [ ] **2. Mend what that run shows of the piece.** 2026-11-17: one texture cache for the device, kept; the
-  textures of the frame before kept until the next is drawn. The crop and the depth are not done. Read, not run, these are weak: a texture cache is made and let
+  textures of the frame before kept until the next is drawn. 2026-11-18: the crop holds for a buffer larger than
+  its picture, the picture at its top left (`a_buffer_larger_than_its_picture_is_drawn_as_its_picture`); a
+  picture elsewhere in the buffer (a clean aperture that does not start at 0, 0) is not read. The depth is 7. Read, not run, these are weak: a texture cache is made and let
   go of for each plane of each frame, where one for the device is meant; the planes are taken to be as large as
   the picture, so a buffer larger than its picture (a codec's 1088 rows for 1080) has no crop; and any buffer is
   taken for 8 bits and gray from 16 to 235 (see 7).
@@ -217,9 +219,12 @@ macOS and iOS"). 1, 3, 4 and 5 are done; 2 in part; 6 the gallery's half; 7 and 
   `ui::VideoPlayer::source` plays on a Mac as on Windows, through 1 and 3.
 - [x] **5. iOS.** 2026-11-17: the type and the renderer's path are of both systems; built and run on an iPhone. The pixel buffer's type and the renderer's path are `target_os = "macos"`: compile and run them for
   iOS, where `CVMetalTextureCache` is the same.
-- [ ] **6. The gallery and the tests.** 2026-11-17: the gallery's half: `crates/gallery/src/cv_demo.rs` writes a
-  moving picture into buffers of its own (`MacosCvPixelBuffer::nv12`, `write_nv12`), seen on a Mac. The renderer's
-  test of a frame from a buffer is not written. The Video Player page's table of decoders (`crates/gallery/src/card_demo.rs`)
+- [x] **6. The gallery and the tests.** 2026-11-17: the gallery's half: `crates/gallery/src/cv_demo.rs` writes a
+  moving picture into buffers of its own (`MacosCvPixelBuffer::nv12`, `write_nv12`), seen on a Mac. 2026-11-18:
+  the renderer's test, `wgpu_render/cv_pixel_buffer_tests.rs`: a frame written into a buffer whose rows are
+  longer than its picture is read by the renderer's own code, through `CvPixelBufferFrames`, byte for byte as it
+  was written (`cargo test -p lurq --lib --features raster cv_pixel_buffer_tests`); with the planes swapped it
+  fails. It draws the planes as they are (`wgpu_render/planes_drawn.rs`, shared with Windows' test), not colors. The Video Player page's table of decoders (`crates/gallery/src/card_demo.rs`)
   and `wgpu_render/card_frames_tests.rs` are Windows'. A stand-in decoder that writes pixel buffers gives the page
   its rows on a Mac, and the tests their first one: a frame drawn from the buffer is the frame memory gives.
 - [ ] **7. Color and depth.** One matrix is in the shader: BT.709 with gray from 16 to 235. A buffer of the full

@@ -7,12 +7,20 @@ mod card_copies;
 mod card_frames;
 #[cfg(all(test, windows, feature = "raster", feature = "media"))]
 mod card_frames_tests;
+#[cfg(all(test, feature = "raster", any(target_os = "macos", target_os = "ios")))]
+mod cv_pixel_buffer_tests;
 mod device_loss;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
 mod gradients;
 mod layers;
+#[cfg(all(
+  test,
+  feature = "raster",
+  any(all(windows, feature = "media"), target_os = "macos", target_os = "ios")
+))]
+mod planes_drawn;
 #[cfg(test)]
 mod quad_tests;
 mod surface_proxy;
