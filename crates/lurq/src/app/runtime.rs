@@ -7089,6 +7089,15 @@ impl Tree {
     if self.perf_overlay_enabled || self.autoscroll.is_some() || !self.wheel_scrolls.is_empty() {
       return false;
     }
+    // An animation or a transition that draws something else by now is stepped by the layout, which a kept list
+    // skips. A pass asked for by the timeline comes with a redraw request, but one asked for by something else
+    // does not: a playing video's frame (the shell draws those at the display's pace and asks for no timeline
+    // frame meanwhile) or an image's next frame. Kept, the list would draw a sidebar's collapse where it was when
+    // something last laid the window out, and the transition would move only then. A timeline waiting out a delay
+    // or a step changes nothing yet, and the list is still the frame.
+    if self.next_timeline_change().is_some_and(|at| at <= self.now()) {
+      return false;
+    }
     #[cfg(feature = "devtools")]
     if self.devtools_is_open() || self.debug_overlay_node_path.is_some() {
       return false;
