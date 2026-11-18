@@ -5,7 +5,7 @@ use std::{any::TypeId, sync::Arc};
 use parking_lot::Mutex;
 
 use super::{
-  Icon, Picture, PicturePart, Skeleton, icons, names,
+  Icon, Picture, PictureFit, PicturePart, Skeleton, icons, names,
   part_style::{FontFamily, Length},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, pressable},
@@ -36,6 +36,11 @@ const ICON_PIXELS: u32 = 64;
 /// How much wider than high the picture of a card is: 360 by 188, the ratio of OpenGraph's pictures.
 pub const LINK_PREVIEW_PICTURE_RATIO: f32 = 360.0 / 188.0;
 const CARD_PICTURE_RATIO: f32 = LINK_PREVIEW_PICTURE_RATIO;
+
+/// How much wider than high, or higher than wide, a picture may be and still be cut to the square of a row: one
+/// further from square is drawn whole in it. GitHub's card of a repository, 2 : 1, cut to the square showed the
+/// middle of its name.
+const SQUARE_ENOUGH: f32 = 1.5;
 
 /// The forms of a link preview.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -118,6 +123,9 @@ pub enum LinkPreviewState {
   Removable,
   /// It shows the site's own icon, on the white plate favicons are drawn for, and not the link mark.
   SiteIcon,
+  /// Its picture shows what is behind it, as a logo drawn on nothing does (`ImageData::has_transparency`): it
+  /// stands whole on a light plate, the ground it was drawn for.
+  Transparent,
   /// It takes no input.
   Disabled,
 }
@@ -129,6 +137,7 @@ names!(LinkPreviewState {
   Empty => "empty",
   Removable => "removable",
   SiteIcon => "site_icon",
+  Transparent => "transparent",
   Disabled => "disabled",
 });
 
@@ -622,6 +631,22 @@ impl LinkPreview {
     } else {
       image
     };
+    // Whether the picture shows what is behind it, and how wide it is, once its pixels are there: until then it
+    // is drawn as any is, and their coming renders the preview again to look.
+    let looked = shown_image.as_ref().and_then(|(picture, _)| looked_at(picture, live));
+    let transparent = looked.is_some_and(|(transparent, _)| transparent);
+    let far_from_square = looked.is_some_and(|(_, ratio)| !(1.0 / SQUARE_ENOUGH..=SQUARE_ENOUGH).contains(&ratio));
+    let whole = transparent || (variant == LinkPreviewVariant::Compact && far_from_square);
+    let shown_image = shown_image.map(|(picture, key)| match live {
+      Some(live) if looked.is_none() => {
+        let tick = live.tick.clone();
+        (
+          picture.on_load(move || tick.set(tick.get_untracked().wrapping_add(1))),
+          key,
+        )
+      }
+      _ => (picture, key),
+    });
     let removable = !self.on_remove.is_empty();
     let case = Case {
       variant: Some(self.variant),
@@ -639,6 +664,7 @@ impl LinkPreview {
     .state(LinkPreviewState::Empty, empty)
     .state(LinkPreviewState::Removable, removable)
     .state(LinkPreviewState::SiteIcon, icon.is_some() && !empty && !loading)
+    .state(LinkPreviewState::Transparent, transparent)
     .state(LinkPreviewState::Disabled, self.disabled);
     let mut rules = self.rules.clone();
     if let Some(width) = self.width {
@@ -654,6 +680,8 @@ impl LinkPreview {
       site,
       site_shown: self.site_shown,
       image: shown_image.map(|(picture, _)| picture),
+      transparent,
+      whole,
       icon: if empty {
         None
       } else {
@@ -718,6 +746,33 @@ impl LinkPreview {
 
 impl LinkPreviewVariant {
   const ALL: [Self; 3] = [Self::Card, Self::Compact, Self::Inline];
+}
+
+/// Where the pixels of `picture` are there: whether they show what is behind them, and how much wider than high
+/// they are. Whether they show through is read once for them and kept by a preview in an app, since an opaque
+/// picture has each of its pixels looked at.
+#[cfg(feature = "raster")]
+fn looked_at(picture: &Picture, live: Option<&Live>) -> Option<(bool, f32)> {
+  let pixels = picture.pixels()?;
+  let ratio = pixels.width() as f32 / pixels.height().max(1) as f32;
+  let Some(live) = live else {
+    return Some((pixels.has_transparency(), ratio));
+  };
+  let mut seen = live.seen.lock();
+  let transparent = match *seen {
+    Some((id, said)) if id == pixels.id() => said,
+    _ => {
+      let said = pixels.has_transparency();
+      *seen = Some((pixels.id(), said));
+      said
+    }
+  };
+  Some((transparent, ratio))
+}
+
+#[cfg(not(feature = "raster"))]
+fn looked_at(_: &Picture, _: Option<&Live>) -> Option<(bool, f32)> {
+  None
 }
 
 /// The icon a site keeps where its pages name none: `/favicon.ico` at the origin of `url`, an address on the web.
@@ -819,6 +874,8 @@ struct Live {
   failed_image: Signal<Option<u64>>,
   /// The keys of the icons that did not load: the next is tried, and the link mark stands for them all.
   failed_icon: Signal<Vec<u64>>,
+  /// Whether the picture's pixels show what is behind them, by the id of the pixels: read once for them.
+  seen: Arc<Mutex<Option<(u64, bool)>>>,
   /// What moves the focus once the close button took the preview out.
   focus: FocusHandle,
 }
@@ -839,6 +896,7 @@ impl Component for LinkPreviewHost {
         hovered: ctx.signal(false),
         failed_image: ctx.signal(None),
         failed_icon: ctx.signal(Vec::new()),
+        seen: Arc::default(),
         focus: ctx.focus_handle(),
       },
     }
@@ -941,6 +999,12 @@ pub struct LinkPreviewView {
   pub site_shown: bool,
   /// The picture, where it shows one.
   pub image: Option<Picture>,
+  /// The picture shows what is behind it (state `transparent`): it stands whole on the media's plate, and is
+  /// not cut to the box.
+  pub transparent: bool,
+  /// The picture is drawn whole in its box, not cut to it: one that shows what is behind it, and in a row one
+  /// much wider or higher than square, which the picture's own box shows beside.
+  pub whole: bool,
   /// The site's icon; none is the link mark.
   pub icon: Option<Picture>,
   /// The length of a video in seconds, where it is one: `Some(None)` where its length is not known.
@@ -1225,7 +1289,21 @@ impl LinkPreviewView {
       }
       (None, false) => return None,
     };
+    // A picture that shows what is behind it is drawn whole, with no box of its own, in the media's plate and
+    // inside its padding: a logo cut to the box loses its edges, which are its shape. The plate takes the card's
+    // ratio in its place. One much wider or higher than the square of a row is drawn whole in its own muted box,
+    // which shows above and below it, or beside it, as the picture's own box does while it loads.
+    let transparent = self.transparent && !self.loading;
     let picture = match self.variant {
+      _ if transparent => picture
+        .fit(PictureFit::Contain)
+        .bare(true)
+        .width(Length::Fill)
+        .height(Length::Fill),
+      _ if self.whole && !self.loading => picture
+        .fit(PictureFit::Contain)
+        .width(Length::Fill)
+        .height(Length::Fill),
       // As wide as the card, and as high as its ratio makes it; round at the top as the card is, which cuts it.
       LinkPreviewVariant::Card => picture
         .width(Length::Fill)
@@ -1239,7 +1317,11 @@ impl LinkPreviewView {
       _ => picture.width(Length::Fill).height(Length::Fill),
     };
     let picture = self.video_marks().into_iter().fold(picture, Picture::child);
-    Some(Row::new().part(&part).overflow_visible().child(picture))
+    let mut media = Row::new().part(&part).overflow_visible();
+    if transparent && self.variant == LinkPreviewVariant::Card {
+      media = media.aspect_ratio(CARD_PICTURE_RATIO);
+    }
+    Some(media.child(picture))
   }
 
   /// The close button: a stop of Tab of its own, which tells the app to drop the preview.
@@ -1435,10 +1517,13 @@ impl Themed for LinkPreview {
   /// the icon of 14, the title at 13/500 in the foreground's color and the site at 12 in the muted. While the page
   /// is read, the skeleton's lines stand for the text, 10 apart: 88 by 10, the width by 14, the width by 12 and
   /// 168 by 12 in a card; 88, 232 and 168 in a row; a square of 14 and a line of 96 by 10 in a sentence. A site's
-  /// own icon stands on a white plate, the ground favicons are drawn for, which a light card does not show.
+  /// own icon stands on a white plate, the ground favicons are drawn for, which a light card does not show; and so
+  /// does a picture that shows what is behind it (a logo on nothing), whole, 16 from the plate's edges in a card and
+  /// 8 in a row. In a row, a picture more than 1.5 times as wide as high, or as high as wide, is drawn whole in its
+  /// own muted box.
   fn recipe() -> Recipe {
     use LinkPreviewPart::*;
-    use LinkPreviewState::{Disabled, Loading, Media as WithMedia, SiteIcon};
+    use LinkPreviewState::{Disabled, Loading, Media as WithMedia, SiteIcon, Transparent};
     use LinkPreviewVariant::{Card, Compact, Inline};
     use PaletteColor::{
       Border as Edge, Card as Surface, CardForeground, Foreground, Muted, MutedForeground, StateHover,
@@ -1479,6 +1564,15 @@ impl Themed for LinkPreview {
       .variant(Card, Media, |s| s.width(super::part_style::Length::Fill))
       .when(Selector::new().variant(Card).state(WithMedia), Text, |s| s.top_line(edge()))
       .variant(Compact, Media, |s| s.square(72.0).radius(RadiusSize::Md))
+      // A picture that shows what is behind it was drawn for a light page, as a site's icon is: a dark logo on
+      // nothing would be dark on the dark card. It stands whole on a white plate, round at the top as the card is.
+      .state(Transparent, Media, |s| s.background(white).padding_x(16.0).padding_y(16.0))
+      .when(Selector::new().variant(Card).state(Transparent), Media, |s| {
+        s.corners(RadiusSize::Xl, RadiusSize::Xl, 0.0, 0.0)
+      })
+      .when(Selector::new().variant(Compact).state(Transparent), Media, |s| {
+        s.padding_x(8.0).padding_y(8.0)
+      })
       .base(Play, |s| {
         s.square(48.0)
           .radius(RadiusSize::Full)

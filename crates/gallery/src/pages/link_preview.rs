@@ -34,11 +34,13 @@ const VIDEO: &str = "https://lurq.dev/guides/a-gallery-page";
 const SLOW: &str = "https://lurq.dev/docs/being-read";
 const BARE: &str = "https://lurq.dev/docs/layout/gaps";
 const MISSING: &str = "https://lurq.dev/docs/gone";
+const LOGO: &str = "https://lurq.dev/brand";
 
 /// The pages the playground offers: what each is called, and its address.
-const PAGES: [(&str, &str); 5] = [
+const PAGES: [(&str, &str); 6] = [
   ("A guide", LAYOUT),
   ("A video", VIDEO),
+  ("A logo on nothing", LOGO),
   ("Being read", SLOW),
   ("Tells nothing", BARE),
   ("Not found", MISSING),
@@ -68,6 +70,12 @@ fn fake(url: &str) -> LinkFetch {
         .site("lurq.dev")
         .video(250.0),
     ),
+    LOGO => LinkFetch::ready(
+      LinkMeta::new(url)
+        .title("The lurq mark")
+        .description("The mark in black on nothing, as a PNG, for a light page and a dark one.")
+        .site("lurq.dev"),
+    ),
     SLOW => LinkFetch::Loading,
     MISSING => LinkFetch::Failed(LinkPreviewError::NotFound),
     _ => LinkFetch::ready(LinkMeta::new(url)),
@@ -95,6 +103,19 @@ impl LinkFetcher for Pages {
 fn lake() -> ImageData {
   static LAKE: OnceLock<ImageData> = OnceLock::new();
   LAKE.get_or_init(|| super::picture::lake(640, 336)).clone()
+}
+
+/// The board's picture as a row's square shows it: near square, so it is cut to the square. The card's, at 1.9 : 1,
+/// would be drawn whole in it. Made once.
+fn lake_square() -> ImageData {
+  static LAKE: OnceLock<ImageData> = OnceLock::new();
+  LAKE.get_or_init(|| super::picture::lake(240, 240)).clone()
+}
+
+/// A picture twice as wide as high, as GitHub's card of a repository is: a row's square draws it whole. Made once.
+fn lake_wide() -> ImageData {
+  static LAKE: OnceLock<ImageData> = OnceLock::new();
+  LAKE.get_or_init(|| super::picture::lake(640, 320)).clone()
 }
 
 /// The site's icon the board draws: a square of the primary color with a mark of the foreground's on it. Made
@@ -129,12 +150,45 @@ fn favicon() -> ImageData {
   icon
 }
 
+/// The picture of the brand's page: a dark gear on nothing, as a logo is given (Wikipedia's of Rust is one).
+/// Its pixels show what is behind them, so the preview stands it whole on a light plate. Made once.
+fn mark() -> ImageData {
+  static MARK: OnceLock<ImageData> = OnceLock::new();
+  MARK
+    .get_or_init(|| {
+      let side = 256u32;
+      let center = side as f32 / 2.0;
+      let mut rgba = Vec::with_capacity((side * side * 4) as usize);
+      for y in 0..side {
+        for x in 0..side {
+          let (dx, dy) = (x as f32 + 0.5 - center, y as f32 + 0.5 - center);
+          let (distance, angle) = (dx.hypot(dy), dy.atan2(dx));
+          // Twelve teeth round a ring, the hole in its middle; the edges softened by a pixel.
+          let teeth = if (angle * 6.0 / std::f32::consts::PI).rem_euclid(2.0) < 1.0 {
+            124.0
+          } else {
+            104.0
+          };
+          let outside = (distance - teeth).clamp(0.0, 1.0);
+          let hole = (44.0 - distance).clamp(0.0, 1.0);
+          let alpha = ((1.0 - outside) * (1.0 - hole) * 255.0).round() as u8;
+          rgba.extend_from_slice(&[0x1A, 0x1A, 0x1A, alpha]);
+        }
+      }
+      ImageData::from_rgba(rgba, side, side)
+    })
+    .clone()
+}
+
 /// A preview of `url` with the page's fetcher, and the gallery's pictures where the board draws them: a page on
 /// the web gives its own.
 fn preview(url: &str, pictures: bool) -> LinkPreview {
   let mut preview = LinkPreview::new(url).fetcher(Pages);
   if pictures && matches!(url, LAYOUT | VIDEO) {
     preview = preview.image(Picture::new(lake())).icon(Picture::new(favicon()));
+  }
+  if pictures && url == LOGO {
+    preview = preview.image(Picture::new(mark())).icon(Picture::new(favicon()));
   }
   preview
 }
@@ -273,6 +327,11 @@ impl LinkPreviewPage {
         code.push("    .image(Picture::new(lake))".to_owned());
         code.push("    .icon(Picture::new(favicon))".to_owned());
       }
+      if pictures && fake_url == LOGO {
+        code.push("    // A dark logo on nothing: it stands whole on a light plate.".to_owned());
+        code.push("    .image(Picture::new(mark))".to_owned());
+        code.push("    .icon(Picture::new(favicon))".to_owned());
+      }
     }
     if disabled {
       code.push("    .disabled(true)".to_owned());
@@ -291,7 +350,10 @@ impl LinkPreviewPage {
     )];
     match variant {
       LinkPreviewVariant::Card => {
-        tree.push("├─ media     the picture, 1.91 : 1 · play and length of a video".to_owned());
+        tree.push(
+          "├─ media     the picture, 1.91 : 1 · play and length of a video · a light plate under one on nothing"
+            .to_owned(),
+        );
         tree.push("└─ text      site (icon · domain) · title · description".to_owned());
       }
       LinkPreviewVariant::Compact => {
@@ -416,7 +478,14 @@ impl Component for LinkPreviewPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let card = |url: &str| preview(url, true);
-    let compact = |url: &str| preview(url, true).variant(LinkPreviewVariant::Compact);
+    let compact = |url: &str| {
+      let preview = preview(url, true).variant(LinkPreviewVariant::Compact);
+      if matches!(url, LAYOUT | VIDEO) {
+        preview.image(Picture::new(lake_square()))
+      } else {
+        preview
+      }
+    };
     let inline = |url: &str| {
       preview(url, true)
         .variant(LinkPreviewVariant::Inline)
@@ -450,6 +519,10 @@ impl Component for LinkPreviewPage {
         "no picture · the text alone",
       ))
       .child(item(held(280.0, card(VIDEO)), "a video · the mark and its length"))
+      .child(item(
+        held(280.0, card(LOGO)),
+        "a picture on nothing · whole, on a light plate",
+      ))
       .child(item(
         held(280.0, card(LAYOUT).force(Some(Interaction::Hovered))),
         "hover · lifted, the title underlined",
@@ -485,6 +558,19 @@ impl Component for LinkPreviewPage {
       .child(item(
         held(432.0, compact(BARE)),
         "nothing to show · the address, a link mark",
+      ))
+      .child(item(
+        held(432.0, compact(LOGO)),
+        "compact · a picture on nothing, on a light plate",
+      ))
+      .child(item(
+        held(
+          432.0,
+          compact(LAYOUT)
+            .title("Layout in lurq, a picture twice as wide")
+            .image(Picture::new(lake_wide())),
+        ),
+        "compact · a picture of 2 : 1, whole in its box",
       ))
       .child(item(
         row(compact(LAYOUT), Some(Interaction::Hovered)),
@@ -640,8 +726,9 @@ impl Component for LinkPreviewPage {
         Section::new(
           "States",
           "While the page is read, the skeleton. A page with no picture is its text; a video has the play mark and \
-           its length. Under the pointer it lifts and its title is underlined; from the keyboard it has the ring. \
-           In a composer, a close drops it.",
+           its length. A picture that shows what is behind it, a dark logo on nothing, stands whole on a light \
+           plate in both themes (state transparent). Under the pointer it lifts and its title is underlined; from \
+           the keyboard it has the ring. In a composer, a close drops it.",
           self.frame.demo(
             1,
             states,
@@ -658,8 +745,10 @@ impl Component for LinkPreviewPage {
         ),
         Section::new(
           "Compact",
-          "A row for lists and messages: the text takes the row where there is no picture. A page that tells \
-           nothing shows its address, the link mark and a line that says so.",
+          "A row for lists and messages: the text takes the row where there is no picture. A picture much wider or \
+           higher than square (beyond 1.5 : 1, as GitHub's 2 : 1 card of a repository) is drawn whole in its box; \
+           one near square is cut to the square. A page that tells nothing shows its address, the link mark and a \
+           line that says so.",
           self.frame.demo(
             2,
             rows,

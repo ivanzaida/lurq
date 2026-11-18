@@ -178,6 +178,116 @@ fn a_card_with_a_picture_has_it_on_top_at_the_ratio_of_the_board_and_a_video_has
   );
 }
 
+/// A picture the app gives that shows what is behind it has its plate in the first frame; in a row, a square of
+/// 72 with the picture 8 from its edges.
+#[cfg(feature = "raster")]
+#[test]
+fn a_given_picture_on_nothing_has_its_plate_in_the_first_frame_and_in_a_row() {
+  use lurq::{images::ImageData, ui::Picture};
+  // A dark square in the middle of nothing.
+  let rgba: Vec<u8> = (0..32 * 32)
+    .flat_map(|at| {
+      let (x, y) = (at % 32, at / 32);
+      if (8..24).contains(&x) && (8..24).contains(&y) {
+        [16, 16, 16, 255]
+      } else {
+        [0, 0, 0, 0]
+      }
+    })
+    .collect();
+  let data = ImageData::from_rgba(rgba, 32, 32);
+  assert!(data.has_transparency());
+  assert!(
+    !ImageData::from_rgba(vec![255; 4 * 4 * 4], 4, 4).has_transparency(),
+    "opaque"
+  );
+  let made = data.clone();
+  let stage = stage_of(move || {
+    LinkPreview::new(URL)
+      .title(TITLE)
+      .site("lurq.dev")
+      .no_icon()
+      .image(Picture::new(made.clone()))
+      .variant(LinkPreviewVariant::Compact)
+  });
+  let white = Color::new(255, 255, 255, 255);
+  let quads = stage.quads();
+  let plate = quads
+    .iter()
+    .find(|quad| {
+      quad.width == 72.0
+        && quad.height == 72.0
+        && matches!(quad.content, QuadContent::Rect { color, .. } if color == white)
+    })
+    .expect("the plate, a square of 72");
+  let picture = quads
+    .iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Image { data: shown, .. } if shown.id() == data.id()))
+    .expect("the picture");
+  assert_eq!(
+    (picture.width, picture.height),
+    (56.0, 56.0),
+    "whole, 8 from the plate's edges"
+  );
+  assert_eq!((picture.x - plate.x, picture.y - plate.y), (8.0, 8.0));
+}
+
+/// In a row's square, a picture much wider than square (GitHub's 2:1 card of a repository) is drawn whole in its
+/// own muted box, and one near square is cut to the square as before. A card cuts both to its ratio.
+#[cfg(feature = "raster")]
+#[test]
+fn in_a_row_a_wide_picture_is_whole_and_a_square_one_covers_the_square() {
+  use lurq::{images::ImageData, ui::Picture};
+  let opaque = |width: u32, height: u32| ImageData::from_rgba(vec![255; (width * height * 4) as usize], width, height);
+  let (wide, square, tall) = (opaque(40, 20), opaque(20, 20), opaque(20, 40));
+  let shown = |stage: &Stage, data: &ImageData| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, QuadContent::Image { data: shown, .. } if shown.id() == data.id()))
+      .unwrap_or_else(|| panic!("the picture of {}x{}", data.width(), data.height()))
+  };
+  let row = |data: &ImageData, variant: LinkPreviewVariant| {
+    let made = data.clone();
+    stage_of(move || {
+      LinkPreview::new(URL)
+        .title(TITLE)
+        .site("lurq.dev")
+        .no_icon()
+        .image(Picture::new(made.clone()))
+        .variant(variant)
+        .id("preview")
+    })
+  };
+  let stage = row(&wide, LinkPreviewVariant::Compact);
+  let picture = shown(&stage, &wide);
+  assert_eq!((picture.width, picture.height), (72.0, 36.0), "whole");
+  let muted = light(PaletteColor::Muted);
+  assert!(
+    stage.quads().iter().any(|quad| quad.width == 72.0
+      && quad.height == 72.0
+      && matches!(quad.content, QuadContent::Rect { color, .. } if color == muted)),
+    "in its own muted box"
+  );
+  assert!(
+    !stage.quads().iter().any(|quad| quad.width == 72.0
+      && quad.height == 72.0
+      && matches!(quad.content, QuadContent::Rect { color, .. } if color == Color::new(255, 255, 255, 255))),
+    "and on no plate"
+  );
+  let stage = row(&tall, LinkPreviewVariant::Compact);
+  let picture = shown(&stage, &tall);
+  assert_eq!((picture.width, picture.height), (36.0, 72.0), "whole");
+  let stage = row(&square, LinkPreviewVariant::Compact);
+  let picture = shown(&stage, &square);
+  assert_eq!((picture.width, picture.height), (72.0, 72.0), "covered");
+  // A card keeps its ratio and its crop.
+  let stage = row(&wide, LinkPreviewVariant::Card);
+  let picture = shown(&stage, &wide);
+  assert_eq!(picture.width, 360.0);
+  assert!((picture.height - 188.0).abs() < 1.0, "{}", picture.height);
+}
+
 #[test]
 fn while_the_page_is_read_it_is_the_skeleton_and_then_what_the_page_says() {
   let pages = Pages::answering(LinkFetch::Loading);
@@ -857,20 +967,70 @@ mod a_real_page {
 
   /// A stage with a card of `url` in the dark theme, read by a fetcher of its own through `app`'s loader.
   pub(super) fn card(app: App, url: &str) -> Stage {
+    card_with(app, url, |preview| preview)
+  }
+
+  /// A stage with a card of `url` in the dark theme, as `made` makes it, read by a fetcher of its own through
+  /// `app`'s loader.
+  pub(super) fn card_with(
+    app: App,
+    url: &str,
+    made: impl Fn(LinkPreview) -> LinkPreview + Send + Sync + 'static,
+  ) -> Stage {
     app.theme().set_preferred_appearance(Some(Appearance::Dark));
     let fetcher: Arc<dyn LinkFetcher> = Arc::new(PageFetcher::new());
     let url = url.to_owned();
     Stage::in_app(app, move |_| {
       Column::new()
         .padding(8.0)
-        .child(
+        .child(made(
           LinkPreview::new(&url)
             .variant(LinkPreviewVariant::Card)
             .shared_fetcher(fetcher.clone())
             .id("preview"),
-        )
+        ))
         .into()
     })
+  }
+
+  /// A page of Wikipedia's kind whose picture is `picture.png` of its own, and that names no icon.
+  fn page_with_a_picture(tag: &str, picture: Vec<u8>) -> std::path::PathBuf {
+    let page = format!(
+      r#"<head><title>Rust (programming language)</title><meta property="og:site_name" content="Wikipedia">
+      <meta property="og:image" content="{tag}/picture.png"></head>"#
+    );
+    site(tag, &[("page.html", page.into_bytes()), ("picture.png", picture)])
+  }
+
+  /// Rust's logo as Wikipedia gives it: a dark ring on nothing, square.
+  fn dark_ring() -> Vec<u8> {
+    png(96, 96, |x, y| {
+      let (dx, dy) = (x as f32 - 47.5, y as f32 - 47.5);
+      let distance = (dx * dx + dy * dy).sqrt();
+      if (24.0..46.0).contains(&distance) {
+        [0x10, 0x10, 0x10, 255]
+      } else {
+        [0, 0, 0, 0]
+      }
+    })
+  }
+
+  /// The rectangles of `color` that are `width` by `height`.
+  fn boxes(stage: &Stage, color: Color, width: f32, height: f32) -> Vec<Quad> {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        (quad.width - width).abs() < 1.0
+          && (quad.height - height).abs() < 1.0
+          && matches!(quad.content, QuadContent::Rect { color: fill, .. } if fill == color)
+      })
+      .collect()
+  }
+
+  /// The card's picture: the one image in it that is not the site's icon.
+  fn the_picture(stage: &Stage) -> Option<Quad> {
+    images(stage).into_iter().find(|quad| quad.width != 16.0)
   }
 
   /// Passes until `done` holds, while the fetcher, the loader and the decoder work on their threads.
@@ -961,6 +1121,90 @@ mod a_real_page {
       !filled(ThemePalette::dark().get(PaletteColor::Muted)),
       "no box of a picture's own around it"
     );
+  }
+
+  #[test]
+  fn a_picture_on_nothing_stands_whole_on_a_light_plate_in_the_dark_theme_and_the_light() {
+    let tag = "on-nothing";
+    let root = page_with_a_picture(tag, dark_ring());
+    let app = App::new();
+    app.loader().root(&root);
+    let mut stage = card(app, &format!("{tag}/page.html"));
+    let white = Color::new(255, 255, 255, 255);
+    until(&mut stage, "the picture on its plate", |stage| {
+      the_picture(stage).is_some() && !boxes(stage, white, 360.0, 188.0).is_empty()
+    });
+    let check = |stage: &Stage, theme: &str| {
+      let plate = boxes(stage, white, 360.0, 188.0);
+      assert_eq!(plate.len(), 1, "{theme}: the plate, at the card's ratio");
+      let plate = &plate[0];
+      let picture = the_picture(stage).unwrap();
+      // Whole: as high as the plate inside its padding of 16, as wide at its own ratio, in the middle.
+      assert!((picture.height - 156.0).abs() < 1.0, "{theme}: {}", picture.height);
+      assert!((picture.width - 156.0).abs() < 1.0, "{theme}: {}", picture.width);
+      assert!((picture.y - plate.y - 16.0).abs() < 1.0, "{theme}");
+      assert!(
+        (picture.x + picture.width / 2.0 - plate.x - 180.0).abs() < 1.0,
+        "{theme}"
+      );
+      // In no muted box of a picture's own.
+      let muted = stage.app.theme().palette().get(PaletteColor::Muted);
+      assert!(boxes(stage, muted, 328.0, 156.0).is_empty(), "{theme}");
+      assert!(boxes(stage, muted, 360.0, 188.0).is_empty(), "{theme}");
+      assert!(stage.paints("Rust (programming language)"), "{theme}");
+    };
+    check(&stage, "dark");
+    stage.app.theme().set_preferred_appearance(Some(Appearance::Light));
+    for _ in 0..3 {
+      stage.pass();
+    }
+    assert_eq!(
+      stage.app.theme().palette().get(PaletteColor::Card),
+      ThemePalette::light().get(PaletteColor::Card)
+    );
+    check(&stage, "light");
+  }
+
+  #[test]
+  fn an_opaque_picture_covers_its_box_with_no_plate_and_a_few_clear_corners_leave_it_opaque() {
+    let tag = "opaque";
+    // A photo with its corners cut round: a few pixels of nothing, under one in a hundred.
+    let root = page_with_a_picture(
+      tag,
+      png(120, 60, |x, y| {
+        let corner = !(2..118).contains(&x) && !(2..58).contains(&y);
+        if corner { [0, 0, 0, 0] } else { [40, 160, 90, 255] }
+      }),
+    );
+    let app = App::new();
+    app.loader().root(&root);
+    let mut stage = card(app, &format!("{tag}/page.html"));
+    until(&mut stage, "the picture", |stage| picture(stage).is_some());
+    for _ in 0..3 {
+      stage.pass();
+    }
+    let picture = picture(&stage).unwrap();
+    assert!((picture.height - 188.0).abs() < 1.0, "covered: {}", picture.height);
+    let white = Color::new(255, 255, 255, 255);
+    assert!(boxes(&stage, white, 360.0, 188.0).is_empty(), "no plate");
+  }
+
+  #[test]
+  fn a_themes_rule_restyles_the_plate() {
+    use lurq::ui::{LinkPreviewPart, LinkPreviewState, Recipe};
+    let tag = "restyled";
+    let root = page_with_a_picture(tag, dark_ring());
+    let app = App::new();
+    app.loader().root(&root);
+    let sand = Color::new(240, 220, 180, 255);
+    let rules = Recipe::new().state(LinkPreviewState::Transparent, LinkPreviewPart::Media, move |s| {
+      s.background(sand)
+    });
+    let mut stage = card_with(app, &format!("{tag}/page.html"), move |preview| preview.rules(&rules));
+    until(&mut stage, "the plate in the theme's color", |stage| {
+      !boxes(stage, sand, 360.0, 188.0).is_empty()
+    });
+    assert!(boxes(&stage, Color::new(255, 255, 255, 255), 360.0, 188.0).is_empty());
   }
 
   #[cfg(feature = "canvas")]

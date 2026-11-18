@@ -631,6 +631,28 @@ impl Picture {
     }
   }
 
+  /// Its pixels where they are there now: the ones it was given, or the ones of its source that lurq's cache of
+  /// decoded pictures holds. Nothing is read or decoded for it here: a picture on its way has none yet, and its
+  /// [`on_load`](Self::on_load) tells when they come.
+  #[cfg(feature = "raster")]
+  pub fn pixels(&self) -> Option<crate::images::ImageData> {
+    match &self.source {
+      Source::None => None,
+      Source::Data(data) => Some(data.clone()),
+      #[cfg(feature = "image")]
+      Source::Encoded { source, cap } => {
+        use crate::images::{ImageKey, ImageSizeCap, decoded_images};
+        let cap = cap.map(|(width, height)| ImageSizeCap::new(width, height));
+        decoded_images()
+          .state(ImageKey::new(source.cache_key()), cap)?
+          .ready()
+          .cloned()
+      }
+      #[cfg(not(feature = "image"))]
+      Source::Encoded { .. } => None,
+    }
+  }
+
   /// What the picture is called: what it shows of itself where there are no pixels, and its name to tooling
   /// that reads the tree. An `alt` text.
   pub fn label(mut self, label: &str) -> Self {

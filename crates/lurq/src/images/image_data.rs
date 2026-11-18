@@ -645,6 +645,28 @@ impl ImageData {
     self.frames.len() > 1 && self.total_duration_ms > 0
   }
 
+  /// Whether what is behind the picture shows through it: one pixel in a hundred or more is not opaque, as in a
+  /// logo or an icon drawn on nothing. A few that are not (the rounded corners of a photo) do not make it so.
+  /// Only pixels in memory of [`Rgba8`](ImagePixelFormat::Rgba8) are looked at, an animation's first frame; a
+  /// streaming or a native picture, and one of another format, is taken as opaque. An opaque picture has every
+  /// pixel read: what asks again keeps the answer.
+  pub fn has_transparency(&self) -> bool {
+    if self.format != ImagePixelFormat::Rgba8 || self.streaming.is_some() || self.native.is_some() {
+      return false;
+    }
+    let Some(frame) = self.frames.first() else {
+      return false;
+    };
+    let enough = (frame.data.len() / 4).div_ceil(100).max(1);
+    frame
+      .data
+      .chunks_exact(4)
+      .filter(|pixel| pixel[3] < 255)
+      .take(enough)
+      .count()
+      == enough
+  }
+
   pub fn is_streaming(&self) -> bool {
     self.streaming.is_some()
   }
