@@ -566,19 +566,22 @@ fn input_over_a_list() -> (Tree, App, crate::layout::layout_kind::ScrollState) {
 }
 
 #[test]
-fn a_finger_outside_the_text_input_being_typed_into_leaves_it_the_focus() {
+fn a_tap_outside_the_text_input_being_typed_into_lets_it_go() {
   let (mut tree, mut app, _state) = input_over_a_list();
   tree.touch_press(100.0, 20.0);
   tree.touch_release(100.0, 20.0);
   tree.pass(&mut app, &HeadlessSurface);
   assert!(tree.focused_text_input(), "a tap on the input gives it the focus");
 
+  tree.touch_scroll_begin(100.0, 200.0, 0.0, -10.0);
+  assert!(
+    tree.focused_text_input(),
+    "a finger that scrolls leaves the keyboard up"
+  );
+
   tree.touch_press(100.0, 200.0);
   tree.touch_release(100.0, 200.0);
-  assert!(tree.focused_text_input(), "a tap outside leaves the keyboard up");
-
-  tree.mouse_down(100.0, 200.0, crate::app::events::MouseButton::Left);
-  assert!(!tree.focused_text_input(), "a mouse's press outside takes the focus");
+  assert!(!tree.focused_text_input(), "a tap outside takes the keyboard down");
 }
 
 #[test]

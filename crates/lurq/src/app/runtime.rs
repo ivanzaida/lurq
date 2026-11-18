@@ -6291,10 +6291,9 @@ impl Tree {
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
     }
-    // A finger that lands outside the text input being typed into leaves it the focus, and so the keyboard
-    // up, as a phone's apps do: only another text input takes the focus from it.
-    let keeps_keyboard = self.touch_pointer.down && self.focused_text_input();
-    if blur_on_press && !keeps_keyboard {
+    // A finger's tap outside the text input being typed into lets it go, as a mouse's press does, and the
+    // keyboard goes down with it (`design/mobile-decisions.md`). A finger that scrolls presses nothing.
+    if blur_on_press {
       self.blur_focus();
       // Tab goes on from what was pressed, as a browser's does from a press on text: from the top of the window
       // where the press was on nothing.
@@ -6324,9 +6323,7 @@ impl Tree {
       self.active_drag = Some(drag);
       self.needs_redraw = true;
     }
-    if let Some(target) = pending_focus
-      && (!keeps_keyboard || self.is_text_input(target.input_id))
-    {
+    if let Some(target) = pending_focus {
       self.focus_node(target);
     }
     self.follow_pointer_focus(pointer_focus);
