@@ -1034,6 +1034,7 @@ impl ManagedWindow {
       // Video streams are presented directly from about_to_wait. Requesting
       // winit redraw events for the same stream adds a second, irregular presentation
       // path that can reset last_paint and create visible cadence gaps.
+      self.frames.see_window(&mut self.tree);
     } else {
       // Before the scheduled redraws are ticked: a hidden window drops them.
       let window = self.window.as_ref();

@@ -3,6 +3,7 @@ mod frame_pacing;
 mod in_phase;
 mod interpolation;
 mod keyframes;
+mod on_frame;
 mod opacity;
 mod presence;
 mod timeline_pruning;

@@ -954,6 +954,12 @@ pub struct Tree {
   animation_engine: AnimationEngine,
   /// The time animations and transitions tick at instead of each pass's: see [`Tree::set_animation_clock`].
   animation_clock: Option<Instant>,
+  /// The shell says the window cannot be seen (minimized or covered): the app's frame callbacks are paused.
+  frames_hidden: bool,
+  /// A frame callback was paused since it last ran: its next frame has a delta of zero.
+  frames_missed: bool,
+  /// When the app's frame callbacks last ran, on the runtime's clock.
+  frames_ran_at: Option<Instant>,
   /// The time presses are given at instead of the wall clock's: see [`Tree::set_press_clock`].
   press_clock: Option<Instant>,
   last_theme_version: u64,
@@ -1433,6 +1439,9 @@ impl Tree {
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       animation_clock: None,
+      frames_hidden: false,
+      frames_missed: false,
+      frames_ran_at: None,
       press_clock: None,
       last_theme_version: u64::MAX,
       quad_scratch: Vec::new(),
@@ -1855,7 +1864,8 @@ impl Tree {
   }
 
   /// Whether any animation or transition is currently running, a mouse
-  /// wheel's scroll on its way among them ([`Tree::wheel`]). While true the
+  /// wheel's scroll on its way among them ([`Tree::wheel`]), or a callback of
+  /// the app's frames ([`Ctx::on_frame`], [`Tree::has_frame_callbacks`]). While true the
   /// shell asks for a frame at each [`Tree::next_timeline_change`] and the
   /// runtime recomputes layout on each of them, so this staying `true` on an
   /// idle screen is a bug (stale runs for unmounted nodes are pruned at the end
@@ -1863,6 +1873,8 @@ impl Tree {
   pub fn has_active_timeline(&self) -> bool {
     // A layer or a child on its way out is dropped by a pass, so passes go on until it is.
     self.transition_engine.has_active
+      // The app's own frames are a timeline that changes at every frame.
+      || self.has_frame_callbacks()
       || self.animation_engine.has_active
       || !self.leaving_layers.is_empty()
       || !self.leaving_children.is_empty()
@@ -1892,12 +1904,76 @@ impl Tree {
       .chain(&self.leaving_children)
       .map(|layer| layer.until)
       .min();
+    // A frame callback wants the next frame at once, as a span that changes continuously does.
+    let frame_callback = self
+      .has_frame_callbacks()
+      .then(|| self.frames_ran_at.unwrap_or_else(|| self.now()));
     transition
       .into_iter()
       .chain(animation)
       .chain(layer_dropped)
       .chain(self.next_wheel_scroll_step())
+      .chain(frame_callback)
       .min()
+  }
+
+  /// Whether a callback of the app's frames runs for the next frame: a component's ([`Ctx::on_frame`]) or the
+  /// window's ([`WindowHandle::on_frame`](crate::app::window::WindowHandle::on_frame)). While one does, the window
+  /// draws a frame each refresh of its display ([`Tree::next_timeline_change`]), and each pass that draws one lays the
+  /// window out and paints it. Paused callbacks of a hidden window count: they want frames once it shows.
+  pub fn has_frame_callbacks(&self) -> bool {
+    self.window.frames().any_active() || self.root_ctx.as_ref().is_some_and(Ctx::has_active_frame_callbacks)
+  }
+
+  /// The shell says whether the window can be seen: while it is minimized or covered the app's frame callbacks are
+  /// paused, and the first frame they run for when it shows again has a delta of zero. A minimized window
+  /// ([`Window::set_minimized`](crate::app::window::Window::set_minimized)) pauses them by itself.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_frames_hidden(&mut self, hidden: bool) {
+    self.frames_hidden = hidden;
+    self.frames_missed |= hidden;
+  }
+
+  /// Runs the app's frame callbacks for the frame this pass draws, at its time on the runtime's clock: the window's
+  /// first, then the components', parents before children. At the start of the pass, so that what they set is
+  /// rendered and laid out in this frame.
+  fn run_frame_callbacks(&mut self) {
+    if !self.has_frame_callbacks() {
+      return;
+    }
+    if self.frames_hidden || self.window.info().is_minimized {
+      self.frames_missed = true;
+      return;
+    }
+    // What is dirty is rendered first: a component this frame no longer has runs no callback for it.
+    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      self.apply_reactive_updates_after_event();
+      if !self.has_frame_callbacks() {
+        return;
+      }
+    }
+    let window_frames = self.window.frames().clone();
+    if std::mem::take(&mut self.frames_missed) {
+      window_frames.forget_last();
+      if let Some(ctx) = &self.root_ctx {
+        ctx.forget_last_frames();
+      }
+    }
+    let now = self.now();
+    let mut ran = window_frames.run(now);
+    ran |= self.root_ctx.as_ref().is_some_and(|ctx| ctx.run_frame_callbacks(now));
+    if !ran {
+      return;
+    }
+    self.frames_ran_at = Some(now);
+    // As after a timer: what the callbacks dirtied is rendered before the pass lays the window out.
+    if self
+      .root_ctx
+      .as_ref()
+      .is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request())
+    {
+      self.apply_reactive_updates_after_event();
+    }
   }
 
   /// Whether a canvas's drawing is on its way somewhere (`Canvas::paint_moving`): the shell asks for a frame at
@@ -2925,6 +3001,10 @@ impl Tree {
     {
       crate::app::profile_support::frame_section!("setup:scrollbar_change");
       self.tick_scrollbar_change();
+    }
+    {
+      crate::app::profile_support::frame_section!("setup:frame_callbacks");
+      self.run_frame_callbacks();
     }
     #[cfg(feature = "canvas")]
     self.advance_canvas_motion();

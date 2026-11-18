@@ -38,8 +38,11 @@ use crate::{
   time::Instant,
 };
 
+mod frames;
 mod futures;
 
+pub(crate) use frames::WindowFrames;
+pub use frames::{Frame, FrameCallback};
 pub use futures::{FutureAction, FutureHandle, FutureState, FutureStatus, StreamEmitter, StreamHandle};
 use futures::{FutureSlot, RuntimeFutureHandle};
 
@@ -1119,6 +1122,8 @@ pub struct Ctx {
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
   timers: Vec<Timer>,
+  /// The callbacks of `ctx.on_frame`.
+  frames: frames::ComponentFrames,
   /// Slots of the `ctx.future`, `ctx.stream` and `ctx.future_action` calls of
   /// a render, by call position.
   future_slots: Vec<FutureSlot>,
@@ -1722,6 +1727,7 @@ impl Ctx {
       render_watch_handles: Vec::new(),
       effects: Vec::new(),
       timers: Vec::new(),
+      frames: frames::ComponentFrames::default(),
       future_slots: Vec::new(),
       stable_future_slots: Vec::new(),
       component_name: "root",
@@ -3513,6 +3519,7 @@ impl Ctx {
     self.click_outside_cursor = 0;
     self.click_outside_active_cursors.clear();
     self.future_cursor = 0;
+    self.frames.begin_render();
     #[cfg(feature = "query")]
     {
       self.query_cursor = 0;
@@ -3596,6 +3603,7 @@ impl Ctx {
     self.element_refs.truncate(self.element_ref_cursor);
     // Dropping a slot cancels its task.
     self.drop_unreached_future_slots();
+    self.frames.end_render();
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
     if self.rendering && self.theme.is_some() {
@@ -3850,6 +3858,7 @@ impl Ctx {
       }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.timers.capacity() * std::mem::size_of::<Timer>()
+      + self.frames.capacity_bytes()
       + (self.future_slots.capacity() + self.stable_future_slots.capacity()) * std::mem::size_of::<FutureSlot>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self.click_outside_active_cursors.capacity() * std::mem::size_of::<usize>()
