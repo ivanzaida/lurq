@@ -1,5 +1,6 @@
-//! What a step of undo takes back of what was typed: a run of typing on Apple's systems, a word on Windows
-//! (`design/decisions.md`, "Undo takes back what was typed as the platform's own fields do").
+//! What a step of undo takes back of what was typed: a run of typing, on every system (`design/decisions.md`,
+//! "Undo takes back what was typed as the platform's own fields do", and "On Windows a run of typing is one step
+//! of undo, as on a Mac"); a word, as Word groups it, where it is asked for.
 
 use super::*;
 use crate::core::NodeId;
@@ -33,14 +34,19 @@ fn undone(state: &TextInputState) -> Vec<String> {
 }
 
 #[test]
-fn on_a_mac_a_run_of_typing_is_one_step() {
+fn the_platform_groups_a_run_of_typing_into_one_step() {
+  assert_eq!(UndoGrouping::PLATFORM, UndoGrouping::Runs);
+}
+
+#[test]
+fn a_run_of_typing_is_one_step() {
   let state = input(UndoGrouping::Runs);
   typed(&state, "hello world");
   assert_eq!(undone(&state), vec![""]);
 }
 
 #[test]
-fn on_windows_each_word_with_its_spaces_is_a_step() {
+fn grouped_by_word_each_word_with_its_spaces_is_a_step() {
   let state = input(UndoGrouping::Words);
   typed(&state, "hello big world");
   assert_eq!(undone(&state), vec!["hello big ", "hello ", ""]);

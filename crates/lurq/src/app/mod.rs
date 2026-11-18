@@ -84,6 +84,14 @@ pub mod window;
 mod window_control_hits;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
+#[cfg(all(
+  test,
+  windows,
+  feature = "raster",
+  feature = "screenshot",
+  any(feature = "wgpu", feature = "dx12")
+))]
+mod yuv_readback_tests;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
 pub use pointer::Pointer;

@@ -21,7 +21,10 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   not tap: the keyboard stays up, unless the list is set to put it away (`ScrollState::set_keyboard_dismissal`).
 - **Why.** The person expects a tap on nothing to be done with typing; leaving the keyboard up hid half the
   screen with no way to put it away but a list set to.
-- **State.** In work on `feat/design-system`.
+- **State.** Built on `feat/design-system`. Seen on Windows on 2026-11-18, through the gallery's MCP touch
+  (`lurq_touch`, the path a touch screen's fingers take) on the Input page: a tap on the input focuses it, a finger
+  that scrolls the page 130 px leaves it the focus, and a tap on the empty stage beside it takes the focus from
+  it.
 
 ## 2026-11-17
 

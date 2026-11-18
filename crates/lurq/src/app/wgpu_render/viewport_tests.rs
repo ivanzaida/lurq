@@ -17,6 +17,22 @@ use crate::{
   layout::render_list::RenderList,
 };
 
+/// Held by each test here while it runs. An engine that starts says which card draws the frames of a card, and
+/// whether it draws one NV12 texture, for the whole program (`card_frames::announce`); the tests of such frames
+/// run one at a time for that, and a test of theirs under Vulkan that was told "NV12" by an engine started here
+/// gave Vulkan a texture an RTX loses its device for.
+/// Without `raster` no engine says anything of a card, and nothing is held.
+fn alone() -> Option<parking_lot::MutexGuard<'static, ()>> {
+  #[cfg(feature = "raster")]
+  {
+    Some(crate::app::card_read::ON_THE_CARD.lock())
+  }
+  #[cfg(not(feature = "raster"))]
+  {
+    None
+  }
+}
+
 fn pixel(frame: &CapturedFrame, x: u32, y: u32) -> [u8; 3] {
   let index = ((y * frame.width + x) * 4) as usize;
   [frame.rgba[index], frame.rgba[index + 1], frame.rgba[index + 2]]
@@ -218,6 +234,7 @@ const WHOLE: [u8; 2] = 0x3c00_u16.to_le_bytes();
 
 #[test]
 fn an_srgb_and_a_linear_texture_show_the_colors_they_hold() {
+  let _alone = alone();
   // Middle grey three ways: encoded as a picture is (188), and as linear light, a half, in eight bits and in
   // sixteen-bit floats. Each is drawn as 188 in the window.
   let slots = [
@@ -248,6 +265,7 @@ fn an_srgb_and_a_linear_texture_show_the_colors_they_hold() {
 
 #[test]
 fn a_frame_tells_the_scale_and_the_part_of_the_viewport_that_is_shown() {
+  let _alone = alone();
   let slot = WgpuExternalImageSlot::new();
   let heard = Arc::new(Mutex::new(Heard::default()));
   let (mut tree, mut app, frame) = shown(200, 160, 1.5, {
@@ -282,6 +300,7 @@ fn a_frame_tells_the_scale_and_the_part_of_the_viewport_that_is_shown() {
 
 #[test]
 fn a_view_lurq_cannot_sample_is_refused_and_the_slot_keeps_the_one_it_had() {
+  let _alone = alone();
   use crate::images::WgpuTextureError;
 
   let heard = Arc::new(Mutex::new(Heard::default()));
@@ -399,6 +418,7 @@ fn a_view_lurq_cannot_sample_is_refused_and_the_slot_keeps_the_one_it_had() {
 
 #[test]
 fn an_invalid_call_of_an_extension_is_told_to_it_and_ends_nothing() {
+  let _alone = alone();
   let slot = WgpuExternalImageSlot::new();
   let heard = Arc::new(Mutex::new(Heard::default()));
   let (mut tree, mut app, frame) = shown(80, 60, 1.0, {
@@ -431,6 +451,7 @@ fn an_invalid_call_of_an_extension_is_told_to_it_and_ends_nothing() {
 
 #[test]
 fn an_invalid_call_of_the_app_on_a_thread_of_its_own_is_told_to_the_extensions_and_ends_nothing() {
+  let _alone = alone();
   let slot = WgpuExternalImageSlot::new();
   let heard = Arc::new(Mutex::new(Heard::default()));
   let (mut tree, mut app, frame) = shown(80, 60, 1.0, {
@@ -466,6 +487,7 @@ fn an_invalid_call_of_the_app_on_a_thread_of_its_own_is_told_to_the_extensions_a
 #[test]
 #[should_panic(expected = "wgpu error")]
 fn an_error_of_lurqs_own_work_ends_the_program_as_before() {
+  let _alone = alone();
   let heard = Arc::new(Mutex::new(Heard::default()));
   let slot = WgpuExternalImageSlot::new();
   let (mut tree, mut app, frame) = shown(80, 60, 1.0, {
@@ -506,6 +528,7 @@ fn engine_with(
 
 #[test]
 fn the_engines_of_an_apps_windows_share_a_device_and_one_slot_shows_in_both() {
+  let _alone = alone();
   let slot = WgpuExternalImageSlot::new();
   let magenta = || {
     vec![(
@@ -567,6 +590,7 @@ fn the_engines_of_an_apps_windows_share_a_device_and_one_slot_shows_in_both() {
 
 #[test]
 fn a_window_of_lurqs_own_tooling_runs_none_of_the_apps_extensions() {
+  let _alone = alone();
   let slot = WgpuExternalImageSlot::new();
   let heard = Arc::new(Mutex::new(Heard::default()));
   let (mut tree, mut app, frame) = window_of(&slot, {
@@ -594,6 +618,7 @@ fn a_window_of_lurqs_own_tooling_runs_none_of_the_apps_extensions() {
 #[cfg(feature = "dx12")]
 #[test]
 fn the_dx12_renderer_leaves_a_viewports_box_empty_and_draws_the_rest() {
+  let _alone = alone();
   let slot = WgpuExternalImageSlot::new();
   let (mut tree, mut app, frame) = shown(120, 60, 1.0, || {
     Box::new(crate::app::dx12_render::Dx12RenderEngine::new())

@@ -46,13 +46,14 @@ use windows::{
       MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE, MF_E_UNSUPPORTED_FORMAT,
       MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
       MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE,
-      MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
-      MF_SOURCE_READER_D3D_MANAGER, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+      MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+      MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_D3D_MANAGER, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
       MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
       MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED, MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFAudioFormat_Float,
       MFAudioFormat_PCM, MFCreateAttributes, MFCreateDXGIDeviceManager, MFCreateMFByteStreamOnStream,
       MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL, MFMediaType_Audio,
-      MFMediaType_Video, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
+      MFMediaType_Video, MFNominalRange_0_255, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
+      MFVideoTransferMatrix_BT601, MFVideoTransferMatrix_BT2020_10, MFVideoTransferMatrix_BT2020_12,
     },
     System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage::PROPVARIANT},
     UI::Shell::SHCreateMemStream,
@@ -64,7 +65,7 @@ use super::{
   Command, MediaError, Opened, Shared,
   output::{CHANNELS, Output},
 };
-use crate::images::{CardFrame, CardFrames, CardSurface, ImageData, NativeImageData};
+use crate::images::{CardFrame, CardFrames, CardSurface, ImageData, NativeImageData, YuvColors, YuvMatrix};
 
 /// The streams that are decoded: the first video and the first sound of what is opened.
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -184,6 +185,23 @@ unsafe fn open(opened: Opened, card: Option<&OnCard>) -> Result<IMFSourceReader>
   }
 }
 
+/// How a frame's gray and color are red, green and blue, from what the decoder's type says of them
+/// (`MF_MT_YUV_MATRIX`, `MF_MT_VIDEO_NOMINAL_RANGE`): BT.709 of the video range where it says nothing, as
+/// before it was asked. SMPTE 240M, which no decoder of today gives, is drawn as BT.709, the nearest.
+fn colors_of(matrix: Option<u32>, range: Option<u32>) -> YuvColors {
+  let matrix = match matrix.map(|matrix| matrix as i32) {
+    Some(matrix) if matrix == MFVideoTransferMatrix_BT601.0 => YuvMatrix::Bt601,
+    Some(matrix) if matrix == MFVideoTransferMatrix_BT2020_10.0 || matrix == MFVideoTransferMatrix_BT2020_12.0 => {
+      YuvMatrix::Bt2020
+    }
+    _ => YuvMatrix::Bt709,
+  };
+  YuvColors {
+    matrix,
+    full_range: range.is_some_and(|range| range as i32 == MFNominalRange_0_255.0),
+  }
+}
+
 /// How a frame lies in the bytes the decoder gives, and the part of it that is the picture.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Shape {
@@ -195,6 +213,8 @@ struct Shape {
   /// The picture's size, both even: NV12 has one color for two by two.
   width: usize,
   height: usize,
+  /// How the gray and the color are red, green and blue, as the decoder says.
+  colors: YuvColors,
 }
 
 impl Shape {
@@ -232,6 +252,10 @@ impl Shape {
         top,
         width: width & !1,
         height: height & !1,
+        colors: colors_of(
+          ty.GetUINT32(&MF_MT_YUV_MATRIX).ok(),
+          ty.GetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE).ok(),
+        ),
       })
     }
   }
@@ -367,6 +391,8 @@ struct Converting {
   processor: ID3D11VideoProcessor,
   from: (u32, u32),
   to: (u32, u32),
+  /// How it reads the gray and the color.
+  colors: YuvColors,
   /// The decoder's textures it has read, by their place in memory and their slice.
   inputs: Vec<(usize, u32, ID3D11VideoProcessorInputView)>,
   /// The frames' textures it has written, by their place in memory.
@@ -395,7 +421,11 @@ impl Converter {
       let mut said = D3D11_TEXTURE2D_DESC::default();
       decoded.GetDesc(&mut said);
       let (from, to) = ((said.Width, said.Height), (shape.width as u32, shape.height as u32));
-      if self.made.as_ref().is_none_or(|made| made.from != from || made.to != to) {
+      if self
+        .made
+        .as_ref()
+        .is_none_or(|made| made.from != from || made.to != to || made.colors != shape.colors)
+      {
         let rate = DXGI_RATIONAL {
           Numerator: 30,
           Denominator: 1,
@@ -413,15 +443,25 @@ impl Converter {
             Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
           })?;
         let processor = self.video.CreateVideoProcessor(&enumerator, 0)?;
-        // What it reads is gray from 16 to 235 by the matrix of BT.709, as lurq's own NV12 pipeline takes a
-        // frame to be; what it writes is red, green and blue from 0 to 255.
+        // What it reads is as the decoder says, as lurq's own NV12 pipeline reads it; what it writes is red,
+        // green and blue from 0 to 255. Its matrices are BT.601's and BT.709's alone: BT.2020 is read as BT.709.
         const BT_709: u32 = 1 << 2;
         const FROM_16_TO_235: u32 = 1 << 4;
+        const FROM_0_TO_255: u32 = 2 << 4;
+        let matrix = match shape.colors.matrix {
+          YuvMatrix::Bt601 => 0,
+          YuvMatrix::Bt709 | YuvMatrix::Bt2020 => BT_709,
+        };
+        let range = if shape.colors.full_range {
+          FROM_0_TO_255
+        } else {
+          FROM_16_TO_235
+        };
         self.context.VideoProcessorSetStreamColorSpace(
           &processor,
           0,
           &D3D11_VIDEO_PROCESSOR_COLOR_SPACE {
-            _bitfield: BT_709 | FROM_16_TO_235,
+            _bitfield: matrix | range,
           },
         );
         self
@@ -439,6 +479,7 @@ impl Converter {
           processor,
           from,
           to,
+          colors: shape.colors,
           inputs: Vec::new(),
           outputs: Vec::new(),
         });
@@ -737,7 +778,7 @@ impl OnCard {
       }
       // Shown once it is all there: what draws never reads a frame half copied.
       self.settle();
-      held.frames.show(CardFrame::of(slot));
+      held.frames.show(CardFrame::of(slot).colors(shape.colors));
       Ok(Some(made.then(|| held.frames.clone())))
     }
   }
@@ -1340,5 +1381,41 @@ unsafe fn play(
         shared.wake();
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod colors_tests {
+  use super::*;
+
+  #[test]
+  fn a_frame_is_drawn_in_the_colors_its_decoder_says() {
+    let said =
+      |matrix: MFVideoTransferMatrix, range: MFNominalRange| colors_of(Some(matrix.0 as u32), Some(range.0 as u32));
+    use windows::Win32::Media::MediaFoundation::{
+      MFNominalRange, MFNominalRange_16_235, MFNominalRange_Unknown, MFVideoTransferMatrix,
+      MFVideoTransferMatrix_BT709, MFVideoTransferMatrix_Unknown,
+    };
+    assert_eq!(colors_of(None, None), YuvColors::BT709);
+    assert_eq!(
+      said(MFVideoTransferMatrix_BT601, MFNominalRange_16_235),
+      YuvColors::new(YuvMatrix::Bt601)
+    );
+    assert_eq!(
+      said(MFVideoTransferMatrix_BT709, MFNominalRange_0_255),
+      YuvColors::new(YuvMatrix::Bt709).full_range()
+    );
+    assert_eq!(
+      said(MFVideoTransferMatrix_BT2020_10, MFNominalRange_Unknown),
+      YuvColors::new(YuvMatrix::Bt2020)
+    );
+    assert_eq!(
+      said(MFVideoTransferMatrix_BT2020_12, MFNominalRange_16_235).matrix,
+      YuvMatrix::Bt2020
+    );
+    assert_eq!(
+      said(MFVideoTransferMatrix_Unknown, MFNominalRange_Unknown),
+      YuvColors::BT709
+    );
   }
 }

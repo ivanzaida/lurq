@@ -449,6 +449,15 @@ impl Opened {
     )
   }
 
+  /// How the drawn frame's gray and color are red, green and blue, as its decoder said: BT.709 of the video
+  /// range before one is drawn.
+  pub(super) fn colors(&self) -> crate::images::YuvColors {
+    self
+      .drawn
+      .as_ref()
+      .map_or(crate::images::YuvColors::BT709, |(_, frame)| frame.colors)
+  }
+
   /// Ends the drawing of the frames: gives the lease of the frame that was drawn, which the card may still be
   /// drawing.
   pub(super) fn closed(mut self) -> Option<CardLease> {

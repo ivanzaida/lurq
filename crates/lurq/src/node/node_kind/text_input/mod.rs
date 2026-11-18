@@ -39,17 +39,21 @@ pub(crate) struct TextInputState {
 pub(crate) type TokenSource = Arc<dyn Fn(&str) -> crate::components::InputTokens + Send + Sync>;
 
 /// How the platform's own text fields group what is typed into steps of undo
-/// (`design/decisions.md`, "Undo takes back what was typed as the platform's own fields do").
+/// (`design/decisions.md`, "Undo takes back what was typed as the platform's own fields do", and "On Windows a
+/// run of typing is one step of undo, as on a Mac").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UndoGrouping {
-  /// macOS and iOS: a run of typing is one step until the caret moves or typing turns to deleting.
+  /// A run of typing is one step until the caret moves or typing turns to deleting: `NSTextView` and
+  /// `UITextView`, and Windows' RichEdit, which Notepad, WordPad and WinUI's `TextBox` type into.
   Runs,
-  /// Windows: as `Runs`, and each word typed, with the spaces after it, is a step.
+  /// As `Runs`, and each word typed, with the spaces after it, is a step, as Word groups it. No platform's own
+  /// field does: it was taken for Windows' before Windows was asked.
+  #[cfg_attr(not(test), allow(dead_code))]
   Words,
 }
 
 impl UndoGrouping {
-  pub(crate) const PLATFORM: Self = if cfg!(windows) { Self::Words } else { Self::Runs };
+  pub(crate) const PLATFORM: Self = Self::Runs;
 }
 
 /// What a run of typing did last, and where it left the caret.
@@ -69,7 +73,7 @@ struct TypingRun {
   /// Whether the last character typed was a space, after which a word begins a step on Windows.
   after_space: bool,
   /// When it was typed: what comes after a pause longer than the app's is a step of its own.
-  at: std::time::Instant,
+  at: crate::time::Instant,
 }
 
 /// How long a pause in typing ends a step of undo, until the app says another: [`App::set_typing_undo_pause`].
@@ -650,7 +654,7 @@ impl TextInputState {
       caret: inner.caret,
       len,
       after_space,
-      at: std::time::Instant::now(),
+      at: crate::time::Instant::now(),
     });
   }
 

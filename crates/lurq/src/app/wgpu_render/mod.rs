@@ -2946,6 +2946,8 @@ impl RenderEngine for WgpuRenderEngine {
         let (uv_min, uv_max) = drawn_part(cache, img);
         let [matrix, full_range] = match cache.get(&img.image_id) {
           Some(CachedImageTexture::Nv12 { color, .. }) => *color,
+          #[cfg(windows)]
+          Some(CachedImageTexture::Card(opened)) => opened.colors().shader(),
           _ => [0.0, 0.0],
         };
         ImageInstance {
