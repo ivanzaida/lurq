@@ -91,13 +91,15 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   press, the window's corners rounded by the system. Leaving full screen by the system's light or keys shows the
   bar and its lights again (whether the window is in full screen is read every turn). In full screen the bar
   stays with its tabs, a video and a sheet over it. Ivan saw the lights and full screen and back; the bar in full
-  screen, the tabs, the drag and the double click are still to be looked at.
-- [ ] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
-  apps' windows (`always_on_top`), and closes back.
+  screen with its tabs and none of its own lights under the system's (Ivan, 2026-11-18: "ок"). The drag and the
+  double click are still to be looked at.
+- [x] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
+  apps' windows (`always_on_top`), and closes back. 2026-11-18: Ivan: it works on a Mac.
 - [ ] **Opening an address** (`open_url`). Link Preview page and a `ui::Link` with `href`: macOS opens the default
   browser (`NSWorkspace openURL:`), iOS opens Safari (`UIApplication openURL:`). A `file:` address is refused.
 - [ ] **File dialogs** (macOS): Path Field page — Browse… picks a folder, Save as… saves a file with the filter and
   the name; Cancel gives nothing. iOS has no dialog: the button says so or does nothing, and nothing crashes.
+  2026-11-18: Ivan: the dialogs and the drop zone work on a Mac. iOS not looked at.
 - [ ] **The clipboard.** Copy from a Markdown page (rich text pastes as Markdown into a text editor, plain into a
   field), a picture copied and pasted, Signature Pad's PNG. Paste into a lurq field from another app.
   2026-11-18: text selected in the Markdown document and copied is plain text on the system's clipboard; lurq
