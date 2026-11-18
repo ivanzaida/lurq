@@ -137,7 +137,7 @@ lurq = { version = "0.63", features = ["screenshot"] }
 
 | | lurq 0.62 | lurq 0.63 |
 | --- | --- | --- |
-| Palette | 23 roles on a blue accent | The design's 42 roles on a neutral primary |
+| Palette | 23 roles on a blue accent | The design's 43 roles on a neutral primary |
 | Dark look | None: one palette | A dark palette, taken when the system is dark |
 | Text that names no color | Black | `Foreground`: near-black in the light palette, near-white in the dark one |
 | Body text | 16 | 14 |
@@ -150,7 +150,7 @@ lurq = { version = "0.63", features = ["screenshot"] }
 
 The one that can make an app unreadable is the dark look. On a system in its dark look, text that names no color is drawn near-white. An app that paints light backgrounds of its own under such text has near-white text on them.
 
-In the light palette `Background` and `Card` are both white. `Canvas` (`#e6e6eb`) is what is behind panels and cards: an app that paints its window with `Background` and its cards with `Card` has white on white.
+In the light palette `Background` and `Card` are both white. `Canvas` (`#f7f7f8`) is what is behind panels and cards: an app that paints its window with `Background` and its cards with `Card` has white on white.
 
 ### Keep The 0.62 Look
 
@@ -243,7 +243,7 @@ In 0.62, on a theme given two palettes with `set_palettes`, a color or a palette
 
 ### A Palette Written Out Field By Field
 
-`ThemePalette` has a field for each of the design's 42 roles, 34 of them new. A palette built with every field named and no `..ThemePalette::default()` no longer compiles. Start from one of the built-in palettes:
+`ThemePalette` has a field for each of the design's 43 roles, 35 of them new. A palette built with every field named and no `..ThemePalette::default()` no longer compiles. Start from one of the built-in palettes:
 
 ```rust
 use lurq::{app::theme::ThemePalette, node::color::Color};
