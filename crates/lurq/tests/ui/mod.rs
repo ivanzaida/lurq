@@ -93,6 +93,8 @@ mod list_item;
 mod listbox;
 mod locale;
 mod media_captions;
+#[cfg(feature = "media")]
+mod media_events;
 mod media_speed_menu;
 mod media_time;
 mod media_volume;

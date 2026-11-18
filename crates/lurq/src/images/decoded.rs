@@ -27,7 +27,7 @@ use std::{
 
 pub use cache::{DEFAULT_BUDGET_BYTES, DecodedImages};
 
-use crate::images::ImageData;
+use crate::{core::PictureError, images::ImageData};
 
 /// Where the encoded image comes from.
 #[derive(Clone, PartialEq, Eq)]
@@ -103,21 +103,51 @@ impl ImageSizeCap {
   }
 }
 
-/// Why an image did not decode.
+/// Why an image did not decode: in words for a log ([`message`](Self::message)), and its kind
+/// ([`kind`](Self::kind)), which the app's locale says to a person.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImageDecodeError {
   message: String,
+  kind: PictureError,
 }
 
 impl ImageDecodeError {
-  pub(crate) fn new(message: impl Into<String>) -> Self {
+  pub(crate) fn new(message: impl Into<String>, kind: PictureError) -> Self {
     Self {
       message: message.into(),
+      kind,
     }
+  }
+
+  /// A file that could not be read: not there, or the system's words.
+  fn unread(path: &Path, error: &std::io::Error) -> Self {
+    let message = format!("{}: {error}", path.display());
+    let kind = match error.kind() {
+      std::io::ErrorKind::NotFound => PictureError::NotFound,
+      _ => PictureError::Other(Arc::from(message.as_str())),
+    };
+    Self::new(message, kind)
+  }
+
+  /// Bytes the decoder did not read: no picture, or one larger than it takes.
+  #[cfg(feature = "image")]
+  fn undecoded(error: &image::ImageError) -> Self {
+    let message = error.to_string();
+    let kind = match error {
+      image::ImageError::Limits(_) => PictureError::TooLarge,
+      image::ImageError::IoError(_) => PictureError::Other(Arc::from(message.as_str())),
+      _ => PictureError::NotAPicture(Some(Arc::from(message.as_str()))),
+    };
+    Self::new(message, kind)
   }
 
   pub fn message(&self) -> &str {
     &self.message
+  }
+
+  /// What kind of failure it is: what `ui::Picture::on_error` is told.
+  pub fn kind(&self) -> &PictureError {
+    &self.kind
   }
 }
 
@@ -185,12 +215,11 @@ pub fn decode_image(source: &ImageSource, cap: Option<ImageSizeCap>) -> Result<I
   let bytes: &[u8] = match source {
     ImageSource::Bytes(bytes) => bytes,
     ImageSource::File(path) => {
-      file_bytes =
-        std::fs::read(path).map_err(|error| ImageDecodeError::new(format!("{}: {error}", path.display())))?;
+      file_bytes = std::fs::read(path).map_err(|error| ImageDecodeError::unread(path, &error))?;
       &file_bytes
     }
   };
-  let decoded = image::load_from_memory(bytes).map_err(|error| ImageDecodeError::new(error.to_string()))?;
+  let decoded = image::load_from_memory(bytes).map_err(|error| ImageDecodeError::undecoded(&error))?;
   let decoded = match cap {
     Some(cap) if decoded.width() > cap.width || decoded.height() > cap.height => {
       // Downscale to fit, keeping the aspect ratio: never upscale.
@@ -205,7 +234,10 @@ pub fn decode_image(source: &ImageSource, cap: Option<ImageSizeCap>) -> Result<I
   let rgba = decoded.into_rgba8();
   let (width, height) = (rgba.width(), rgba.height());
   if width == 0 || height == 0 {
-    return Err(ImageDecodeError::new("the image has no pixels"));
+    return Err(ImageDecodeError::new(
+      "the image has no pixels",
+      PictureError::NotAPicture(Some(Arc::from("the image has no pixels"))),
+    ));
   }
   Ok(ImageData::from_rgba(rgba.into_raw(), width, height))
 }

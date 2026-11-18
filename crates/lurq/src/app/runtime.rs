@@ -863,6 +863,9 @@ pub struct Tree {
   /// The waker the decoded-image cache calls for this tree's window, made once.
   #[cfg(feature = "image")]
   loading_image_waker: Option<crate::app::window::WindowWaker>,
+  /// The window's loop, noted for the medias this thread listens to: what wakes it when one of them changed.
+  #[cfg(feature = "media")]
+  media_loop: Option<crate::media::LoopNoted>,
   /// The loading-image nodes built when the tree last walked for them.
   #[cfg(feature = "image")]
   loading_images_built_seen: u64,
@@ -1375,6 +1378,8 @@ impl Tree {
       pending_images: Vec::new(),
       #[cfg(feature = "image")]
       loading_image_waker: None,
+      #[cfg(feature = "media")]
+      media_loop: None,
       #[cfg(feature = "image")]
       loading_images_built_seen: 0,
       clipboard_reader: None,
@@ -1757,7 +1762,8 @@ impl Tree {
       self.needs_redraw = true;
       self.apply_reactive_updates_after_event();
     }
-    let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now));
+    let told = self.tell_media();
+    let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now)) || told;
     // A pass presents a frame, and on a FIFO swapchain that present can wait for its vblank, holding back the
     // input and timers that come meanwhile: a timer asks for one only when its callback left something to draw.
     if fired && self.timer_marks().changed_since(before) {
@@ -1941,6 +1947,20 @@ impl Tree {
   /// Runs the app's frame callbacks for the frame this pass draws, at its time on the runtime's clock: the window's
   /// first, then the components', parents before children. At the start of the pass, so that what they set is
   /// rendered and laid out in this frame.
+  /// Tells the handlers of the medias this thread listens to what changed since they were last told
+  /// ([`Media::on_load`](crate::media::Media::on_load) and the rest): whether anything was told.
+  fn tell_media(&mut self) -> bool {
+    #[cfg(feature = "media")]
+    {
+      if self.media_loop.is_none() {
+        self.media_loop = Some(crate::media::note_loop(self.window.loop_waker()));
+      }
+      crate::media::tell_news()
+    }
+    #[cfg(not(feature = "media"))]
+    false
+  }
+
   fn run_frame_callbacks(&mut self) {
     if !self.has_frame_callbacks() {
       return;
@@ -3009,6 +3029,16 @@ impl Tree {
     {
       crate::app::profile_support::frame_section!("setup:frame_callbacks");
       self.run_frame_callbacks();
+    }
+    // As after a timer: what the handlers of a media's events dirtied is rendered in this pass.
+    if self.tell_media()
+      && self
+        .root_ctx
+        .as_ref()
+        .is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request())
+    {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
     }
     #[cfg(feature = "canvas")]
     self.advance_canvas_motion();

@@ -95,6 +95,7 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
       let mut inner = shared.inner();
       inner.duration = duration;
       inner.sound = true;
+      inner.opened = true;
       inner.waiting = false;
       inner.since = Instant::now();
       (inner.volume, inner.muted)

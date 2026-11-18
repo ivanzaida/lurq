@@ -1056,6 +1056,7 @@ unsafe fn play(
         .map(|picture| (picture.shape.width as u32, picture.shape.height as u32));
       inner.frame = picture.as_ref().map(|picture| picture.image.clone());
       inner.sound = sound.is_some();
+      inner.opened = true;
       inner.waiting = false;
       inner.since = Instant::now();
     }

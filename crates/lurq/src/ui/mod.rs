@@ -101,6 +101,7 @@ mod list_item;
 mod listbox;
 mod media_captions;
 mod media_speed_menu;
+mod media_events;
 mod media_time;
 mod media_volume;
 mod mentions;
@@ -453,6 +454,7 @@ pub use path_field::{
   PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
 };
 pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
+pub use crate::core::PictureError;
 pub use picture::{
   PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
   PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall, PictureState,

@@ -518,6 +518,8 @@ pub struct VideoPlayer {
   /// The words it was told to speak in, in place of the app's: what its source's errors are said in.
   locale: Option<crate::core::MediaWords>,
   on_retry: Vec<Action>,
+  /// The handlers of its source's events.
+  events: super::media_events::MediaEvents,
   #[cfg(feature = "media")]
   source: Option<crate::resources::Source>,
   touch: Option<bool>,
@@ -619,6 +621,7 @@ impl VideoPlayer {
       error_description: None,
       locale: None,
       on_retry: Vec::new(),
+      events: super::media_events::MediaEvents::default(),
       #[cfg(feature = "media")]
       source: None,
       touch: None,
@@ -790,6 +793,43 @@ impl VideoPlayer {
   /// handler is called after the first.
   pub fn on_retry(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_retry.push(Arc::new(handler));
+    self
+  }
+
+  /// Called once its [`source`](Self::source) opened and is ready to play, with its length, its picture's size and
+  /// whether it has sound: once for a source, and again for one tried again. A player without a source is never
+  /// told: what it shows is the app's. A second handler is called after the first.
+  ///
+  /// Each event of a source is told on the UI thread once each time it happens, in the order the media lives
+  /// them: it opened, it began or stopped waiting, it began or stopped playing, it ended, it failed.
+  pub fn on_load(mut self, handler: impl Fn(&crate::core::MediaInfo) + Send + Sync + 'static) -> Self {
+    self.events.load.push(Arc::new(handler));
+    self
+  }
+
+  /// Called once its [`source`](Self::source) cannot play, with why: a kind, which the app's locale puts into the
+  /// words the player shows under its error's title ([`MediaWords::error`](crate::core::MediaWords::error)). Once
+  /// until the person tries again, which opens the source anew. A player without a source is never told. A second
+  /// handler is called after the first.
+  pub fn on_error(mut self, handler: impl Fn(&crate::core::MediaError) + Send + Sync + 'static) -> Self {
+    self.events.error.push(Arc::new(handler));
+    self
+  }
+
+  /// Called each time its [`source`](Self::source) played to its end: again only after it played again. A player
+  /// without a source is never told: its [`ended`](Self::ended) is the app's. A second handler is called after the
+  /// first.
+  pub fn on_ended(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.events.ended.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with whether its [`source`](Self::source) waits for what it plays, each time that changes once it
+  /// opened: `true` when it began waiting (an address read slower than it plays), `false` when it goes on. A
+  /// player without a source is never told: its [`waiting`](Self::waiting) is the app's. A second handler is
+  /// called after the first.
+  pub fn on_waiting_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.events.waiting.push(Arc::new(handler));
     self
   }
 
@@ -1241,6 +1281,8 @@ struct Played {
   /// What the app last said of playing, of the speed, of how loud it is and of whether it is silenced: a
   /// change of them moves the media.
   said: Arc<Mutex<(Option<bool>, Option<f64>, Option<f64>, Option<bool>)>>,
+  /// What tells the app the media's events.
+  listener: super::media_events::Listener,
   _clock: crate::app::ctx::Interval,
 }
 
@@ -1415,6 +1457,7 @@ impl Component for VideoPlayerHost {
         beat,
         plays,
         said: Arc::default(),
+        listener: super::media_events::Listener::default(),
         _clock: clock,
       }
     };
@@ -1678,6 +1721,7 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     let media = Media::open(&loader, &source);
     let beat = played.beat.clone();
     media.on_change(move || beat.update(|count| *count += 1));
+    played.listener.listen(&media);
     *held = Some((key, media));
     *played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = (None, None, None, None);
   }
@@ -1691,11 +1735,19 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
   {
     let mut said = played.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if said.0 != Some(player.playing.value) {
-      // A player that starts paused has nothing to tell a media that opens paused.
-      if player.playing.value {
+      // A player that starts paused has nothing to tell a media that opens paused, and an app that answers what
+      // the media told it (it ended, it started over) tells it nothing.
+      let answers = played.listener.answers(player.playing.value);
+      if player.playing.value && !answers {
         media.play();
-      } else if said.0.is_some() {
+      } else if said.0.is_some() && !answers {
         media.pause();
+      }
+      // What the app set it is not told again when the media plays or stops.
+      if said.0.is_some() {
+        played.listener.known(player.playing.value);
+      } else {
+        played.listener.first(player.playing.value);
       }
       said.0 = Some(player.playing.value);
     }
@@ -1717,11 +1769,14 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     let beat = played.beat.clone();
     move || beat.update(|count| *count += 1)
   };
+  // The media's events go to the handlers of this render; whether it plays, to the app's own.
+  played.listener.update(&player.events, &player.playing.handlers);
   // What the app last said stays what the app said: a player whose app holds nothing is paused in its props
   // for as long as it lives, and that is not the app pausing it after a person pressed play.
   player.playing.add({
-    let (media, again) = (media.clone(), again.clone());
+    let (media, again, listener) = (media.clone(), again.clone(), played.listener.clone());
     move |to| {
+      listener.known(to);
       if to {
         media.play();
       } else {

@@ -56,8 +56,10 @@ impl Drop for FinishOnDrop {
     // Without a result the job did not run to its end: the decoder
     // panicked, or no worker took the job (the workers are gone).
     let result = self.result.take().unwrap_or_else(|| {
+      let said = "the image decode did not run: the decoder panicked or no worker took the job";
       Err(ImageDecodeError::new(
-        "the image decode did not run: the decoder panicked or no worker took the job",
+        said,
+        crate::core::PictureError::Other(Arc::from(said)),
       ))
     });
     self.shared.finish(self.cache_key, result);

@@ -4,10 +4,14 @@
 //! clock, and puts each frame into an image a [`Video`](crate::components::Video) draws: the window is drawn
 //! again for a new frame, and no component is rendered for it. On macOS and iOS the system's player (`AVPlayer`)
 //! decodes and is heard, and the media's thread takes its frames and follows its clock; that player is the main
-//! thread's, so a video opens there in a process whose main thread runs its loop, as an app's does. Its sound goes to the system's default output,
-//! and the media's clock then follows what is heard. What holds a media tells it to play, to pause, to go to a
-//! time, how fast to go and how loud to be, asks it where it is ([`Media::state`]), and is woken when that
-//! changes in a way a clock does not tell: it opened, it ended, it failed.
+//! thread's, so a video opens there in a process whose main thread runs its loop, as an app's does. Its sound goes to
+//! the system's default output, and the media's clock then follows what is heard. What holds a media tells it to play,
+//! to pause, to go to a time, how fast to go and how loud to be, asks it where it is ([`Media::state`]), and is woken
+//! when that changes in a way a clock does not tell: it opened, it ended, it failed.
+//!
+//! What happens to it is told to who listens, on the UI thread, once each time it happens: it opened
+//! ([`Media::on_load`]), it failed ([`Media::on_error`]), it played to its end ([`Media::on_ended`]), it began or
+//! stopped playing ([`Media::on_playing_change`]) and waiting for what it plays ([`Media::on_waiting_change`]).
 //!
 //! [`Media::open`] is what is seen, with its sound; [`Media::sound`] what is only heard: a song, a recording, a
 //! message. A sound at an address is loaded whole through the app's loader and kept, so that it plays again at
@@ -31,7 +35,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-pub use crate::core::MediaError;
+pub use crate::core::{MediaError, MediaInfo};
 use crate::{
   images::ImageData,
   resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Source, SourceKind},
@@ -40,6 +44,8 @@ use crate::{
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
 mod cache;
+mod driven;
+mod events;
 #[cfg(windows)]
 mod mf;
 
@@ -52,6 +58,9 @@ pub(crate) fn lose_card_for_test() {
 mod output;
 
 pub use cache::{DEFAULT_SOUND_CACHE_BYTES, SoundCache, sound_cache};
+#[doc(hidden)]
+pub use driven::{DrivenMedias, MediaDriver, drive_media};
+pub(crate) use events::{LoopNoted, note_loop, tell_news};
 
 /// What changed in a media is told to these, from its own thread.
 type Waker = Arc<dyn Fn() + Send + Sync>;
@@ -116,6 +125,8 @@ pub(crate) struct Shared {
   /// Told when a command comes: the thread waits on it while it has nothing to decode.
   told: Condvar,
   wakers: Mutex<Vec<Waker>>,
+  /// Its handlers of events and what it last told them, once something listens.
+  listening: std::sync::OnceLock<Arc<events::Listening>>,
 }
 
 /// The state of a media, and the clock it is read from: where it was at `since`, going at `rate` while it plays.
@@ -126,6 +137,8 @@ pub(crate) struct Inner {
   /// How loud its sound is, from 0 to 1, and whether it is silenced: what its output starts with.
   pub volume: f32,
   pub muted: bool,
+  /// Whether it opened and is ready to play: what it is told of is known.
+  pub opened: bool,
   pub playing: bool,
   pub waiting: bool,
   pub ended: bool,
@@ -162,6 +175,33 @@ impl Inner {
 }
 
 impl Shared {
+  /// What a media and its thread share, as a media starts: waiting to open, paused at its start.
+  fn new() -> Arc<Self> {
+    Arc::new(Self {
+      inner: Mutex::new(Inner {
+        duration: None,
+        size: None,
+        sound: false,
+        volume: 1.0,
+        muted: false,
+        opened: false,
+        playing: false,
+        waiting: true,
+        ended: false,
+        error: None,
+        rate: 1.0,
+        at: 0.0,
+        since: Instant::now(),
+        sent: 0,
+        frame: None,
+      }),
+      commands: Mutex::new(VecDeque::new()),
+      told: Condvar::new(),
+      wakers: Mutex::new(Vec::new()),
+      listening: std::sync::OnceLock::new(),
+    })
+  }
+
   pub fn inner(&self) -> MutexGuard<'_, Inner> {
     self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
   }
@@ -175,6 +215,25 @@ impl Shared {
       .clone();
     for waker in wakers {
       waker();
+    }
+    self.noted();
+  }
+
+  /// Tells the thread that listens to the media's events that it changed, where something listens: its next turn
+  /// looks at it.
+  fn noted(&self) {
+    if let Some(listening) = self.listening.get() {
+      listening.note();
+    }
+  }
+
+  /// The commands a driven media was told and has not done, taken where `take`.
+  fn take_driven(&self, take: bool) -> Vec<Command> {
+    let mut commands = self.commands.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if take {
+      commands.drain(..).collect()
+    } else {
+      commands.iter().copied().collect()
     }
   }
 
@@ -385,28 +444,16 @@ impl Media {
     Self::start_from(loader, source, true)
   }
 
+  fn of(shared: Arc<Shared>) -> Self {
+    Self(Arc::new(Handle { shared }))
+  }
+
   fn start_from(loader: &Loader, source: &Source, heard: bool) -> Self {
-    let shared = Arc::new(Shared {
-      inner: Mutex::new(Inner {
-        duration: None,
-        size: None,
-        sound: false,
-        volume: 1.0,
-        muted: false,
-        playing: false,
-        waiting: true,
-        ended: false,
-        error: None,
-        rate: 1.0,
-        at: 0.0,
-        since: Instant::now(),
-        sent: 0,
-        frame: None,
-      }),
-      commands: Mutex::new(VecDeque::new()),
-      told: Condvar::new(),
-      wakers: Mutex::new(Vec::new()),
-    });
+    let shared = Shared::new();
+    // A test drives it: nothing is opened.
+    if driven::take(&shared) {
+      return Self::of(shared);
+    }
     let asked = match &source.kind {
       SourceKind::File(path) => Ok(Asked::Opened(Opened::File(path.clone()))),
       SourceKind::Resource(resource) => Ok(Asked::Opened(Opened::File(loader.resource_path(resource)))),
@@ -440,7 +487,7 @@ impl Media {
       Ok(asked) => Self::start(&shared, asked, heard),
       Err(why) => shared.fail(why),
     }
-    Self(Arc::new(Handle { shared }))
+    Self::of(shared)
   }
 
   #[cfg(windows)]
@@ -514,6 +561,7 @@ impl Media {
       inner.hold();
       inner.playing = false;
     }
+    self.shared().noted();
     self.shared().tell(Command::Pause);
   }
 
@@ -535,6 +583,7 @@ impl Media {
       inner.sent += 1;
       to
     };
+    self.shared().noted();
     self.shared().tell(Command::Seek(to));
   }
 
@@ -570,5 +619,46 @@ impl Media {
       .lock()
       .unwrap_or_else(|poisoned| poisoned.into_inner())
       .push(Arc::new(wake));
+  }
+
+  /// Calls `handler` once it opened and is ready to play, with its length, its picture's size and whether it has
+  /// sound. On the UI thread, as the events below: see [`on_playing_change`](Self::on_playing_change).
+  pub fn on_load(&self, handler: impl Fn(&MediaInfo) + Send + Sync + 'static) {
+    self.listening().handlers().load.push(Arc::new(handler));
+  }
+
+  /// Calls `handler` once it cannot play, with why: a kind, which the app's
+  /// [`Locale`](crate::core::Locale) puts into words ([`MediaWords::error`](crate::core::MediaWords::error)). A
+  /// media that failed stays failed: one that tries again is opened anew.
+  pub fn on_error(&self, handler: impl Fn(&MediaError) + Send + Sync + 'static) {
+    self.listening().handlers().error.push(Arc::new(handler));
+  }
+
+  /// Calls `handler` each time it played to its end: again only after it played again.
+  pub fn on_ended(&self, handler: impl Fn() + Send + Sync + 'static) {
+    self.listening().handlers().ended.push(Arc::new(handler));
+  }
+
+  /// Calls `handler` with whether it plays, each time that changes once it opened: it was told to play or to
+  /// pause, it ended, it failed.
+  ///
+  /// The events of a media are told on the thread that first listened to it, which is the UI thread: the media's
+  /// own thread wakes the loops of that thread's windows, and the next turn of each tells what changed since it last
+  /// told, in the order a media lives it (it opened, it waits or not, it plays or not, it ended, it failed), once
+  /// each. A handler may play, pause and seek. What changed before it was listened to is told in the next turn. A
+  /// second handler is called after the first.
+  pub fn on_playing_change(&self, handler: impl Fn(bool) + Send + Sync + 'static) {
+    self.listening().handlers().playing.push(Arc::new(handler));
+  }
+
+  /// Calls `handler` with whether it waits for what it plays (an address that is read slower than it plays), each
+  /// time that changes once it opened: `true` when it began waiting, `false` when it goes on. Opening is not
+  /// waiting: what opens is told by [`on_load`](Self::on_load).
+  pub fn on_waiting_change(&self, handler: impl Fn(bool) + Send + Sync + 'static) {
+    self.listening().handlers().waiting.push(Arc::new(handler));
+  }
+
+  fn listening(&self) -> &Arc<events::Listening> {
+    events::Listening::of(&self.0.shared)
   }
 }

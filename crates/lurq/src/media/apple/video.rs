@@ -681,6 +681,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         inner.size = size;
         inner.sound = seen.sound;
         inner.frame = image.clone();
+        inner.opened = true;
         inner.waiting = false;
         inner.since = Instant::now();
       }
