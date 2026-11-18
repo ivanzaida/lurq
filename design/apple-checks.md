@@ -65,10 +65,13 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 - [ ] **Reduce motion, macOS.** `cargo test -p lurq --lib motion`: `the_platform_has_the_setting` passes. Then
   System Settings › Accessibility › Display › Reduce motion on, click back into the gallery: a transition (a
   sheet, a dialog) ends at once; off again, it moves again.
+  2026-11-18: `the_platform_has_the_setting` passes on a Mac; the setting turned on live is not looked at.
 - [ ] **Reduce motion, iOS.** Settings › Accessibility › Motion › Reduce Motion, back to `mobile_demo`: a sheet and a
   stack push switch without moving. It links on the simulator and on a device.
 - [ ] **Light and dark** follow the system, and change live when the system's appearance changes (macOS: System
   Settings › Appearance; iOS: Control Centre).
+  2026-11-18, macOS: the gallery on its theme System went dark and light again as the system's appearance was
+  changed under it, with no click (`appearance preferences` of System Events). iOS is not looked at.
 - [ ] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
   the title bar dragging the window, double-click zooming it, the gallery's tabs in the title bar (open, close,
   reorder, a new tab with Cmd+T), full screen and back.
@@ -175,8 +178,11 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
 
 - [ ] **DevTools** on a Mac: `cargo run -p gallery --features devtools,mcp -- --devtools` — F12 opens it; the tree,
   a value inspected, the profiler records.
-- [ ] **MCP** on a Mac: the gallery's log gives the address and the token; the tree is read, a screenshot is taken,
+- [x] **MCP** on a Mac: the gallery's log gives the address and the token; the tree is read, a screenshot is taken,
   a click and a key reach the window, `lurq_pointer` reads and sets the pointer.
+  2026-11-18: the address and the token are in the log and the file of `~/Library/Application Support/lurq/mcp`;
+  the tree, screenshots, clicks, the fingers of `lurq_touch` and `lurq_pointer` were used all through the work of
+  2026-11-17/18. A key of MCP reaches lurq and not AppKit: Ctrl+Cmd+F does not put the window in full screen.
 
 ## 8. A video with no copy on Apple's systems: what is to be built
 
