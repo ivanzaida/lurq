@@ -20,7 +20,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   the one in the page at the picture it was closed on. On a desktop nothing changes: the box is the lightbox.
 - **Why.** In a box as small as a page's, a phone's picture is too small to look at; the phone's viewer is made for
   the whole screen.
-- **State.** In work on `feat/design-system`.
+- **State.** Built on `feat/design-system`; Ivan tried it on his iPhone.
 
 ### The gallery has a phone's stack over the whole screen
 
@@ -33,7 +33,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   pulled to refresh, and rows swiped for their actions. Over it, a swipe from the left edge takes the screen back;
   with the stack closed it opens the side bar, as before.
 - **Why.** What is tried on a phone is tried in one app.
-- **State.** In work on `feat/design-system`.
+- **State.** Built on `feat/design-system`; Ivan tried it on his iPhone.
 
 ### A tap outside the text input lets it go, and the keyboard goes down
 

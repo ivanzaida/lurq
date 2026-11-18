@@ -139,20 +139,23 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 
 ## 5. A finger, a pencil, a trackpad (iOS, the pointer of 2026-11-17)
 
-- [ ] **The pointer starts `Coarse`.** On a phone, Lightbox, Picture and Video Player are in their phone form from
+- [x] **The pointer starts `Coarse`.** On a phone, Lightbox, Picture and Video Player are in their phone form from
   the first frame, with no setting.
 - [ ] **An iPad with a trackpad or a mouse** goes `Fine` when the trackpad moves, and back to `Coarse` at the next
   touch; an open lightbox keeps its form until it closes.
-- [ ] **A tap is a click, once.** Buttons, list rows, links: one tap, one action. A tap of two fingers clicks
+- [x] **A tap is a click, once.** Buttons, list rows, links: one tap, one action. A tap of two fingers clicks
   nothing. A double tap on an element that listens for one (`on_double_tap`) holds the single tap back; elsewhere a
   tap is never delayed.
-- [ ] **Gestures**: pinch and rotate (Zoom, a picture in the lightbox), swipe (a lightbox closes when dragged down;
+- [x] **Gestures**: pinch and rotate (Zoom, a picture in the lightbox), swipe (a lightbox closes when dragged down;
   a carousel), a long press (opens a context menu), the swipe in from the left edge (back in the stack).
+  2026-11-18: Ivan, on his iPhone: all of them; the stack's in the gallery's phone stack, over the whole screen
+  (in the page's box a finger from the screen's edge is the gallery's, and opens its side bar).
 - [ ] **Apple Pencil**: `pointer_kind` is `Pen` (Signature Pad draws with the pencil's pressure); a pencil tap
   clicks.
-- [ ] **A disabled control** (E3) takes no tap, no long press and shows no pressed look, and a finger still scrolls
-  over it and inside it.
-- [ ] **Lists**: scrolling with momentum, pull to refresh, a swipe row's actions.
+- [x] **A disabled control** (E3) takes no tap, no long press and shows no pressed look, and a finger still scrolls
+  over it and inside it. 2026-11-18: Ivan, on his iPhone, with the pointer starting coarse and a tap clicking once.
+- [x] **Lists**: scrolling with momentum, pull to refresh, a swipe row's actions. 2026-11-18: Ivan, on his iPhone, in
+  the gallery's phone stack (Router and Outlets, "Open on the whole screen"): all of them, and the bounce at an end.
 - [ ] **The safe area**: Lightbox, Sheet, the tab bar and the navigation bar keep clear of the notch and the home
   indicator, upright and on its side.
 - [ ] **The phone pieces' colors** (on recipes since 2026-11-17): the tab bar, the navigation bar, a sheet and pull
