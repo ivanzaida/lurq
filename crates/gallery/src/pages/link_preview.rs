@@ -2,10 +2,10 @@
 //! an inline one in a sentence.
 //!
 //! The gallery fetches nothing from the network unless asked: its previews are given a fetcher of the page's own
-//! (`fake`), which answers for a few addresses at once, as an app's own server would. The playground has a switch
-//! that gives the preview lurq's own fetcher, which reads the page at the address for real.
+//! (`Pages`), which holds what a few addresses say, as an app's own server would, and gives it at once. The playground
+//! has a switch that gives the preview lurq's own fetcher, which reads the page at the address for real.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use lurq::{
   app::{
@@ -17,8 +17,8 @@ use lurq::{
   core::Signal,
   images::ImageData,
   layout::{Alignment, quad::RichTextSpan, text_style::TextStyle},
-  node::Element,
-  resources::{LinkFetch, LinkMeta, LinkPreviewError},
+  node::{Element, color::Color},
+  resources::{LinkFetch, LinkFetcher, LinkMeta, LinkPreviewError, LinkRequest},
   ui::{Interaction, Length, LinkPreview, LinkPreviewVariant, Picture, current_theme},
 };
 
@@ -52,8 +52,7 @@ const VARIANTS: [(LinkPreviewVariant, &str, &str); 3] = [
 ];
 
 /// What the page's own fetcher answers for `url`: what the board's pages say about themselves, a page that is
-/// read for ever, one that tells nothing and one that is not there. It answers at once, as a fetcher that holds
-/// what it knows does.
+/// read for ever, one that tells nothing and one that is not there.
 fn fake(url: &str) -> LinkFetch {
   match url {
     LAYOUT => LinkFetch::ready(
@@ -75,13 +74,45 @@ fn fake(url: &str) -> LinkFetch {
   }
 }
 
-/// The site's icon the board draws: a square of the primary color with a mark of the foreground's on it.
+/// The page's own fetcher: it holds what it knows, and gives it as the preview renders, so that the preview shows
+/// it in its first frame. What it does not hold (the page read for ever) it is asked for off the UI thread, as
+/// every fetcher is.
+struct Pages;
+
+impl LinkFetcher for Pages {
+  fn fetch(&self, request: &LinkRequest<'_>) -> LinkFetch {
+    fake(request.url())
+  }
+
+  fn held(&self, url: &str) -> Option<LinkFetch> {
+    Some(fake(url))
+  }
+}
+
+/// The board's picture of a page: made once and shared by every preview that shows it. Made anew for each
+/// preview on each render, the page took seconds to build in a debug build, and every picture was a new one for
+/// the renderer to take in.
+fn lake() -> ImageData {
+  static LAKE: OnceLock<ImageData> = OnceLock::new();
+  LAKE.get_or_init(|| super::picture::lake(640, 336)).clone()
+}
+
+/// The site's icon the board draws: a square of the primary color with a mark of the foreground's on it. Made
+/// once for the theme's colors, as the picture is.
 fn favicon() -> ImageData {
+  static KEPT: Mutex<Option<((Color, Color), ImageData)>> = Mutex::new(None);
   let theme = current_theme();
-  let (fill, mark) = (
+  let colors = (
     theme.palette().get(PaletteColor::Primary),
     theme.palette().get(PaletteColor::PrimaryForeground),
   );
+  let mut kept = KEPT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  if let Some((of, icon)) = &*kept
+    && *of == colors
+  {
+    return icon.clone();
+  }
+  let (fill, mark) = colors;
   let side = 32u32;
   let mut rgba = Vec::with_capacity((side * side * 4) as usize);
   for y in 0..side {
@@ -93,17 +124,17 @@ fn favicon() -> ImageData {
       rgba.extend_from_slice(&[color.r(), color.g(), color.b(), 255]);
     }
   }
-  ImageData::from_rgba(rgba, side, side)
+  let icon = ImageData::from_rgba(rgba, side, side);
+  *kept = Some((colors, icon.clone()));
+  icon
 }
 
 /// A preview of `url` with the page's fetcher, and the gallery's pictures where the board draws them: a page on
 /// the web gives its own.
 fn preview(url: &str, pictures: bool) -> LinkPreview {
-  let mut preview = LinkPreview::new(url).fetcher(fake);
+  let mut preview = LinkPreview::new(url).fetcher(Pages);
   if pictures && matches!(url, LAYOUT | VIDEO) {
-    preview = preview
-      .image(Picture::new(super::picture::lake(640, 336)))
-      .icon(Picture::new(favicon()));
+    preview = preview.image(Picture::new(lake())).icon(Picture::new(favicon()));
   }
   preview
 }
@@ -525,8 +556,8 @@ impl Component for LinkPreviewPage {
         "fetcher",
         "impl LinkFetcher",
         "lurq's own",
-        "What fetches the page for this preview: any Fn(&str) -> LinkFetch. set_link_fetcher gives every \
-         preview one.",
+        "What fetches the page for this preview, asked off the UI thread: any Fn(&str) -> LinkFetch. What it \
+         holds (held) is shown in the first frame. set_link_fetcher gives every preview one.",
       ),
       (
         "on_open",
@@ -677,5 +708,56 @@ impl Component for LinkPreviewPage {
         ),
       ],
     )
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::collections::BTreeSet;
+
+  use lurq::{
+    app::{App, Tree},
+    layout::quad::QuadContent,
+  };
+
+  use crate::{Gallery, GalleryProps};
+
+  /// The ids of the pixels the window draws.
+  fn pictures(tree: &Tree) -> BTreeSet<u64> {
+    tree
+      .resolve_quads(tree.last_layout().expect("the page is laid out"))
+      .into_iter()
+      .filter_map(|quad| match quad.content {
+        QuadContent::Image { data, .. } => Some(data.id()),
+        _ => None,
+      })
+      .collect()
+  }
+
+  /// The page's pictures are made once. Made for each preview on each render, they took the page seconds to
+  /// build in a debug build, and froze the window when it was opened and on every change of the playground; and
+  /// every render gave the renderer new pixels to take in. A render of the page, as a change of the playground
+  /// makes, draws the same pixels.
+  #[test]
+  fn a_render_of_the_page_makes_no_picture_anew() {
+    assert_eq!(super::lake().id(), super::lake().id());
+    assert_eq!(super::favicon().id(), super::favicon().id());
+    let mut app = App::new();
+    let mut tree = Tree::new();
+    tree.resize(1440, 900);
+    crate::pages::engine::prepare(&mut tree);
+    tree.mount_root::<Gallery>(
+      &mut app,
+      GalleryProps {
+        route: "/link-preview".to_owned(),
+      },
+    );
+    tree.pass_headless(&mut app);
+    tree.pass_headless(&mut app);
+    let first = pictures(&tree);
+    assert!(!first.is_empty(), "the playground's preview shows its picture");
+    tree.rebuild();
+    tree.pass_headless(&mut app);
+    assert_eq!(pictures(&tree), first, "the same pixels, drawn again");
   }
 }

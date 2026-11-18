@@ -331,8 +331,10 @@ a file and an address are not loaded yet.
 ## Link Previews
 
 What a page says about itself, its title, description, site, picture and icon, is read from the start of its HTML
-and given to a link preview (`ui::LinkPreview`) as a `LinkMeta`. A preview asks a `LinkFetcher` for it as it renders,
-and is woken when the fetcher has more.
+and given to a link preview (`ui::LinkPreview`) as a `LinkMeta`. A preview asks a `LinkFetcher` for it off the UI
+thread, on a few threads of lurq's (in a browser, once the frame is drawn), and is its skeleton until the fetcher
+answers: a fetcher may block, on a cache on the disk or a server of the app's, and the window is drawn on. It is
+woken when the fetcher has more, and asks again.
 
 ```rust
 use lurq::resources::{LinkFetch, LinkMeta, LinkPreviewError, set_link_fetcher};
@@ -365,8 +367,12 @@ set_link_fetcher(|url: &str| match known_previews(url) {
   start of a page. A text that is not an address is a resource of the app.
 - A preview's fetcher is its own (`LinkPreview::fetcher`), else the app's (`set_link_fetcher`, `reset_link_fetcher`),
   else lurq's; `link_fetcher()` gives the one in use. A fetcher is a type of the trait, told a `LinkRequest` (the
-  address, the app's loader, and the waker to call once it has more), or a function of the address that answers at
-  once.
+  address, the app's loader, and the waker to call once it has more), or a function of the address. What a fetcher
+  already holds, ready or failed, it gives without blocking from `held(url)`, asked on the UI thread as the preview
+  renders, and the preview shows it in its first frame and not after a frame of its skeleton; `PageFetcher` gives the
+  pages it keeps. A fetcher that blocks holds one of the threads previews ask on, and the previews after it wait for
+  one. `wait_link_fetches(timeout)` waits for what the previews rendered on the calling thread asked, for a test or a
+  tool that draws them headless.
 - What went wrong is a `LinkPreviewError`: `NotFound`, `Denied`, `TimedOut`, `Server(status)`, `Network`,
   `Unavailable` (a build without `http`, a browser) and `Other`; `detail()` is what the connection said, for a log.
   `Locale::display` puts each in words (`DisplayWords::link_error`).

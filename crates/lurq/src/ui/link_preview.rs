@@ -1,6 +1,8 @@
 //! A link preview: what a link says about itself, shown before it is followed.
 
-use std::sync::Arc;
+use std::{any::TypeId, sync::Arc};
+
+use parking_lot::Mutex;
 
 use super::{
   Icon, Picture, PicturePart, Skeleton, icons, names,
@@ -24,7 +26,7 @@ use crate::{
     text_style::{FontWeight, TextUnderline},
   },
   node::{CursorIcon, Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension},
-  resources::{LinkFetch, LinkFetcher, LinkMeta, LinkPreviewError, LinkRequest, LoadWaker, Source, link_fetcher},
+  resources::{LinkFetch, LinkFetcher, LinkMeta, LinkPreviewError, LoadWaker, Source, fetch_off_thread, link_fetcher},
 };
 
 /// How much wider than high the picture of a card is: 360 by 188, the ratio of OpenGraph's pictures.
@@ -211,11 +213,11 @@ pub type LinkPreviewRenderer = Arc<dyn Fn(LinkPreviewView) -> Element + Send + S
 /// ```
 ///
 /// It works from the address alone: it asks a [`LinkFetcher`] for what the page says about itself
-/// ([`LinkMeta`]), shows its skeleton while the page is read, and then the page's title, description, site, icon
-/// and picture. Each of them the app gives ([`title`](Self::title), [`description`](Self::description),
-/// [`site`](Self::site), [`image`](Self::image), [`icon`](Self::icon), [`video`](Self::video)) or says there is
-/// none of ([`no_image`](Self::no_image), [`no_icon`](Self::no_icon)) is shown in place of what is fetched; where
-/// everything it shows is given, nothing is fetched. The fetcher is lurq's own
+/// ([`LinkMeta`]) off the UI thread, shows its skeleton until the fetcher answers and while the page is read, and
+/// then the page's title, description, site, icon and picture. Each of them the app gives ([`title`](Self::title),
+/// [`description`](Self::description), [`site`](Self::site), [`image`](Self::image), [`icon`](Self::icon),
+/// [`video`](Self::video)) or says there is none of ([`no_image`](Self::no_image), [`no_icon`](Self::no_icon)) is shown
+/// in place of what is fetched; where everything it shows is given, nothing is fetched. The fetcher is lurq's own
 /// ([`PageFetcher`](crate::resources::PageFetcher), feature `http`), or the app's
 /// ([`fetcher`](Self::fetcher), [`set_link_fetcher`](crate::resources::set_link_fetcher)). A page that tells
 /// nothing, one that could not be read, and every page in a build without `http`, shows the address, the link
@@ -239,7 +241,7 @@ pub struct LinkPreview {
   loading: bool,
   disabled: bool,
   label: Option<Arc<str>>,
-  fetcher: Option<Arc<dyn LinkFetcher>>,
+  fetcher: Option<(Arc<dyn LinkFetcher>, FetcherId)>,
   words: Option<DisplayWords>,
   no_preview_text: Option<Arc<str>>,
   remove_label: Option<Arc<str>>,
@@ -406,14 +408,19 @@ impl LinkPreview {
 
   /// What fetches what the page says, for this preview: in place of the app's
   /// ([`set_link_fetcher`](crate::resources::set_link_fetcher)) and of lurq's own. Any `Fn(&str) -> LinkFetch`.
+  /// It is asked off the UI thread, and may block: the preview is its skeleton until it answers. It is asked once
+  /// for an address, and again when it wakes the preview; a render that gives a fetcher of the same type asks it
+  /// nothing anew.
   pub fn fetcher(mut self, fetcher: impl LinkFetcher + 'static) -> Self {
-    self.fetcher = Some(Arc::new(fetcher));
+    let id = FetcherId::of(&fetcher);
+    self.fetcher = Some((Arc::new(fetcher), id));
     self
   }
 
   /// The same, shared with other previews.
   pub fn shared_fetcher(mut self, fetcher: Arc<dyn LinkFetcher>) -> Self {
-    self.fetcher = Some(fetcher);
+    let id = FetcherId::shared(&fetcher);
+    self.fetcher = Some((fetcher, id));
     self
   }
 
@@ -723,6 +730,39 @@ impl From<LinkPreview> for Element {
   }
 }
 
+/// Which fetcher a preview asks: one of a type, made anew by every render that gives it, or one shared, by where
+/// it is. A preview given another asks it anew.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FetcherId {
+  Type(TypeId),
+  Shared(usize),
+}
+
+impl FetcherId {
+  fn of<F: 'static>(_: &F) -> Self {
+    Self::Type(TypeId::of::<F>())
+  }
+
+  fn shared(fetcher: &Arc<dyn LinkFetcher>) -> Self {
+    Self::Shared(Arc::as_ptr(fetcher).cast::<()>() as usize)
+  }
+}
+
+/// What a preview asked its fetcher, and what it was told.
+#[derive(Default)]
+struct Asked {
+  /// The address and the fetcher asked.
+  of: Option<(Arc<str>, FetcherId)>,
+  /// What the fetcher last said: none before it first answered.
+  answer: Option<LinkFetch>,
+  /// It is being asked, off the UI thread.
+  asking: bool,
+  /// The fetcher woke the preview since it was asked: it is asked again.
+  again: bool,
+  /// Which asking this is: what an asking of another address or fetcher answers is let fall.
+  round: u64,
+}
+
 /// A preview to mount.
 #[derive(Clone)]
 struct LinkPreviewProps(LinkPreview);
@@ -741,10 +781,10 @@ impl crate::app::component::DevtoolsInspectable for LinkPreviewProps {}
 /// What a preview keeps between renders.
 #[derive(Clone)]
 struct Live {
-  /// Counts on when the fetch comes further: the preview renders again and looks.
+  /// Counts on when the fetcher answers or wakes it: the preview renders again and looks.
   tick: Signal<u64>,
-  /// Counts `tick` on: what the fetcher is given to call.
-  wake: LoadWaker,
+  /// What it asked its fetcher and what it was told: written from the thread it asks on.
+  asked: Arc<Mutex<Asked>>,
   /// Whether the pointer is on it: its title is underlined.
   hovered: Signal<bool>,
   /// The key of a picture that did not load: the preview is drawn without it.
@@ -764,15 +804,10 @@ impl Component for LinkPreviewHost {
   type Props = LinkPreviewProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let tick = ctx.signal(0u64);
-    let wake: LoadWaker = {
-      let tick = tick.clone();
-      Arc::new(move || tick.set(tick.get_untracked().wrapping_add(1)))
-    };
     Self {
       live: Live {
-        tick,
-        wake,
+        tick: ctx.signal(0u64),
+        asked: Arc::new(Mutex::new(Asked::default())),
         hovered: ctx.signal(false),
         failed_image: ctx.signal(None),
         failed_icon: ctx.signal(None),
@@ -788,12 +823,78 @@ impl Component for LinkPreviewHost {
     let fetched = if preview.needs_nothing_fetched() {
       None
     } else {
-      let fetcher = preview.fetcher.clone().unwrap_or_else(link_fetcher);
-      let loader = ctx.app_handle().map(|app| app.loader().clone());
-      Some(fetcher.fetch(&LinkRequest::new(&preview.url, loader.as_ref(), &self.live.wake)))
+      let (fetcher, id) = preview.fetcher.clone().unwrap_or_else(|| {
+        let fetcher = link_fetcher();
+        let id = FetcherId::shared(&fetcher);
+        (fetcher, id)
+      });
+      Some(self.fetched(ctx, &preview.url, fetcher, id))
     };
     let theme = current_theme();
     preview.view(&theme, fetched, Some(&self.live)).render_themed()
+  }
+}
+
+impl LinkPreviewHost {
+  /// What the fetcher said of `url`, or that it is on its way. It is asked off the UI thread, once for an address
+  /// and a fetcher and again each time it wakes the preview, so that a fetcher that blocks holds no frame: until
+  /// it answers, the preview is its skeleton. What it already holds is taken at once.
+  fn fetched(&self, ctx: &Ctx, url: &Arc<str>, fetcher: Arc<dyn LinkFetcher>, id: FetcherId) -> LinkFetch {
+    let mut asked = self.live.asked.lock();
+    let anew = asked.of.as_ref().is_none_or(|(of, of_id)| of != url || *of_id != id);
+    if anew {
+      *asked = Asked {
+        of: Some((url.clone(), id)),
+        round: asked.round.wrapping_add(1),
+        ..Asked::default()
+      };
+    }
+    if anew || (asked.again && !asked.asking) {
+      // What the fetcher holds is had at once, and shown in this frame.
+      if let Some(held) = fetcher.held(url).filter(|held| *held != LinkFetch::Loading) {
+        asked.answer = Some(held.clone());
+        asked.again = false;
+        return held;
+      }
+      asked.asking = true;
+      asked.again = false;
+      let round = asked.round;
+      let bump = {
+        let tick = self.live.tick.clone();
+        move || tick.set(tick.get_untracked().wrapping_add(1))
+      };
+      let wake: LoadWaker = {
+        let (state, bump) = (self.live.asked.clone(), bump.clone());
+        Arc::new(move || {
+          {
+            let mut asked = state.lock();
+            if asked.round != round {
+              return;
+            }
+            asked.again = true;
+          }
+          bump();
+        })
+      };
+      let state = self.live.asked.clone();
+      let loader = ctx.app_handle().map(|app| app.loader().clone());
+      fetch_off_thread(fetcher, url.clone(), loader, wake, move |answer| {
+        let told = {
+          let mut asked = state.lock();
+          if asked.round != round {
+            return;
+          }
+          let changed = asked.answer.as_ref() != Some(&answer);
+          asked.answer = Some(answer);
+          asked.asking = false;
+          changed || asked.again
+        };
+        if told {
+          bump();
+        }
+      });
+    }
+    asked.answer.clone().unwrap_or(LinkFetch::Loading)
   }
 }
 

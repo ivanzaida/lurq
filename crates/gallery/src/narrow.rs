@@ -95,6 +95,11 @@ fn gallery(route: &str, width: u32) -> [Laid; 2] {
     tree.set_animation_clock(Some(now));
     tree.pass_headless(&mut app);
     now += Duration::from_secs(1);
+    // What a link preview asked its fetcher off the UI thread has answered before the next pass draws it.
+    assert!(
+      lurq::resources::wait_link_fetches(Duration::from_secs(30)).is_some(),
+      "a link fetcher did not answer"
+    );
   }
   let mut once = |tree: &mut Tree, now: Instant| {
     tree.set_animation_clock(Some(now));

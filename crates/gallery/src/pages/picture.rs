@@ -200,6 +200,10 @@ pub struct PicturePage {
   disabled: Signal<bool>,
   /// The page's picture, drawn once: the same pixels each render.
   lake: ImageData,
+  /// The picture a quarter of its size, and the small version that stands in for it: made once, as `lake` is,
+  /// and not on every render.
+  quarter: ImageData,
+  small: ImageData,
 }
 
 impl PicturePage {
@@ -536,6 +540,8 @@ impl Component for PicturePage {
       selected: ctx.signal(false),
       disabled: ctx.signal(false),
       lake: lake(640, 480),
+      quarter: lake(240, 180),
+      small: lake(48, 27),
     }
   }
 
@@ -577,7 +583,7 @@ impl Component for PicturePage {
         stage(
           Picture::empty()
             .loading(true)
-            .placeholder(PicturePlaceholder::blur_pixels(lake(48, 27))),
+            .placeholder(PicturePlaceholder::blur_pixels(self.small.clone())),
         ),
         "loading · a small version, blurred",
       ))
@@ -630,7 +636,7 @@ impl Component for PicturePage {
 
     let fit = |fit: PictureFit, anchor: StackAlignment| self.lake().size_px(130.0, 73.0).fit(fit).anchor(anchor);
     // The picture a quarter of its size, so that its own size is larger than the box and is cut by it.
-    let own = Picture::new(lake(240, 180))
+    let own = Picture::new(self.quarter.clone())
       .label(LAKE)
       .size_px(130.0, 73.0)
       .fit(PictureFit::None);
