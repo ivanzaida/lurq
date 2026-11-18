@@ -11,6 +11,49 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-18
 
+### On Windows a run of typing is one step of undo, as on a Mac
+
+- **Question.** "Undo takes back what was typed as the platform's own fields do" (2026-11-17, below) took Windows'
+  fields to make each word typed a step, from what is known of WinUI's `TextBox`, Notepad and Word; nobody had seen
+  it. The Mac's handoff (`design/handoff/apple-to-pc-2026-11-18.md`) asked the PC to compare and change
+  `UndoGrouping::PLATFORM` if Windows does otherwise.
+- **What Windows does.** Asked of Windows' own engines on Windows 11 (build 26100), in hidden controls of a
+  script's own, with no input sent to another program ([evidence](../docs/evidence/windows-undo-grouping/README.md)):
+  Windows' RichEdit (`Msftedit.dll`: WordPad's, and what XAML's `TextBox` and `RichEditBox` are built on) and
+  Office's RichEdit that Windows 11's Notepad ships and types into both take back `hello big world` in one step,
+  spaces, punctuation and a pause of 1.5 s notwithstanding; moving the caret ends a step, and in Notepad's so does
+  turning from typing to deleting. No field makes a word a step; Word does, and Word is not a field. The classic
+  edit control has one level of undo, a toggle, and is no model.
+- **Decision (the session on the PC, as the handoff asked, 2026-11-18).** Windows groups as a Mac does:
+  `UndoGrouping::PLATFORM` is `Runs` on every system. `Words` stays for a test and for an app that would group as
+  Word, which no platform's field does. The pause that ends a step (`App::set_typing_undo_pause`, a second unless
+  the app says other) is lurq's own and stays on every system.
+- **Why.** "On Windows as on Windows" (Ivan, 2026-11-18): what Windows' fields do, now seen, is a run.
+- **State.** Built on `claude/apple-to-pc-5b0fa9`; to be merged into `feat/design-system`. What Notepad's window
+  itself adds on top of its engine (a host may end a group, `EM_STOPGROUPTYPING`) was not seen: driving another
+  program is not done here. Ivan may type `hello big world` in Notepad and press Ctrl+Z to see it.
+
+### The frames of a card say their colors
+
+- **Question.** A frame of gray and color is made red, green and blue by a matrix (BT.709, BT.601, BT.2020) and in a
+  range (the video one, or the full). Apple's frames say both, and the `wgpu` shader is told them
+  (`shaders/yuv.wgsl`, the instance's `opacity.zw`); Windows' `CardFrames` said nothing, and both renderers drew
+  them as BT.709 of the video range, which the `dx12` HLSL had written in. A video of standard definition (BT.601),
+  of HDR (BT.2020) or of the full range came out in the wrong colors.
+- **Decision (Ivan, in the handoff from the Mac, 2026-11-18: "give `CardFrames` (or each `CardFrame`) a way to say
+  them").** `images::YuvColors` (`matrix: YuvMatrix`, `full_range: bool`; `YuvColors::BT709` where nothing is
+  said) is told of each frame: `CardFrame::colors(YuvColors)`, as its crop and its fence are, for a decoder may
+  change them between frames. Windows' media reads them from the decoder's type (`MF_MT_YUV_MATRIX`,
+  `MF_MT_VIDEO_NOMINAL_RANGE`; BT.709 of the video range where it says nothing, as before, SMPTE 240M as BT.709),
+  and its video processor, where it converts to red, green and blue for Vulkan, reads by them too (BT.601 or
+  BT.709; BT.2020 as BT.709, which is all that processor's color space says). Both renderers pass a card frame's
+  colors in `opacity.zw`; the `dx12` HLSL has the `yuv_to_rgb` of `yuv.wgsl`, the same numbers.
+- **Why.** The decoder knows; the renderer only has to be told. Each frame and not the frames, for a stream may
+  change format without its surfaces being made again.
+- **State.** Built on `claude/apple-to-pc-5b0fa9`, with readback tests on both renderers against the standards'
+  K_R and K_B (`app/yuv_readback_tests.rs`). A picture of memory (`ImageData::streaming_nv12`, `streaming_i420`)
+  says no colors yet: it is drawn as BT.709 of the video range.
+
 ### A picture's and a media's events, as the web has them
 
 - **Question.** `ui::Picture` has `on_load` and `on_error(&str)`; `ui::VideoPlayer` and `ui::AudioPlayer` have no
@@ -134,7 +177,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   over every frame for nothing.
 - **State.** Built on `feat/design-system` for `wgpu`: a test sends a picture to the card on Metal and reads its
   three planes back as they were; the gallery's Video Player page draws the same bars as a pixel buffer and as I420,
-  pixel for pixel. `dx12` is to be done on Windows.
+  pixel for pixel. Built for `dx12` on Windows on `claude/apple-to-pc-5b0fa9` (2026-11-18): three `R8` textures
+  uploaded as they are, three SRVs under a root signature of three, and `image_nv12.hlsl` compiled with
+  `THREE_PLANES`, which reads the two of color from two textures; a picture of three planes drawn whole is read
+  back from both renderers on Windows and matches BT.709 of the video range (`app/yuv_readback_tests.rs`).
 
 ### On Apple's systems an app's own frames are drawn where it wrote them: red, green and blue too, and once its card is done
 
@@ -173,8 +219,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   (`App::set_typing_undo_pause(Some(duration))`), or none (`None`), when only the caret and the kind of edit end a
   step.
 - **Why.** A person undoes what they typed as they would in any other app of the system.
-- **State.** In work on `feat/design-system`. Windows' grouping is written from what is known of its fields, not
-  seen on a PC: to be tried there.
+- **State.** Built on `feat/design-system`. Windows' grouping by word was written from what is known of its
+  fields; tried on a PC on 2026-11-18, Windows' fields group a run as a Mac's do, and Windows' part of this decision
+  is replaced by "On Windows a run of typing is one step of undo, as on a Mac" (2026-11-18). The pause and the
+  rest stand.
 
 ### On macOS every app has an Edit menu, which it can turn off or put in its own place
 

@@ -46,7 +46,7 @@ impl YuvColors {
 
   /// What the shaders are told, in an image instance's `opacity.zw`: the matrix (0 BT.709, 1 BT.601, 2 BT.2020),
   /// and 1 for the full range.
-  #[cfg(any(feature = "wgpu", feature = "dx12"))]
+  #[cfg(all(windows, feature = "raster", any(feature = "wgpu", feature = "dx12")))]
   pub(crate) fn shader(self) -> [f32; 2] {
     let matrix = match self.matrix {
       YuvMatrix::Bt709 => 0.0,
