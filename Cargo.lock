@@ -1341,8 +1341,12 @@ checksum = "312d2295c7302019c395cfb90dacd00a82a2eabd700429bba9c7a3f38dbbe11b"
 name = "gallery"
 version = "0.1.0"
 dependencies = [
+ "core-foundation-sys 0.8.7",
+ "core-video-sys",
  "js-sys",
  "lurq",
+ "objc2 0.6.5",
+ "objc2-metal 0.3.2",
  "syntect",
  "wasm-bindgen",
  "wasm-bindgen-futures",

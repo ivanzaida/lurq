@@ -6,7 +6,7 @@ use std::{
   time::Duration,
 };
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
 use lurq::ui::{Badge, BadgeVariant, Table, TableColumn};
 use lurq::{
   app::{
@@ -34,17 +34,92 @@ use crate::{
 type Decoder = (crate::card_demo::Decoded, &'static str, &'static str);
 
 /// Where a decoder is that decodes on the card lurq draws on.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
 const THIS_CARD: &str = "The window's card";
 
-/// A row of the table of decoders: its frames, what it gives a frame as, which card it is on, and how lurq
-/// found its frames come to the screen.
-#[cfg(windows)]
+/// A row of the table of decoders: its frames, what it gives a frame as, which card it is on, and how its frames
+/// come to the screen, once that is known.
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
 struct Stream {
   image: lurq::images::ImageData,
   gives: &'static str,
   on: &'static str,
-  way: Option<lurq::images::CardFramesWay>,
+  drawn: Option<(&'static str, BadgeVariant)>,
+}
+
+/// A frame drawn where its decoder put it, with no copy.
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
+const ON_THE_CARD: (&str, BadgeVariant) = ("On the card", BadgeVariant::Success);
+
+/// A frame copied once on its way: sent from memory, or read from another card.
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
+const THROUGH_MEMORY: (&str, BadgeVariant) = ("Through memory", BadgeVariant::Warning);
+
+/// What an Apple decoder of the page gives a frame as, which card it is on, and how its frames come to the screen.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn apple_decoder(kind: crate::cv_demo::Kind) -> (&'static str, &'static str, (&'static str, BadgeVariant)) {
+  use crate::cv_demo::Kind;
+  match kind {
+    Kind::Nv12 => ("One NV12 buffer, 8 bits of the video range", THIS_CARD, ON_THE_CARD),
+    Kind::FullRange601 => (
+      "One NV12 buffer of the full range (420f) that says it is BT.601",
+      THIS_CARD,
+      ON_THE_CARD,
+    ),
+    Kind::Bgra => ("One buffer of red, green and blue (BGRA)", THIS_CARD, ON_THE_CARD),
+    Kind::Signaled => (
+      "One NV12 buffer, shown once its MTLSharedEvent is signaled",
+      THIS_CARD,
+      ON_THE_CARD,
+    ),
+    Kind::Planes => (
+      "Three planes in memory (I420), colors made in the shader",
+      "Memory",
+      THROUGH_MEMORY,
+    ),
+  }
+}
+
+/// The table of decoders: a row for each, its frames as they are drawn, what it gives a frame as, which card it is
+/// on, and how its frames come to the screen.
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
+fn decoders(streams: Vec<Stream>) -> Element {
+  Table::new(
+    [
+      TableColumn::new("frames", "Frames")
+        .width(144.0)
+        .cell(|stream: &Stream| {
+          // A plain picture, as a tile of a grid of streams is, drawn smaller than its frames.
+          Row::new()
+            .padding_vertical(8.0)
+            .child(
+              lurq::components::Video::new(stream.image.clone())
+                .stretch()
+                .size(Dimension::Px(112.0), Dimension::Px(63.0)),
+            )
+            .into()
+        }),
+      TableColumn::new("gives", "A frame is")
+        .share(1.0)
+        .min_width(120.0)
+        .wrap(true)
+        .text(|stream: &Stream| stream.gives.to_owned()),
+      TableColumn::new("on", "Decoded on")
+        .width(124.0)
+        .wrap(true)
+        .muted(true)
+        .text(|stream: &Stream| stream.on.to_owned()),
+      TableColumn::new("way", "Drawn")
+        .width(148.0)
+        .cell(|stream: &Stream| match stream.drawn {
+          Some((label, variant)) => Badge::new(label).variant(variant).into(),
+          None => quiet("…", 13.0).into(),
+        }),
+    ],
+    streams,
+  )
+  .label("Decoders and how their frames come to the screen")
+  .into()
 }
 
 /// How long the playground's video is, in seconds.
@@ -407,9 +482,9 @@ pub struct VideoPlayerPage {
   ways: Signal<Vec<Option<lurq::images::CardFramesWay>>>,
   #[cfg(windows)]
   _decoders: Interval,
-  /// On macOS and iOS: the decoder that stands for an app's own, once something draws its frames where they are.
+  /// On macOS and iOS: the decoders that stand for an app's own, once something draws their frames where they are.
   #[cfg(any(target_os = "macos", target_os = "ios"))]
-  decoder: Arc<std::sync::Mutex<Option<crate::cv_demo::Decoded>>>,
+  decoded: Arc<std::sync::Mutex<Vec<crate::cv_demo::Decoded>>>,
   #[cfg(any(target_os = "macos", target_os = "ios"))]
   decoding: Signal<bool>,
   #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -1031,22 +1106,26 @@ impl Component for VideoPlayerPage {
     });
     #[cfg(windows)]
     decoders.start();
-    // On macOS and iOS it starts once the window draws on Metal: a page made with the window is made before the
+    // On macOS and iOS they start once the window draws on Metal: a page made with the window is made before the
     // window has its device.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let (decoder, decoding) = (
-      Arc::new(std::sync::Mutex::new(None::<crate::cv_demo::Decoded>)),
+    let (decoded, decoding) = (
+      Arc::new(std::sync::Mutex::new(Vec::<crate::cv_demo::Decoded>::new())),
       ctx.signal(false),
     );
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let decoders = ctx.create_interval(TICK, {
-      let (decoder, decoding) = (decoder.clone(), decoding.clone());
+      let (decoded, decoding) = (decoded.clone(), decoding.clone());
       move || {
         if decoding.get() {
           return;
         }
-        if let Some(started) = crate::cv_demo::start() {
-          *decoder.lock().expect("the decoder of the page") = Some(started);
+        let started: Vec<_> = crate::cv_demo::KINDS
+          .into_iter()
+          .filter_map(crate::cv_demo::start)
+          .collect();
+        if !started.is_empty() {
+          *decoded.lock().expect("the decoders of the page") = started;
           decoding.set(true);
         }
       }
@@ -1093,7 +1172,7 @@ impl Component for VideoPlayerPage {
       #[cfg(windows)]
       _decoders: decoders,
       #[cfg(any(target_os = "macos", target_os = "ios"))]
-      decoder,
+      decoded,
       #[cfg(any(target_os = "macos", target_os = "ios"))]
       decoding,
       #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -1193,81 +1272,36 @@ impl Component for VideoPlayerPage {
           image: decoded.image.clone(),
           gives,
           on,
-          way: ways.get(at).copied().flatten(),
+          drawn: ways.get(at).copied().flatten().map(|way| match way {
+            lurq::images::CardFramesWay::Card => ON_THE_CARD,
+            lurq::images::CardFramesWay::Memory => THROUGH_MEMORY,
+            lurq::images::CardFramesWay::Nowhere => ("Not drawn", BadgeVariant::Destructive),
+          }),
         })
         .collect();
-      Table::new(
-        [
-          TableColumn::new("frames", "Frames")
-            .width(144.0)
-            .cell(|stream: &Stream| {
-              // A plain picture, as a tile of a grid of streams is, drawn smaller than its frames.
-              Row::new()
-                .padding_vertical(8.0)
-                .child(
-                  lurq::components::Video::new(stream.image.clone())
-                    .stretch()
-                    .size(Dimension::Px(112.0), Dimension::Px(63.0)),
-                )
-                .into()
-            }),
-          TableColumn::new("gives", "A frame is")
-            .share(1.0)
-            .min_width(120.0)
-            .wrap(true)
-            .text(|stream: &Stream| stream.gives.to_owned()),
-          TableColumn::new("on", "Decoded on")
-            .width(124.0)
-            .wrap(true)
-            .muted(true)
-            .text(|stream: &Stream| stream.on.to_owned()),
-          TableColumn::new("way", "Drawn").width(148.0).cell(|stream: &Stream| {
-            let (label, variant) = match stream.way {
-              Some(lurq::images::CardFramesWay::Card) => ("On the card", BadgeVariant::Success),
-              Some(lurq::images::CardFramesWay::Memory) => ("Through memory", BadgeVariant::Warning),
-              Some(lurq::images::CardFramesWay::Nowhere) => ("Not drawn", BadgeVariant::Destructive),
-              None => return quiet("…", 13.0).into(),
-            };
-            Badge::new(label).variant(variant).into()
-          }),
-        ],
-        streams,
-      )
-      .label("Decoders and how their frames come to the screen")
-      .into()
+      decoders(streams)
     };
-    // On macOS and iOS: the frames of a thread of the gallery, drawn where it wrote them.
+    // On macOS and iOS: the frames of threads of the gallery, each a row, drawn where they wrote them.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let decoded: Element = {
-      let image = self
-        .decoding
-        .get()
-        .then(|| {
-          self
-            .decoder
-            .lock()
-            .expect("the decoder of the page")
-            .as_ref()
-            .map(|decoded| (decoded.image.clone(), decoded.planes.clone()))
+    let decoded: Element = if !self.decoding.get() {
+      quiet("Nothing draws frames of the card in this run: it takes Metal.", 13.0).into()
+    } else {
+      let streams: Vec<Stream> = self
+        .decoded
+        .lock()
+        .expect("the decoders of the page")
+        .iter()
+        .map(|decoded| {
+          let (gives, on, drawn) = apple_decoder(decoded.kind);
+          Stream {
+            image: decoded.image.clone(),
+            gives,
+            on,
+            drawn: Some(drawn),
+          }
         })
-        .flatten();
-      match image {
-        Some((image, planes)) => items()
-          .child(item(
-            lurq::components::Video::new(image)
-              .stretch()
-              .size(Dimension::Px(320.0), Dimension::Px(180.0)),
-            "320 × 180, thirty frames a second · drawn on the card, where the decoder wrote them",
-          ))
-          .child(item(
-            lurq::components::Video::new(planes)
-              .stretch()
-              .size(Dimension::Px(320.0), Dimension::Px(180.0)),
-            "the same, as a decoder of software gives it · three planes of memory (I420), sent as they are",
-          ))
-          .into(),
-        None => quiet("Nothing draws frames of the card in this run: it takes Metal.", 13.0).into(),
-      }
+        .collect();
+      decoders(streams)
     };
     #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
     let decoded: Element = quiet(
@@ -1589,9 +1623,12 @@ impl Component for VideoPlayerPage {
           } else {
             "An app that decodes by itself (a stream, a codec the system has not, a camera) gives lurq the \
              buffers its frames are in, and lurq draws them where they are, on Metal: a frame is not copied on \
-             its way to the screen. A thread of the gallery stands for the decoder: it writes a moving test \
-             picture into buffers of the system's that Metal makes textures of, three in turn, and shows each. \
-             The system's own decoders give such buffers already, and a video lurq plays comes the same way."
+             its way to the screen. Each row is a decoder, which a thread of the gallery stands for, writing a \
+             moving test picture: into buffers of the system's that Metal makes textures of (NV12 as it says no \
+             matrix, NV12 of the full range that says BT.601, red, green and blue, and one shown once a \
+             MTLSharedEvent says it is written), and as three planes in memory, which a decoder of software \
+             gives and which are sent to the card once a frame. The system's own decoders give such buffers \
+             already, and a video lurq plays comes the same way."
           },
           self.frame.demo(
             6,
@@ -1630,6 +1667,15 @@ impl Component for VideoPlayerPage {
                 "let buffer = MacosCvPixelBuffer::nv12(1920, 1080)?;",
                 "buffer.write_nv12(|gray, gray_stride, color, color_stride| decode_into(gray, color));",
                 "frames.show(buffer);",
+                "// or red, green and blue: MacosCvPixelBuffer::bgra(w, h), then buffer.write_bgra(..)",
+                "",
+                "// a frame the app's own Metal writes: shown once its command buffer signals the event",
+                "command_buffer.encodeSignalEvent_value(&event, value);",
+                "frames.show_after(buffer, &event, value);",
+                "",
+                "// a decoder of software, its three planes in memory (I420), sent as they are",
+                "let planes = ImageData::streaming_i420(first_frame, 1920, 1080);",
+                "planes.set_streaming_i420(next_frame);",
                 "",
                 "// the screen",
                 "Video::new(image)",

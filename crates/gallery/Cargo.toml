@@ -39,6 +39,14 @@ windows = { version = "0.62.2", features = [
     "Win32_Security",
 ] }
 
+# The decoders of the Video Player page that stand for an app's own on macOS and iOS (`src/cv_demo.rs`): a buffer
+# of the system's made with what it says of its colors, and a shared event of Metal that says a frame is written.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+core-foundation-sys = "0.8"
+objc2 = "0.6"
+core-video-sys = { version = "0.1", default-features = false }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLEvent"] }
+
 # The gallery as a page: `scripts/gallery-web.py`. What it asks the browser for is in `src/web.rs`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # A page names lurq's features itself, as a browser app does: the desktop set, with WebGL2 for a browser without
