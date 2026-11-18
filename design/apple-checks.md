@@ -56,6 +56,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   canvases (charts, Signature Pad, QR Code) are drawn again and a video goes on. At least: nothing goes black.
 - [ ] **The canvas on the GPU.** Pages Bar Chart, Line Chart, Signature Pad (draw, Undo, Clear, Make a picture), QR
   Code (the code is scanned by a phone's camera), Watermark (on the long scrolled page).
+  2026-11-18: Ivan: the Signature Pad works on a Mac.
 - [ ] **Icon hinting on a 1x display**, if one is at hand: `cargo run -p lurq --example icon_hinting --features
   winit,wgpu,screenshot`. On a 2x display hinting matters little.
 - [ ] **Blur and shadows.** Pages with a backdrop blur (a sheet, a popover over content) and shadows (Card, Menu).
