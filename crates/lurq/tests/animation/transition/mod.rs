@@ -10,3 +10,5 @@ mod paint_values;
 mod reduced_motion;
 mod respects_easing;
 mod value_that_goes_away;
+#[cfg(feature = "raster")]
+mod while_a_video_plays;
