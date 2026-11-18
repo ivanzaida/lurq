@@ -476,8 +476,8 @@ fn undo_takes_back_what_was_typed_as_the_platform_groups_it_in_an_input_built_ag
   assert_eq!(value.get(), "hello world");
   press(&mut runtime, "z", "KeyZ", false);
   runtime.pass_headless(&mut app);
-  // A run of typing on Apple's systems and elsewhere; a word with the spaces after it on Windows.
-  assert_eq!(value.get(), if cfg!(windows) { "hello " } else { "" });
+  // A run of typing is one step, on every system: Windows' fields group it so too.
+  assert_eq!(value.get(), "");
 }
 
 #[test]
