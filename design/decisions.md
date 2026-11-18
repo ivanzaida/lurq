@@ -21,8 +21,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   Border `#D4D4DA`; Input stays `#9A9AA5` (a field's edge keeps 3:1). (3) The components that fill a large area with
   Muted move to `Background`/`Card` with a line (the window's bar, tables' headers, the code block's bar, tab lists,
   the sidebar, and what an audit finds); Muted stays for small things (chips, badges, inline code, slider tracks).
-  The dark theme is not touched; the legacy theme keeps 0.62's look.
-- **State.** Decided; to be built in a session of its own.
+  The dark theme is not touched; the legacy theme keeps 0.62's look. First on the board (Ivan): the light
+  variables and the light components frame (`Ovt1D`, "Components / light") changed and looked at before the code.
+- **State.** Decided; in work in a session of its own, the board first.
 
 ### A frame callback for an app: `ctx.on_frame`
 
