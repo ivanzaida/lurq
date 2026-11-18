@@ -8,9 +8,14 @@ use crate::{
   layout::quad::ClipRect,
 };
 
-/// The default device of this machine; `None` where there is none.
+/// A device of this machine, of the backends lurq takes by itself; `None` where there is none.
+///
+/// Of the program's one instance among those backends, and not of an instance of its own among them all: on
+/// Windows that one had Vulkan in it, a second instance of Vulkan beside the one the tests of a card's frames
+/// draw through, and letting it go at the end of this test ended the test program now and then with an access
+/// violation (`new_instance` says the same of two engines).
 fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
-  let instance = wgpu::Instance::default();
+  let instance = super::new_instance(super::default_backends());
   let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
   pollster::block_on(adapter.request_device(&Default::default())).ok()
 }

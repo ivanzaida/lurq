@@ -81,9 +81,27 @@ pipelines of `wgpu_render`, `image_nv12.wgsl` through `yuv.wgsl`, and the menu's
 was fixed: a warning on Windows (`i420_tests.rs` dropped a shader module wgpu marks `must_use`), and the time a run
 of typing was typed at, which was `std`'s `Instant` and panics in the browser build (`crate::time::Instant` now).
 `card_frames` 7 passed, `i420` 1, `ui_tests` 2436, `input_tests` 629 (after the change of undo below),
-`--lib --features raster,media,screenshot,mcp,devtools` 1260 of 1261 with the machine loaded: the one was
-`a_continuous_spinner_holds_the_displays_rate_on_the_wall_clock_whatever_its_render_cost`, a test of the wall
-clock, which passes alone.
+`--lib --features raster,media,screenshot,mcp,devtools` 1261 passed, ten runs in a row, once the two things below
+were fixed.
+
+**The whole `--lib` run ended with an access violation now and then** (`STATUS_ACCESS_VIOLATION`, two runs of four
+here, and on the coordinator's checkout), and where it did not, tests of `card_frames_tests` failed now and then.
+Two causes, both in the tests and neither in what an app runs:
+
+- `i420_tests.rs` made its device of `wgpu::Instance::default()`: an instance among every backend, which on
+  Windows has Vulkan in it, a second instance of Vulkan beside the one the tests of a card's frames draw through.
+  Letting it go at the end of the test ended the program, as two engines' instances did before the instance was
+  shared (`new_instance` in `wgpu_render/mod.rs` says so). Seen apart: the Vulkan tests of `card_frames_tests` with
+  the I420 test crashed 6 runs of 30, without it 0 of 30, and with the fix 0 of 40. The test takes the program's
+  one instance among the backends lurq takes by itself now (`new_instance(default_backends())`).
+- `viewport_tests.rs` starts real engines, and an engine that starts says for the whole program which card draws
+  the frames of a card and whether it draws one NV12 texture (`card_frames::announce`). The tests of such frames
+  run one at a time for that (`card_read::ON_THE_CARD`); the viewport's did not, and a test under Vulkan that was
+  told "NV12" by an engine of theirs failed its assertions (10 of 16 runs) or had its media give Vulkan an NV12
+  texture, which an RTX loses its device for. Each test of `viewport_tests.rs` holds `ON_THE_CARD` now.
+
+Not changed: the tests behind `#[ignore]` that make an instance among every backend (`quad_tests.rs`,
+`canvas/tests.rs`, `canvas/camera_tests.rs`) are run alone, where there is no second instance.
 
 **Looked at (section 2), through the gallery's MCP server.**
 
