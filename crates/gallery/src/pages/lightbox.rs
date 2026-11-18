@@ -79,6 +79,64 @@ pub(super) fn pictures_of(shots: &[ImageData; 3], count: usize) -> Vec<Picture> 
     .collect()
 }
 
+/// What Download does in the page's lightboxes: the picture at `index`, as a PNG, saved where the person says in the
+/// system's dialog for where to save (on a phone, the system's picker of places in Files).
+pub(super) fn saver(
+  window: lurq::app::window::WindowHandle,
+  shots: [ImageData; 3],
+) -> impl Fn(usize) + Send + Sync + 'static {
+  move |index: usize| {
+    let shot = shots[index % shots.len()].clone();
+    let (title, _) = TITLES[index % TITLES.len()];
+    let asked = lurq::files::FileDialog::new()
+      .title("Save the picture")
+      .filter("PNG", &["png"])
+      .file_name(&format!("{title}.png"))
+      .pick_save(&window);
+    std::thread::spawn(move || {
+      let Some(path) = block_on(asked) else {
+        return;
+      };
+      let png = lurq::app::events::ClipboardImage::from_rgba(shot.width(), shot.height(), shot.data().to_vec())
+        .ok()
+        .and_then(|image| image.to_png().ok());
+      match png {
+        Some(png) => {
+          if let Err(error) = std::fs::write(&path, png) {
+            eprintln!("the gallery did not save {}: {error}", path.display());
+          }
+        }
+        None => eprintln!("the gallery did not make a PNG of the picture"),
+      }
+    });
+  }
+}
+
+/// Runs a future to its end on this thread.
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+  use std::{
+    pin::pin,
+    sync::Arc,
+    task::{Context, Poll, Wake, Waker},
+    thread::Thread,
+  };
+  struct Unpark(Thread);
+  impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+      self.0.unpark();
+    }
+  }
+  let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+  let mut cx = Context::from_waker(&waker);
+  let mut future = pin!(future);
+  loop {
+    if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
+      return output;
+    }
+    std::thread::park();
+  }
+}
+
 impl LightboxPage {
   fn pictures(&self, count: usize) -> Vec<Picture> {
     pictures_of(&self.shots, count)
@@ -90,6 +148,7 @@ impl LightboxPage {
     let (wrap, filmstrip, counter) = (self.wrap.get(), self.filmstrip.get(), self.counter.get());
     let (download, close) = (self.download.get(), self.close.get());
     let shots = self.shots.clone();
+    let save = std::sync::Arc::new(saver(ctx.window(), self.shots.clone()));
     let record = self.playground.recorder();
     let open = Signal::new(true);
 
@@ -117,8 +176,11 @@ impl LightboxPage {
           .on_zoom_change(move |zoom| closer(format!("on_zoom_change({zoom:.2})")))
           .on_dismiss(move || dismissed("on_dismiss".to_owned()));
         if download {
-          let record = record.clone();
-          lightbox = lightbox.on_download(move |index| record(format!("on_download({index})")));
+          let (record, save) = (record.clone(), save.clone());
+          lightbox = lightbox.on_download(move |index| {
+            record(format!("on_download({index})"));
+            save(index);
+          });
         }
         lightbox.into()
       }
@@ -265,6 +327,7 @@ impl Component for LightboxPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let shown = Signal::new(true);
+    let save = || saver(ctx.window(), self.shots.clone());
     let in_page = Row::new()
       .width(FILL)
       .spacing(24.0)
@@ -276,7 +339,7 @@ impl Component for LightboxPage {
           .inline(true)
           .width(420.0)
           .height(290.0)
-          .on_download(|_| {}),
+          .on_download(save()),
         "twelve pictures · 420 × 290, as the board draws it",
       ))
       .child(item(
@@ -295,7 +358,7 @@ impl Component for LightboxPage {
         .height(640.0)
         .index(self.phone_at.clone())
         .on_share(|_| {})
-        .on_download(|_| {})
+        .on_download(save())
         .id("lightbox-phone-viewer"),
       "the phone's viewer · 360 × 640, at the third of twelve",
     ));
@@ -313,7 +376,7 @@ impl Component for LightboxPage {
       .child(
         Lightbox::new(self.open.clone(), self.pictures(8))
           .wrap(true)
-          .on_download(|_| {})
+          .on_download(save())
           .id("lightbox-window"),
       );
 

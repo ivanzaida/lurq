@@ -10,6 +10,20 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-18
 
+### Files are chosen and saved on iOS through the system's picker
+
+- **Question.** On iOS `FileDialog` gave nothing (`rfd`, the desktop's dialogs, has no iOS backend): a drop zone's
+  "Choose file", a path field's Browse and Save as did nothing on the iPhone, and so did a Download that saves.
+- **Decision (Ivan, 2026-11-18, at the phone: "довнлоад в лайтбоксі не працює - нам треба ще протестувати fs на
+  айфоні", then "і ччуз файл не працюжє").** On iOS `FileDialog` is the system's document picker
+  (`UIDocumentPickerViewController`), over the app: `pick` opens the files chosen as copies in the app's own
+  temporary folder, which the app reads by their paths as on a desktop; `pick_folder` gives a folder the app may
+  read and write while it runs; `pick_save` makes an empty file of its file name and has the person put it where
+  they choose (Files, iCloud Drive, a folder on the phone), and gives its path there, which the app writes, as on
+  a desktop. The gallery's Download in a lightbox saves the picture through `pick_save` on every system.
+- **Why.** An app written once chooses and saves files on a phone as on a desktop, through the same calls.
+- **State.** In work on `feat/design-system`.
+
 ### A lightbox in a page opens over the whole screen at a tap, on a phone
 
 - **Question.** A lightbox that stands in a page (`Lightbox::inline`) stayed in its box on a phone: a tap on its

@@ -20,7 +20,10 @@
 //!   is the browser's file input, which asks the person to confirm first (a press must open it); a chosen file has its
 //!   name and size and no path. Its bytes are not read through lurq yet. A page is given no path, so there is no dialog
 //!   for a folder or for where to save: [`FileDialog::pick_folder`] and [`FileDialog::pick_save`] give nothing.
-//! - **iOS**: no drop and no dialog: `rfd` has no backend there, so [`FileDialog::pick`] gives nothing.
+//! - **iOS**: no drop; the dialog is the system's document picker (`UIDocumentPickerViewController`), with or without
+//!   the feature `file_dialog`. A file chosen to open is a copy the system puts in the app's temporary folder, read by
+//!   its path; a folder chosen is the app's to read and write while it runs; and where to save is chosen by putting an
+//!   empty file of the dialog's file name where the person says, whose path there the app writes.
 //!
 //! Without the feature `file_dialog`, [`FileDialog::pick`] and the others give nothing on
 //! every platform and say so through `tracing` once. Under an MCP server with
@@ -283,7 +286,7 @@ impl FileDialog {
   }
 
   /// Opens the dialog for a folder over `window` and gives the folder the person chose: `None` when they
-  /// cancelled, or where there is no such dialog (a browser, iOS, a build without `file_dialog`). Its title and
+  /// cancelled, or where there is no such dialog (a browser, a build without `file_dialog` outside iOS). Its title and
   /// the [folder](Self::folder) it opens in are the dialog's; its filters say nothing of folders.
   ///
   /// ```no_run
@@ -417,7 +420,7 @@ impl Answer {
   }
 
   #[cfg_attr(
-    all(feature = "file_dialog", not(target_os = "ios"), not(target_arch = "wasm32")),
+    any(target_os = "ios", all(feature = "file_dialog", not(target_arch = "wasm32"))),
     allow(dead_code)
   )]
   fn ready(files: Vec<DroppedFile>) -> Self {
@@ -565,7 +568,11 @@ mod native {
   }
 }
 
-#[cfg(any(not(feature = "file_dialog"), target_os = "ios"))]
+#[cfg(target_os = "ios")]
+#[path = "files_ios.rs"]
+mod native;
+
+#[cfg(all(not(feature = "file_dialog"), not(target_os = "ios")))]
 mod native {
   use super::{Answer, FileDialog};
 
@@ -573,11 +580,7 @@ mod native {
   pub(super) fn pick(_dialog: FileDialog) -> Answer {
     static SAID: std::sync::Once = std::sync::Once::new();
     SAID.call_once(|| {
-      if cfg!(target_os = "ios") {
-        tracing::warn!("lurq: there is no file dialog on iOS; FileDialog::pick gives nothing");
-      } else {
-        tracing::warn!("lurq: FileDialog::pick needs the feature `file_dialog`; it gives nothing without it");
-      }
+      tracing::warn!("lurq: FileDialog::pick needs the feature `file_dialog`; it gives nothing without it");
     });
     Answer::ready(Vec::new())
   }
