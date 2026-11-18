@@ -1,7 +1,11 @@
 //! What fetches what a page says about itself for a link preview, and keeps it.
 //!
-//! A preview asks a [`LinkFetcher`] for the [`LinkMeta`] of its address as it renders, and is told whether it is
-//! there yet ([`LinkFetch`]); the fetcher wakes it once it has more. lurq's own is [`PageFetcher`]: it reads the
+//! A preview asks a [`LinkFetcher`] for the [`LinkMeta`] of its address, and is told whether it is there yet
+//! ([`LinkFetch`]); the fetcher wakes it once it has more, and it asks again. It asks off the UI thread, on a
+//! thread of lurq's (in a browser, once the frame is drawn), and shows its skeleton until the fetcher answers: a
+//! fetcher may block, reading a cache on the disk or asking a server of the app's, and the window is drawn on. What
+//! a fetcher already holds it gives on the UI thread ([`LinkFetcher::held`]), and the preview shows it in its
+//! first frame. lurq's own is [`PageFetcher`]: it reads the
 //! start of the page through the app's [`Loader`] (a [`load_start`](Loader::load_start) of
 //! [`PageFetcher::head_bytes`]), finds what the page says in it ([`LinkMeta::from_html`]), and keeps that in memory
 //! by the address, so that a page shown twice is read once. Loading an address needs the feature `http`: a build
@@ -19,10 +23,12 @@
 //! });
 //! ```
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc, time::Duration};
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, RwLock};
 
+#[cfg(not(target_arch = "wasm32"))]
+use super::thread_pool::ThreadPool;
 use super::{Load, LoadError, LoadState, LoadWaker, Loader, Source, link_meta::LinkMeta};
 
 /// How much of a page [`PageFetcher`] reads unless told: its first 512 KiB, which hold the head of a page that
@@ -125,7 +131,8 @@ impl<'a> LinkRequest<'a> {
     self.loader
   }
 
-  /// Renders the preview again: to be called once a fetch that answered [`LinkFetch::Loading`] has more.
+  /// Asks the fetcher again for the preview: to be called once a fetch that answered [`LinkFetch::Loading`] has
+  /// more. It may be called from any thread.
   pub fn wake(&self) -> &LoadWaker {
     self.wake
   }
@@ -135,10 +142,23 @@ impl<'a> LinkRequest<'a> {
 pub trait LinkFetcher: Send + Sync {
   /// Where the fetch of `request`'s page is now. One not asked for before is started, and the request's waker is
   /// called once it comes further. Asked again for a page it has, it answers at once.
+  ///
+  /// A preview asks it off the UI thread, so it may block: the preview is its skeleton until it answers. Most
+  /// fetchers start the work and answer [`LinkFetch::Loading`], as [`PageFetcher`] does; one that blocks holds one
+  /// of the few threads previews ask on, and the previews after it wait for one.
   fn fetch(&self, request: &LinkRequest<'_>) -> LinkFetch;
+
+  /// What it already holds of `url`, ready or failed, without blocking and without starting anything: asked on
+  /// the UI thread as a preview renders, so that a page it holds is shown in the preview's first frame and not
+  /// after a frame of its skeleton. `None`, as unless told, and a fetch still on its way, ask
+  /// [`fetch`](Self::fetch) off the UI thread.
+  fn held(&self, url: &str) -> Option<LinkFetch> {
+    let _ = url;
+    None
+  }
 }
 
-/// A function of the address is a fetcher that answers at once: an app's own previews, a test's pages.
+/// A function of the address is a fetcher: an app's own previews, a test's pages, a cache on the disk.
 impl<F: Fn(&str) -> LinkFetch + Send + Sync> LinkFetcher for F {
   fn fetch(&self, request: &LinkRequest<'_>) -> LinkFetch {
     self(request.url())
@@ -198,6 +218,13 @@ impl PageFetcher {
 }
 
 impl LinkFetcher for PageFetcher {
+  fn held(&self, url: &str) -> Option<LinkFetch> {
+    match self.kept.lock().get(url) {
+      Some(Kept::Ended(fetch)) => Some(fetch.clone()),
+      _ => None,
+    }
+  }
+
   fn fetch(&self, request: &LinkRequest<'_>) -> LinkFetch {
     let url = request.url();
     let mut kept = self.kept.lock();
@@ -249,6 +276,112 @@ pub fn link_fetcher() -> Arc<dyn LinkFetcher> {
   OWN.get_or_init(|| Arc::new(PageFetcher::new())).clone()
 }
 
+/// How many threads ask fetchers for previews: a fetcher that blocks holds one, and the others go on.
+#[cfg(not(target_arch = "wasm32"))]
+const ASKING_THREADS: usize = 4;
+
+/// The fetches asked from one thread: what [`wait_link_fetches`] waits for.
+#[derive(Default)]
+struct Asking {
+  counts: Mutex<Counts>,
+  answered: Condvar,
+}
+
+#[derive(Default)]
+struct Counts {
+  /// Asked, and not answered yet.
+  pending: usize,
+  /// Answered since the thread last waited.
+  answered: usize,
+}
+
+thread_local! {
+  static ASKED_HERE: Arc<Asking> = Arc::new(Asking::default());
+}
+
+/// Counts a fetch as answered once it has, or once its job was dropped untaken.
+struct Answered(Arc<Asking>);
+
+impl Drop for Answered {
+  fn drop(&mut self) {
+    let mut counts = self.0.counts.lock();
+    counts.pending = counts.pending.saturating_sub(1);
+    counts.answered += 1;
+    if counts.pending == 0 {
+      self.0.answered.notify_all();
+    }
+  }
+}
+
+/// Asks `fetcher` for the page at `url` off the calling thread, as a preview in an app with `loader` that `wake`
+/// asks again, and gives `answered` what it said. A fetcher that panics has failed.
+pub(crate) fn fetch_off_thread(
+  fetcher: Arc<dyn LinkFetcher>,
+  url: Arc<str>,
+  loader: Option<Loader>,
+  wake: LoadWaker,
+  answered: impl FnOnce(LinkFetch) + Send + 'static,
+) {
+  let asking = ASKED_HERE.with(Arc::clone);
+  asking.counts.lock().pending += 1;
+  let counted = Answered(asking);
+  run_off_thread(move || {
+    let _counted = counted;
+    let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      fetcher.fetch(&LinkRequest::new(&url, loader.as_ref(), &wake))
+    }));
+    answered(asked.unwrap_or_else(|_| {
+      tracing::error!(target: "lurq::resources", "a link fetcher panicked on {url}");
+      LinkFetch::Failed(LinkPreviewError::Other(Arc::from("the link fetcher panicked")))
+    }));
+  });
+}
+
+/// On one of the threads previews ask on.
+#[cfg(not(target_arch = "wasm32"))]
+fn run_off_thread(job: impl FnOnce() + Send + 'static) {
+  static POOL: std::sync::OnceLock<ThreadPool> = std::sync::OnceLock::new();
+  POOL.get_or_init(|| ThreadPool::new(ASKING_THREADS)).execute(job);
+}
+
+/// A browser has one thread: the job runs once the task that rendered the preview has returned.
+#[cfg(target_arch = "wasm32")]
+fn run_off_thread(job: impl FnOnce() + Send + 'static) {
+  wasm_bindgen_futures::spawn_local(async move { job() });
+}
+
+/// Waits until every fetch that the link previews rendered on this thread asked for has answered, for at most
+/// `timeout`: for a test that draws previews and then looks at what they show, or a tool that takes a picture
+/// of a page. `Some` with how many answered since this thread last waited, which a frame drawn now shows (0: the
+/// previews show what they were told); `None` where they had not all answered in time. A browser cannot wait:
+/// there it is `None` while one is on its way.
+pub fn wait_link_fetches(timeout: Duration) -> Option<usize> {
+  let asking = ASKED_HERE.with(Arc::clone);
+  let mut counts = asking.counts.lock();
+  if !answered_in(&asking, &mut counts, timeout) {
+    return None;
+  }
+  Some(std::mem::take(&mut counts.answered))
+}
+
+/// Whether every fetch counted in `counts` has answered within `timeout`.
+#[cfg(not(target_arch = "wasm32"))]
+fn answered_in(asking: &Asking, counts: &mut parking_lot::MutexGuard<'_, Counts>, timeout: Duration) -> bool {
+  let deadline = std::time::Instant::now() + timeout;
+  while counts.pending > 0 {
+    if asking.answered.wait_until(counts, deadline).timed_out() {
+      return counts.pending == 0;
+    }
+  }
+  true
+}
+
+/// A browser's one thread cannot wait for the jobs it is to run itself.
+#[cfg(target_arch = "wasm32")]
+fn answered_in(_: &Asking, counts: &mut parking_lot::MutexGuard<'_, Counts>, _: Duration) -> bool {
+  counts.pending == 0
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
   use super::*;
@@ -284,11 +417,14 @@ mod tests {
       }
     };
     assert_eq!(meta.title.as_deref(), Some("Kept"));
+    // Held: given at once, as a preview renders.
+    assert_eq!(fetcher.held("page.html"), Some(LinkFetch::Ready(meta.clone())));
     assert_eq!(meta.description.as_deref(), Some("Read once."));
     // Kept: the file gone, it is still what it was.
     std::fs::remove_file(folder.join("page.html")).unwrap();
     assert_eq!(fetcher.fetch(&request), LinkFetch::Ready(meta));
     assert!(fetcher.forget("page.html"));
+    assert_eq!(fetcher.held("page.html"), None);
     assert!(!fetcher.forget("page.html"));
   }
 

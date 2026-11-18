@@ -8,6 +8,21 @@ is in [design-system-plan.md](design-system-plan.md#7-phases-27--components).
 Each entry: **the question**, **the decision**, **why**, and its **state** (proposed, decided, in work on a branch,
 built, dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-18
+
+### A tap outside the text input lets it go, and the keyboard goes down
+
+- **Question.** On the iPhone a tap outside the text input being typed into left it the focus and the keyboard up,
+  as UIKit's own text fields do: only another text input took the focus from it (`docs/ios-gaps.md`, "Putting the
+  keyboard away").
+- **Decision (Ivan, 2026-11-18, at the phone: "і чому коли інпут на айфоні втрачає фокус, клава не ховається?").**
+  A finger that taps outside the input lets it go, as a mouse's press does and as a page in Safari does, and the
+  keyboard goes down with it. A tap on what takes the focus gives it the focus. A finger that scrolls a list does
+  not tap: the keyboard stays up, unless the list is set to put it away (`ScrollState::set_keyboard_dismissal`).
+- **Why.** The person expects a tap on nothing to be done with typing; leaving the keyboard up hid half the
+  screen with no way to put it away but a list set to.
+- **State.** In work on `feat/design-system`.
+
 ## 2026-11-17
 
 ### A finger that taps while another is held clicks what it taps

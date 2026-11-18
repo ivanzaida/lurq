@@ -44,10 +44,10 @@ mod ios;
 #[cfg(target_os = "ios")]
 mod ios_text;
 mod loop_wait;
-#[cfg(target_os = "macos")]
-mod macos_controls;
 #[cfg(test)]
 mod loop_wait_tests;
+#[cfg(target_os = "macos")]
+mod macos_controls;
 mod native_resize;
 mod notched_wheel;
 #[cfg(test)]
@@ -624,6 +624,8 @@ impl ManagedWindow {
     // On macOS the system's own lights go where the app's controls are: see `macos_controls`.
     #[cfg(target_os = "macos")]
     self.tree.publish_window_controls();
+    #[cfg(all(target_os = "macos", feature = "screenshot"))]
+    macos_controls::draw_lights_in_screenshots(&window, &mut self.tree);
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -1493,6 +1495,8 @@ impl ManagedSecondaryWindow {
     tell_window_controls(&window, tree);
     #[cfg(target_os = "macos")]
     tree.publish_window_controls();
+    #[cfg(all(target_os = "macos", feature = "screenshot"))]
+    macos_controls::draw_lights_in_screenshots(&window, tree);
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]
@@ -2468,7 +2472,21 @@ impl ApplicationHandler for WinitHandler {
     let stage_started_at = Instant::now();
     #[cfg(target_os = "macos")]
     crate::app::macos_menu::sync();
-    self.app.shared.menu.drain(self.main.tree.window());
+    // An item of the menu is the window's in front: an item of editing runs on its focus.
+    let in_front = self
+      .secondaries
+      .iter()
+      .filter_map(|secondary| self.main.tree.secondary_window(secondary.index()))
+      .map(|secondary| secondary.tree().window().clone())
+      .find(|window| window.info().is_focused)
+      .unwrap_or_else(|| self.main.tree.window().clone());
+    self.app.shared.menu.drain_to(self.main.tree.window(), &in_front);
+    // What an item asked for (an edit, a way back) runs in the window's next pass: the pass is asked for now, not
+    // left to the caret's next blink.
+    if in_front.has_requests() {
+      self.main.check_redraw();
+      self.check_secondary_redraw();
+    }
     // The text of a paste the browser has answered; see `clipboard::web`.
     #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
     if let Some(text) = crate::clipboard::web::take_pasted() {

@@ -123,7 +123,7 @@ pub(super) fn interact_tool(
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("menu_activate needs `id`")?;
-      let activated = app.shared.menu.dispatch(id, tree.window());
+      let activated = app.shared.menu.dispatch(id, tree.window(), tree.window());
       tree.request_redraw();
       Ok(McpToolOutput::Json(
         serde_json::json!({ "id": id, "activated": activated }),

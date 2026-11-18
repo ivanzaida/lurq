@@ -7,3 +7,6 @@ docs/.astro
 .assets
 .idea
 .tmp
+
+# Graphify's knowledge graph of the repository, built locally (`graphify update .`)
+graphify-out/

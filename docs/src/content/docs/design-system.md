@@ -8050,7 +8050,7 @@ LinkPreview::new(url).on_remove(move || draft.drop_preview());
 | `no_image()`, `no_icon()`, `no_site()` | None of it, whatever the page has: the text alone, the link mark, the title alone |
 | `video(seconds)` | A video, its length in seconds where it is known: the play mark and the length over its picture. A page that gives `og:video` or a kind of `video.*` is one by itself |
 | `variant(LinkPreviewVariant)` | `Card` (360, the default), `Compact` (a row of 432), `Inline` (24 high) |
-| `fetcher(impl LinkFetcher)` | What fetches the page for this preview, in place of the app's (`resources::set_link_fetcher`) and of lurq's own: any `Fn(&str) -> LinkFetch`. `shared_fetcher(Arc<dyn LinkFetcher>)` shares one |
+| `fetcher(impl LinkFetcher)` | What fetches the page for this preview, in place of the app's (`resources::set_link_fetcher`) and of lurq's own: any `Fn(&str) -> LinkFetch`. It is asked off the UI thread and may block; what it holds (`LinkFetcher::held`) is shown in the first frame. `shared_fetcher(Arc<dyn LinkFetcher>)` shares one |
 | `on_open(Fn(&str))` | Told the address on a click, Enter or Space, in place of opening it in the browser |
 | `on_remove(Fn())` | Gives it a close button, a stop of Tab of its own after the link: the app takes the preview out of what it shows |
 | `return_focus(&ElementRef)` | Where the focus goes once the close is pressed: the draft's input. Without one it goes on to what follows the preview in the order of Tab, or to what comes before it where nothing follows ([`FocusHandle::focus_onward`](../ctx/#moving-the-focus-from-a-handler)), never to nothing |

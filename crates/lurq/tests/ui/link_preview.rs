@@ -3,9 +3,12 @@
 //! link it is to the pointer, the keyboard and tooling, the close of one in a composer, a text longer than its
 //! room, a narrow room, and a theme's rule.
 
-use std::sync::{
-  Arc,
-  atomic::{AtomicUsize, Ordering},
+use std::{
+  sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+  },
+  time::Duration,
 };
 
 use lurq::{
@@ -17,7 +20,7 @@ use lurq::{
   core::Locale,
   layout::quad::QuadContent,
   node::{BoxShadowValue, color::Color, dimension::Dimension},
-  resources::{LinkFetch, LinkFetcher, LinkMeta, LinkPreviewError, LinkRequest, LoadWaker},
+  resources::{LinkFetch, LinkFetcher, LinkMeta, LinkPreviewError, LinkRequest, LoadWaker, wait_link_fetches},
   ui::{Case, Interaction, LinkPreview, LinkPreviewPart, LinkPreviewState, LinkPreviewVariant},
 };
 use parking_lot::Mutex;
@@ -88,8 +91,25 @@ fn opened() -> (Arc<Mutex<Vec<String>>>, open_url::StandIn) {
   (opened, held)
 }
 
+/// The longest a test waits for its fetchers to answer: they answer at once, on a thread of lurq's.
+const WAIT: Duration = Duration::from_secs(30);
+
+/// Draws what the previews' fetchers answered: they are asked off the UI thread, and answer after the frame that
+/// asked them.
+fn settle(stage: &mut Stage) {
+  loop {
+    match wait_link_fetches(WAIT) {
+      Some(0) => return,
+      Some(_) => stage.pass(),
+      None => panic!("a fetcher did not answer"),
+    }
+  }
+}
+
 fn stage_of(preview: impl Fn() -> LinkPreview + Send + Sync + 'static) -> Stage {
-  Stage::new(move |_| Column::new().padding(8.0).child(preview()).into())
+  let mut stage = Stage::new(move |_| Column::new().padding(8.0).child(preview()).into());
+  settle(&mut stage);
+  stage
 }
 
 fn underlined(stage: &Stage, content: &str) -> bool {
@@ -168,6 +188,7 @@ fn while_the_page_is_read_it_is_the_skeleton_and_then_what_the_page_says() {
   assert_eq!(width, 360.0);
   pages.set(LinkFetch::ready(page()));
   stage.pass();
+  settle(&mut stage);
   assert!(stage.paints(TITLE));
   assert!(stage.paints(DESCRIPTION));
 }
@@ -395,6 +416,7 @@ fn a_title_longer_than_its_room_ends_in_an_ellipsis_and_a_narrow_room_takes_it()
       )
       .into()
   });
+  settle(&mut stage);
   let (_, _, card, height) = stage.bounds("card");
   assert_eq!(card, 220.0, "a card is never wider than its room");
   assert!(height < 140.0, "two lines of title at most: {height}");
@@ -404,16 +426,26 @@ fn a_title_longer_than_its_room_ends_in_an_ellipsis_and_a_narrow_room_takes_it()
   assert!(stage.paints("lurq.dev"), "the site keeps its room in a sentence");
 }
 
+/// A fetcher that holds its pages: it gives them on the UI thread, at once.
+struct Held;
+
+impl LinkFetcher for Held {
+  fn fetch(&self, _: &LinkRequest<'_>) -> LinkFetch {
+    LinkFetch::ready(page())
+  }
+
+  fn held(&self, _: &str) -> Option<LinkFetch> {
+    Some(LinkFetch::ready(page()))
+  }
+}
+
 #[test]
 fn the_first_frame_is_the_settled_one() {
+  // A page the fetcher holds is shown in the first frame, with no frame of the skeleton before it.
   let scene = |_: &mut lurq::app::ctx::Ctx| {
     Column::new()
       .padding(8.0)
-      .child(
-        LinkPreview::new(URL)
-          .fetcher(|_: &str| LinkFetch::ready(page()))
-          .id("preview"),
-      )
+      .child(LinkPreview::new(URL).fetcher(Held).id("preview"))
       .into()
   };
   let mut stage = Stage::first_frame(400.0, 300.0, scene);
@@ -421,6 +453,85 @@ fn the_first_frame_is_the_settled_one() {
   assert!(stage.paints(TITLE));
   stage.frame();
   assert_eq!(stage.bounds("preview"), first);
+  assert_eq!(wait_link_fetches(WAIT), Some(0), "nothing was asked off the UI thread");
+}
+
+/// A fetcher that blocks until it is let go, as one that reads a slow disk or asks a server would. It tells
+/// whether it was ever asked on the thread that draws, where it does not block, so that the test fails and does
+/// not hang.
+struct Blocking {
+  gate: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+  drawing: std::thread::ThreadId,
+  on_the_drawing_thread: Arc<AtomicBool>,
+  asked: Arc<AtomicUsize>,
+}
+
+impl LinkFetcher for Blocking {
+  fn fetch(&self, _: &LinkRequest<'_>) -> LinkFetch {
+    self.asked.fetch_add(1, Ordering::SeqCst);
+    if std::thread::current().id() == self.drawing {
+      self.on_the_drawing_thread.store(true, Ordering::SeqCst);
+      return LinkFetch::Loading;
+    }
+    // Let go once the test drops its end of the channel: nothing is ever sent.
+    let _ = self.gate.lock().recv();
+    LinkFetch::ready(page())
+  }
+}
+
+#[test]
+fn a_fetcher_that_blocks_holds_no_frame_and_the_previews_are_skeletons_until_it_answers() {
+  const PREVIEWS: usize = 12;
+  let (let_go, gate) = std::sync::mpsc::channel::<()>();
+  let on_the_drawing_thread = Arc::new(AtomicBool::new(false));
+  let asked = Arc::new(AtomicUsize::new(0));
+  let fetcher: Arc<dyn LinkFetcher> = Arc::new(Blocking {
+    gate: Arc::new(Mutex::new(gate)),
+    drawing: std::thread::current().id(),
+    on_the_drawing_thread: on_the_drawing_thread.clone(),
+    asked: asked.clone(),
+  });
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .with_children((0..PREVIEWS).map(|at| {
+        let variant = if at % 2 == 0 {
+          LinkPreviewVariant::Card
+        } else {
+          LinkPreviewVariant::Compact
+        };
+        LinkPreview::new(URL)
+          .variant(variant)
+          .shared_fetcher(fetcher.clone())
+          .id(format!("preview-{at}"))
+      }))
+      .into()
+  });
+  // The passes return while every fetch blocks, and each preview is its skeleton.
+  stage.frame();
+  assert!(
+    !on_the_drawing_thread.load(Ordering::SeqCst),
+    "the fetcher was asked on the thread that draws"
+  );
+  assert!(asked.load(Ordering::SeqCst) > 0, "the fetcher was asked");
+  assert!(
+    !stage.paints(TITLE) && !stage.paints("lurq.dev"),
+    "nothing is known yet"
+  );
+  for at in 0..PREVIEWS {
+    let (_, _, width, height) = stage.bounds(&format!("preview-{at}"));
+    assert!(width > 0.0 && height > 0.0, "preview {at} is drawn: {width} x {height}");
+  }
+  assert_eq!(
+    wait_link_fetches(Duration::ZERO),
+    None,
+    "the fetches are still on their way"
+  );
+  // Let go: the fetches answer, and the previews show the page.
+  drop(let_go);
+  settle(&mut stage);
+  assert!(stage.paints(TITLE));
+  assert!(!on_the_drawing_thread.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -529,7 +640,7 @@ fn focused(stage: &Stage) -> Option<String> {
 fn draft(after: bool, return_to: Option<lurq::core::ElementRef>) -> Stage {
   use lurq::{core::Signal, ui::Button};
   let shown = Signal::new(true);
-  Stage::new(move |_| {
+  let mut stage = Stage::new(move |_| {
     let mut column = Column::new().padding(8.0).child(Button::new("Before").id("before"));
     if let Some(element) = &return_to {
       column = column.child(Button::new("Back here").id("back").ref_element(element.clone()));
@@ -551,7 +662,9 @@ fn draft(after: bool, return_to: Option<lurq::core::ElementRef>) -> Stage {
       column = column.child(Button::new("After").id("after"));
     }
     column.into()
-  })
+  });
+  settle(&mut stage);
+  stage
 }
 
 #[test]
@@ -616,6 +729,7 @@ fn a_page_that_names_no_icon_has_its_sites_favicon_tried_and_the_link_mark_where
       )
       .into()
   });
+  settle(&mut stage);
   stage.pass();
   stage.pass();
   assert_eq!(
@@ -661,7 +775,7 @@ fn a_selection_copies_it_as_a_markdown_link_and_one_that_told_nothing_as_its_add
       )
       .into()
   });
-  stage.pass();
+  settle(&mut stage);
   let copied = copied.lock().clone();
   assert!(copied.contains(&format!(r"[Layout \[in\] lurq]({URL})")), "{copied:?}");
   assert!(copied.contains(&"https://lurq.dev/x".to_owned()), "{copied:?}");

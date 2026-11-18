@@ -38,6 +38,16 @@ pub enum EditCommand {
 const APPLE: bool = cfg!(any(target_os = "macos", target_os = "ios"));
 
 impl EditCommand {
+  /// Every command, in the order an Edit menu has them.
+  pub const ALL: [Self; 6] = [
+    Self::Undo,
+    Self::Redo,
+    Self::Cut,
+    Self::Copy,
+    Self::Paste,
+    Self::SelectAll,
+  ];
+
   /// The command a key that went down asks for, on the platform lurq is built for; see
   /// [`KeyboardEvent::edit_command`].
   pub fn of_key(event: &KeyboardEvent) -> Option<Self> {

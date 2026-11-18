@@ -216,13 +216,24 @@ pub(crate) fn sync() {
   let update = STATE.with(|s| {
     let mut s = s.borrow_mut();
     let s = s.as_mut()?;
-    let (version, model) = s.controller.snapshot(s.version)?;
+    let (version, model, own) = s.controller.snapshot(s.version)?;
     s.version = Some(version);
-    model.map(|model| (model, s.target.clone()))
+    model.map(|model| (model, own, s.target.clone()))
   });
-  let Some((model, target)) = update else {
+  let Some((mut model, own, target)) = update else {
     return;
   };
+  // A bar lurq makes for an app that gave none is called after the app, as the system's was.
+  if !own {
+    let name = unsafe {
+      let info: Retained<AnyObject> = msg_send![objc2::class!(NSProcessInfo), processInfo];
+      let name: Retained<NSString> = msg_send![&*info, processName];
+      name.to_string()
+    };
+    if !name.is_empty() {
+      model.application.name = name.into();
+    }
+  }
   let mtm = MainThreadMarker::new().unwrap();
   let app = NSApplication::sharedApplication(mtm);
   let bar = menu(mtm, "");
@@ -237,24 +248,24 @@ pub(crate) fn sync() {
     add_action(&application, mtm, &target, action);
   }
   application.addItem(&NSMenuItem::separatorItem(mtm));
-  let services = menu(mtm, &words.services);
-  add_submenu(&application, mtm, &words.services, &services);
+  let services = menu(mtm, &words.navigation.services);
+  add_submenu(&application, mtm, &words.navigation.services, &services);
   app.setServicesMenu(Some(&services));
   for (label, key, selector, flags) in [
     (
-      crate::core::fill(&words.hide_app, &[("app", &model.application.name)]),
+      crate::core::fill(&words.navigation.hide_app, &[("app", &model.application.name)]),
       "h",
       sel!(hide:),
       NSEventModifierFlags::Command,
     ),
     (
-      words.hide_others.to_string(),
+      words.navigation.hide_others.to_string(),
       "h",
       sel!(hideOtherApplications:),
       NSEventModifierFlags::Command | NSEventModifierFlags::Option,
     ),
     (
-      words.show_all.to_string(),
+      words.navigation.show_all.to_string(),
       "",
       sel!(unhideAllApplications:),
       NSEventModifierFlags::empty(),
@@ -271,7 +282,23 @@ pub(crate) fn sync() {
   add_action(&application, mtm, &target, &model.application.quit);
   add_submenu(&bar, mtm, &model.application.name, &application);
   for model in &model.menus {
-    add_submenu(&bar, mtm, &model.title, &build_menu(mtm, &target, model));
+    let built = build_menu(mtm, &target, model);
+    // The Edit menu has the system's characters, as an app's of AppKit's has them.
+    if model.has_edit_items() {
+      built.addItem(&NSMenuItem::separatorItem(mtm));
+      let emoji = item(
+        mtm,
+        &words.navigation.emoji_and_symbols,
+        " ",
+        Some(sel!(orderFrontCharacterPalette:)),
+      );
+      unsafe {
+        emoji.setTarget(Some(&app));
+      }
+      emoji.setKeyEquivalentModifierMask(NSEventModifierFlags::Control | NSEventModifierFlags::Command);
+      built.addItem(&emoji);
+    }
+    add_submenu(&bar, mtm, &model.title, &built);
   }
   app.setMainMenu(Some(&bar));
 }

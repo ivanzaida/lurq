@@ -40,9 +40,10 @@ pub use core::{LoadResourceResult, ResourceConfig, ResourceError};
 #[cfg(feature = "media")]
 pub(crate) use disk_cache::WeakMediaDiskCache;
 pub use disk_cache::{DEFAULT_MEDIA_DISK_CACHE_BYTES, MediaDiskCache};
+pub(crate) use link_fetcher::fetch_off_thread;
 pub use link_fetcher::{
   DEFAULT_LINK_HEAD_BYTES, LinkFetch, LinkFetcher, LinkPreviewError, LinkRequest, PageFetcher, link_fetcher,
-  reset_link_fetcher, set_link_fetcher,
+  reset_link_fetcher, set_link_fetcher, wait_link_fetches,
 };
 pub use link_meta::LinkMeta;
 pub use loader::{DEFAULT_LOAD_TIMEOUT, DEFAULT_MAX_LOAD_BYTES, Load, LoadError, LoadState, LoadWaker, Loader};
