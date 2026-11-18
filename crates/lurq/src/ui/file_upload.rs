@@ -358,6 +358,13 @@ impl FileUpload {
     self
   }
 
+  /// Where its dialog chooses the files from, in place of what it accepts: see
+  /// [`FileDialog::sources`](crate::files::FileDialog::sources).
+  pub fn sources(mut self, sources: impl IntoIterator<Item = crate::files::FileSource>) -> Self {
+    self.zone = self.zone.sources(sources);
+    self
+  }
+
   /// The most files its list holds: what would be past it is refused as too many.
   pub fn max_files(mut self, max: usize) -> Self {
     self.zone = self.zone.max_files(max);

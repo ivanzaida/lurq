@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
 	<!-- Lets an iPhone with a 120 Hz display draw above 60 frames a second. Xcode adds the generated keys to these. -->
+	<key>NSCameraUsageDescription</key>
+	<string>The gallery's file upload and drop zone take a photo with the camera.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- The app's scenes. lurq makes the delegate's class; without this UIKit refuses to start an app built

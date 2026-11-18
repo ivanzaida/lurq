@@ -230,6 +230,44 @@ pub struct FileDialog {
   asks: Asks,
   /// The window it is modal to, where the platform's dialog takes one.
   parent: Option<crate::app::window::parent::ParentWindow>,
+  /// Where the files are chosen from, as the app said: empty for what the filters take.
+  sources: Vec<FileSource>,
+  /// The words of the menu of sources on a phone, in the locale of the render it was made in.
+  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+  words: Option<SourceWords>,
+}
+
+/// Where the files of a dialog to open are chosen from: what a phone offers in its menu before the dialog. Each
+/// system offers of them what it has (see [`FileDialog::sources`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FileSource {
+  /// The files of the system: Files on a phone, the dialog of files on a desktop.
+  Files,
+  /// The photo library: its pictures and videos, as the dialog's filters take them.
+  PhotoLibrary,
+  /// A picture taken with the camera, there and then. A phone's alone: there is none on a desktop.
+  #[cfg(any(target_os = "ios", target_os = "android"))]
+  Camera,
+}
+
+/// The words of a phone's menu of sources.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SourceWords {
+  pub(crate) photo_library: Arc<str>,
+  pub(crate) take_photo: Arc<str>,
+  pub(crate) choose_file: Arc<str>,
+  pub(crate) cancel: Arc<str>,
+}
+
+impl SourceWords {
+  fn of(locale: &crate::core::Locale) -> Self {
+    Self {
+      photo_library: locale.fields.photo_library.clone(),
+      take_photo: locale.fields.take_photo.clone(),
+      choose_file: locale.fields.choose_file.clone(),
+      cancel: locale.common.cancel.clone(),
+    }
+  }
 }
 
 /// What a dialog chooses.
@@ -245,9 +283,84 @@ enum Asks {
 }
 
 impl FileDialog {
-  /// A dialog for one file, with every file shown.
+  /// A dialog for one file, with every file shown. Made in a render, it says what it says in the app's locale.
   pub fn new() -> Self {
-    Self::default()
+    Self {
+      words: Some(SourceWords::of(&crate::ui::current_locale())),
+      ..Self::default()
+    }
+  }
+
+  /// Where the files are chosen from, in place of what the filters take. On a phone the menu before the dialog has
+  /// these, of what the device has (the camera where it has one and the app's Info.plist says why it uses it), and
+  /// one alone opens at once. On a desktop, which has no camera to choose from ([`FileSource::Camera`] is a phone's
+  /// alone): on macOS the photo library of Photos where it is the one source, on Windows the dialog of files opened
+  /// in the user's Pictures where the photo library is among them; the dialog of files otherwise.
+  pub fn sources(mut self, sources: impl IntoIterator<Item = FileSource>) -> Self {
+    self.sources = sources.into_iter().collect();
+    self
+  }
+
+  /// The sources the dialog offers, of `has`, the ones the system has: the app's, or what the filters take.
+  #[cfg_attr(not(any(target_os = "ios", target_os = "macos", windows)), allow(dead_code))]
+  pub(crate) fn offered(&self, has: &[FileSource]) -> Vec<FileSource> {
+    let wanted = if self.sources.is_empty() {
+      let extensions: Vec<&str> = self
+        .filters
+        .iter()
+        .flat_map(|(_, extensions)| extensions.iter())
+        .map(String::as_str)
+        .collect();
+      let takes = |kind: FileKind| {
+        extensions.is_empty()
+          || extensions
+            .iter()
+            .any(|extension| FileKind::of_extension(extension) == kind)
+      };
+      let mut wanted = Vec::new();
+      if takes(FileKind::Image) || takes(FileKind::Video) {
+        wanted.push(FileSource::PhotoLibrary);
+      }
+      #[cfg(any(target_os = "ios", target_os = "android"))]
+      if takes(FileKind::Image) {
+        wanted.push(FileSource::Camera);
+      }
+      wanted.push(FileSource::Files);
+      wanted
+    } else {
+      self.sources.clone()
+    };
+    let mut offered: Vec<FileSource> = Vec::new();
+    for source in wanted {
+      if has.contains(&source) && !offered.contains(&source) {
+        offered.push(source);
+      }
+    }
+    if offered.is_empty() {
+      offered.push(FileSource::Files);
+    }
+    offered
+  }
+
+  /// Whether the filters take pictures, and videos: what the photo library shows.
+  #[cfg_attr(
+    not(any(target_os = "ios", all(target_os = "macos", feature = "file_dialog"))),
+    allow(dead_code)
+  )]
+  pub(crate) fn takes_media(&self) -> (bool, bool) {
+    let extensions: Vec<&str> = self
+      .filters
+      .iter()
+      .flat_map(|(_, extensions)| extensions.iter())
+      .map(String::as_str)
+      .collect();
+    let takes = |kind: FileKind| {
+      extensions.is_empty()
+        || extensions
+          .iter()
+          .any(|extension| FileKind::of_extension(extension) == kind)
+    };
+    (takes(FileKind::Image), takes(FileKind::Video))
   }
 
   /// What its title bar says, where the system draws one.
@@ -486,8 +599,15 @@ mod native {
   use super::{Answer, Asks, DroppedFile, FileDialog};
 
   /// The system's dialog, run on a thread of its own so the loop goes on drawing; on macOS `rfd` hands it to the
-  /// main thread, which the loop keeps turning.
+  /// main thread, which the loop keeps turning. On macOS the photo library of Photos, where it is the one source.
   pub(super) fn pick(dialog: FileDialog) -> Answer {
+    #[cfg(target_os = "macos")]
+    if dialog.asks == Asks::Files
+      && dialog.offered(&[super::FileSource::PhotoLibrary, super::FileSource::Files])
+        == [super::FileSource::PhotoLibrary]
+    {
+      return super::photos::pick(dialog);
+    }
     let (answer, answering) = Answer::new();
     std::thread::spawn(move || {
       let files = block_on(dialog_of(&dialog, dialog.multiple));
@@ -506,6 +626,8 @@ mod native {
     }
     if let Some(folder) = &dialog.folder {
       native = native.set_directory(folder);
+    } else if let Some(pictures) = pictures_for(dialog) {
+      native = native.set_directory(pictures);
     }
     // Over its window the dialog is modal: the window takes no input until it closes.
     if let Some(parent) = &dialog.parent {
@@ -526,6 +648,20 @@ mod native {
       .into_iter()
       .map(|handle| DroppedFile::from_path(handle.path()))
       .collect()
+  }
+
+  /// On Windows, the user's Pictures, where files to open come from the photo library, which a desktop has as a
+  /// folder.
+  fn pictures_for(dialog: &FileDialog) -> Option<std::path::PathBuf> {
+    if !cfg!(windows) || dialog.asks != Asks::Files {
+      return None;
+    }
+    let offered = dialog.offered(&[super::FileSource::PhotoLibrary, super::FileSource::Files]);
+    if !offered.contains(&super::FileSource::PhotoLibrary) {
+      return None;
+    }
+    let folder = std::path::PathBuf::from(std::env::var_os("USERPROFILE")?).join("Pictures");
+    folder.is_dir().then_some(folder)
   }
 
   /// Runs a future to its end on this thread.
@@ -592,6 +728,33 @@ mod native {
 #[path = "files_ios.rs"]
 mod native;
 
+/// The photo library as a source of files: iOS's, and macOS's with the system's dialogs (`file_dialog`).
+#[cfg(any(target_os = "ios", all(target_os = "macos", feature = "file_dialog")))]
+#[path = "files_photos.rs"]
+mod photos;
+
+/// Runs `work` on the main thread, as the main queue gets to it: where AppKit's and UIKit's pickers are shown.
+#[cfg(any(target_os = "ios", all(target_os = "macos", feature = "file_dialog")))]
+fn on_main(work: impl FnOnce(objc2::MainThreadMarker) + Send + 'static) {
+  use std::ffi::c_void;
+  unsafe extern "C" {
+    /// The main queue of libdispatch, which `dispatch_get_main_queue()` returns.
+    static _dispatch_main_q: c_void;
+    fn dispatch_async_f(queue: *const c_void, context: *mut c_void, work: extern "C" fn(*mut c_void));
+  }
+  type Work = Box<dyn FnOnce(objc2::MainThreadMarker) + Send>;
+  extern "C" fn run(context: *mut c_void) {
+    // SAFETY: `context` is the box made below, given to this call once.
+    let work = unsafe { Box::from_raw(context.cast::<Work>()) };
+    if let Some(main) = objc2::MainThreadMarker::new() {
+      work(main);
+    }
+  }
+  let context = Box::into_raw(Box::new(Box::new(work) as Work)).cast::<c_void>();
+  // SAFETY: the main queue lives as long as the process; `run` takes the box back exactly once.
+  unsafe { dispatch_async_f(&raw const _dispatch_main_q, context, run) };
+}
+
 #[cfg(all(not(feature = "file_dialog"), not(target_os = "ios")))]
 mod native {
   use super::{Answer, FileDialog};
@@ -611,14 +774,54 @@ mod tests {
   use super::*;
 
   #[test]
+  fn the_sources_offered_are_what_the_filters_take_or_what_the_app_said_of_what_the_system_has() {
+    use FileSource::{Files, PhotoLibrary};
+    let has = [PhotoLibrary, Files];
+    let images = FileDialog::new().filter("Images", &["png", "heic"]);
+    assert_eq!(
+      images.offered(&has),
+      [PhotoLibrary, Files],
+      "pictures: the photo library too"
+    );
+    assert_eq!(
+      FileDialog::new().offered(&has),
+      [PhotoLibrary, Files],
+      "anything: the photo library too"
+    );
+    let documents = FileDialog::new().filter("PDF", &["pdf"]);
+    assert_eq!(documents.offered(&has), [Files], "no picture nor video: Files alone");
+    assert_eq!(
+      images.clone().sources([PhotoLibrary]).offered(&has),
+      [PhotoLibrary],
+      "the app's"
+    );
+    assert_eq!(
+      images.sources([PhotoLibrary]).offered(&[Files]),
+      [Files],
+      "what the system has not: Files"
+    );
+    let videos = FileDialog::new().filter("Videos", &["mov"]);
+    assert_eq!(videos.takes_media(), (false, true));
+  }
+
+  #[test]
   fn a_drop_zones_dialog_shows_the_extensions_of_the_kinds_it_takes() {
-    let dialog = crate::ui::DropZone::new().accept(["image/*", ".PDF"]).takes().dialog("Choose");
+    let dialog = crate::ui::DropZone::new()
+      .accept(["image/*", ".PDF"])
+      .takes()
+      .dialog("Choose");
     let [(name, extensions)] = dialog.filters.as_slice() else {
       panic!("one filter: {:?}", dialog.filters);
     };
     assert_eq!(name, "image/*, .PDF");
-    assert!(extensions.iter().any(|extension| extension == "heic"), "the kind's extensions");
-    assert!(extensions.iter().any(|extension| extension == "pdf"), "an extension, in lower case without its dot");
+    assert!(
+      extensions.iter().any(|extension| extension == "heic"),
+      "the kind's extensions"
+    );
+    assert!(
+      extensions.iter().any(|extension| extension == "pdf"),
+      "an extension, in lower case without its dot"
+    );
     assert!(!extensions.iter().any(|extension| extension == "mp4"));
     // A kind lurq knows none of shows every file.
     let every = crate::ui::DropZone::new().accept(["model/*"]).takes().dialog("Choose");

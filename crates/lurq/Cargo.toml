@@ -271,7 +271,7 @@ block2 = "0.6"
 # The scripts cosmic-text asks a fallback font for; see `glyph_engine::ios_fallback`.
 unicode-script = "0.5"
 # What `lurq::media` gives the system's player of a sound and is given back by it.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "NSData", "NSError", "NSURL", "NSArray", "NSDictionary", "NSValue"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "NSData", "NSError", "NSURL", "NSArray", "NSEnumerator", "NSDictionary", "NSValue"] }
 
 # The sound of `lurq::media` on macOS and iOS: the system's `AVAudioPlayer`. The data, the addresses and the
 # errors it takes and gives are `objc2-foundation`'s, in each system's own table.
@@ -296,7 +296,7 @@ objc2 = "0.6"
 # `NSColorSampler` and `block2` for `lurq::eyedropper`: the system's sampler of a color from the screen.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder", "objc2-core-foundation", "NSColor", "NSColorSampler", "NSColorSpace", "block2"] }
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation", "NSData", "NSError", "NSURL", "NSArray", "NSDictionary", "NSValue"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation", "NSData", "NSError", "NSURL", "NSArray", "NSEnumerator", "NSDictionary", "NSValue"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

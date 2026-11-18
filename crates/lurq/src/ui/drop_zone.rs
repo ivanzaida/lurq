@@ -110,6 +110,8 @@ pub(crate) struct Takes {
   pub(crate) multiple: bool,
   pub(crate) max_size: Option<u64>,
   pub(crate) max_files: Option<usize>,
+  /// Where its dialog chooses the files from, as the app said: empty for what it accepts.
+  pub(crate) sources: Vec<crate::files::FileSource>,
 }
 
 impl Takes {
@@ -161,7 +163,8 @@ impl Takes {
   pub(crate) fn dialog(&self, title: &str) -> FileDialog {
     let mut dialog = FileDialog::new()
       .title(title)
-      .multiple(self.multiple && self.max_files != Some(1));
+      .multiple(self.multiple && self.max_files != Some(1))
+      .sources(self.sources.iter().copied());
     // The dialog shows what the zone takes: an extension as it is, and a kind as the extensions lurq knows of it
     // (`image/*` is png, jpg and the others). A kind it knows none of shows every file.
     let mut extensions: Vec<String> = Vec::new();
@@ -301,6 +304,13 @@ impl DropZone {
   /// The greatest size of a file it takes, in bytes. A file whose size is not known is taken.
   pub fn max_size(mut self, bytes: u64) -> Self {
     self.takes.max_size = Some(bytes);
+    self
+  }
+
+  /// Where its dialog chooses the files from, in place of what it accepts: see
+  /// [`FileDialog::sources`](crate::files::FileDialog::sources).
+  pub fn sources(mut self, sources: impl IntoIterator<Item = crate::files::FileSource>) -> Self {
+    self.takes.sources = sources.into_iter().collect();
     self
   }
 

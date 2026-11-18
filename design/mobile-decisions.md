@@ -10,6 +10,33 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-18
 
+### On iOS a choice of files offers the photo library and the camera, as Safari does
+
+- **Question.** On the iPhone the file dialog opened Files alone: a photo, which is in the photo library, could not
+  be given to a file upload, and no photo could be taken for it.
+- **Decision (Ivan, 2026-11-18, at the phone: "ок, а як тоді галерею відкрити?", then "так - дороблюй").** A choice of
+  files to open (`FileDialog::pick`) first shows the system's menu, as Safari's file input does: Photo Library,
+  Take Photo, Choose File, and Cancel. Photo Library (`PHPickerViewController`) shows pictures, videos or both, as
+  the dialog's filters take them, and is there only where they take one of them or anything; Take Photo
+  (`UIImagePickerController`, the camera) only where they take pictures, the device has a camera and the app says
+  why it uses it (`NSCameraUsageDescription` in its Info.plist); Choose File is the document picker. What is chosen
+  is copied to the app's temporary folder and given as a file with its path, as a file of Files is. The words are
+  the locale's (`FieldWords::photo_library`, `take_photo`, `choose_file`, and `common.cancel`).
+- **Where the files come from, told (Ivan, the same day: "як ти це робитимеш, який дев експ буде?", "а соурси як
+  будуть на пк і маку працювать", then "так давай").** Nothing is asked of an app: the menu is made of what the
+  filters take. An app that wants its own says the sources (`FileSource::PhotoLibrary`, `Camera`, `Files`) to the
+  dialog, a file upload or a drop zone (`.sources([..])`); one source alone opens at once, with no menu. Each system
+  offers of them what it has, and the dialog of files where it has none of them: on Windows the dialog of files,
+  opened in the user's Pictures where the photo library is asked; on macOS the photo library of Photos
+  (`PHPickerViewController`, as a sheet over the window) where it is the one source asked, the dialog of files
+  otherwise. `FileSource::Camera` is a phone's alone (Ivan: "можемо просто камеру прибрати якщо таргет не мобіла?",
+  "приберай"): it is not there in a build for a desktop, and an app that offers it on a phone says so under
+  `#[cfg(target_os = "ios")]`. Take Photo is offered only where the app's Info.plist says why it uses the camera;
+  where it does not, lurq says once in its log which key to add.
+- **Why.** A person on a phone gives a picture from the photo library or the camera far more often than from Files;
+  an app is written once, and runs on every system with the same calls.
+- **State.** In work on `feat/design-system`.
+
 ### Files are chosen and saved on iOS through the system's picker
 
 - **Question.** On iOS `FileDialog` gave nothing (`rfd`, the desktop's dialogs, has no iOS backend): a drop zone's
