@@ -11,6 +11,19 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-18
 
+### A lighter light theme: light fills, crisp lines
+
+- **Question.** The light palette's greys were made darker on 2026-11-13 (`e820b1df`) because an all-white window
+  told nothing apart; now there is too much grey. What reads as grey is the large fills (Canvas behind the page,
+  Muted on the window's bar, tables' headers, a code block's bar, a tab list, Secondary buttons), not the lines.
+- **Decision (Ivan, 2026-11-18, all three).** (1) Light fills: Canvas `#F7F7F8`, Muted / Secondary / Highlight
+  `#F1F1F4`, SecondaryHover `#E6E6EB` (final values tuned by eye in the gallery, kept near these). (2) Crisp lines:
+  Border `#D4D4DA`; Input stays `#9A9AA5` (a field's edge keeps 3:1). (3) The components that fill a large area with
+  Muted move to `Background`/`Card` with a line (the window's bar, tables' headers, the code block's bar, tab lists,
+  the sidebar, and what an audit finds); Muted stays for small things (chips, badges, inline code, slider tracks).
+  The dark theme is not touched; the legacy theme keeps 0.62's look.
+- **State.** Decided; to be built in a session of its own.
+
 ### A frame callback for an app: `ctx.on_frame`
 
 - **Question.** lurq's own animations (transitions, keyframes, presence, part animations) get their frames from the
