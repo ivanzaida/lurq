@@ -177,6 +177,19 @@ fn the_strip_is_the_boards_three_tabs_and_its_add_button() {
     ),
     (8.0, 8.0, 0.0, 0.0)
   );
+  // Edged at its top and sides by a line of 1 in the border's color, open at its bottom: on the light palette's white
+  // bar its fill alone would not tell it apart.
+  let border = light(PaletteColor::Border);
+  let edge = stage
+    .border("blur")
+    .and_then(|quad| quad.border)
+    .expect("the selected tab is edged");
+  let side = |line: Option<lurq::node::border::ResolvedBorder>| line.map(|line| (line.width, line.color));
+  assert_eq!(side(edge.top), Some((1.0, border)));
+  assert_eq!(side(edge.left), Some((1.0, border)));
+  assert_eq!(side(edge.right), Some((1.0, border)));
+  assert_eq!(side(edge.bottom), None, "open to the content under it");
+  assert!(stage.border("theme").is_none(), "another tab has no edge");
   assert_eq!(stage.fill_color("theme"), None);
   assert_eq!(stage.fill_color("canvas"), None);
   assert_eq!(stage.text("blur.rs"), (light(PaletteColor::Foreground), 12.0));

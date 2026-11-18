@@ -318,7 +318,7 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
       .height(40.0)
       .padding_horizontal(16.0)
       .align_items(Alignment::Center)
-      .background(PaletteColor::Muted)
+      .background(PaletteColor::Bar)
       .child(Row::new().width(prop_width).flex_shrink(0.0).child(head("Prop")))
       .child(Row::new().width(type_width).flex_shrink(0.0).child(head("Type")))
       .child(Row::new().width(default_width).flex_shrink(0.0).child(head("Default")))

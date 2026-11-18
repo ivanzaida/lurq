@@ -131,19 +131,33 @@ fn a_task_is_a_checkbox_read_only_unless_the_app_takes_its_change() {
 }
 
 #[test]
-fn a_tables_header_is_on_the_muted_fill_and_every_other_row_is_striped() {
-  let (app, tree) =
-    mount(MarkdownProps::new("| a | b |\n| --- | ---: |\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n").width(400.0));
-  let muted = fills(&tree, palette(&app, PaletteColor::Muted));
-  // The header's two cells, and the second body row, as wide as the table.
-  assert_eq!(muted.len(), 3, "{muted:?}");
-  assert_eq!((muted[0].1, muted[1].1), (0.0, 0.0), "the header's cells");
+fn a_tables_header_is_on_the_bars_fill_and_every_other_row_is_striped() {
+  let (app, tree) = mount(
+    MarkdownProps::new(
+      "| a | b |
+| --- | ---: |
+| 1 | 2 |
+| 3 | 4 |
+| 5 | 6 |
+",
+    )
+    .width(400.0),
+  );
+  // The header's two cells, on the bar's fill (the light palette's white, a line under them)...
+  let header: Vec<_> = fills(&tree, palette(&app, PaletteColor::Bar))
+    .into_iter()
+    .filter(|fill| fill.1 == 0.0)
+    .collect();
+  assert_eq!(header.len(), 2, "the header's cells: {header:?}");
+  // ...and the second body row on the muted fill, as wide as the table.
+  let striped = fills(&tree, palette(&app, PaletteColor::Muted));
+  assert_eq!(striped.len(), 1, "{striped:?}");
   assert_eq!(
-    muted[0].2 + muted[1].2,
-    muted[2].2,
+    header[0].2 + header[1].2,
+    striped[0].2,
     "a striped row as wide as the header"
   );
-  assert!(muted[2].1 > muted[0].1);
+  assert!(striped[0].1 > header[0].1);
 }
 
 #[test]
@@ -298,9 +312,9 @@ fn a_quote_and_a_code_block_are_the_systems() {
   assert_eq!(said.font_size, 14.0);
   assert_eq!(said.style, lurq::layout::text_style::FontStyle::Italic);
   assert_eq!(said.color, palette(&app, PaletteColor::MutedForeground));
-  // A code block is `ui::CodeBlock`: its bar on the muted fill, named by its language, a keyword in the info color.
+  // A code block is `ui::CodeBlock`: its bar on the bar's fill, named by its language, a keyword in the info color.
   assert!(has_element_with_text(&mut tree, "rust"), "the language names the block");
-  let bar = fills(&tree, palette(&app, PaletteColor::Muted));
+  let bar = fills(&tree, palette(&app, PaletteColor::Bar));
   assert!(bar.iter().any(|fill| fill.3 == 36.0), "a bar of 36: {bar:?}");
   assert_eq!(color_of(&tree, "fn"), Some(palette(&app, PaletteColor::Info)));
 }

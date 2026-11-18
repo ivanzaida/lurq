@@ -1236,12 +1236,12 @@ impl Themed for List {
   /// The design's lists (`pencil/lurq-design-system.pen`, the list of List Items, the Contained List and the mobile
   /// grouped list): the rows of a list 2 apart; with lines between them, touching, a line of 1 in the border's color
   /// from the inset to the end. A contained list is a box in the background with an edge of 1 in the border's color
-  /// and the large radius, clipping its rows; its header is 32 high on the muted fill, 12 in from its sides, with a
+  /// and the large radius, clipping its rows; its header is 32 high on the bar's fill, 12 in from its sides, with a
   /// line of 1 under it, its title the mono type at 11 in the muted color, 1 apart.
   fn recipe() -> Recipe {
     use ListPart::{Action, Header, Items, Root, Title};
     use ListState::{Contained, Separator};
-    use PaletteColor::{Background, Border as Line, Muted, MutedForeground};
+    use PaletteColor::{Background, Border as Line, MutedForeground};
     Recipe::new()
       .base(Root, |s| s.foreground(PaletteColor::Foreground))
       .state(Contained, Root, |s| {
@@ -1255,7 +1255,7 @@ impl Themed for List {
         s.height(32.0)
           .padding_x(12.0)
           .gap(8.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(Border::inside(BorderSize::Sm, Line))
       })
       .base(Title, |s| {

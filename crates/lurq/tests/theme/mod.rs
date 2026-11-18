@@ -14,6 +14,7 @@ mod parity {
 mod palette {
   mod background_palette_resolves;
   mod design_default;
+  mod light_fills;
 }
 
 mod subscription {

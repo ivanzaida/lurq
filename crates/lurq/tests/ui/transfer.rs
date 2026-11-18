@@ -160,11 +160,11 @@ fn the_lists_and_the_buttons_are_the_boards() {
     .quads()
     .into_iter()
     .find(|quad| {
-      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Muted))
+      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Bar))
         && close_to(quad.height, 36.0)
         && close_to(quad.width, 190.0)
     })
-    .expect("the header on the muted fill");
+    .expect("the header on the bar's fill");
   assert!(title.y > header_fill.y && title.y + title.height < header_fill.y + 36.0);
   // The items: 32 high, 4 under the header, a checkbox 12 in and the label 8 after it, at 13.
   let (ix, iy, iw, ih) = stage.bounds("transfer-source-0");

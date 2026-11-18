@@ -950,7 +950,7 @@ impl<T: Send + Sync + 'static> Themed for Transfer<T> {
 
   /// The design's transfer (`pencil/lurq-design-system.pen`, Transfer `ZAu2E`): two lists of 190 on the background in
   /// an edge of 1 in the border's color, 8 round, that cut what is in them, 12 from the buttons between them, in the
-  /// middle of each other's height. A list's header is 36 high on the muted fill with a line of 1 in the border's
+  /// middle of each other's height. A list's header is 36 high on the bar's fill with a line of 1 in the border's
   /// color under it, 12 in from its sides, a checkbox, its title in the body's type at 13 and 500, and the count in
   /// the mono type at 11 in the muted foreground, 8 apart. Its items are 4 in from its top and bottom, each 32 high,
   /// 12 in from its sides, a checkbox and its label at 13 8 apart. The buttons are 32 square, 8 apart, the primary
@@ -960,7 +960,7 @@ impl<T: Send + Sync + 'static> Themed for Transfer<T> {
   /// an empty one says so at 13 in the muted foreground. Stacked, the lists are as wide as the room, 12 apart, and
   /// the buttons side by side between them. At each density an item is as high as a row of the density is.
   fn recipe() -> Recipe {
-    use PaletteColor::{Background, Foreground, Muted, MutedForeground};
+    use PaletteColor::{Background, Foreground, MutedForeground};
     use TransferPart::{Actions, Count, Empty, Header, Item, ItemLabel, Items, List, Root, Title};
     let edge = |width: f32| Border::inside(width, PaletteColor::Border);
     Recipe::new()
@@ -978,7 +978,7 @@ impl<T: Send + Sync + 'static> Themed for Transfer<T> {
         s.height(36.0)
           .padding_x(12.0)
           .gap(8.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(edge(1.0))
       })
       .base(Title, |s| {

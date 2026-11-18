@@ -2432,11 +2432,11 @@ impl Themed for DockLayout {
   }
 
   /// The design's dock layout (`pencil/lurq-design-system.pen`, Dock Layout): on the background, in an edge of 1 in
-  /// the border's color with the large radius. A group of several tool panels has a bar 30 high on the muted fill with
+  /// the border's color with the large radius. A group of several tool panels has a bar 30 high on the bar's fill with
   /// a line of 1 along its bottom, 4 in at its end: its tabs 12 in at either side and 6 between what they hold, their
   /// titles 11 and semibold in capitals 0.6 apart in the muted foreground, the one shown in the foreground with a line
   /// of 2 under it; a count in mono 11; buttons of 22 with the small radius and an icon of 14 in the foreground. A
-  /// strip of hidden panels is 30 across on the muted fill with a line of 1 on its inner side, 6 in along it and 4
+  /// strip of hidden panels is 30 across on the bar's fill with a line of 1 on its inner side, 6 in along it and 4
   /// between its buttons of 22. While a panel is dragged, its indicator is five squares of 32 on the popover's fill
   /// in an edge of 1 in the input's color with the small radius and the large shadow, the one under the pointer in
   /// the info color; where it lands is laid over in the info's muted fill at seven tenths with an edge of 1 in the
@@ -2447,7 +2447,7 @@ impl Themed for DockLayout {
     };
     use DockLayoutState::{Bottom, Hot, Left, Right, Selected, Top, Vertical};
     use PaletteColor::{
-      Background, Border as Line, Foreground, Highlight, Info, InfoMuted, Input, Muted, MutedForeground, Popover,
+      Background, Border as Line, Foreground, Highlight, Info, InfoMuted, Input, MutedForeground, Popover,
       PopoverForeground,
     };
     let line = |width: BorderSize, color: PaletteColor| Border::inside(width, color);
@@ -2464,7 +2464,7 @@ impl Themed for DockLayout {
       .base(Bar, |s| {
         s.height(30.0)
           .padding_end(4.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(line(BorderSize::Sm, Line))
       })
       .base(Tab, |s| {
@@ -2501,7 +2501,9 @@ impl Themed for DockLayout {
       .hovered(Button, |s| s.background(Highlight))
       .focus_visible(Button, |s| s.focus_ring())
       .base(Empty, |s| s.foreground(MutedForeground))
-      .base(Strip, |s| s.height(30.0).padding_x(6.0).gap(4.0).background(Muted))
+      .base(Strip, |s| {
+        s.height(30.0).padding_x(6.0).gap(4.0).background(PaletteColor::Bar)
+      })
       .state(Vertical, Strip, |s| {
         s.width(30.0).height(Length::Fill).padding_x(0.0).padding_y(6.0)
       })

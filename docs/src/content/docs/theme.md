@@ -169,12 +169,12 @@ given others: it is in the dark one when the system is dark (see [The System's S
 | `Primary` | `primary` | `#18181b` | `#e4e4e7` | The main action: a primary button, a checked box, a selected tab |
 | `PrimaryForeground` | `primary_foreground` | `#fafafa` | `#18181b` | Text on the primary fill |
 | `PrimaryHover` | `primary_hover` | `#3f3f46` | `#fafafa` | The primary fill under the pointer |
-| `Secondary` | `secondary` | `#d9d9e0` | `#27272a` | A quieter fill, for an action that is not the main one |
+| `Secondary` | `secondary` | `#f1f1f4` | `#27272a` | A quieter fill, for an action that is not the main one |
 | `SecondaryForeground` | `secondary_foreground` | `#18181b` | `#fafafa` | Text on the secondary fill |
-| `SecondaryHover` | `secondary_hover` | `#c8c8d1` | `#3f3f46` | The secondary fill under the pointer |
-| `Muted` | `muted` | `#d9d9e0` | `#27272a` | A fill that recedes: a track, a skeleton, a disabled field |
+| `SecondaryHover` | `secondary_hover` | `#e6e6eb` | `#3f3f46` | The secondary fill under the pointer |
+| `Muted` | `muted` | `#f1f1f4` | `#27272a` | A fill that recedes, on something small: a track, a skeleton, a chip, inline code, a disabled field |
 | `MutedForeground` | `muted_foreground` | `#52525b` | `#a1a1aa` | Text that says less: a description, a placeholder, a caption |
-| `Highlight` | `highlight` | `#d9d9e0` | `#27272a` | The fill of the item the pointer or the keyboard is on: a menu item, a list row |
+| `Highlight` | `highlight` | `#f1f1f4` | `#27272a` | The fill of the item the pointer or the keyboard is on: a menu item, a list row |
 | `HighlightForeground` | `highlight_foreground` | `#18181b` | `#fafafa` | Text on the highlight |
 | `Destructive` | `destructive` | `#dc2626` | `#ef4444` | An action that removes or cannot be undone, and an error |
 | `DestructiveForeground` | `destructive_foreground` | `#fafafa` | `#fafafa` | Text on the destructive fill |
@@ -186,12 +186,13 @@ given others: it is in the dark one when the system is dark (see [The System's S
 | `WarningMuted` | `warning_muted` | `#fef3c7` | `#33240a` | The tinted background of a warning |
 | `Info` | `info` | `#2563eb` | `#60a5fa` | Something to know |
 | `InfoMuted` | `info_muted` | `#dbeafe` | `#132544` | The tinted background of a note |
-| `Border` | `border` | `#bdbdc7` | `#27272a` | A line between things: a separator, the edge of a card |
-| `Input` | `input` | `#9a9aa5` | `#3f3f46` | The edge of a control that takes input: a field, a checkbox |
+| `Border` | `border` | `#d4d4da` | `#27272a` | A line between things: a separator, the edge of a card |
+| `Input` | `input` | `#8e8e99` | `#3f3f46` | The edge of a control that takes input: a field, a checkbox |
 | `Ring` | `ring` | `#71717a` | `#71717a` | The focus ring |
 | `StateHover` | `state_hover` | `#0000000a` | `#ffffff0f` | A veil over whatever is under the pointer, on any fill |
 | `StatePressed` | `state_pressed` | `#00000014` | `#ffffff1f` | A veil over whatever is pressed, on any fill |
-| `Canvas` | `canvas` | `#e6e6eb` | `#09090b` | The area behind panels and cards: a workspace, a side bar |
+| `Canvas` | `canvas` | `#f7f7f8` | `#09090b` | The area behind panels and cards: a workspace |
+| `Bar` | `bar` | `#ffffff` | `#27272a` | The fill of a bar along an edge of a window or a panel: a title bar, a strip of tabs, a toolbar, a table's header, a code block's bar, a status bar, a side bar. In the light palette it is white and a line of `Border` sets it apart |
 | `Scrim` | `scrim` | `#00000066` | `#00000099` | The veil a dialog draws over the page |
 | `Selection` | `selection` | `#bfdbfe` | `#1e3a8a` | Selected text |
 | `Chart1` | `chart_1` | `#2563eb` | `#3b82f6` | The first series of a chart |

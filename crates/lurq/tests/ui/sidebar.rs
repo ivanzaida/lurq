@@ -114,10 +114,10 @@ fn close(a: f32, b: f32) -> bool {
 }
 
 #[test]
-fn a_sidebar_is_260_wide_on_the_muted_fill_with_a_line_toward_the_page_as_the_board_draws_it() {
+fn a_sidebar_is_260_wide_on_the_bars_fill_with_a_line_toward_the_page_as_the_board_draws_it() {
   let mut stage = stage(|ctx| layout(ctx, board()));
   assert_eq!(stage.bounds("sidebar"), (0.0, 0.0, 260.0, 600.0));
-  assert_eq!(stage.fill_color("sidebar"), Some(light(PaletteColor::Muted)));
+  assert_eq!(stage.fill_color("sidebar"), Some(light(PaletteColor::Bar)));
   let edge = stage
     .border("sidebar")
     .expect("the sidebar has an edge")
@@ -1179,5 +1179,8 @@ fn over_the_page_on_a_phone_its_items_keep_clear_of_the_status_bar_and_the_home_
   assert_eq!(on_a_phone, at + 59.0, "its first item is under the status bar");
   // The panel itself goes under both, in its color.
   let (_, y, _, height) = phone.bounds("sidebar");
-  assert!(y <= 59.0 && y + height <= 844.0 - 34.0 + 0.5, "what it holds ends over the home indicator: {y} {height}");
+  assert!(
+    y <= 59.0 && y + height <= 844.0 - 34.0 + 0.5,
+    "what it holds ends over the home indicator: {y} {height}"
+  );
 }

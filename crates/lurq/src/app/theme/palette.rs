@@ -155,8 +155,13 @@ palette! {
     StateHover, state_hover, "state_hover";
     /// A veil over whatever is pressed, on any fill.
     StatePressed, state_pressed, "state_pressed";
-    /// The area behind panels and cards: a workspace, a side bar.
+    /// The area behind panels and cards: a workspace.
     Canvas, canvas, "canvas";
+    /// The fill of a bar along an edge of a window or a panel: a title bar, a
+    /// strip of tabs, a toolbar, a table's header, a code block's bar, a status
+    /// bar, a side bar. A line of the border sets it apart: in the light
+    /// palette it is the background's white, in the dark the muted fill.
+    Bar, bar, "bar";
     /// The veil a dialog draws over the page.
     Scrim, scrim, "scrim";
     /// Selected text.
@@ -259,12 +264,12 @@ impl ThemePalette {
       primary: hex("#18181B"),
       primary_foreground: hex("#FAFAFA"),
       primary_hover: hex("#3F3F46"),
-      secondary: hex("#D9D9E0"),
+      secondary: hex("#F1F1F4"),
       secondary_foreground: hex("#18181B"),
-      secondary_hover: hex("#C8C8D1"),
-      muted: hex("#D9D9E0"),
+      secondary_hover: hex("#E6E6EB"),
+      muted: hex("#F1F1F4"),
       muted_foreground: hex("#52525B"),
-      highlight: hex("#D9D9E0"),
+      highlight: hex("#F1F1F4"),
       highlight_foreground: hex("#18181B"),
       destructive: hex("#DC2626"),
       destructive_foreground: hex("#FAFAFA"),
@@ -276,12 +281,13 @@ impl ThemePalette {
       warning_muted: hex("#FEF3C7"),
       info: hex("#2563EB"),
       info_muted: hex("#DBEAFE"),
-      border: hex("#BDBDC7"),
-      input: hex("#9A9AA5"),
+      border: hex("#D4D4DA"),
+      input: hex("#8E8E99"),
       ring: hex("#71717A"),
       state_hover: hex("#0000000A"),
       state_pressed: hex("#00000014"),
-      canvas: hex("#E6E6EB"),
+      canvas: hex("#F7F7F8"),
+      bar: hex("#FFFFFF"),
       scrim: hex("#00000066"),
       selection: hex("#BFDBFE"),
       chart_1: hex("#2563EB"),
@@ -333,6 +339,7 @@ impl ThemePalette {
       state_hover: hex("#FFFFFF0F"),
       state_pressed: hex("#FFFFFF1F"),
       canvas: hex("#09090B"),
+      bar: hex("#27272A"),
       scrim: hex("#00000099"),
       selection: hex("#1E3A8A"),
       chart_1: hex("#3B82F6"),
@@ -405,6 +412,8 @@ impl ThemePalette {
       input: hex("#94a3b8"),
       ring: hex("#2563eb"),
       canvas: hex("#f8fafc"),
+      // What 0.62 drew its bars with: the muted fill.
+      bar: hex("#f1f5f9"),
       ..light
     }
   }

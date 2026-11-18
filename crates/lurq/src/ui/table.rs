@@ -6986,7 +6986,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
 
   /// The design's table (`pencil/lurq-design-system.pen`: Table, Table/Empty, Table/Loading, and the Data
   /// Grid for what a table whose rows are selected has): a box with the large radius, an inner edge of 1 in
-  /// the border's color and the background's fill. The header is 40 high on the muted fill with a line of 1
+  /// the border's color and the background's fill. The header is 40 high on the bar's fill with a line of 1
   /// under it, its titles 13/500 in the muted foreground; a row is 44 high with a line of 1 under it but the
   /// last, its text 13 in the foreground. Both are padded 16 at each side with 16 between columns, 12 where
   /// the rows have checkboxes, whose column is 16 wide. The column the rows are sorted by has its title in the
@@ -7024,7 +7024,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
         s.height(40.0)
           .padding_x(16.0)
           .gap(16.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(line())
       })
       .base(HeaderCell, |s| {

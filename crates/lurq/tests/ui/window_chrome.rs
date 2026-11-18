@@ -1,6 +1,6 @@
 //! A window's chrome: the board's bar on Windows, macOS, GNOME and KDE, its controls in each platform's order and
-//! look, a bar with tabs, a window that is not in front or is maximized, a title too long for its room, what tooling
-//! reads, and a theme's renderer.
+//! look, a bar with tabs and its line under them, a window that is not in front or is maximized, a title too long for
+//! its room, what tooling reads, and a theme's renderer.
 
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ fn on_windows_the_icon_and_the_title_are_at_the_start_and_three_square_controls_
   let mut stage = stage(|| on(WindowPlatform::Windows).content(Rect::new(560.0, 100.0)));
   let (bx, by, bw, bh) = stage.bounds("bar");
   assert_eq!((bx, by, bw, bh), (0.0, 0.0, 560.0, 36.0));
-  assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Muted)));
+  assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Bar)));
   // Minimize, maximize and close, 46 by 36, flush with the end and with one another.
   let controls = ["bar-minimize", "bar-maximize", "bar-close"].map(|id| stage.bounds(id));
   for (index, (x, y, width, height)) in controls.into_iter().enumerate() {
@@ -158,14 +158,19 @@ fn a_window_that_is_not_in_front_has_grey_lights_on_macos_and_a_muted_title() {
 }
 
 #[test]
-fn a_bar_with_tabs_is_higher_has_its_title_before_the_tabs_and_no_line_under_it() {
+fn a_bar_with_tabs_is_higher_has_its_title_before_the_tabs_and_its_line_under_them() {
   for (platform, height) in [
     (WindowPlatform::Windows, 40.0),
     (WindowPlatform::Macos, 40.0),
     (WindowPlatform::Gnome, 44.0),
     (WindowPlatform::Kde, 38.0),
   ] {
-    let mut stage = stage(move || on(platform).tabs(Rect::new(200.0, 32.0).id("tabs")));
+    let tab = light(PaletteColor::Background);
+    let mut stage = stage(move || {
+      on(platform)
+        .tabs(Rect::new(200.0, 32.0).background(tab).id("tabs"))
+        .content(Rect::new(560.0, 100.0))
+    });
     assert_eq!(stage.bounds("bar").3, height, "{platform:?}");
     // The title stands before the tabs, on one line, centred on the bar's height.
     let title = stage
@@ -182,14 +187,25 @@ fn a_bar_with_tabs_is_higher_has_its_title_before_the_tabs_and_no_line_under_it(
     );
     // The tabs stand on the bar's bottom edge.
     assert_eq!(y + tab_height, height, "{platform:?}");
+    // The bar's line is under the tabs, along its bottom edge, and drawn before them: the selected tab covers it.
     let border = light(PaletteColor::Border);
-    let lines = stage
-      .quads()
-      .into_iter()
-      .filter(|quad| quad.height <= 1.0 && quad.width >= 500.0)
-      .filter(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == border))
-      .count();
-    assert_eq!(lines, 0, "{platform:?}: no line under a bar with tabs");
+    let quads = stage.quads();
+    let lines: Vec<usize> = quads
+      .iter()
+      .enumerate()
+      .filter(|(_, quad)| quad.height <= 1.0 && quad.width >= 500.0 && (quad.y - (height - 1.0)).abs() < 0.01)
+      .filter(|(_, quad)| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == border))
+      .map(|(at, _)| at)
+      .collect();
+    assert_eq!(lines.len(), 1, "{platform:?}: one line under the tabs");
+    let drawn = quads
+      .iter()
+      .position(|quad| {
+        (quad.x, quad.width, quad.height) == (tabs_x, 200.0, 32.0)
+          && matches!(&quad.content, QuadContent::Rect { color, .. } if *color == tab)
+      })
+      .unwrap_or_else(|| panic!("{platform:?}: the tabs' fill"));
+    assert!(lines[0] < drawn, "{platform:?}: the line is drawn before the tabs");
   }
   // Windows keeps its controls at the top, 36 high.
   let mut stage = stage(|| on(WindowPlatform::Windows).tabs(Rect::new(200.0, 32.0)));

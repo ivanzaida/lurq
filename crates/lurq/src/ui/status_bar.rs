@@ -23,7 +23,7 @@ use crate::{
 /// The tones of a status bar, and of an item of it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum StatusBarVariant {
-  /// The muted bar, its items in the foreground.
+  /// The bar on the bar's fill, its items in the foreground.
   #[default]
   Neutral,
   /// In the primary fill: the branch an editor is on, the item that says most.
@@ -589,7 +589,7 @@ impl Themed for StatusBar {
     StatusBarState::declared()
   }
 
-  /// The design's status bar (`pencil/lurq-design-system.pen`, Window Status Bar): a bar 26 high in the muted fill
+  /// The design's status bar (`pencil/lurq-design-system.pen`, Window Status Bar): a bar 26 high in the bar's fill
   /// under a line of the border's color. An item is padded 8, its icon of 13 and its text of 12 in the foreground 5
   /// apart; a pressed one under the pointer is under the hover veil (the board's accent, which is the bar's own fill in
   /// the light appearance). The primary item is in the primary fill and its foreground. An item that shows progress
@@ -597,8 +597,8 @@ impl Themed for StatusBar {
   /// done in the foreground. A tone is its muted fill, its text in its color.
   fn recipe() -> Recipe {
     use PaletteColor::{
-      Destructive, DestructiveMuted, Foreground, Info, InfoMuted, Input, Muted, MutedForeground, Primary,
-      PrimaryForeground, Ring, StateHover, StatePressed, Success, SuccessMuted, Warning, WarningMuted,
+      Destructive, DestructiveMuted, Foreground, Info, InfoMuted, Input, MutedForeground, Primary, PrimaryForeground,
+      Ring, StateHover, StatePressed, Success, SuccessMuted, Warning, WarningMuted,
     };
     use StatusBarPart::{Fill, Icon, Item, Label, Root, Track};
     use StatusBarState::{Disabled, Pressable, Progress};
@@ -606,7 +606,7 @@ impl Themed for StatusBar {
       .base(Root, |s| {
         s.height(26.0)
           .width(Length::Fill)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .top_line(Border::inside(BorderSize::Sm, PaletteColor::Border))
       })
       .base(Item, |s| fading(s.padding_x(8.0).gap(5.0).foreground(Foreground)))

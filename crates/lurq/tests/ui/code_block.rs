@@ -88,8 +88,8 @@ fn the_block_is_the_boards() {
   assert!(matches!(block.content, QuadContent::Rect { color, .. } if color == light(PaletteColor::Background)));
   assert_eq!(block.border_radius.expect("round").top_left, 8.0, "the large radius");
   assert!(stage.border("block").is_some(), "an edge");
-  // The bar: 36 high on Muted.
-  let bars = fills(&stage, light(PaletteColor::Muted));
+  // The bar: 36 high on the bar's fill.
+  let bars = fills(&stage, light(PaletteColor::Bar));
   assert!(
     bars.iter().any(|bar| bar.height == 36.0 && bar.width >= 418.0),
     "{:?}",
@@ -267,7 +267,12 @@ fn a_block_with_nothing_to_name_and_no_copy_button_has_no_bar() {
   let mut stage = staged(|| CodeBlock::new("ls -la").copy_button(false).id("block"));
   let (.., height) = stage.bounds("block");
   assert!(height < 50.0, "{height}");
-  assert!(fills(&stage, light(PaletteColor::Muted)).is_empty());
+  assert!(
+    fills(&stage, light(PaletteColor::Bar))
+      .iter()
+      .all(|fill| fill.height != 36.0),
+    "no bar of 36"
+  );
 }
 
 #[test]

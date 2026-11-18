@@ -368,13 +368,13 @@ fn markdown_component_renders_code_block_box() {
   tree.pass(&mut app, &TestSurface);
 
   let quads = tree.resolve_quads(tree.last_layout().expect("layout should be available"));
-  // The box is on the muted fill of the app's theme.
-  let muted = app.theme().palette().get(lurq::app::theme::PaletteColor::Muted);
+  // The box's bar of 36 is on the bar's fill of the app's theme.
+  let bar = app.theme().palette().get(lurq::app::theme::PaletteColor::Bar);
   assert!(quads.iter().any(|quad| {
     matches!(
       &quad.content,
-      QuadContent::Rect { color, .. } if *color == muted
-    )
+      QuadContent::Rect { color, .. } if *color == bar
+    ) && quad.height == 36.0
   }));
   assert!(quads.iter().any(|quad| {
     matches!(

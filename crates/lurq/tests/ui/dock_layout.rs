@@ -157,7 +157,7 @@ fn at_rest_it_is_the_boards_layout_with_its_bars_and_its_strip() {
   let (_, _, _, mut stage) = fresh();
   let (_, _, width, height) = stage.bounds("dock");
   assert_eq!((width, height), (860.0, 440.0));
-  // The bottom group of three: tabs in capitals on a bar of 30 on the muted fill, the one shown in the foreground.
+  // The bottom group of three: tabs in capitals on a bar of 30 on the bar's fill, the one shown in the foreground.
   let (_, _, _, tab_height) = stage.bounds("dock-tab-terminal");
   assert_eq!(tab_height, 30.0);
   assert_eq!(stage.text("TERMINAL").0, light(PaletteColor::Foreground));

@@ -499,7 +499,7 @@ impl<T: Send + Sync + 'static> Themed for CommandBar<T> {
 
   /// The design's command bar (`pencil/lurq-design-system.pen`, Command Bar):
   /// a frame of the background's color with an edge of 1 in the border's color
-  /// and the large radius. Its tabs are a row 32 high in the muted fill over a
+  /// and the large radius. Its tabs are a row 32 high in the bar's fill over a
   /// line of 1, padded 8, 2 apart; a tab is padded 12, its label 13 in the
   /// muted foreground, the selected one 600 in the foreground and underlined
   /// with 2. Under them the commands are padded 8 and 4, their groups side by
@@ -518,7 +518,7 @@ impl<T: Send + Sync + 'static> Themed for CommandBar<T> {
         s.height(32.0)
           .padding_x(8.0)
           .gap(2.0)
-          .background(PaletteColor::Muted)
+          .background(PaletteColor::Bar)
           .underline(line())
           .radius(0.0)
       })

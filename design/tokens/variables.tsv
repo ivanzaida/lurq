@@ -1,6 +1,6 @@
 # The variables of pencil/lurq-design-system.pen, as the theme's tests read them (crates/lurq/tests/theme/parity).
 # One variable a line, tab-separated: its type, its name, its value; a color has its light value and its dark one.
-# Read from the board on 2026-11-13 with Pencil's `GetVariables()`. When a variable changes on the board, change it
+# Read from the board on 2026-11-18 with Pencil's `GetVariables()`. When a variable changes on the board, change it
 # here and in the neutral theme together: the test fails while they differ.
 color	background	#FFFFFF	#09090B
 color	foreground	#09090B	#FAFAFA
@@ -10,11 +10,11 @@ color	popover	#FFFFFF	#18181B
 color	popover-foreground	#09090B	#FAFAFA
 color	primary	#18181B	#E4E4E7
 color	primary-foreground	#FAFAFA	#18181B
-color	secondary	#D9D9E0	#27272A
+color	secondary	#F1F1F4	#27272A
 color	secondary-foreground	#18181B	#FAFAFA
-color	muted	#D9D9E0	#27272A
+color	muted	#F1F1F4	#27272A
 color	muted-foreground	#52525B	#A1A1AA
-color	accent	#D9D9E0	#27272A
+color	accent	#F1F1F4	#27272A
 color	accent-foreground	#18181B	#FAFAFA
 color	destructive	#DC2626	#EF4444
 color	destructive-foreground	#FAFAFA	#FAFAFA
@@ -25,8 +25,8 @@ color	warning	#B45309	#F59E0B
 color	warning-muted	#FEF3C7	#33240A
 color	info	#2563EB	#60A5FA
 color	info-muted	#DBEAFE	#132544
-color	border	#BDBDC7	#27272A
-color	input	#9A9AA5	#3F3F46
+color	border	#D4D4DA	#27272A
+color	input	#8E8E99	#3F3F46
 color	ring	#71717A	#71717A
 number	radius-sm	4
 number	radius-md	6
@@ -45,7 +45,7 @@ number	control-lg	40
 string	font-sans	Inter
 string	font-mono	JetBrains Mono
 color	primary-hover	#3F3F46	#FAFAFA
-color	secondary-hover	#C8C8D1	#3F3F46
+color	secondary-hover	#E6E6EB	#3F3F46
 color	destructive-hover	#B91C1C	#DC2626
 color	chart-1	#2563EB	#3B82F6
 color	chart-2	#0D9488	#2DD4BF
@@ -92,5 +92,6 @@ color	selection	#BFDBFE	#1E3A8A
 string	ease-standard	cubic-bezier(0.2, 0, 0, 1)
 string	ease-enter	cubic-bezier(0, 0, 0, 1)
 string	ease-exit	cubic-bezier(0.3, 0, 1, 1)
-color	canvas	#E6E6EB	#09090B
+color	canvas	#F7F7F8	#09090B
+color	bar	#FFFFFF	#27272A
 color	sheet	#E3E8F0	#0B0D12

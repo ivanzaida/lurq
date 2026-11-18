@@ -1936,7 +1936,7 @@ impl Themed for Sidebar {
   }
 
   /// The design's sidebar (`pencil/lurq-design-system.pen`, Sidebar,
-  /// Sidebar/Collapsed and Sidebar Item): 260 wide on the muted fill, a line
+  /// Sidebar/Collapsed and Sidebar Item): 260 wide on the bar's fill, a line
   /// of 1 in the border's color along its end, padded 8, 2 between rows. An
   /// item is 32 high, padded 8 across, 8 between its icon of 16 in the muted
   /// foreground and its name in 13; the selected one is on the background
@@ -1965,7 +1965,7 @@ impl Themed for Sidebar {
           .height(Length::Fill)
           .padding_y(8.0)
           .gap(2.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .foreground(Foreground)
           .end_line(line())
           .transition(PartTransition::new(Transition::width(), MotionDuration::Slow).easing(MotionEasing::Standard))

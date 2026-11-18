@@ -417,12 +417,12 @@ impl Themed for PanelHeader {
     PanelHeaderState::declared()
   }
 
-  /// The design's panel header (`pencil/lurq-design-system.pen`, Panel Header): a bar 30 high on the muted fill with
+  /// The design's panel header (`pencil/lurq-design-system.pen`, Panel Header): a bar 30 high on the bar's fill with
   /// a line of 1 in the border's color along its bottom, 10 in at its start and 4 at its end. Its title is 11 and
   /// semibold, in capitals 0.6 apart, in the muted foreground; its buttons are 22 square with the small radius, an icon
   /// of 14 in the foreground in each, lit under the pointer.
   fn recipe() -> Recipe {
-    use PaletteColor::{Border as Line, Foreground, Highlight, Muted, MutedForeground};
+    use PaletteColor::{Border as Line, Foreground, Highlight, MutedForeground};
     use PanelHeaderPart::{Actions, Button, Media, Root, Title};
     Recipe::new()
       .base(Root, |s| {
@@ -430,7 +430,7 @@ impl Themed for PanelHeader {
           .padding_start(10.0)
           .padding_end(4.0)
           .gap(8.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(Border::inside(BorderSize::Sm, Line))
       })
       .base(Media, |s| s.foreground(MutedForeground))
@@ -1745,7 +1745,7 @@ impl Themed for FloatingPanel {
 
   /// The design's floating panel (`pencil/lurq-design-system.pen`, Floating Panel): 240 wide, on the popover's fill
   /// with an edge of 1 in the border's color inside it, the large radius, and a shadow of 12 down blurred 24 under one
-  /// of 3 blurred 6. Its title bar is 30 high on the muted fill with a line of 1 along its bottom, 6 in at its start
+  /// of 3 blurred 6. Its title bar is 30 high on the bar's fill with a line of 1 along its bottom, 6 in at its start
   /// and 4 at its end, 4 between what it holds: a grip of 14 in the muted foreground, the title at 12 and semibold in
   /// the foreground, and buttons of 22 with the small radius, an icon of 14 in the foreground in each. What it holds
   /// is padded 4, its rows 2 apart; the row along its bottom is 22 high, with a grip of 10 in the muted foreground 3
@@ -1753,7 +1753,7 @@ impl Themed for FloatingPanel {
   fn recipe() -> Recipe {
     use FloatingPanelPart::{Actions, Body, Button, Edge, Footer, Grip, Header, Media, ResizeGrip, Root, Title};
     use FloatingPanelState::Active;
-    use PaletteColor::{Border as Line, Foreground, Highlight, Muted, MutedForeground, Popover, PopoverForeground};
+    use PaletteColor::{Border as Line, Foreground, Highlight, MutedForeground, Popover, PopoverForeground};
     Recipe::new()
       .base(Root, |s| {
         s.width(240.0)
@@ -1768,7 +1768,7 @@ impl Themed for FloatingPanel {
           .padding_start(6.0)
           .padding_end(4.0)
           .gap(4.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(Border::inside(BorderSize::Sm, Line))
           .cursor(CursorIcon::Grab)
       })

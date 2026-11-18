@@ -2102,7 +2102,7 @@ impl Themed for RichTextEditor {
 
   /// The design's rich text editor (`pencil/lurq-design-system.pen`, Rich Text Editor): a box 560 wide in the
   /// background's color, with an edge of 1 in the border's color and the large radius. Its bar is 40 high on
-  /// the muted fill over a line of 1, padded 6, its tools 2 apart: each 28 square with the small radius and an
+  /// the bar's fill over a line of 1, padded 6, its tools 2 apart: each 28 square with the small radius and an
   /// icon of 15, one that is on filled with the background; the style's control is 28 high with the small
   /// radius, padded 10 before its text of 12 and 6 after its chevron of 12. The box is padded 18 across and 16
   /// down, its text the body's 14 on lines of 1.3, its paragraphs 10 apart. A heading of the second level is
@@ -2131,13 +2131,14 @@ impl Themed for RichTextEditor {
           .padding_y(0.0)
           .gap(2.0)
           .radius(0.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(edge(PaletteColor::Border))
       })
       .base(Tool, |s| s.square(28.0).padding_x(0.0).radius(RadiusSize::Sm))
-      // The board fills a tool that is on with what is picked out, which is the bar's own fill in both palettes:
-      // it is filled with the background, as the style's control beside it is, so that it shows.
-      .base(ToolOn, |s| s.background(Background))
+      // The board fills a tool that is on with what is picked out, which is the bar's own fill in the dark palette:
+      // it is filled with the background, as the style's control beside it is, and edged by a line of the border,
+      // which is what shows it on the light palette's white bar (on the dark one the line is the bar's color).
+      .base(ToolOn, |s| s.background(Background).border(edge(PaletteColor::Border)))
       .base(ToolIcon, |s| s.square(15.0))
       // As wide as the name of the style it shows, as the board's is.
       .base(Style, |s| {

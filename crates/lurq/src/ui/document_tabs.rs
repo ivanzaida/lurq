@@ -43,7 +43,7 @@ const DRAG_START: f32 = 4.0;
 pub enum DocumentTabsPart {
   /// The bar: its height.
   Root,
-  /// The box under the tabs: the muted fill and the line along the bottom, which the selected tab covers.
+  /// The box under the tabs: the bar's fill and the line along the bottom, which the selected tab covers.
   Bar,
   /// The row of the tabs, the new tab button and the More button.
   List,
@@ -1493,7 +1493,7 @@ impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for DocumentTabs<T, V
     DocumentTabsState::declared()
   }
 
-  /// The design's document tabs (`pencil/lurq-design-system.pen`, Document Tabs): a bar 38 high in the muted fill
+  /// The design's document tabs (`pencil/lurq-design-system.pen`, Document Tabs): a bar 38 high in the bar's fill
   /// over a line of the border's color. A tab is padded 12 at its start and 8 at its end, 8 between its icon of 14,
   /// its name of 13 and its close control of 20, of the small radius, with a cross of 13; a line of the border's
   /// color at its end. The tab shown is the background's color with a line of 2 in the primary color along its top,
@@ -1515,7 +1515,7 @@ impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for DocumentTabs<T, V
     Recipe::new()
       .base(Root, |s| s.height(38.0).width(Length::Fill))
       .base(Bar, |s| {
-        s.background(PaletteColor::Muted)
+        s.background(PaletteColor::Bar)
           .underline(line(BorderSize::Sm, PaletteColor::Border))
       })
       .base(List, |s| s.width(Length::Fill))
