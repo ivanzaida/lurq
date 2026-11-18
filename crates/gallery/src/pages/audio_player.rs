@@ -530,6 +530,20 @@ impl AudioPlayerPage {
           said();
           error.set(false);
         }
+      })
+      // What its source tells: told only where one is chosen.
+      .on_load({
+        let record = record.clone();
+        move |info| record(format!("on_load({})", super::video_player::media_info(info)))
+      })
+      .on_error({
+        let record = record.clone();
+        move |why| record(format!("on_error({why:?})"))
+      })
+      .on_ended(say("on_ended"))
+      .on_waiting_change({
+        let record = record.clone();
+        move |to| record(format!("on_waiting_change({to})"))
       });
     if texts {
       player = player.title(&title).description(&description);
@@ -1089,6 +1103,12 @@ impl Component for AudioPlayerPage {
         "What it plays (feature media): a file, bytes, a resource or an address. Its time, its length and \
          whether it plays, loads or failed are the sound's. An address is loaded when it is first played, and \
          kept.",
+      ),
+      (
+        "on_load / on_error / on_ended / on_waiting_change",
+        "Fn(&MediaInfo) / Fn(&MediaError) / Fn() / Fn(bool)",
+        "",
+        "What its source tells, on the UI thread, once each time: it opened, it failed (a kind, in the locale's          words), it played to its end (where a queue goes on to the next), it began or stopped waiting. With a          source, on_playing_change is told when the sound stops by itself too. A player without a source tells          none of them.",
       ),
       (
         "loading",
