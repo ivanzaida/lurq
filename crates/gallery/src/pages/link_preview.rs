@@ -355,7 +355,7 @@ impl LinkPreviewPage {
         address.set("https://github.com/ivanzaida/lurq".to_owned());
         pictures.set(true);
         removable.set(false);
-        decides.set(true);
+        decides.set(false);
         disabled.set(false);
         real.set(false);
       })
@@ -379,7 +379,7 @@ impl LinkPreviewPage {
           !title.is_empty(),
           !description.is_empty(),
           !pictures,
-          !decides,
+          decides,
           removable,
           disabled,
           real,
@@ -406,7 +406,8 @@ impl Component for LinkPreviewPage {
       description: ctx.signal(String::new()),
       pictures: ctx.signal(true),
       removable: ctx.signal(false),
-      decides: ctx.signal(true),
+      // A click opens the address, as a link does, until the page is told to take it (`on_open`).
+      decides: ctx.signal(false),
       disabled: ctx.signal(false),
       real: ctx.signal(false),
       address: ctx.signal("https://github.com/ivanzaida/lurq".to_owned()),

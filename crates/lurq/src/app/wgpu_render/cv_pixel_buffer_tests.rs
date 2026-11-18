@@ -1,6 +1,7 @@
 // A frame a decoder leaves in a `CVPixelBuffer` is drawn where it is, through CoreVideo's Metal textures
 // (`create_macos_native_nv12_cached_image_texture`): what the renderer reads of it is what was written, byte for
-// byte, though the buffer's rows are longer than its picture.
+// byte, though the buffer's rows are longer than its picture. A frame of red, green and blue too, and a frame the
+// app's card writes is shown once the card signals it is done.
 
 use std::sync::Arc;
 
@@ -67,7 +68,23 @@ fn opened(device: &wgpu::Device, image: &ImageCmd) -> super::CachedImageTexture 
     usage: wgpu::BufferUsages::UNIFORM,
     mapped_at_creation: false,
   });
-  super::create_macos_native_nv12_cached_image_texture(device, &layout, &sampler, &globals, image)
+  // A picture's: one view.
+  let picture = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: None,
+    entries: &[
+      entry(
+        0,
+        wgpu::BindingType::Buffer {
+          ty: wgpu::BufferBindingType::Uniform,
+          has_dynamic_offset: false,
+          min_binding_size: None,
+        },
+      ),
+      entry(1, plane),
+      entry(2, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
+    ],
+  });
+  super::create_macos_native_nv12_cached_image_texture(device, &layout, &picture, &sampler, &globals, image)
     .expect("the renderer opens the buffer")
 }
 
@@ -412,4 +429,238 @@ fn a_buffer_says_its_matrix_its_range_and_its_depth() {
     assert_eq!(read(&buffer(b"xf20", None)), color(Matrix::Bt709, true, true));
     assert_eq!(read(&buffer(b"BGRA", None)), None, "not two planes");
   }
+}
+
+// A frame of red, green and blue, and a frame shown once the app's card is done with it.
+
+/// The bytes of a pixel of a picture of blue, green, red and alpha: none the same as the next.
+fn bgra_at(x: usize, y: usize) -> [u8; 4] {
+  [
+    ((x * 11 + y * 3) % 256) as u8,
+    ((x * 5 + y * 17 + 40) % 256) as u8,
+    ((x * 23 + y * 7 + 90) % 256) as u8,
+    255,
+  ]
+}
+
+/// Draws `view` into a target of sRGB its size, each pixel read as it is (`textureLoad`), and reads it back: a view
+/// of sRGB gives light, which the target encodes again, so what is read is the bytes that were written.
+fn read_back(device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView, width: u32, height: u32) -> Vec<u8> {
+  let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    label: None,
+    source: wgpu::ShaderSource::Wgsl(
+      "@group(0) @binding(0) var picture: texture_2d<f32>;
+       @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+         var corners = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+         return vec4(corners[index], 0.0, 1.0);
+       }
+       @fragment fn fs(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+         return textureLoad(picture, vec2<i32>(at.xy), 0);
+       }"
+      .into(),
+    ),
+  });
+  let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    label: None,
+    layout: None,
+    vertex: wgpu::VertexState {
+      module: &shader,
+      entry_point: Some("vs"),
+      buffers: &[],
+      compilation_options: Default::default(),
+    },
+    fragment: Some(wgpu::FragmentState {
+      module: &shader,
+      entry_point: Some("fs"),
+      targets: &[Some(wgpu::TextureFormat::Rgba8UnormSrgb.into())],
+      compilation_options: Default::default(),
+    }),
+    primitive: Default::default(),
+    depth_stencil: None,
+    multisample: Default::default(),
+    multiview_mask: None,
+    cache: None,
+  });
+  let bound = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: None,
+    layout: &pipeline.get_bind_group_layout(0),
+    entries: &[wgpu::BindGroupEntry {
+      binding: 0,
+      resource: wgpu::BindingResource::TextureView(view),
+    }],
+  });
+  let size = wgpu::Extent3d {
+    width,
+    height,
+    depth_or_array_layers: 1,
+  };
+  let target = device.create_texture(&wgpu::TextureDescriptor {
+    label: None,
+    size,
+    mip_level_count: 1,
+    sample_count: 1,
+    dimension: wgpu::TextureDimension::D2,
+    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    view_formats: &[],
+  });
+  let row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+  let read = device.create_buffer(&wgpu::BufferDescriptor {
+    label: None,
+    size: u64::from(row * height),
+    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+    mapped_at_creation: false,
+  });
+  let mut encoder = device.create_command_encoder(&Default::default());
+  {
+    let target_view = target.create_view(&Default::default());
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+      label: None,
+      color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        view: &target_view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: wgpu::Operations {
+          load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+          store: wgpu::StoreOp::Store,
+        },
+      })],
+      depth_stencil_attachment: None,
+      timestamp_writes: None,
+      occlusion_query_set: None,
+      multiview_mask: None,
+    });
+    pass.set_pipeline(&pipeline);
+    pass.set_bind_group(0, &bound, &[]);
+    pass.draw(0..3, 0..1);
+  }
+  encoder.copy_texture_to_buffer(
+    target.as_image_copy(),
+    wgpu::TexelCopyBufferInfo {
+      buffer: &read,
+      layout: wgpu::TexelCopyBufferLayout {
+        offset: 0,
+        bytes_per_row: Some(row),
+        rows_per_image: Some(height),
+      },
+    },
+    size,
+  );
+  queue.submit([encoder.finish()]);
+  read.slice(..).map_async(wgpu::MapMode::Read, |mapped| mapped.unwrap());
+  device
+    .poll(wgpu::PollType::wait_indefinitely())
+    .expect("the card answers");
+  let mapped = read.slice(..).get_mapped_range();
+  mapped
+    .chunks(row as usize)
+    .flat_map(|line| line[..(width * 4) as usize].to_vec())
+    .collect()
+}
+
+#[test]
+fn a_frame_of_red_green_and_blue_in_a_pixel_buffer_is_drawn_where_it_is_as_a_picture() {
+  let Some((device, queue)) = device() else {
+    eprintln!("skipped: no Metal device");
+    return;
+  };
+  // 37 wide: an odd width, and rows the system pads.
+  let (width, height) = (37_usize, 20_usize);
+  let buffer = MacosCvPixelBuffer::bgra(width as u32, height as u32).expect("a pixel buffer");
+  assert!(!buffer.write_nv12(|_, _, _, _| ()), "one plane, not two");
+  let mut stride = 0;
+  assert!(buffer.write_bgra(|rows, row| {
+    stride = row;
+    for y in 0..height {
+      for x in 0..width {
+        rows[y * row + x * 4..][..4].copy_from_slice(&bgra_at(x, y));
+      }
+    }
+  }));
+  assert!(stride > width * 4, "rows longer than the picture: {stride}");
+  let frames = CvPixelBufferFrames::new();
+  frames.show(buffer);
+  let native = NativeImageData::from_cv_pixel_buffer_frames(width as u32, height as u32, frames);
+  let super::CachedImageTexture::CvRgba { view, .. } =
+    opened(&device, &image_of(native, width as u32, height as u32, 1))
+  else {
+    panic!("a frame of red, green and blue is a picture, of one view");
+  };
+  let pixels = read_back(&device, &queue, &view, width as u32, height as u32);
+  let mut wrong = Vec::new();
+  for y in 0..height {
+    for x in 0..width {
+      let [blue, green, red, alpha] = bgra_at(x, y);
+      let read = &pixels[(y * width + x) * 4..][..4];
+      let off = [red, green, blue, alpha]
+        .iter()
+        .zip(read)
+        .map(|(w, r)| w.abs_diff(*r))
+        .max()
+        .unwrap_or(0);
+      if off > 1 {
+        wrong.push((x, y, read.to_vec()));
+      }
+    }
+  }
+  assert!(
+    wrong.is_empty(),
+    "{} pixels are not the buffer's, the first: {:?}",
+    wrong.len(),
+    wrong.first()
+  );
+}
+
+#[test]
+fn a_frame_the_apps_card_writes_is_shown_once_its_event_reaches_its_value() {
+  use objc2_metal::{MTLDevice as _, MTLSharedEvent as _};
+
+  let Some((device, _queue)) = device() else {
+    eprintln!("skipped: no Metal device");
+    return;
+  };
+  // SAFETY: the device is wgpu's, of Metal, and lives through the test.
+  let event = unsafe {
+    let hal = device.as_hal::<wgpu_hal::api::Metal>().expect("a device of Metal");
+    hal.raw_device().newSharedEvent().expect("a shared event")
+  };
+  let frame = |label: u8| {
+    let buffer = MacosCvPixelBuffer::bgra(2, 2).expect("a pixel buffer");
+    assert!(buffer.write_bgra(|rows, _| rows[0] = label));
+    buffer
+  };
+  let label = |frames: &CvPixelBufferFrames| {
+    frames.shown().map(|buffer| {
+      let mut first = 0;
+      assert!(buffer.write_bgra(|rows, _| first = rows[0]));
+      first
+    })
+  };
+
+  let frames = CvPixelBufferFrames::new();
+  frames.show(frame(1));
+  assert_eq!((label(&frames), frames.count()), (Some(1), 1));
+
+  frames.show_after(frame(2), &event, 1);
+  frames.show_after(frame(3), &event, 2);
+  assert_eq!(
+    label(&frames),
+    Some(1),
+    "the card writes the next two: the frame before is drawn"
+  );
+  assert_eq!(frames.count(), 1, "and the image is the same");
+
+  event.setSignaledValue(1);
+  assert_eq!((label(&frames), frames.count()), (Some(2), 2), "the first is written");
+
+  event.setSignaledValue(2);
+  assert_eq!((label(&frames), frames.count()), (Some(3), 3));
+
+  // Written in the order the card finishes: the later frame ready first is shown, and the one before it never.
+  frames.show_after(frame(4), &event, 4);
+  frames.show_after(frame(5), &event, 3);
+  event.setSignaledValue(3);
+  assert_eq!(label(&frames), Some(5));
+  event.setSignaledValue(4);
+  assert_eq!(label(&frames), Some(5), "the earlier frame came too late");
 }

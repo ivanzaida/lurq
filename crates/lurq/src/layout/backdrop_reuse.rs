@@ -697,6 +697,7 @@ impl Notes {
     self.tag(match image_format {
       crate::images::ImagePixelFormat::Rgba8 => 0,
       crate::images::ImagePixelFormat::Nv12 => 1,
+      crate::images::ImagePixelFormat::I420 => 2,
     });
     self.u64(animation_frames.as_ref().map_or(u64::MAX, |frames| frames.len() as u64));
     self.f32s(uv_min);

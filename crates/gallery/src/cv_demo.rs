@@ -5,6 +5,9 @@
 //! frame is lurq's, and is not copied.
 //!
 //! It writes into three buffers in turn, so that the one that is drawn is not the one that is written.
+//!
+//! And the same picture as a decoder of software gives it, three planes in memory (I420), which the renderer sends
+//! to the card as they are and makes colors of in its shader.
 
 use std::{
   sync::{
@@ -25,6 +28,8 @@ const FRAME: Duration = Duration::from_millis(33);
 /// The frames of the decoder, as an image to draw. The decoder stops when it is dropped.
 pub struct Decoded {
   pub image: ImageData,
+  /// The same frames, in memory as three planes.
+  pub planes: ImageData,
   stop: Arc<AtomicBool>,
 }
 
@@ -68,6 +73,19 @@ fn paint(at: u32, gray: &mut [u8], gray_stride: usize, color: &mut [u8], color_s
   }
 }
 
+/// The test picture at frame `at` in three planes of memory, gray then the two of color apart: as `paint`, laid out
+/// as a decoder of software lays its frame out.
+fn paint_planes(at: u32, frame: &mut [u8]) {
+  let (width, height) = (SIZE.0 as usize, SIZE.1 as usize);
+  let (gray, color) = frame.split_at_mut(width * height);
+  let (blue, red) = color.split_at_mut(width * height / 4);
+  let mut pairs = vec![0_u8; width * height / 2];
+  paint(at, gray, width, &mut pairs, width);
+  for (at, pair) in pairs.chunks_exact(2).enumerate() {
+    (blue[at], red[at]) = (pair[0], pair[1]);
+  }
+}
+
 /// Starts the decoder. `None` where nothing draws such frames yet (the window has no device, or draws another
 /// way), or the system gives no buffer.
 pub fn start() -> Option<Decoded> {
@@ -79,6 +97,9 @@ pub fn start() -> Option<Decoded> {
     .collect::<Option<_>>()?;
   let frames = CvPixelBufferFrames::new();
   let image = NativeImageData::from_cv_pixel_buffer_frames(SIZE.0, SIZE.1, frames.clone()).image_data();
+  let length = (SIZE.0 * SIZE.1 * 3 / 2) as usize;
+  let planes = ImageData::streaming_i420(vec![0; length], SIZE.0, SIZE.1);
+  let written = planes.clone();
   let stop = Arc::new(AtomicBool::new(false));
   let stopped = stop.clone();
   std::thread::Builder::new()
@@ -91,10 +112,14 @@ pub fn start() -> Option<Decoded> {
         {
           frames.show(buffer.clone());
         }
+        let mut frame = written.take_streaming_i420_buffer().unwrap_or_default();
+        frame.resize(length, 0);
+        paint_planes(at, &mut frame);
+        written.set_streaming_i420(frame);
         at = at.wrapping_add(1);
         std::thread::sleep(FRAME);
       }
     })
     .ok()?;
-  Some(Decoded { image, stop })
+  Some(Decoded { image, planes, stop })
 }

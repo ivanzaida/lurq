@@ -14,6 +14,8 @@ mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
 mod gradients;
+#[cfg(all(test, feature = "raster"))]
+mod i420_tests;
 mod layers;
 #[cfg(all(
   test,
@@ -194,6 +196,8 @@ enum ActivePipeline {
   Image,
   #[cfg(feature = "raster")]
   Nv12Image,
+  #[cfg(feature = "raster")]
+  I420Image,
   Layer,
 }
 
@@ -215,6 +219,7 @@ struct ClipGlobalsKey([u32; 28]);
 enum ImageClipFormat {
   Rgba,
   Nv12,
+  I420,
 }
 
 #[cfg(feature = "raster")]
@@ -238,6 +243,29 @@ enum CachedImageTexture {
   ExternalRgba {
     bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
+    width: u32,
+    height: u32,
+    version: u64,
+  },
+  /// A picture of memory of three planes (I420): gray, and the two of color apart.
+  I420 {
+    bind_group: wgpu::BindGroup,
+    y_view: wgpu::TextureView,
+    u_view: wgpu::TextureView,
+    v_view: wgpu::TextureView,
+    textures: [wgpu::Texture; 3],
+    width: u32,
+    height: u32,
+    frame_index: usize,
+    version: u64,
+  },
+  /// A frame of red, green and blue in a `CVPixelBuffer` (`BGRA`), drawn where it is as a picture is: one view,
+  /// of sRGB.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  CvRgba {
+    bind_group: wgpu::BindGroup,
+    view: wgpu::TextureView,
+    _held: MacosNativeRgbaTexture,
     width: u32,
     height: u32,
     version: u64,
@@ -282,6 +310,14 @@ struct MacosNativeNv12Texture {
   _buffer: crate::images::MacosCvPixelBuffer,
   _y_cv_texture: CvMetalTexture,
   _uv_cv_texture: CvMetalTexture,
+}
+
+/// What a [`CachedImageTexture::CvRgba`] holds for as long as it is drawn: the buffer, and CoreVideo's texture of it.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+struct MacosNativeRgbaTexture {
+  _native: crate::images::NativeImageData,
+  _buffer: crate::images::MacosCvPixelBuffer,
+  _cv_texture: CvMetalTexture,
 }
 
 #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
@@ -371,12 +407,30 @@ impl CachedImageTexture {
   /// Whether it is the textures of a frame that stays on the card, and `image` shows another frame now.
   #[cfg(any(target_os = "macos", target_os = "ios"))]
   fn is_another_frame_of_the_card(&self, image: &crate::images::ImageCmd) -> bool {
-    matches!(self, Self::Nv12 { _macos_native: Some(_), version, .. } if *version != image.version)
+    match self {
+      Self::Nv12 {
+        _macos_native: Some(_),
+        version,
+        ..
+      }
+      | Self::CvRgba { version, .. } => *version != image.version,
+      _ => false,
+    }
   }
 
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
       Self::ExternalRgba { .. } => false,
+      // Frames of a pixel buffer: the same frames while the picture is as large.
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      Self::CvRgba { width, height, .. } => {
+        *width == image.image_width
+          && *height == image.image_height
+          && image
+            .native
+            .as_ref()
+            .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
+      }
       Self::Rgba {
         width,
         height,
@@ -388,6 +442,11 @@ impl CachedImageTexture {
           && *height == image.image_height
           && animation_frames.as_ref().map(Vec::len) == image.animation_frames.as_ref().map(|frames| frames.len())
           && !is_card_frames(image)
+      }
+      Self::I420 { width, height, .. } => {
+        image.image_format == crate::images::ImagePixelFormat::I420
+          && *width == image.image_width
+          && *height == image.image_height
       }
       // Frames of memory are not frames of the card, though both are NV12.
       Self::Nv12 { width, height, .. } => {
@@ -469,6 +528,9 @@ pub struct WgpuRenderEngine {
   image_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: Option<wgpu::RenderPipeline>,
+  /// Pictures of three planes (I420): the NV12 shader with the two of color apart.
+  #[cfg(feature = "raster")]
+  i420_image_pipeline: Option<wgpu::RenderPipeline>,
   surface: Option<wgpu::Surface<'static>>,
   surface_config: Option<wgpu::SurfaceConfiguration>,
   surface_format: Option<wgpu::TextureFormat>,
@@ -478,6 +540,8 @@ pub struct WgpuRenderEngine {
   image_bgl: Option<wgpu::BindGroupLayout>,
   #[cfg(feature = "raster")]
   nv12_image_bgl: Option<wgpu::BindGroupLayout>,
+  #[cfg(feature = "raster")]
+  i420_image_bgl: Option<wgpu::BindGroupLayout>,
   #[cfg(feature = "raster")]
   image_sampler: Option<wgpu::Sampler>,
   #[cfg(feature = "raster")]
@@ -1064,6 +1128,8 @@ impl WgpuRenderEngine {
       image_pipeline: None,
       #[cfg(feature = "raster")]
       nv12_image_pipeline: None,
+      #[cfg(feature = "raster")]
+      i420_image_pipeline: None,
       surface: None,
       surface_config: None,
       surface_format: None,
@@ -1073,6 +1139,8 @@ impl WgpuRenderEngine {
       image_bgl: None,
       #[cfg(feature = "raster")]
       nv12_image_bgl: None,
+      #[cfg(feature = "raster")]
+      i420_image_bgl: None,
       #[cfg(feature = "raster")]
       image_sampler: None,
       #[cfg(feature = "raster")]
@@ -1341,8 +1409,10 @@ impl WgpuRenderEngine {
       self.image_sampler = None;
       self.image_bgl = None;
       self.nv12_image_bgl = None;
+      self.i420_image_bgl = None;
       self.image_pipeline = None;
       self.nv12_image_pipeline = None;
+      self.i420_image_pipeline = None;
     }
 
     self.vertex_buffer = None;
@@ -1828,7 +1898,15 @@ impl WgpuRenderEngine {
 
     // --- Image pipeline ---
     #[cfg(feature = "raster")]
-    let (image_pipeline, nv12_image_pipeline, image_bgl, nv12_image_bgl, image_sampler) = {
+    let (
+      image_pipeline,
+      nv12_image_pipeline,
+      image_bgl,
+      nv12_image_bgl,
+      image_sampler,
+      i420_image_pipeline,
+      i420_image_bgl,
+    ) = {
       use vertex::ImageInstance;
       let image_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("lurq_image_bgl"),
@@ -1983,6 +2061,80 @@ impl WgpuRenderEngine {
         multiview_mask: None,
         cache: None,
       });
+      // Three planes: the gray and the two of color apart, each a texture of one channel.
+      let i420_image_bgl = {
+        let plane = |binding| wgpu::BindGroupLayoutEntry {
+          binding,
+          visibility: wgpu::ShaderStages::FRAGMENT,
+          ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+          },
+          count: None,
+        };
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+          label: Some("lurq_i420_image_bgl"),
+          entries: &[
+            wgpu::BindGroupLayoutEntry {
+              binding: 0,
+              visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+              ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+              },
+              count: None,
+            },
+            plane(1),
+            plane(2),
+            plane(3),
+            wgpu::BindGroupLayoutEntry {
+              binding: 4,
+              visibility: wgpu::ShaderStages::FRAGMENT,
+              ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+              count: None,
+            },
+          ],
+        })
+      };
+      let i420_image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lurq_i420_image_shader"),
+        source: wgpu::ShaderSource::Wgsl(i420_shader_source().into()),
+      });
+      let i420_image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lurq_i420_image_pl"),
+        bind_group_layouts: &[Some(&i420_image_bgl)],
+        immediate_size: 0,
+      });
+      let i420_image_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lurq_i420_image_pipeline"),
+        layout: Some(&i420_image_pipeline_layout),
+        vertex: wgpu::VertexState {
+          module: &i420_image_shader,
+          entry_point: Some("vs_main"),
+          buffers: &[QuadVertex::desc(), ImageInstance::desc()],
+          compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+          module: &i420_image_shader,
+          entry_point: Some("fs_main"),
+          targets: &[Some(wgpu::ColorTargetState {
+            format,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::ALL,
+          })],
+          compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+          topology: wgpu::PrimitiveTopology::TriangleList,
+          ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+      });
       let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("lurq_image_sampler"),
         mag_filter: wgpu::FilterMode::Linear,
@@ -1997,6 +2149,8 @@ impl WgpuRenderEngine {
         image_bgl,
         nv12_image_bgl,
         image_sampler,
+        i420_image_pipeline,
+        i420_image_bgl,
       )
     };
 
@@ -2056,6 +2210,7 @@ impl WgpuRenderEngine {
     {
       self.image_pipeline = Some(image_pipeline);
       self.nv12_image_pipeline = Some(nv12_image_pipeline);
+      self.i420_image_pipeline = Some(i420_image_pipeline);
     }
     self.quad_bgl = Some(quad_bgl);
     self.glyph_bgl = Some(glyph_bgl);
@@ -2063,6 +2218,7 @@ impl WgpuRenderEngine {
     {
       self.image_bgl = Some(image_bgl);
       self.nv12_image_bgl = Some(nv12_image_bgl);
+      self.i420_image_bgl = Some(i420_image_bgl);
     }
     #[cfg(feature = "raster")]
     {
@@ -3223,6 +3379,8 @@ impl RenderEngine for WgpuRenderEngine {
               let image_sampler = self.image_sampler.as_ref().unwrap().clone();
               let image_pipeline = self.image_pipeline.as_ref().unwrap().clone();
               let nv12_image_pipeline = self.nv12_image_pipeline.as_ref().unwrap().clone();
+              let i420_image_bgl = self.i420_image_bgl.as_ref().unwrap().clone();
+              let i420_image_pipeline = self.i420_image_pipeline.as_ref().unwrap().clone();
 
               let external_wgpu_image = img
                 .native
@@ -3346,10 +3504,19 @@ impl RenderEngine for WgpuRenderEngine {
                     globals_buffer,
                     img,
                   )),
+                  crate::images::ImagePixelFormat::I420 => create_i420_cached_image_texture(
+                    device,
+                    queue,
+                    &i420_image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    img,
+                  ),
                   crate::images::ImagePixelFormat::Nv12 => create_nv12_cached_image_texture(
                     device,
                     queue,
                     &nv12_image_bgl,
+                    &image_bgl,
                     &image_sampler,
                     globals_buffer,
                     img,
@@ -3368,6 +3535,8 @@ impl RenderEngine for WgpuRenderEngine {
               };
               match cached {
                 CachedImageTexture::ExternalRgba { .. } => {}
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                CachedImageTexture::CvRgba { .. } => {}
                 CachedImageTexture::Rgba {
                   texture,
                   animation_frames,
@@ -3404,6 +3573,23 @@ impl RenderEngine for WgpuRenderEngine {
                     *version = img.version;
                   }
                 }
+                CachedImageTexture::I420 {
+                  textures,
+                  frame_index,
+                  version,
+                  ..
+                } => {
+                  if *frame_index != img.frame_index || *version != img.version {
+                    let _image_texture_upload_start = profile_scope!();
+                    if !write_i420_image_textures(queue, textures, img) {
+                      _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                      continue;
+                    }
+                    _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                    *frame_index = img.frame_index;
+                    *version = img.version;
+                  }
+                }
                 // Nothing is sent to the card for a frame that is there already.
                 #[cfg(windows)]
                 CachedImageTexture::Card(_) => {}
@@ -3427,6 +3613,8 @@ impl RenderEngine for WgpuRenderEngine {
               let one_view = match (&*cached, card_rgba) {
                 (_, Some(found)) => Some(found),
                 (CachedImageTexture::ExternalRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                (CachedImageTexture::CvRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
                 _ => None,
               };
 
@@ -3512,6 +3700,39 @@ impl RenderEngine for WgpuRenderEngine {
                           },
                         ],
                       })
+                    });
+                    pass.set_bind_group(0, &*clip_bind_group, &[]);
+                  } else {
+                    pass.set_bind_group(0, bind_group, &[]);
+                  }
+                }
+                CachedImageTexture::I420 {
+                  bind_group,
+                  y_view,
+                  u_view,
+                  v_view,
+                  ..
+                } => {
+                  if active_pipeline != Some(ActivePipeline::I420Image) {
+                    pass.set_pipeline(&i420_image_pipeline);
+                    active_pipeline = Some(ActivePipeline::I420Image);
+                  }
+                  if needs_clip_globals(img.clip, &space) {
+                    let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
+                    let bind_key = ImageClipBindGroupKey {
+                      image_id: img.image_id,
+                      frame_index: img.frame_index,
+                      clip: clip_key,
+                      format: ImageClipFormat::I420,
+                    };
+                    let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                      i420_bind_group(
+                        device,
+                        &i420_image_bgl,
+                        clip_globals,
+                        [y_view, u_view, v_view],
+                        &image_sampler,
+                      )
                     });
                     pass.set_bind_group(0, &*clip_bind_group, &[]);
                   } else {
@@ -4066,23 +4287,32 @@ fn create_nv12_cached_image_texture(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
   nv12_image_bgl: &wgpu::BindGroupLayout,
+  #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(unused_variables))]
+  image_bgl: &wgpu::BindGroupLayout,
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
 ) -> Option<CachedImageTexture> {
-  if image.image_width == 0
-    || image.image_height == 0
-    || !image.image_width.is_multiple_of(2)
-    || !image.image_height.is_multiple_of(2)
-  {
+  if image.image_width == 0 || image.image_height == 0 {
     return None;
   }
+  // A pixel buffer's frame, of any size: its planes are opened as they are, or its one of red, green and blue.
   #[cfg(any(target_os = "macos", target_os = "ios"))]
   if matches!(
     image.native.as_ref().map(crate::images::NativeImageData::backend),
     Some(crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
   ) {
-    return create_macos_native_nv12_cached_image_texture(device, nv12_image_bgl, image_sampler, globals_buffer, image);
+    return create_macos_native_nv12_cached_image_texture(
+      device,
+      nv12_image_bgl,
+      image_bgl,
+      image_sampler,
+      globals_buffer,
+      image,
+    );
+  }
+  if !image.image_width.is_multiple_of(2) || !image.image_height.is_multiple_of(2) {
+    return None;
   }
   // The frames of the card are opened before the images are drawn, and are not made here.
   if is_card_frames(image) {
@@ -4164,6 +4394,7 @@ fn create_nv12_cached_image_texture(
 fn create_macos_native_nv12_cached_image_texture(
   device: &wgpu::Device,
   nv12_image_bgl: &wgpu::BindGroupLayout,
+  image_bgl: &wgpu::BindGroupLayout,
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
@@ -4177,7 +4408,20 @@ fn create_macos_native_nv12_cached_image_texture(
       .pixel_buffer
       .clone(),
   };
+  // A frame of red, green and blue is a picture, of one view.
   // SAFETY: the buffer is held for as long as this runs.
+  if unsafe { video_color::is_bgra(buffer.as_ptr()) } {
+    return create_macos_native_bgra_cached_image_texture(
+      device,
+      image_bgl,
+      image_sampler,
+      globals_buffer,
+      image,
+      native,
+      buffer,
+    );
+  }
+  // SAFETY: as above.
   let color = unsafe { video_color::of(buffer.as_ptr()) }?;
   // Ten bits are the high ones of sixteen, which a texture of 16-bit unorm reads as the same fraction of the range.
   let ((y_metal, y_format), (uv_metal, uv_format)) = if color.ten_bit {
@@ -4255,6 +4499,60 @@ fn create_macos_native_nv12_cached_image_texture(
     width: image.image_width,
     height: image.image_height,
     frame_index: image.frame_index,
+    version: image.version,
+  })
+}
+
+/// The texture of a frame of red, green and blue in a pixel buffer, read as sRGB, as a picture's is.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+fn create_macos_native_bgra_cached_image_texture(
+  device: &wgpu::Device,
+  image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  image: &crate::images::ImageCmd,
+  native: crate::images::NativeImageData,
+  buffer: crate::images::MacosCvPixelBuffer,
+) -> Option<CachedImageTexture> {
+  let (texture, cv_texture) = create_macos_native_plane_texture(
+    device,
+    buffer.as_ptr(),
+    image.image_width,
+    image.image_height,
+    0,
+    objc2_metal::MTLPixelFormat::BGRA8Unorm_sRGB,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    "lurq_macos_bgra",
+  )?;
+  let view = texture.create_view(&Default::default());
+  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_macos_bgra_img_bg"),
+    layout: image_bgl,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals_buffer.as_entire_binding(),
+      },
+      wgpu::BindGroupEntry {
+        binding: 1,
+        resource: wgpu::BindingResource::TextureView(&view),
+      },
+      wgpu::BindGroupEntry {
+        binding: 2,
+        resource: wgpu::BindingResource::Sampler(image_sampler),
+      },
+    ],
+  });
+  Some(CachedImageTexture::CvRgba {
+    bind_group,
+    view,
+    _held: MacosNativeRgbaTexture {
+      _native: native,
+      _buffer: buffer,
+      _cv_texture: cv_texture,
+    },
+    width: image.image_width,
+    height: image.image_height,
     version: image.version,
   })
 }
@@ -4391,6 +4689,161 @@ fn write_rgba_texture_data(queue: &wgpu::Queue, texture: &wgpu::Texture, width: 
       depth_or_array_layers: 1,
     },
   );
+}
+
+/// The shader of a picture of three planes: the NV12 one, with the two of color read from two textures.
+#[cfg(feature = "raster")]
+fn i420_shader_source() -> String {
+  let nv12 = concat!(
+    include_str!("shaders/image_nv12.wgsl"),
+    include_str!("shaders/yuv.wgsl")
+  );
+  let bindings = "@group(0) @binding(2) var uv_tex: texture_2d<f32>;\n@group(0) @binding(3) var img_sampler: sampler;";
+  let sample = "let uv = textureSample(uv_tex, img_sampler, in.uv).rg;";
+  assert!(
+    nv12.contains(bindings) && nv12.contains(sample),
+    "the NV12 shader reads its color as it did"
+  );
+  nv12
+    .replace(
+      bindings,
+      "@group(0) @binding(2) var u_tex: texture_2d<f32>;\n@group(0) @binding(3) var v_tex: texture_2d<f32>;\n\
+       @group(0) @binding(4) var img_sampler: sampler;",
+    )
+    .replace(
+      sample,
+      "let uv = vec2<f32>(textureSample(u_tex, img_sampler, in.uv).r, textureSample(v_tex, img_sampler, in.uv).r);",
+    )
+}
+
+/// The bind group of a picture of three planes, with the globals of its draw.
+#[cfg(feature = "raster")]
+fn i420_bind_group(
+  device: &wgpu::Device,
+  layout: &wgpu::BindGroupLayout,
+  globals: &wgpu::Buffer,
+  planes: [&wgpu::TextureView; 3],
+  sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+  let view = |binding, view| wgpu::BindGroupEntry {
+    binding,
+    resource: wgpu::BindingResource::TextureView(view),
+  };
+  device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_i420_image_bg"),
+    layout,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals.as_entire_binding(),
+      },
+      view(1, planes[0]),
+      view(2, planes[1]),
+      view(3, planes[2]),
+      wgpu::BindGroupEntry {
+        binding: 4,
+        resource: wgpu::BindingResource::Sampler(sampler),
+      },
+    ],
+  })
+}
+
+/// The textures of a picture of memory of three planes, with its first frame in them.
+#[cfg(feature = "raster")]
+fn create_i420_cached_image_texture(
+  device: &wgpu::Device,
+  queue: &wgpu::Queue,
+  i420_image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  image: &crate::images::ImageCmd,
+) -> Option<CachedImageTexture> {
+  let (width, height) = (image.image_width, image.image_height);
+  if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+    return None;
+  }
+  let plane = |label, width, height| {
+    device.create_texture(&wgpu::TextureDescriptor {
+      label: Some(label),
+      size: wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+      },
+      mip_level_count: 1,
+      sample_count: 1,
+      dimension: wgpu::TextureDimension::D2,
+      format: wgpu::TextureFormat::R8Unorm,
+      usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+      view_formats: &[],
+    })
+  };
+  let textures = [
+    plane("lurq_i420_y", width, height),
+    plane("lurq_i420_u", width / 2, height / 2),
+    plane("lurq_i420_v", width / 2, height / 2),
+  ];
+  if !write_i420_image_textures(queue, &textures, image) {
+    return None;
+  }
+  let [y_view, u_view, v_view] = textures
+    .each_ref()
+    .map(|texture| texture.create_view(&Default::default()));
+  let bind_group = i420_bind_group(
+    device,
+    i420_image_bgl,
+    globals_buffer,
+    [&y_view, &u_view, &v_view],
+    image_sampler,
+  );
+  Some(CachedImageTexture::I420 {
+    bind_group,
+    y_view,
+    u_view,
+    v_view,
+    textures,
+    width,
+    height,
+    frame_index: image.frame_index,
+    version: image.version,
+  })
+}
+
+/// Sends the three planes of `image` to its textures as they are laid out: no pass over them on the processor.
+#[cfg(feature = "raster")]
+fn write_i420_image_textures(
+  queue: &wgpu::Queue,
+  textures: &[wgpu::Texture; 3],
+  image: &crate::images::ImageCmd,
+) -> bool {
+  let (width, height) = (image.image_width, image.image_height);
+  let gray = width as usize * height as usize;
+  let color = gray / 4;
+  if image.data.len() < gray + 2 * color {
+    return false;
+  }
+  let planes = [
+    (&textures[0], 0, width, height),
+    (&textures[1], gray, width / 2, height / 2),
+    (&textures[2], gray + color, width / 2, height / 2),
+  ];
+  for (texture, start, plane_width, plane_height) in planes {
+    queue.write_texture(
+      texture.as_image_copy(),
+      &image.data[start..start + plane_width as usize * plane_height as usize],
+      wgpu::TexelCopyBufferLayout {
+        offset: 0,
+        bytes_per_row: Some(plane_width),
+        rows_per_image: Some(plane_height),
+      },
+      wgpu::Extent3d {
+        width: plane_width,
+        height: plane_height,
+        depth_or_array_layers: 1,
+      },
+    );
+  }
+  true
 }
 
 #[cfg(feature = "raster")]

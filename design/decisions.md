@@ -121,6 +121,39 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### A frame of three planes (I420) is drawn as it is
+
+- **Question.** A decoder of software (dav1d, libhevc, as Parties has) gives its frames in memory as three planes,
+  gray then the two of color apart (I420). lurq drew two planes, gray and the two of color side by side (NV12), and
+  red, green and blue: an app put the colors side by side on the processor itself before each frame.
+- **Decision (Ivan, 2026-11-18: "так давай l420 зробимо?").** An image of memory may be I420
+  (`ImageData::streaming_i420`, `set_streaming_i420`, `take_streaming_i420_buffer`): the `wgpu` renderer uploads the
+  three planes as they are and makes the colors of them in the shader, with no work on the processor, on every
+  system. The `dx12` renderer draws none yet and says so once in the log; it is to be done on Windows.
+- **Why.** A frame decoded in memory is uploaded once anyway; putting its planes together first is a pass more
+  over every frame for nothing.
+- **State.** Built on `feat/design-system` for `wgpu`: a test sends a picture to the card on Metal and reads its
+  three planes back as they were; the gallery's Video Player page draws the same bars as a pixel buffer and as I420,
+  pixel for pixel. `dx12` is to be done on Windows.
+
+### On Apple's systems an app's own frames are drawn where it wrote them: red, green and blue too, and once its card is done
+
+- **Question.** To write an app like Parties (`github.com/emcifuntik/parties`: voice, screen sharing, its own
+  decoders) in Rust on lurq, its frames have to reach the screen without a copy on Apple's systems as they do on
+  Windows (`CardFrames`, with its fence). `CvPixelBufferFrames` drew a decoder's buffers of gray and color alone, and
+  showed a buffer at once, whatever the app's card was still writing in it.
+- **Decision (Ivan, 2026-11-18: "а зірокопі можливість є малювати в текстуру як на віндовсі? щоб це було
+  переписано на раст", then "будемо працювати над цим").** `CvPixelBufferFrames` draws a buffer of red, green and
+  blue (`BGRA`, as ScreenCaptureKit and an app's own Metal give) where it is, as a picture of sRGB. And an app that
+  writes a frame with its own Metal commands shows it with the `MTLSharedEvent` it signals
+  (`CvPixelBufferFrames::show_after(buffer, &event, value)`): the frame is drawn from the first frame of the window
+  after the event reached the value, the one before it until then; nothing waits. Frames of three planes (I420) and a
+  picture elsewhere than the buffer's corner are left for later.
+- **Why.** A screen shared is red, green and blue; an app's decoder or renderer works on its own queue, and a
+  frame drawn before its card finished shows half of it. Waiting on the card in lurq's queue is not open to it
+  (wgpu gives no Metal queue), and asking the event costs nothing.
+- **State.** Built on `feat/design-system`, with its tests on Metal; no app of the kind is written on it yet.
+
 ### Undo takes back what was typed as the platform's own fields do
 
 - **Question.** Undo in a text input took back one character at a time, on every system: each key typed was a step

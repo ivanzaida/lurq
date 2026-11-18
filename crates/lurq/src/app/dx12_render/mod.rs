@@ -3063,6 +3063,17 @@ impl Dx12State {
       });
       return Ok(());
     }
+    // A picture of three planes is the wgpu renderer's yet: its box is left empty, as a viewport's is.
+    if image.image_format == crate::images::ImagePixelFormat::I420 {
+      static SAID: std::sync::Once = std::sync::Once::new();
+      SAID.call_once(|| {
+        tracing::warn!(
+          "the dx12 renderer draws no picture of three planes (I420) yet: its box is left empty. Draw with the wgpu \
+           renderer to show one"
+        );
+      });
+      return Ok(());
+    }
     let Some(scissor) = scissor_rect(self.space.clip(image.clip), self.space.width, self.space.height) else {
       return Ok(());
     };
@@ -3135,7 +3146,8 @@ impl Dx12State {
         self.image_pipeline.pipeline_state.clone(),
         self.image_pipeline.root_signature.clone(),
       ),
-      crate::images::ImagePixelFormat::Nv12 => (
+      // Three planes are not drawn here: see above.
+      crate::images::ImagePixelFormat::Nv12 | crate::images::ImagePixelFormat::I420 => (
         self.nv12_image_pipeline.pipeline_state.clone(),
         self.nv12_image_pipeline.root_signature.clone(),
       ),
@@ -3767,6 +3779,12 @@ impl Dx12State {
     }
 
     let descriptor_index = match image.image_format {
+      crate::images::ImagePixelFormat::I420 => {
+        return Err(dx12_invalid_arg(format!(
+          "the dx12 renderer draws no I420 image: image id={}",
+          image.image_id
+        )));
+      }
       crate::images::ImagePixelFormat::Rgba8 => {
         let texture = dx12_context(
           create_rgba_texture(&self.device, image.image_width, image.image_height),

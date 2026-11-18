@@ -1248,16 +1248,22 @@ impl Component for VideoPlayerPage {
             .lock()
             .expect("the decoder of the page")
             .as_ref()
-            .map(|decoded| decoded.image.clone())
+            .map(|decoded| (decoded.image.clone(), decoded.planes.clone()))
         })
         .flatten();
       match image {
-        Some(image) => items()
+        Some((image, planes)) => items()
           .child(item(
             lurq::components::Video::new(image)
               .stretch()
               .size(Dimension::Px(320.0), Dimension::Px(180.0)),
             "320 × 180, thirty frames a second · drawn on the card, where the decoder wrote them",
+          ))
+          .child(item(
+            lurq::components::Video::new(planes)
+              .stretch()
+              .size(Dimension::Px(320.0), Dimension::Px(180.0)),
+            "the same, as a decoder of software gives it · three planes of memory (I420), sent as they are",
           ))
           .into(),
         None => quiet("Nothing draws frames of the card in this run: it takes Metal.", 13.0).into(),

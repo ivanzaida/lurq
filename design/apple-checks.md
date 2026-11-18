@@ -73,17 +73,18 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 
 ## 3. The system and the windows
 
-- [ ] **Reduce motion, macOS.** `cargo test -p lurq --lib motion`: `the_platform_has_the_setting` passes. Then
+- [x] **Reduce motion, macOS.** `cargo test -p lurq --lib motion`: `the_platform_has_the_setting` passes. Then
   System Settings › Accessibility › Display › Reduce motion on, click back into the gallery: a transition (a
   sheet, a dialog) ends at once; off again, it moves again.
-  2026-11-18: `the_platform_has_the_setting` passes on a Mac; the setting turned on live is not looked at.
+  2026-11-18: `the_platform_has_the_setting` passes on a Mac; Ivan turned the setting on with the gallery open and
+  it took effect.
 - [ ] **Reduce motion, iOS.** Settings › Accessibility › Motion › Reduce Motion, back to `mobile_demo`: a sheet and a
   stack push switch without moving. It links on the simulator and on a device.
 - [ ] **Light and dark** follow the system, and change live when the system's appearance changes (macOS: System
   Settings › Appearance; iOS: Control Centre).
   2026-11-18, macOS: the gallery on its theme System went dark and light again as the system's appearance was
   changed under it, with no click (`appearance preferences` of System Events). iOS is not looked at.
-- [ ] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
+- [x] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
   the title bar dragging the window, double-click zooming it, the gallery's tabs in the title bar (open, close,
   reorder, a new tab with Cmd+T), full screen and back.
   2026-11-18: the lights are the system's own now, moved to where the bar's controls are
@@ -91,39 +92,45 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   press, the window's corners rounded by the system. Leaving full screen by the system's light or keys shows the
   bar and its lights again (whether the window is in full screen is read every turn). In full screen the bar
   stays with its tabs, a video and a sheet over it. Ivan saw the lights and full screen and back; the bar in full
-  screen, the tabs, the drag and the double click are still to be looked at.
-- [ ] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
-  apps' windows (`always_on_top`), and closes back.
+  screen with its tabs and none of its own lights under the system's, the bar dragging the window and a double click
+  on it zooming it (Ivan, 2026-11-18: "ок").
+- [x] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
+  apps' windows (`always_on_top`), and closes back. 2026-11-18: Ivan: it works on a Mac.
 - [ ] **Opening an address** (`open_url`). Link Preview page and a `ui::Link` with `href`: macOS opens the default
   browser (`NSWorkspace openURL:`), iOS opens Safari (`UIApplication openURL:`). A `file:` address is refused.
+  2026-11-18: a preview opens the page in the browser on a Mac (Ivan saw it). The playground took the click itself
+  (`on_open` on by default), which looked like nothing opening: it is off by default now. iOS not looked at.
 - [ ] **File dialogs** (macOS): Path Field page — Browse… picks a folder, Save as… saves a file with the filter and
   the name; Cancel gives nothing. iOS has no dialog: the button says so or does nothing, and nothing crashes.
-- [ ] **The clipboard.** Copy from a Markdown page (rich text pastes as Markdown into a text editor, plain into a
+  2026-11-18: Ivan: the dialogs and the drop zone work on a Mac. iOS not looked at.
+- [x] **The clipboard.** Copy from a Markdown page (rich text pastes as Markdown into a text editor, plain into a
   field), a picture copied and pasted, Signature Pad's PNG. Paste into a lurq field from another app.
   2026-11-18: text selected in the Markdown document and copied is plain text on the system's clipboard; lurq
   writes no Markdown or HTML there on any system (`clipboard.rs` has text, a picture and files). Pasting from
-  another app needs a person: MCP does not read the clipboard.
-- [ ] **Fonts and text.** The system fonts look right (San Francisco, the mono one in code); the caret blinks and
+  another app needs a person: MCP does not read the clipboard. Ivan: text pasted from another app comes in.
+- [x] **Fonts and text.** The system fonts look right (San Francisco, the mono one in code); the caret blinks and
   stops while typing; selection by drag and by double-click; IME: Ukrainian, then Japanese with its candidate
   window in the right place.
   2026-11-18, through MCP: San Francisco and the mono font in code; a drag selects across a heading and a
-  paragraph, a double click selects a word. The caret and IME need a person.
+  paragraph, a double click selects a word. Ivan: typing in a Ukrainian layout works. A Japanese input method
+  (its composition and its window of candidates at the caret) is left unchecked, by Ivan's choice.
 
 ## 4. The keyboard (the editing commands of 2026-11-17)
 
-- [ ] **Cmd, not Ctrl.** In a text field and on the Signature Pad: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y does
+- [x] **Cmd, not Ctrl.** In a text field and on the Signature Pad: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y does
   **not** redo; Cmd+C, Cmd+X, Cmd+V, Cmd+A. In a Ukrainian layout the same keys by their place.
   2026-11-18, keys of MCP into an Input: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y and Ctrl+Z do nothing, Cmd+A,
   Cmd+C and Cmd+X go through the system's clipboard (`pbpaste` reads what was copied). Cmd+V is not tried: MCP
   refuses a paste of the person's clipboard. Undo takes back one character at a time, on every system: typing is
-  not grouped into one step. The keys of a Ukrainian layout need a keyboard.
+  not grouped into one step (grouped since, as the platform does). Ivan: Cmd+V from another app and the keys in a
+  Ukrainian layout work.
 - [x] **A native Edit menu.** If the app has a menu bar with Undo/Redo/Copy/Paste items with their accelerators,
   the menu takes Cmd+Z before the window: each item must run `window.edit(EditCommand::..)` and do the same thing
   the key does. The gallery's menu, if it has one, as the example.
   2026-11-18: the gallery has no menu of its own; lurq puts an Edit menu in every app's bar now (decisions.md, "On
   macOS every app has an Edit menu"), and the bar shows "gallery" and "Edit". Ivan tried its items and their keys:
   they work.
-- [ ] **Option + a letter** types the letter's character and is not a command (Option is Alt).
+- [x] **Option + a letter** types the letter's character and is not a command (Option is Alt). 2026-11-18: Ivan: ok.
 - [ ] **Tab and the focus** go through the controls as on Windows; Full Keyboard Access on macOS where it changes
   what Tab reaches.
   2026-11-18, through MCP: Tab goes from button to button and Shift+Tab back. Full Keyboard Access not tried.
@@ -166,7 +173,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   `allowedTouchTypes` pencil only, on winit's view. Over the gallery a button shows its hover style under the hovering
   pencil and loses it when the pencil leaves; a trackpad's pointer is still the mouse's, not the pencil's; the
   recognizer takes no touch from winit's view (a pencil's tap still clicks once).
-- [ ] **Trackpad pinch and smart zoom on ZoomScroll** (Mac, added 2026-11-18). In the gallery's
+- [x] **Trackpad pinch and smart zoom on ZoomScroll** (Mac, added 2026-11-18). In the gallery's
   `/engine/zoom-scroll`, and a picture in a lightbox: a pinch on the trackpad zooms the plan about the pointer,
   apart closer and together further, as far as the fingers go, and the point under the pointer stays under it; a
   double tap of two fingers (smart zoom, on in System Settings › Trackpad) goes in at the pointer and again back
@@ -174,6 +181,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   from you is closer. winit's `PinchGesture`, `RotationGesture` and `DoubleTapGesture` reach the tree through
   `winit_shell/trackpad_gestures.rs` (tested on Windows by its mapping alone): check the pinch's pace against
   Preview's, and that a rotation on the trackpad over an element with `on_rotate` turns it the way the fingers turn.
+  2026-11-18: Ivan: the pinch and the smart zoom work on a Mac.
 - [ ] **The emulator against the device.** The same page on the phone and on a Mac with `LURQ_DEVICE=phone`: the
   gestures feel and do the same; note what the mouse cannot imitate.
 - [ ] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).
@@ -272,6 +280,12 @@ macOS and iOS"). 1, 3, 4, 5, 6 and 7 are done; 2 in part; 8 not.
   each kind of buffer read. The gallery's decoder writes BT.709 bars and they are drawn within 2 of 255 of pure
   red, green and blue. Not done: the transfer of HDR (PQ, HLG) and its wide colors, which are drawn as if SDR;
   Windows' frames are told nothing and stay BT.709 of the video range, as before.
+- [x] **9. An app's own frames, as on Windows** (2026-11-18, decisions.md, "On Apple's systems an app's own
+  frames are drawn where it wrote them"). A buffer of `BGRA` is drawn where it is, as a picture of sRGB
+  (`MacosCvPixelBuffer::bgra`, `write_bgra`); a frame the app's Metal writes is shown once its `MTLSharedEvent`
+  reaches its value (`show_after`). Tests on Metal: the bytes of a `BGRA` buffer of an odd width read back as they
+  were written (and all wrong with the channels swapped); frames waiting for an event are shown in the order the
+  card finishes them. Not done: frames of three planes (I420), and a picture elsewhere than the buffer's corner.
 - [ ] **8. Not looked at.** A Mac with two graphics cards (Intel ones, an external card) and a card taken away
   while the app runs. An IOSurface is shared between cards by the system, which Windows' textures are not, so
   what was built there for a decoder on another card may not be needed.

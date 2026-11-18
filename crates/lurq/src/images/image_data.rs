@@ -30,6 +30,10 @@ pub enum ImageKind {
 pub enum ImagePixelFormat {
   Rgba8,
   Nv12,
+  /// Three planes, as a decoder of software gives them: gray, `width` by `height`, then blue-difference and
+  /// red-difference apart, each half as wide and half as high. The `wgpu` renderer draws them as they are; the
+  /// `dx12` renderer draws none yet.
+  I420,
 }
 
 #[cfg(all(feature = "image", feature = "http"))]
@@ -138,6 +142,26 @@ impl MacosCvPixelBuffer {
   /// ([`CvPixelBufferFrames::show`]); what the system's decoders give is such a buffer already. `None` where the
   /// system makes none of that size.
   pub fn nv12(width: u32, height: u32) -> Option<Self> {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+      return None;
+    }
+    Self::made(
+      width,
+      height,
+      core_video_sys::pixel_buffer::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+    )
+  }
+
+  /// A buffer of one plane of blue, green, red and alpha (`BGRA`, a byte each, of sRGB), `width` by `height`, that
+  /// Metal draws where it is: what an app renders with its own Metal or writes in memory
+  /// ([`write_bgra`](Self::write_bgra)), as ScreenCaptureKit gives a screen. `None` where the system makes none of
+  /// that size.
+  pub fn bgra(width: u32, height: u32) -> Option<Self> {
+    Self::made(width, height, u32::from_be_bytes(*b"BGRA"))
+  }
+
+  /// A buffer of the system's surface, which Metal makes textures of, in the pixel format `format`.
+  fn made(width: u32, height: u32, format: u32) -> Option<Self> {
     use core_foundation_sys::{
       base::kCFAllocatorDefault,
       dictionary::{CFDictionaryCreate, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks},
@@ -145,9 +169,8 @@ impl MacosCvPixelBuffer {
     };
     use core_video_sys::pixel_buffer::{
       CVPixelBufferCreate, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey,
-      kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
     };
-    if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+    if width == 0 || height == 0 {
       return None;
     }
     // SAFETY: the dictionaries are made of the system's own keys and values, which they retain, and are let
@@ -177,7 +200,7 @@ impl MacosCvPixelBuffer {
         kCFAllocatorDefault,
         width as usize,
         height as usize,
-        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        format,
         // The binding of CoreVideo names the dictionary by another version of CoreFoundation's: one type.
         attributes.cast(),
         &mut buffer,
@@ -185,6 +208,30 @@ impl MacosCvPixelBuffer {
       CFRelease(attributes.cast());
       CFRelease(surface.cast());
       (status == 0 && !buffer.is_null()).then_some(Self { ptr: buffer })
+    }
+  }
+
+  /// Writes a frame into a buffer of one plane of `BGRA`: `write` is given its rows and how many bytes a row is,
+  /// at least four for each pixel across. `false` where the buffer is of planes, or could not be held to be written.
+  pub fn write_bgra(&self, write: impl FnOnce(&mut [u8], usize)) -> bool {
+    use core_video_sys::pixel_buffer::{
+      CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight, CVPixelBufferGetPlaneCount,
+      CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
+    };
+    // SAFETY: the buffer is held while it is written, and holds its rows of `stride` bytes.
+    unsafe {
+      if CVPixelBufferGetPlaneCount(self.ptr) != 0 || CVPixelBufferLockBaseAddress(self.ptr, 0) != 0 {
+        return false;
+      }
+      let stride = CVPixelBufferGetBytesPerRow(self.ptr);
+      let rows = CVPixelBufferGetHeight(self.ptr);
+      let start = CVPixelBufferGetBaseAddress(self.ptr).cast::<u8>();
+      let written = !start.is_null();
+      if written {
+        write(std::slice::from_raw_parts_mut(start, stride * rows), stride);
+      }
+      CVPixelBufferUnlockBaseAddress(self.ptr, 0);
+      written
     }
   }
 
@@ -262,7 +309,26 @@ pub struct CvPixelBufferFrames {
 struct CvPixelBufferFramesState {
   shown: Mutex<Option<MacosCvPixelBuffer>>,
   count: AtomicU64,
+  /// Frames the app's card is still writing, oldest first: see [`CvPixelBufferFrames::show_after`].
+  #[cfg(feature = "wgpu")]
+  waiting: Mutex<std::collections::VecDeque<WaitingFrame>>,
 }
+
+/// A frame shown once its event reaches its value.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "wgpu"))]
+struct WaitingFrame {
+  buffer: MacosCvPixelBuffer,
+  event: objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLSharedEvent>>,
+  value: u64,
+}
+
+// SAFETY: a shared event is Metal's to signal and read from any thread.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "wgpu"))]
+unsafe impl Send for WaitingFrame {}
+
+/// How many frames may wait for their card at once: one more, and the oldest is not shown.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "wgpu"))]
+const FRAMES_WAITING: usize = 8;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 impl CvPixelBufferFrames {
@@ -270,19 +336,65 @@ impl CvPixelBufferFrames {
     Self::default()
   }
 
-  /// `buffer` is the frame to show from now on.
+  /// `buffer` is the frame to show from now on. The buffer is whole: a decoder of the system's, or one that wrote
+  /// it in memory, gives it so. A frame the app's own card writes is [`show_after`](Self::show_after).
   pub fn show(&self, buffer: MacosCvPixelBuffer) {
+    #[cfg(feature = "wgpu")]
+    self.state.waiting.lock().clear();
     *self.state.shown.lock() = Some(buffer);
     self.state.count.fetch_add(1, Ordering::AcqRel);
   }
 
+  /// `buffer` is the frame to show once `event` reaches `value`: the app's Metal commands that write it signal the
+  /// event when they are done (`encodeSignalEvent:value:`). Nothing waits for it: until then the frame before is
+  /// drawn, and the first frame of the window after it is this one. A later frame that is ready first is shown
+  /// first, and this one never. The buffer is held, and not written again by the app's pool, until it is drawn no
+  /// more.
+  #[cfg(feature = "wgpu")]
+  pub fn show_after(
+    &self,
+    buffer: MacosCvPixelBuffer,
+    event: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLSharedEvent>,
+    value: u64,
+  ) {
+    let mut waiting = self.state.waiting.lock();
+    if waiting.len() == FRAMES_WAITING {
+      waiting.pop_front();
+    }
+    waiting.push_back(WaitingFrame {
+      buffer,
+      event: objc2::Message::retain(event),
+      value,
+    });
+  }
+
+  /// Shows the newest frame that waited and is written now, and lets go of those before it.
+  fn settle(&self) {
+    #[cfg(feature = "wgpu")]
+    {
+      use objc2_metal::MTLSharedEvent as _;
+      let mut waiting = self.state.waiting.lock();
+      if let Some(ready) = waiting
+        .iter()
+        .rposition(|frame| frame.event.signaledValue() >= frame.value)
+      {
+        let frame = waiting.drain(..=ready).last().expect("one was found");
+        drop(waiting);
+        *self.state.shown.lock() = Some(frame.buffer);
+        self.state.count.fetch_add(1, Ordering::AcqRel);
+      }
+    }
+  }
+
   /// The frame to show, where one was shown.
   pub fn shown(&self) -> Option<MacosCvPixelBuffer> {
+    self.settle();
     self.state.shown.lock().clone()
   }
 
   /// How many frames were shown: the version of an image of these frames.
   pub(crate) fn count(&self) -> u64 {
+    self.settle();
     self.state.count.load(Ordering::Acquire)
   }
 }
@@ -374,6 +486,13 @@ impl ImageData {
   pub fn streaming_nv12(data: Vec<u8>, width: u32, height: u32) -> Self {
     assert_eq!(data.len(), nv12_len(width, height));
     Self::streaming(data, width, height, ImagePixelFormat::Nv12, true)
+  }
+
+  /// A picture that changes, of three planes (see [`ImagePixelFormat::I420`]): `data` is the gray, then the
+  /// blue-difference, then the red-difference, each row as long as its plane is wide. `width` and `height` are even.
+  pub fn streaming_i420(data: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(data.len(), nv12_len(width, height));
+    Self::streaming(data, width, height, ImagePixelFormat::I420, true)
   }
 
   fn streaming(data: Vec<u8>, width: u32, height: u32, format: ImagePixelFormat, continuous_redraw: bool) -> Self {
@@ -571,6 +690,13 @@ impl ImageData {
     self.set_streaming_data(data);
   }
 
+  /// The next frame of a picture of [`streaming_i420`](Self::streaming_i420), laid out as it is.
+  pub fn set_streaming_i420(&self, data: Vec<u8>) {
+    assert_eq!(self.format, ImagePixelFormat::I420);
+    assert_eq!(data.len(), nv12_len(self.width, self.height));
+    self.set_streaming_data(data);
+  }
+
   fn set_streaming_data(&self, data: Vec<u8>) {
     let Some(streaming) = &self.streaming else {
       panic!("set_streaming_data requires a streaming ImageData");
@@ -591,6 +717,12 @@ impl ImageData {
 
   pub fn take_streaming_nv12_buffer(&self) -> Option<Vec<u8>> {
     assert_eq!(self.format, ImagePixelFormat::Nv12);
+    self.take_streaming_buffer(nv12_len(self.width, self.height))
+  }
+
+  /// A buffer of a frame before, no longer drawn, to write the next frame of three planes into.
+  pub fn take_streaming_i420_buffer(&self) -> Option<Vec<u8>> {
+    assert_eq!(self.format, ImagePixelFormat::I420);
     self.take_streaming_buffer(nv12_len(self.width, self.height))
   }
 
@@ -929,6 +1061,7 @@ fn delay_ms(delay: image::Delay) -> u64 {
   ms.max(MIN_ANIMATION_FRAME_MS)
 }
 
+/// How many bytes a frame of two planes (NV12) or of three (I420) is: the color is a quarter of the gray, twice.
 fn nv12_len(width: u32, height: u32) -> usize {
   assert!(width > 0 && height > 0 && width.is_multiple_of(2) && height.is_multiple_of(2));
   (width * height + width * height / 2) as usize
