@@ -44,8 +44,10 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   angle slider are dragged from where a finger lands, in a page that scrolls (`Node::finger_drags`); a date and a
   time picker open at a tap of the field, with no keyboard on the screen (`KeyboardKind::None`); a finger that
   taps while another is held clicks what it taps (three toasts held open, one closed by another finger; see
-  [mobile-decisions.md](mobile-decisions.md)). Still open: the on-screen keyboard stays up when a field loses
-  the focus; a video at an address lagged the app (not reproduced on a Mac); the pages not yet gone through.
+  [mobile-decisions.md](mobile-decisions.md)). And since: a tap outside a field lets it go and the keyboard goes
+  down (a scroll does not); a video at an address no longer lags the app (fixed on the PC). 2026-11-18, on the
+  build of `5ef08b98`, Ivan saw each of these on his iPhone. Still open: the pages not yet gone through (sections 3
+  to 6 for iOS).
 
 ## 2. Drawing on Metal
 
