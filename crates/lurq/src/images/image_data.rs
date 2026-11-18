@@ -30,6 +30,10 @@ pub enum ImageKind {
 pub enum ImagePixelFormat {
   Rgba8,
   Nv12,
+  /// Three planes, as a decoder of software gives them: gray, `width` by `height`, then blue-difference and
+  /// red-difference apart, each half as wide and half as high. The `wgpu` renderer draws them as they are; the
+  /// `dx12` renderer draws none yet.
+  I420,
 }
 
 #[cfg(all(feature = "image", feature = "http"))]
@@ -484,6 +488,13 @@ impl ImageData {
     Self::streaming(data, width, height, ImagePixelFormat::Nv12, true)
   }
 
+  /// A picture that changes, of three planes (see [`ImagePixelFormat::I420`]): `data` is the gray, then the
+  /// blue-difference, then the red-difference, each row as long as its plane is wide. `width` and `height` are even.
+  pub fn streaming_i420(data: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(data.len(), nv12_len(width, height));
+    Self::streaming(data, width, height, ImagePixelFormat::I420, true)
+  }
+
   fn streaming(data: Vec<u8>, width: u32, height: u32, format: ImagePixelFormat, continuous_redraw: bool) -> Self {
     let data = Arc::new(data);
     Self {
@@ -679,6 +690,13 @@ impl ImageData {
     self.set_streaming_data(data);
   }
 
+  /// The next frame of a picture of [`streaming_i420`](Self::streaming_i420), laid out as it is.
+  pub fn set_streaming_i420(&self, data: Vec<u8>) {
+    assert_eq!(self.format, ImagePixelFormat::I420);
+    assert_eq!(data.len(), nv12_len(self.width, self.height));
+    self.set_streaming_data(data);
+  }
+
   fn set_streaming_data(&self, data: Vec<u8>) {
     let Some(streaming) = &self.streaming else {
       panic!("set_streaming_data requires a streaming ImageData");
@@ -699,6 +717,12 @@ impl ImageData {
 
   pub fn take_streaming_nv12_buffer(&self) -> Option<Vec<u8>> {
     assert_eq!(self.format, ImagePixelFormat::Nv12);
+    self.take_streaming_buffer(nv12_len(self.width, self.height))
+  }
+
+  /// A buffer of a frame before, no longer drawn, to write the next frame of three planes into.
+  pub fn take_streaming_i420_buffer(&self) -> Option<Vec<u8>> {
+    assert_eq!(self.format, ImagePixelFormat::I420);
     self.take_streaming_buffer(nv12_len(self.width, self.height))
   }
 
@@ -1037,6 +1061,7 @@ fn delay_ms(delay: image::Delay) -> u64 {
   ms.max(MIN_ANIMATION_FRAME_MS)
 }
 
+/// How many bytes a frame of two planes (NV12) or of three (I420) is: the color is a quarter of the gray, twice.
 fn nv12_len(width: u32, height: u32) -> usize {
   assert!(width > 0 && height > 0 && width.is_multiple_of(2) && height.is_multiple_of(2));
   (width * height + width * height / 2) as usize
