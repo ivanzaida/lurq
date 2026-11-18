@@ -84,7 +84,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   Settings › Appearance; iOS: Control Centre).
   2026-11-18, macOS: the gallery on its theme System went dark and light again as the system's appearance was
   changed under it, with no click (`appearance preferences` of System Events). iOS is not looked at.
-- [ ] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
+- [x] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
   the title bar dragging the window, double-click zooming it, the gallery's tabs in the title bar (open, close,
   reorder, a new tab with Cmd+T), full screen and back.
   2026-11-18: the lights are the system's own now, moved to where the bar's controls are
@@ -92,12 +92,14 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   press, the window's corners rounded by the system. Leaving full screen by the system's light or keys shows the
   bar and its lights again (whether the window is in full screen is read every turn). In full screen the bar
   stays with its tabs, a video and a sheet over it. Ivan saw the lights and full screen and back; the bar in full
-  screen with its tabs and none of its own lights under the system's (Ivan, 2026-11-18: "ок"). The drag and the
-  double click are still to be looked at.
+  screen with its tabs and none of its own lights under the system's, the bar dragging the window and a double click
+  on it zooming it (Ivan, 2026-11-18: "ок").
 - [x] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
   apps' windows (`always_on_top`), and closes back. 2026-11-18: Ivan: it works on a Mac.
 - [ ] **Opening an address** (`open_url`). Link Preview page and a `ui::Link` with `href`: macOS opens the default
   browser (`NSWorkspace openURL:`), iOS opens Safari (`UIApplication openURL:`). A `file:` address is refused.
+  2026-11-18: a preview opens the page in the browser on a Mac (Ivan saw it). The playground took the click itself
+  (`on_open` on by default), which looked like nothing opening: it is off by default now. iOS not looked at.
 - [ ] **File dialogs** (macOS): Path Field page — Browse… picks a folder, Save as… saves a file with the filter and
   the name; Cancel gives nothing. iOS has no dialog: the button says so or does nothing, and nothing crashes.
   2026-11-18: Ivan: the dialogs and the drop zone work on a Mac. iOS not looked at.
@@ -128,7 +130,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   2026-11-18: the gallery has no menu of its own; lurq puts an Edit menu in every app's bar now (decisions.md, "On
   macOS every app has an Edit menu"), and the bar shows "gallery" and "Edit". Ivan tried its items and their keys:
   they work.
-- [ ] **Option + a letter** types the letter's character and is not a command (Option is Alt).
+- [x] **Option + a letter** types the letter's character and is not a command (Option is Alt). 2026-11-18: Ivan: ok.
 - [ ] **Tab and the focus** go through the controls as on Windows; Full Keyboard Access on macOS where it changes
   what Tab reaches.
   2026-11-18, through MCP: Tab goes from button to button and Shift+Tab back. Full Keyboard Access not tried.
@@ -171,7 +173,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   `allowedTouchTypes` pencil only, on winit's view. Over the gallery a button shows its hover style under the hovering
   pencil and loses it when the pencil leaves; a trackpad's pointer is still the mouse's, not the pencil's; the
   recognizer takes no touch from winit's view (a pencil's tap still clicks once).
-- [ ] **Trackpad pinch and smart zoom on ZoomScroll** (Mac, added 2026-11-18). In the gallery's
+- [x] **Trackpad pinch and smart zoom on ZoomScroll** (Mac, added 2026-11-18). In the gallery's
   `/engine/zoom-scroll`, and a picture in a lightbox: a pinch on the trackpad zooms the plan about the pointer,
   apart closer and together further, as far as the fingers go, and the point under the pointer stays under it; a
   double tap of two fingers (smart zoom, on in System Settings › Trackpad) goes in at the pointer and again back
@@ -179,6 +181,7 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   from you is closer. winit's `PinchGesture`, `RotationGesture` and `DoubleTapGesture` reach the tree through
   `winit_shell/trackpad_gestures.rs` (tested on Windows by its mapping alone): check the pinch's pace against
   Preview's, and that a rotation on the trackpad over an element with `on_rotate` turns it the way the fingers turn.
+  2026-11-18: Ivan: the pinch and the smart zoom work on a Mac.
 - [ ] **The emulator against the device.** The same page on the phone and on a Mac with `LURQ_DEVICE=phone`: the
   gestures feel and do the same; note what the mouse cannot imitate.
 - [ ] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).
