@@ -11,6 +11,27 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-18
 
+### A link preview's picture: plated when transparent, whole when wide in the compact form
+
+- **Decision (Ivan, 2026-11-18).** A preview's picture that has transparency (a logo, as Wikipedia's) stands on a
+  light plate, in both themes, as the site's icon does. In the compact form's 72 square a picture much wider or taller
+  than square (beyond 1.5:1, as GitHub's 2:1 repo card) is drawn whole (contain) on the plate; one near square keeps
+  the cover crop. The card form keeps its ratio and crop.
+- **State.** In work.
+
+### A link preview's picture on nothing stands on a light plate
+
+- **Question.** A page's picture that is dark on nothing (Wikipedia's Rust article gives the black Rust logo, a
+  transparent PNG) read dark on dark in the dark theme, inside the picture's muted box. The site's icon had been
+  given a white plate for the same reason (`e0839086`).
+- **Decision (Ivan).** A picture that shows what is behind it gets a light plate behind it in both themes, through
+  the recipe (state `transparent` of `LinkPreview`, on its `media` part), so a theme can restyle it; an opaque picture
+  is drawn as before. Transparent is one pixel in a hundred or more not opaque (`ImageData::has_transparency`): a
+  photo's rounded corners do not make it so. The picture on the plate is contained, not covered, 16 from the plate's
+  edges in a card and 8 in a row (the session's choice): a logo's edges are its shape, and cover cut the top and the
+  bottom off a square logo in the card's 1.91 : 1 box; a photo's edges are more of the scene, and photos stay covered.
+- **State.** Built, on `feat/design-system`.
+
 ### On Windows a run of typing is one step of undo, as on a Mac
 
 - **Question.** "Undo takes back what was typed as the platform's own fields do" (2026-11-17, below) took Windows'
