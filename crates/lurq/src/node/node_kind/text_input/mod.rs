@@ -69,7 +69,7 @@ struct TypingRun {
   /// Whether the last character typed was a space, after which a word begins a step on Windows.
   after_space: bool,
   /// When it was typed: what comes after a pause longer than the app's is a step of its own.
-  at: std::time::Instant,
+  at: crate::time::Instant,
 }
 
 /// How long a pause in typing ends a step of undo, until the app says another: [`App::set_typing_undo_pause`].
@@ -650,7 +650,7 @@ impl TextInputState {
       caret: inner.caret,
       len,
       after_space,
-      at: std::time::Instant::now(),
+      at: crate::time::Instant::now(),
     });
   }
 

@@ -201,7 +201,7 @@ fn the_three_planes_of_a_picture_are_sent_to_the_card_as_they_are_and_its_shader
   // The shader is the NV12 one with the color read from two textures, and it is valid.
   let source = super::i420_shader_source();
   assert!(source.contains("u_tex") && source.contains("v_tex") && !source.contains("uv_tex"));
-  device.create_shader_module(wgpu::ShaderModuleDescriptor {
+  let _ = device.create_shader_module(wgpu::ShaderModuleDescriptor {
     label: None,
     source: wgpu::ShaderSource::Wgsl(source.into()),
   });
