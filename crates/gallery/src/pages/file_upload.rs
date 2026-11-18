@@ -378,7 +378,7 @@ impl Component for FileUploadPage {
     *slot.lock().unwrap() = Some(upload.clone());
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 2),
+      playground: Playground::new(ctx, 3),
       files,
       upload,
       accept: ctx.signal(0),

@@ -310,7 +310,7 @@ impl Component for DropZonePage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 3),
+      playground: Playground::new(ctx, 4),
       title: ctx.signal("Drop files here".to_owned()),
       description: ctx.signal("or click to browse".to_owned()),
       accept: ctx.signal(0),
