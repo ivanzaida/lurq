@@ -17,7 +17,9 @@
 //! ([`Tree::has_active_timeline`], [`Tree::next_timeline_change`]): a shell paces their frames as it does a
 //! transition's, and asks for none once the content is where it was going.
 
-use super::{Tree, find_node_by_id, find_scroll_node_id_by_state, mark_scroll_layout_dirty};
+use super::{
+  MouseModifiers, ScrollInput, Tree, find_node_by_id, find_scroll_node_id_by_state, mark_scroll_layout_dirty,
+};
 use crate::{
   app::{events::ScrollPhase, theme::Theme},
   core::NodeId,
@@ -49,14 +51,34 @@ impl Tree {
   ///
   /// With motion reduced, or the theme's [`smooth_scroll`](Theme::set_smooth_scroll) off, this is `scroll`.
   pub fn wheel(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    self.wheel_with_meta(x, y, delta_x, delta_y, phase, false, false, false, false);
+  }
+
+  /// [`wheel`](Self::wheel) with the keys held as it turned, which its [`ScrollEvent`](crate::app::events::ScrollEvent)
+  /// tells: Ctrl and the wheel zoom what zooms by it.
+  #[allow(clippy::too_many_arguments)]
+  pub fn wheel_with_meta(
+    &mut self,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    meta: bool,
+  ) {
     // What is on its way is where it is now before the wheel turns it, and its container has heard so: no
     // part of a frame's way is lost, and none goes untold.
     self.step_wheel_scrolls();
-    if !self.wheel_motion {
-      self.scroll(x, y, delta_x, delta_y, phase);
-      return;
-    }
-    self.scroll_event(x, y, delta_x, delta_y, phase, true);
+    let input = ScrollInput {
+      // With motion reduced it scrolls at once, as `scroll` does; it is a notch still.
+      animated: self.wheel_motion,
+      notched: true,
+      modifiers: MouseModifiers { shift, ctrl, alt, meta },
+    };
+    self.scroll_event(x, y, delta_x, delta_y, phase, input);
   }
 
   /// Sends the scroll container `state` is the state of to its top, as a wheel turned that far would: over

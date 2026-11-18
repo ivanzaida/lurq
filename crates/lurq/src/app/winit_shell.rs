@@ -52,6 +52,7 @@ mod native_resize;
 mod notched_wheel;
 #[cfg(test)]
 mod touch_delivery_tests;
+mod trackpad_gestures;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -1274,11 +1275,24 @@ impl ManagedWindow {
         }
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         // A mouse's notches are animated; a touchpad's travel moves the content with the fingers.
+        // Ctrl goes with it: a touchpad's pinch on Windows, and in a browser, is the wheel with Ctrl held.
+        let m = self.modifiers;
+        let keys = (m.shift_key(), m.control_key(), m.alt_key(), m.super_key());
         if notched {
-          self.tree.wheel(x, y, dx, dy, scroll_phase);
+          self
+            .tree
+            .wheel_with_meta(x, y, dx, dy, scroll_phase, keys.0, keys.1, keys.2, keys.3);
         } else {
-          self.tree.scroll(x, y, dx, dy, scroll_phase);
+          self
+            .tree
+            .scroll_with_meta(x, y, dx, dy, scroll_phase, keys.0, keys.1, keys.2, keys.3);
         }
+        self.apply_cursor();
+        self.check_redraw();
+      }
+      // A Mac trackpad's pinch, rotation and smart zoom, at the pointer.
+      WindowEvent::PinchGesture { .. } | WindowEvent::RotationGesture { .. } | WindowEvent::DoubleTapGesture { .. } => {
+        trackpad_gestures::deliver(&mut self.tree, &event, self.cursor_pos);
         self.apply_cursor();
         self.check_redraw();
       }
@@ -1853,11 +1867,18 @@ impl ManagedSecondaryWindow {
         }
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         // A mouse's notches are animated; a touchpad's travel moves the content with the fingers.
+        let m = self.modifiers;
+        let keys = (m.shift_key(), m.control_key(), m.alt_key(), m.super_key());
         if notched_wheel::is_notched(delta) {
-          tree.wheel(x, y, dx, dy, scroll_phase);
+          tree.wheel_with_meta(x, y, dx, dy, scroll_phase, keys.0, keys.1, keys.2, keys.3);
         } else {
-          tree.scroll(x, y, dx, dy, scroll_phase);
+          tree.scroll_with_meta(x, y, dx, dy, scroll_phase, keys.0, keys.1, keys.2, keys.3);
         }
+        self.apply_cursor(tree);
+        self.check_redraw(tree);
+      }
+      WindowEvent::PinchGesture { .. } | WindowEvent::RotationGesture { .. } | WindowEvent::DoubleTapGesture { .. } => {
+        trackpad_gestures::deliver(tree, &event, self.cursor_pos);
         self.apply_cursor(tree);
         self.check_redraw(tree);
       }

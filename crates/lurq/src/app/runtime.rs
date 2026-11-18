@@ -144,6 +144,7 @@ mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
 mod touch_text;
+mod trackpad;
 mod typeahead;
 mod wheel_scroll;
 mod window_controls;
@@ -925,6 +926,8 @@ pub struct Tree {
   touch_scroll: touch::TouchScroll,
   touch_momentum: TouchMomentum,
   touch_pointer: touch_pointer::TouchPointerState,
+  /// A trackpad's pinch and rotation under way; see [`trackpad`].
+  trackpad: trackpad::TrackpadGestures,
   /// The finger that is the pointer, as a touch screen's shell gives it; see [`finger`].
   finger: finger::TouchPointer,
   /// Text by touch: the caret's loupe and the selection's handles; see [`touch_text`].
@@ -1410,6 +1413,7 @@ impl Tree {
       touch_scroll: touch::TouchScroll::default(),
       touch_momentum: TouchMomentum::default(),
       touch_pointer: touch_pointer::TouchPointerState::default(),
+      trackpad: trackpad::TrackpadGestures::default(),
       finger: finger::TouchPointer::default(),
       touch_text: touch_text::TouchText::default(),
       touch_marks: Vec::new(),
@@ -4459,11 +4463,34 @@ impl Tree {
   /// go to [`wheel`](Self::wheel), which animates them; a scroll it left on its way in a container this
   /// scrolls stops, and the content moves from where it is drawn.
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
-    self.scroll_event(x, y, delta_x, delta_y, phase, false);
+    self.scroll_with_meta(x, y, delta_x, delta_y, phase, false, false, false, false);
   }
 
-  /// [`scroll`](Self::scroll), or with `animated` [`wheel`](Self::wheel).
-  fn scroll_event(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase, animated: bool) {
+  /// [`scroll`](Self::scroll) with the keys held as it came, which its [`ScrollEvent`] tells: a touchpad's
+  /// pinch on Windows is its travel with Ctrl held.
+  #[allow(clippy::too_many_arguments)]
+  pub fn scroll_with_meta(
+    &mut self,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    meta: bool,
+  ) {
+    let input = ScrollInput {
+      animated: false,
+      notched: false,
+      modifiers: MouseModifiers { shift, ctrl, alt, meta },
+    };
+    self.scroll_event(x, y, delta_x, delta_y, phase, input);
+  }
+
+  /// [`scroll`](Self::scroll), or with `how.animated` [`wheel`](Self::wheel).
+  fn scroll_event(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase, how: ScrollInput) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Scroll);
     // A wheel turns under a pointer, which is then there. A finger's scroll comes from where the finger
@@ -4472,7 +4499,7 @@ impl Tree {
       self.track_pointer(x, y);
     }
     self.lay_out_rebuilt_for_input();
-    let horizontal_taken = self.dispatch_scroll(x, y, delta_x, delta_y, phase, animated);
+    let horizontal_taken = self.dispatch_scroll(x, y, delta_x, delta_y, phase, how);
     let scale = self.scale_factor();
     self.recognize_history_swipe(
       (x / scale, y / scale),
@@ -6599,14 +6626,20 @@ impl Tree {
     delta_x: f32,
     delta_y: f32,
     phase: ScrollPhase,
-    animated: bool,
+    input: ScrollInput,
   ) -> bool {
+    let animated = input.animated;
     let mut evt = ScrollEvent {
       x,
       y,
       delta_x,
       delta_y,
       phase,
+      shift: input.modifiers.shift,
+      ctrl: input.modifiers.ctrl,
+      alt: input.modifiers.alt,
+      meta: input.modifiers.meta,
+      notched: input.notched,
       target_id: NodeId::UNASSIGNED,
       control: EventControl::new(),
     };
@@ -6845,6 +6878,11 @@ impl Tree {
       delta_x,
       delta_y,
       phase,
+      shift: false,
+      ctrl: false,
+      alt: false,
+      meta: false,
+      notched: false,
       target_id,
       control: EventControl::new(),
     };
@@ -6915,6 +6953,11 @@ impl Tree {
       delta_x,
       delta_y,
       phase,
+      shift: false,
+      ctrl: false,
+      alt: false,
+      meta: false,
+      notched: false,
       target_id,
       control: EventControl::new(),
     };
@@ -10103,6 +10146,15 @@ struct ClickPress {
 enum ClickDispatchTarget {
   Node(NodeId),
   CurrentHit,
+}
+
+/// How a scroll came: animated, as a mouse's notches are where motion is not reduced ([`Tree::wheel`]); a
+/// mouse's notches, animated or not; and the keys held.
+#[derive(Clone, Copy, Default)]
+struct ScrollInput {
+  animated: bool,
+  notched: bool,
+  modifiers: MouseModifiers,
 }
 
 #[derive(Clone, Copy, Default)]

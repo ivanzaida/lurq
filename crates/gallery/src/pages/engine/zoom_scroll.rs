@@ -347,7 +347,9 @@ impl Component for ZoomScrollPage {
         "wheel_zoom",
         "f32",
         "",
-        "The wheel brings the content closer about the pointer, by so much a notch, in place of scrolling it.",
+        "The wheel brings the content closer about the pointer, by so much a notch, in place of scrolling it: \
+         away from the hand closer, toward it further. Ctrl and the wheel, and a touchpad's pinch, zoom without \
+         it too; a touchpad's two fingers scroll either way.",
       ),
       (
         "drag_pan",
@@ -398,9 +400,9 @@ impl Component for ZoomScrollPage {
         Section::new(
           "Playground",
           "A plan of forty tiles, 960 by 600, larger than its view. Double-click a tile to go into it and again to \
-           come back out; on a touch screen, pinch it. With wheel_zoom the wheel brings it closer about the \
-           pointer; with drag_pan a drag carries it. The buttons set the scale from outside, about the middle of \
-           the view.",
+           come back out; on a touch screen or a touchpad, pinch it, or turn the wheel with Ctrl held. With \
+           wheel_zoom the wheel alone brings it closer about the pointer, turned away from you; with drag_pan a \
+           drag carries it. The buttons set the scale from outside, about the middle of the view.",
           playground,
         ),
         Section::new(

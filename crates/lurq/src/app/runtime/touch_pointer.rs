@@ -1401,7 +1401,14 @@ impl Tree {
   }
 }
 
-fn send_pinch(root: &Node, chain: &[NodeId], phase: GesturePhase, scale: f32, delta: f32, middle: (f32, f32)) {
+pub(super) fn send_pinch(
+  root: &Node,
+  chain: &[NodeId],
+  phase: GesturePhase,
+  scale: f32,
+  delta: f32,
+  middle: (f32, f32),
+) {
   let control = EventControl::new();
   for target in chain {
     let Some(node) = find_node_by_id(root, *target) else {
@@ -1428,7 +1435,14 @@ fn send_pinch(root: &Node, chain: &[NodeId], phase: GesturePhase, scale: f32, de
   }
 }
 
-fn send_rotate(root: &Node, chain: &[NodeId], phase: GesturePhase, rotation: f32, delta: f32, middle: (f32, f32)) {
+pub(super) fn send_rotate(
+  root: &Node,
+  chain: &[NodeId],
+  phase: GesturePhase,
+  rotation: f32,
+  delta: f32,
+  middle: (f32, f32),
+) {
   let control = EventControl::new();
   for target in chain {
     let Some(node) = find_node_by_id(root, *target) else {

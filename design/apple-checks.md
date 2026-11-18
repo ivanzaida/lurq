@@ -139,6 +139,14 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   `allowedTouchTypes` pencil only, on winit's view. Over the gallery a button shows its hover style under the hovering
   pencil and loses it when the pencil leaves; a trackpad's pointer is still the mouse's, not the pencil's; the
   recognizer takes no touch from winit's view (a pencil's tap still clicks once).
+- [ ] **Trackpad pinch and smart zoom on ZoomScroll** (Mac, added 2026-11-18). In the gallery's
+  `/engine/zoom-scroll`, and a picture in a lightbox: a pinch on the trackpad zooms the plan about the pointer,
+  apart closer and together further, as far as the fingers go, and the point under the pointer stays under it; a
+  double tap of two fingers (smart zoom, on in System Settings › Trackpad) goes in at the pointer and again back
+  out; two fingers moved together scroll the plan and do not zoom; the mouse's wheel with `wheel_zoom` turned away
+  from you is closer. winit's `PinchGesture`, `RotationGesture` and `DoubleTapGesture` reach the tree through
+  `winit_shell/trackpad_gestures.rs` (tested on Windows by its mapping alone): check the pinch's pace against
+  Preview's, and that a rotation on the trackpad over an element with `on_rotate` turns it the way the fingers turn.
 - [ ] **The emulator against the device.** The same page on the phone and on a Mac with `LURQ_DEVICE=phone`: the
   gestures feel and do the same; note what the mouse cannot imitate.
 - [ ] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).

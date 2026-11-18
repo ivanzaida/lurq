@@ -5,6 +5,13 @@
 //! the two fingers, which stays under them, and the fingers carry the content with them as they move; a
 //! double tap goes in at the point tapped, and back out. One finger scrolls what is shown, as in any list.
 //!
+//! With a mouse and a touchpad: Ctrl and the wheel bring the content closer about the pointer, the wheel
+//! turned away from the hand closer and toward it further, a step at a notch and a touchpad's travel as far
+//! as the fingers go. A touchpad's pinch on Windows is that, Ctrl and the wheel, as a browser tells it; a Mac
+//! trackpad's pinch is a pinch about the pointer, and its smart zoom (a double tap of two fingers) a double
+//! tap. Two fingers on a touchpad scroll the content, as in any list; with
+//! [`wheel_zoom`](ZoomScrollProps::wheel_zoom) a mouse's wheel zooms without Ctrl too.
+//!
 //! The content is laid out once, at its own size, and drawn scaled: text in it is not laid out anew for the
 //! size it is shown at.
 
@@ -84,9 +91,11 @@ impl ZoomScrollProps {
     self
   }
 
-  /// The wheel brings the content closer and further about the pointer, by `step` at a notch (1.5: half as
-  /// large again), in place of scrolling it: how a photo or a map is looked at with a mouse. Without it the
-  /// wheel scrolls the content, as in any list.
+  /// A mouse's wheel brings the content closer and further about the pointer, by `step` at a notch (1.5: half
+  /// as large again), in place of scrolling it: how a photo or a map is looked at with a mouse. Away from the
+  /// hand is closer, toward it further. Without it the wheel scrolls the content, as in any list, and zooms
+  /// with Ctrl held (by 1.5 at a notch). A touchpad's two fingers scroll the content either way; Ctrl and
+  /// them, or their pinch, zoom by `step` for the travel of a notch.
   pub fn wheel_zoom(mut self, step: f32) -> Self {
     self.wheel = Some(step.max(1.0 + f32::EPSILON));
     self
@@ -137,6 +146,35 @@ fn placed(size: (f32, f32), zoom: f32, viewport: (f32, f32)) -> ((f32, f32), (f3
     ((viewport.1 - shown.1) / 2.0).max(0.0),
   );
   (shown, margin)
+}
+
+/// How much closer Ctrl and a notch of the wheel bring the content where the props set no `wheel_zoom`.
+const CTRL_WHEEL_STEP: f32 = 1.5;
+
+/// How far a touchpad's travel goes for a step of the wheel's zoom, in logical pixels: as far as a notch
+/// scrolls a list.
+const TRAVEL_PER_STEP: f32 = 40.0;
+
+/// The step the wheel's event zooms by, or `None` where it scrolls the content instead. Ctrl and the wheel
+/// zoom, a mouse's notches or a touchpad's travel (a touchpad's pinch on Windows is that, as a browser tells
+/// it); without Ctrl a mouse's notches zoom with `wheel_zoom` (its step), and a touchpad's two fingers scroll.
+fn wheel_zoom_step(event: &ScrollEvent, wheel: Option<f32>) -> Option<f32> {
+  match (event.ctrl, wheel) {
+    (true, step) => Some(step.unwrap_or(CTRL_WHEEL_STEP)),
+    (false, Some(step)) if event.notched => Some(step),
+    (false, _) => None,
+  }
+}
+
+/// How much closer the wheel's event brings the content, zoomed by `step`. A wheel turned away from the hand
+/// (a positive `delta_y`, what scrolls a list up) brings it closer, and toward the hand takes it further: a
+/// notch by a step, and a touchpad's travel by as far as the fingers went, a step every [`TRAVEL_PER_STEP`].
+fn wheel_zoom_factor(event: &ScrollEvent, step: f32) -> f32 {
+  if event.notched {
+    if event.delta_y > 0.0 { step } else { 1.0 / step }
+  } else {
+    step.powf(event.delta_y / TRAVEL_PER_STEP)
+  }
 }
 
 /// Content that is pinched larger and smaller.
@@ -293,18 +331,22 @@ impl Component for ZoomScroll {
         }
       }
     });
-    if let Some(step) = props.wheel {
-      let (go, point_at) = (go.clone(), point_at.clone());
+    {
+      let (go, point_at, wheel) = (go.clone(), point_at.clone(), props.wheel);
       list = list.on_wheel(move |event: ScrollEvent| {
         if event.delta_y == 0.0 {
           return;
         }
+        let Some(step) = wheel_zoom_step(&event, wheel) else {
+          // A touchpad's two fingers, and the wheel without `wheel_zoom`, scroll the content as in any list.
+          return;
+        };
         // The wheel is the content's here, not the list's: nothing is scrolled by it.
         event.prevent_default();
         event.stop_propagation();
         let (zoom, point, at) = point_at(event.x, event.y);
-        // Away from the hand brings it closer, about the point under the pointer, which stays there.
-        go(if event.delta_y < 0.0 { zoom * step } else { zoom / step }, point, at);
+        // About the point under the pointer, which stays there.
+        go(zoom * wheel_zoom_factor(&event, step), point, at);
       });
     }
     if props.drag {

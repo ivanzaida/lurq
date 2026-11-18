@@ -3,7 +3,12 @@
 use std::time::Duration;
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx, events::TouchPhase},
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::Ctx,
+    events::{GesturePhase, ScrollPhase, TouchPhase},
+  },
   components::{Spacer, ZoomScroll, ZoomScrollProps},
   core::Signal,
   layout::layout_kind::ScrollState,
@@ -222,8 +227,25 @@ fn mouse_stage(range: (f32, f32), at: f32) -> (Tree, Signal<f32>, ScrollState) {
   (tree, zoom, scroll)
 }
 
+/// A mouse's notch of the wheel at a point: a positive `delta_y` is a notch away from the hand, which scrolls a
+/// list up (see the runtime's tests of the wheel).
 fn wheel(tree: &mut Tree, at: (f32, f32), delta_y: f32) {
-  tree.scroll(at.0, at.1, 0.0, delta_y, lurq::app::events::ScrollPhase::Scroll);
+  tree.wheel(at.0, at.1, 0.0, delta_y, ScrollPhase::Scroll);
+  run_pass(tree);
+  run_pass(tree);
+}
+
+/// The same with Ctrl held.
+fn ctrl_wheel(tree: &mut Tree, at: (f32, f32), delta_y: f32) {
+  tree.wheel_with_meta(at.0, at.1, 0.0, delta_y, ScrollPhase::Scroll, false, true, false, false);
+  run_pass(tree);
+  run_pass(tree);
+}
+
+/// A touchpad's two fingers at a point, `delta_y` as far as they went, with Ctrl held where `ctrl`: that is a
+/// touchpad's pinch on Windows.
+fn touchpad(tree: &mut Tree, at: (f32, f32), delta_y: f32, ctrl: bool) {
+  tree.scroll_with_meta(at.0, at.1, 0.0, delta_y, ScrollPhase::Scroll, false, ctrl, false, false);
   run_pass(tree);
   run_pass(tree);
 }
@@ -231,15 +253,19 @@ fn wheel(tree: &mut Tree, at: (f32, f32), delta_y: f32) {
 #[test]
 fn the_wheel_brings_the_content_closer_about_the_pointer() {
   let (mut tree, zoom, scroll) = mouse_stage((1.0, 4.0), 1.0);
-  wheel(&mut tree, (50.0, 50.0), -120.0);
+  wheel(&mut tree, (50.0, 50.0), 120.0);
   assert_eq!(zoom.get(), 2.0, "a notch away from the hand is a step closer");
   assert_eq!(
     (scroll.scroll_x(), scroll.scroll_y()),
     (50.0, 50.0),
     "the point under the pointer is under it still"
   );
-  wheel(&mut tree, (50.0, 50.0), 120.0);
-  assert_eq!(zoom.get(), 1.0);
+  wheel(&mut tree, (50.0, 50.0), -120.0);
+  assert_eq!(
+    zoom.get(),
+    1.0,
+    "a notch toward the hand, as a list scrolls down, is a step further"
+  );
   assert_eq!((scroll.scroll_x(), scroll.scroll_y()), (0.0, 0.0));
 }
 
@@ -247,7 +273,7 @@ fn the_wheel_brings_the_content_closer_about_the_pointer() {
 fn the_wheel_is_the_contents_where_the_list_has_nowhere_to_scroll() {
   // At half its size the content is as large as the window: a list that cannot move hears of no scroll.
   let (mut tree, zoom, _) = mouse_stage((0.5, 4.0), 0.5);
-  wheel(&mut tree, (100.0, 100.0), -120.0);
+  wheel(&mut tree, (100.0, 100.0), 120.0);
   assert_eq!(zoom.get(), 1.0);
 }
 
@@ -256,7 +282,91 @@ fn without_it_the_wheel_scrolls_the_content() {
   let (mut tree, zoom, scroll) = stage((1.0, 4.0));
   wheel(&mut tree, (50.0, 50.0), -60.0);
   assert_eq!(zoom.get(), 1.0);
-  assert!(scroll.scroll_y() > 0.0, "as in any list");
+  assert!(scroll.scroll_target().1 > 0.0, "down, as in any list");
+}
+
+#[test]
+fn ctrl_and_the_wheel_zoom_without_wheel_zoom_too() {
+  let (mut tree, zoom, scroll) = stage((1.0, 4.0));
+  ctrl_wheel(&mut tree, (50.0, 50.0), 40.0);
+  assert_eq!(zoom.get(), 1.5, "a notch away from the hand, a step of 1.5 closer");
+  assert_eq!(
+    (scroll.scroll_x(), scroll.scroll_y()),
+    (25.0, 25.0),
+    "about the pointer: the point 50 in is drawn 75 in, under it still"
+  );
+  ctrl_wheel(&mut tree, (50.0, 50.0), -40.0);
+  assert_eq!(zoom.get(), 1.0);
+}
+
+#[test]
+fn a_synthetic_wheel_with_ctrl_zooms_as_the_mcp_servers_does() {
+  use lurq::app::{SyntheticInput, SyntheticModifiers, synthetic_input};
+
+  let (mut tree, zoom, _) = stage((1.0, 4.0));
+  let notch = SyntheticInput::wheel(50.0, 50.0, 0.0, 40.0).with_modifiers(SyntheticModifiers::default().ctrl());
+  synthetic_input::apply(&mut tree, &notch);
+  run_pass(&mut tree);
+  assert_eq!(zoom.get(), 1.5);
+}
+
+#[test]
+fn a_touchpads_two_fingers_scroll_the_content_where_the_wheel_zooms() {
+  let (mut tree, zoom, scroll) = mouse_stage((1.0, 4.0), 1.0);
+  for _ in 0..6 {
+    touchpad(&mut tree, (100.0, 100.0), -10.0, false);
+  }
+  assert_eq!(zoom.get(), 1.0, "two fingers are no wheel's notches");
+  assert_eq!(scroll.scroll_y(), 60.0, "they move the content as far as they went");
+}
+
+#[test]
+fn a_touchpads_pinch_on_windows_zooms_as_far_as_the_fingers_went() {
+  let (mut tree, zoom, scroll) = mouse_stage((1.0, 4.0), 1.0);
+  // Moving apart, Ctrl held: as far as a notch scrolls is a step (of 2 here), in parts as the fingers go.
+  for _ in 0..4 {
+    touchpad(&mut tree, (50.0, 50.0), 10.0, true);
+  }
+  assert!((zoom.get() - 2.0).abs() < 1e-4, "{}", zoom.get());
+  assert!(
+    (scroll.scroll_x() - 50.0).abs() < 0.01 && (scroll.scroll_y() - 50.0).abs() < 0.01,
+    "about the pointer: {:?}",
+    (scroll.scroll_x(), scroll.scroll_y())
+  );
+  // Moving together, half as far.
+  touchpad(&mut tree, (50.0, 50.0), -20.0, true);
+  assert!((zoom.get() - 2f32.sqrt()).abs() < 1e-4, "{}", zoom.get());
+}
+
+#[test]
+fn a_trackpads_pinch_on_a_mac_zooms_about_the_pointer() {
+  let (mut tree, zoom, scroll) = stage((1.0, 4.0));
+  // The shell gives AppKit's magnification as a pinch's delta: 1 + magnification.
+  tree.trackpad_pinch(50.0, 50.0, GesturePhase::Start, 1.0);
+  tree.trackpad_pinch(50.0, 50.0, GesturePhase::Change, 1.5);
+  run_pass(&mut tree);
+  tree.trackpad_pinch(50.0, 50.0, GesturePhase::Change, 4.0 / 3.0);
+  run_pass(&mut tree);
+  tree.trackpad_pinch(50.0, 50.0, GesturePhase::End, 1.0);
+  run_pass(&mut tree);
+  assert!((zoom.get() - 2.0).abs() < 1e-4, "{}", zoom.get());
+  assert!(
+    (scroll.scroll_x() - 50.0).abs() < 0.01 && (scroll.scroll_y() - 50.0).abs() < 0.01,
+    "the point under the pointer is under it still: {:?}",
+    (scroll.scroll_x(), scroll.scroll_y())
+  );
+}
+
+#[test]
+fn a_trackpads_smart_zoom_goes_in_at_the_pointer_and_back_out() {
+  let (mut tree, zoom, scroll) = stage((1.0, 4.0));
+  assert!(tree.trackpad_double_tap(50.0, 50.0));
+  run_pass(&mut tree);
+  assert_eq!(zoom.get(), 2.0);
+  assert_eq!((scroll.scroll_x(), scroll.scroll_y()), (50.0, 50.0));
+  tree.trackpad_double_tap(50.0, 50.0);
+  run_pass(&mut tree);
+  assert_eq!(zoom.get(), 1.0);
 }
 
 #[test]

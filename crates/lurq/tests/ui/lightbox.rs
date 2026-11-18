@@ -273,15 +273,31 @@ fn the_wheel_brings_the_picture_closer_about_the_pointer() {
   // A quarter in from the stage's corner.
   let pointer = (x + width / 4.0, y + height / 4.0);
   stage.tree.mouse_move(pointer.0, pointer.1);
-  stage
-    .tree
-    .scroll(pointer.0, pointer.1, 0.0, -120.0, ScrollPhase::Scroll);
+  // A notch away from the hand, a positive delta, as it scrolls a list up.
+  stage.tree.wheel(pointer.0, pointer.1, 0.0, 120.0, ScrollPhase::Scroll);
   stage.pass();
   assert_eq!(zoom.get(), 1.5, "the lightbox's own signal, or the app's");
   assert!(stage.paints("150%"));
-  stage.tree.scroll(pointer.0, pointer.1, 0.0, 120.0, ScrollPhase::Scroll);
+  stage.tree.wheel(pointer.0, pointer.1, 0.0, -120.0, ScrollPhase::Scroll);
   stage.pass();
   assert_eq!(zoom.get(), 1.0);
+  // A touchpad's two fingers move the picture, and their pinch, Ctrl held, zooms it.
+  stage.tree.scroll(pointer.0, pointer.1, 0.0, -20.0, ScrollPhase::Scroll);
+  stage.pass();
+  assert_eq!(zoom.get(), 1.0, "two fingers on a touchpad are no notches");
+  stage.tree.scroll_with_meta(
+    pointer.0,
+    pointer.1,
+    0.0,
+    40.0,
+    ScrollPhase::Scroll,
+    false,
+    true,
+    false,
+    false,
+  );
+  stage.pass();
+  assert!((zoom.get() - 1.5).abs() < 1e-4, "{}", zoom.get());
 }
 
 #[test]

@@ -222,8 +222,13 @@ ZoomScroll::mount(
   `double_tap(None)` leaves a double tap to the content. A scale set from outside, by a button or a key, keeps the
   middle of the view where it is.
 - With a mouse: `wheel_zoom(step)` makes the wheel bring the content closer and further about the pointer, by
-  `step` at a notch, in place of scrolling it, and `drag_pan(true)` lets a press held and moved carry the content
-  as a finger does. Neither is on unless asked for: without them the wheel scrolls the content as in any list.
+  `step` at a notch, in place of scrolling it: away from the hand closer, toward it further. `drag_pan(true)` lets
+  a press held and moved carry the content as a finger does. Neither is on unless asked for: without them the
+  wheel scrolls the content as in any list.
+- Ctrl and the wheel zoom about the pointer either way, by `step` (1.5 without `wheel_zoom`) at a notch. A
+  touchpad's two fingers scroll the content as in any list; their pinch zooms, as far as they go: on Windows it
+  is the wheel with Ctrl held, as a browser tells it, and a Mac trackpad's pinch is a pinch about the pointer
+  (`Tree::trackpad_pinch`), its smart zoom, a double tap of two fingers, a double tap.
 - The content is laid out once, at its own size, and drawn scaled: text in it is not laid out anew for the
   size it is shown at.
 - A pinch stops at the smallest and the largest scale, where the platform's gives and springs back, and a

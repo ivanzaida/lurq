@@ -7839,8 +7839,10 @@ Lightbox::new(open.clone(), photos.iter().map(|photo| Picture::from_file(&photo.
 
 - It is a component wherever it is put, as a [picture](#picture) is: it keeps which picture is shown, how close, and
   where the view is.
-- The wheel brings the picture closer about the pointer and a drag moves it; two fingers on a touch screen pinch and
-  pan. A double click goes to twice the size it fits and back.
+- The wheel brings the picture closer about the pointer, turned away from the hand, and further toward it, and a drag
+  moves it; two fingers on a touch screen pinch and pan. On a touchpad two fingers move the picture and their pinch
+  brings it closer (on Windows, as Ctrl and the wheel do); a Mac trackpad's smart zoom is a double tap. A double
+  click goes to twice the size it fits and back.
 - Keys, while the focus is in it: the left and right arrows turn to the picture before and after, and move a
   picture that is closer than it fits, as the up and down arrows do; `+` and `-` bring it closer and further, `0`
   fits it; Escape closes. Over the window it takes the focus.

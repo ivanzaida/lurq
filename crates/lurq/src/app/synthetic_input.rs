@@ -281,7 +281,17 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
       // no animation left.
       tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::Start);
-      tree.wheel(*x, *y, *delta_x, *delta_y, ScrollPhase::Scroll);
+      tree.wheel_with_meta(
+        *x,
+        *y,
+        *delta_x,
+        *delta_y,
+        ScrollPhase::Scroll,
+        m.shift,
+        m.ctrl,
+        m.alt,
+        m.meta,
+      );
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::End);
     }
     SyntheticInputKind::KeyDown { key, code } => {
