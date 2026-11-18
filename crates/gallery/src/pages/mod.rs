@@ -1647,7 +1647,7 @@ pub const PAGES: &[Page] = &[
     path: "/engine/animation",
     name: "Animation",
     icon: Some("play-circle"),
-    about: "engine primitive animation transition easing keyframes register infinite duration delay opacity hover combined dynamic keyframes Animation Keyframes Transition Easing",
+    about: "engine primitive animation transition easing keyframes register infinite duration delay opacity hover combined dynamic keyframes Animation Keyframes Transition Easing on_frame frame callback spring physics requestAnimationFrame",
     group: Group::Engine,
     mount: |ctx| ctx.mount::<engine::animation::AnimationPage>(()),
   },

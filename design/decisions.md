@@ -22,7 +22,27 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   time since the one before, called once per presented frame in step with the display, returning whether it wants
   another; while any wants frames the runtime asks for them; paused while the window is minimized or occluded, as
   animations are; on the tree's clock in tests (`set_animation_clock`), never the wall clock.
-- **State.** Decided; to be built in a session of its own.
+- **What the session that built it chose, where the decision left it open.**
+  1. The callback returns whether it wants another frame, and `ctx.on_frame` returns a handle too
+     (`FrameCallback`: `cancel()`, `start()`, `is_active()`): a spring at rest returns `false`, and the handler that
+     moves its end starts it again. Called in `create` it is the component's until it unmounts; called in a render it
+     is the callback of that place, as a `ctx.future` is.
+  2. It runs before the frame is rendered and laid out, as `requestAnimationFrame` does: what it sets is in the frame
+     it ran for. What was dirty before it is rendered first, so a component the frame no longer has runs none.
+  3. Outside a component it is `WindowHandle::on_frame`. `App` has none: frames are a window's, each with its
+     display's rate.
+  4. The first frame after a hidden window shows again has a delta of zero, as a first frame, not the hidden time
+     and not a clamp of it; a frame late while the window is shown has its real delta, which the app clamps where
+     its integration needs it.
+  5. Reduced motion does not stop it: what it moves is the app's.
+- **Keyframes stay the engine's (Ivan asked, 2026-11-18, whether they should be put on this system for
+  consistency).** They are on one system already, from the other side: a running callback is a timeline to the
+  runtime (`Tree::has_active_timeline`, `next_timeline_change`), so the shell's pacing, the pause of a hidden window
+  and the rule that a frame is laid out and not drawn from the kept list are one path for both. Keyframes are not
+  moved onto `on_frame`: the engine steps them in the layout and knows when they next change, so a `Steps` spinner
+  draws its steps and a delay draws nothing, where a callback asks for every refresh.
+- **State.** Built on `claude/on-frame-c75375` (`crates/lurq/src/app/ctx/frames.rs`), with tests on the tree's clock
+  and a section of the gallery's Animation page; to be merged into `feat/design-system`.
 
 ## 2026-11-17
 

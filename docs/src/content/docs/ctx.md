@@ -738,6 +738,26 @@ interval.start();
 
 See [Futures And Timers](../futures-timers/) for full details.
 
+## Frames
+
+```rust
+let frames = ctx.on_frame(move |frame| {
+  // Once in each frame the window draws, before it is laid out.
+  position.update(|at| *at += speed * frame.delta_secs());
+  true // `false` stops it
+});
+```
+
+`ctx.on_frame` runs a callback once in each frame the window draws, in step with the display, for as long as it
+returns `true`: for a spring, physics, a drag's inertia, a game. `Frame` has the frame's `time` and the `delta` since
+the frame before (zero on the first); what the callback sets is shown in that frame. The `FrameCallback` it returns
+has `.cancel()`, `.start()` and `.is_active()`. Call it in `Component::create`, or in `render`, where it is the
+callback of that place in the render; either way it is dropped with the component. While one runs the window draws a
+frame every refresh, so return `false` once nothing moves. `ctx.window().on_frame(..)` is the same for code that is
+not a component's.
+
+See [Your Own Frames](../animation-transforms/#your-own-frames) for when it runs, what it costs and how it is paused.
+
 ## Futures
 
 ```rust

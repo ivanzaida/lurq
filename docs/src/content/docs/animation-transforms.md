@@ -10,7 +10,7 @@ description: Transitions, keyframe animations, easing, animatable properties, an
 - transitions, which animate a property when its target value changes,
 - keyframe animations, which play a registered sequence on a node.
 
-Both systems are owned by `Tree` and tick during the normal runtime pass. While either engine has active timelines, the shell asks for a frame each time they next draw something else (see [Frame Pacing](#frame-pacing)).
+Both systems are owned by `Tree` and tick during the normal runtime pass. While either engine has active timelines, the shell asks for a frame each time they next draw something else (see [Frame Pacing](#frame-pacing)). What neither can move, an app steps itself in a callback run once a frame (see [Your Own Frames](#your-own-frames)).
 
 ## Transitions
 
@@ -100,6 +100,8 @@ app.theme().set_reduced_motion(Some(true));
   blur, radii and border widths.
 - Keyframe animations are the app's and are not changed. Read `ctx.reduced_motion()`, which renders the component again
   when the setting changes, to hold back one that moves or to show a fade in its place.
+- A callback of [`ctx.on_frame`](#your-own-frames) is the app's too and goes on running: what it moves is for the app
+  to hold back.
 - A notch of a mouse's wheel scrolls at once, where it is otherwise [animated](../styling-events/#the-mouse-wheel).
 - Linux and other platforms have no setting every desktop shares, so lurq reads none there: motion is reduced only when
   the app says so with `set_reduced_motion`.
@@ -301,6 +303,45 @@ tree.register_keyframes_in_phase(spin_keyframes());
 A minimized window, or one that macOS reports occluded, draws no animation frames. Animations keep their clock while it is hidden: when the window shows again it draws one frame at once, with each animation where its time puts it, and paces the frames after it as before. Windows reports a minimized window but not one covered by other windows.
 
 A shell that drives `Tree::pass` itself does the same with `Tree::next_timeline_change()`: after a pass that only animated, `Tree::needs_redraw()` is false, and the next frame is due at that time.
+
+## Your Own Frames
+
+A transition and a keyframe animation move what lurq can interpolate. What an app steps itself (a spring, a body with physics, the inertia of a drag, a game or a simulation on a canvas, a value that follows another) needs to be called once for each frame the window draws, in step with the display. `ctx.on_frame` is that call, lurq's `requestAnimationFrame`:
+
+```rust
+use lurq::app::ctx::{Ctx, Frame, FrameCallback};
+
+fn create(ctx: &mut Ctx) -> Self {
+  let x = ctx.signal(0.0_f32);
+  let frames = ctx.on_frame({
+    let x = x.clone();
+    let mut speed = 240.0_f32;
+    move |frame: Frame| {
+      // The time since the frame before, in seconds: the step does not depend on the display's rate.
+      let next = x.get_untracked() + speed * frame.delta_secs();
+      if !(0.0..=300.0).contains(&next) {
+        speed = -speed;
+      }
+      x.set(next.clamp(0.0, 300.0));
+      true // another frame
+    }
+  });
+  Self { x, frames }
+}
+```
+
+- **What it is told.** `Frame::time` is the frame's time on the runtime's clock, the time the frame's animations are drawn at. `Frame::delta` is the time since the frame this callback last ran for (`delta_secs()` gives it in seconds), and zero on its first frame.
+- **When it runs.** At the start of the frame, before the window is rendered and laid out, as `requestAnimationFrame` runs before a browser's layout: a signal it sets is in the frame it ran for, not the next. It runs once in every frame the window draws while it is active, a frame drawn for an input or a timer too, so count time by `delta` and not by calls. The window's callbacks run first, then the components', parents before children.
+- **When it stops.** When it returns `false`, when its handle is cancelled (`FrameCallback::cancel()`), and when its component unmounts. `FrameCallback::start()` starts a stopped one again, with a delta of zero on its first frame; `is_active()` says whether it runs. A spring that came to rest returns `false`, and the handler that gives it somewhere to go calls `start()`.
+- **What it costs.** While any callback of a window runs, the window draws a frame at every refresh of its display, each laid out and painted whole, whether or not the callback changed anything: a callback that runs is a continuous animation to the [frame pacing](#frame-pacing), paced by the same rule and through the same `Tree::next_timeline_change()`. With none running nothing is drawn for them and the loop sleeps. Stop what has nothing to move.
+- **Beside a video.** A playing video's frames are drawn from a list the window keeps, with no layout, when nothing else changed. A frame a callback runs for is always laid out, so what it moves keeps the display's pace beside a video.
+- **A hidden window.** Callbacks are paused while the window is minimized or occluded, as animations are. The first frame after it shows again has a delta of zero, as a first frame: a simulation does not jump by the time it was not seen. `Frame::time` is the clock's own and has moved on. A frame the machine was late for while the window was shown is given its real delta; clamp it where a long step would break the integration (`frame.delta_secs().min(1.0 / 30.0)`).
+- **Reduced motion** does not stop it: what a callback moves is the app's. Read `ctx.reduced_motion()` to move less, or to set the end value at once.
+- **Where it is called.** In `Component::create`, as a timer is: the callback is the component's until it unmounts, and the struct keeps the handle if it stops or starts it. Called in `render`, it is the callback of that place in the render, as a `ctx.future` is: every render puts its closure in place of the last one's and keeps whether it runs and when it last ran, and a render that no longer makes the call drops it. A component kept off the stage runs none.
+- **Outside a component.** `WindowHandle::on_frame` (`ctx.window().on_frame(..)`, or a handle kept from one) does the same for that window with no component behind it: a game loop the app keeps beside its tree. The window holds the callback until it stops, and `start()` gives it back. There is no `App::on_frame`: frames belong to a window, and each window has its display's rate.
+- **Not an `Interval`.** A timer fires on the event loop's clock, between frames or twice in one, and is not paused with the window: use it for what happens every so often. `WgpuFrameExtension::wants_redraw` of a [`GpuViewport`](../gpu-viewport/) keeps frames coming for what an extension draws on the card; it calls no code of the app's tree.
+
+In a test a callback runs on the tree's clock: `Tree::set_animation_clock(Some(at))` before each `Tree::pass` gives it `time` and `delta` exactly, with no sleep.
 
 ## Animatable Properties
 

@@ -334,6 +334,9 @@ interval.start();
 | `.stop()` | Stop repeating. |
 | `.is_active()` | Whether the interval is running. |
 
+An interval is not in step with the display: it fires between frames, or twice in one. What moves every frame (a
+spring, physics, a game) is stepped by [`ctx.on_frame`](../animation-transforms/#your-own-frames).
+
 ### Lifecycle
 
 Create timers in `Component::create` and store them in the component struct. The runtime ticks timers each frame via `tree.tick_timers()`. When a timer fires it invokes its callback, which typically updates a signal, causing a re-render. A timer draws a frame only when its callback changed what is shown: a signal or store a component reads, an `ElementRef`, a `ScrollState`, the theme, a canvas paint or a focus request. An interval whose callback changes nothing on screen presents no frames (since lurq 0.58.1).
