@@ -115,12 +115,13 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 
 ## 4. The keyboard (the editing commands of 2026-11-17)
 
-- [ ] **Cmd, not Ctrl.** In a text field and on the Signature Pad: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y does
+- [x] **Cmd, not Ctrl.** In a text field and on the Signature Pad: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y does
   **not** redo; Cmd+C, Cmd+X, Cmd+V, Cmd+A. In a Ukrainian layout the same keys by their place.
   2026-11-18, keys of MCP into an Input: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y and Ctrl+Z do nothing, Cmd+A,
   Cmd+C and Cmd+X go through the system's clipboard (`pbpaste` reads what was copied). Cmd+V is not tried: MCP
   refuses a paste of the person's clipboard. Undo takes back one character at a time, on every system: typing is
-  not grouped into one step. The keys of a Ukrainian layout need a keyboard.
+  not grouped into one step (grouped since, as the platform does). Ivan: Cmd+V from another app and the keys in a
+  Ukrainian layout work.
 - [x] **A native Edit menu.** If the app has a menu bar with Undo/Redo/Copy/Paste items with their accelerators,
   the menu takes Cmd+Z before the window: each item must run `window.edit(EditCommand::..)` and do the same thing
   the key does. The gallery's menu, if it has one, as the example.
