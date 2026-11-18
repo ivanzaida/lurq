@@ -44,3 +44,18 @@ language: a number's format is not in the locale yet.
 What Ivan decides about lurq is written in `design/decisions.md` (and what is about phones and tablets in `design/mobile-decisions.md`) the day it is decided, before the work on it
 starts: the question, the decision, why, and its state. Read it before working on something it names, and add to it
 when a decision is taken in a session.
+
+## Find your way with the code graph
+
+The repository has a knowledge graph of its code, built by [Graphify](https://github.com/Graphify-Labs/graphify)
+(installed with `uv tool install graphifyy`; the `/graphify` skill is installed for Claude Code). It is built
+locally from the code's syntax, with no model and no key, into `graphify-out/` (ignored by git).
+
+- **Build it in your checkout before you explore**, and again after you merge or pull a lot: `graphify update .`
+  from the root of your worktree (about two minutes; it reuses what has not changed). A worktree has no graph of
+  its own until you build it there.
+- **Ask it before you search by hand**: `graphify query "how does LinkPreview fetch a page"`, `graphify explain
+  "TextInput"` (a symbol and what it touches), `graphify path "A" "B"` (how two things connect), `graphify affected
+  "X"` (what a change to X reaches), `graphify god-nodes` (the hubs). Read the files it points to; it is a map, not
+  the source of truth.
+- Docs, papers and pictures are not in the graph: that pass needs a model, and is not run.
