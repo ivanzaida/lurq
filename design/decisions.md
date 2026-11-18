@@ -11,6 +11,18 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-18
 
+### A picture's and a media's events, as the web has them
+
+- **Question.** `ui::Picture` has `on_load` and `on_error(&str)`; `ui::VideoPlayer` and `ui::AudioPlayer` have no
+  load, error, end or waiting event — the engine's `MediaState` holds them (`duration`, `size`, `playing`,
+  `waiting`, `ended`, `error`) and `Media::on_change` wakes from the media's thread without saying what changed.
+- **Decision (Ivan, 2026-11-18).** On `VideoPlayer`, `AudioPlayer` and `Media`: `on_load(|info|)` (opened and
+  ready: its duration, the frame's size, whether it has sound), `on_error(|e: &MediaError|)` (a kind; its words from
+  the locale, as the player shows them), `on_ended()`, `on_playing_change(bool)` (the video's too), and
+  `on_waiting_change(bool)` (buffering began or ended); each told on the UI thread, once per occurrence.
+  `ui::Picture::on_error` is told a kind (`PictureError`), not a sentence.
+- **State.** Decided; to be built in a session of its own.
+
 ### A lighter light theme: light fills, crisp lines
 
 - **Question.** The light palette's greys were made darker on 2026-11-13 (`e820b1df`) because an all-white window
