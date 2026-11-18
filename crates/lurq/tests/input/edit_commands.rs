@@ -429,3 +429,51 @@ fn a_tool_runs_a_command_on_what_has_the_focus_through_ctx() {
   click(&mut runtime, &mut app, "undo");
   assert_eq!(heard(&log), ["box Undo"], "the box focused hears the menu's Undo");
 }
+
+/// A text input whose app reads what is typed, and so builds it again after each key, as a form does.
+struct Typed {
+  value: Signal<String>,
+}
+
+thread_local! {
+  static TYPED: std::cell::RefCell<Option<Signal<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+impl Component for Typed {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      value: TYPED.with(|given| given.borrow().clone()).expect("given"),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let length = self.value.get().len();
+    Column::new()
+      .child(TextInput::new(self.value.clone()).id("input"))
+      .child(Rect::new(length as f32 + 1.0, 4.0))
+  }
+}
+
+#[test]
+fn undo_takes_back_what_was_typed_as_the_platform_groups_it_in_an_input_built_again_after_each_key() {
+  let value = Signal::new(String::new());
+  let mut app = App::new();
+  let mut runtime = Tree::new();
+  TYPED.with(|given| *given.borrow_mut() = Some(value.clone()));
+  runtime.mount_root::<Typed>(&mut app, ());
+  runtime.pass_headless(&mut app);
+  focus(&mut runtime, "input");
+  for character in "hello world".chars() {
+    let key = character.to_string();
+    runtime.key_down_with_meta(key.clone(), String::new(), false, false, false, false);
+    runtime.key_up_with_meta(key, String::new(), false, false, false, false);
+    runtime.pass_headless(&mut app);
+  }
+  assert_eq!(value.get(), "hello world");
+  press(&mut runtime, "z", "KeyZ", false);
+  runtime.pass_headless(&mut app);
+  // A run of typing on Apple's systems and elsewhere; a word with the spaces after it on Windows.
+  assert_eq!(value.get(), if cfg!(windows) { "hello " } else { "" });
+}

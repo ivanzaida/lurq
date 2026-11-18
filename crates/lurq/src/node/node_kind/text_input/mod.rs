@@ -18,6 +18,8 @@ pub(crate) use controller_access::WeakTextInputState;
 mod source_tests;
 mod token_affinity;
 mod tokens;
+#[cfg(test)]
+mod undo_tests;
 use composition::Composition;
 use token_affinity::TokenAffinity;
 
@@ -35,6 +37,38 @@ pub(crate) struct TextInputState {
 
 /// What gives an input's tokens for each value it holds: see `TextInput::tokens_with`.
 pub(crate) type TokenSource = Arc<dyn Fn(&str) -> crate::components::InputTokens + Send + Sync>;
+
+/// How the platform's own text fields group what is typed into steps of undo
+/// (`design/decisions.md`, "Undo takes back what was typed as the platform's own fields do").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UndoGrouping {
+  /// macOS and iOS: a run of typing is one step until the caret moves or typing turns to deleting.
+  Runs,
+  /// Windows: as `Runs`, and each word typed, with the spaces after it, is a step.
+  Words,
+}
+
+impl UndoGrouping {
+  pub(crate) const PLATFORM: Self = if cfg!(windows) { Self::Words } else { Self::Runs };
+}
+
+/// What a run of typing did last, and where it left the caret.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TypingKind {
+  Insert,
+  Backspace,
+  Delete,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TypingRun {
+  kind: TypingKind,
+  /// Where the caret was left, and how long the text was: the next edit joins only where nothing else moved them.
+  caret: usize,
+  len: usize,
+  /// Whether the last character typed was a space, after which a word begins a step on Windows.
+  after_space: bool,
+}
 
 struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
@@ -98,6 +132,10 @@ struct TextInputInner {
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
   redo_stack: Vec<TextInputSnapshot>,
+  /// The run of typing the last step of undo holds, which what is typed next joins: see [`UndoGrouping`].
+  typing: Option<TypingRun>,
+  /// How typing is grouped into steps of undo here.
+  undo_grouping: UndoGrouping,
   /// The spans of a styled input and its hooks; empty for a plain one.
   styled: styled::StyledState,
 }
@@ -187,6 +225,8 @@ impl TextInputState {
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        typing: None,
+        undo_grouping: UndoGrouping::PLATFORM,
         styled: Default::default(),
       })),
       on_input: Arc::new(Mutex::new(Vec::new())),
@@ -559,6 +599,60 @@ impl TextInputState {
     let mut inner = self.inner.lock();
     push_limited(&mut inner.undo_stack, snapshot);
     inner.redo_stack.clear();
+    inner.typing = None;
+  }
+
+  /// Before typing `text` (or deleting, as `kind` says): a step of undo of its own, or none where it goes on the run
+  /// of typing the last step holds, as the platform's fields group it ([`UndoGrouping`]).
+  fn begin_typing(&self, kind: TypingKind, text: &str) {
+    let len = self.value().len();
+    let joins = {
+      let inner = self.inner.lock();
+      inner.typing.is_some_and(|run| {
+        run.kind == kind
+          && run.caret == inner.caret
+          && run.len == len
+          && inner.selection_anchor.is_none_or(|anchor| anchor == inner.caret)
+          && !(inner.undo_grouping == UndoGrouping::Words
+            && kind == TypingKind::Insert
+            && run.after_space
+            && text.chars().next().is_some_and(|first| !first.is_whitespace()))
+      })
+    };
+    if joins {
+      self.inner.lock().redo_stack.clear();
+    } else {
+      self.push_undo_snapshot();
+    }
+  }
+
+  /// After typing `text` (or deleting): what is typed next may join the step.
+  fn end_typing(&self, kind: TypingKind, text: &str) {
+    let len = self.value().len();
+    let mut inner = self.inner.lock();
+    let after_space = match text.chars().last() {
+      Some(last) => last.is_whitespace(),
+      None => inner.typing.is_some_and(|run| run.after_space),
+    };
+    inner.typing = Some(TypingRun {
+      kind,
+      caret: inner.caret,
+      len,
+      after_space,
+    });
+  }
+
+  /// The caret or the selection moved, or the text was put back: what is typed next is a step of its own.
+  pub(crate) fn break_typing(&self) {
+    self.inner.lock().typing = None;
+  }
+
+  /// How typing is grouped into steps of undo, where a test asks for another platform's.
+  #[cfg(test)]
+  pub(crate) fn set_undo_grouping(&self, grouping: UndoGrouping) {
+    let mut inner = self.inner.lock();
+    inner.undo_grouping = grouping;
+    inner.typing = None;
   }
 
   fn push_undo_snapshot_value(&self, snapshot: TextInputSnapshot) {
@@ -572,6 +666,7 @@ impl TextInputState {
   }
 
   fn restore_snapshot(&self, snapshot: TextInputSnapshot) {
+    self.break_typing();
     let value = snapshot.value;
     let len = value.len();
     let caret = clamp_to_char_boundary(&value, snapshot.caret.min(len));

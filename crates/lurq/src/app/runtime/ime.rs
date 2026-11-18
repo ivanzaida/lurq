@@ -266,7 +266,7 @@ impl Tree {
       ImeEvent::Disabled => state.clear_composition(),
       ImeEvent::Commit(text) => {
         let cleared = state.clear_composition();
-        let inserted = !text.is_empty() && state.insert(&text, &self.commit_keyboard_event(&text));
+        let inserted = !text.is_empty() && state.type_text(&text, &self.commit_keyboard_event(&text));
         cleared || inserted
       }
     };

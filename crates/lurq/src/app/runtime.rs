@@ -6549,7 +6549,7 @@ impl Tree {
           ("Home", _) | (_, "Home") => state.move_home(shift),
           ("End", _) | (_, "End") => state.move_end(shift),
           _ if !ctrl && !meta && key.chars().count() == 1 => {
-            if !state.insert(key, evt) {
+            if !state.type_text(key, evt) {
               return false;
             }
           }
