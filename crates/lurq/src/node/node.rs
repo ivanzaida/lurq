@@ -1128,6 +1128,23 @@ pub(crate) struct RareStyle {
   pub(crate) window_control: Option<WindowControl>,
 }
 
+/// What few nodes have that is not a style, behind one pointer that is allocated on the first write: every node
+/// is built and moved by value in a render, and its size is budgeted (`size_budget.rs`, lurq#25). Nothing here is
+/// tracked by layout, unlike [`RareStyle`].
+#[derive(Clone, Default)]
+pub(crate) struct RareNode {
+  /// The resource the node's background image is loaded from; the runtime sets `background_image` once it is.
+  #[cfg(all(feature = "image", feature = "http"))]
+  pub(crate) background_resource_image: Option<Arc<str>>,
+  /// The scrollbar style while the pointer is over the node; see `NodeUpdate::scrollbar_hovered`.
+  pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
+  /// What a drag that starts on the node carries to where it is dropped; see `Node::drag_payload`.
+  pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
+  /// The name the node's value has in a form.
+  #[cfg(feature = "form")]
+  pub(crate) form_name: Option<Arc<str>>,
+}
+
 /// Whether any node of the process was ever disabled. Until one is, no tree
 /// has a disabled state to keep.
 static DISABLED_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1148,6 +1165,7 @@ pub(crate) type AnimationOverrides = Vec<(crate::animation::AnimatableProperty, 
 empty_default!(EventHandlers);
 empty_default!(StateStyles);
 empty_default!(RareStyle);
+empty_default!(RareNode);
 empty_default!(AnimationOverrides);
 empty_default!(Vec<Transition>);
 
@@ -1232,13 +1250,9 @@ pub(crate) struct Node {
   pub(crate) background_image: Guard<Option<Box<crate::images::ImageData>>>,
   #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
-  #[cfg(all(feature = "image", feature = "http"))]
-  pub(crate) background_resource_image: Option<Arc<str>>,
   /// Boxed: most nodes do not scroll, and `Node` size is budgeted (lurq#25).
   pub(crate) scrollbar_style: Guard<Option<Box<ScrollBarStyle>>>,
-  pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
-  pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
   pub(crate) interaction: Option<InteractionState>,
   /// `None` follows the node kind (buttons and form controls are focusable)
   /// and `tab_index`; `Some` overrides both.
@@ -1258,8 +1272,8 @@ pub(crate) struct Node {
   /// Where this node stands in a nested focus group: its level, and whether it opens. Few nodes have one.
   pub(crate) focus_branch: Option<Arc<crate::node::FocusBranch>>,
   pub(crate) button_kind: Option<ButtonKind>,
-  #[cfg(feature = "form")]
-  pub(crate) form_name: Option<Arc<str>>,
+  /// What few nodes have that is not a style: boxed, and `Node` size is budgeted (lurq#25).
+  pub(crate) rare: LazyBox<RareNode>,
   pub(crate) style_state: InteractionState,
   pub(crate) state_styles: LazyBox<StateStyles>,
   pub(crate) opacity: f32,
@@ -1810,7 +1824,7 @@ impl NodeUpdate for Node {
       crate::images::ImageKind::Bytes(data) => self.background_image.set(Some(Box::new(data))),
       crate::images::ImageKind::Native(data) => self.background_image.set(Some(Box::new(data.image_data()))),
       #[cfg(all(feature = "image", feature = "http"))]
-      crate::images::ImageKind::Resource(path) => self.background_resource_image = Some(path),
+      crate::images::ImageKind::Resource(path) => self.rare.background_resource_image = Some(path),
     }
   }
 
@@ -2489,7 +2503,7 @@ impl NodeUpdate for Node {
   }
 
   fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) {
-    self.scrollbar_hovered_style = Some(Arc::new(f));
+    self.rare.scrollbar_hovered_style = Some(Arc::new(f));
   }
 
   fn culling(&mut self, enabled: bool) {
@@ -2582,7 +2596,7 @@ impl NodeUpdate for Node {
 
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>) {
-    self.form_name = Some(name.into());
+    self.rare.form_name = Some(name.into());
   }
 
   fn text_wrap(&mut self, wrap: bool) {
@@ -2905,12 +2919,8 @@ impl Node {
       background_image: Guard::new(None),
       #[cfg(feature = "raster")]
       background_size: BackgroundSize::default(),
-      #[cfg(all(feature = "image", feature = "http"))]
-      background_resource_image: None,
       scrollbar_style: Guard::new(None),
-      scrollbar_hovered_style: None,
       element_ref: None,
-      drag_payload: None,
       interaction: None,
       focusable: None,
       tab_index: None,
@@ -2921,8 +2931,7 @@ impl Node {
       focus_label: None,
       focus_branch: None,
       button_kind: None,
-      #[cfg(feature = "form")]
-      form_name: None,
+      rare: LazyBox::new(),
       style_state: InteractionState::new(),
       state_styles: LazyBox::new(),
       opacity: DEFAULT_OPACITY,
@@ -3838,7 +3847,7 @@ impl Node {
       }
       #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
-        self.background_resource_image = Some(path);
+        self.rare.background_resource_image = Some(path);
       }
     }
     self
@@ -4535,7 +4544,7 @@ impl Node {
   }
 
   pub fn scrollbar_hovered(mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) -> Self {
-    self.scrollbar_hovered_style = Some(Arc::new(f));
+    self.rare.scrollbar_hovered_style = Some(Arc::new(f));
     self
   }
 
@@ -4593,7 +4602,7 @@ impl Node {
   /// Attach data to drags starting on this node; the drop target's handler
   /// receives it through `DropEvent::payload`.
   pub fn drag_payload(mut self, payload: crate::app::events::DragPayload) -> Self {
-    self.drag_payload = Some(payload);
+    self.rare.drag_payload = Some(payload);
     self
   }
 
@@ -4642,7 +4651,7 @@ impl Node {
 
   #[cfg(feature = "form")]
   pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
-    self.form_name = Some(name.into());
+    self.rare.form_name = Some(name.into());
     self
   }
 
@@ -4786,7 +4795,7 @@ impl Node {
 
   #[cfg(feature = "form")]
   pub(crate) fn form_name_value(&self) -> Option<&str> {
-    self.form_name.as_deref()
+    self.rare.form_name.as_deref()
   }
 
   pub fn selectable(self, selectable: bool) -> Self {
@@ -5471,7 +5480,7 @@ impl Node {
   /// The node's scrollbar style at rest or hovered, wherever the pointer is.
   pub(crate) fn scrollbar_style_when(&self, default_style: ScrollBarStyle, hovered: bool) -> ScrollBarStyle {
     let style = self.scrollbar_style.as_deref().cloned().unwrap_or(default_style);
-    match &self.scrollbar_hovered_style {
+    match &self.rare.scrollbar_hovered_style {
       Some(hovered_style) if hovered => hovered_style(style),
       _ => style,
     }
@@ -6893,12 +6902,8 @@ impl Node {
       background_image: self.background_image.clone(),
       #[cfg(feature = "raster")]
       background_size: self.background_size,
-      #[cfg(all(feature = "image", feature = "http"))]
-      background_resource_image: self.background_resource_image.clone(),
       scrollbar_style: self.scrollbar_style.clone(),
-      scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
       element_ref: self.element_ref.clone(),
-      drag_payload: self.drag_payload.clone(),
       interaction: self.interaction.clone(),
       focusable: self.focusable,
       tab_index: self.tab_index,
@@ -6909,8 +6914,7 @@ impl Node {
       focus_label: self.focus_label.clone(),
       focus_branch: self.focus_branch.clone(),
       button_kind: self.button_kind,
-      #[cfg(feature = "form")]
-      form_name: self.form_name.clone(),
+      rare: self.rare.clone(),
       style_state: self.bound_style_state().clone(),
       state_styles: self.state_styles.clone(),
       opacity: self.opacity,

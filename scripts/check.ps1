@@ -8,8 +8,8 @@ $commands = @(
   @('test', '-p', 'lurq', '--features', 'devtools,mcp,perf_profile,counting_allocator', '--no-fail-fast'),
   @('test', '-p', 'lurq', '--release', '--test', 'layout_stack_depth'),
   # The size budgets (`size_budget.rs`) are checked when the tests are built, and sizes grow with features: neither
-  # suite above turns on the features of the other.
-  @('check', '-p', 'lurq', '--tests', '--features', 'markdown,tokio,screenshot,devtools,mcp,perf_profile,counting_allocator')
+  # suite above turns on the features of the other, nor those that only an app names (`http` adds to every node).
+  @('check', '-p', 'lurq', '--tests', '--features', 'markdown,tokio,screenshot,devtools,mcp,perf_profile,counting_allocator,http,media,regex,persistent_storage,serde')
 )
 Push-Location -LiteralPath $workspace
 try {

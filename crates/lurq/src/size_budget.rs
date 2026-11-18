@@ -10,8 +10,9 @@
 //! (`scripts/stack-depth-probe.py`).
 //!
 //! Measured on x86_64 with every feature enabled: role enums 8, `Element` 8,
-//! `Node` 1160 (what DevTools and MCP show of a node is boxed), `WindowChrome` 872,
-//! `ChromeTitleBar` 760. The sizes depend on
+//! `Node` 1128 (what DevTools and MCP show of a node is boxed, and so is what
+//! few nodes have that is not a style: `RareNode`; 1088 with no feature),
+//! `WindowChrome` 872, `ChromeTitleBar` 760. The sizes depend on
 //! the features that are on, and no two of the check's test runs turn all of
 //! them on, so `scripts/check.ps1` also builds the tests once with every one.
 
@@ -39,4 +40,3 @@ const _: () = assert!(size_of::<Node>() <= 1176);
 const _: () = assert!(size_of::<crate::node::layout_cache::LayoutCache>() <= 120);
 const _: () = assert!(size_of::<WindowChrome>() <= 1024);
 const _: () = assert!(size_of::<ChromeTitleBar>() <= 1024);
-

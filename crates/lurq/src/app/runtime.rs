@@ -6217,7 +6217,7 @@ impl Tree {
               button,
               on_move: node.events.on_drag_move.clone(),
               on_end: node.events.on_drag_end.clone(),
-              payload: node.drag_payload.clone(),
+              payload: node.rare.drag_payload.clone(),
               cursor: CursorIcon::Default,
               autoscroll: scrolls,
             },
@@ -8553,7 +8553,7 @@ impl Tree {
       }
     }
 
-    if let Some(key) = node.background_resource_image.clone()
+    if let Some(key) = node.rare.background_resource_image.clone()
       && let Some(img) = Self::resolve_image_resource(&key, loader, image_cache)
     {
       let current_id = node.background_image.as_deref().map(crate::images::ImageData::id);

@@ -66,7 +66,7 @@ impl Node {
     }
     #[cfg(all(feature = "image", feature = "http"))]
     {
-      subtree.resource_images |= self.background_resource_image.is_some();
+      subtree.resource_images |= self.rare.background_resource_image.is_some();
     }
     if let LayoutKind::ScrollModifier { state, .. } = self.layout_kind() {
       state.track_layout(watch);

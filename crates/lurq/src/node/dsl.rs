@@ -65,12 +65,8 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     background_image: Guard::new(None),
     #[cfg(feature = "raster")]
     background_size: crate::node::node::BackgroundSize::default(),
-    #[cfg(all(feature = "image", feature = "http"))]
-    background_resource_image: None,
     scrollbar_style: Guard::new(None),
-    scrollbar_hovered_style: None,
     element_ref: None,
-    drag_payload: None,
     interaction: None,
     focusable: None,
     tab_index: None,
@@ -81,8 +77,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     focus_label: None,
     focus_branch: None,
     button_kind: None,
-    #[cfg(feature = "form")]
-    form_name: None,
+    rare: crate::node::lazy_box::LazyBox::new(),
     style_state: crate::node::interaction_state::InteractionState::new(),
     state_styles: crate::node::lazy_box::LazyBox::new(),
     opacity: DEFAULT_SCROLL_OPACITY,
