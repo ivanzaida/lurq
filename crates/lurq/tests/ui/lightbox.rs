@@ -988,3 +988,73 @@ fn a_window_as_wide_as_a_desktops_has_the_desktops_form() {
   assert!(stage.tree.get_element_by_id("viewer-zoom-in").is_some());
   assert!(stage.tree.get_element_by_id("viewer-page-0").is_none());
 }
+
+#[test]
+fn on_a_phone_a_tap_opens_a_lightbox_in_a_page_over_the_whole_screen_at_the_picture_shown() {
+  let index = Signal::new(1_usize);
+  let shown = index.clone();
+  let mut stage = Stage::first_frame_in(for_a_finger(), 390.0, 844.0, move |_| {
+    Column::new()
+      .size(390.0, 844.0)
+      .child(
+        Lightbox::new(Signal::new(false), pictures())
+          .inline(true)
+          .index(shown.clone())
+          .width(390.0)
+          .height(300.0)
+          .id("viewer"),
+      )
+      .into()
+  });
+  settled(&mut stage);
+  assert!(
+    stage.tree.get_element_by_id("viewer-full").is_none(),
+    "in its box until it is tapped"
+  );
+
+  let (x, y) = stage.center("viewer-stage");
+  finger_tap(&mut stage, x, y);
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-full").is_some(), "a tap opens it");
+  assert_eq!(
+    stage.bounds("viewer-full"),
+    (0.0, 0.0, 390.0, 844.0),
+    "over the whole screen"
+  );
+  settled(&mut stage);
+  assert_eq!(stage.bounds("viewer-full-pages-slide-1").0, 0.0, "at the picture shown");
+
+  // Turned there, it is at that picture in the page once closed.
+  index.set(2);
+  settled(&mut stage);
+  stage.key("Escape");
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-full").is_none(), "closed");
+  settled(&mut stage);
+  assert_eq!(
+    stage.bounds("viewer-pages-slide-2").0,
+    0.0,
+    "the page's is at the picture it was closed on"
+  );
+}
+
+#[test]
+fn on_a_desktop_a_lightbox_in_a_page_stays_in_its_box_at_a_click() {
+  let mut stage = in_page(|lightbox| lightbox);
+  settled(&mut stage);
+  stage.click("viewer-stage");
+  settled(&mut stage);
+  assert!(stage.tree.get_element_by_id("viewer-full").is_none());
+}
+
+/// One finger's tap, as a phone's screen gives it: down and up where it landed; then the time a double tap would
+/// take, which holds a single tap back where something listens for a double one.
+fn finger_tap(stage: &mut Stage, x: f32, y: f32) {
+  use lurq::app::events::TouchPhase;
+  stage.tree.finger(7, TouchPhase::Start, x, y, None);
+  stage.tree.finger(7, TouchPhase::End, x, y, None);
+  std::thread::sleep(std::time::Duration::from_millis(400));
+  stage.tree.finger_tick(std::time::Instant::now());
+  stage.frame();
+  stage.pass();
+}

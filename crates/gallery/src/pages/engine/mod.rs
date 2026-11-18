@@ -22,6 +22,7 @@ pub mod position;
 pub mod presence;
 pub mod reactivity;
 pub mod rich_text;
+pub mod phone_stack;
 pub mod router;
 pub mod scroll;
 pub mod sizing;

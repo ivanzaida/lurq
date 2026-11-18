@@ -10,6 +10,31 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-18
 
+### A lightbox in a page opens over the whole screen at a tap, on a phone
+
+- **Question.** A lightbox that stands in a page (`Lightbox::inline`) stayed in its box on a phone: a tap on its
+  picture did nothing, where a person expects the picture to fill the screen, as a photo in a feed does.
+- **Decision (Ivan, 2026-11-18, at the phone: "а лайтбокс має відкривати картинку на фулскрін?", then "роби, і
+  попереднє теж").** On a phone (the touch form), a tap on the picture of a lightbox in a page opens the same
+  pictures over the whole screen, at the picture shown, in the phone's form; closing it (a drag down, Close) leaves
+  the one in the page at the picture it was closed on. On a desktop nothing changes: the box is the lightbox.
+- **Why.** In a box as small as a page's, a phone's picture is too small to look at; the phone's viewer is made for
+  the whole screen.
+- **State.** In work on `feat/design-system`.
+
+### The gallery has a phone's stack over the whole screen
+
+- **Question.** The gallery showed a stack of screens in a box of its Router page. A finger from the edge of the
+  screen landed on the gallery around it, which opens its side bar, so a phone's way back by a swipe from the left
+  edge, pull to refresh and a row's actions under a swipe could not be tried in the gallery (they were in
+  `crates/mobile_demo` alone).
+- **Decision (Ivan, 2026-11-18, at the phone: "блядь яке нахуй мобайл демо", then "роби").** The Router page has a
+  button that opens a phone's stack over the whole window: a navigation bar, screens pushed on it, a list that is
+  pulled to refresh, and rows swiped for their actions. Over it, a swipe from the left edge takes the screen back;
+  with the stack closed it opens the side bar, as before.
+- **Why.** What is tried on a phone is tried in one app.
+- **State.** In work on `feat/design-system`.
+
 ### A tap outside the text input lets it go, and the keyboard goes down
 
 - **Question.** On the iPhone a tap outside the text input being typed into left it the focus and the keyboard up,

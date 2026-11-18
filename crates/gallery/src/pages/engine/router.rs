@@ -622,6 +622,9 @@ pub struct RouterPage {
   patterns: Arc<Routes>,
   /// The router of the stack of screens.
   stack: RouterHandle,
+  /// A phone's stack over the whole window: whether it is open, and its router.
+  phone_open: Signal<bool>,
+  phone: RouterHandle,
   /// The tabs, each a router.
   tabs: Tabs,
   /// The router of the section on going back and forward, what its app heard, and whether its dialog is open.
@@ -899,8 +902,22 @@ impl RouterPage {
                   first.back();
                 }
               }),
-          ),
+          )
+          // A phone's stack over the whole window, where a finger from the edge of the screen reaches it.
+          .child({
+            let (open, phone) = (self.phone_open.clone(), self.phone.clone());
+            Button::new("Open on the whole screen")
+              .size(ButtonSize::Sm)
+              .id("router-phone-open")
+              .on_click(move |_| {
+                while phone.can_back() {
+                  phone.back();
+                }
+                open.set(true);
+              })
+          }),
       )
+      .child(super::phone_stack::over_the_window(ctx, &self.phone_open, &self.phone))
       .child(
         Column::new()
           .width(360.0)
@@ -1043,6 +1060,10 @@ impl Component for RouterPage {
     let travel = ctx.router(travel_routes(heard.clone(), dialog.clone()));
     travel.replace("/");
 
+    let phone_open = ctx.signal(false);
+    let phone = ctx.router(super::phone_stack::routes(phone_open.clone()));
+    phone.replace("/");
+
     let tabs = Tabs::new();
     tabs
       .add(TAB_NAMES[0], TabItem::new("Library"), library)
@@ -1059,6 +1080,8 @@ impl Component for RouterPage {
       probe: ctx.signal("/users/7".to_owned()),
       patterns: Arc::new(pattern_routes()),
       stack,
+      phone_open,
+      phone,
       tabs,
       travel,
       heard,

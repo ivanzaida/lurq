@@ -14,7 +14,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Placement},
-    events::{GesturePhase, KeyboardEvent, MouseEvent, PanEvent},
+    events::{GesturePhase, KeyboardEvent, MouseEvent, PanEvent, TapEvent},
     theme::{MotionDuration, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, Stack, ZoomScroll, ZoomScrollProps},
@@ -618,6 +618,8 @@ struct LightboxHost {
   ahead: parking_lot::Mutex<Vec<(usize, Option<crate::resources::Load>)>>,
   /// Moves on when a load ahead ends: what decodes what it brought.
   ahead_tick: Signal<u64>,
+  /// Whether a lightbox in a page is shown over the whole screen too, opened by a tap on a phone.
+  full: Signal<bool>,
   /// What a load ahead calls when it ends: one waker, which a load keeps once.
   ahead_wake: Arc<dyn Fn() + Send + Sync>,
 }
@@ -650,6 +652,7 @@ impl Component for LightboxHost {
       ahead: parking_lot::Mutex::new(Vec::new()),
       ahead_tick,
       ahead_wake,
+      full: ctx.signal(false),
     }
   }
 
@@ -801,7 +804,25 @@ impl Component for LightboxHost {
       .state(LightboxState::Inline, lightbox.inline)
       .state(LightboxState::Current, current)
     };
+    // On a phone a lightbox in a page opens over the whole screen at a tap of its picture: the same pictures, at the
+    // one shown, in the phone's form. Closed, the one in the page is at the picture it was closed on.
+    let in_page_on_a_phone = lightbox.inline && phone;
+    let expand: Option<Action> = in_page_on_a_phone.then(|| {
+      let full = self.full.clone();
+      Arc::new(move || full.set(true)) as Action
+    });
+    let expanded: Option<Element> = (in_page_on_a_phone && self.full.get()).then(|| {
+      let mut whole = lightbox.clone();
+      whole.inline = false;
+      whole.open = self.full.clone();
+      whole.index = Some(index_signal.clone());
+      whole.key = None;
+      whole.id = whole.id.map(|id| Arc::from(format!("{id}-full")));
+      whole.into()
+    });
     let view = LightboxView {
+      expand,
+      expanded,
       recipe: theme.resolve::<Lightbox>(&case(false), Some(&lightbox.rules)),
       current: theme.resolve::<Lightbox>(&case(true), Some(&lightbox.rules)),
       index,
@@ -921,6 +942,10 @@ pub struct LightboxView {
   taken: Arc<std::sync::atomic::AtomicBool>,
   more_open: Signal<bool>,
   more: ElementRef,
+  /// On a phone, for a lightbox in a page: what a tap of the picture does (open it over the whole screen), and the
+  /// lightbox over the whole screen while it is open.
+  expand: Option<Action>,
+  expanded: Option<Element>,
   lightbox: Lightbox,
 }
 
@@ -1385,7 +1410,23 @@ impl LightboxView {
           _ => {}
         }
       })
-      .child(Stack::new().size(full, full).offset(0.0, self.drop).child(content));
+      .child({
+        let pictures = Stack::new().size(full, full).offset(0.0, self.drop).child(content);
+        // A tap of the picture of a lightbox in a page opens it over the whole screen: a finger's tap, which a swipe
+        // of the slides is not.
+        match self.expand.clone() {
+          Some(expand) => pictures.on_tap(move |event: TapEvent| {
+            event.stop_propagation();
+            expand()
+          }),
+          None => pictures,
+        }
+      });
+    // A tap of the picture of a lightbox in a page opens it over the whole screen; a swipe is the slides'.
+    // The lightbox over the whole screen is drawn over the window, wherever it is declared.
+    if let Some(expanded) = self.expanded.take() {
+      room = room.child(expanded);
+    }
     if let Some(id) = self.id("stage") {
       room = room.id(id);
     }
@@ -1729,16 +1770,25 @@ impl Themed for Lightbox {
       // top row of 44, 4 in at its ends, of buttons of 44 with glyphs of 24, the counter in its middle. Under the
       // picture its caption, 16 in and 16 over the dots, a title of 15 medium and a line of 13 at 60% white;
       // dots of 8, 8 apart, at 35% white and the one shown white, and 8 under them.
-      .variant(LightboxVariant::Phone, Root, |s| s.background(Color::new(0, 0, 0, 255)).radius(0.0))
+      .variant(LightboxVariant::Phone, Root, |s| {
+        s.background(Color::new(0, 0, 0, 255)).radius(0.0)
+      })
       .when(
         Selector::new().variant(LightboxVariant::Phone).state(Inline),
         Root,
         |s| s.radius(0.0),
       )
       .variant(LightboxVariant::Phone, Top, |s| {
-        s.height(44.0).padding_top(0.0).padding_bottom(0.0).padding_start(4.0).padding_end(4.0).gap(0.0)
+        s.height(44.0)
+          .padding_top(0.0)
+          .padding_bottom(0.0)
+          .padding_start(4.0)
+          .padding_end(4.0)
+          .gap(0.0)
       })
-      .variant(LightboxVariant::Phone, Control, |s| s.square(44.0).radius(RadiusSize::Full))
+      .variant(LightboxVariant::Phone, Control, |s| {
+        s.square(44.0).radius(RadiusSize::Full)
+      })
       .variant(LightboxVariant::Phone, ControlIcon, |s| s.square(24.0))
       .variant(LightboxVariant::Phone, Caption, |s| {
         s.background(Color::new(0, 0, 0, 0))
@@ -1750,7 +1800,11 @@ impl Themed for Lightbox {
       .variant(LightboxVariant::Phone, Title, |s| s.font_size(15.0))
       .base(Bottom, |s| s.padding_bottom(8.0))
       .base(Pages, |s| s.gap(8.0))
-      .base(Page, |s| s.square(8.0).radius(RadiusSize::Full).background(Color::new(255, 255, 255, 0x59)))
+      .base(Page, |s| {
+        s.square(8.0)
+          .radius(RadiusSize::Full)
+          .background(Color::new(255, 255, 255, 0x59))
+      })
       .state(Current, Page, |s| s.background(white))
   }
 }
