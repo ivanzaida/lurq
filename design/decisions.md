@@ -87,7 +87,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** Every app on a Mac has one: it is where a person looks for Undo and Paste, and where the system puts
   emoji and dictation. As the menu takes Cmd+Z before the window, an app that wants the key for itself turns the
   menu off.
-- **State.** In work on `feat/design-system`.
+- **State.** Built on `feat/design-system`; Ivan tried it on a Mac.
 
 ### On macOS the system's lights are the window's controls, and the bar stays in full screen
 

@@ -117,12 +117,12 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   Cmd+C and Cmd+X go through the system's clipboard (`pbpaste` reads what was copied). Cmd+V is not tried: MCP
   refuses a paste of the person's clipboard. Undo takes back one character at a time, on every system: typing is
   not grouped into one step. The keys of a Ukrainian layout need a keyboard.
-- [ ] **A native Edit menu.** If the app has a menu bar with Undo/Redo/Copy/Paste items with their accelerators,
+- [x] **A native Edit menu.** If the app has a menu bar with Undo/Redo/Copy/Paste items with their accelerators,
   the menu takes Cmd+Z before the window: each item must run `window.edit(EditCommand::..)` and do the same thing
   the key does. The gallery's menu, if it has one, as the example.
   2026-11-18: the gallery has no menu of its own; lurq puts an Edit menu in every app's bar now (decisions.md, "On
-  macOS every app has an Edit menu"), and the bar shows "gallery" and "Edit". Its items and their keys are to be
-  tried by a person: MCP's keys do not go through AppKit's menu.
+  macOS every app has an Edit menu"), and the bar shows "gallery" and "Edit". Ivan tried its items and their keys:
+  they work.
 - [ ] **Option + a letter** types the letter's character and is not a command (Option is Alt).
 - [ ] **Tab and the focus** go through the controls as on Windows; Full Keyboard Access on macOS where it changes
   what Tab reaches.
