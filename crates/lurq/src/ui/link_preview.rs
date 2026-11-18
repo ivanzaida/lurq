@@ -29,6 +29,10 @@ use crate::{
   resources::{LinkFetch, LinkFetcher, LinkMeta, LinkPreviewError, LoadWaker, Source, fetch_off_thread, link_fetcher},
 };
 
+/// How many pixels across and down a site's icon is decoded to, or an SVG one drawn at: an icon of 16 on a screen
+/// of up to four times the pixels.
+const ICON_PIXELS: u32 = 64;
+
 /// How much wider than high the picture of a card is: 360 by 188, the ratio of OpenGraph's pictures.
 pub const LINK_PREVIEW_PICTURE_RATIO: f32 = 360.0 / 188.0;
 const CARD_PICTURE_RATIO: f32 = LINK_PREVIEW_PICTURE_RATIO;
@@ -112,6 +116,8 @@ pub enum LinkPreviewState {
   Empty,
   /// It has a close button: it is in what is being written.
   Removable,
+  /// It shows the site's own icon, on the white plate favicons are drawn for, and not the link mark.
+  SiteIcon,
   /// It takes no input.
   Disabled,
 }
@@ -122,6 +128,7 @@ names!(LinkPreviewState {
   Video => "video",
   Empty => "empty",
   Removable => "removable",
+  SiteIcon => "site_icon",
   Disabled => "disabled",
 });
 
@@ -577,9 +584,22 @@ impl LinkPreview {
     };
     let image = pick(&self.image, meta.and_then(|meta| meta.image.as_ref()))
       .filter(|(_, key)| !failed(*key, live.map(|live| &live.failed_image)));
-    let page_icon = self.page_icon(meta, live.is_some());
-    let icon =
-      pick(&self.icon, page_icon.as_ref()).filter(|(_, key)| !failed(*key, live.map(|live| &live.failed_icon)));
+    // The first of the site's icons that has not failed: the next is tried where one does not load.
+    let failed_icons = live.map(|live| live.failed_icon.get()).unwrap_or_default();
+    let icon = match &self.icon {
+      Given::None => None,
+      Given::Is(icon) => Some(icon.picture()),
+      Given::Fetched => self
+        .page_icons(meta, live.is_some())
+        .iter()
+        .map(|address| {
+          let (picture, key) = LinkImage::from(&**address).picture();
+          // An icon is drawn at 16: what is decoded of it is small, and an SVG is drawn at this size.
+          (picture.downscale_to(ICON_PIXELS, ICON_PIXELS), key)
+        })
+        .find(|(_, key)| !failed_icons.contains(key)),
+    }
+    .filter(|(_, key)| !failed_icons.contains(key));
     let video = self
       .video
       .or_else(|| meta.filter(|meta| meta.video).map(|meta| meta.video_length));
@@ -618,6 +638,7 @@ impl LinkPreview {
     .state(LinkPreviewState::Video, video.is_some() && shown_image.is_some())
     .state(LinkPreviewState::Empty, empty)
     .state(LinkPreviewState::Removable, removable)
+    .state(LinkPreviewState::SiteIcon, icon.is_some() && !empty && !loading)
     .state(LinkPreviewState::Disabled, self.disabled);
     let mut rules = self.rules.clone();
     if let Some(width) = self.width {
@@ -633,7 +654,11 @@ impl LinkPreview {
       site,
       site_shown: self.site_shown,
       image: shown_image.map(|(picture, _)| picture),
-      icon: if empty { None } else { icon.map(|(picture, _)| picture) },
+      icon: if empty {
+        None
+      } else {
+        icon.clone().map(|(picture, _)| picture)
+      },
       video: if empty { None } else { video },
       loading,
       empty,
@@ -650,7 +675,7 @@ impl LinkPreview {
       focus: live.map(|live| live.focus.clone()),
       return_focus: self.return_focus.clone(),
       image_key: self.image_key(meta),
-      icon_key: self.icon_key(page_icon.as_ref()),
+      icon_key: icon.as_ref().map_or(0, |(_, key)| *key),
       on_open: self.on_open,
       on_remove: self.on_remove,
       id: self.id,
@@ -668,23 +693,26 @@ impl LinkPreview {
     }
   }
 
-  /// The site's icon the page gives, or, where a page that was read names none, the icon a site keeps at
-  /// `/favicon.ico`: read through the app's loader as the rest is, and the link mark where it is not there. A
-  /// preview with nothing fetched, and one in no app, asks for none.
-  fn page_icon(&self, meta: Option<&LinkMeta>, in_an_app: bool) -> Option<Arc<str>> {
-    let meta = meta?;
-    if let Some(icon) = &meta.icon {
-      return Some(icon.clone());
+  /// The site's icons the page names, the best first ([`LinkMeta::icons`]), and after them the icon a site keeps
+  /// at `/favicon.ico`: read through the app's loader as the rest is, each tried where the one before it did not
+  /// load, and the link mark where none does. A preview with nothing fetched, and one in no app, asks for none
+  /// at `/favicon.ico`.
+  fn page_icons(&self, meta: Option<&LinkMeta>, in_an_app: bool) -> Vec<Arc<str>> {
+    let Some(meta) = meta else {
+      return Vec::new();
+    };
+    let mut icons = if meta.icons.is_empty() {
+      meta.icon.iter().cloned().collect()
+    } else {
+      meta.icons.clone()
+    };
+    if in_an_app
+      && let Some(favicon) = favicon_of(&meta.url)
+      && !icons.contains(&favicon)
+    {
+      icons.push(favicon);
     }
-    in_an_app.then(|| favicon_of(&meta.url)).flatten()
-  }
-
-  fn icon_key(&self, page_icon: Option<&Arc<str>>) -> u64 {
-    match &self.icon {
-      Given::Is(icon) => icon.picture().1,
-      Given::Fetched => page_icon.map_or(0, |address| Source::resource(address).cache_key()),
-      Given::None => 0,
-    }
+    icons
   }
 }
 
@@ -789,8 +817,8 @@ struct Live {
   hovered: Signal<bool>,
   /// The key of a picture that did not load: the preview is drawn without it.
   failed_image: Signal<Option<u64>>,
-  /// The key of an icon that did not load: the link mark stands for it.
-  failed_icon: Signal<Option<u64>>,
+  /// The keys of the icons that did not load: the next is tried, and the link mark stands for them all.
+  failed_icon: Signal<Vec<u64>>,
   /// What moves the focus once the close button took the preview out.
   focus: FocusHandle,
 }
@@ -810,7 +838,7 @@ impl Component for LinkPreviewHost {
         asked: Arc::new(Mutex::new(Asked::default())),
         hovered: ctx.signal(false),
         failed_image: ctx.signal(None),
-        failed_icon: ctx.signal(None),
+        failed_icon: ctx.signal(Vec::new()),
         focus: ctx.focus_handle(),
       },
     }
@@ -933,7 +961,7 @@ pub struct LinkPreviewView {
   forced: Option<Interaction>,
   hovered: Option<Signal<bool>>,
   failed_image: Option<Signal<Option<u64>>>,
-  failed_icon: Option<Signal<Option<u64>>>,
+  failed_icon: Option<Signal<Vec<u64>>>,
   focus: Option<FocusHandle>,
   return_focus: Option<ElementRef>,
   image_key: u64,
@@ -987,7 +1015,9 @@ impl LinkPreviewView {
     said.join(" · ")
   }
 
-  /// The site's icon at the side the recipe gives it: the picture, or the link mark.
+  /// The site's icon at the side the recipe gives it: the picture on its plate, or the link mark. The picture is
+  /// its pixels alone, with no box of a picture's own around them: what of an icon is not drawn shows the plate.
+  /// One that does not load is let go, and the next of the site's icons is tried in its place.
   pub fn icon(&self) -> Element {
     let part = self.part(LinkPreviewPart::Icon);
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
@@ -998,11 +1028,17 @@ impl LinkPreviewView {
           .width(side)
           .height(side)
           .decorative(true)
-          .style(PicturePart::Root, |s| s.radius(RadiusSize::Sm))
-          .style(PicturePart::Edge, |s| s.radius(RadiusSize::Sm));
+          .bare(true)
+          .style(PicturePart::Root, |s| s.radius(RadiusSize::Sm));
         if let Some(failed) = &self.failed_icon {
           let (failed, key) = (failed.clone(), self.icon_key);
-          picture = picture.on_error(move |_| failed.set(Some(key)));
+          picture = picture.on_error(move |_| {
+            failed.update(|failed| {
+              if !failed.contains(&key) {
+                failed.push(key);
+              }
+            })
+          });
         }
         Row::new().part(&part).child(picture).into()
       }
@@ -1398,10 +1434,11 @@ impl Themed for LinkPreview {
   /// The inline one is 24 high with corners of `radius-md`, padded 5 at its start and 8 at its end with 6 between:
   /// the icon of 14, the title at 13/500 in the foreground's color and the site at 12 in the muted. While the page
   /// is read, the skeleton's lines stand for the text, 10 apart: 88 by 10, the width by 14, the width by 12 and
-  /// 168 by 12 in a card; 88, 232 and 168 in a row; a square of 14 and a line of 96 by 10 in a sentence.
+  /// 168 by 12 in a card; 88, 232 and 168 in a row; a square of 14 and a line of 96 by 10 in a sentence. A site's
+  /// own icon stands on a white plate, the ground favicons are drawn for, which a light card does not show.
   fn recipe() -> Recipe {
     use LinkPreviewPart::*;
-    use LinkPreviewState::{Disabled, Loading, Media as WithMedia};
+    use LinkPreviewState::{Disabled, Loading, Media as WithMedia, SiteIcon};
     use LinkPreviewVariant::{Card, Compact, Inline};
     use PaletteColor::{
       Border as Edge, Card as Surface, CardForeground, Foreground, Muted, MutedForeground, StateHover,
@@ -1469,6 +1506,9 @@ impl Themed for LinkPreview {
       .base(Site, |s| s.gap(6.0))
       .base(Icon, |s| s.square(14.0).foreground(MutedForeground))
       .variant(Card, Icon, |s| s.square(16.0))
+      // A site's icon is drawn for the light bar of a browser's tabs: GitHub's is dark on nothing, and on a dark
+      // card it would be a dark box. It stands on a white plate, which a light card does not show.
+      .state(SiteIcon, Icon, |s| s.background(white).radius(RadiusSize::Sm))
       .when(Selector::new().variant(Inline).state(Loading), Icon, |s| {
         s.background(Muted).radius(RadiusSize::Sm)
       })

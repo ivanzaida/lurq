@@ -585,8 +585,9 @@ impl Picture {
     Self::from_source(crate::resources::Source::file(path))
   }
 
-  /// A picture decoded from encoded bytes (PNG, JPEG, the first frame of a GIF or WebP, BMP, TIFF). The bytes
-  /// are hashed for the key its pixels are kept under, unless [`cache_key`](Self::cache_key) gives one.
+  /// A picture decoded from encoded bytes (PNG, JPEG, the first frame of a GIF or WebP, BMP, TIFF, ICO, and an SVG
+  /// with the feature `canvas`, drawn at its own size or as large as [`downscale_to`](Self::downscale_to) says). The
+  /// bytes are hashed for the key its pixels are kept under, unless [`cache_key`](Self::cache_key) gives one.
   pub fn from_bytes(bytes: impl Into<Arc<[u8]>>) -> Self {
     Self::from_source(crate::resources::Source::bytes(bytes))
   }
@@ -613,7 +614,7 @@ impl Picture {
   }
 
   /// Decodes no larger than `width` by `height` pixels, keeping the ratio and never enlarging: a thumbnail of
-  /// a large photo does not keep all of it.
+  /// a large photo does not keep all of it. An SVG, which has no pixels of its own, is drawn as large as fits.
   pub fn downscale_to(mut self, width: u32, height: u32) -> Self {
     if let Source::Encoded { cap, .. } = &mut self.source {
       *cap = Some((width, height));

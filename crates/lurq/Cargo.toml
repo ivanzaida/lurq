@@ -55,7 +55,8 @@ file_dialog = ["dep:rfd"]
 
 # --- Pictures and drawing ---
 
-# Pictures from files and bytes: PNG, JPEG, WebP, GIF, BMP and TIFF (`lurq::images`, `ui::Picture`).
+# Pictures from files and bytes: PNG, JPEG, WebP, GIF, BMP, TIFF and ICO, and SVG with `canvas` (`lurq::images`,
+# `ui::Picture`).
 image = ["raster", "dep:image"]
 # Drawing: `lurq::canvas` and what draws with it (`ui` charts, `Sparkline`, `Gauge`, `SignaturePad`), and SVG
 # (`lurq::svg`, an SVG picture or icon). `png` writes a signature as a PNG file (`ui::Signature::to_png`); it is
@@ -164,7 +165,7 @@ swash = "0.2.10"
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
 wgpu = { version = "=29.0.4", optional = true }
 winit = { version = "0.30", optional = true }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico"], optional = true }
 usvg = { version = "0.45", optional = true }
 lyon = { version = "1", optional = true }
 tiny-skia = { version = "0.11", optional = true, default-features = false, features = ["std", "simd"] }

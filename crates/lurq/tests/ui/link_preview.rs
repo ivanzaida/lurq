@@ -1,7 +1,8 @@
 //! A link preview: the board's card, row and inline form at rest, what it shows while the page is read, what a page
 //! says and what the app gives over it, a page that tells nothing and one that could not be read, a video, the one
 //! link it is to the pointer, the keyboard and tooling, the close of one in a composer, a text longer than its
-//! room, a narrow room, and a theme's rule.
+//! room, a narrow room, a theme's rule, and a page like GitHub's with its picture and its icons, read through the
+//! app's loader.
 
 use std::{
   sync::{
@@ -779,4 +780,315 @@ fn a_selection_copies_it_as_a_markdown_link_and_one_that_told_nothing_as_its_add
   let copied = copied.lock().clone();
   assert!(copied.contains(&format!(r"[Layout \[in\] lurq]({URL})")), "{copied:?}");
   assert!(copied.contains(&"https://lurq.dev/x".to_owned()), "{copied:?}");
+}
+
+/// A page like GitHub's, its picture and its icons, served by the app's loader from a folder of the test's own:
+/// the tags of GitHub's own page, with its addresses made resources of the app.
+#[cfg(feature = "image")]
+mod a_real_page {
+  use lurq::{
+    app::{
+      App,
+      theme::{PaletteColor, ThemePalette},
+      window::Appearance,
+    },
+    components::Column,
+    layout::quad::{Quad, QuadContent},
+    node::color::Color,
+    resources::{LinkFetcher, PageFetcher, wait_link_fetches},
+    ui::{LinkPreview, LinkPreviewVariant},
+  };
+
+  use super::{Arc, Duration, Stage};
+
+  /// A PNG of `width` by `height`, each pixel what `pixel` says of it.
+  pub(super) fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+      let mut encoder = png::Encoder::new(&mut bytes, width, height);
+      encoder.set_color(png::ColorType::Rgba);
+      encoder.set_depth(png::BitDepth::Eight);
+      let mut writer = encoder.write_header().unwrap();
+      let pixels: Vec<u8> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| pixel(x, y))
+        .collect();
+      writer.write_image_data(&pixels).unwrap();
+    }
+    bytes
+  }
+
+  /// GitHub's icon as it draws it: a dark disc on nothing, made for the light bar of a browser's tabs.
+  pub(super) fn dark_disc() -> Vec<u8> {
+    png(32, 32, |x, y| {
+      let (dx, dy) = (x as f32 - 15.5, y as f32 - 15.5);
+      if dx * dx + dy * dy < 15.0 * 15.0 {
+        [0x24, 0x29, 0x2E, 255]
+      } else {
+        [0, 0, 0, 0]
+      }
+    })
+  }
+
+  pub(super) const SVG_ICON: &str = r##"<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="15" fill="#24292E"/></svg>"##;
+
+  /// A folder of resources with the files of the test `tag` under `tag/`, so that what one test keeps of an
+  /// address is not another's.
+  pub(super) fn site(tag: &str, files: &[(&str, Vec<u8>)]) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!("lurq-link-preview-{}", std::process::id()));
+    for (name, bytes) in files {
+      let path = root.join(tag).join(name);
+      std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+      std::fs::write(path, bytes).unwrap();
+    }
+    root
+  }
+
+  /// GitHub's page with its addresses under `tag/`.
+  pub(super) fn githubs_page(tag: &str) -> Vec<u8> {
+    include_str!("../assets/link_preview/github.html")
+      .replace("https://opengraph.githubassets.com/", &format!("{tag}/"))
+      .replace("https://github.githubassets.com/", &format!("{tag}/"))
+      .into_bytes()
+  }
+
+  /// Where GitHub's page has its picture, after its server's address.
+  pub(super) const PICTURE: &str = "2d62901bfc9f6e2966648a4a1f90879fbc91ac9f4e750c54aa814d1061b81963/ivanzaida/lurq";
+
+  /// A stage with a card of `url` in the dark theme, read by a fetcher of its own through `app`'s loader.
+  pub(super) fn card(app: App, url: &str) -> Stage {
+    app.theme().set_preferred_appearance(Some(Appearance::Dark));
+    let fetcher: Arc<dyn LinkFetcher> = Arc::new(PageFetcher::new());
+    let url = url.to_owned();
+    Stage::in_app(app, move |_| {
+      Column::new()
+        .padding(8.0)
+        .child(
+          LinkPreview::new(&url)
+            .variant(LinkPreviewVariant::Card)
+            .shared_fetcher(fetcher.clone())
+            .id("preview"),
+        )
+        .into()
+    })
+  }
+
+  /// Passes until `done` holds, while the fetcher, the loader and the decoder work on their threads.
+  pub(super) fn until(stage: &mut Stage, what: &str, done: impl Fn(&Stage) -> bool) {
+    for _ in 0..1000 {
+      let _ = wait_link_fetches(Duration::from_secs(10));
+      stage.pass();
+      if done(stage) {
+        return;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{what} did not come");
+  }
+
+  fn images(stage: &Stage) -> Vec<Quad> {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(quad.content, QuadContent::Image { .. }))
+      .collect()
+  }
+
+  /// The icon's pixels: an image of 16 by 16.
+  pub(super) fn icon(stage: &Stage) -> Option<Quad> {
+    images(stage)
+      .into_iter()
+      .find(|quad| quad.width == 16.0 && quad.height == 16.0)
+  }
+
+  /// The picture of the card: an image as wide as it.
+  pub(super) fn picture(stage: &Stage) -> Option<Quad> {
+    images(stage).into_iter().find(|quad| quad.width == 360.0)
+  }
+
+  fn pixels_of(quad: &Quad) -> (u32, u32) {
+    match &quad.content {
+      QuadContent::Image { data, .. } => (data.width(), data.height()),
+      _ => (0, 0),
+    }
+  }
+
+  fn link_mark() -> String {
+    lurq::ui::icons::ALL
+      .iter()
+      .find_map(|(name, glyph)| (*name == lurq::ui::icons::LINK).then(|| glyph.to_string()))
+      .unwrap()
+  }
+
+  #[test]
+  fn githubs_page_shows_its_picture_and_its_icon_on_a_white_plate() {
+    let tag = "github";
+    let root = site(
+      tag,
+      &[
+        ("page.html", githubs_page(tag)),
+        (PICTURE, png(120, 60, |_, _| [40, 160, 90, 255])),
+        ("favicons/favicon.png", dark_disc()),
+        ("favicons/favicon.svg", SVG_ICON.as_bytes().to_vec()),
+      ],
+    );
+    let app = App::new();
+    app.loader().root(&root);
+    let mut stage = card(app, &format!("{tag}/page.html"));
+    until(&mut stage, "the picture and the icon", |stage| {
+      picture(stage).is_some() && icon(stage).is_some()
+    });
+    assert!(stage.paints("GitHub - ivanzaida/lurq"));
+    assert!(stage.paints("GitHub"));
+    let picture = picture(&stage).unwrap();
+    assert!((picture.height - 188.0).abs() < 1.0, "{}", picture.height);
+    let icon = icon(&stage).unwrap();
+    assert_eq!(pixels_of(&icon), (32, 32), "the PNG, before the SVG");
+    assert!(!stage.paints(&link_mark()));
+    // The dark disc is on a white plate, and in no box of a picture's own.
+    let under = |quad: &Quad| quad.width == 16.0 && (quad.x - icon.x).abs() < 0.5 && (quad.y - icon.y).abs() < 0.5;
+    let filled = |color: Color| {
+      stage
+        .quads()
+        .iter()
+        .any(|quad| under(quad) && matches!(quad.content, QuadContent::Rect { color: fill, .. } if fill == color))
+    };
+    assert!(
+      filled(Color::new(255, 255, 255, 255)),
+      "the icon stands on a white plate"
+    );
+    assert!(
+      !filled(ThemePalette::dark().get(PaletteColor::Muted)),
+      "no box of a picture's own around it"
+    );
+  }
+
+  #[cfg(feature = "canvas")]
+  #[test]
+  fn an_svg_icon_alone_is_drawn() {
+    let tag = "svg-only";
+    let page = format!(
+      r#"<head><title>Drawn</title><meta property="og:site_name" content="svg.example">
+      <link rel="icon" type="image/svg+xml" href="{tag}/icon.svg"></head>"#
+    );
+    let root = site(
+      tag,
+      &[
+        ("page.html", page.into_bytes()),
+        ("icon.svg", SVG_ICON.as_bytes().to_vec()),
+      ],
+    );
+    let app = App::new();
+    app.loader().root(&root);
+    let mut stage = card(app, &format!("{tag}/page.html"));
+    until(&mut stage, "the icon", |stage| icon(stage).is_some());
+    assert_eq!(
+      pixels_of(&icon(&stage).unwrap()),
+      (64, 64),
+      "the drawing at the size an icon is decoded to"
+    );
+    assert!(!stage.paints(&link_mark()));
+  }
+
+  #[test]
+  fn an_icon_that_fails_gives_way_to_the_next_and_the_link_mark_stands_for_them_all() {
+    // The PNG is no picture and the SVG is: the SVG is drawn, where the build draws one.
+    let tag = "next-icon";
+    let root = site(
+      tag,
+      &[
+        ("page.html", githubs_page(tag)),
+        ("favicons/favicon.png", b"<html>not a picture</html>".to_vec()),
+        ("favicons/favicon.svg", SVG_ICON.as_bytes().to_vec()),
+      ],
+    );
+    let app = App::new();
+    app.loader().root(&root);
+    let mut stage = card(app, &format!("{tag}/page.html"));
+    if cfg!(feature = "canvas") {
+      until(&mut stage, "the SVG icon", |stage| icon(stage).is_some());
+      assert_eq!(pixels_of(&icon(&stage).unwrap()), (64, 64));
+      assert!(!stage.paints(&link_mark()));
+    }
+
+    // Neither loads: the link mark, and no box where the icon would be.
+    let tag = "no-icon";
+    let root = site(
+      tag,
+      &[
+        ("page.html", githubs_page(tag)),
+        ("favicons/favicon.svg", b"<svg broken".to_vec()),
+      ],
+    );
+    let app = App::new();
+    app.loader().root(&root);
+    let mut stage = card(app, &format!("{tag}/page.html"));
+    until(&mut stage, "the link mark", |stage| stage.paints(&link_mark()));
+    for _ in 0..5 {
+      stage.pass();
+    }
+    assert!(stage.paints(&link_mark()), "it stays");
+    assert!(icon(&stage).is_none());
+    assert!(stage.paints("GitHub - ivanzaida/lurq"));
+  }
+}
+
+/// GitHub's server of the pictures of its pages answers "429 Too Many Requests" to a first request now and then,
+/// and the picture to the next: the preview's picture comes all the same.
+#[cfg(all(feature = "image", feature = "http"))]
+#[test]
+fn a_picture_whose_server_is_busy_at_first_comes_all_the_same() {
+  use std::io::{Read, Write};
+
+  use a_real_page::{PICTURE, card, dark_disc, githubs_page, icon, picture, png, until};
+
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let origin = format!("http://{}", listener.local_addr().unwrap());
+  let page = String::from_utf8(githubs_page("TAG"))
+    .unwrap()
+    .replace("TAG/", &format!("{origin}/"))
+    .into_bytes();
+  let (picture_bytes, icon_bytes) = (png(120, 60, |_, _| [40, 160, 90, 255]), dark_disc());
+  let asked_for_the_picture = Arc::new(AtomicUsize::new(0));
+  let asked = asked_for_the_picture.clone();
+  std::thread::spawn(move || {
+    for stream in listener.incoming() {
+      let Ok(mut stream) = stream else { return };
+      let mut request = Vec::new();
+      let mut chunk = [0u8; 1024];
+      while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut chunk) {
+          Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+          _ => break,
+        }
+      }
+      let request = String::from_utf8_lossy(&request).into_owned();
+      let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
+      let busy: &[u8] = b"Too many requests, please try again later.";
+      let (status, kind, body): (&str, &str, &[u8]) = if path == "/page" {
+        ("200 OK", "text/html; charset=utf-8", &page)
+      } else if path == format!("/{PICTURE}") {
+        if asked.fetch_add(1, Ordering::SeqCst) == 0 {
+          ("429 Too Many Requests", "text/html", busy)
+        } else {
+          ("200 OK", "image/png", &picture_bytes)
+        }
+      } else if path == "/favicons/favicon.png" {
+        ("200 OK", "image/png", &icon_bytes)
+      } else {
+        ("404 Not Found", "text/plain", b"")
+      };
+      let head = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nRetry-After: 556\r\nConnection: \
+         close\r\n\r\n",
+        body.len()
+      );
+      let _ = stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(body));
+    }
+  });
+  let mut stage = card(lurq::app::App::new(), &format!("{origin}/page"));
+  until(&mut stage, "the picture and the icon", |stage| {
+    picture(stage).is_some() && icon(stage).is_some()
+  });
+  assert_eq!(asked_for_the_picture.load(Ordering::SeqCst), 2, "asked again once");
 }

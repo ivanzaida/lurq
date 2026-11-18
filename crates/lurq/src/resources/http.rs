@@ -1,13 +1,27 @@
 //! Reading what is at an address: the part of the loader the feature `http` adds.
 
-use std::{io::Read, sync::Arc, time::Duration};
+use std::{
+  io::Read,
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use super::LoadError;
+
+/// How many times more a server that says it is busy (429 Too Many Requests, 503 Service Unavailable) is asked.
+/// Such an answer passes: the picture of a GitHub page, asked for the first time, is often a 429 that the next
+/// request a second later is not.
+const BUSY_RETRIES: u32 = 2;
+
+/// The longest pause before a busy server is asked again, whatever its `Retry-After` says: a load waits seconds,
+/// not the minutes a rate limit may name.
+const BUSY_PAUSE: Duration = Duration::from_secs(2);
 
 /// Reads all of what is at `address`, with `headers` on the request. It fails where the server answers an
 /// error, where it takes longer than `timeout`, and where there is more than `max_bytes`, which is known from
 /// the length the server says or as soon as more has come; where `cut`, it reads the first `max_bytes` and ends
-/// there with them. `told` hears how far it has come after each read and stops it by answering `false`.
+/// there with them. A server that says it is busy is asked again, twice at most and within `timeout`. `told`
+/// hears how far it has come after each read and stops it by answering `false`.
 pub(super) fn fetch(
   address: &str,
   headers: &[(Arc<str>, Arc<str>)],
@@ -16,15 +30,51 @@ pub(super) fn fetch(
   cut: bool,
   mut told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
-  let agent: ureq::Agent = ureq::Agent::config_builder()
-    .timeout_global(Some(timeout))
-    .build()
-    .into();
-  let mut request = agent.get(address);
-  for (name, value) in headers {
-    request = request.header(name.as_ref(), value.as_ref());
-  }
-  let response = request.call().map_err(error_of)?;
+  let started = Instant::now();
+  let mut busy = 0;
+  let response = loop {
+    let left = timeout.saturating_sub(started.elapsed());
+    if left.is_zero() {
+      return Err(LoadError::TimedOut);
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+      .timeout_global(Some(left))
+      .http_status_as_error(false)
+      .build()
+      .into();
+    let mut request = agent.get(address);
+    for (name, value) in headers {
+      request = request.header(name.as_ref(), value.as_ref());
+    }
+    let response = request.call().map_err(error_of)?;
+    let status = response.status().as_u16();
+    if status < 400 {
+      break response;
+    }
+    if matches!(status, 429 | 503) && busy < BUSY_RETRIES {
+      busy += 1;
+      let said = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(Duration::from_secs);
+      let pause = said
+        .unwrap_or(Duration::from_secs(u64::from(busy)))
+        .min(BUSY_PAUSE)
+        .min(timeout.saturating_sub(started.elapsed()));
+      tracing::debug!(target: "lurq::resources", "{address} answered {status}: asked again in {pause:?}");
+      if !told(0, None) {
+        return Err(LoadError::Cancelled);
+      }
+      std::thread::sleep(pause);
+      continue;
+    }
+    return Err(match status {
+      404 => LoadError::NotFound,
+      status => LoadError::Status(status),
+    });
+  };
   let body = response.into_body();
   let total = body.content_length();
   if !cut && total.is_some_and(|total| total > max_bytes) {
@@ -76,23 +126,39 @@ mod tests {
 
   /// A server on this machine that answers one request with `response`, and gives back what it was sent.
   fn serve_once(response: Vec<u8>) -> (String, thread::JoinHandle<String>) {
+    let (address, served) = serve(vec![response]);
+    (address, thread::spawn(move || served.join().unwrap().remove(0)))
+  }
+
+  /// A server on this machine that answers each request it is sent with the next of `responses`, and gives back
+  /// what it was sent.
+  fn serve(responses: Vec<Vec<u8>>) -> (String, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = format!("http://{}/picture.png", listener.local_addr().unwrap());
     let served = thread::spawn(move || {
-      let (mut stream, _) = listener.accept().unwrap();
-      let mut request = Vec::new();
-      let mut chunk = [0u8; 1024];
-      while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-        let read = stream.read(&mut chunk).unwrap();
-        if read == 0 {
-          break;
+      let mut requests = Vec::new();
+      for response in responses {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+          let read = stream.read(&mut chunk).unwrap();
+          if read == 0 {
+            break;
+          }
+          request.extend_from_slice(&chunk[..read]);
         }
-        request.extend_from_slice(&chunk[..read]);
+        stream.write_all(&response).unwrap();
+        requests.push(String::from_utf8_lossy(&request).into_owned());
       }
-      stream.write_all(&response).unwrap();
-      String::from_utf8_lossy(&request).into_owned()
+      requests
     });
     (address, served)
+  }
+
+  fn busy(status: &str, retry_after: &str) -> Vec<u8> {
+    format!("HTTP/1.1 {status}\r\nRetry-After: {retry_after}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+      .into_bytes()
   }
 
   fn ok(body: &[u8]) -> Vec<u8> {
@@ -132,12 +198,48 @@ mod tests {
       Err(LoadError::NotFound)
     );
     served.join().unwrap();
-    let (address, served) = serve_once(b"HTTP/1.1 503 Busy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
+    let (address, served) =
+      serve_once(b"HTTP/1.1 500 Broken\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
+    assert_eq!(
+      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
+      Err(LoadError::Status(500))
+    );
+    served.join().unwrap();
+  }
+
+  #[test]
+  fn a_server_that_says_it_is_busy_is_asked_again_and_its_answer_is_read() {
+    // GitHub's pictures of its pages answer 429 to a first request now and then, and the next is the picture.
+    let (address, served) = serve(vec![
+      busy("429 Too Many Requests", "556"),
+      busy("503 Service Unavailable", "0"),
+      ok(b"the picture"),
+    ]);
+    let started = std::time::Instant::now();
+    assert_eq!(
+      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
+      Ok(b"the picture".to_vec())
+    );
+    assert_eq!(served.join().unwrap().len(), 3);
+    let waited = started.elapsed();
+    assert!(
+      waited < Duration::from_secs(4),
+      "a long Retry-After is not waited for: {waited:?}"
+    );
+  }
+
+  #[test]
+  fn a_server_that_stays_busy_is_its_status_after_two_more_asks() {
+    let (address, served) = serve(vec![
+      busy("503 Busy", "0"),
+      busy("503 Busy", "0"),
+      busy("503 Busy", "0"),
+    ]);
     assert_eq!(
       fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
       Err(LoadError::Status(503))
     );
-    served.join().unwrap();
+    assert_eq!(served.join().unwrap().len(), 3, "asked three times in all");
   }
 
   #[test]
