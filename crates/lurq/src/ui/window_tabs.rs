@@ -1468,9 +1468,10 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
   ///   bottom, padded 10 at its start and 6 at its end, its parts 8 apart: an icon of 14, the label 12 in the regular
   ///   weight taking the rest, and a close slot of 18, round by the small radius, with an x of 12 in the muted
   ///   foreground.
-  /// - The selected tab is the background's color, the content's, its icon and label in the foreground. Another has no
-  ///   fill, its icon and label in the muted foreground and its x at 0.6; under the pointer it is the secondary hover
-  ///   fill and its x whole.
+  /// - The selected tab is the background's color, the content's, edged at its top and sides by a line of 1 in the
+  ///   border's color and open at its bottom, its icon and label in the foreground. Another has no fill, its icon and
+  ///   label in the muted foreground and its x at 0.6; under the pointer it is the secondary hover fill and its x
+  ///   whole.
   /// - A tab with unsaved changes has a dot of 7 in the foreground in its close slot, the x in its place under the
   ///   pointer.
   /// - A separator is 1 by 16 in the border's color, between two tabs that are not the selected one and before the add
@@ -1484,6 +1485,7 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
     use WindowTabsState::{Dirty, Disabled, Selected};
     let inside = || Outline::new(BorderSize::Md, Ring).offset(-2.0);
     let clear = Color::new(0, 0, 0, 0);
+    let edge = || crate::node::border::Border::inside(BorderSize::Sm, PaletteColor::Border);
     Recipe::new()
       .base(Root, |s| s.height(32.0))
       .base(List, |s| s.height(32.0))
@@ -1526,7 +1528,15 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
       .focus_visible(Tab, |s| s.outline(inside()))
       .focus_visible(Add, |s| s.outline(inside()))
       .within_hovered(CloseIcon, |s| s.opacity(1.0))
-      .state(Selected, Tab, |s| s.background(Background).foreground(Foreground))
+      // The selected tab is open to the content under it and edged on its other sides by a line of the border: on a
+      // bar of the background's white (the light palette's `Bar`) its fill alone would not tell it apart.
+      .state(Selected, Tab, |s| {
+        s.background(Background)
+          .foreground(Foreground)
+          .top_line(edge())
+          .start_line(edge())
+          .end_line(edge())
+      })
       .when(Selector::new().state(Selected).hovered(), Tab, |s| s.background(Background))
       .state(Selected, CloseIcon, |s| s.opacity(1.0))
       // A tab with unsaved changes shows its dot, and the x in its place under the pointer.

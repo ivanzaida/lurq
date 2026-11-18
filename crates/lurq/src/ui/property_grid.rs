@@ -1773,7 +1773,7 @@ impl Themed for PropertyGrid {
   }
 
   /// The design's property grid (`pencil/lurq-design-system.pen`, Property Grid): 300 wide on `Background`, an edge
-  /// of 1 in `Border` and the large radius. Its header is 30 high on `Muted` with a line under it, its title in 11
+  /// of 1 in `Border` and the large radius. Its header is 30 high on `Bar` with a line under it, its title in 11
   /// semibold capitals spaced 0.6 in `MutedForeground`, 10 in. A category's row is 28 high on `Muted` with a line
   /// under it, padded 8 across, its chevron of 14 in `MutedForeground` 6 before its title in 12 semibold. A
   /// property's row is 32 high with a line under it, padded 12 at its start and 8 at its end, its name 84 wide in
@@ -1803,7 +1803,12 @@ impl Themed for PropertyGrid {
         s.width(super::part_style::Length::Fill)
       })
       .base(Header, |s| {
-        under(s.height(30.0).padding_start(10.0).padding_end(4.0).background(Muted))
+        under(
+          s.height(30.0)
+            .padding_start(10.0)
+            .padding_end(4.0)
+            .background(PaletteColor::Bar),
+        )
       })
       .base(Title, |s| {
         s.typography(TypographyStyle::Caption)

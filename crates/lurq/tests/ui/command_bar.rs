@@ -135,7 +135,7 @@ fn its_tabs_stand_over_its_groups_as_the_board_draws_them() {
     close(tabs_y, bar_y),
     "at the top of the frame, its edge drawn over them"
   );
-  assert_eq!(stage.fill_color("cb-tabs"), Some(light(PaletteColor::Muted)));
+  assert_eq!(stage.fill_color("cb-tabs"), Some(light(PaletteColor::Bar)));
   // The selected tab's label is in the foreground, the others in the muted foreground, all of 13.
   assert_eq!(stage.text("Home"), (light(PaletteColor::Foreground), 13.0));
   assert_eq!(stage.text("Insert").0, light(PaletteColor::MutedForeground));
@@ -504,7 +504,11 @@ fn at_every_width_the_groups_shown_stand_apart_and_the_rest_are_in_the_menu() {
 }
 
 /// The board's bar in a frame `width` wide, in a window of 900 by 600.
-fn framed(runs: &Arc<AtomicUsize>, table: &Arc<AtomicBool>, width: Signal<f32>) -> impl Fn(&mut lurq::app::ctx::Ctx) -> lurq::node::Element + Send + Sync + 'static {
+fn framed(
+  runs: &Arc<AtomicUsize>,
+  table: &Arc<AtomicBool>,
+  width: Signal<f32>,
+) -> impl Fn(&mut lurq::app::ctx::Ctx) -> lurq::node::Element + Send + Sync + 'static {
   let (runs, table) = (runs.clone(), table.clone());
   move |ctx| {
     let tabs = vec![home(&runs, &table), CommandBarTab::new(1, "Insert").id("insert")];
@@ -528,7 +532,11 @@ fn the_first_frame_at_a_width_is_the_settled_one() {
     let mut stage = Stage::first_frame(900.0, 600.0, framed(&runs, &table, Signal::new(width)));
     let first = stage.picture();
     stage.frame();
-    assert_eq!(first, stage.picture(), "built at {width}: the first frame is the next one");
+    assert_eq!(
+      first,
+      stage.picture(),
+      "built at {width}: the first frame is the next one"
+    );
   }
   // Dragged: the first frame at each new width shows what fits there, its chevron and its lines.
   let width = Signal::new(860.0f32);
@@ -539,7 +547,10 @@ fn the_first_frame_at_a_width_is_the_settled_one() {
     stage.frame();
     let first = stage.picture();
     stage.frame();
-    assert_eq!(first, stage.picture(), "dragged to {at}: the first frame is the next one");
+    assert_eq!(
+      first,
+      stage.picture(),
+      "dragged to {at}: the first frame is the next one"
+    );
   }
 }
-

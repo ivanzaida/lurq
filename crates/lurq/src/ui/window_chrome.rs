@@ -19,7 +19,7 @@ use crate::{
     theme::{BorderSize, PaletteColor, RadiusSize, Theme},
     window::WindowHandle,
   },
-  components::{self, ChromeBorderPolicy, ChromeTitleBar, Column, ResizeHandlePolicy, Row, WindowChromeMode},
+  components::{self, ChromeBorderPolicy, ChromeTitleBar, Column, ResizeHandlePolicy, Row, Stack, WindowChromeMode},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, Element, border::Border, color::Color, dimension::Dimension},
 };
@@ -79,6 +79,9 @@ pub enum WindowChromePart {
   Root,
   /// The title bar.
   Bar,
+  /// The line along the bottom of a bar with tabs, under its tabs: the selected tab stands over it, open to the
+  /// content, where a bar without tabs has its underline.
+  Line,
   /// The app's icon in the bar.
   Icon,
   /// The window's title.
@@ -104,6 +107,7 @@ pub enum WindowChromePart {
 names!(WindowChromePart {
   Root => "root",
   Bar => "bar",
+  Line => "line",
   Icon => "icon",
   Title => "title",
   Balance => "balance",
@@ -741,6 +745,31 @@ impl WindowChromeView {
     bar
   }
 
+  /// A bar with tabs over its line, which is drawn under the tabs so that the selected tab covers it where it
+  /// stands, open to the content: a border of the bar's own would be drawn over them. The bar's fill is under the
+  /// line, the bar itself clear. A bar without tabs is as it is, its line its underline.
+  pub fn over_line(&self, bar: Row) -> Element {
+    if !self.has_tabs() {
+      return bar.into();
+    }
+    let mut line = Row::new()
+      .width(Dimension::Pct(100.0))
+      .part(&self.part(WindowChromePart::Line));
+    if let Some(id) = &self.id {
+      line = line.id(format!("{id}-line"));
+    }
+    let mut layers = Stack::new().width(Dimension::Pct(100.0)).child(
+      Column::new()
+        .absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .justify(Justify::End)
+        .child(line),
+    );
+    if let Some(fill) = self.part(WindowChromePart::Bar).rest().background.clone() {
+      layers = layers.background(fill);
+    }
+    layers.child(bar.background(Color::new(0, 0, 0, 0))).into()
+  }
+
   /// The app's icon, where it has one.
   #[allow(deprecated)]
   pub fn icon(&self) -> Option<Element> {
@@ -1024,7 +1053,7 @@ impl WindowChromeView {
         .with_children([self.icon(), self.leading(), self.title()].into_iter().flatten());
       bar = bar.child(start).with_children(self.trailing());
     }
-    bar.child(self.controls()).into()
+    self.over_line(bar.child(self.controls()))
   }
 
   /// The bar as macOS draws it: the lights at the start, the title in the middle of the bar. With tabs, the tabs
@@ -1050,7 +1079,7 @@ impl WindowChromeView {
         .with_children(self.trailing())
         .child(self.balance());
     }
-    bar.into()
+    self.over_line(bar)
   }
 
   /// The bar as GNOME's header bar draws it: the title in the middle, round controls at the end. With tabs, the
@@ -1076,7 +1105,7 @@ impl WindowChromeView {
         .with_children(self.title().or_else(|| Some(self.drag_room())))
         .with_children(self.trailing());
     }
-    bar.child(self.controls()).into()
+    self.over_line(bar.child(self.controls()))
   }
 
   /// The bar as KDE draws it: the icon at the start, the title in the middle, round controls at the end. With
@@ -1107,7 +1136,7 @@ impl WindowChromeView {
         .with_children(self.title().or_else(|| Some(self.drag_room())))
         .with_children(self.trailing());
     }
-    bar.child(self.controls()).into()
+    self.over_line(bar.child(self.controls()))
   }
 
   /// How the default renderer builds the bar: as the platform it is drawn as.
@@ -1148,8 +1177,9 @@ impl Themed for WindowChrome {
     WindowChromeState::declared()
   }
 
-  /// The design's window chrome (`pencil/lurq-design-system.pen`, Window): a bar on `Muted` with a line of `Border`
-  /// under it, its title 13 in `Foreground`, by platform:
+  /// The design's window chrome (`pencil/lurq-design-system.pen`, Window): a bar on `Bar` with a line of `Border`
+  /// under it (with tabs, the line is under the tabs, and the selected tab, edged on its other sides, stands over it
+  /// open to the content), its title 13 in `Foreground`, by platform:
   ///
   /// - Windows: 36 high, 12 in at the start; the box icon 16 and the title 13/500, 8 apart, at the start; three
   ///   controls 46 by 36 at the end, minus 16, a square 12 (two squares 13 while maximized) and a cross 16 in
@@ -1164,15 +1194,16 @@ impl Themed for WindowChrome {
   ///   round controls of 22, 6 apart, a chevron down 16, a chevron up 16 and a cross 14; close on `Destructive`.
   ///
   /// A bar with tabs is 40 high (44 on GNOME, 38 on KDE), has the icon and the title before its tabs (where the app
-  /// gave them, Ivan 2026-11-17: the board draws none), no line under it, and holds its tabs on its bottom edge. The
-  /// window is `Background` in an edge of `Border`, its corners 8 on Windows, 12 on macOS and GNOME, 6 on KDE.
+  /// gave them, Ivan 2026-11-17: the board draws none), its line under its tabs, and holds its tabs on its bottom edge.
+  /// The window is `Background` in an edge of `Border`, its corners 8 on Windows, 12 on macOS and GNOME, 6 on KDE.
   fn recipe() -> Recipe {
     use PaletteColor::{
-      Background, Destructive, DestructiveForeground, DestructiveHover, Foreground, Input, Muted, MutedForeground,
+      Background, Destructive, DestructiveForeground, DestructiveHover, Foreground, Input, MutedForeground,
       SecondaryHover, StateHover, StatePressed,
     };
     use WindowChromePart::{
-      Balance, Bar, Close, CloseGlyph, Controls, Icon, Maximize, MaximizeGlyph, Minimize, MinimizeGlyph, Root, Title,
+      Balance, Bar, Close, CloseGlyph, Controls, Icon, Line, Maximize, MaximizeGlyph, Minimize, MinimizeGlyph, Root,
+      Title,
     };
     use WindowPlatform::{Gnome, Kde, Macos, Windows};
     let on = |platform: WindowPlatform| Selector::new().variant(platform);
@@ -1185,7 +1216,7 @@ impl Themed for WindowChrome {
           .radius(RadiusSize::Lg)
       })
       .base(Bar, |s| {
-        s.background(Muted)
+        s.background(PaletteColor::Bar)
           .underline(Border::inside(BorderSize::Sm, PaletteColor::Border))
           .gap(8.0)
       })
@@ -1200,8 +1231,9 @@ impl Themed for WindowChrome {
       .state(WindowChromeState::Inactive, MinimizeGlyph, |s| s.foreground(MutedForeground))
       .state(WindowChromeState::Inactive, MaximizeGlyph, |s| s.foreground(MutedForeground))
       .state(WindowChromeState::Inactive, CloseGlyph, |s| s.foreground(MutedForeground))
-      // A bar with tabs has no line under it: the selected tab runs into the content.
+      // A bar with tabs has its line under its tabs, not over them: the selected tab runs into the content.
       .state(WindowChromeState::Tabs, Bar, |s| s.underline(Border::inside(0.0, PaletteColor::Border)))
+      .base(Line, |s| s.height(1.0).background(PaletteColor::Border))
       // Windows.
       .when(on(Windows), Bar, |s| s.height(36.0).padding_start(12.0))
       .when(on(Windows).state(WindowChromeState::Tabs), Bar, |s| s.height(40.0).padding_start(8.0))

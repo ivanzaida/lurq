@@ -194,9 +194,9 @@ fn the_header_is_40_high_on_the_muted_fill_and_the_rows_44_their_text_as_the_boa
   assert!(
     stage.quads().iter().any(|quad| matches!(
       &quad.content,
-      QuadContent::Rect { color, .. } if *color == light(PaletteColor::Muted)
+      QuadContent::Rect { color, .. } if *color == light(PaletteColor::Bar)
     ) && (quad.height - 40.0).abs() < 1.01),
-    "the header is on the muted fill"
+    "the header is on the bar's fill"
   );
 
   // The titles 13 in the muted foreground; the cells 13 in the foreground, the muted column muted, the name

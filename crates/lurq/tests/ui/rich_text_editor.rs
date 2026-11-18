@@ -199,10 +199,10 @@ fn the_editor_is_the_boards_box_with_its_bar_its_content_and_its_footer() {
       .map(|radius| radius.top_left),
     Some(radius)
   );
-  // The bar: 40 high on the muted fill, padded 6, its tools 28 square and 2 apart.
+  // The bar: 40 high on the bar's fill, padded 6, its tools 28 square and 2 apart.
   let (bar_x, bar_y, bar_width, bar_height) = stage.bounds("editor-toolbar");
   assert_eq!((bar_x, bar_y, bar_width, bar_height), (x, y, 560.0, 40.0));
-  assert_eq!(stage.fill_color("editor-toolbar"), Some(light(PaletteColor::Muted)));
+  assert_eq!(stage.fill_color("editor-toolbar"), Some(light(PaletteColor::Bar)));
   let (style_x, _, style_width, style_height) = stage.bounds("editor-style");
   assert!(close(style_x - x, 6.0), "padded 6: {style_x}");
   // The style's control hugs the name it shows: 10, the name, 6, a chevron of 12, 6.

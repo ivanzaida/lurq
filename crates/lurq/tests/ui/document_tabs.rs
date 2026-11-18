@@ -146,12 +146,12 @@ fn the_bar_and_its_tabs_are_the_boards() {
         .is_some_and(|border| border.top.is_some_and(|top| top.width == 2.0 && top.color == primary))
   });
   assert!(line, "a line of 2 along the top of the tab shown");
-  // The bar is muted.
-  let muted = stage.quads().into_iter().any(|quad| {
-    matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Muted))
+  // The bar is on the bar's fill.
+  let bar = stage.quads().into_iter().any(|quad| {
+    matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Bar))
       && close(quad.width, 860.0)
   });
-  assert!(muted, "the bar in the muted fill");
+  assert!(bar, "the bar in the bar's fill");
 }
 
 #[test]

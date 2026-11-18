@@ -406,7 +406,7 @@ impl ThemeMarkdown {
 /// which the design sets at 15 with a line height of 1.65.
 impl Default for ThemeMarkdown {
   fn default() -> Self {
-    use PaletteColor::{Border, Foreground, Info, Muted, MutedForeground, Popover, PopoverForeground, Ring};
+    use PaletteColor::{Bar, Border, Foreground, Info, Muted, MutedForeground, Popover, PopoverForeground, Ring};
     let color = |role: PaletteColor| Some(TextColor::Palette(role));
     // A size the design gives in pixels, as a share of its text's 15.
     let of_15 = |size: f32| Some(size / 15.0);
@@ -485,7 +485,7 @@ impl Default for ThemeMarkdown {
     };
 
     let table_header_box = MarkdownBlockStyle {
-      background: color(Muted),
+      background: color(Bar),
       border_color: None,
       border_width: None,
       radius: None,
@@ -526,7 +526,7 @@ impl Default for ThemeMarkdown {
     };
 
     let details_summary_box = MarkdownBlockStyle {
-      background: color(Muted),
+      background: color(Bar),
       border_color: color(Border),
       border_width: Some(1.0),
       radius: None,

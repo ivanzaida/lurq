@@ -1398,7 +1398,7 @@ impl Themed for CodeBlock {
   }
 
   /// The design's code block (`pencil/lurq-design-system.pen`, Code Block `kyzrV`, in Data and in the Markdown
-  /// document): on `Background` in an edge of 1 in `Border` with the large radius; a bar of 36 on `Muted` with a line
+  /// document): on `Background` in an edge of 1 in `Border` with the large radius; a bar of 36 on `Bar` with a line
   /// of 1 in `Border` under it, padded 14 at its start and 6 at its end, its title 11 in the family of code in
   /// `MutedForeground`, and a ghost button of 28 with a copy glyph of 16; the code 13 in the family of code in
   /// `Foreground`, padded 14, its lines 4 apart. Its tokens are in the theme's code colors (`CodeScheme::lurq`: the
@@ -1407,7 +1407,7 @@ impl Themed for CodeBlock {
   fn recipe() -> Recipe {
     use CodeBlockPart::*;
     use PaletteColor::{
-      Background, Border as Edge, Foreground, Highlight, HighlightForeground, Muted, MutedForeground, Success,
+      Background, Border as Edge, Foreground, Highlight, HighlightForeground, MutedForeground, Success,
     };
     // A line is `row_height` high, 21 unless told: the code's own line of 17 and 4 between two. The room around the
     // lines is 14, less above and below by what a row takes past the code's own line.
@@ -1420,7 +1420,7 @@ impl Themed for CodeBlock {
       })
       .base(Header, |s| {
         s.height(36.0)
-          .background(Muted)
+          .background(PaletteColor::Bar)
           .underline(Border::inside(BorderSize::Sm, Edge))
           .padding_start(14.0)
           .padding_end(6.0)

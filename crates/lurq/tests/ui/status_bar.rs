@@ -80,7 +80,7 @@ fn the_bar_and_its_items_are_the_boards() {
   let mut stage = stage(860.0, &told);
   let (_, _, width, height) = stage.bounds("bar");
   assert_eq!((width, height), (860.0, 26.0), "a bar 26 high across its room");
-  assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Muted)));
+  assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Bar)));
   let (branch_x, _, _, branch_height) = stage.bounds("branch");
   assert_eq!(
     (branch_x, branch_height),

@@ -355,7 +355,7 @@ fn a_panel_header_on_its_own_is_the_boards() {
   stage.pass();
   let (_, _, width, height) = stage.bounds("header");
   assert_eq!((width, height), (240.0, 30.0));
-  assert_eq!(stage.fill_color("header"), Some(light(PaletteColor::Muted)));
+  assert_eq!(stage.fill_color("header"), Some(light(PaletteColor::Bar)));
   assert_eq!(stage.text("EXPLORER"), (light(PaletteColor::MutedForeground), 11.0));
   let (x, ..) = stage.bounds("header");
   assert!(close(stage.text_quad("EXPLORER").unwrap().x - x, 10.0), "10 in");
