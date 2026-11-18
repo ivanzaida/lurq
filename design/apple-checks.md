@@ -220,7 +220,7 @@ three renderers. None of that is Apple's: `CardFrames` is Direct3D's shared text
 alone. What Apple's systems have is one older piece, and the rest is to be built. In the order to do it:
 
 2026-11-17/18: built on `feat/design-system` (the decision is in [decisions.md](decisions.md), "A video plays on
-macOS and iOS"). 1, 3, 4, 5 and 6 are done; 2 in part; 7 and 8 not.
+macOS and iOS"). 1, 3, 4, 5, 6 and 7 are done; 2 in part; 8 not.
 
 - [x] **1. Run what exists, which was never run.** 2026-11-17: a video of the system's `AVPlayer` gives its
   buffers to the renderer, which draws them in the gallery on a Mac with the colors of the copy through memory.
@@ -234,7 +234,8 @@ macOS and iOS"). 1, 3, 4, 5 and 6 are done; 2 in part; 7 and 8 not.
 - [ ] **2. Mend what that run shows of the piece.** 2026-11-17: one texture cache for the device, kept; the
   textures of the frame before kept until the next is drawn. 2026-11-18: the crop holds for a buffer larger than
   its picture, the picture at its top left (`a_buffer_larger_than_its_picture_is_drawn_as_its_picture`); a
-  picture elsewhere in the buffer (a clean aperture that does not start at 0, 0) is not read. The depth is 7. Read, not run, these are weak: a texture cache is made and let
+  picture elsewhere in the buffer (a clean aperture that does not start at 0, 0) is not read. The depth is 7.
+  A picture of an odd width or height has its last column or row of color (the color plane is rounded up). Read, not run, these are weak: a texture cache is made and let
   go of for each plane of each frame, where one for the device is meant; the planes are taken to be as large as
   the picture, so a buffer larger than its picture (a codec's 1088 rows for 1080) has no crop; and any buffer is
   taken for 8 bits and gray from 16 to 235 (see 7).
@@ -261,9 +262,16 @@ macOS and iOS"). 1, 3, 4, 5 and 6 are done; 2 in part; 7 and 8 not.
   fails. It draws the planes as they are (`wgpu_render/planes_drawn.rs`, shared with Windows' test), not colors. The Video Player page's table of decoders (`crates/gallery/src/card_demo.rs`)
   and `wgpu_render/card_frames_tests.rs` are Windows'. A stand-in decoder that writes pixel buffers gives the page
   its rows on a Mac, and the tests their first one: a frame drawn from the buffer is the frame memory gives.
-- [ ] **7. Color and depth.** One matrix is in the shader: BT.709 with gray from 16 to 235. A buffer of the full
+- [x] **7. Color and depth.** One matrix is in the shader: BT.709 with gray from 16 to 235. A buffer of the full
   range (`420f`), of BT.601 or BT.2020, or of ten bits is drawn wrong or not at all. The same is not done on
   Windows.
+  2026-11-18, on Apple's systems: the matrix a buffer says (`kCVImageBufferYCbCrMatrixKey`: BT.709, BT.601,
+  BT.2020; none is BT.709) and its range and depth by its pixel format (`420v`, `420f`, `x420`, `xf20`) are read
+  (`wgpu_render/video_color.rs`) and told to the shader in the instance's `opacity.zw` (`shaders/yuv.wgsl`); ten
+  bits are planes of 16-bit unorm. Tests: each matrix and range against the standard's K_R and K_B on Metal, and
+  each kind of buffer read. The gallery's decoder writes BT.709 bars and they are drawn within 2 of 255 of pure
+  red, green and blue. Not done: the transfer of HDR (PQ, HLG) and its wide colors, which are drawn as if SDR;
+  Windows' frames are told nothing and stay BT.709 of the video range, as before.
 - [ ] **8. Not looked at.** A Mac with two graphics cards (Intel ones, an external card) and a card taken away
   while the app runs. An IOSurface is shared between cards by the system, which Windows' textures are not, so
   what was built there for a decoder on another card may not be needed.

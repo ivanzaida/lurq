@@ -175,3 +175,241 @@ fn a_buffer_larger_than_its_picture_is_drawn_as_its_picture() {
     wrong.first()
   );
 }
+
+// The colors of a frame: the matrix and the range a buffer says, and the shader's conversion of each.
+
+/// R'G'B' of Y'CbCr by the standard's own weights of red and blue, `kr` and `kb`, with samples of 0 to 1 and
+/// color about a half, in the full range or the video one.
+fn standard_rgb(y: f32, cb: f32, cr: f32, kr: f32, kb: f32, full_range: bool) -> [f32; 3] {
+  let (y, cb, cr) = if full_range {
+    (y, cb - 0.5, cr - 0.5)
+  } else {
+    (
+      (y - 16.0 / 255.0) * 255.0 / 219.0,
+      (cb - 0.5) * 255.0 / 224.0,
+      (cr - 0.5) * 255.0 / 224.0,
+    )
+  };
+  let red = y + 2.0 * (1.0 - kr) * cr;
+  let blue = y + 2.0 * (1.0 - kb) * cb;
+  let green = (y - kr * red - kb * blue) / (1.0 - kr - kb);
+  [red, green, blue]
+}
+
+/// What `yuv_to_rgb` gives for each case, `(y, cb, cr, matrix, full_range)`, drawn on the card one pixel a case.
+fn converted(device: &wgpu::Device, queue: &wgpu::Queue, cases: &[[f32; 5]]) -> Vec<[f32; 3]> {
+  let table = cases
+    .iter()
+    .map(|case| {
+      format!(
+        "array<f32, 5>({:?}, {:?}, {:?}, {:?}, {:?})",
+        case[0], case[1], case[2], case[3], case[4]
+      )
+    })
+    .collect::<Vec<_>>()
+    .join(", ");
+  let source = format!(
+    "const CASES = array<array<f32, 5>, {count}>({table});
+     @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {{
+       var corners = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+       return vec4(corners[index], 0.0, 1.0);
+     }}
+     @fragment fn fs(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {{
+       let sample = CASES[u32(at.x)];
+       return vec4(yuv_to_rgb(sample[0], sample[1], sample[2], sample[3], sample[4]), 1.0);
+     }}
+     {yuv}",
+    count = cases.len(),
+    yuv = include_str!("shaders/yuv.wgsl"),
+  );
+  let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    label: Some("yuv"),
+    source: wgpu::ShaderSource::Wgsl(source.into()),
+  });
+  let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    label: None,
+    layout: None,
+    vertex: wgpu::VertexState {
+      module: &shader,
+      entry_point: Some("vs"),
+      buffers: &[],
+      compilation_options: Default::default(),
+    },
+    fragment: Some(wgpu::FragmentState {
+      module: &shader,
+      entry_point: Some("fs"),
+      targets: &[Some(wgpu::TextureFormat::Rgba32Float.into())],
+      compilation_options: Default::default(),
+    }),
+    primitive: Default::default(),
+    depth_stencil: None,
+    multisample: Default::default(),
+    multiview_mask: None,
+    cache: None,
+  });
+  let width = cases.len() as u32;
+  let target = device.create_texture(&wgpu::TextureDescriptor {
+    label: None,
+    size: wgpu::Extent3d {
+      width,
+      height: 1,
+      depth_or_array_layers: 1,
+    },
+    mip_level_count: 1,
+    sample_count: 1,
+    dimension: wgpu::TextureDimension::D2,
+    format: wgpu::TextureFormat::Rgba32Float,
+    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    view_formats: &[],
+  });
+  let row = (width * 16).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+  let read = device.create_buffer(&wgpu::BufferDescriptor {
+    label: None,
+    size: u64::from(row),
+    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+    mapped_at_creation: false,
+  });
+  let mut encoder = device.create_command_encoder(&Default::default());
+  {
+    let view = target.create_view(&Default::default());
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+      label: None,
+      color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        view: &view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: wgpu::Operations {
+          load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+          store: wgpu::StoreOp::Store,
+        },
+      })],
+      depth_stencil_attachment: None,
+      timestamp_writes: None,
+      occlusion_query_set: None,
+      multiview_mask: None,
+    });
+    pass.set_pipeline(&pipeline);
+    pass.draw(0..3, 0..1);
+  }
+  encoder.copy_texture_to_buffer(
+    target.as_image_copy(),
+    wgpu::TexelCopyBufferInfo {
+      buffer: &read,
+      layout: wgpu::TexelCopyBufferLayout {
+        offset: 0,
+        bytes_per_row: Some(row),
+        rows_per_image: Some(1),
+      },
+    },
+    wgpu::Extent3d {
+      width,
+      height: 1,
+      depth_or_array_layers: 1,
+    },
+  );
+  queue.submit([encoder.finish()]);
+  read.slice(..).map_async(wgpu::MapMode::Read, |mapped| mapped.unwrap());
+  device
+    .poll(wgpu::PollType::wait_indefinitely())
+    .expect("the card answers");
+  let mapped = read.slice(..).get_mapped_range();
+  let floats: &[f32] = bytemuck::cast_slice(&mapped[..(width * 16) as usize]);
+  floats.chunks(4).map(|pixel| [pixel[0], pixel[1], pixel[2]]).collect()
+}
+
+#[test]
+fn each_matrix_and_range_makes_the_colors_the_standard_does() {
+  let Some((device, queue)) = device() else {
+    eprintln!("skipped: no Metal device");
+    return;
+  };
+  // (the shader's number, K_R, K_B): BT.709, BT.601, BT.2020.
+  let matrices = [(0.0, 0.2126, 0.0722), (1.0, 0.299, 0.114), (2.0, 0.2627, 0.0593)];
+  // A saturated orange, a dark blue, gray.
+  let samples = [(0.55, 0.30, 0.75), (0.20, 0.70, 0.45), (0.50, 0.5, 0.5)];
+  let mut cases = Vec::new();
+  let mut expected = Vec::new();
+  for (number, kr, kb) in matrices {
+    for full_range in [false, true] {
+      for (y, cb, cr) in samples {
+        cases.push([y, cb, cr, number, if full_range { 1.0 } else { 0.0 }]);
+        expected.push((number, full_range, standard_rgb(y, cb, cr, kr, kb, full_range)));
+      }
+    }
+  }
+  let drawn = converted(&device, &queue, &cases);
+  for ((number, full_range, wanted), got) in expected.into_iter().zip(drawn) {
+    let off = wanted.iter().zip(got).map(|(w, g)| (w - g).abs()).fold(0.0, f32::max);
+    assert!(
+      off < 0.002,
+      "matrix {number}, full range {full_range}: {got:?}, the standard gives {wanted:?}"
+    );
+  }
+}
+
+#[test]
+fn a_buffer_says_its_matrix_its_range_and_its_depth() {
+  use core_foundation_sys::{base::kCFAllocatorDefault, string::CFStringRef};
+  use core_video_sys::pixel_buffer::CVPixelBufferCreate;
+
+  use super::video_color::{Matrix, VideoColor};
+
+  #[link(name = "CoreVideo", kind = "framework")]
+  unsafe extern "C" {
+    static kCVImageBufferYCbCrMatrixKey: CFStringRef;
+    static kCVImageBufferYCbCrMatrix_ITU_R_601_4: CFStringRef;
+    static kCVImageBufferYCbCrMatrix_ITU_R_2020: CFStringRef;
+    fn CVBufferSetAttachment(
+      buffer: *mut std::ffi::c_void,
+      key: CFStringRef,
+      value: *const std::ffi::c_void,
+      mode: u32,
+    );
+  }
+
+  let buffer = |format: &[u8; 4], matrix: Option<CFStringRef>| unsafe {
+    let mut buffer = std::ptr::null_mut();
+    let status = CVPixelBufferCreate(
+      kCFAllocatorDefault.cast(),
+      16,
+      16,
+      u32::from_be_bytes(*format),
+      std::ptr::null(),
+      &mut buffer,
+    );
+    assert_eq!(status, 0, "{}", String::from_utf8_lossy(format));
+    if let Some(matrix) = matrix {
+      // 1 is kCVAttachmentMode_ShouldPropagate.
+      CVBufferSetAttachment(buffer.cast(), kCVImageBufferYCbCrMatrixKey, matrix.cast(), 1);
+    }
+    // Held by the handle alone: the reference the creation gave is let go.
+    let held = MacosCvPixelBuffer::retain(buffer.cast());
+    core_foundation_sys::base::CFRelease(buffer.cast());
+    held
+  };
+  let read = |buffer: &MacosCvPixelBuffer| unsafe { super::video_color::of(buffer.as_ptr()) };
+  let color = |matrix, full_range, ten_bit| {
+    Some(VideoColor {
+      matrix,
+      full_range,
+      ten_bit,
+    })
+  };
+  unsafe {
+    assert_eq!(
+      read(&buffer(b"420v", None)),
+      color(Matrix::Bt709, false, false),
+      "none said is BT.709"
+    );
+    assert_eq!(
+      read(&buffer(b"420f", Some(kCVImageBufferYCbCrMatrix_ITU_R_601_4))),
+      color(Matrix::Bt601, true, false)
+    );
+    assert_eq!(
+      read(&buffer(b"x420", Some(kCVImageBufferYCbCrMatrix_ITU_R_2020))),
+      color(Matrix::Bt2020, false, true)
+    );
+    assert_eq!(read(&buffer(b"xf20", None)), color(Matrix::Bt709, true, true));
+    assert_eq!(read(&buffer(b"BGRA", None)), None, "not two planes");
+  }
+}

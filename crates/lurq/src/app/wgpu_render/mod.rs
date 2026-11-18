@@ -25,6 +25,8 @@ mod planes_drawn;
 mod quad_tests;
 mod surface_proxy;
 mod vertex;
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+mod video_color;
 #[cfg(all(test, windows, feature = "screenshot"))]
 mod viewport_tests;
 
@@ -252,6 +254,9 @@ enum CachedImageTexture {
   },
   Nv12 {
     bind_group: wgpu::BindGroup,
+    /// How the shader makes colors of the samples: the matrix and whether they take the full range, as the
+    /// instance's `opacity.zw` tells it (`shaders/yuv.wgsl`). BT.709 of the video range unless a frame says other.
+    color: [f32; 2],
     y_view: wgpu::TextureView,
     uv_view: wgpu::TextureView,
     y_texture: wgpu::Texture,
@@ -628,6 +633,9 @@ fn device_descriptor(
     | wgpu::Features::TEXTURE_FORMAT_NV12
     // Under Vulkan such a frame is a texture of Direct3D given to it by its handle.
     | wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32;
+  // A frame of ten bits that stays on the card is two planes of 16-bit unorm.
+  #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "raster"))]
+  let optional_features = optional_features | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
   #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
   let mut required_features = adapter.features() & optional_features;
   // Measures GPU time while a profiling session is active.
@@ -1900,7 +1908,14 @@ impl WgpuRenderEngine {
       });
       let nv12_image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("lurq_nv12_image_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/image_nv12.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(
+          // After the shader: its `diagnostic` directive is first in the module.
+          concat!(
+            include_str!("shaders/image_nv12.wgsl"),
+            include_str!("shaders/yuv.wgsl")
+          )
+          .into(),
+        ),
       });
       let image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("lurq_image_pl"),
@@ -2773,10 +2788,14 @@ impl RenderEngine for WgpuRenderEngine {
       let cache = &self.image_texture_cache;
       self.scratch_image_instances.extend(list.images.iter().map(|img| {
         let (uv_min, uv_max) = drawn_part(cache, img);
+        let [matrix, full_range] = match cache.get(&img.image_id) {
+          Some(CachedImageTexture::Nv12 { color, .. }) => *color,
+          _ => [0.0, 0.0],
+        };
         ImageInstance {
           pos: [img.x, img.y],
           size: [img.width, img.height],
-          opacity: [img.opacity, canvas_image_flag(&img.native), 0.0, 0.0],
+          opacity: [img.opacity, canvas_image_flag(&img.native), matrix, full_range],
           transform: img.transform,
           xf_origin: img.transform_origin,
           uv_min,
@@ -4127,6 +4146,7 @@ fn create_nv12_cached_image_texture(
   });
   Some(CachedImageTexture::Nv12 {
     bind_group,
+    color: [0.0, 0.0],
     y_view,
     uv_view,
     y_texture,
@@ -4157,24 +4177,42 @@ fn create_macos_native_nv12_cached_image_texture(
       .pixel_buffer
       .clone(),
   };
+  // SAFETY: the buffer is held for as long as this runs.
+  let color = unsafe { video_color::of(buffer.as_ptr()) }?;
+  // Ten bits are the high ones of sixteen, which a texture of 16-bit unorm reads as the same fraction of the range.
+  let ((y_metal, y_format), (uv_metal, uv_format)) = if color.ten_bit {
+    if !device.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+      return None;
+    }
+    (
+      (objc2_metal::MTLPixelFormat::R16Unorm, wgpu::TextureFormat::R16Unorm),
+      (objc2_metal::MTLPixelFormat::RG16Unorm, wgpu::TextureFormat::Rg16Unorm),
+    )
+  } else {
+    (
+      (objc2_metal::MTLPixelFormat::R8Unorm, wgpu::TextureFormat::R8Unorm),
+      (objc2_metal::MTLPixelFormat::RG8Unorm, wgpu::TextureFormat::Rg8Unorm),
+    )
+  };
   let (y_texture, y_cv_texture) = create_macos_native_plane_texture(
     device,
     buffer.as_ptr(),
     image.image_width,
     image.image_height,
     0,
-    objc2_metal::MTLPixelFormat::R8Unorm,
-    wgpu::TextureFormat::R8Unorm,
+    y_metal,
+    y_format,
     "lurq_macos_nv12_y",
   )?;
+  // A picture of an odd width or height has its last column or row of color too.
   let (uv_texture, uv_cv_texture) = create_macos_native_plane_texture(
     device,
     buffer.as_ptr(),
-    image.image_width / 2,
-    image.image_height / 2,
+    image.image_width.div_ceil(2),
+    image.image_height.div_ceil(2),
     1,
-    objc2_metal::MTLPixelFormat::RG8Unorm,
-    wgpu::TextureFormat::Rg8Unorm,
+    uv_metal,
+    uv_format,
     "lurq_macos_nv12_uv",
   )?;
   let y_view = y_texture.create_view(&Default::default());
@@ -4203,6 +4241,7 @@ fn create_macos_native_nv12_cached_image_texture(
   });
   Some(CachedImageTexture::Nv12 {
     bind_group,
+    color: color.shader(),
     y_view,
     uv_view,
     y_texture,
