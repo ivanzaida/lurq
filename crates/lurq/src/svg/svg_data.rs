@@ -61,13 +61,19 @@ struct SvgOverrides {
 
 impl SvgData {
   pub fn from_bytes(data: &[u8]) -> Self {
+    Self::parse(data).expect("invalid SVG data")
+  }
+
+  /// `data` read as an SVG, or `None` where it is none usvg reads: for bytes from elsewhere, a picture at an
+  /// address that may be anything.
+  pub(crate) fn parse(data: &[u8]) -> Option<Self> {
     let id = content_id(data);
     let mut guard = TREE_CACHE.lock().unwrap();
     let cache = guard.get_or_insert_with(TreeCache::default);
     let tree = if let Some(tree) = cache.map.get(&id) {
       tree.clone()
     } else {
-      let tree = Arc::new(usvg::Tree::from_data(data, &usvg::Options::default()).expect("invalid SVG data"));
+      let tree = Arc::new(usvg::Tree::from_data(data, &usvg::Options::default()).ok()?);
       if cache.order.len() >= TREE_CACHE_CAP
         && let Some(evicted) = cache.order.pop_front()
       {
@@ -78,11 +84,11 @@ impl SvgData {
       tree
     };
     drop(guard);
-    Self {
+    Some(Self {
       id,
       tree,
       overrides: SvgOverrides::default(),
-    }
+    })
   }
 
   // Public constructor that cannot fail; `FromStr` would need an error type and a trait in scope.

@@ -19,12 +19,12 @@ use std::sync::Arc;
 ///   <title>Layout in lurq</title>
 ///   <meta property="og:site_name" content="lurq.dev">
 ///   <meta property="og:image" content="/shots/rows.png">
-///   <link rel="icon" href="favicon.svg">
+///   <link rel="icon" href="favicon.png">
 /// </head><body>...</body></html>"#;
 /// let meta = LinkMeta::from_html("https://lurq.dev/docs/layout", page);
 /// assert_eq!(meta.title.as_deref(), Some("Layout in lurq"));
 /// assert_eq!(meta.image.as_deref(), Some("https://lurq.dev/shots/rows.png"));
-/// assert_eq!(meta.icon.as_deref(), Some("https://lurq.dev/docs/favicon.svg"));
+/// assert_eq!(meta.icon.as_deref(), Some("https://lurq.dev/docs/favicon.png"));
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LinkMeta {
@@ -37,8 +37,13 @@ pub struct LinkMeta {
   pub site: Option<Arc<str>>,
   /// The address of its picture.
   pub image: Option<Arc<str>>,
-  /// The address of the site's icon.
+  /// The address of the site's icon: the first of [`icons`](Self::icons).
   pub icon: Option<Arc<str>>,
+  /// Every icon the page names that a preview may draw, the best first: one of pixels with the size nearest the
+  /// 16 of a preview's icon (32 on a screen of twice the pixels) before one of no size the page says, then the
+  /// large icon of a phone's home screen, then an SVG (with the feature `canvas`; a build without it draws none).
+  /// A preview draws the first that loads.
+  pub icons: Vec<Arc<str>>,
   /// Whether the page is a video: it gave one, or said its kind is one.
   pub video: bool,
   /// How long its video is, in seconds, where it said.
@@ -74,8 +79,12 @@ impl LinkMeta {
     self
   }
 
+  /// The site's icon, first of its icons.
   pub fn icon(mut self, icon: &str) -> Self {
-    self.icon = Some(Arc::from(icon));
+    let icon: Arc<str> = Arc::from(icon);
+    self.icons.retain(|known| *known != icon);
+    self.icons.insert(0, icon.clone());
+    self.icon = Some(icon);
     self
   }
 
@@ -114,13 +123,22 @@ impl LinkMeta {
         .map(Arc::from)
     };
     let video_length = found.video_length.as_deref().and_then(seconds_of);
+    let mut icons: Vec<Arc<str>> = Vec::new();
+    for link in ranked(found.icons) {
+      if let Some(address) = whole(Some(link.href))
+        && !icons.contains(&address)
+      {
+        icons.push(address);
+      }
+    }
     Self {
       url: Arc::from(url),
       title: words(found.og_title.or(found.twitter_title).or(found.title)),
       description: words(found.og_description.or(found.twitter_description).or(found.description)),
       site: words(found.site),
       image: whole(found.og_image.or(found.twitter_image)),
-      icon: whole(found.icon.or(found.touch_icon)),
+      icon: icons.first().cloned(),
+      icons,
       video: found.video.is_some() || found.kind.as_deref().is_some_and(|kind| kind.starts_with("video")),
       video_length,
     }
@@ -139,8 +157,7 @@ struct Found {
   site: Option<String>,
   og_image: Option<String>,
   twitter_image: Option<String>,
-  icon: Option<String>,
-  touch_icon: Option<String>,
+  icons: Vec<IconLink>,
   kind: Option<String>,
   video: Option<String>,
   video_length: Option<String>,
@@ -173,6 +190,58 @@ impl Found {
     };
     keep(slot, content);
   }
+}
+
+/// The side in pixels an icon is best drawn from: a preview's icon is 16, on a screen that may have twice the
+/// pixels.
+const ICON_PIXELS: u32 = 32;
+
+/// An icon a page names: a `<link>` of `rel="icon"`, or of a phone's home screen.
+struct IconLink {
+  href: String,
+  /// It is an SVG, by its type or its address.
+  svg: bool,
+  /// It is the icon of a phone's home screen (`apple-touch-icon`): large, on a ground of its own.
+  touch: bool,
+  /// The side of the size it names that is nearest [`ICON_PIXELS`]; none where it names none, or `any`.
+  side: Option<u32>,
+}
+
+/// How far an icon of `side` pixels is from the ones it is drawn with: a smaller one is enlarged and blurs, so it
+/// is twice as far.
+fn distance(side: u32) -> u32 {
+  if side >= ICON_PIXELS {
+    side - ICON_PIXELS
+  } else {
+    (ICON_PIXELS - side) * 2
+  }
+}
+
+/// Of the sizes a `sizes` attribute names (`16x16 32x32`), the longer side of the one nearest [`ICON_PIXELS`].
+fn nearest_side(sizes: &str) -> Option<u32> {
+  sizes
+    .split_ascii_whitespace()
+    .filter_map(|size| {
+      let (width, height) = size.split_once(['x', 'X'])?;
+      Some(width.parse::<u32>().ok()?.max(height.parse::<u32>().ok()?))
+    })
+    .filter(|side| *side > 0)
+    .min_by_key(|side| distance(*side))
+}
+
+/// The icons a page names, the best to draw first: one of pixels of a size near the drawn one (16 to 96), then one
+/// of no size the page says (an `.ico` holds several) or of another, then a phone's, the nearest first, then an
+/// SVG, which lurq draws with the feature `canvas` and only in solid colors. A build without `canvas` has no SVG
+/// in the list. The page's order decides between the alike.
+fn ranked(mut icons: Vec<IconLink>) -> Vec<IconLink> {
+  icons.retain(|icon| !icon.svg || cfg!(feature = "canvas"));
+  icons.sort_by_key(|icon| match icon {
+    IconLink { svg: true, .. } => (3, 0),
+    IconLink { touch: true, side, .. } => (2, side.map_or(0, distance)),
+    IconLink { side: Some(side), .. } if (16..=96).contains(side) => (0, distance(*side)),
+    IconLink { side, .. } => (1, side.map_or(0, distance)),
+  });
+  icons
 }
 
 /// Walks the tags of `html` up to the end of its head, noting what [`Found`] keeps.
@@ -210,12 +279,21 @@ fn scan(html: &str, found: &mut Found) {
       }
       "link" => {
         let rel = attribute(&attributes, "rel").unwrap_or_default().to_ascii_lowercase();
-        let href = attribute(&attributes, "href").map(|href| entities(&href));
         let rels: Vec<&str> = rel.split_ascii_whitespace().collect();
-        if rels.contains(&"icon") {
-          keep(&mut found.icon, href);
-        } else if rels.iter().any(|rel| rel.starts_with("apple-touch-icon")) {
-          keep(&mut found.touch_icon, href);
+        let touch = rels.iter().any(|rel| rel.starts_with("apple-touch-icon"));
+        if (rels.contains(&"icon") || touch)
+          && let Some(href) = attribute(&attributes, "href")
+            .map(|href| entities(&href))
+            .filter(|href| !href.trim().is_empty())
+        {
+          let kind = attribute(&attributes, "type").unwrap_or_default().to_ascii_lowercase();
+          let path = href.split(['?', '#']).next().unwrap_or_default().to_ascii_lowercase();
+          found.icons.push(IconLink {
+            svg: kind.contains("svg") || path.ends_with(".svg"),
+            touch,
+            side: attribute(&attributes, "sizes").and_then(|sizes| nearest_side(&sizes)),
+            href,
+          });
         }
       }
       "base" => keep(
@@ -644,6 +722,60 @@ mod tests {
     assert_eq!(meta.image.as_deref(), Some("https://cdn.example.com/card.jpg"));
     assert_eq!(meta.icon.as_deref(), Some("https://example.com/blog/icons/site.png"));
     assert_eq!(meta.site, None);
+  }
+
+  #[test]
+  fn githubs_page_gives_its_picture_and_its_png_icon_before_its_svg_one() {
+    let meta = LinkMeta::from_html("https://github.com/ivanzaida/lurq", page!("github.html"));
+    assert_eq!(meta.title.as_deref(), Some("GitHub - ivanzaida/lurq"));
+    assert_eq!(meta.site.as_deref(), Some("GitHub"));
+    assert_eq!(
+      meta.image.as_deref(),
+      Some(
+        "https://opengraph.githubassets.com/2d62901bfc9f6e2966648a4a1f90879fbc91ac9f4e750c54aa814d1061b81963/\
+         ivanzaida/lurq"
+      )
+    );
+    // `alternate icon` is an icon; `mask-icon` and `fluid-icon` are not.
+    let mut icons = vec!["https://github.githubassets.com/favicons/favicon.png"];
+    if cfg!(feature = "canvas") {
+      icons.push("https://github.githubassets.com/favicons/favicon.svg");
+    }
+    assert_eq!(meta.icons.iter().map(|icon| &**icon).collect::<Vec<_>>(), icons);
+    assert_eq!(meta.icon.as_deref(), Some(icons[0]));
+  }
+
+  #[test]
+  fn the_icon_of_the_size_nearest_the_drawn_one_comes_first_and_an_svg_alone_is_kept() {
+    let page = br#"<head>
+      <link rel="apple-touch-icon" href="/touch.png" sizes="180x180">
+      <link rel="icon" href="/icon.svg" type="image/svg+xml">
+      <link rel="icon" href="/favicon.ico">
+      <link rel="icon" href="/big.png" sizes="192x192">
+      <link rel="icon" href="/small.png" sizes="16x16">
+      <link rel="icon" href="/sharp.png" sizes="16x16 32x32">
+      <link rel="icon" href="">
+    </head>"#;
+    let meta = LinkMeta::from_html("https://a.example/x", page);
+    let mut icons = vec![
+      "https://a.example/sharp.png",
+      "https://a.example/small.png",
+      "https://a.example/favicon.ico",
+      "https://a.example/big.png",
+      "https://a.example/touch.png",
+    ];
+    if cfg!(feature = "canvas") {
+      icons.push("https://a.example/icon.svg");
+    }
+    assert_eq!(meta.icons.iter().map(|icon| &**icon).collect::<Vec<_>>(), icons);
+    let svg_only = LinkMeta::from_html("https://a.example/", br#"<link rel=icon href="logo.svg?v=3">"#);
+    assert_eq!(
+      svg_only.icon.as_deref(),
+      cfg!(feature = "canvas").then_some("https://a.example/logo.svg?v=3")
+    );
+    // An icon the app names is first of them.
+    let named = LinkMeta::new("https://a.example/").icon("https://a.example/mine.png");
+    assert_eq!(named.icons, [Arc::from("https://a.example/mine.png")]);
   }
 
   #[test]

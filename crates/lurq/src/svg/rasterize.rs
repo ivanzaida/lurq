@@ -74,16 +74,7 @@ pub(crate) fn rasterize(data: &SvgData, target_width: f32, target_height: f32) -
       height,
     };
   }
-  let mut pixmap = tiny_skia::Pixmap::new(width, height).expect("svg raster pixmap should fit");
-  let sx = width as f32 / data.tree().size().width();
-  let sy = height as f32 / data.tree().size().height();
-  let opacity = data.opacity_override().unwrap_or(1.0);
-
-  rasterize_group(data.tree().root(), data, &mut pixmap, sx, sy, opacity);
-
-  let mut pixels = pixmap.take();
-  unpremultiply_rgba(&mut pixels);
-  let data = Arc::new(pixels);
+  let data = Arc::new(pixels(data, width, height));
   RASTER_CACHE
     .lock()
     .unwrap()
@@ -96,6 +87,21 @@ pub(crate) fn rasterize(data: &SvgData, target_width: f32, target_height: f32) -
     width,
     height,
   }
+}
+
+/// The RGBA pixels, not premultiplied, of `data` drawn `width` by `height`, kept by nothing: for what keeps them
+/// itself, a picture decoded from an SVG.
+pub(crate) fn pixels(data: &SvgData, width: u32, height: u32) -> Vec<u8> {
+  let mut pixmap = tiny_skia::Pixmap::new(width.max(1), height.max(1)).expect("svg raster pixmap should fit");
+  let sx = width.max(1) as f32 / data.tree().size().width();
+  let sy = height.max(1) as f32 / data.tree().size().height();
+  let opacity = data.opacity_override().unwrap_or(1.0);
+
+  rasterize_group(data.tree().root(), data, &mut pixmap, sx, sy, opacity);
+
+  let mut pixels = pixmap.take();
+  unpremultiply_rgba(&mut pixels);
+  pixels
 }
 
 fn rasterize_group(
