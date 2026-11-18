@@ -32,6 +32,34 @@ const ACCEPTS: [(&str, &[&str], &str); 3] = [
   ("text and JSON", &["text/*", "json"], "[\"text/*\", \"json\"]"),
 ];
 
+/// Where the playground's dialog chooses files from, and how the code says it: on a phone the menu before the dialog
+/// has these, and one alone opens at once.
+pub(super) fn sources() -> Vec<(&'static str, Vec<lurq::files::FileSource>, &'static str)> {
+  use lurq::files::FileSource::{Files, PhotoLibrary};
+  #[allow(unused_mut)]
+  let mut sources = vec![
+    ("what it accepts", vec![], ""),
+    ("photo library", vec![PhotoLibrary], "[FileSource::PhotoLibrary]"),
+    ("files", vec![Files], "[FileSource::Files]"),
+    (
+      "photo library and files",
+      vec![PhotoLibrary, Files],
+      "[FileSource::PhotoLibrary, FileSource::Files]",
+    ),
+  ];
+  #[cfg(target_os = "ios")]
+  {
+    use lurq::files::FileSource::Camera;
+    sources.push(("camera", vec![Camera], "[FileSource::Camera]"));
+    sources.push((
+      "camera and photo library",
+      vec![Camera, PhotoLibrary],
+      "[FileSource::Camera, FileSource::PhotoLibrary]",
+    ));
+  }
+  sources
+}
+
 /// The most files the playground's list holds.
 const MOST: [(&str, Option<usize>); 3] = [("any", None), ("3", Some(3)), ("5", Some(5))];
 
@@ -100,6 +128,8 @@ pub struct FileUploadPage {
   upload: Interval,
   accept: Signal<usize>,
   most: Signal<usize>,
+  /// Which of [`sources`] the dialog chooses from.
+  source: Signal<usize>,
   zone: Signal<bool>,
   multiple: Signal<bool>,
   invalid: Signal<bool>,
@@ -111,6 +141,8 @@ impl FileUploadPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (accept_name, accepted, accept_code) = ACCEPTS[self.accept.get().min(ACCEPTS.len() - 1)];
     let (most_name, most) = MOST[self.most.get().min(MOST.len() - 1)];
+    let all_sources = sources();
+    let (_, chosen_sources, sources_code) = all_sources[self.source.get().min(all_sources.len() - 1)].clone();
     let flags = [
       ("zone", self.zone.get()),
       ("multiple", self.multiple.get()),
@@ -129,6 +161,9 @@ impl FileUploadPage {
           .disabled(set[3]);
         if let Some(most) = most {
           upload = upload.max_files(most);
+        }
+        if !chosen_sources.is_empty() {
+          upload = upload.sources(chosen_sources.iter().copied());
         }
         upload
       }
@@ -187,6 +222,9 @@ impl FileUploadPage {
     if let Some(most) = most {
       code.push(format!("    .max_files({most})"));
     }
+    if !sources_code.is_empty() {
+      code.push(format!("    .sources({sources_code})"));
+    }
     if flags[0].1 {
       code.push("    .zone(true)".to_owned());
     }
@@ -230,13 +268,19 @@ impl FileUploadPage {
       .map(|(index, item)| (item.0, index))
       .collect();
     let mosts: Vec<(&str, usize)> = MOST.iter().enumerate().map(|(index, item)| (item.0, index)).collect();
-    let (to_accept, to_most) = (self.accept.clone(), self.most.clone());
+    let source_names: Vec<(&str, usize)> = all_sources
+      .iter()
+      .enumerate()
+      .map(|(index, item)| (item.0, index))
+      .collect();
+    let (to_accept, to_most, to_source) = (self.accept.clone(), self.most.clone(), self.source.clone());
     let reset = {
-      let (files, accept, most, upload) = (
+      let (files, accept, most, upload, source) = (
         self.files.clone(),
         self.accept.clone(),
         self.most.clone(),
         self.upload.clone(),
+        self.source.clone(),
       );
       let (zone, multiple, invalid, disabled) = (
         self.zone.clone(),
@@ -249,6 +293,7 @@ impl FileUploadPage {
         files.set(boards());
         accept.set(0);
         most.set(0);
+        source.set(0);
         zone.set(false);
         multiple.set(true);
         invalid.set(false);
@@ -258,6 +303,7 @@ impl FileUploadPage {
     let changed = usize::from(files != boards())
       + usize::from(!accept_code.is_empty())
       + usize::from(most.is_some())
+      + usize::from(!sources_code.is_empty())
       + usize::from(flags[0].1)
       + usize::from(!flags[1].1)
       + flags[2..].iter().filter(|(_, set)| *set).count();
@@ -291,6 +337,13 @@ impl FileUploadPage {
             self
               .playground
               .select(1, &mosts, &self.most.get(), move |index| to_most.set(index)),
+          ),
+          prop(
+            "sources",
+            "impl IntoIterator<Item = FileSource>",
+            self
+              .playground
+              .select(2, &source_names, &self.source.get(), move |index| to_source.set(index)),
           ),
           divider(),
           flag("zone", &self.zone),
@@ -330,6 +383,7 @@ impl Component for FileUploadPage {
       upload,
       accept: ctx.signal(0),
       most: ctx.signal(0),
+      source: ctx.signal(0),
       zone: ctx.signal(false),
       multiple: ctx.signal(true),
       invalid: ctx.signal(false),

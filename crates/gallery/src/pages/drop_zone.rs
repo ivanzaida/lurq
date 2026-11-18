@@ -74,6 +74,8 @@ pub struct DropZonePage {
   title: Signal<String>,
   description: Signal<String>,
   accept: Signal<usize>,
+  /// Which of the sources of the File Upload page's playground the dialog chooses from.
+  source: Signal<usize>,
   max_size: Signal<usize>,
   drag: Signal<usize>,
   multiple: Signal<bool>,
@@ -91,6 +93,8 @@ impl DropZonePage {
     let (accept_name, accepted, accept_code) = ACCEPTS[self.accept.get().min(ACCEPTS.len() - 1)];
     let (size_name, max_size, size_code) = SIZES[self.max_size.get().min(SIZES.len() - 1)];
     let (drag_name, drag, drag_code) = DRAGS[self.drag.get().min(DRAGS.len() - 1)];
+    let all_sources = super::file_upload::sources();
+    let (_, chosen_sources, sources_code) = all_sources[self.source.get().min(all_sources.len() - 1)].clone();
     let flags = [
       ("multiple", self.multiple.get()),
       ("icon", self.icon.get()),
@@ -116,6 +120,9 @@ impl DropZonePage {
         }
         if let Some(state) = drag {
           zone = zone.state(state, true);
+        }
+        if !chosen_sources.is_empty() {
+          zone = zone.sources(chosen_sources.iter().copied());
         }
         zone
       }
@@ -156,6 +163,9 @@ impl DropZonePage {
     if !accept_code.is_empty() {
       code.push(format!("    .accept({accept_code})"));
     }
+    if !sources_code.is_empty() {
+      code.push(format!("    .sources({sources_code})"));
+    }
     if !size_code.is_empty() {
       code.push(format!("    .max_size({size_code})"));
     }
@@ -195,6 +205,12 @@ impl DropZonePage {
     let sizes: Vec<(&str, usize)> = SIZES.iter().enumerate().map(|(index, item)| (item.0, index)).collect();
     let drags: Vec<(&str, usize)> = DRAGS.iter().enumerate().map(|(index, item)| (item.0, index)).collect();
     let (to_accept, to_size, to_drag) = (self.accept.clone(), self.max_size.clone(), self.drag.clone());
+    let source_names: Vec<(&str, usize)> = all_sources
+      .iter()
+      .enumerate()
+      .map(|(index, item)| (item.0, index))
+      .collect();
+    let to_source = self.source.clone();
     let reset = {
       let (title, description, accept, size, drag) = (
         self.title.clone(),
@@ -203,13 +219,15 @@ impl DropZonePage {
         self.max_size.clone(),
         self.drag.clone(),
       );
-      let (multiple, icon, invalid, disabled) = (
+      let (multiple, icon, invalid, disabled, source) = (
         self.multiple.clone(),
         self.icon.clone(),
         self.invalid.clone(),
         self.disabled.clone(),
+        self.source.clone(),
       );
       move || {
+        source.set(0);
         title.set("Drop files here".to_owned());
         description.set("or click to browse".to_owned());
         accept.set(0);
@@ -224,6 +242,7 @@ impl DropZonePage {
     let changed = usize::from(title != "Drop files here")
       + usize::from(description != "or click to browse")
       + usize::from(!accept_code.is_empty())
+      + usize::from(!sources_code.is_empty())
       + usize::from(!size_code.is_empty())
       + usize::from(drag.is_some())
       + usize::from(!flags[0].1)
@@ -259,6 +278,13 @@ impl DropZonePage {
               .select(1, &sizes, &self.max_size.get(), move |index| to_size.set(index)),
           ),
           prop(
+            "sources",
+            "impl IntoIterator<Item = FileSource>",
+            self
+              .playground
+              .select(3, &source_names, &self.source.get(), move |index| to_source.set(index)),
+          ),
+          prop(
             "state",
             "DropZoneState",
             self
@@ -288,6 +314,7 @@ impl Component for DropZonePage {
       title: ctx.signal("Drop files here".to_owned()),
       description: ctx.signal("or click to browse".to_owned()),
       accept: ctx.signal(0),
+      source: ctx.signal(0),
       max_size: ctx.signal(0),
       drag: ctx.signal(0),
       multiple: ctx.signal(true),
