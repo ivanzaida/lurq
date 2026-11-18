@@ -280,6 +280,12 @@ macOS and iOS"). 1, 3, 4, 5, 6 and 7 are done; 2 in part; 8 not.
   each kind of buffer read. The gallery's decoder writes BT.709 bars and they are drawn within 2 of 255 of pure
   red, green and blue. Not done: the transfer of HDR (PQ, HLG) and its wide colors, which are drawn as if SDR;
   Windows' frames are told nothing and stay BT.709 of the video range, as before.
+- [x] **9. An app's own frames, as on Windows** (2026-11-18, decisions.md, "On Apple's systems an app's own
+  frames are drawn where it wrote them"). A buffer of `BGRA` is drawn where it is, as a picture of sRGB
+  (`MacosCvPixelBuffer::bgra`, `write_bgra`); a frame the app's Metal writes is shown once its `MTLSharedEvent`
+  reaches its value (`show_after`). Tests on Metal: the bytes of a `BGRA` buffer of an odd width read back as they
+  were written (and all wrong with the channels swapped); frames waiting for an event are shown in the order the
+  card finishes them. Not done: frames of three planes (I420), and a picture elsewhere than the buffer's corner.
 - [ ] **8. Not looked at.** A Mac with two graphics cards (Intel ones, an external card) and a card taken away
   while the app runs. An IOSurface is shared between cards by the system, which Windows' textures are not, so
   what was built there for a decoder on another card may not be needed.

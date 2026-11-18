@@ -242,6 +242,17 @@ enum CachedImageTexture {
     height: u32,
     version: u64,
   },
+  /// A frame of red, green and blue in a `CVPixelBuffer` (`BGRA`), drawn where it is as a picture is: one view,
+  /// of sRGB.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  CvRgba {
+    bind_group: wgpu::BindGroup,
+    view: wgpu::TextureView,
+    _held: MacosNativeRgbaTexture,
+    width: u32,
+    height: u32,
+    version: u64,
+  },
   Rgba {
     bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
@@ -282,6 +293,14 @@ struct MacosNativeNv12Texture {
   _buffer: crate::images::MacosCvPixelBuffer,
   _y_cv_texture: CvMetalTexture,
   _uv_cv_texture: CvMetalTexture,
+}
+
+/// What a [`CachedImageTexture::CvRgba`] holds for as long as it is drawn: the buffer, and CoreVideo's texture of it.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+struct MacosNativeRgbaTexture {
+  _native: crate::images::NativeImageData,
+  _buffer: crate::images::MacosCvPixelBuffer,
+  _cv_texture: CvMetalTexture,
 }
 
 #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
@@ -371,12 +390,30 @@ impl CachedImageTexture {
   /// Whether it is the textures of a frame that stays on the card, and `image` shows another frame now.
   #[cfg(any(target_os = "macos", target_os = "ios"))]
   fn is_another_frame_of_the_card(&self, image: &crate::images::ImageCmd) -> bool {
-    matches!(self, Self::Nv12 { _macos_native: Some(_), version, .. } if *version != image.version)
+    match self {
+      Self::Nv12 {
+        _macos_native: Some(_),
+        version,
+        ..
+      }
+      | Self::CvRgba { version, .. } => *version != image.version,
+      _ => false,
+    }
   }
 
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
       Self::ExternalRgba { .. } => false,
+      // Frames of a pixel buffer: the same frames while the picture is as large.
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      Self::CvRgba { width, height, .. } => {
+        *width == image.image_width
+          && *height == image.image_height
+          && image
+            .native
+            .as_ref()
+            .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
+      }
       Self::Rgba {
         width,
         height,
@@ -3350,6 +3387,7 @@ impl RenderEngine for WgpuRenderEngine {
                     device,
                     queue,
                     &nv12_image_bgl,
+                    &image_bgl,
                     &image_sampler,
                     globals_buffer,
                     img,
@@ -3368,6 +3406,8 @@ impl RenderEngine for WgpuRenderEngine {
               };
               match cached {
                 CachedImageTexture::ExternalRgba { .. } => {}
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                CachedImageTexture::CvRgba { .. } => {}
                 CachedImageTexture::Rgba {
                   texture,
                   animation_frames,
@@ -3427,6 +3467,8 @@ impl RenderEngine for WgpuRenderEngine {
               let one_view = match (&*cached, card_rgba) {
                 (_, Some(found)) => Some(found),
                 (CachedImageTexture::ExternalRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                (CachedImageTexture::CvRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
                 _ => None,
               };
 
@@ -4066,23 +4108,32 @@ fn create_nv12_cached_image_texture(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
   nv12_image_bgl: &wgpu::BindGroupLayout,
+  #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(unused_variables))]
+  image_bgl: &wgpu::BindGroupLayout,
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
 ) -> Option<CachedImageTexture> {
-  if image.image_width == 0
-    || image.image_height == 0
-    || !image.image_width.is_multiple_of(2)
-    || !image.image_height.is_multiple_of(2)
-  {
+  if image.image_width == 0 || image.image_height == 0 {
     return None;
   }
+  // A pixel buffer's frame, of any size: its planes are opened as they are, or its one of red, green and blue.
   #[cfg(any(target_os = "macos", target_os = "ios"))]
   if matches!(
     image.native.as_ref().map(crate::images::NativeImageData::backend),
     Some(crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
   ) {
-    return create_macos_native_nv12_cached_image_texture(device, nv12_image_bgl, image_sampler, globals_buffer, image);
+    return create_macos_native_nv12_cached_image_texture(
+      device,
+      nv12_image_bgl,
+      image_bgl,
+      image_sampler,
+      globals_buffer,
+      image,
+    );
+  }
+  if !image.image_width.is_multiple_of(2) || !image.image_height.is_multiple_of(2) {
+    return None;
   }
   // The frames of the card are opened before the images are drawn, and are not made here.
   if is_card_frames(image) {
@@ -4164,6 +4215,7 @@ fn create_nv12_cached_image_texture(
 fn create_macos_native_nv12_cached_image_texture(
   device: &wgpu::Device,
   nv12_image_bgl: &wgpu::BindGroupLayout,
+  image_bgl: &wgpu::BindGroupLayout,
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
@@ -4177,7 +4229,20 @@ fn create_macos_native_nv12_cached_image_texture(
       .pixel_buffer
       .clone(),
   };
+  // A frame of red, green and blue is a picture, of one view.
   // SAFETY: the buffer is held for as long as this runs.
+  if unsafe { video_color::is_bgra(buffer.as_ptr()) } {
+    return create_macos_native_bgra_cached_image_texture(
+      device,
+      image_bgl,
+      image_sampler,
+      globals_buffer,
+      image,
+      native,
+      buffer,
+    );
+  }
+  // SAFETY: as above.
   let color = unsafe { video_color::of(buffer.as_ptr()) }?;
   // Ten bits are the high ones of sixteen, which a texture of 16-bit unorm reads as the same fraction of the range.
   let ((y_metal, y_format), (uv_metal, uv_format)) = if color.ten_bit {
@@ -4255,6 +4320,60 @@ fn create_macos_native_nv12_cached_image_texture(
     width: image.image_width,
     height: image.image_height,
     frame_index: image.frame_index,
+    version: image.version,
+  })
+}
+
+/// The texture of a frame of red, green and blue in a pixel buffer, read as sRGB, as a picture's is.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+fn create_macos_native_bgra_cached_image_texture(
+  device: &wgpu::Device,
+  image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  image: &crate::images::ImageCmd,
+  native: crate::images::NativeImageData,
+  buffer: crate::images::MacosCvPixelBuffer,
+) -> Option<CachedImageTexture> {
+  let (texture, cv_texture) = create_macos_native_plane_texture(
+    device,
+    buffer.as_ptr(),
+    image.image_width,
+    image.image_height,
+    0,
+    objc2_metal::MTLPixelFormat::BGRA8Unorm_sRGB,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    "lurq_macos_bgra",
+  )?;
+  let view = texture.create_view(&Default::default());
+  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_macos_bgra_img_bg"),
+    layout: image_bgl,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals_buffer.as_entire_binding(),
+      },
+      wgpu::BindGroupEntry {
+        binding: 1,
+        resource: wgpu::BindingResource::TextureView(&view),
+      },
+      wgpu::BindGroupEntry {
+        binding: 2,
+        resource: wgpu::BindingResource::Sampler(image_sampler),
+      },
+    ],
+  });
+  Some(CachedImageTexture::CvRgba {
+    bind_group,
+    view,
+    _held: MacosNativeRgbaTexture {
+      _native: native,
+      _buffer: buffer,
+      _cv_texture: cv_texture,
+    },
+    width: image.image_width,
+    height: image.image_height,
     version: image.version,
   })
 }

@@ -279,7 +279,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # system's decoder gives, and Metal's textures of it, which the `wgpu` renderer draws where they are.
 core-foundation-sys = "0.8"
 core-video-sys = { version = "0.1", default-features = false, optional = true }
-objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat"], optional = true }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat", "MTLEvent"], optional = true }
 wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioPlayer"], optional = true }
 # Its video: the system's `AVPlayer`, the output its frames are taken from, the times it is asked for and the

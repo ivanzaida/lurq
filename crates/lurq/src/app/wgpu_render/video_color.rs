@@ -46,6 +46,15 @@ unsafe extern "C" {
   fn CVBufferCopyAttachment(buffer: CVPixelBufferRef, key: CFStringRef, mode: *mut u32) -> CFTypeRef;
 }
 
+/// Whether `buffer` is a frame of red, green and blue, one plane of `BGRA`.
+///
+/// # Safety
+///
+/// `buffer` is a pixel buffer that lives.
+pub(super) unsafe fn is_bgra(buffer: CVPixelBufferRef) -> bool {
+  (unsafe { CVPixelBufferGetPixelFormatType(buffer) }) == u32::from_be_bytes(*b"BGRA")
+}
+
 /// The colors of `buffer`, or `None` where it is not a frame of two planes the renderer draws.
 ///
 /// # Safety
