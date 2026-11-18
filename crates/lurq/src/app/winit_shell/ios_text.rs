@@ -990,7 +990,7 @@ extern "C-unwind" fn keyboard_type(_this: &AnyObject, _cmd: Sel) -> isize {
     Some(KeyboardKind::Email) => 7,
     Some(KeyboardKind::Decimal) => 8,
     Some(KeyboardKind::Search) => 10,
-    Some(KeyboardKind::Text) | None => 0,
+    Some(KeyboardKind::Text | KeyboardKind::None) | None => 0,
   }
 }
 

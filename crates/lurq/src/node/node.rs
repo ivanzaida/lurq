@@ -701,6 +701,7 @@ pub(crate) trait NodeUpdate {
   fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask);
+  fn finger_drags(&mut self, drags: bool);
   fn drag_autoscroll(&mut self, enabled: bool);
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
@@ -996,6 +997,8 @@ pub struct EventHandlers {
   pub on_mouse_up: Vec<Callback<MouseEvent>>,
   pub on_mouse_move: Vec<Callback<MouseEvent>>,
   pub start_drag_buttons: MouseButtonMask,
+  /// A finger that lands on the node drags it at once, and scrolls nothing; see `Node::finger_drags`.
+  pub finger_drags: bool,
   /// A drag of the node scrolls the scroll container around it while the pointer is at the container's edge; see
   /// `Node::drag_autoscroll`.
   pub drag_autoscroll: bool,
@@ -1995,6 +1998,10 @@ impl NodeUpdate for Node {
 
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask) {
     self.events.start_drag_buttons = buttons;
+  }
+
+  fn finger_drags(&mut self, drags: bool) {
+    self.events.finger_drags = drags;
   }
 
   fn drag_autoscroll(&mut self, enabled: bool) {
@@ -4023,6 +4030,16 @@ impl Node {
 
   pub fn start_drag_buttons(mut self, buttons: MouseButtonMask) -> Self {
     self.events.start_drag_buttons = buttons;
+    self
+  }
+
+  /// Whether a finger that lands on this node drags it at once, off by default: a control that is dragged (a
+  /// dial, an area of colors, a pad that is drawn on) inside content that scrolls. A finger that lands over
+  /// content that scrolls may be about to scroll it, so it presses nothing until it has rested, and one that
+  /// moves first scrolls; on such a node it is a pointer with its button down from where it lands, as it is on
+  /// a slider and where nothing scrolls, and the content under it stays where it is.
+  pub fn finger_drags(mut self, drags: bool) -> Self {
+    self.events.finger_drags = drags;
     self
   }
 

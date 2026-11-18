@@ -919,6 +919,8 @@ impl WindowChromeView {
       button = button.window_control(kind).on_click(move |event: MouseEvent| {
         match kind {
           WindowControl::Minimize => window.set_minimized(true),
+          // In full screen, where macOS has the lights the app draws, the zoom one is the way back.
+          WindowControl::Maximize if window.is_full_screen => window.set_full_screen(false),
           WindowControl::Maximize => window.set_maximized(!maximized),
           WindowControl::Close => {
             for handler in &on_close {
@@ -936,6 +938,11 @@ impl WindowChromeView {
           handler();
         }
       });
+    }
+    // Where the system draws the window's controls itself, over these (macOS: its own lights, with its menu of
+    // tilings and full screen), each keeps its room and its name and is not seen: the system's is what is pressed.
+    if self.window.as_ref().is_some_and(|window| window.native_controls) {
+      button = button.opacity(0.0);
     }
     button.into()
   }

@@ -149,7 +149,7 @@ fn a_heavier_mark_over_the_end_of_a_line_is_filled_on_each_line_it_is_laid_out_o
   let at = text.find("three four").unwrap();
   let stage = Stage::new(move |_| {
     Column::new()
-      .width(60.0)
+      .width(45.0)
       .child(Highlight::new(text).mark(at..at + "three four".len()))
       .into()
   });
@@ -165,8 +165,8 @@ fn a_mark_over_the_end_of_a_line_goes_on_at_the_start_of_the_next() {
   let at = text.find("three four").unwrap();
   let stage = Stage::new(move |_| {
     Column::new()
-      // "three four" is wider than this: the line breaks between the two words.
-      .width(60.0)
+      // "three four" is wider than this in any sans face, and each word is not: the line breaks between them.
+      .width(45.0)
       .child(Highlight::new(text).mark(at..at + "three four".len()))
       .into()
   });

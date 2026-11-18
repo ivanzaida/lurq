@@ -875,7 +875,49 @@ impl SheetView {
   pub fn render(mut self) -> Element {
     let contents = self.contents();
     let panel = self.panel().with_children(contents);
-    if self.inline { panel.into() } else { self.modal(panel) }
+    if self.inline {
+      panel.into()
+    } else {
+      let panel = self.clear_of_the_edges(panel);
+      self.modal(panel)
+    }
+  }
+
+  /// `panel` with what it holds clear of what the system draws over the window's edges it reaches: the status
+  /// bar and the home indicator of a phone, its notch where it is on its side. The panel itself goes under
+  /// them, in its color; its own padding is kept inside that. Outside a render nothing is known of the window.
+  fn clear_of_the_edges(&self, panel: Column) -> Column {
+    let Some(window) = super::theme::current_window() else {
+      return panel;
+    };
+    let safe = window.info().safe_area;
+    let spacing = self.theme().spacing();
+    let [top, end, bottom, start] = self
+      .part(SheetPart::Panel)
+      .rest()
+      .paddings()
+      .map(|padding| padding.map_or(0.0, |padding| padding.resolve(&spacing, 0.0)));
+    // The edges of the window the panel reaches: all but the one across from its side.
+    let (at_top, at_bottom, at_start, at_end) = match self.side {
+      SheetSide::Start => (true, true, true, false),
+      SheetSide::End => (true, true, false, true),
+      SheetSide::Top => (true, false, true, true),
+      SheetSide::Bottom => (false, true, true, true),
+    };
+    let mut panel = panel;
+    if at_top && safe.top > 0.0 {
+      panel = panel.padding_top(top + safe.top);
+    }
+    if at_bottom && safe.bottom > 0.0 {
+      panel = panel.padding_bottom(bottom + safe.bottom);
+    }
+    if at_start && safe.left > 0.0 {
+      panel = panel.padding_left(start + safe.left);
+    }
+    if at_end && safe.right > 0.0 {
+      panel = panel.padding_right(end + safe.right);
+    }
+    panel
   }
 
   /// A sheet at the bottom as the engine's draggable sheet, in this sheet's

@@ -8,6 +8,9 @@ tree on a phone as on a desktop; this page says what an app has to set up and wh
 is listed in `docs/ios-gaps.md` in the repository. The iPad and several windows are not supported.
 
 `crates/mobile_demo` is a complete example: a screen for each thing below, and the Xcode project that wraps it.
+The gallery has one too, `crates/gallery/ios/Gallery.xcodeproj`, to look at every component on a phone or a
+tablet; it is built and run as below, with `BUNDLE_ID_PREFIX=<yours>` (its bundle is `<yours>.lurq.gallery`) and,
+for a feature such as `mcp`, `CARGO_FEATURES=mcp`.
 
 ## Setting up
 

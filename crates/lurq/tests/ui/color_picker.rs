@@ -451,8 +451,8 @@ fn a_pick_given_up_changes_nothing_and_eyedropper_false_hides_it() {
   assert!(stage.tree.get_element_by_id_mut("picker-eyedropper").is_none());
 }
 
-/// Where the platform cannot pick from the screen, no eyedropper is shown.
-#[cfg(not(windows))]
+/// Where the platform cannot pick from the screen, no eyedropper is shown: everywhere but Windows and macOS.
+#[cfg(not(any(windows, target_os = "macos")))]
 #[test]
 fn where_the_platform_cannot_pick_there_is_no_eyedropper() {
   let mut stage = Stage::new(|_| {
@@ -481,4 +481,43 @@ fn the_eyedropper_is_a_button_that_says_what_it_does() {
     element.description("a11y_name").as_deref(),
     Some("Pick a color from the screen")
   );
+}
+
+#[test]
+fn a_finger_that_lands_in_the_area_away_from_its_circle_picks_there_and_goes_on_in_a_page_that_scrolls() {
+  use lurq::app::events::TouchPhase;
+  let value = Signal::new(blue());
+  let held = value.clone();
+  let mut stage = Stage::new(move |_| {
+    lurq::components::ScrollVertical::new(
+      Column::new()
+        .width(400.0)
+        .padding(20.0)
+        .child(ColorPicker::new(held.clone()).id("picker"))
+        .child(Column::new().size(100.0, 2000.0)),
+    )
+    .size(400.0, 500.0)
+    .into()
+  });
+  stage.tree.resize(400, 500);
+  stage.pass();
+  let top = stage.bounds("picker-area").1;
+  // It lands in the lower left of the area, far from the circle at the color, and goes down and across: up and
+  // down is the way the page scrolls.
+  let from = at(&mut stage, "picker-area", 0.2, 0.3);
+  stage.tree.finger(1, TouchPhase::Start, from.0, from.1, None);
+  stage.frame();
+  let landed = value.get();
+  assert_ne!(landed, blue(), "it picks where it lands, at once");
+  for step in 1..=5 {
+    let share = step as f32 / 5.0;
+    let to = at(&mut stage, "picker-area", 0.2 + 0.4 * share, 0.3 + 0.5 * share);
+    stage.tree.finger(1, TouchPhase::Move, to.0, to.1, None);
+    stage.frame();
+  }
+  let to = at(&mut stage, "picker-area", 0.6, 0.8);
+  stage.tree.finger(1, TouchPhase::End, to.0, to.1, None);
+  stage.pass();
+  assert_ne!(value.get(), landed, "and goes on with the finger");
+  assert_eq!(stage.bounds("picker-area").1, top, "the page did not scroll");
 }

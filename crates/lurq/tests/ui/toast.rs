@@ -660,7 +660,7 @@ fn a_description_too_long_for_its_line_goes_on_to_the_next() {
       .padding(8.0)
       .child(
         Toast::new("Settings saved")
-          .description("Your theme applies to every open window.")
+          .description("Your theme applies to every open window, and to each one you open after it.")
           .action(Button::new("Undo").id("undo"))
           .id("toast"),
       )
@@ -675,7 +675,7 @@ fn a_description_too_long_for_its_line_goes_on_to_the_next() {
     .into_iter()
     .filter(|quad| {
       matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. }
-        if "Your theme applies to every open window.".contains(text.trim()) && !text.trim().is_empty())
+        if "Your theme applies to every open window, and to each one you open after it.".contains(text.trim()) && !text.trim().is_empty())
     })
     .collect();
   assert!(!lines.is_empty(), "the description is painted");
@@ -687,7 +687,10 @@ fn a_description_too_long_for_its_line_goes_on_to_the_next() {
     })
     .collect::<Vec<_>>()
     .join(" ");
-  assert_eq!(painted, "Your theme applies to every open window.", "all of it");
+  assert_eq!(
+    painted, "Your theme applies to every open window, and to each one you open after it.",
+    "all of it"
+  );
   for line in &lines {
     assert!(
       line.x >= x && line.x + line.width <= undo + 0.01,

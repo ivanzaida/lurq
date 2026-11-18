@@ -691,6 +691,18 @@ impl<V: Picked> PickerView<V> {
         blur.commit(&blur_text);
       });
     }
+    // Under a finger the whole field opens the calendar, as its button does, and no keyboard comes up over it: a
+    // date is chosen there, not typed.
+    if super::touch_form() && !self.read_only && !self.disabled {
+      let tapped = self.model.clone();
+      control = control
+        .keyboard(components::KeyboardKind::None)
+        .on_click(move |_: MouseEvent| {
+          if !tapped.open.get_untracked() {
+            tapped.open();
+          }
+        });
+    }
     control
   }
 

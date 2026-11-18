@@ -745,7 +745,8 @@ fn a_drag_from_a_cell_and_shift_with_a_press_select_the_cells_between() {
   stage.click("g-cell-1-1");
   stage.pass();
   assert_eq!(range.get(), None);
-  modified(&mut stage, "a", false, true);
+  stage.shortcut("a");
+  stage.pass();
   let (rows, columns) = spanned(&range);
   assert_eq!((rows.len(), columns.len()), (3, 4));
   key(&mut stage, "Escape");
@@ -787,7 +788,8 @@ fn ctrl_c_copies_the_range_as_tab_separated_text_and_ctrl_v_pastes_it_cell_by_ce
   modified(&mut stage, "ArrowRight", true, false);
   modified(&mut stage, "ArrowRight", true, false);
   modified(&mut stage, "ArrowDown", true, false);
-  modified(&mut stage, "c", false, true);
+  stage.shortcut("c");
+  stage.pass();
   assert_eq!(
     clipboard.written.lock().unwrap().last().map(String::as_str),
     Some("blur.rs\tBuilding\t12\ncanvas.rs\tPassing\t48"),
@@ -799,7 +801,8 @@ fn ctrl_c_copies_the_range_as_tab_separated_text_and_ctrl_v_pastes_it_cell_by_ce
   key(&mut stage, "ArrowDown");
   key(&mut stage, "ArrowRight");
   *clipboard.held.lock().unwrap() = "Failed\t7\r\nPassing\tlots\r\n".to_owned();
-  modified(&mut stage, "v", false, true);
+  stage.shortcut("v");
+  stage.pass();
   let told: Vec<(String, String, CellValue)> = edits.lock().unwrap().clone();
   assert_eq!(
     told,
@@ -916,7 +919,8 @@ fn ten_thousand_rows_of_fifty_columns_select_copy_and_reach_their_last_cell_buil
     .count();
   assert!(cells < 200, "a screen of cells: {cells}");
   // Ctrl+C copies all of them, built or not.
-  modified(&mut stage, "c", false, true);
+  stage.shortcut("c");
+  stage.pass();
   let copied = clipboard.written.lock().unwrap().last().cloned().unwrap_or_default();
   assert_eq!(copied.lines().count(), 10_000);
   assert_eq!(copied.lines().last().map(|line| line.split('\t').count()), Some(50));

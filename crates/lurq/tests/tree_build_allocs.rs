@@ -92,13 +92,29 @@ fn deep_set_root_preserves_identified_nodes_without_matching_allocations() {
   }
 }
 
+/// An app whose theme has been resolved once, by a first layout: what that resolves (the look of the engine's
+/// controls) is the app's, made once whatever the tree, and more of it on some platforms than on others. A test of
+/// what a layout allocates for each node counts after it.
+fn warm_app() -> App {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(200, 200);
+  tree.set_root(Column::with(
+    0.0,
+    Alignment::Start,
+    [Element::from(Rect::new(10.0, 10.0))],
+  ));
+  tree.bench_layout_only_shared(&mut app, false);
+  app
+}
+
 /// A first layout stores one cached result per node, inline, and makes each
 /// node's layout watch, which building the tree no longer makes. On a flat
 /// column only the root's children `Vec` comes on top of those two per node
 /// (3.0 allocations per node when a box held each node's cached results).
 #[test]
 fn first_layout_allocates_no_cache_box_per_node() {
-  let mut app = App::new();
+  let mut app = warm_app();
   let nodes = 1_001;
   for _ in 0..2 {
     let mut tree = Tree::new();
@@ -235,7 +251,7 @@ fn container_trees() -> Vec<(&'static str, usize, usize, Element)> {
 /// makes each node's layout watch.
 #[test]
 fn layout_allocates_one_vec_per_container() {
-  let mut app = App::new();
+  let mut app = warm_app();
   for (name, nodes, containers, root) in container_trees() {
     let mut tree = Tree::new();
     tree.resize(1200, 800);

@@ -212,7 +212,7 @@ impl Tree {
 
   /// Whether a finger that moves from the point, in physical pixels, scrolls: a scroll container with content
   /// beyond its viewport is under it, and no control that is dragged instead (a slider, a scrollbar that is
-  /// always shown). Anywhere else a finger is a pointer with its button down.
+  /// always shown, an element that says so with `finger_drags`). Anywhere else a finger is a pointer with its button down.
   pub fn touch_scrolls_at(&mut self, x: f32, y: f32) -> bool {
     let scale = self.scale_factor();
     let (lx, ly) = (x / scale, y / scale);
@@ -232,9 +232,10 @@ impl Tree {
           .visible
           .fades()
     });
+    // A slider, and what says a finger drags it: a dial, an area of colors, a pad that is drawn on.
     let on_slider = hits
       .iter()
-      .any(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }));
+      .any(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }) || node.events.finger_drags);
     if on_scrollbar || on_slider {
       return false;
     }

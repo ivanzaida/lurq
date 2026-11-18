@@ -232,7 +232,7 @@ fn input_mode_crlf_same_key_original_p2_has_exactly_five_rows_and_raw_ending_edi
   editor.key("z", true);
   assert_eq!(editor.state.sources[0].get(), RAW);
   assert_eq!(editor.state.controllers[0].selection().unwrap().range(), 2..4);
-  editor.key("y", true);
+  crate::support::redo(&mut editor.tree);
   assert_eq!(editor.state.sources[0].get(), RAW.replacen("\r\n", "X", 1));
   editor.key("z", true);
   assert_eq!(editor.state.sources[0].get(), RAW);
@@ -315,7 +315,7 @@ fn input_mode_rerender_retains_crlf_history_and_visible_caret_on_default_scroll_
     assert_eq!(editor.state.controllers[index].selection().unwrap().caret, RAW.len());
     editor.state.unrelated.update(|value| *value += 1);
     editor.visible_caret();
-    editor.key("y", true);
+    crate::support::redo(&mut editor.tree);
     assert_eq!(editor.state.sources[index].get(), RAW.replacen("\r\n", "X", 1));
     editor.key("z", true);
     assert_eq!(editor.state.sources[index].get(), RAW);

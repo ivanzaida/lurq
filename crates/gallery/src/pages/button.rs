@@ -513,11 +513,22 @@ impl ButtonPage {
       }
       matrix = matrix.child(row);
     }
-    let size = Row::new()
-      .spacing(10.0)
-      .align_items(Alignment::Center)
-      .child(quiet("size", 12.0))
-      .child(segmented(&sizes, &picked, move |index| pick.set(index)));
+    let sizes = segmented(&sizes, &picked, move |index| pick.set(index));
+    // As narrow as a phone there is no room for the name beside the sizes: it is over them.
+    let size: Element = if phone() {
+      Column::new()
+        .spacing(6.0)
+        .child(quiet("size", 12.0))
+        .child(sizes)
+        .into()
+    } else {
+      Row::new()
+        .spacing(10.0)
+        .align_items(Alignment::Center)
+        .child(quiet("size", 12.0))
+        .child(sizes)
+        .into()
+    };
     let count = quiet("5 variants × 6 states", 12.0);
     // In a window as narrow as a phone the count has no room beside the sizes: it is under them.
     let bar: Element = if phone() {

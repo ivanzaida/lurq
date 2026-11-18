@@ -195,3 +195,46 @@ fn tooling_reads_a_combobox_of_listboxes() {
     Some("true")
   );
 }
+
+#[test]
+fn under_a_finger_a_tap_of_the_field_opens_the_panel_and_asks_for_no_keyboard() {
+  let value = Signal::new(at(9, 30));
+  let held = value.clone();
+  let app = lurq::app::App::new();
+  app.set_pointer(lurq::app::Pointer::Coarse);
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .size(400.0, 500.0)
+      .padding(10.0)
+      .child(TimePicker::new(held.clone()).id("tp").mount(ctx))
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 500.0))));
+  stage.pass();
+  assert!(!opened(&mut stage));
+  // In the field, well clear of its button.
+  let (x, y, width, height) = stage.bounds("tp");
+  stage.tap_at(x + width - 20.0, y + height / 2.0);
+  assert!(opened(&mut stage), "the whole field opens it");
+  // Closed, the focus is the field's again, which asks for no keyboard on the screen: a time is chosen.
+  stage.key("Escape");
+  assert!(!opened(&mut stage));
+  assert_eq!(focused(&stage).as_deref(), Some("tp"), "the field has the focus");
+  assert!(stage.tree.keyboard_traits().is_none(), "and no keyboard comes up");
+}
+
+#[test]
+fn under_a_mouse_a_press_of_the_field_types_and_opens_nothing() {
+  let value = Signal::new(at(9, 30));
+  let mut stage = picker(&value, |picker| picker);
+  let (x, y, width, height) = stage.bounds("tp");
+  let (x, y) = (x + width - 20.0, y + height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert!(!opened(&mut stage), "its button and Down open it");
+  assert!(stage.tree.keyboard_traits().is_some(), "it is typed into");
+}

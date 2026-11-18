@@ -286,11 +286,10 @@ fn a_finger_turns_it_and_is_taken_from_scrolling() {
   let read = angle.clone();
   let mut stage = scene(move || AngleSlider::new(read.clone()));
   let (x, y) = at(&mut stage, 90.0, 20.0);
-  let route = stage.tree.touch_event(3, TouchPhase::Start, x, y, Some(0.4));
-  assert_eq!(route, lurq::app::runtime::TouchRoute::Taken);
+  stage.tree.finger(3, TouchPhase::Start, x, y, Some(0.4));
   let (x, y) = at(&mut stage, 135.0, 20.0);
-  stage.tree.touch_event(3, TouchPhase::Move, x, y, Some(0.4));
-  stage.tree.touch_event(3, TouchPhase::End, x, y, None);
+  stage.tree.finger(3, TouchPhase::Move, x, y, Some(0.4));
+  stage.tree.finger(3, TouchPhase::End, x, y, None);
   stage.pass();
   assert_eq!(angle.get(), 135.0);
 }
@@ -455,4 +454,47 @@ fn what_it_is_called_is_the_app_s_locale_s_and_a_label_told_by_itself_stays() {
   // With no locale it is English.
   let mut plain = scene(|| AngleSlider::controlled(45.0, |_| {}));
   assert_eq!(named(&mut plain, "dial").as_deref(), Some("Angle"));
+}
+
+/// A dial in a page that scrolls, as a phone's finger finds it: its middle, and the stage.
+fn in_a_page_that_scrolls(angle: &Signal<f64>) -> Stage {
+  let read = angle.clone();
+  let mut stage = Stage::new(move |_| {
+    lurq::components::ScrollVertical::new(
+      Column::new()
+        .width(400.0)
+        .padding(40.0)
+        .child(AngleSlider::new(read.clone()).id("dial"))
+        .child(Column::new().size(100.0, 2000.0)),
+    )
+    .size(400.0, 300.0)
+    .into()
+  });
+  stage.tree.resize(400, 300);
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_finger_that_lands_away_from_the_thumb_goes_on_turning_it_in_a_page_that_scrolls() {
+  let angle = Signal::new(0.0);
+  let mut stage = in_a_page_that_scrolls(&angle);
+  let top = stage.bounds("dial").1;
+  // It lands at the left of the dial, a quarter of a turn from the thumb: the dial is drawn again at once.
+  let (x, y) = at(&mut stage, 270.0, 20.0);
+  stage.tree.finger(3, TouchPhase::Start, x, y, None);
+  stage.frame();
+  assert_eq!(angle.get(), 270.0, "where it landed");
+  // And goes on round, down the dial's side: the dial follows, and the page stays where it is.
+  for bearing in [255.0, 240.0, 225.0] {
+    let (x, y) = at(&mut stage, bearing, 20.0);
+    stage.tree.finger(3, TouchPhase::Move, x, y, None);
+    stage.frame();
+  }
+  assert_eq!(angle.get(), 225.0, "it follows the finger");
+  let (x, y) = at(&mut stage, 225.0, 20.0);
+  stage.tree.finger(3, TouchPhase::End, x, y, None);
+  stage.pass();
+  assert_eq!(angle.get(), 225.0);
+  assert_eq!(stage.bounds("dial").1, top, "the page did not scroll");
 }

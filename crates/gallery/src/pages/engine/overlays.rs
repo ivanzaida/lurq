@@ -23,7 +23,7 @@ use lurq::{
 use super::kit::{controls, sample, samples, tile, well};
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, line, mono, popover, props_table, quiet, segmented, text},
+  kit::{FILL, fit, line, mono, phone, popover, props_table, quiet, segmented, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -685,13 +685,17 @@ impl OverlaysPage {
           .wrap()
           .align_items(Alignment::Center)
           .child(Button::new("Open sheet").on_click(move |_| opener.set(true)))
-          .child(quiet(
-            &format!(
-              "detent {at} · put away by a person {} times",
-              self.sheet_dismissals.get()
-            ),
-            12.0,
-          )),
+          .child({
+            let status = quiet(
+              &format!(
+                "detent {at} · put away by a person {} times",
+                self.sheet_dismissals.get()
+              ),
+              12.0,
+            );
+            // As narrow as a phone it is on a line of its own, and goes on to the next where it is longer.
+            if phone() { status.width(FILL) } else { status }
+          }),
       )
       .child(sheet)
   }

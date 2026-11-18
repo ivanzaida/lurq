@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
   app::{
-    events::{DragEvent, KeyboardEvent, MouseButtonMask, TouchEvent},
+    events::{DragEvent, KeyboardEvent, MouseButtonMask},
     theme::{OpacityLevel, PaletteColor, RadiusSize, Theme},
   },
   components::{Row, Stack},
@@ -662,26 +662,17 @@ impl AngleSliderView {
         self.model.clone(),
         self.model.clone(),
       );
-      let (touch_start, touch_move, touch_end) = (self.model.clone(), self.model.clone(), self.model.clone());
       root = root
         .tab_index(0)
         // A press of it focuses it, as a press of the engine's slider does: its keys go on from there.
         .focuses(&self.model.root)
         .start_drag_buttons(MouseButtonMask::LEFT)
+        // A finger or a pen on the dial turns it as the pointer does, from where it lands, and is taken from what
+        // would scroll with it.
+        .finger_drags(true)
         .on_drag_start(move |event: DragEvent| press.press(event.x, event.y, None))
         .on_drag_move(move |event: DragEvent| drag.moved(event.x, event.y, None))
         .on_drag_end(move |_: DragEvent| release.released(None))
-        // A finger or a pen on the dial turns it, and is taken from what would scroll with it.
-        .on_touch_start(move |event: TouchEvent| {
-          event.prevent_default();
-          touch_start.press(event.x, event.y, Some(event.id));
-        })
-        .on_touch_move(move |event: TouchEvent| touch_move.moved(event.x, event.y, Some(event.id)))
-        .on_touch_end(move |event: TouchEvent| touch_end.released(Some(event.id)))
-        .on_touch_cancel({
-          let model = self.model.clone();
-          move |event: TouchEvent| model.released(Some(event.id))
-        })
         .on_key_down(move |event: KeyboardEvent| {
           if !event.focus_within || event.ctrl || event.alt || event.meta || event.composing {
             return;

@@ -44,6 +44,8 @@ mod ios;
 #[cfg(target_os = "ios")]
 mod ios_text;
 mod loop_wait;
+#[cfg(target_os = "macos")]
+mod macos_controls;
 #[cfg(test)]
 mod loop_wait_tests;
 mod native_resize;
@@ -357,6 +359,9 @@ struct ManagedWindow {
   /// drags paint here — see the CursorMoved arm).
   last_interaction_present: Instant,
   ime: ime::ImeSync,
+  /// The system's lights of the window, where the app's bar marks its controls.
+  #[cfg(target_os = "macos")]
+  native_controls: macos_controls::NativeControls,
   file_drag: FileDragShell,
   /// Where the wheel turns over the canvas, which winit does not say.
   #[cfg(target_arch = "wasm32")]
@@ -426,6 +431,8 @@ impl ManagedWindow {
       continuous_redraw_until: None,
       last_interaction_present: Instant::now(),
       ime: ime::ImeSync::default(),
+      #[cfg(target_os = "macos")]
+      native_controls: macos_controls::NativeControls::default(),
       file_drag: FileDragShell::default(),
       #[cfg(target_arch = "wasm32")]
       wheel_pointer: None,
@@ -613,6 +620,9 @@ impl ManagedWindow {
     // The system is told where the window's controls are in a title bar the app draws itself.
     #[cfg(windows)]
     tell_window_controls(&window, &mut self.tree);
+    // On macOS the system's own lights go where the app's controls are: see `macos_controls`.
+    #[cfg(target_os = "macos")]
+    self.tree.publish_window_controls();
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -802,6 +812,8 @@ impl ManagedWindow {
     }
     if let Some(window) = &self.window {
       self.ime.apply(window, &self.tree);
+      #[cfg(target_os = "macos")]
+      self.native_controls.apply(window, &self.tree);
     }
   }
 
@@ -875,6 +887,9 @@ impl ManagedWindow {
       set_window_cursor(w, &mut self.cursor, self.tree.cursor());
       // The pass painted the focused input's caret where it now is.
       self.ime.apply(w, &self.tree);
+      // The pass laid the window's controls out: the system's lights go where the app's are.
+      #[cfg(target_os = "macos")]
+      self.native_controls.apply(w, &self.tree);
       // The pass laid the focused input's text out: the platform's caret goes where it now ends, with this
       // frame and not the one after.
       #[cfg(target_os = "ios")]
@@ -1327,6 +1342,9 @@ struct ManagedSecondaryWindow {
   close_requested: bool,
   frames: FrameSource,
   ime: ime::ImeSync,
+  /// The system's lights of the window, where the app's bar marks its controls.
+  #[cfg(target_os = "macos")]
+  native_controls: macos_controls::NativeControls,
   file_drag: FileDragShell,
 }
 
@@ -1396,6 +1414,8 @@ impl ManagedSecondaryWindow {
       close_requested: false,
       frames: FrameSource::default(),
       ime: ime::ImeSync::default(),
+      #[cfg(target_os = "macos")]
+      native_controls: macos_controls::NativeControls::default(),
       file_drag: FileDragShell::default(),
     }
   }
@@ -1456,6 +1476,8 @@ impl ManagedSecondaryWindow {
       .set_parent(crate::app::window::parent::ParentWindow::of(&window));
     #[cfg(windows)]
     tell_window_controls(&window, tree);
+    #[cfg(target_os = "macos")]
+    tree.publish_window_controls();
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]
@@ -1620,6 +1642,8 @@ impl ManagedSecondaryWindow {
     }
     if let Some(window) = &self.window {
       self.ime.apply(window, tree);
+      #[cfg(target_os = "macos")]
+      self.native_controls.apply(window, tree);
     }
   }
 

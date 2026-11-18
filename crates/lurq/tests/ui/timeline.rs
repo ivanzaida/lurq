@@ -152,7 +152,8 @@ fn an_upcoming_item_has_a_hollow_dot() {
 #[test]
 fn the_line_is_as_long_as_what_is_beside_it() {
   let long = "A description that is a good deal longer than the room beside the rail, so that it goes on to the next \
-              line, and the one after it, and the one after that, until it fills five lines of the timeline's width.";
+              line, and the one after it, and the one after that, until it fills five lines of the timeline's width \
+              or more, in a narrow face as well as in a wide one: San Francisco sets more of it on a line than Segoe UI.";
   let mut stage = stage_of(move || {
     Timeline::new([
       TimelineItem::new("Wrote a long description").description(long).id("a"),

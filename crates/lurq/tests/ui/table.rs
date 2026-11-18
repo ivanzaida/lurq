@@ -522,7 +522,7 @@ fn the_rows_are_one_stop_of_tab_the_arrows_move_space_selects_and_enter_activate
     ["crates/lurq_macros", "crates/mobile_demo"],
     "Enter does not select"
   );
-  key_with(&mut stage, "a", false, true);
+  stage.shortcut("a");
   assert_eq!(selected.get().len(), 3, "Ctrl+A selects them all");
 
   // Tab leaves the rows at once: they are one stop.

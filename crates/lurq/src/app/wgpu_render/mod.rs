@@ -20,19 +20,19 @@ mod vertex;
 #[cfg(all(test, windows, feature = "screenshot"))]
 mod viewport_tests;
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use std::ffi::c_void;
 use std::time::Duration;
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_foundation_sys::dictionary::CFDictionaryRef;
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
 use extension::WgpuFrameExtensionEntry;
 pub use extension::{SharedWgpuContext, WgpuAppError, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use raw_window_handle::{DisplayHandle, WindowHandle};
 #[cfg(feature = "raster")]
@@ -248,7 +248,7 @@ enum CachedImageTexture {
     uv_view: wgpu::TextureView,
     y_texture: wgpu::Texture,
     uv_texture: wgpu::Texture,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     _macos_native: Option<MacosNativeNv12Texture>,
     width: u32,
     height: u32,
@@ -261,19 +261,22 @@ enum CachedImageTexture {
   Card(card_frames::Opened),
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 struct MacosNativeNv12Texture {
   _native: crate::images::NativeImageData,
+  /// The buffer the textures are of: held for as long as they are drawn, so that what decodes does not write the
+  /// next frame into it.
+  _buffer: crate::images::MacosCvPixelBuffer,
   _y_cv_texture: CvMetalTexture,
   _uv_cv_texture: CvMetalTexture,
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 struct CvMetalTexture {
   ptr: CVMetalTextureRef,
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 impl Drop for CvMetalTexture {
   fn drop(&mut self) {
     unsafe {
@@ -282,12 +285,34 @@ impl Drop for CvMetalTexture {
   }
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+/// The cache CoreVideo makes Metal's textures of a buffer with, for one device.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+struct CvMetalTextureCache {
+  ptr: CVMetalTextureCacheRef,
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+impl Drop for CvMetalTextureCache {
+  fn drop(&mut self) {
+    unsafe {
+      CFRelease(self.ptr.cast());
+    }
+  }
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+thread_local! {
+  /// The cache of the device that draws on this thread, with the device it is of.
+  static CV_TEXTURE_CACHE: std::cell::RefCell<Option<(usize, CvMetalTextureCache)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 type CVMetalTextureCacheRef = *mut c_void;
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 type CVMetalTextureRef = *mut c_void;
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 #[link(name = "CoreVideo", kind = "framework")]
 unsafe extern "C" {
   fn CVMetalTextureCacheCreate(
@@ -330,6 +355,12 @@ fn drawn_part(
 
 #[cfg(feature = "raster")]
 impl CachedImageTexture {
+  /// Whether it is the textures of a frame that stays on the card, and `image` shows another frame now.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  fn is_another_frame_of_the_card(&self, image: &crate::images::ImageCmd) -> bool {
+    matches!(self, Self::Nv12 { _macos_native: Some(_), version, .. } if *version != image.version)
+  }
+
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
       Self::ExternalRgba { .. } => false,
@@ -438,6 +469,9 @@ pub struct WgpuRenderEngine {
   image_sampler: Option<wgpu::Sampler>,
   #[cfg(feature = "raster")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
+  /// The textures of the frames of a video that were drawn in the frame before: let go once this one is drawn.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  retired_card_frames: Vec<CachedImageTexture>,
   /// The leases of the card's frames that are drawn no more, until the card has finished with them.
   #[cfg(all(feature = "raster", windows))]
   card_leases: card_frames::Leases,
@@ -1027,6 +1061,8 @@ impl WgpuRenderEngine {
       image_sampler: None,
       #[cfg(feature = "raster")]
       image_texture_cache: std::collections::HashMap::new(),
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      retired_card_frames: Vec::new(),
       #[cfg(all(feature = "raster", windows))]
       card_leases: card_frames::Leases::default(),
       #[cfg(all(feature = "raster", windows))]
@@ -1634,6 +1670,9 @@ impl WgpuRenderEngine {
     if !card_frames::announce(&device) {
       card_frames::announce_vulkan(&device, &adapter);
     }
+    // On Metal the buffer the system's decoder gives is drawn where it is.
+    #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+    crate::images::set_cv_pixel_buffer_frames_drawn(unsafe { device.as_hal::<wgpu_hal::api::Metal>() }.is_some());
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
@@ -2286,6 +2325,9 @@ impl RenderEngine for WgpuRenderEngine {
       .gpu_timer
       .begin_frame(self.device.as_ref().unwrap(), self.profile_context.as_ref());
     self.prepare_frame_extensions(list);
+    // What the frame before this one no longer drew has been drawn by the card by now.
+    #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+    self.retired_card_frames.clear();
     #[cfg(feature = "perf_profile")]
     let mut _canvas_profile = crate::app::profile_types::CanvasProfile::default();
     #[cfg(feature = "canvas")]
@@ -3248,6 +3290,19 @@ impl RenderEngine for WgpuRenderEngine {
                 self.image_texture_cache.remove(&img.image_id);
                 self.image_clip_bind_groups.clear();
               }
+              // A frame of a video that stays on the card is another buffer with each frame: its textures are
+              // made anew of the one shown now. Those of the frame before are kept until the next frame is
+              // drawn, which the card may still be drawing them for.
+              #[cfg(any(target_os = "macos", target_os = "ios"))]
+              if self
+                .image_texture_cache
+                .get(&img.image_id)
+                .is_some_and(|cached| cached.is_another_frame_of_the_card(img))
+                && let Some(before) = self.image_texture_cache.remove(&img.image_id)
+              {
+                self.retired_card_frames.push(before);
+                self.image_clip_bind_groups.clear();
+              }
 
               if external_wgpu_image.is_none()
                 && canvas_image.is_none()
@@ -3311,7 +3366,7 @@ impl RenderEngine for WgpuRenderEngine {
                   version,
                   ..
                 } => {
-                  if *frame_index != img.frame_index || *version != img.version {
+                  if img.native.is_none() && (*frame_index != img.frame_index || *version != img.version) {
                     let _image_texture_upload_start = profile_scope!();
                     if !write_nv12_image_textures(queue, y_texture, uv_texture, img) {
                       _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
@@ -3995,7 +4050,7 @@ fn create_nv12_cached_image_texture(
   {
     return None;
   }
-  #[cfg(target_os = "macos")]
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
   if matches!(
     image.native.as_ref().map(crate::images::NativeImageData::backend),
     Some(crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
@@ -4068,7 +4123,7 @@ fn create_nv12_cached_image_texture(
     uv_view,
     y_texture,
     uv_texture,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     _macos_native: None,
     width: image.image_width,
     height: image.image_height,
@@ -4077,7 +4132,7 @@ fn create_nv12_cached_image_texture(
   })
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 fn create_macos_native_nv12_cached_image_texture(
   device: &wgpu::Device,
   nv12_image_bgl: &wgpu::BindGroupLayout,
@@ -4086,10 +4141,17 @@ fn create_macos_native_nv12_cached_image_texture(
   image: &crate::images::ImageCmd,
 ) -> Option<CachedImageTexture> {
   let native = image.native.as_ref()?.clone();
-  let payload = native.payload::<crate::images::MacosCvPixelBufferNv12Image>()?;
+  // One buffer the app gave, or the frame of a video that is shown now: none before its first.
+  let buffer = match native.payload::<crate::images::CvPixelBufferFrames>() {
+    Some(frames) => frames.shown()?,
+    None => native
+      .payload::<crate::images::MacosCvPixelBufferNv12Image>()?
+      .pixel_buffer
+      .clone(),
+  };
   let (y_texture, y_cv_texture) = create_macos_native_plane_texture(
     device,
-    payload.pixel_buffer.as_ptr(),
+    buffer.as_ptr(),
     image.image_width,
     image.image_height,
     0,
@@ -4099,7 +4161,7 @@ fn create_macos_native_nv12_cached_image_texture(
   )?;
   let (uv_texture, uv_cv_texture) = create_macos_native_plane_texture(
     device,
-    payload.pixel_buffer.as_ptr(),
+    buffer.as_ptr(),
     image.image_width / 2,
     image.image_height / 2,
     1,
@@ -4139,6 +4201,7 @@ fn create_macos_native_nv12_cached_image_texture(
     uv_texture,
     _macos_native: Some(MacosNativeNv12Texture {
       _native: native,
+      _buffer: buffer,
       _y_cv_texture: y_cv_texture,
       _uv_cv_texture: uv_cv_texture,
     }),
@@ -4149,7 +4212,7 @@ fn create_macos_native_nv12_cached_image_texture(
   })
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 fn create_macos_native_plane_texture(
   device: &wgpu::Device,
   pixel_buffer: CVPixelBufferRef,
@@ -4164,20 +4227,31 @@ fn create_macos_native_plane_texture(
   // Clone the retained device before releasing the guard; the CoreVideo cache
   // and textures must originate from the same Metal device as wgpu.
   let raw_device = unsafe { device.as_hal::<wgpu_hal::api::Metal>() }?.raw_device().clone();
-
-  let mut cache = std::ptr::null_mut();
-  let status = unsafe {
-    CVMetalTextureCacheCreate(
-      kCFAllocatorDefault,
-      std::ptr::null(),
-      Retained::as_ptr(&raw_device).cast_mut().cast(),
-      std::ptr::null(),
-      &mut cache,
-    )
-  };
-  if status != 0 || cache.is_null() {
-    return None;
-  }
+  // One cache of textures for a device, kept: a video asks it for two textures a frame.
+  let device_ptr = Retained::as_ptr(&raw_device) as usize;
+  let cache = CV_TEXTURE_CACHE.with(|kept| {
+    let mut kept = kept.borrow_mut();
+    if let Some((of, cache)) = kept.as_ref()
+      && *of == device_ptr
+    {
+      return Some(cache.ptr);
+    }
+    let mut cache = std::ptr::null_mut();
+    let status = unsafe {
+      CVMetalTextureCacheCreate(
+        kCFAllocatorDefault,
+        std::ptr::null(),
+        Retained::as_ptr(&raw_device).cast_mut().cast(),
+        std::ptr::null(),
+        &mut cache,
+      )
+    };
+    if status != 0 || cache.is_null() {
+      return None;
+    }
+    *kept = Some((device_ptr, CvMetalTextureCache { ptr: cache }));
+    Some(cache)
+  })?;
 
   let mut cv_texture = std::ptr::null_mut();
   let status = unsafe {
@@ -4193,9 +4267,6 @@ fn create_macos_native_plane_texture(
       &mut cv_texture,
     )
   };
-  unsafe {
-    CFRelease(cache.cast());
-  }
   if status != 0 || cv_texture.is_null() {
     return None;
   }

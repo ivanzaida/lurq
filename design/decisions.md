@@ -11,6 +11,28 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### On macOS the system's lights are the window's controls, and the bar stays in full screen
+
+- **Question.** On a Mac the gallery's bar drew three lights of its own: no menu of tilings under the pointer on the
+  green one, no full screen at its press. In full screen the bar went away with its tabs, and after leaving full
+  screen by the system's own keys the bar stayed hidden, since the shell never heard that the window came back.
+- **Decision (Ivan, 2026-11-18, at the Mac: "на маку немає доку як на віндовсі … і фоулскрін не робить фулскрін",
+  then "а чому вкладок в повноекранному нема").** Where an app's bar marks its controls (`.window_control(..)`), the
+  window on macOS has a title bar that is not seen, its content under it, and the system's own lights are moved to
+  the middles of the app's controls, which keep their room and are not drawn (`WindowInfo::native_controls`). In full
+  screen the system shows its lights with its own bar at the top of the screen, and the app's bar stays, its tabs
+  with it, as Safari and the Finder keep theirs; what is laid over the whole window (a video that fills the screen, a
+  sheet) has all of it there. Whether the window is in full screen is read again every turn. Windows is as before.
+- **State.** Built on `feat/design-system`; looked at on a Mac out of full screen, in full screen to be looked at.
+
+### A video plays on macOS and iOS, with the system's player
+
+- **Question.** `lurq::media` played a sound on Apple's systems (`AVAudioPlayer`) and said of a video that this build shows none there. The checks of Apple's systems (`apple-checks.md`) had "a video does not play" as what to expect.
+- **Decision (Ivan, 2026-11-17, at the Mac: "так давай додамо").** A video plays there. `Media::open` gives it to the system's `AVPlayer`, which decodes it, plays its sound, keeps the two together and reads an address by itself; the frames are taken from it (`AVPlayerItemVideoOutput`) as two planes of gray and color and copied into the image a `Video` draws, through memory once, as everywhere but Direct3D. Bytes are written to a file of the system's temporary folder for as long as the media lives, since the player opens files and addresses. `Media::sound` stays on `AVAudioPlayer`.
+- **Why the system's player and not its reader of samples** (`AVAssetReader`, which is what Media Foundation's reader is on Windows): the reader opens no address, cannot be sent to a time without being made again, and leaves the sound, its output and its clock to be written; the player has all of these. What it costs: the player says what changed on the main queue, so the media's thread asks it where it is instead of being told.
+- **Frames stay on the card (Ivan, the same day, at the phone: "нам треба зіро копі як на віндовсі").** Where the `wgpu` renderer draws on Metal, the buffer the decoder gives (`CVPixelBuffer`, of a kind Metal makes textures of) is shown as it is, through `images::CvPixelBufferFrames`: the renderer makes its two textures of the buffer shown now and draws them, and nothing is copied. The renderer says it draws such frames (`images::cv_pixel_buffer_frames_drawn`); where nothing does, a frame is copied through memory once, as before. The same type is an app's own decoder's way to the screen, as `CardFrames` is on Windows (`MacosCvPixelBuffer::nv12`, `write_nv12` for one that decodes in memory); the gallery's "Frames of a decoder of your own" shows it there.
+- **State.** In work on `feat/design-system`: built, its checks pass on a Mac, looked at in the gallery on a Mac; on a phone to be looked at.
+
 ### `GpuViewport` has no limits that are defects
 
 - **Question.** The guide to `GpuViewport` (`docs/src/content/docs/gpu-viewport.md`) listed eight limits an app had to

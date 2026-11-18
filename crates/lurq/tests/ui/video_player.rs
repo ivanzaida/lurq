@@ -1646,3 +1646,84 @@ fn given_to_a_tree_as_it_is_it_is_its_component_with_the_form_of_its_width_and_i
   stage.click("v-settings");
   assert!(has(&mut stage, "v-settings-menu"), "the menu a mounted player keeps");
 }
+
+/// A phone's window, upright, with a player in fullscreen in it: what the system draws over its top and bottom.
+fn full_on_a_phone(told: &Told) -> Stage {
+  let app = lurq::app::App::new();
+  app.set_pointer(lurq::app::Pointer::Coarse);
+  let told = told.clone();
+  let mut stage = Stage::first_frame_in(app, 390.0, 844.0, move |ctx| {
+    Column::new()
+      .size(390.0, 844.0)
+      .child(
+        player(&told)
+          .width(Length::Fill)
+          .fullscreen_controlled(true, {
+            let say = told.say();
+            move |to| say(format!("fullscreen {to}"))
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.tree.window().set_safe_area(lurq::app::window::SafeAreaInsets {
+    top: 59.0,
+    bottom: 34.0,
+    ..Default::default()
+  });
+  stage.frame();
+  stage.pass();
+  stage
+}
+
+#[test]
+fn in_fullscreen_it_keeps_clear_of_what_the_system_draws_over_a_phone_s_edges() {
+  let told = Told::default();
+  let mut stage = full_on_a_phone(&told);
+  let (x, y, width, height) = stage.bounds("v");
+  assert_eq!((x, width), (0.0, 390.0), "as wide as the screen");
+  assert_eq!(
+    (y, y + height),
+    (59.0, 844.0 - 34.0),
+    "under the status bar and over the home indicator"
+  );
+}
+
+#[test]
+fn in_fullscreen_a_drag_down_leaves_it_and_a_short_one_does_not() {
+  use lurq::app::events::TouchPhase;
+  let told = Told::default();
+  let mut stage = full_on_a_phone(&told);
+  told.take();
+  let (x, y) = (195.0, 300.0);
+  // The finger's time is the tree's clock of presses: 30 ms a step, slowly, since a throw down leaves it however
+  // far it went.
+  let mut at = 0;
+  let mut drag = |stage: &mut Stage, by: f32| {
+    stage.presses_at(Duration::from_millis(at));
+    stage.tree.touch_event(1, TouchPhase::Start, x, y, None);
+    for step in 1..=10 {
+      at += 30;
+      stage.presses_at(Duration::from_millis(at));
+      stage
+        .tree
+        .touch_event(1, TouchPhase::Move, x, y + by * step as f32 / 10.0, None);
+      stage.frame();
+    }
+    stage.tree.touch_event(1, TouchPhase::End, x, y + by, None);
+    stage.frame();
+    stage.pass();
+    at += 1000;
+  };
+  drag(&mut stage, 40.0);
+  assert!(
+    !told.take().iter().any(|said| said == "fullscreen false"),
+    "not far enough"
+  );
+  assert_eq!(stage.bounds("v").1, 59.0, "back where it was");
+  drag(&mut stage, 200.0);
+  assert!(
+    told.take().iter().any(|said| said == "fullscreen false"),
+    "dragged down, it asks to leave fullscreen"
+  );
+}

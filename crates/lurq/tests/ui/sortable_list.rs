@@ -463,7 +463,7 @@ fn a_selection_is_pressed_as_a_list_of_files_and_dragged_together() {
   assert_eq!(said(&held.told), ["reorder many [2, 3] 1"]);
   assert_eq!(held.order.get(), ["Inputs", "Buttons", "Tabs", "Toggles"]);
   assert_eq!(focused(&stage).as_deref(), Some("Buttons"));
-  key_with(&mut stage, "a", false, true, false);
+  stage.shortcut("a");
   assert_eq!(held.selected.get().len(), 4);
   // Space takes the focused row out.
   stage.key(" ");
