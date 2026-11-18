@@ -940,6 +940,10 @@ pub struct Tree {
   capture_redactions: Vec<crate::app::capture_redaction::RedactedArea>,
   #[cfg(feature = "screenshot")]
   sensitive_quads: Vec<usize>,
+  /// What draws the parts of the window the system draws over the app's frame, laid over a screenshot
+  /// (`app::capture_overlay`).
+  #[cfg(feature = "screenshot")]
+  system_pictures: Option<crate::app::capture_overlay::SystemPictures>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -1427,6 +1431,8 @@ impl Tree {
       capture_redactions: Vec::new(),
       #[cfg(feature = "screenshot")]
       sensitive_quads: Vec::new(),
+      #[cfg(feature = "screenshot")]
+      system_pictures: None,
       #[cfg(feature = "devtools")]
       devtools: None,
       #[cfg(feature = "devtools")]
@@ -11188,7 +11194,7 @@ impl Tree {
         y: 0,
         width: self.viewport_physical.width.round().max(1.0) as u32,
         height: self.viewport_physical.height.round().max(1.0) as u32,
-        target: self.inspection_target(target, redact_sensitive, (0, 0)),
+        target: self.system_drawn_over(self.inspection_target(target, redact_sensitive, (0, 0)), (0, 0)),
         window_clip: self.screenshot_window_clip(),
       });
     };
@@ -11209,9 +11215,29 @@ impl Tree {
       y,
       width,
       height,
-      target: self.inspection_target(target, redact_sensitive, (x, y)),
+      target: self.system_drawn_over(self.inspection_target(target, redact_sensitive, (x, y)), (x, y)),
       window_clip: None,
     })
+  }
+
+  /// Has the system's parts of the window be drawn as a screenshot of it is taken: see
+  /// [`app::capture_overlay`](crate::app::capture_overlay).
+  #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+  pub(crate) fn set_system_pictures(&mut self, pictures: crate::app::capture_overlay::SystemPictures) {
+    self.system_pictures = Some(pictures);
+  }
+
+  /// `target`, with the parts of the window the system draws laid over what the renderer drew. `origin` is the
+  /// capture's top-left window pixel.
+  fn system_drawn_over(
+    &self,
+    target: crate::app::render_engine::RenderCaptureTarget,
+    origin: (u32, u32),
+  ) -> crate::app::render_engine::RenderCaptureTarget {
+    match &self.system_pictures {
+      Some(pictures) => crate::app::capture_overlay::laying_over(target, origin, pictures()),
+      None => target,
+    }
   }
 
   /// `target`, painting over the last render list's sensitive text when the

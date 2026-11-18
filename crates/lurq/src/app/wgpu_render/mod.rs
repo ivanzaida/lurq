@@ -478,7 +478,7 @@ pub struct WgpuRenderEngine {
   #[cfg(feature = "raster")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
   /// The textures of the frames of a video that were drawn in the frame before: let go once this one is drawn.
-  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
   retired_card_frames: Vec<CachedImageTexture>,
   /// The leases of the card's frames that are drawn no more, until the card has finished with them.
   #[cfg(all(feature = "raster", windows))]
@@ -1069,7 +1069,7 @@ impl WgpuRenderEngine {
       image_sampler: None,
       #[cfg(feature = "raster")]
       image_texture_cache: std::collections::HashMap::new(),
-      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
       retired_card_frames: Vec::new(),
       #[cfg(all(feature = "raster", windows))]
       card_leases: card_frames::Leases::default(),

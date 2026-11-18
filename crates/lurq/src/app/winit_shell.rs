@@ -44,10 +44,10 @@ mod ios;
 #[cfg(target_os = "ios")]
 mod ios_text;
 mod loop_wait;
-#[cfg(target_os = "macos")]
-mod macos_controls;
 #[cfg(test)]
 mod loop_wait_tests;
+#[cfg(target_os = "macos")]
+mod macos_controls;
 mod native_resize;
 mod notched_wheel;
 #[cfg(test)]
@@ -624,6 +624,8 @@ impl ManagedWindow {
     // On macOS the system's own lights go where the app's controls are: see `macos_controls`.
     #[cfg(target_os = "macos")]
     self.tree.publish_window_controls();
+    #[cfg(all(target_os = "macos", feature = "screenshot"))]
+    macos_controls::draw_lights_in_screenshots(&window, &mut self.tree);
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -1493,6 +1495,8 @@ impl ManagedSecondaryWindow {
     tell_window_controls(&window, tree);
     #[cfg(target_os = "macos")]
     tree.publish_window_controls();
+    #[cfg(all(target_os = "macos", feature = "screenshot"))]
+    macos_controls::draw_lights_in_screenshots(&window, tree);
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]

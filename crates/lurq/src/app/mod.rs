@@ -23,6 +23,8 @@ mod box_shadow_readback_tests;
 ))]
 mod canvas_frame_probe;
 #[cfg(feature = "screenshot")]
+pub(crate) mod capture_overlay;
+#[cfg(feature = "screenshot")]
 pub(crate) mod capture_redaction;
 #[cfg(all(test, feature = "screenshot"))]
 pub(crate) mod capture_test_engine;
@@ -101,7 +103,7 @@ mod device;
 pub use device::Device;
 pub mod menu;
 pub mod open_url;
-pub use open_url::{OpenUrlError, open_url};
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
+pub use open_url::{OpenUrlError, open_url};
 #[cfg(all(feature = "winit", target_os = "macos"))]
 mod macos_menu;

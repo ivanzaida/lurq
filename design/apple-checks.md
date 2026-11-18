@@ -49,17 +49,27 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 
 ## 2. Drawing on Metal
 
-- [ ] **Borders and rings.** `quad.wgsl` was rewritten for strokes and compared with its formulas on Direct3D only.
+- [x] **Borders and rings.** `quad.wgsl` was rewritten for strokes and compared with its formulas on Direct3D only.
   Gallery, pages Button, Card, Input, Tabs: borders of 1 and 2, rounded corners, a focus ring growing in (Tab
   into a button), a dashed edge where a page shows one. They look as on Windows.
+  2026-11-18, on a Mac through MCP's screenshots: the borders of Button, Card, Input, Tabs and the Borders page
+  (one side fading along its corners, dashed, a dashed pill, widths 1, 2 and 3) are even and round; Tab draws the
+  ring round a button, apart from its border. The ring growing in is quicker than MCP can see. `quad_tests` pass
+  on Metal (`cargo test -p lurq --lib quad_tests -- --ignored`). Not set beside Windows.
 - [ ] **A lost device** (`edab8590`). Hard to cause on purpose; if a Mac sleeps with the gallery open and wakes, the
   canvases (charts, Signature Pad, QR Code) are drawn again and a video goes on. At least: nothing goes black.
-- [ ] **The canvas on the GPU.** Pages Bar Chart, Line Chart, Signature Pad (draw, Undo, Clear, Make a picture), QR
+- [x] **The canvas on the GPU.** Pages Bar Chart, Line Chart, Signature Pad (draw, Undo, Clear, Make a picture), QR
   Code (the code is scanned by a phone's camera), Watermark (on the long scrolled page).
   2026-11-18: Ivan: the Signature Pad works on a Mac.
+  2026-11-18, through MCP: Bar Chart and Line Chart draw; the QR Code is read back as its text in the light look and
+  the dark (by the system's `CIDetector`, from the screenshot); the Watermark lies over a card, over a picture, and
+  over every line of the long page as it scrolls.
 - [ ] **Icon hinting on a 1x display**, if one is at hand: `cargo run -p lurq --example icon_hinting --features
   winit,wgpu,screenshot`. On a 2x display hinting matters little.
-- [ ] **Blur and shadows.** Pages with a backdrop blur (a sheet, a popover over content) and shadows (Card, Menu).
+- [x] **Blur and shadows.** Pages with a backdrop blur (a sheet, a popover over content) and shadows (Card, Menu).
+  2026-11-18, the Visual page through MCP: the theme's three shadows, a layered one, a hard offset, a glow and an
+  inset well; a layer blurred by growing radii and faded; frosted glass that blurs the stripes behind it more as its
+  radius grows, and turns its blur with it. A sheet dims the page under it and does not blur it.
 
 ## 3. The system and the windows
 
@@ -90,20 +100,31 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   the name; Cancel gives nothing. iOS has no dialog: the button says so or does nothing, and nothing crashes.
 - [ ] **The clipboard.** Copy from a Markdown page (rich text pastes as Markdown into a text editor, plain into a
   field), a picture copied and pasted, Signature Pad's PNG. Paste into a lurq field from another app.
+  2026-11-18: text selected in the Markdown document and copied is plain text on the system's clipboard; lurq
+  writes no Markdown or HTML there on any system (`clipboard.rs` has text, a picture and files). Pasting from
+  another app needs a person: MCP does not read the clipboard.
 - [ ] **Fonts and text.** The system fonts look right (San Francisco, the mono one in code); the caret blinks and
   stops while typing; selection by drag and by double-click; IME: Ukrainian, then Japanese with its candidate
   window in the right place.
+  2026-11-18, through MCP: San Francisco and the mono font in code; a drag selects across a heading and a
+  paragraph, a double click selects a word. The caret and IME need a person.
 
 ## 4. The keyboard (the editing commands of 2026-11-17)
 
 - [ ] **Cmd, not Ctrl.** In a text field and on the Signature Pad: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y does
   **not** redo; Cmd+C, Cmd+X, Cmd+V, Cmd+A. In a Ukrainian layout the same keys by their place.
+  2026-11-18, keys of MCP into an Input: Cmd+Z undoes, Cmd+Shift+Z redoes, Cmd+Y and Ctrl+Z do nothing, Cmd+A,
+  Cmd+C and Cmd+X go through the system's clipboard (`pbpaste` reads what was copied). Cmd+V is not tried: MCP
+  refuses a paste of the person's clipboard. Undo takes back one character at a time, on every system: typing is
+  not grouped into one step. The keys of a Ukrainian layout need a keyboard.
 - [ ] **A native Edit menu.** If the app has a menu bar with Undo/Redo/Copy/Paste items with their accelerators,
   the menu takes Cmd+Z before the window: each item must run `window.edit(EditCommand::..)` and do the same thing
   the key does. The gallery's menu, if it has one, as the example.
+  2026-11-18: the gallery has no menu of its own (`lurq_menu` gives none).
 - [ ] **Option + a letter** types the letter's character and is not a command (Option is Alt).
 - [ ] **Tab and the focus** go through the controls as on Windows; Full Keyboard Access on macOS where it changes
   what Tab reaches.
+  2026-11-18, through MCP: Tab goes from button to button and Shift+Tab back. Full Keyboard Access not tried.
 
 ## 5. A finger, a pencil, a trackpad (iOS, the pointer of 2026-11-17)
 
@@ -177,13 +198,17 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
 
 ## 7. The tools
 
-- [ ] **DevTools** on a Mac: `cargo run -p gallery --features devtools,mcp -- --devtools` — F12 opens it; the tree,
+- [x] **DevTools** on a Mac: `cargo run -p gallery --features devtools,mcp -- --devtools` — F12 opens it; the tree,
   a value inspected, the profiler records.
+  2026-11-18: F12 (a key of MCP) opens it in a window of its own; the tree of 1236 components, a node's layout
+  and place, and a recording of 56 passes with its timeline, its phases and the flame chart.
 - [x] **MCP** on a Mac: the gallery's log gives the address and the token; the tree is read, a screenshot is taken,
   a click and a key reach the window, `lurq_pointer` reads and sets the pointer.
   2026-11-18: the address and the token are in the log and the file of `~/Library/Application Support/lurq/mcp`;
   the tree, screenshots, clicks, the fingers of `lurq_touch` and `lurq_pointer` were used all through the work of
   2026-11-17/18. A key of MCP reaches lurq and not AppKit: Ctrl+Cmd+F does not put the window in full screen.
+  A screenshot has the system's lights in it as they are on the screen, colored or gray: AppKit draws them as
+  pictures as the screenshot is taken (`app/capture_overlay.rs`).
 
 ## 8. A video with no copy on Apple's systems: what is to be built
 
