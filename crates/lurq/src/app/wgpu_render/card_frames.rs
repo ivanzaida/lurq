@@ -576,6 +576,15 @@ impl Opened {
     }
   }
 
+  /// How the drawn frame's gray and color are red, green and blue, as its decoder said: BT.709 of the video
+  /// range before one is drawn.
+  pub(super) fn colors(&self) -> crate::images::YuvColors {
+    self
+      .drawn
+      .as_ref()
+      .map_or(crate::images::YuvColors::BT709, |(_, frame)| frame.colors)
+  }
+
   /// Where in the drawn surface the part `min` to `max` of the picture is, both as parts of one: the picture
   /// may be a part of its texture.
   pub(super) fn part(&self, min: [f32; 2], max: [f32; 2]) -> ([f32; 2], [f32; 2]) {

@@ -4,6 +4,7 @@ mod card_frames;
 mod decoded;
 mod image_data;
 mod render;
+mod yuv_colors;
 #[cfg(feature = "wgpu")]
 mod wgpu_external;
 
@@ -26,6 +27,7 @@ pub use image_data::{
   set_cv_pixel_buffer_frames_drawn,
 };
 pub(crate) use render::ImageCmd;
+pub use yuv_colors::{YuvColors, YuvMatrix};
 #[cfg(feature = "wgpu")]
 pub use wgpu_external::{WgpuExternalImageSlot, WgpuTextureError};
 #[cfg(feature = "wgpu")]

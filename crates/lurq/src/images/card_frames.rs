@@ -7,8 +7,9 @@
 //!
 //! A frame may say more than which texture it is in: the part of the texture that is the picture
 //! ([`CardFrame::crop`]), the value of a fence that tells when it is all written ([`CardFrame::ready_at`]),
-//! and something to be let go of once the card has finished drawing it ([`CardFrame::lease`]), which is how a
-//! decoder knows a texture is its own again.
+//! something to be let go of once the card has finished drawing it ([`CardFrame::lease`]), which is how a
+//! decoder knows a texture is its own again, and how its gray and color are made red, green and blue
+//! ([`CardFrame::colors`]).
 //!
 //! Where the card that draws is not the decoder's (a laptop with two), it cannot open the textures. They are
 //! opened on the decoder's card then, and each frame is copied through memory: it is still shown, at the price
@@ -23,6 +24,8 @@ use std::{
 };
 
 use parking_lot::{Mutex, RwLock};
+
+use super::YuvColors;
 
 /// A texture of the card that holds frames, by the handle it is shared by
 /// (`IDXGIResource1::CreateSharedHandle`, or `ID3D12Device::CreateSharedHandle`).
@@ -122,6 +125,7 @@ pub struct CardFrame {
   pub(crate) crop: Option<CardCrop>,
   pub(crate) ready: Option<u64>,
   pub(crate) lease: Option<CardLease>,
+  pub(crate) colors: YuvColors,
 }
 
 impl CardFrame {
@@ -132,6 +136,7 @@ impl CardFrame {
       crop: None,
       ready: None,
       lease: None,
+      colors: YuvColors::BT709,
     }
   }
 
@@ -154,6 +159,15 @@ impl CardFrame {
   /// gives the surface back to it.
   pub fn lease(mut self, lease: impl Any + Send + Sync) -> Self {
     self.lease = Some(Arc::new(lease));
+    self
+  }
+
+  /// How the frame's gray and color are red, green and blue: the matrix it was made with and the range of its
+  /// samples, as the decoder says them (`MF_MT_YUV_MATRIX` and `MF_MT_VIDEO_NOMINAL_RANGE` of Media
+  /// Foundation's). Without it a frame is BT.709 of the video range. A frame of red, green and blue
+  /// ([`CardSurface::Rgba`]) has no use for it.
+  pub fn colors(mut self, colors: YuvColors) -> Self {
+    self.colors = colors;
     self
   }
 

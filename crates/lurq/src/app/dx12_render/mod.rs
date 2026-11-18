@@ -24,7 +24,7 @@ use windows::{
     Foundation::{CloseHandle, FALSE, HANDLE, HWND, RECT, TRUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
     Graphics::{
       Direct3D::{
-        D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+        D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_SHADER_MACRO,
         Fxc::{D3DCOMPILE_DEBUG, D3DCOMPILE_ENABLE_STRICTNESS, D3DCOMPILE_SKIP_OPTIMIZATION, D3DCompile},
         ID3DBlob,
       },
@@ -593,6 +593,9 @@ struct Dx12State {
   image_pipeline: ImagePipeline,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: ImagePipeline,
+  /// Pictures of three planes (I420): the NV12 shader with the two of color apart.
+  #[cfg(feature = "raster")]
+  i420_image_pipeline: ImagePipeline,
   glyph_atlas: Option<GlyphAtlasTexture>,
   #[cfg(feature = "raster")]
   image_textures: HashMap<u64, CachedImageTexture>,
@@ -711,6 +714,8 @@ struct CardFrameDraw {
   rgba: bool,
   /// Whether the textures are another device's, shared with this one, and not this renderer's own.
   shared: bool,
+  /// How the frame's samples are colors, as its decoder said.
+  colors: crate::images::YuvColors,
   uv_min: [f32; 2],
   uv_max: [f32; 2],
 }
@@ -734,13 +739,24 @@ enum CachedImageTexture {
     frame_index: usize,
     version: u64,
   },
+  /// A picture of three planes (I420): the gray, and each of the two of color at half the size.
+  I420 {
+    planes: [ID3D12Resource; 3],
+    descriptor_index: Option<usize>,
+    width: u32,
+    height: u32,
+    frame_index: usize,
+    version: u64,
+  },
 }
 
 #[cfg(feature = "raster")]
 impl CachedImageTexture {
   fn clear_descriptor_index(&mut self) {
     match self {
-      Self::Rgba { descriptor_index, .. } | Self::Nv12 { descriptor_index, .. } => {
+      Self::Rgba { descriptor_index, .. }
+      | Self::Nv12 { descriptor_index, .. }
+      | Self::I420 { descriptor_index, .. } => {
         *descriptor_index = None;
       }
     }
@@ -748,7 +764,9 @@ impl CachedImageTexture {
 
   fn set_descriptor_index(&mut self, index: usize) {
     match self {
-      Self::Rgba { descriptor_index, .. } | Self::Nv12 { descriptor_index, .. } => {
+      Self::Rgba { descriptor_index, .. }
+      | Self::Nv12 { descriptor_index, .. }
+      | Self::I420 { descriptor_index, .. } => {
         *descriptor_index = Some(index);
       }
     }
@@ -1184,14 +1202,29 @@ impl GlyphPipeline {
 #[cfg(feature = "raster")]
 impl ImagePipeline {
   unsafe fn new(device: &ID3D12Device, format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT) -> Result<Self> {
-    Self::new_with_shader(device, format, include_bytes!("shaders/image.hlsl"), 1)
+    Self::new_with_shader(device, format, include_bytes!("shaders/image.hlsl"), 1, &[])
   }
 
   unsafe fn new_nv12(
     device: &ID3D12Device,
     format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
   ) -> Result<Self> {
-    Self::new_with_shader(device, format, include_bytes!("shaders/image_nv12.hlsl"), 2)
+    Self::new_with_shader(device, format, include_bytes!("shaders/image_nv12.hlsl"), 2, &[])
+  }
+
+  /// The pipeline of a picture of three planes (I420): the NV12 shader with the two of color read from two
+  /// textures, under a root signature of three.
+  unsafe fn new_i420(
+    device: &ID3D12Device,
+    format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
+  ) -> Result<Self> {
+    Self::new_with_shader(
+      device,
+      format,
+      include_bytes!("shaders/image_nv12.hlsl"),
+      3,
+      &[b"THREE_PLANES\0"],
+    )
   }
 
   unsafe fn new_with_shader(
@@ -1199,10 +1232,11 @@ impl ImagePipeline {
     format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
     shader: &'static [u8],
     srv_descriptors: u32,
+    defines: &[&'static [u8]],
   ) -> Result<Self> {
     let root_signature = create_image_root_signature(device, srv_descriptors)?;
-    let vs = compile_shader(shader, b"vs_main\0", b"vs_5_0\0")?;
-    let ps = compile_shader(shader, b"ps_main\0", b"ps_5_0\0")?;
+    let vs = compile_shader_defined(shader, b"vs_main\0", b"vs_5_0\0", defines)?;
+    let ps = compile_shader_defined(shader, b"ps_main\0", b"ps_5_0\0", defines)?;
     let input_elements = image_input_elements();
     let mut rtv_formats = [DXGI_FORMAT_UNKNOWN; 8];
     rtv_formats[0] = format;
@@ -1433,6 +1467,28 @@ unsafe fn create_image_root_signature(device: &ID3D12Device, srv_descriptors: u3
 }
 
 unsafe fn compile_shader(source: &[u8], entry: &'static [u8], target: &'static [u8]) -> Result<ID3DBlob> {
+  compile_shader_defined(source, entry, target, &[])
+}
+
+/// As [`compile_shader`], with each of `defines` (a name ending in a nul) defined, for an `#ifdef` of the source.
+unsafe fn compile_shader_defined(
+  source: &[u8],
+  entry: &'static [u8],
+  target: &'static [u8],
+  defines: &[&'static [u8]],
+) -> Result<ID3DBlob> {
+  // The list ends with an entry of nothing.
+  let macros: Vec<D3D_SHADER_MACRO> = defines
+    .iter()
+    .map(|name| D3D_SHADER_MACRO {
+      Name: PCSTR(name.as_ptr()),
+      Definition: PCSTR(b"1\0".as_ptr()),
+    })
+    .chain(std::iter::once(D3D_SHADER_MACRO {
+      Name: PCSTR::null(),
+      Definition: PCSTR::null(),
+    }))
+    .collect();
   let flags = if cfg!(debug_assertions) {
     D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION
   } else {
@@ -1444,7 +1500,7 @@ unsafe fn compile_shader(source: &[u8], entry: &'static [u8], target: &'static [
     source.as_ptr().cast(),
     source.len(),
     PCSTR(c"quad.hlsl".as_ptr().cast()),
-    None,
+    Some(macros.as_ptr()),
     None,
     PCSTR(entry.as_ptr()),
     PCSTR(target.as_ptr()),
@@ -2232,6 +2288,8 @@ impl Dx12State {
     let image_pipeline = ImagePipeline::new(&device, RENDER_TARGET_FORMAT)?;
     #[cfg(feature = "raster")]
     let nv12_image_pipeline = ImagePipeline::new_nv12(&device, RENDER_TARGET_FORMAT)?;
+    #[cfg(feature = "raster")]
+    let i420_image_pipeline = ImagePipeline::new_i420(&device, RENDER_TARGET_FORMAT)?;
 
     let command_allocators = [
       device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT)?,
@@ -2276,6 +2334,8 @@ impl Dx12State {
       image_pipeline,
       #[cfg(feature = "raster")]
       nv12_image_pipeline,
+      #[cfg(feature = "raster")]
+      i420_image_pipeline,
       glyph_atlas: None,
       #[cfg(feature = "raster")]
       image_textures: HashMap::new(),
@@ -3063,17 +3123,6 @@ impl Dx12State {
       });
       return Ok(());
     }
-    // A picture of three planes is the wgpu renderer's yet: its box is left empty, as a viewport's is.
-    if image.image_format == crate::images::ImagePixelFormat::I420 {
-      static SAID: std::sync::Once = std::sync::Once::new();
-      SAID.call_once(|| {
-        tracing::warn!(
-          "the dx12 renderer draws no picture of three planes (I420) yet: its box is left empty. Draw with the wgpu \
-           renderer to show one"
-        );
-      });
-      return Ok(());
-    }
     let Some(scissor) = scissor_rect(self.space.clip(image.clip), self.space.width, self.space.height) else {
       return Ok(());
     };
@@ -3146,13 +3195,22 @@ impl Dx12State {
         self.image_pipeline.pipeline_state.clone(),
         self.image_pipeline.root_signature.clone(),
       ),
-      // Three planes are not drawn here: see above.
-      crate::images::ImagePixelFormat::Nv12 | crate::images::ImagePixelFormat::I420 => (
+      crate::images::ImagePixelFormat::Nv12 => (
         self.nv12_image_pipeline.pipeline_state.clone(),
         self.nv12_image_pipeline.root_signature.clone(),
       ),
+      crate::images::ImagePixelFormat::I420 => (
+        self.i420_image_pipeline.pipeline_state.clone(),
+        self.i420_image_pipeline.root_signature.clone(),
+      ),
     };
 
+    // How the shader makes colors of a frame of gray and color: as the card's frame says, BT.709 of the video
+    // range where nothing does.
+    let colors = card
+      .as_ref()
+      .map_or(crate::images::YuvColors::BT709, |card| card.colors)
+      .shader();
     let instance = ImageInstance {
       pos: [image.x, image.y],
       size: [image.width, image.height],
@@ -3163,8 +3221,8 @@ impl Dx12State {
         } else {
           0.
         },
-        0.0,
-        0.0,
+        colors[0],
+        colors[1],
       ],
       transform: image.transform,
       xf_origin: image.transform_origin,
@@ -3490,11 +3548,12 @@ impl Dx12State {
         slot.second.clone(),
         slot.kind,
         opened.is_shared(),
+        opened.colors(),
         uv_min,
         uv_max,
       ))
     });
-    let Some((first, second, kind, shared, uv_min, uv_max)) = drawn else {
+    let Some((first, second, kind, shared, colors, uv_min, uv_max)) = drawn else {
       return Ok(None);
     };
     let descriptor_index = match kind {
@@ -3538,6 +3597,7 @@ impl Dx12State {
       second,
       rgba: matches!(kind, card_frames::Kind::Rgba(_)),
       shared,
+      colors,
       uv_min,
       uv_max,
     }))
@@ -3772,6 +3832,49 @@ impl Dx12State {
           };
           return Ok(descriptor_index);
         }
+        CachedImageTexture::I420 {
+          planes,
+          descriptor_index,
+          width,
+          height,
+          frame_index,
+          version,
+        } if image.image_format == crate::images::ImagePixelFormat::I420
+          && *width == image.image_width
+          && *height == image.image_height =>
+        {
+          let cached_descriptor_index = *descriptor_index;
+          let written = (*frame_index, *version) == (image.frame_index, image.version);
+          let planes = planes.clone();
+          if !written {
+            dx12_context(
+              self.upload_i420_image_textures(&planes, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+              format_args!(
+                "update cached i420 image texture id={} size={}x{}",
+                image.image_id, image.image_width, image.image_height
+              ),
+            )?;
+            if let Some(CachedImageTexture::I420 {
+              frame_index, version, ..
+            }) = self.image_textures.get_mut(&image.image_id)
+            {
+              *frame_index = image.frame_index;
+              *version = image.version;
+            }
+          }
+          let descriptor_index = match cached_descriptor_index {
+            Some(descriptor_index) => descriptor_index,
+            None => {
+              let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 3)?;
+              self.write_i420_image_srvs(&planes, descriptor_index);
+              if let Some(cached) = self.image_textures.get_mut(&image.image_id) {
+                cached.set_descriptor_index(descriptor_index);
+              }
+              descriptor_index
+            }
+          };
+          return Ok(descriptor_index);
+        }
         _ => {
           self.image_textures.remove(&image.image_id);
         }
@@ -3780,10 +3883,48 @@ impl Dx12State {
 
     let descriptor_index = match image.image_format {
       crate::images::ImagePixelFormat::I420 => {
-        return Err(dx12_invalid_arg(format!(
-          "the dx12 renderer draws no I420 image: image id={}",
-          image.image_id
-        )));
+        let (width, height) = (image.image_width, image.image_height);
+        if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+          return Err(dx12_invalid_arg(format!(
+            "dx12 i420 image dimensions must be even: image id={} size={}x{}",
+            image.image_id, width, height
+          )));
+        }
+        let plane = |width, height, which| {
+          dx12_context(
+            create_r8_texture(&self.device, width, height),
+            format_args!(
+              "create i420 {which} image texture id={} size={}x{}",
+              image.image_id, width, height
+            ),
+          )
+        };
+        let planes = [
+          plane(width, height, "y")?,
+          plane(width / 2, height / 2, "u")?,
+          plane(width / 2, height / 2, "v")?,
+        ];
+        dx12_context(
+          self.upload_i420_image_textures(&planes, image, D3D12_RESOURCE_STATE_COPY_DEST),
+          format_args!(
+            "upload i420 image texture id={} size={}x{}",
+            image.image_id, width, height
+          ),
+        )?;
+        let descriptor_index = self.allocate_frame_image_descriptors(image.image_id, 3)?;
+        self.write_i420_image_srvs(&planes, descriptor_index);
+        self.image_textures.insert(
+          image.image_id,
+          CachedImageTexture::I420 {
+            planes,
+            descriptor_index: Some(descriptor_index),
+            width,
+            height,
+            frame_index: image.frame_index,
+            version: image.version,
+          },
+        );
+        descriptor_index
       }
       crate::images::ImagePixelFormat::Rgba8 => {
         let texture = dx12_context(
@@ -3933,6 +4074,69 @@ impl Dx12State {
       DXGI_FORMAT_R8G8_UNORM,
       before_state,
     )
+  }
+
+  /// Sends the three planes of `image` to its textures as they are laid out, one after another with nothing
+  /// between their rows: no pass over them on the processor.
+  #[cfg(feature = "raster")]
+  unsafe fn upload_i420_image_textures(
+    &mut self,
+    planes: &[ID3D12Resource; 3],
+    image: &crate::images::ImageCmd,
+    before_state: D3D12_RESOURCE_STATES,
+  ) -> Result<()> {
+    let (width, height) = (image.image_width, image.image_height);
+    let gray = width as usize * height as usize;
+    let color = gray / 4;
+    if image.data.len() < gray + 2 * color {
+      return Err(dx12_invalid_arg(format!(
+        "dx12 i420 image has {} bytes, its planes {}: image id={}",
+        image.data.len(),
+        gray + 2 * color,
+        image.image_id
+      )));
+    }
+    let parts = [
+      (0, width, height),
+      (gray, width / 2, height / 2),
+      (gray + color, width / 2, height / 2),
+    ];
+    for (texture, (start, plane_width, plane_height)) in planes.iter().zip(parts) {
+      let len = plane_width as usize * plane_height as usize;
+      self.upload_texture_rows(
+        texture,
+        &image.data[start..start + len],
+        plane_width,
+        plane_height,
+        plane_width as usize,
+        DXGI_FORMAT_R8_UNORM,
+        before_state,
+      )?;
+    }
+    Ok(())
+  }
+
+  /// Describes the three planes of a picture of three planes, one after another from `descriptor_index`.
+  #[cfg(feature = "raster")]
+  unsafe fn write_i420_image_srvs(&self, planes: &[ID3D12Resource; 3], descriptor_index: usize) {
+    let srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC {
+      Format: DXGI_FORMAT_R8_UNORM,
+      ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+      Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+        Texture2D: D3D12_TEX2D_SRV {
+          MostDetailedMip: 0,
+          MipLevels: 1,
+          PlaneSlice: 0,
+          ResourceMinLODClamp: 0.0,
+        },
+      },
+    };
+    for (at, plane) in planes.iter().enumerate() {
+      self
+        .device
+        .CreateShaderResourceView(plane, Some(&srv_desc), self.srv_heap.cpu_handle(descriptor_index + at));
+    }
   }
 
   #[cfg(feature = "raster")]
@@ -4327,6 +4531,21 @@ mod tests {
         compile_shader(include_bytes!("shaders/image.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"vs_main\0", b"vs_5_0\0").unwrap();
         compile_shader(include_bytes!("shaders/image_nv12.hlsl"), b"ps_main\0", b"ps_5_0\0").unwrap();
+        let three: &[&'static [u8]] = &[b"THREE_PLANES\0"];
+        compile_shader_defined(
+          include_bytes!("shaders/image_nv12.hlsl"),
+          b"vs_main\0",
+          b"vs_5_0\0",
+          three,
+        )
+        .unwrap();
+        compile_shader_defined(
+          include_bytes!("shaders/image_nv12.hlsl"),
+          b"ps_main\0",
+          b"ps_5_0\0",
+          three,
+        )
+        .unwrap();
       }
     }
   }

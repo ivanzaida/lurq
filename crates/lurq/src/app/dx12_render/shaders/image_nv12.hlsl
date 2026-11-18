@@ -9,8 +9,15 @@ cbuffer Globals : register(b0)
   float4 outer_clip_radii; // and its radii: tl, tr, br, bl
 };
 
+// A picture of two planes (NV12): the gray, and the two of color side by side at half the size. Compiled with
+// `THREE_PLANES` for one of three (I420): the gray, and each of the two of color at half the size apart.
 Texture2D<float> y_texture : register(t0);
+#ifdef THREE_PLANES
+Texture2D<float> u_texture : register(t1);
+Texture2D<float> v_texture : register(t2);
+#else
 Texture2D<float2> uv_texture : register(t1);
+#endif
 SamplerState image_sampler : register(s0);
 
 struct VsIn
@@ -34,6 +41,8 @@ struct VsOut
   float2 local_px : TEXCOORD2;
   float2 size : TEXCOORD3;
   float4 radii : TEXCOORD4;
+  // The matrix and the range of the frame's samples (`yuv_to_rgb`), the instance's `opacity.zw`.
+  float2 color : TEXCOORD5;
 };
 
 float2 pick_radius(float2 p, float4 r)
@@ -78,6 +87,40 @@ float3 srgb_to_linear(float3 color)
   return lerp(low, high, step(0.04045, color));
 }
 
+// The color of a sample of a video's frame: Y'CbCr made R'G'B' (gamma-encoded, 0 to 1), as the frame says it is,
+// the same as `yuv_to_rgb` of the wgpu renderer's `yuv.wgsl`. `kind` is the matrix the frame was made with: 0 BT.709,
+// 1 BT.601, 2 BT.2020 (of a constant luminance not). `full_range` is 1 where the samples take all of their range, 0
+// where gray is from 16 to 235 and color from 16 to 240 of 255 (the video range, which a decoder gives unless told
+// otherwise). Coefficients from the standards' K_R and K_B.
+float3 yuv_to_rgb(float y, float cb_sample, float cr_sample, float kind, float full_range)
+{
+  float luma = y;
+  float cb = cb_sample - 0.5;
+  float cr = cr_sample - 0.5;
+  if (full_range < 0.5) {
+    luma = max(y - 16.0 / 255.0, 0.0) * (255.0 / 219.0);
+    cb = cb * (255.0 / 224.0);
+    cr = cr * (255.0 / 224.0);
+  }
+  // BT.709.
+  float red_cr = 1.5748;
+  float green_cb = 0.187324;
+  float green_cr = 0.468124;
+  float blue_cb = 1.8556;
+  if (kind > 1.5) {
+    red_cr = 1.4746;
+    green_cb = 0.164553;
+    green_cr = 0.571353;
+    blue_cb = 1.8814;
+  } else if (kind > 0.5) {
+    red_cr = 1.402;
+    green_cb = 0.344136;
+    green_cr = 0.714136;
+    blue_cb = 1.772;
+  }
+  return float3(luma + red_cr * cr, luma - green_cb * cb - green_cr * cr, luma + blue_cb * cb);
+}
+
 VsOut vs_main(VsIn input)
 {
   float aa_outset = 2.0;
@@ -102,6 +145,7 @@ VsOut vs_main(VsIn input)
   output.local_px = local_px;
   output.size = input.size;
   output.radii = input.radii;
+  output.color = input.opacity.zw;
   return output;
 }
 
@@ -150,15 +194,12 @@ float4 ps_main(VsOut input) : SV_TARGET
   }
 
   float y = y_texture.Sample(image_sampler, input.uv);
+#ifdef THREE_PLANES
+  float2 uv = float2(u_texture.Sample(image_sampler, input.uv), v_texture.Sample(image_sampler, input.uv));
+#else
   float2 uv = uv_texture.Sample(image_sampler, input.uv).rg;
-  float c = max(y - 16.0 / 255.0, 0.0);
-  float u = uv.x - 0.5;
-  float v = uv.y - 0.5;
-  float3 rgb = float3(
-    1.164383 * c + 1.792741 * v,
-    1.164383 * c - 0.213249 * u - 0.532909 * v,
-    1.164383 * c + 2.112402 * u
-  );
+#endif
+  float3 rgb = yuv_to_rgb(y, uv.x, uv.y, input.color.x, input.color.y);
   float4 color = float4(srgb_to_linear(saturate(rgb)), 1.0);
   color.a *= input.opacity * shape_alpha * clip_alpha_value;
   return encode_srgb(color);
