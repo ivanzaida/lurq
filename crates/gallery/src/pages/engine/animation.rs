@@ -24,7 +24,7 @@ use lurq::{
     theme::{PaletteColor, RadiusSize, Theme},
     window::Appearance,
   },
-  components::{Column, Rect, Row},
+  components::{Column, Rect, Row, Stack},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
   node::{
@@ -542,7 +542,8 @@ impl Component for SpringBall {
       .width(FILL)
       .spacing(8.0)
       .child(
-        Row::new()
+        // A stack: the ball is at a point of it.
+        Stack::new()
           .width(FILL)
           .height(SPRING_WELL)
           .rounded(RadiusSize::Md)
@@ -1303,7 +1304,7 @@ impl Component for AnimationPage {
               "});",
               "",
               "// In render: the pointer gives the spring its end and starts the frames again.",
-              "Row::new().on_mouse_move(move |event: MouseEvent| {",
+              "Stack::new().on_mouse_move(move |event: MouseEvent| {",
               "    ball.lock().unwrap().to = event.x - area.x();",
               "    frames.start();",
               "})",
