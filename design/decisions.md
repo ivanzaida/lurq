@@ -9,6 +9,21 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-18
+
+### A frame callback for an app: `ctx.on_frame`
+
+- **Question.** lurq's own animations (transitions, keyframes, presence, part animations) get their frames from the
+  runtime, which asks the shell for the next frame when something will change. An app's own code has no way to be
+  called once per displayed frame in step with the display: an `Interval` timer is not on the vsync (it jitters or
+  draws too much), and `GpuViewport`'s `wants_redraw` serves GPU drawing only. Springs, physics, a drag's inertia, a
+  game or a simulation on a canvas, smooth following of a value need it.
+- **Decision (Ivan).** A `requestAnimationFrame` of lurq's: `ctx.on_frame(|frame| ..)`, told the frame's time and the
+  time since the one before, called once per presented frame in step with the display, returning whether it wants
+  another; while any wants frames the runtime asks for them; paused while the window is minimized or occluded, as
+  animations are; on the tree's clock in tests (`set_animation_clock`), never the wall clock.
+- **State.** Decided; to be built in a session of its own.
+
 ## 2026-11-17
 
 ### On macOS the system's lights are the window's controls, and the bar stays in full screen
