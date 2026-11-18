@@ -162,10 +162,23 @@ impl Takes {
     let mut dialog = FileDialog::new()
       .title(title)
       .multiple(self.multiple && self.max_files != Some(1));
-    // A kind is not an extension the dialog can filter by: with a kind among them, it shows every file.
-    if !self.accept.is_empty() && self.accept.iter().all(|entry| !entry.ends_with("/*")) {
-      let extensions: Vec<&str> = self.accept.iter().map(|entry| entry.trim_start_matches('.')).collect();
-      dialog = dialog.filter(&extensions.join(", "), &extensions);
+    // The dialog shows what the zone takes: an extension as it is, and a kind as the extensions lurq knows of it
+    // (`image/*` is png, jpg and the others). A kind it knows none of shows every file.
+    let mut extensions: Vec<String> = Vec::new();
+    for entry in &self.accept {
+      let entry = entry.trim().to_ascii_lowercase();
+      match entry.strip_suffix("/*") {
+        Some(name) => match crate::files::FileKind::named(name) {
+          Some(kind) => extensions.extend(kind.extensions().iter().map(|extension| (*extension).to_owned())),
+          None => return dialog,
+        },
+        None => extensions.push(entry.trim_start_matches('.').to_owned()),
+      }
+    }
+    if !extensions.is_empty() {
+      let names: Vec<&str> = self.accept.iter().map(|entry| entry.as_ref()).collect();
+      let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
+      dialog = dialog.filter(&names.join(", "), &extensions);
     }
     dialog
   }

@@ -155,15 +155,35 @@ pub enum FileKind {
 impl FileKind {
   /// The kind of a file with `extension`, in lower case and without the dot.
   pub fn of_extension(extension: &str) -> Self {
-    match extension {
-      "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "tif" | "tiff" | "ico" | "heic" | "avif" => Self::Image,
-      "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => Self::Video,
-      "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "opus" => Self::Audio,
-      "txt" | "md" | "json" | "csv" | "tsv" | "xml" | "yaml" | "yml" | "toml" | "pdf" | "doc" | "docx" | "rtf"
-      | "odt" | "xls" | "xlsx" | "ods" | "html" | "htm" | "log" | "rs" | "js" | "ts" | "py" | "css" => Self::Text,
-      "zip" | "tar" | "gz" | "tgz" | "7z" | "rar" | "xz" | "bz2" => Self::Archive,
-      _ => Self::Other,
+    [Self::Image, Self::Video, Self::Audio, Self::Text, Self::Archive]
+      .into_iter()
+      .find(|kind| kind.extensions().contains(&extension))
+      .unwrap_or(Self::Other)
+  }
+
+  /// The extensions of files of this kind, in lower case and without the dot: what a dialog shows of it. None for
+  /// [`Other`](Self::Other).
+  pub fn extensions(self) -> &'static [&'static str] {
+    match self {
+      Self::Image => &[
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tif", "tiff", "ico", "heic", "avif",
+      ],
+      Self::Video => &["mp4", "mov", "webm", "mkv", "avi", "m4v"],
+      Self::Audio => &["mp3", "wav", "ogg", "flac", "m4a", "aac", "opus"],
+      Self::Text => &[
+        "txt", "md", "json", "csv", "tsv", "xml", "yaml", "yml", "toml", "pdf", "doc", "docx", "rtf", "odt", "xls",
+        "xlsx", "ods", "html", "htm", "log", "rs", "js", "ts", "py", "css",
+      ],
+      Self::Archive => &["zip", "tar", "gz", "tgz", "7z", "rar", "xz", "bz2"],
+      Self::Other => &[],
     }
+  }
+
+  /// The kind `accept` names before `/*` (`"image"`), where it is one of these.
+  pub fn named(name: &str) -> Option<Self> {
+    [Self::Image, Self::Video, Self::Audio, Self::Text, Self::Archive]
+      .into_iter()
+      .find(|kind| kind.name() == name)
   }
 
   /// The name `accept` says it by, before `/*`: `"image"`.
@@ -589,6 +609,23 @@ mod native {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_drop_zones_dialog_shows_the_extensions_of_the_kinds_it_takes() {
+    let dialog = crate::ui::DropZone::new().accept(["image/*", ".PDF"]).takes().dialog("Choose");
+    let [(name, extensions)] = dialog.filters.as_slice() else {
+      panic!("one filter: {:?}", dialog.filters);
+    };
+    assert_eq!(name, "image/*, .PDF");
+    assert!(extensions.iter().any(|extension| extension == "heic"), "the kind's extensions");
+    assert!(extensions.iter().any(|extension| extension == "pdf"), "an extension, in lower case without its dot");
+    assert!(!extensions.iter().any(|extension| extension == "mp4"));
+    // A kind lurq knows none of shows every file.
+    let every = crate::ui::DropZone::new().accept(["model/*"]).takes().dialog("Choose");
+    assert!(every.filters.is_empty());
+    assert_eq!(FileKind::of_extension("heic"), FileKind::Image);
+    assert_eq!(FileKind::named("audio"), Some(FileKind::Audio));
+  }
 
   #[test]
   fn a_file_is_accepted_by_its_extension_or_its_kind_in_any_case() {
