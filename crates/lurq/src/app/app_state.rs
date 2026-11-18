@@ -227,6 +227,13 @@ impl App {
   pub fn set_menu_bar(&self, bar: super::menu::MenuBar) {
     self.shared.menu.set(bar);
   }
+  /// Whether lurq puts an Edit menu in the bar on a Mac (Undo, Redo, Cut, Copy, Paste, Select All and the system's
+  /// Emoji & Symbols), as it does until told not to: an app that takes Cmd+Z and the others for itself turns it off.
+  /// A menu of the app's bar with an item of editing ([`MenuAction::edit`](super::menu::MenuAction::edit), or the
+  /// whole of [`Menu::edit`](super::menu::Menu::edit)) is the Edit menu, where the app put it, and lurq adds none.
+  pub fn set_edit_menu(&self, shown: bool) {
+    self.shared.menu.set_edit_menu(shown);
+  }
   pub fn on_menu_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
     self.shared.menu.on_activate(handler);
   }
@@ -290,7 +297,7 @@ impl App {
       .shared
       .dates
       .set(crate::core::shared_date_text(locale.dates.clone()));
-    self.shared.menu.set_words(locale.navigation.clone());
+    self.shared.menu.set_words(&locale);
     self.shared.locale.set(locale);
   }
 

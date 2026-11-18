@@ -2472,7 +2472,15 @@ impl ApplicationHandler for WinitHandler {
     let stage_started_at = Instant::now();
     #[cfg(target_os = "macos")]
     crate::app::macos_menu::sync();
-    self.app.shared.menu.drain(self.main.tree.window());
+    // An item of the menu is the window's in front: an item of editing runs on its focus.
+    let in_front = self
+      .secondaries
+      .iter()
+      .filter_map(|secondary| self.main.tree.secondary_window(secondary.index()))
+      .map(|secondary| secondary.tree().window().clone())
+      .find(|window| window.info().is_focused)
+      .unwrap_or_else(|| self.main.tree.window().clone());
+    self.app.shared.menu.drain_to(self.main.tree.window(), &in_front);
     // The text of a paste the browser has answered; see `clipboard::web`.
     #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
     if let Some(text) = crate::clipboard::web::take_pasted() {

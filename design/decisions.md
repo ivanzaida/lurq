@@ -72,6 +72,23 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### On macOS every app has an Edit menu, which it can turn off or put in its own place
+
+- **Question.** On a Mac the menu bar of an app of lurq's was winit's, or the app's own (`App::set_menu_bar`), and
+  neither had an Edit menu: no Undo, Cut, Copy, Paste or Select All to be seen or clicked, no Emoji & Symbols, and
+  its keys reached the window as keys alone. The gallery declares no menu.
+- **Decision (Ivan, 2026-11-18, at the Mac: "давай додамо", then "і можна вимкнути або заоверрайдити").** lurq puts
+  an Edit menu in every app's bar on a Mac: Undo, Redo, Cut, Copy, Paste, Select All with their keys, and the
+  system's Emoji & Symbols, in the words of the app's locale. Each item runs what its key runs on the focused
+  element (`WindowHandle::edit`, `EditCommand`). An app with no bar of its own gets the system's menu of the app
+  and the Edit menu after it. An app turns it off (`App::set_edit_menu(false)`), or puts its own: a menu of its
+  bar that has an item of editing (`MenuAction::edit(EditCommand::..)`, or the whole of `Menu::edit()` with items
+  of its own added) is the Edit menu, where the app put it, and lurq adds none.
+- **Why.** Every app on a Mac has one: it is where a person looks for Undo and Paste, and where the system puts
+  emoji and dictation. As the menu takes Cmd+Z before the window, an app that wants the key for itself turns the
+  menu off.
+- **State.** In work on `feat/design-system`.
+
 ### On macOS the system's lights are the window's controls, and the bar stays in full screen
 
 - **Question.** On a Mac the gallery's bar drew three lights of its own: no menu of tilings under the pointer on the

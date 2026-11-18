@@ -113,6 +113,11 @@ pub struct NavigationWords {
   pub hide_app: Arc<str>,
   pub hide_others: Arc<str>,
   pub show_all: Arc<str>,
+  /// The Edit menu lurq puts in the bar of an app on a Mac, and the item of the system's characters in it.
+  pub edit: Arc<str>,
+  pub emoji_and_symbols: Arc<str>,
+  /// Select All in the Edit menu, as the system writes an item of its menus.
+  pub select_all: Arc<str>,
 }
 
 impl NavigationWords {
@@ -193,6 +198,9 @@ impl NavigationWords {
       hide_app: "Hide {app}".into(),
       hide_others: "Hide Others".into(),
       show_all: "Show All".into(),
+      edit: "Edit".into(),
+      emoji_and_symbols: "Emoji & Symbols".into(),
+      select_all: "Select All".into(),
     }
   }
 
@@ -279,6 +287,9 @@ impl NavigationWords {
         hide_app: "Сховати {app}".into(),
         hide_others: "Сховати інші".into(),
         show_all: "Показати всі".into(),
+        edit: "Редагування".into(),
+        emoji_and_symbols: "Емодзі та символи".into(),
+        select_all: "Вибрати все".into(),
       },
       "de" => Self {
         main: "Hauptnavigation".into(),
@@ -359,6 +370,9 @@ impl NavigationWords {
         hide_app: "{app} ausblenden".into(),
         hide_others: "Andere ausblenden".into(),
         show_all: "Alle einblenden".into(),
+        edit: "Bearbeiten".into(),
+        emoji_and_symbols: "Emoji & Symbole".into(),
+        select_all: "Alles auswählen".into(),
       },
       "fr" => Self {
         main: "Principale".into(),
@@ -439,6 +453,9 @@ impl NavigationWords {
         hide_app: "Masquer {app}".into(),
         hide_others: "Masquer les autres".into(),
         show_all: "Tout afficher".into(),
+        edit: "Édition".into(),
+        emoji_and_symbols: "Emoji et symboles".into(),
+        select_all: "Tout sélectionner".into(),
       },
       "es" => Self {
         main: "Principal".into(),
@@ -519,6 +536,9 @@ impl NavigationWords {
         hide_app: "Ocultar {app}".into(),
         hide_others: "Ocultar otros".into(),
         show_all: "Mostrar todo".into(),
+        edit: "Edición".into(),
+        emoji_and_symbols: "Emojis y símbolos".into(),
+        select_all: "Seleccionar todo".into(),
       },
       "pl" => Self {
         main: "Główna".into(),
@@ -600,6 +620,9 @@ impl NavigationWords {
         hide_app: "Ukryj {app}".into(),
         hide_others: "Ukryj pozostałe".into(),
         show_all: "Pokaż wszystkie".into(),
+        edit: "Edycja".into(),
+        emoji_and_symbols: "Emotikony i symbole".into(),
+        select_all: "Zaznacz wszystko".into(),
       },
       _ => Self::english(),
     }
