@@ -10,3 +10,7 @@ docs/.astro
 
 # Graphify's knowledge graph of the repository, built locally (`graphify update .`)
 graphify-out/
+# Python caches and Claude Code local state (the shared settings stay tracked)
+__pycache__/
+.claude/*
+!.claude/settings.json
