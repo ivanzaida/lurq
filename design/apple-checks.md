@@ -73,10 +73,11 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 
 ## 3. The system and the windows
 
-- [ ] **Reduce motion, macOS.** `cargo test -p lurq --lib motion`: `the_platform_has_the_setting` passes. Then
+- [x] **Reduce motion, macOS.** `cargo test -p lurq --lib motion`: `the_platform_has_the_setting` passes. Then
   System Settings › Accessibility › Display › Reduce motion on, click back into the gallery: a transition (a
   sheet, a dialog) ends at once; off again, it moves again.
-  2026-11-18: `the_platform_has_the_setting` passes on a Mac; the setting turned on live is not looked at.
+  2026-11-18: `the_platform_has_the_setting` passes on a Mac; Ivan turned the setting on with the gallery open and
+  it took effect.
 - [ ] **Reduce motion, iOS.** Settings › Accessibility › Motion › Reduce Motion, back to `mobile_demo`: a sheet and a
   stack push switch without moving. It links on the simulator and on a device.
 - [ ] **Light and dark** follow the system, and change live when the system's appearance changes (macOS: System
@@ -100,16 +101,17 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
 - [ ] **File dialogs** (macOS): Path Field page — Browse… picks a folder, Save as… saves a file with the filter and
   the name; Cancel gives nothing. iOS has no dialog: the button says so or does nothing, and nothing crashes.
   2026-11-18: Ivan: the dialogs and the drop zone work on a Mac. iOS not looked at.
-- [ ] **The clipboard.** Copy from a Markdown page (rich text pastes as Markdown into a text editor, plain into a
+- [x] **The clipboard.** Copy from a Markdown page (rich text pastes as Markdown into a text editor, plain into a
   field), a picture copied and pasted, Signature Pad's PNG. Paste into a lurq field from another app.
   2026-11-18: text selected in the Markdown document and copied is plain text on the system's clipboard; lurq
   writes no Markdown or HTML there on any system (`clipboard.rs` has text, a picture and files). Pasting from
-  another app needs a person: MCP does not read the clipboard.
-- [ ] **Fonts and text.** The system fonts look right (San Francisco, the mono one in code); the caret blinks and
+  another app needs a person: MCP does not read the clipboard. Ivan: text pasted from another app comes in.
+- [x] **Fonts and text.** The system fonts look right (San Francisco, the mono one in code); the caret blinks and
   stops while typing; selection by drag and by double-click; IME: Ukrainian, then Japanese with its candidate
   window in the right place.
   2026-11-18, through MCP: San Francisco and the mono font in code; a drag selects across a heading and a
-  paragraph, a double click selects a word. The caret and IME need a person.
+  paragraph, a double click selects a word. Ivan: typing in a Ukrainian layout works. A Japanese input method
+  (its composition and its window of candidates at the caret) is left unchecked, by Ivan's choice.
 
 ## 4. The keyboard (the editing commands of 2026-11-17)
 
