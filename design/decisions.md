@@ -22,7 +22,38 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   Muted move to `Background`/`Card` with a line (the window's bar, tables' headers, the code block's bar, tab lists,
   the sidebar, and what an audit finds); Muted stays for small things (chips, badges, inline code, slider tracks).
   The dark theme is not touched; the legacy theme keeps 0.62's look.
-- **State.** Decided; to be built in a session of its own.
+- **What the session that built it chose, where the decision left it open (2026-11-18).**
+  1. **The values, tuned by eye in the gallery, are the decision's**: Canvas `#F7F7F8`, Muted / Secondary / Highlight
+     `#F1F1F4`, SecondaryHover `#E6E6EB`, Border `#D4D4DA`. **Input is `#8E8E99`, not `#9A9AA5`**: `#9A9AA5` has 2.79:1
+     on white (2.60 on the new Canvas), short of the 3:1 the decision meant it to keep; `#8E8E99` has 3.24 on white and
+     3.03 on Canvas. MutedForeground `#52525B` has 6.86:1 on Muted, 7.22 on Canvas, 6.21 on SecondaryHover; Ring
+     `#71717A` 4.83 on white and 4.51 on Canvas. Border (1.48:1 on white) is the only edge of no control that takes
+     input: a field, a checkbox, a radio and an outline button are edged in Input; a read-only field keeps its Border
+     edge on Muted, as before (1.86:1 then), its text being what shows it.
+  2. **A role of its own, `Bar`, in place of `Background`.** The dark theme is not to be touched, and a bar moved to
+     `Background` would turn from `#27272A` to `#09090B` in it. `PaletteColor::Bar` is the fill of a bar along an edge of
+     a window or a panel: `#FFFFFF` in light, `#27272A` (Muted's) in dark, `#f1f5f9` (Muted's) in the legacy palette, so
+     neither of those changes. The board has the variable `bar` with the same values.
+  3. **What moved to `Bar`**: the window chrome's bar, the window's tab strip, document tabs' bar, the command bar's
+     tabs, the dock layout's bar of tabs and its strip, the panel header and the floating panel's title bar, the
+     sidebar, the status bar, the table's (and data grid's) header, the code block's bar, the contained list's header,
+     the transfer's list headers, the rich text editor's toolbar, the property grid's header, Markdown's table header
+     and details summary, and the gallery's props table header. **What keeps `Muted`**, being small or being told
+     apart by its fill alone: the tabs' default rail and the segmented control's track (controls of 36, as shadcn's), a
+     table's group row, summary row and row detail, the property grid's categories, Markdown's striped rows, chips,
+     badges, tags, inline code, kbd, slider, progress, meter and gauge tracks, skeletons, a picture's and a teaching
+     tip's placeholder, avatars, an empty state's mark, a read-only or disabled field, the banner and the callout (a
+     notice is its fill), the drop zone (its dashed edge on a light fill), a card's `Filled` variant and the breadcrumb's
+     path control.
+  4. **A selected tab on a white bar is edged.** The window's selected tab was told apart by its white on the grey bar;
+     it is now edged at its top and sides by a line of Border and stands over the bar's line, open to the content. The
+     line under a bar with tabs is a part of its own (`WindowChromePart::Line`), drawn under the tabs, since a border of
+     the bar is drawn over its children. A rich text tool that is on is the background's fill edged by a line of
+     Border. In dark both lines are the bar's own color.
+  5. **The engine's `components::WindowChrome`** keeps its default `Muted` bar: it is 0.62's, and the legacy look keeps
+     it.
+- **State.** Built on `claude/light-theme-9c28cb`; the board's light variables and components changed with it; to be
+  merged into `feat/design-system`.
 
 ### A frame callback for an app: `ctx.on_frame`
 
