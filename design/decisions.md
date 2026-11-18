@@ -183,6 +183,16 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### A file upload does not take the same file twice
+
+- **Question.** A `ui::FileUpload` took a file it already held as another: chosen twice, or dropped twice, it stood
+  twice in the list and would be sent twice. Seen on the iPhone, where each choice is a copy of its own.
+- **Decision (Ivan, 2026-11-18, at the phone: "два однакових файла можна загрузить").** A file of the same name
+  and size as one the list holds, or as one before it among those given at once, is not taken: it is refused with
+  `RejectReason::Duplicate`, as one too large is with its reason, and the app hears it through `on_reject`.
+- **Why.** A person who gives the same file again means the one they gave; the app should not send it twice.
+- **State.** In work on `feat/design-system`.
+
 ### A frame of three planes (I420) is drawn as it is
 
 - **Question.** A decoder of software (dav1d, libhevc, as Parties has) gives its frames in memory as three planes,

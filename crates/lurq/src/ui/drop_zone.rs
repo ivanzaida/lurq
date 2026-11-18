@@ -86,6 +86,8 @@ pub enum RejectReason {
   TooMany,
   /// It is a folder.
   Folder,
+  /// A file of the same name and size was given already: a file upload holds it, or it came twice at once.
+  Duplicate,
 }
 
 /// A file a drop zone did not take, and why.

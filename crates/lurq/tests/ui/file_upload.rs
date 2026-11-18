@@ -364,3 +364,36 @@ fn to_tooling_a_files_controls_are_called_by_what_they_do_and_its_name() {
   assert_eq!(said("upload-b.png-retry").as_deref(), Some("Retry b.png"));
   assert_eq!(said("upload-b.png-remove").as_deref(), Some("Remove b.png"));
 }
+
+#[test]
+fn a_file_given_again_is_refused_as_a_duplicate() {
+  // As a drop gives it: of no size the test's paths have, as files that are not there.
+  let files = Signal::new(vec![UploadFile::new(DroppedFile::new("a.png", None))]);
+  let refused: Arc<Mutex<Vec<(String, RejectReason)>>> = Arc::default();
+  let (bound, heard) = (files.clone(), refused.clone());
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    FileUpload::new(bound.clone())
+      .multiple(true)
+      .on_reject(move |refused: &[RejectedFile]| {
+        heard
+          .lock()
+          .unwrap()
+          .extend(refused.iter().map(|file| (file.file.name().to_owned(), file.reason)))
+      })
+      .id("upload")
+      .into()
+  });
+  let (x, y) = stage.center("upload-trigger");
+  // The one it holds, and one given twice at once.
+  stage.tree.file_drop(dragged(&["a.png", "b.png", "b.png"]), x, y);
+  stage.pass();
+  assert_eq!(names(&files.get()), ["a.png", "b.png"]);
+  assert_eq!(
+    *refused.lock().unwrap(),
+    [
+      ("a.png".to_owned(), RejectReason::Duplicate),
+      ("b.png".to_owned(), RejectReason::Duplicate)
+    ]
+  );
+}

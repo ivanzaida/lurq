@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
   Button, ButtonVariant, DropZone, Progress, ProgressSize,
-  drop_zone::{Hosted, Refocus, RejectedFile, Takes, TakesFiles, mount_files},
+  drop_zone::{Hosted, Refocus, RejectReason, RejectedFile, Takes, TakesFiles, mount_files},
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
@@ -626,8 +626,23 @@ struct Change {
 impl Change {
   /// Files given: added to the list as waiting, and told.
   fn give(&self, taken: &[DroppedFile], rejected: &[RejectedFile]) {
+    // A file the list holds, or one given twice at once, is not taken again: the same name and size are the same
+    // file, whatever path it came by (on a phone each choice is a copy of its own).
+    let mut list = self.current();
+    let same = |a: &DroppedFile, b: &DroppedFile| a.name() == b.name() && a.size() == b.size();
+    let (mut fresh, mut refused): (Vec<DroppedFile>, Vec<RejectedFile>) = (Vec::new(), rejected.to_vec());
+    for file in taken {
+      if list.iter().any(|held| same(&held.file, file)) || fresh.iter().any(|given| same(given, file)) {
+        refused.push(RejectedFile {
+          file: file.clone(),
+          reason: RejectReason::Duplicate,
+        });
+      } else {
+        fresh.push(file.clone());
+      }
+    }
+    let (taken, rejected) = (fresh.as_slice(), refused.as_slice());
     if !taken.is_empty() {
-      let mut list = self.current();
       list.extend(taken.iter().cloned().map(UploadFile::new));
       self.set(&list);
       for handler in &self.on_files {

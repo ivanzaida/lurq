@@ -46,6 +46,7 @@ fn why(reason: RejectReason) -> &'static str {
     RejectReason::TooLarge => "too large",
     RejectReason::TooMany => "one too many",
     RejectReason::Folder => "a folder",
+    RejectReason::Duplicate => "given already",
   }
 }
 
