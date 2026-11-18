@@ -54,11 +54,10 @@ impl FramePacing {
   /// A minimized or occluded window gets none, and the frames it had scheduled are dropped (an animation's next
   /// step, a caret's blink, an image's next frame); the perf overlay takes no samples. Its animations keep their
   /// clock: the window asks for a frame when it shows again, which draws them where they are by then and schedules
-  /// what follows.
+  /// what follows. The app's frame callbacks (`Ctx::on_frame`) are paused meanwhile, and start again from the frame
+  /// the window shows with.
   pub(super) fn request_frame(&mut self, tree: &mut Tree, refresh: impl FnOnce() -> Duration, now: Instant) {
-    let hidden = self.occluded || tree.window().info().is_minimized;
-    let shown = self.hidden && !hidden;
-    self.hidden = hidden;
+    let (hidden, shown) = self.see_window(tree);
     if hidden {
       tree.drop_scheduled_redraws();
       return;
@@ -87,6 +86,18 @@ impl FramePacing {
     } else {
       tree.request_redraw_at(next_frame_at);
     }
+  }
+
+  /// Reads whether the window can be seen and tells the tree, which pauses the app's frame callbacks while it
+  /// cannot. Returns whether it is hidden, and whether it was at the last call and no longer is. For a turn of the
+  /// loop that asks for no paced frame (a video's frames are presented at the display's pace by themselves), in
+  /// place of [`Self::request_frame`].
+  pub(super) fn see_window(&mut self, tree: &mut Tree) -> (bool, bool) {
+    let hidden = self.occluded || tree.window().info().is_minimized;
+    let shown = self.hidden && !hidden;
+    self.hidden = hidden;
+    tree.set_frames_hidden(hidden);
+    (hidden, shown)
   }
 
   /// The display's refresh interval, read with `refresh` at most once a second.

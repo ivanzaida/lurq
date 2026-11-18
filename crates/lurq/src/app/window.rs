@@ -440,6 +440,8 @@ pub struct Window {
   version_signal: Signal<u64>,
   /// The menu of editing commands a finger asked for, while it is open.
   edit_menu: Signal<Option<EditMenuRequest>>,
+  /// The callbacks of [`WindowHandle::on_frame`].
+  frames: crate::app::ctx::WindowFrames,
 }
 
 /// A menu of editing commands a finger asked for, at a point of the window: three fingers tapped, or text was
@@ -621,6 +623,7 @@ impl Window {
       })),
       version_signal: Signal::new(0),
       edit_menu: Signal::new(None),
+      frames: crate::app::ctx::WindowFrames::default(),
     }
   }
 
@@ -797,6 +800,11 @@ impl Window {
   #[allow(dead_code)]
   pub(crate) fn corner_radius(&self) -> WindowCornerRadius {
     self.inner.read().unwrap().corner_radius
+  }
+
+  /// The callbacks of [`WindowHandle::on_frame`].
+  pub(crate) fn frames(&self) -> &crate::app::ctx::WindowFrames {
+    &self.frames
   }
 
   pub(crate) fn handle(&self) -> WindowHandle {

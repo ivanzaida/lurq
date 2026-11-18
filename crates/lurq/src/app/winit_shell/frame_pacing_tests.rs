@@ -1289,3 +1289,144 @@ fn the_loop_wakes_to_drop_a_leaving_layer_whose_animation_draws_nothing() {
   assert!(frames <= 4, "the close and the drop: {frames} frames");
   assert_the_loop_waits(&shell);
 }
+
+/// The frames an app's own callback ran for (`Ctx::on_frame`), and its handle.
+#[derive(Clone, Default)]
+struct OwnFrames {
+  ran: Arc<Mutex<Vec<crate::app::ctx::Frame>>>,
+  handle: Arc<Mutex<Option<crate::app::ctx::FrameCallback>>>,
+}
+
+impl PartialEq for OwnFrames {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.ran, &other.ran)
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for OwnFrames {
+  fn write_info(&self, _buffer: &mut Vec<crate::app::component::ComponentInfo>) {}
+}
+
+/// A square that stands still while a callback of its component runs in every frame.
+struct FrameCounter;
+
+impl Component for FrameCounter {
+  type Props = OwnFrames;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let own = ctx.props::<OwnFrames>().clone();
+    let ran = own.ran.clone();
+    let handle = ctx.on_frame(move |frame| {
+      ran.lock().expect("one thread").push(frame);
+      true
+    });
+    *own.handle.lock().expect("one thread") = Some(handle);
+    Self
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    Row::new().child(Rect::new(40.0, 40.0).background("#2563eb"))
+  }
+}
+
+fn own_frames_shell() -> (VirtualShell, OwnFrames, Instant) {
+  let clock = Clock::new();
+  let epoch = clock.now();
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  let own = OwnFrames::default();
+  tree.mount_root::<FrameCounter>(&mut app, own.clone());
+  (VirtualShell::new(tree, clock), own, epoch)
+}
+
+#[test]
+fn an_apps_frame_callback_runs_once_at_every_vblank_and_the_loop_waits_once_it_stops() {
+  let (mut shell, own, epoch) = own_frames_shell();
+  shell.run_for(Duration::from_millis(600));
+
+  let ran = own.ran.lock().expect("one thread").clone();
+  let presents = shell.presents.lock().expect("one thread").clone();
+  assert_eq!(
+    ran.len(),
+    presents.len(),
+    "the callback ran once for each frame presented"
+  );
+  let vblanks: Vec<u128> = presents
+    .iter()
+    .map(|present| vblank_index(epoch, REFRESH, *present))
+    .collect();
+  assert_eq!(skipped_vblanks(&vblanks), 0, "every vblank shows a frame: {vblanks:?}");
+  assert!(
+    (36..=37).contains(&ran.len()),
+    "a frame per vblank for 0.6 s: {} frames",
+    ran.len()
+  );
+  assert_eq!(ran[0].delta, Duration::ZERO, "the first frame has no frame before it");
+  // The second frame comes half a refresh after the first present; from then each is a refresh after the last.
+  for pair in ran[1..].windows(2) {
+    assert_eq!(pair[1].delta, pair[1].time - pair[0].time);
+    assert!(
+      pair[1].delta >= REFRESH * 3 / 4 && pair[1].delta <= REFRESH * 5 / 4,
+      "a refresh between two frames: {:?}",
+      pair[1].delta
+    );
+  }
+
+  // Cancelled, it asks for no frame: the loop presents nothing and sleeps.
+  own
+    .handle
+    .lock()
+    .expect("one thread")
+    .as_ref()
+    .expect("the component is created")
+    .cancel();
+  shell.run_for(Duration::from_millis(300));
+  assert_eq!(own.ran.lock().expect("one thread").len(), ran.len());
+  assert_eq!(
+    shell.presents.lock().expect("one thread").len(),
+    presents.len(),
+    "nothing is drawn once no callback runs"
+  );
+}
+
+#[test]
+fn an_apps_frame_callback_is_paused_while_the_window_is_minimized_and_starts_anew_when_it_shows() {
+  let (mut shell, own, _) = own_frames_shell();
+  shell.run_for(Duration::from_millis(100));
+  let before = own.ran.lock().expect("one thread").len();
+  assert!(before >= 5, "the callback runs: {before} frames");
+
+  shell.tree.window().set_minimized(true);
+  shell.run_for(Duration::from_millis(500));
+  assert_eq!(
+    own.ran.lock().expect("one thread").len(),
+    before,
+    "a minimized window runs no frame callback"
+  );
+  // What reaches a minimized window and draws it (a timer that changed something) runs none either.
+  shell.tree.request_redraw();
+  shell.run_for(Duration::from_millis(50));
+  assert_eq!(own.ran.lock().expect("one thread").len(), before);
+
+  shell.tree.window().set_minimized(false);
+  let restored_at = shell.clock.now();
+  shell.run_for(Duration::from_millis(100));
+
+  let ran = own.ran.lock().expect("one thread").clone();
+  let resumed = &ran[before..];
+  assert!(resumed.len() >= 5, "the callback runs again: {} frames", resumed.len());
+  assert!(resumed[0].time - restored_at < REFRESH, "its first frame comes at once");
+  assert_eq!(
+    resumed[0].delta,
+    Duration::ZERO,
+    "the first frame after the window shows is as a first frame: not the time it was hidden"
+  );
+  for frame in &resumed[1..] {
+    assert!(
+      frame.delta > Duration::ZERO && frame.delta <= REFRESH * 5 / 4,
+      "a refresh between the frames that follow: {:?}",
+      frame.delta
+    );
+  }
+}

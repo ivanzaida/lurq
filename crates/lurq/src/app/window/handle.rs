@@ -26,6 +26,24 @@ impl WindowHandle {
     self.info
   }
 
+  /// Runs `callback` once in each frame this window draws, in step with its display, for as long as it returns
+  /// `true`, as [`Ctx::on_frame`](crate::app::ctx::Ctx::on_frame) does for a component: for code that is not a
+  /// component's, such as a game loop the app keeps beside its tree. The window keeps it until it stops (it returns
+  /// `false`, or is cancelled); [`FrameCallback::start`](crate::app::ctx::FrameCallback::start) gives it back to the
+  /// window. Window callbacks run before the components' in each frame.
+  pub fn on_frame(
+    &self,
+    callback: impl FnMut(crate::app::ctx::Frame) -> bool + Send + 'static,
+  ) -> crate::app::ctx::FrameCallback {
+    let callback = self
+      .window
+      .frames()
+      .add(Box::new(callback), Some(self.window.loop_waker()));
+    // A callback added from outside a turn of the loop is run from its next one.
+    (self.window.loop_waker())();
+    callback
+  }
+
   /// Replace this window's OS/app close handler. Runs on the event-loop thread.
   pub fn on_close_requested(&self, handler: impl Fn(CloseRequest) + Send + Sync + 'static) {
     self.window.inner.write().unwrap().close_handler = Some(Arc::new(handler));

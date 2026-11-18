@@ -2,9 +2,14 @@
 //! when it changes, and a keyframe animation, which plays a sequence registered on the tree. Its playground plays
 //! one animation as its props say; its sections are the demo's Animation page and the cards of its Dynamic
 //! Keyframes page: transitions on hover, the easings side by side, every registered sequence, opacity, a
-//! transition and an animation on one node, and transforms.
+//! transition and an animation on one node, and transforms. After them, the app's own frames: a ball on a spring
+//! that a callback of `ctx.on_frame` steps.
 
-use std::{f32::consts::TAU, sync::Arc};
+use std::{
+  f32::consts::TAU,
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   animation::{
@@ -14,12 +19,13 @@ use lurq::{
   app::{
     Tree,
     component::Component,
-    ctx::Ctx,
+    ctx::{Ctx, FrameCallback},
+    events::MouseEvent,
     theme::{PaletteColor, RadiusSize, Theme},
     window::Appearance,
   },
-  components::{Column, Rect, Row},
-  core::Signal,
+  components::{Column, Rect, Row, Stack},
+  core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
   node::{
     CursorIcon, Element,
@@ -32,7 +38,7 @@ use lurq::{
 use super::kit::{controls, number, sample, samples, tint, well};
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, mono, props_table},
+  kit::{FILL, mono, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -423,6 +429,152 @@ impl Played {
     }
     code.push("    )".to_owned());
     code
+  }
+}
+
+/// How high the well of the ball is, and the ball's radius.
+const SPRING_WELL: f32 = 180.0;
+const BALL: f32 = 14.0;
+/// The spring's pull for each pixel the ball is from the pointer, and what slows it, for each second: it
+/// overshoots a little and settles in about half a second.
+const STIFFNESS: f32 = 170.0;
+const DAMPING: f32 = 16.0;
+/// How often the rate of the frames is counted anew.
+const RATE_EVERY: Duration = Duration::from_millis(500);
+
+/// The ball: where it is, how fast it goes and where the spring pulls it, in the well, with the frames counted
+/// since the rate was last shown.
+struct Ball {
+  at: (f32, f32),
+  speed: (f32, f32),
+  to: (f32, f32),
+  counted: u32,
+  since: Duration,
+}
+
+/// A ball on a spring that follows the pointer over a well. The component's own frame callback (`ctx.on_frame`)
+/// steps the spring once in each frame the window draws, by the time since the frame before, and stops once the
+/// ball rests: no frame is drawn for it until the pointer moves again and starts it.
+pub struct SpringBall {
+  area: ElementRef,
+  x: Signal<f32>,
+  y: Signal<f32>,
+  /// The frames drawn a second while the ball moves; 0 while it rests.
+  rate: Signal<u32>,
+  /// Every frame the callback ran for.
+  ran: Signal<u32>,
+  ball: Arc<Mutex<Ball>>,
+  frames: FrameCallback,
+}
+
+impl Component for SpringBall {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let start = (BALL + 16.0, SPRING_WELL / 2.0);
+    let (x, y, rate, ran) = (
+      ctx.signal(start.0),
+      ctx.signal(start.1),
+      ctx.signal(0_u32),
+      ctx.signal(0_u32),
+    );
+    let ball = Arc::new(Mutex::new(Ball {
+      at: start,
+      speed: (0.0, 0.0),
+      // Until the pointer comes: it springs out from the edge once, and rests.
+      to: (start.0 + 160.0, start.1),
+      counted: 0,
+      since: Duration::ZERO,
+    }));
+    let frames = ctx.on_frame({
+      let (ball, x, y, rate, ran) = (ball.clone(), x.clone(), y.clone(), rate.clone(), ran.clone());
+      move |frame| {
+        let mut ball = ball.lock().expect("the callback and the pointer's handler take turns");
+        // A frame the machine was late for moves the ball as two frames would: a long step throws a spring.
+        let step = frame.delta_secs().min(1.0 / 30.0);
+        let pull = |at: f32, to: f32, speed: f32| (to - at) * STIFFNESS - speed * DAMPING;
+        ball.speed.0 += pull(ball.at.0, ball.to.0, ball.speed.0) * step;
+        ball.speed.1 += pull(ball.at.1, ball.to.1, ball.speed.1) * step;
+        ball.at.0 += ball.speed.0 * step;
+        ball.at.1 += ball.speed.1 * step;
+        let away = (ball.to.0 - ball.at.0).hypot(ball.to.1 - ball.at.1);
+        let resting = away < 0.5 && ball.speed.0.hypot(ball.speed.1) < 5.0;
+        if resting {
+          ball.at = ball.to;
+          ball.speed = (0.0, 0.0);
+        }
+        x.set(ball.at.0);
+        y.set(ball.at.1);
+        ran.update(|ran| *ran += 1);
+        ball.counted += 1;
+        ball.since += frame.delta;
+        if resting {
+          (ball.counted, ball.since) = (0, Duration::ZERO);
+          rate.set(0);
+        } else if ball.since >= RATE_EVERY {
+          rate.set((ball.counted as f32 / ball.since.as_secs_f32()).round() as u32);
+          (ball.counted, ball.since) = (0, Duration::ZERO);
+        }
+        // At rest it asks for no more frames: the window draws none until the pointer starts it again.
+        !resting
+      }
+    });
+    Self {
+      area: ElementRef::new(),
+      x,
+      y,
+      rate,
+      ran,
+      ball,
+      frames,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let (x, y, rate, ran) = (self.x.get(), self.y.get(), self.rate.get(), self.ran.get());
+    let (area, ball, frames) = (self.area.clone(), self.ball.clone(), self.frames.clone());
+    let said = match rate {
+      0 if self.frames.is_active() => "moving".to_owned(),
+      0 => "at rest: no frame is drawn for it".to_owned(),
+      rate => format!("{rate} frames a second"),
+    };
+    Column::new()
+      .width(FILL)
+      .spacing(8.0)
+      .child(
+        // A stack: the ball is at a point of it.
+        Stack::new()
+          .width(FILL)
+          .height(SPRING_WELL)
+          .rounded(RadiusSize::Md)
+          .background(PaletteColor::Muted)
+          .border(super::kit::well_line())
+          .cursor(CursorIcon::Crosshair)
+          .ref_element(self.area.clone())
+          .on_mouse_move(move |event: MouseEvent| {
+            let (_, _, width, height) = area.rect();
+            let mut ball = ball.lock().expect("the callback and the pointer's handler take turns");
+            ball.to = (
+              (event.x - area.x()).clamp(BALL, (width - BALL).max(BALL)),
+              (event.y - area.y()).clamp(BALL, (height - BALL).max(BALL)),
+            );
+            frames.start();
+          })
+          .child(
+            Rect::new(0.0, 0.0)
+              .absolute(x - BALL, y - BALL, BALL * 2.0, BALL * 2.0)
+              .rounded(RadiusSize::Full)
+              .background(PaletteColor::Chart1),
+          ),
+      )
+      .child(
+        Row::new()
+          .width(FILL)
+          .spacing(16.0)
+          .wrap()
+          .child(mono(&said, 12.0))
+          .child(quiet(&format!("{ran} frames run"), 12.0)),
+      )
   }
 }
 
@@ -972,8 +1124,17 @@ impl Component for AnimationPage {
         "",
         "The same, with every run on the process's clock: elements mounted at different moments show the same pose.",
       ),
+      (
+        "ctx.on_frame",
+        "FnMut(Frame) -> bool",
+        "",
+        "A callback of the app's own, run once in each frame the window draws, before it is laid out, for as long as \
+         it returns true. Frame has the frame's time and the delta since the one before. Returns a FrameCallback: \
+         cancel(), start(), is_active().",
+      ),
     ];
     let playground = self.play(ctx);
+    let spring = ctx.mount::<SpringBall>(());
     self.frame.page(
       ctx,
       Header {
@@ -1115,6 +1276,38 @@ impl Component for AnimationPage {
               "        }),",
               ");",
               "Rect::new(50.0, 50.0).animation(Animation::new(SPIN).duration_ms(2000).linear().infinite())",
+            ],
+          ),
+        ),
+        Section::new(
+          "Your own frames",
+          "A callback of ctx.on_frame runs once in each frame the window draws, in step with the display, and is told \
+           the time since the frame before: what a spring, a body with physics or a game is stepped by. Move the \
+           pointer over the well: the ball follows it on a spring. While it moves the window draws a frame each \
+           refresh; once it rests the callback returns false and nothing is drawn until the pointer starts it again.",
+          self.frame.demo(
+            6,
+            spring,
+            "ctx.on_frame(|frame| ..)",
+            &[
+              "// In create: the callback is the component's until it unmounts.",
+              "let frames = ctx.on_frame(move |frame| {",
+              "    let mut ball = ball.lock().unwrap();",
+              "    // The time since the frame before; a late frame steps as two would.",
+              "    let step = frame.delta_secs().min(1.0 / 30.0);",
+              "    ball.speed += ((ball.to - ball.at) * STIFFNESS - ball.speed * DAMPING) * step;",
+              "    ball.at += ball.speed * step;",
+              "    // What it sets is in the frame it ran for.",
+              "    x.set(ball.at);",
+              "    // At rest it returns false: no frame is drawn for it.",
+              "    (ball.to - ball.at).abs() > 0.5 || ball.speed.abs() > 5.0",
+              "});",
+              "",
+              "// In render: the pointer gives the spring its end and starts the frames again.",
+              "Stack::new().on_mouse_move(move |event: MouseEvent| {",
+              "    ball.lock().unwrap().to = event.x - area.x();",
+              "    frames.start();",
+              "})",
             ],
           ),
         ),

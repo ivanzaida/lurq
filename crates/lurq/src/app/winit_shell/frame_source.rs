@@ -69,6 +69,14 @@ impl FrameSource {
       .request_frame(tree, || super::frame_pacing::refresh_interval(window), now);
   }
 
+  /// A turn of the loop that asks for no paced frame, since a video's frames are presented by themselves: the tree
+  /// is still told whether the window can be seen, and a window that shows again draws a frame.
+  pub(super) fn see_window(&mut self, tree: &mut Tree) {
+    if self.pacing.see_window(tree).1 {
+      tree.request_redraw();
+    }
+  }
+
   /// Whether the shell is to present a frame in this turn of the loop, without waiting for an event: the
   /// display refreshed and a frame is wanted, `wanted` by the tree or asked for. Where winit delivers frames
   /// as events it never is. Stops what paces the frames once none is wanted.
