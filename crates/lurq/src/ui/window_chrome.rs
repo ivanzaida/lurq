@@ -919,7 +919,7 @@ impl WindowChromeView {
       button = button.window_control(kind).on_click(move |event: MouseEvent| {
         match kind {
           WindowControl::Minimize => window.set_minimized(true),
-          // In full screen, where macOS has the lights the app draws, the zoom one is the way back.
+          // In full screen the maximize control is the way back.
           WindowControl::Maximize if window.is_full_screen => window.set_full_screen(false),
           WindowControl::Maximize => window.set_maximized(!maximized),
           WindowControl::Close => {
@@ -966,6 +966,11 @@ impl WindowChromeView {
   /// The window's controls in the platform's order: close, minimize and zoom on macOS, minimize, maximize and close
   /// elsewhere. A control the app left out is not there.
   pub fn controls(&self) -> Element {
+    // In full screen macOS has its lights in its own bar, which comes down over the app's at the top of the screen:
+    // the app's bar draws none under it.
+    if self.platform == WindowPlatform::Macos && self.window.as_ref().is_some_and(|window| window.is_full_screen) {
+      return Row::new().into();
+    }
     let order: &[WindowControl] = if self.platform.controls_at_start() {
       &[WindowControl::Close, WindowControl::Minimize, WindowControl::Maximize]
     } else {
@@ -1190,36 +1195,54 @@ impl Themed for WindowChrome {
           .gap(8.0)
       })
       .base(Icon, |s| s.square(16.0).foreground(Foreground))
-      .base(Title, |s| s.font_size(13.0).weight(FontWeight::Medium).foreground(Foreground))
+      .base(Title, |s| {
+        s.font_size(13.0).weight(FontWeight::Medium).foreground(Foreground)
+      })
       .base(MinimizeGlyph, |s| s.foreground(Foreground))
       .base(MaximizeGlyph, |s| s.foreground(Foreground))
       .base(CloseGlyph, |s| s.foreground(Foreground))
       // Where the board is silent: a window that is not in front has its title and its glyphs muted.
       .state(WindowChromeState::Inactive, Title, |s| s.foreground(MutedForeground))
       .state(WindowChromeState::Inactive, Icon, |s| s.foreground(MutedForeground))
-      .state(WindowChromeState::Inactive, MinimizeGlyph, |s| s.foreground(MutedForeground))
-      .state(WindowChromeState::Inactive, MaximizeGlyph, |s| s.foreground(MutedForeground))
-      .state(WindowChromeState::Inactive, CloseGlyph, |s| s.foreground(MutedForeground))
+      .state(WindowChromeState::Inactive, MinimizeGlyph, |s| {
+        s.foreground(MutedForeground)
+      })
+      .state(WindowChromeState::Inactive, MaximizeGlyph, |s| {
+        s.foreground(MutedForeground)
+      })
+      .state(WindowChromeState::Inactive, CloseGlyph, |s| {
+        s.foreground(MutedForeground)
+      })
       // A bar with tabs has no line under it: the selected tab runs into the content.
-      .state(WindowChromeState::Tabs, Bar, |s| s.underline(Border::inside(0.0, PaletteColor::Border)))
+      .state(WindowChromeState::Tabs, Bar, |s| {
+        s.underline(Border::inside(0.0, PaletteColor::Border))
+      })
       // Windows.
       .when(on(Windows), Bar, |s| s.height(36.0).padding_start(12.0))
-      .when(on(Windows).state(WindowChromeState::Tabs), Bar, |s| s.height(40.0).padding_start(8.0))
+      .when(on(Windows).state(WindowChromeState::Tabs), Bar, |s| {
+        s.height(40.0).padding_start(8.0)
+      })
       .when(on(Windows), Root, |s| s.radius(RadiusSize::Lg))
       .when(on(Windows), MinimizeGlyph, |s| s.square(16.0))
       .when(on(Windows), MaximizeGlyph, |s| s.square(12.0))
-      .when(on(Windows).state(WindowChromeState::Maximized), MaximizeGlyph, |s| s.square(13.0))
+      .when(on(Windows).state(WindowChromeState::Maximized), MaximizeGlyph, |s| {
+        s.square(13.0)
+      })
       .when(on(Windows), CloseGlyph, |s| s.square(16.0))
       // macOS.
       .when(on(Macos), Bar, |s| s.height(36.0).padding_x(12.0))
-      .when(on(Macos).state(WindowChromeState::Tabs), Bar, |s| s.height(40.0).padding_start(12.0).padding_end(8.0).gap(14.0))
+      .when(on(Macos).state(WindowChromeState::Tabs), Bar, |s| {
+        s.height(40.0).padding_start(12.0).padding_end(8.0).gap(14.0)
+      })
       .when(on(Macos), Root, |s| s.radius(RadiusSize::Xl))
       .when(on(Macos), Title, |s| s.weight(FontWeight::SemiBold))
       .when(on(Macos), Balance, |s| s.width(52.0))
       .when(on(Macos), Controls, |s| s.gap(8.0))
       // GNOME.
       .when(on(Gnome), Bar, |s| s.height(44.0).padding_x(10.0))
-      .when(on(Gnome).state(WindowChromeState::Tabs), Bar, |s| s.padding_start(8.0).padding_end(10.0))
+      .when(on(Gnome).state(WindowChromeState::Tabs), Bar, |s| {
+        s.padding_start(8.0).padding_end(10.0)
+      })
       .when(on(Gnome), Root, |s| s.radius(RadiusSize::Xl))
       .when(on(Gnome), Title, |s| s.weight(FontWeight::SemiBold))
       .when(on(Gnome), Balance, |s| s.width(88.0))
@@ -1249,16 +1272,22 @@ impl Themed for WindowChrome {
             .radius(RadiusSize::Full)
             .border(Border::inside(0.5, Color::from_hex("#0000001F")))
         })
-        .when(on(Macos).state(WindowChromeState::Inactive), part, |s| s.background(Input))
+        .when(on(Macos).state(WindowChromeState::Inactive), part, |s| {
+          s.background(Input)
+        })
         // GNOME: round and filled.
-        .when(on(Gnome), part, |s| fading(s.square(24.0).radius(RadiusSize::Full).background(SecondaryHover)))
+        .when(on(Gnome), part, |s| {
+          fading(s.square(24.0).radius(RadiusSize::Full).background(SecondaryHover))
+        })
         // Stronger under the pointer and held, in the light appearance and the dark: a veil over the fill.
         .when(on(Gnome).hovered(), part, |s| s.veil(StateHover))
         .when(on(Gnome).pressed(), part, |s| s.veil(StatePressed))
         // KDE: round, filled only under the pointer.
         .when(on(Kde), part, |s| fading(s.square(22.0).radius(RadiusSize::Full)))
         .when(on(Kde).hovered(), part, |s| s.background(SecondaryHover))
-        .when(on(Kde).pressed(), part, |s| s.background(SecondaryHover).veil(StatePressed));
+        .when(on(Kde).pressed(), part, |s| {
+          s.background(SecondaryHover).veil(StatePressed)
+        });
     }
     for part in glyphs {
       // macOS: the lights' glyphs, shown under the pointer on the group.
@@ -1277,19 +1306,35 @@ impl Themed for WindowChrome {
       // The close control's own colors: red under the pointer, darker held down, its cross white.
       .when(on(Windows).hovered(), Close, |s| s.background(Destructive))
       .when(on(Windows).pressed(), Close, |s| s.background(DestructiveHover))
-      .when(on(Gnome).hovered(), Close, |s| s.background(Destructive).veil(Color::new(0, 0, 0, 0)))
-      .when(on(Gnome).pressed(), Close, |s| s.background(DestructiveHover).veil(Color::new(0, 0, 0, 0)))
+      .when(on(Gnome).hovered(), Close, |s| {
+        s.background(Destructive).veil(Color::new(0, 0, 0, 0))
+      })
+      .when(on(Gnome).pressed(), Close, |s| {
+        s.background(DestructiveHover).veil(Color::new(0, 0, 0, 0))
+      })
       .when(on(Kde).hovered(), Close, |s| s.background(Destructive))
-      .when(on(Kde).pressed(), Close, |s| s.background(DestructiveHover).veil(Color::new(0, 0, 0, 0)))
-      .when(Selector::new().within().hovered(), CloseGlyph, |s| s.foreground(DestructiveForeground))
-      .when(Selector::new().within().pressed(), CloseGlyph, |s| s.foreground(DestructiveForeground))
+      .when(on(Kde).pressed(), Close, |s| {
+        s.background(DestructiveHover).veil(Color::new(0, 0, 0, 0))
+      })
+      .when(Selector::new().within().hovered(), CloseGlyph, |s| {
+        s.foreground(DestructiveForeground)
+      })
+      .when(Selector::new().within().pressed(), CloseGlyph, |s| {
+        s.foreground(DestructiveForeground)
+      })
       // macOS: the lights' colors are the system's; their glyphs show under the pointer on the group.
       .when(on(Macos), Minimize, |s| s.background(Color::from_hex("#FEBC2E")))
       .when(on(Macos), Maximize, |s| s.background(Color::from_hex("#28C840")))
       .when(on(Macos), Close, |s| s.background(Color::from_hex("#FF5F57")))
-      .when(on(Macos).state(WindowChromeState::Inactive), Minimize, |s| s.background(Input))
-      .when(on(Macos).state(WindowChromeState::Inactive), Maximize, |s| s.background(Input))
-      .when(on(Macos).state(WindowChromeState::Inactive), Close, |s| s.background(Input))
+      .when(on(Macos).state(WindowChromeState::Inactive), Minimize, |s| {
+        s.background(Input)
+      })
+      .when(on(Macos).state(WindowChromeState::Inactive), Maximize, |s| {
+        s.background(Input)
+      })
+      .when(on(Macos).state(WindowChromeState::Inactive), Close, |s| {
+        s.background(Input)
+      })
   }
 }
 

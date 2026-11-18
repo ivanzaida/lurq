@@ -683,8 +683,7 @@ fn a_tap_of_the_label_focuses_the_input_even_from_another_text_input() {
     stage.tree.touch_tap(x, y, std::time::Duration::from_millis(100));
     stage.pass();
   };
-  // A finger in another text input first: a tap elsewhere leaves it the focus, and the keyboard up, unless what is
-  // tapped takes the focus.
+  // A finger in another text input first: a tap on the label hands the focus on to the label's input.
   let (x, y) = stage.center("other");
   tap(&mut stage, x, y);
   assert_eq!(focused(&stage).as_deref(), Some("other"));

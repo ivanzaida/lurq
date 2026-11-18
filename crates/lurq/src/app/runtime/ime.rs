@@ -258,6 +258,7 @@ impl Tree {
     let Some(state) = self.focused_text_input_state() else {
       return;
     };
+    state.set_typing_pause(self.typing_undo_pause());
     let changed = match event {
       // A new input method session: a composition left from an earlier one
       // (whose end the platform never reported) is stale.
@@ -266,7 +267,7 @@ impl Tree {
       ImeEvent::Disabled => state.clear_composition(),
       ImeEvent::Commit(text) => {
         let cleared = state.clear_composition();
-        let inserted = !text.is_empty() && state.insert(&text, &self.commit_keyboard_event(&text));
+        let inserted = !text.is_empty() && state.type_text(&text, &self.commit_keyboard_event(&text));
         cleared || inserted
       }
     };
@@ -355,15 +356,6 @@ impl Tree {
   /// Whether a text input has the focus.
   pub(crate) fn focused_text_input(&self) -> bool {
     self.focused_text_input_state().is_some()
-  }
-
-  /// Whether the node is a text input.
-  pub(crate) fn is_text_input(&self, id: NodeId) -> bool {
-    self
-      .root
-      .as_ref()
-      .and_then(|root| find_node_by_id(root, id))
-      .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }))
   }
 
   /// The other text inputs the platform may fill in together with the focused one, when that one is for a

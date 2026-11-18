@@ -37,15 +37,16 @@ impl Drop for Decoded {
 /// The test picture at frame `at`: bars of color with a bright bar that goes across them, in the two planes of a
 /// buffer.
 fn paint(at: u32, gray: &mut [u8], gray_stride: usize, color: &mut [u8], color_stride: usize) {
-  // Gray, blue-difference and red-difference of white, yellow, cyan, green, magenta, red and blue.
+  // Gray, blue-difference and red-difference of white, yellow, cyan, green, magenta, red and blue, by BT.709 in the
+  // video range: what a frame that says no matrix is drawn by.
   const BARS: [(u8, u8, u8); 7] = [
     (235, 128, 128),
-    (210, 16, 146),
-    (170, 166, 16),
-    (145, 54, 34),
-    (106, 202, 222),
-    (81, 90, 240),
-    (41, 240, 110),
+    (219, 16, 138),
+    (188, 154, 16),
+    (173, 42, 26),
+    (78, 214, 230),
+    (63, 102, 240),
+    (32, 240, 118),
   ];
   let (width, height) = (SIZE.0 as usize, SIZE.1 as usize);
   let sweep = (at as usize * 4) % width;

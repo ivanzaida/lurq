@@ -28,7 +28,7 @@ use crate::{
 
 mod checkbox;
 mod slider;
-mod text_input;
+pub(crate) mod text_input;
 
 pub(crate) use checkbox::CheckboxState;
 pub(crate) use slider::{SliderAxis, SliderChangeHandler, SliderPartRect, SliderState, SliderThumb};

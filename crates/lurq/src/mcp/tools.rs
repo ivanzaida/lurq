@@ -117,7 +117,8 @@ fn execute_builtin(
       let _ = reply.send(file_dialogs::execute(builtin, tree, state, &args));
     }
     BuiltinTool::Menu => {
-      let model = app.shared.menu.model();
+      // The bar as it is shown: with the Edit menu lurq adds to it.
+      let model = app.shared.menu.shown();
       let _ = reply.send(Ok(McpToolOutput::Json(serde_json::json!({
         "support": format!("{:?}", app.menu_bar_support()),
         "model": model.as_ref().map(menu_json),

@@ -1,7 +1,7 @@
 //! Declarative menus, available headlessly everywhere and hosted by AppKit on macOS.
 use std::sync::{Arc, Mutex};
 
-use super::synthetic_input::SyntheticModifiers;
+use super::{events::EditCommand, synthetic_input::SyntheticModifiers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuBarSupport {
@@ -265,7 +265,43 @@ impl MenuAction {
     self.enabled = enabled;
     self
   }
+
+  /// An item of the Edit menu: runs `command` on what has the focus, as its key does
+  /// ([`WindowHandle::edit`](crate::app::window::WindowHandle::edit)), with the key and the word of the app's
+  /// locale. A menu of the app's bar that has one is its Edit menu, and lurq adds none of its own.
+  pub fn edit(command: EditCommand) -> Self {
+    let locale = crate::ui::current_locale();
+    Self::edit_in(command, &MenuWords::of(&locale))
+  }
+
+  fn edit_in(command: EditCommand, words: &MenuWords) -> Self {
+    let (name, key, shift, label) = match command {
+      EditCommand::Undo => ("undo", "z", false, &words.undo),
+      EditCommand::Redo => ("redo", "z", true, &words.redo),
+      EditCommand::Cut => ("cut", "x", false, &words.cut),
+      EditCommand::Copy => ("copy", "c", false, &words.copy),
+      EditCommand::Paste => ("paste", "v", false, &words.paste),
+      EditCommand::SelectAll => ("select_all", "a", false, &words.select_all),
+    };
+    let mut accelerator = Accelerator::command(key);
+    accelerator.modifiers.shift = shift;
+    Self::new(format!("{EDIT_PREFIX}{name}"), label.clone()).accelerator(accelerator)
+  }
+
+  /// The command of editing an item of [`MenuAction::edit`] runs.
+  pub fn edit_command(&self) -> Option<EditCommand> {
+    let name = self.id.strip_prefix(EDIT_PREFIX)?;
+    EditCommand::ALL.into_iter().find(|command| {
+      Self::edit_in(*command, &MenuWords::english())
+        .id
+        .strip_prefix(EDIT_PREFIX)
+        == Some(name)
+    })
+  }
 }
+
+/// What the id of an item of editing starts with.
+const EDIT_PREFIX: &str = "lurq.edit.";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MenuItem {
   Item(MenuAction),
@@ -281,6 +317,77 @@ impl From<MenuAction> for MenuItem {
 pub struct Menu {
   pub title: Arc<str>,
   pub items: Vec<MenuItem>,
+}
+
+impl Menu {
+  /// The Edit menu: Undo, Redo, Cut, Copy, Paste and Select All, in the words of the app's locale. lurq puts it in
+  /// an app's bar on a Mac by itself; an app that wants it elsewhere among its menus, or with items of its own,
+  /// puts this one there (and on a Mac the system adds its Emoji & Symbols to it).
+  pub fn edit() -> Self {
+    Self::edit_in(&MenuWords::of(&crate::ui::current_locale()))
+  }
+
+  pub(crate) fn edit_in(words: &MenuWords) -> Self {
+    let item = |command| MenuItem::Item(MenuAction::edit_in(command, words));
+    Self {
+      title: words.navigation.edit.clone(),
+      items: vec![
+        item(EditCommand::Undo),
+        item(EditCommand::Redo),
+        MenuItem::Separator,
+        item(EditCommand::Cut),
+        item(EditCommand::Copy),
+        item(EditCommand::Paste),
+        item(EditCommand::SelectAll),
+      ],
+    }
+  }
+
+  /// Whether an item of editing is in it, or in a menu in it.
+  pub fn has_edit_items(&self) -> bool {
+    self.items.iter().any(|item| match item {
+      MenuItem::Item(action) => action.edit_command().is_some(),
+      MenuItem::Submenu(menu) => menu.has_edit_items(),
+      MenuItem::Separator => false,
+    })
+  }
+}
+
+/// The words of a Mac's menu bar that lurq says itself: what the system puts in the menu of the app, and the Edit
+/// menu's.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct MenuWords {
+  pub navigation: crate::core::NavigationWords,
+  pub undo: Arc<str>,
+  pub redo: Arc<str>,
+  pub cut: Arc<str>,
+  pub copy: Arc<str>,
+  pub paste: Arc<str>,
+  pub select_all: Arc<str>,
+}
+
+impl MenuWords {
+  pub(crate) fn of(locale: &crate::core::Locale) -> Self {
+    Self {
+      navigation: locale.navigation.clone(),
+      undo: locale.editing.undo.clone(),
+      redo: locale.editing.redo.clone(),
+      cut: locale.editing.cut.clone(),
+      copy: locale.editing.copy.clone(),
+      paste: locale.editing.paste.clone(),
+      select_all: locale.navigation.select_all.clone(),
+    }
+  }
+
+  pub(crate) fn english() -> Self {
+    Self::of(&crate::core::Locale::english())
+  }
+}
+
+impl Default for MenuWords {
+  fn default() -> Self {
+    Self::english()
+  }
 }
 
 /// AppKit supplies Services and Hide/Show around these application commands.
@@ -311,6 +418,11 @@ pub struct MenuBar {
   pub menus: Vec<Menu>,
 }
 impl MenuBar {
+  /// Whether one of its menus is an Edit menu: has an item of editing ([`MenuAction::edit`]).
+  pub fn has_edit_menu(&self) -> bool {
+    self.menus.iter().any(Menu::has_edit_items)
+  }
+
   pub fn actions(&self) -> Vec<&MenuAction> {
     fn collect<'a>(items: &'a [MenuItem], out: &mut Vec<&'a MenuAction>) {
       for item in items {
@@ -339,8 +451,11 @@ struct MenuState {
   handler: Option<ActivateHandler>,
   waker: Option<super::window::WindowWaker>,
   pending: Vec<Arc<str>>,
-  /// The words of the app's locale that the system's own items of the menu say, once the app set a locale.
-  words: Option<Arc<crate::core::NavigationWords>>,
+  /// The words of the app's locale that the system's own items of the menu and the Edit menu say, once the app set a
+  /// locale.
+  words: Option<Arc<MenuWords>>,
+  /// Whether lurq leaves the bar without an Edit menu of its own: [`MenuController::set_edit_menu`].
+  no_edit_menu: bool,
 }
 /// Clone into a signal effect to update labels, enabled state, or item presence.
 /// Equal models are ignored. Callbacks run when the event loop drains activations.
@@ -366,9 +481,10 @@ impl MenuController {
   pub fn model(&self) -> Option<MenuBar> {
     self.inner.lock().unwrap().bar.clone()
   }
-  /// The words the items the system puts in the menu of the app say ("Hide", "Show All"): the app's locale's,
-  /// which [`App::set_locale`](crate::app::App::set_locale) gives here, and the menu is built again in them.
-  pub(crate) fn set_words(&self, words: crate::core::NavigationWords) {
+  /// The words the items lurq and the system put in the bar say ("Hide", "Show All", the Edit menu): the app's
+  /// locale's, which [`App::set_locale`](crate::app::App::set_locale) gives here, and the menu is built again in them.
+  pub(crate) fn set_words(&self, locale: &crate::core::Locale) {
+    let words = MenuWords::of(locale);
     let waker = {
       let mut state = self.inner.lock().unwrap();
       if state.words.as_deref() == Some(&words) {
@@ -384,9 +500,44 @@ impl MenuController {
   }
   /// What [`Self::set_words`] gave, English before.
   #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-  pub(crate) fn words(&self) -> Arc<crate::core::NavigationWords> {
+  pub(crate) fn words(&self) -> Arc<MenuWords> {
     let words = self.inner.lock().unwrap().words.clone();
-    words.unwrap_or_else(|| Arc::new(crate::core::NavigationWords::english()))
+    words.unwrap_or_else(|| Arc::new(MenuWords::english()))
+  }
+  /// Whether lurq puts an Edit menu in the bar on a Mac, as it does until told not to. Where the app's bar has a
+  /// menu with an item of editing ([`MenuAction::edit`]), that is the Edit menu, and lurq adds none either way.
+  pub fn set_edit_menu(&self, shown: bool) {
+    let waker = {
+      let mut state = self.inner.lock().unwrap();
+      if state.no_edit_menu == !shown {
+        return;
+      }
+      state.no_edit_menu = !shown;
+      state.version = state.version.wrapping_add(1);
+      state.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+  /// The bar as it is shown: the app's, or none where the app has none and lurq adds nothing to the system's; with
+  /// lurq's Edit menu after the menu of the app where the bar has none. The app's own bar is [`Self::model`].
+  pub fn shown(&self) -> Option<MenuBar> {
+    let state = self.inner.lock().unwrap();
+    Self::shown_of(&state)
+  }
+  fn shown_of(state: &MenuState) -> Option<MenuBar> {
+    let edit = !state.no_edit_menu;
+    let mut bar = match &state.bar {
+      Some(bar) => bar.clone(),
+      None if edit => MenuBar::default(),
+      None => return None,
+    };
+    if edit && !bar.has_edit_menu() {
+      let words = state.words.clone().unwrap_or_else(|| Arc::new(MenuWords::english()));
+      bar.menus.insert(0, Menu::edit_in(&words));
+    }
+    Some(bar)
   }
   pub fn on_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
     self.inner.lock().unwrap().handler = Some(Arc::new(handler));
@@ -402,18 +553,27 @@ impl MenuController {
       waker();
     }
   }
-  pub(crate) fn dispatch(&self, id: &str, window: &super::window::Window) -> bool {
-    let (handler, quit) = {
+  pub(crate) fn dispatch(&self, id: &str, window: &super::window::Window, in_front: &super::window::Window) -> bool {
+    let (handler, quit, edit) = {
       let state = self.inner.lock().unwrap();
-      let Some(bar) = &state.bar else {
+      let Some(bar) = Self::shown_of(&state) else {
         return false;
       };
       let matches: Vec<_> = bar.actions().into_iter().filter(|a| a.id.as_ref() == id).collect();
       if matches.len() != 1 || !matches[0].enabled {
         return false;
       }
-      (state.handler.clone(), bar.application.quit.id.as_ref() == id)
+      (
+        state.handler.clone(),
+        bar.application.quit.id.as_ref() == id,
+        matches[0].edit_command(),
+      )
     };
+    // An item of editing runs its command, as its key does.
+    if let Some(command) = edit {
+      in_front.request_edit(command);
+      return true;
+    }
     if let Some(handler) = handler {
       handler(id);
     } else if quit {
@@ -423,9 +583,13 @@ impl MenuController {
   }
   /// Run queued activations on the event-loop thread, or explicitly in a headless harness.
   pub fn drain(&self, window: &super::window::Window) {
+    self.drain_to(window, window);
+  }
+  /// [`Self::drain`], with the window in front, whose focus an item of editing runs on, beside the app's main one.
+  pub(crate) fn drain_to(&self, window: &super::window::Window, in_front: &super::window::Window) {
     let pending = std::mem::take(&mut self.inner.lock().unwrap().pending);
     for id in pending {
-      self.dispatch(&id, window);
+      self.dispatch(&id, window, in_front);
     }
   }
   #[cfg(feature = "winit")]
@@ -433,12 +597,12 @@ impl MenuController {
     self.inner.lock().unwrap().waker = Some(waker);
   }
   #[cfg(all(feature = "winit", target_os = "macos"))]
-  pub(crate) fn snapshot(&self, previous: Option<u64>) -> Option<(u64, Option<MenuBar>)> {
+  pub(crate) fn snapshot(&self, previous: Option<u64>) -> Option<(u64, Option<MenuBar>, bool)> {
     let state = self.inner.lock().unwrap();
     if previous == Some(state.version) {
       None
     } else {
-      Some((state.version, state.bar.clone()))
+      Some((state.version, Self::shown_of(&state), state.bar.is_some()))
     }
   }
 }
@@ -558,7 +722,7 @@ mod tests {
     let mut duplicate = bar(true);
     duplicate.menus[0].items.push(MenuAction::new("open", "Other").into());
     menus.set(duplicate);
-    assert!(!menus.dispatch("open", &window));
+    assert!(!menus.dispatch("open", &window, &window));
   }
   #[test]
   fn menu_quit_defaults_to_veto_and_model_updates_are_coalesced() {
@@ -569,12 +733,115 @@ mod tests {
     menus.set(MenuBar::default());
     assert_eq!(menus.inner.lock().unwrap().version, version);
     window.handle().on_close_requested(|r| r.cancel());
-    assert!(menus.dispatch("quit", &window));
+    assert!(menus.dispatch("quit", &window, &window));
     assert!(window.take_commands().is_empty());
     window.handle().clear_close_requested_handler();
-    assert!(menus.dispatch("quit", &window));
+    assert!(menus.dispatch("quit", &window, &window));
     assert_eq!(window.take_commands(), vec![WindowCommand::Close]);
   }
+  fn titles(bar: &MenuBar) -> Vec<String> {
+    bar.menus.iter().map(|menu| menu.title.to_string()).collect()
+  }
+
+  #[test]
+  fn an_app_with_no_bar_of_its_own_has_the_edit_menu() {
+    let menus = MenuController::default();
+    let shown = menus.shown().expect("a bar is shown");
+    assert_eq!(titles(&shown), vec!["Edit"]);
+    let commands: Vec<_> = shown.menus[0]
+      .items
+      .iter()
+      .filter_map(|item| match item {
+        MenuItem::Item(action) => Some((action.edit_command(), action.label.to_string())),
+        _ => None,
+      })
+      .collect();
+    assert_eq!(
+      commands,
+      [
+        (Some(EditCommand::Undo), "Undo"),
+        (Some(EditCommand::Redo), "Redo"),
+        (Some(EditCommand::Cut), "Cut"),
+        (Some(EditCommand::Copy), "Copy"),
+        (Some(EditCommand::Paste), "Paste"),
+        (Some(EditCommand::SelectAll), "Select All"),
+      ]
+      .map(|(command, label)| (command, label.to_owned()))
+    );
+    assert_eq!(menus.model(), None, "the app's own bar is still none");
+  }
+
+  #[test]
+  fn the_edit_menu_is_after_the_menu_of_the_app_and_before_the_apps_menus() {
+    let menus = MenuController::default();
+    menus.set(bar(true));
+    assert_eq!(titles(&menus.shown().unwrap()), vec!["Edit", "File"]);
+  }
+
+  #[test]
+  fn the_edit_menu_is_in_the_apps_locale() {
+    let menus = MenuController::default();
+    menus.set_words(&crate::core::Locale::for_tag("uk"));
+    let shown = menus.shown().unwrap();
+    assert_eq!(titles(&shown), vec!["Редагування"]);
+    let MenuItem::Item(undo) = &shown.menus[0].items[0] else {
+      panic!("an item first");
+    };
+    assert_eq!(&*undo.label, "Скасувати");
+  }
+
+  #[test]
+  fn an_app_turns_the_edit_menu_off() {
+    let menus = MenuController::default();
+    menus.set_edit_menu(false);
+    assert_eq!(
+      menus.shown(),
+      None,
+      "no bar of the app's: the system's is left as it is"
+    );
+    menus.set(bar(true));
+    assert_eq!(titles(&menus.shown().unwrap()), vec!["File"]);
+    menus.set_edit_menu(true);
+    assert_eq!(titles(&menus.shown().unwrap()), vec!["Edit", "File"]);
+  }
+
+  #[test]
+  fn a_menu_of_the_apps_with_an_item_of_editing_is_the_edit_menu() {
+    let menus = MenuController::default();
+    let mut own = bar(true);
+    let mut edit = Menu::edit();
+    edit.items.push(MenuAction::new("find", "Find").into());
+    own.menus.push(edit);
+    menus.set(own.clone());
+    assert_eq!(menus.shown(), Some(own), "where the app put it, as it made it");
+
+    let mut copy_alone = bar(true);
+    copy_alone.menus[0]
+      .items
+      .push(MenuAction::edit(EditCommand::Copy).into());
+    menus.set(copy_alone);
+    assert_eq!(titles(&menus.shown().unwrap()), vec!["File"]);
+  }
+
+  #[test]
+  fn an_item_of_editing_runs_its_command_on_the_window_in_front() {
+    let menus = MenuController::default();
+    let (main, in_front) = (Window::new(), Window::new());
+    let handled = Arc::new(Mutex::new(Vec::new()));
+    let seen = handled.clone();
+    menus.on_activate(move |id| seen.lock().unwrap().push(id.to_owned()));
+    menus.activate(MenuAction::edit(EditCommand::Paste).id);
+    menus.activate("quit");
+    menus.drain_to(&main, &in_front);
+    assert_eq!(in_front.take_edits(), vec![(EditCommand::Paste, false)]);
+    assert!(main.take_edits().is_empty());
+    assert_eq!(
+      *handled.lock().unwrap(),
+      vec!["quit"],
+      "the app's handler is told of its own items alone"
+    );
+  }
+
   #[test]
   fn accelerator_rendering_covers_characters_modifiers_and_named_keys() {
     let mut a = Accelerator::command("s");

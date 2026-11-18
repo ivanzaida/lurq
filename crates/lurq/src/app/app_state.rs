@@ -162,6 +162,8 @@ pub(crate) struct AppShared {
   pub(crate) locale: crate::core::AppLocale,
   /// What the person points with: [`App::pointer`].
   pub(crate) pointer: super::pointer::AppPointer,
+  /// How long a pause in typing ends a step of undo: [`App::set_typing_undo_pause`].
+  pub(crate) typing_undo_pause: Mutex<Option<std::time::Duration>>,
   /// The phone or tablet the app is run as on a desktop: [`App::emulate`].
   pub(crate) emulated: Mutex<Option<super::Device>>,
   pub(crate) window_opener: WindowOpener,
@@ -197,6 +199,7 @@ impl App {
         dates: crate::core::AppDateText::new(),
         locale: crate::core::AppLocale::new(),
         pointer: super::pointer::AppPointer::new(),
+        typing_undo_pause: Mutex::new(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE),
         emulated: Mutex::new(None),
         window_opener: WindowOpener::default(),
         i18n: I18n::new(),
@@ -216,6 +219,21 @@ impl App {
     }
   }
 
+  /// How long a pause in typing ends a step of undo in a text input: what is typed after it is taken back by an undo
+  /// of its own. A second until told otherwise; `None` for none, when a step ends only where the caret moves or
+  /// typing turns to deleting (and, on Windows, where a word begins).
+  ///
+  /// ```
+  /// use lurq::app::App;
+  /// use std::time::Duration;
+  ///
+  /// let app = App::new();
+  /// app.set_typing_undo_pause(Some(Duration::from_millis(1500)));
+  /// ```
+  pub fn set_typing_undo_pause(&self, pause: Option<std::time::Duration>) {
+    *self.shared.typing_undo_pause.lock() = pause;
+  }
+
   pub fn menu_bar_support(&self) -> super::menu::MenuBarSupport {
     if cfg!(all(feature = "winit", target_os = "macos")) {
       super::menu::MenuBarSupport::Native
@@ -226,6 +244,13 @@ impl App {
   /// Retains the model everywhere for headless QA; installs a native bar only on macOS.
   pub fn set_menu_bar(&self, bar: super::menu::MenuBar) {
     self.shared.menu.set(bar);
+  }
+  /// Whether lurq puts an Edit menu in the bar on a Mac (Undo, Redo, Cut, Copy, Paste, Select All and the system's
+  /// Emoji & Symbols), as it does until told not to: an app that takes Cmd+Z and the others for itself turns it off.
+  /// A menu of the app's bar with an item of editing ([`MenuAction::edit`](super::menu::MenuAction::edit), or the
+  /// whole of [`Menu::edit`](super::menu::Menu::edit)) is the Edit menu, where the app put it, and lurq adds none.
+  pub fn set_edit_menu(&self, shown: bool) {
+    self.shared.menu.set_edit_menu(shown);
   }
   pub fn on_menu_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
     self.shared.menu.on_activate(handler);
@@ -290,7 +315,7 @@ impl App {
       .shared
       .dates
       .set(crate::core::shared_date_text(locale.dates.clone()));
-    self.shared.menu.set_words(locale.navigation.clone());
+    self.shared.menu.set_words(&locale);
     self.shared.locale.set(locale);
   }
 

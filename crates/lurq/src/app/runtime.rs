@@ -940,6 +940,10 @@ pub struct Tree {
   capture_redactions: Vec<crate::app::capture_redaction::RedactedArea>,
   #[cfg(feature = "screenshot")]
   sensitive_quads: Vec<usize>,
+  /// What draws the parts of the window the system draws over the app's frame, laid over a screenshot
+  /// (`app::capture_overlay`).
+  #[cfg(feature = "screenshot")]
+  system_pictures: Option<crate::app::capture_overlay::SystemPictures>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -1427,6 +1431,8 @@ impl Tree {
       capture_redactions: Vec::new(),
       #[cfg(feature = "screenshot")]
       sensitive_quads: Vec::new(),
+      #[cfg(feature = "screenshot")]
+      system_pictures: None,
       #[cfg(feature = "devtools")]
       devtools: None,
       #[cfg(feature = "devtools")]
@@ -2581,6 +2587,19 @@ impl Tree {
       app.shared.pointer.tell(pointer, false);
     }
     self.apply_reactive_updates_after_event();
+  }
+
+  /// How long a pause in typing ends a step of undo: the app's ([`App::set_typing_undo_pause`]).
+  ///
+  /// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+  pub(crate) fn typing_undo_pause(&self) -> Option<std::time::Duration> {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE, |app| {
+        *app.shared.typing_undo_pause.lock()
+      })
   }
 
   /// What the person points with, as the app's pointer says.
@@ -5195,6 +5214,7 @@ impl Tree {
 
   pub fn needs_redraw(&self) -> bool {
     self.needs_redraw
+      || self.window.has_requests()
       || !self.pending_scroll_into_view.is_empty()
       || self.has_dirty_canvas()
       || self.click_tracker.has_pending()
@@ -6291,10 +6311,9 @@ impl Tree {
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
     }
-    // A finger that lands outside the text input being typed into leaves it the focus, and so the keyboard
-    // up, as a phone's apps do: only another text input takes the focus from it.
-    let keeps_keyboard = self.touch_pointer.down && self.focused_text_input();
-    if blur_on_press && !keeps_keyboard {
+    // A finger's tap outside the text input being typed into lets it go, as a mouse's press does, and the
+    // keyboard goes down with it (`design/mobile-decisions.md`). A finger that scrolls presses nothing.
+    if blur_on_press {
       self.blur_focus();
       // Tab goes on from what was pressed, as a browser's does from a press on text: from the top of the window
       // where the press was on nothing.
@@ -6324,9 +6343,7 @@ impl Tree {
       self.active_drag = Some(drag);
       self.needs_redraw = true;
     }
-    if let Some(target) = pending_focus
-      && (!keeps_keyboard || self.is_text_input(target.input_id))
-    {
+    if let Some(target) = pending_focus {
       self.focus_node(target);
     }
     self.follow_pointer_focus(pointer_focus);
@@ -6520,6 +6537,7 @@ impl Tree {
     let node_kind = node.node_kind().clone();
     match node_kind {
       NodeKind::TextInput { state, .. } => {
+        state.set_typing_pause(self.typing_undo_pause());
         match (logical, command) {
           ("Enter", _) | (_, "Enter") => {
             if !state.insert_newline(evt) {
@@ -6545,7 +6563,7 @@ impl Tree {
           ("Home", _) | (_, "Home") => state.move_home(shift),
           ("End", _) | (_, "End") => state.move_end(shift),
           _ if !ctrl && !meta && key.chars().count() == 1 => {
-            if !state.insert(key, evt) {
+            if !state.type_text(key, evt) {
               return false;
             }
           }
@@ -11191,7 +11209,7 @@ impl Tree {
         y: 0,
         width: self.viewport_physical.width.round().max(1.0) as u32,
         height: self.viewport_physical.height.round().max(1.0) as u32,
-        target: self.inspection_target(target, redact_sensitive, (0, 0)),
+        target: self.system_drawn_over(self.inspection_target(target, redact_sensitive, (0, 0)), (0, 0)),
         window_clip: self.screenshot_window_clip(),
       });
     };
@@ -11212,9 +11230,29 @@ impl Tree {
       y,
       width,
       height,
-      target: self.inspection_target(target, redact_sensitive, (x, y)),
+      target: self.system_drawn_over(self.inspection_target(target, redact_sensitive, (x, y)), (x, y)),
       window_clip: None,
     })
+  }
+
+  /// Has the system's parts of the window be drawn as a screenshot of it is taken: see
+  /// [`app::capture_overlay`](crate::app::capture_overlay).
+  #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+  pub(crate) fn set_system_pictures(&mut self, pictures: crate::app::capture_overlay::SystemPictures) {
+    self.system_pictures = Some(pictures);
+  }
+
+  /// `target`, with the parts of the window the system draws laid over what the renderer drew. `origin` is the
+  /// capture's top-left window pixel.
+  fn system_drawn_over(
+    &self,
+    target: crate::app::render_engine::RenderCaptureTarget,
+    origin: (u32, u32),
+  ) -> crate::app::render_engine::RenderCaptureTarget {
+    match &self.system_pictures {
+      Some(pictures) => crate::app::capture_overlay::laying_over(target, origin, pictures()),
+      None => target,
+    }
   }
 
   /// `target`, painting over the last render list's sensitive text when the

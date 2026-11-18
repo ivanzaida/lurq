@@ -72,6 +72,45 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-17
 
+### Undo takes back what was typed as the platform's own fields do
+
+- **Question.** Undo in a text input took back one character at a time, on every system: each key typed was a step
+  of its own. Seen on a Mac through MCP on 2026-11-18.
+- **Decision (Ivan, 2026-11-18: "давай групування як на маці", then "нам треба шоб на маку як на маку працювало, а
+  на віндовс як на віндовс").** What is typed is one step, as the platform's own text fields group it:
+  - **macOS and iOS** (`NSTextView`, `UITextView`): a run of typing is one step until the caret is moved or the
+    selection changed, or the run turns from typing to deleting or back. Backspace held down is one step, as is
+    Delete.
+  - **Windows** (WinUI's `TextBox`, Notepad, Word): a word typed, with the spaces after it, is a step; the next word
+    begins the next one. Moving the caret and turning from typing to deleting end a step as on a Mac.
+  - Elsewhere (Linux, a browser) as on a Mac.
+  A paste, a cut, a deletion of a selection and what the app puts in are each a step of their own.
+- **A pause ends a step (Ivan, the same day, at the Mac: "я пишу частину, потім ще через 2 сек і воно все
+  зтирається", then "да - давай, і настройкою в App").** On every system, typing that comes more than a second after
+  the typing before is a step of its own, as in a browser. The app sets how long
+  (`App::set_typing_undo_pause(Some(duration))`), or none (`None`), when only the caret and the kind of edit end a
+  step.
+- **Why.** A person undoes what they typed as they would in any other app of the system.
+- **State.** In work on `feat/design-system`. Windows' grouping is written from what is known of its fields, not
+  seen on a PC: to be tried there.
+
+### On macOS every app has an Edit menu, which it can turn off or put in its own place
+
+- **Question.** On a Mac the menu bar of an app of lurq's was winit's, or the app's own (`App::set_menu_bar`), and
+  neither had an Edit menu: no Undo, Cut, Copy, Paste or Select All to be seen or clicked, no Emoji & Symbols, and
+  its keys reached the window as keys alone. The gallery declares no menu.
+- **Decision (Ivan, 2026-11-18, at the Mac: "давай додамо", then "і можна вимкнути або заоверрайдити").** lurq puts
+  an Edit menu in every app's bar on a Mac: Undo, Redo, Cut, Copy, Paste, Select All with their keys, and the
+  system's Emoji & Symbols, in the words of the app's locale. Each item runs what its key runs on the focused
+  element (`WindowHandle::edit`, `EditCommand`). An app with no bar of its own gets the system's menu of the app
+  and the Edit menu after it. An app turns it off (`App::set_edit_menu(false)`), or puts its own: a menu of its
+  bar that has an item of editing (`MenuAction::edit(EditCommand::..)`, or the whole of `Menu::edit()` with items
+  of its own added) is the Edit menu, where the app put it, and lurq adds none.
+- **Why.** Every app on a Mac has one: it is where a person looks for Undo and Paste, and where the system puts
+  emoji and dictation. As the menu takes Cmd+Z before the window, an app that wants the key for itself turns the
+  menu off.
+- **State.** Built on `feat/design-system`; Ivan tried it on a Mac.
+
 ### On macOS the system's lights are the window's controls, and the bar stays in full screen
 
 - **Question.** On a Mac the gallery's bar drew three lights of its own: no menu of tilings under the pointer on the
@@ -84,6 +123,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   screen the system shows its lights with its own bar at the top of the screen, and the app's bar stays, its tabs
   with it, as Safari and the Finder keep theirs; what is laid over the whole window (a video that fills the screen, a
   sheet) has all of it there. Whether the window is in full screen is read again every turn. Windows is as before.
+- **In full screen the bar has no lights (Ivan, the same day, at the Mac: "дивно що маковськи три кнопки лишаються
+  на фулл скріні, там же згори в фулскріні появляється смуг сама").** The system's bar that comes down at the top
+  of the screen has the lights; the app's bar does not draw its own under it, and its tabs start where the lights
+  were.
 - **State.** Built on `feat/design-system`; looked at on a Mac out of full screen, in full screen to be looked at.
 
 ### A video plays on macOS and iOS, with the system's player
