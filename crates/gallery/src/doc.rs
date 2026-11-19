@@ -5,7 +5,6 @@
 //! The sizes here are the design's (`pencil/lurq-design-system-demo.pen`).
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use lurq::{
@@ -41,9 +40,6 @@ const READING_LINE_IN_WINDOW: f32 = 240.0;
 /// What scrolls the pages of a tab, said by the tab to the pages in it: the list of a page's sections follows it.
 #[derive(Clone)]
 pub struct PageScroll(pub ElementRef);
-/// The design system's board, from the root of the repository.
-#[cfg(not(target_arch = "wasm32"))]
-const BOARD: &str = "pencil/lurq-design-system.pen";
 
 /// What a page says of itself above its sections.
 pub struct Header {
@@ -272,35 +268,10 @@ fn prose(content: &str, size: f32) -> Text {
   .color(PaletteColor::MutedForeground)
 }
 
-/// The root of the repository the gallery was built from. None on a phone or a tablet: the app has no way to the
-/// files, and nothing there to open them with.
-#[cfg(not(target_arch = "wasm32"))]
-fn repository() -> Option<PathBuf> {
-  if cfg!(target_os = "ios") {
-    return None;
-  }
-  Some(Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?.to_path_buf())
-}
-
-/// Where the repository's files are shown on the web, on the branch the gallery is published from.
-#[cfg(target_arch = "wasm32")]
+/// Where the repository's files are shown on the web: master, the branch the gallery is published from.
 const REPOSITORY_FILES: &str = "https://github.com/ivanzaida/lurq/blob/master";
 
-/// Opens a file in what the system opens it with: a source file in an editor, a board in Pencil.
-#[cfg(not(target_arch = "wasm32"))]
-fn open(path: &Path) {
-  let program = if cfg!(target_os = "windows") {
-    "explorer"
-  } else if cfg!(target_os = "macos") {
-    "open"
-  } else {
-    "xdg-open"
-  };
-  let _ = std::process::Command::new(program).arg(path).spawn();
-}
-
-/// What a page offers beside its name in a browser: its source, on GitHub. A page has no files to open.
-#[cfg(target_arch = "wasm32")]
+/// What a page offers beside its name: its source, on GitHub, in the browser. Every build alike, a phone's too.
 fn page_actions(source: &'static str) -> Row {
   let address = format!("{REPOSITORY_FILES}/{}", source.replace('\\', "/"));
   Row::new().spacing(8.0).align_items(Alignment::Center).child(
@@ -312,32 +283,6 @@ fn page_actions(source: &'static str) -> Row {
         let _ = lurq::app::open_url(&address);
       }),
   )
-}
-
-/// What a page offers beside its name: its source, and the design it is built from. Each is there when the
-/// gallery runs from the repository, where the file is.
-#[cfg(not(target_arch = "wasm32"))]
-fn page_actions(source: &'static str) -> Row {
-  let mut actions = Row::new().spacing(8.0).align_items(Alignment::Center);
-  let Some(root) = repository() else {
-    return actions;
-  };
-  let action = |label: &str, glyph: &str, file: PathBuf| {
-    Button::new(label)
-      .variant(ButtonVariant::Outline)
-      .size(ButtonSize::Sm)
-      .icon(glyph)
-      .on_click(move |_| open(&file))
-  };
-  let file = root.join(source);
-  if file.is_file() {
-    actions = actions.child(action("View source", "code", file));
-  }
-  let board = BOARD.split('/').fold(root, |path, part| path.join(part));
-  if board.is_file() {
-    actions = actions.child(action("Open in Pencil", "external-link", board));
-  }
-  actions
 }
 
 /// The least width of the page's column with the actions of its header beside the title.
