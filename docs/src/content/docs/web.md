@@ -8,8 +8,11 @@ draws the same component tree to a canvas, through WebGPU, or through WebGL2 in 
 (feature `webgl`). The components, the layout, the theme and the events are the ones of a desktop. This page
 says what an app has to set up, what a page does differently, and how to build and serve one.
 
-It is a first step. What was run was run in Chromium and in Firefox, with a mouse and a hardware keyboard; what
-is not done yet is summed up [at the end](#not-done-yet) and listed in full in `docs/web-gaps.md` in the repository.
+The browser is a supported platform, beside Windows, macOS and iOS: every page of the gallery works there, and
+what a desktop has works there or has the browser's own equivalent. What a page cannot do is the platform's limit,
+said in [What a page cannot do](#what-a-page-cannot-do); what is not done yet is [at the end](#not-done-yet), and
+in full in `docs/web-gaps.md` in the repository. What to look at by hand in Chrome, Edge, Firefox and Safari is
+`design/browser-checks.md`.
 
 The gallery (`crates/gallery`) is a complete example:
 
@@ -85,13 +88,42 @@ not start.
 ### Building and serving
 
 ```powershell
-cargo build -p app --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --no-typescript --out-dir dist --out-name app target/wasm32-unknown-unknown/release/app.wasm
+cargo build -p app --target wasm32-unknown-unknown --profile web
+wasm-bindgen --target web --no-typescript --remove-name-section --out-dir dist --out-name app target/wasm32-unknown-unknown/web/app.wasm
 ```
 
 `dist` then has `app.js` and `app_bg.wasm`. Put the page and the fonts beside them and serve the directory
 with any server of static files that sends `.wasm` as `application/wasm`. A page opened from the disk
 (`file://`) does not load a module.
+
+### Size
+
+What a page downloads is its size, so a page is built for it. The workspace's `web` profile is release with
+`opt-level = "z"`, and `--remove-name-section` drops the names of the module's functions, which only a debugger
+reads:
+
+```toml
+[profile.web]
+inherits = "release"
+opt-level = "z"
+```
+
+The gallery, every component and its pages, is a module of 25.0 MB, 8.6 MB as a server that compresses sends it
+(gzip). Built with release's `opt-level = 3` it is 38.7 MB (11.6 MB): its frames and its first frame measured the
+same (`scripts/gallery-web-bench.py`). Serve the module compressed: a static server that does not, sends the
+whole of it. `wasm-opt` (binaryen) takes a little more off the size of the module and is not needed.
+
+### The first frame
+
+The page's performance timeline has a mark, `lurq:first-frame`, at the first frame the app presents: what a page's
+own script, a profiler or a test measures the start of the app by.
+
+```js
+performance.getEntriesByName("lurq:first-frame")[0].startTime
+```
+
+The gallery's, served from `localhost`: about 750 ms on its first load, which compiles the module, and 150 to 400
+ms after, when the browser has the compiled module cached.
 
 A browser has WebGPU for a page served from `localhost` or over HTTPS, and for no other. WebGL2 is there on
 any page. The clipboard is the browser's to give on the same terms as WebGPU.
@@ -170,6 +202,7 @@ A font put into the binary with `include_bytes!` is loaded as on a desktop and n
 of the page's first download.
 
 The fonts are the app's to ship: a font of the system it was built on may not be the app's to publish.
+The gallery ships Inter and JetBrains Mono, under the SIL Open Font License (`crates/gallery/web/fonts`).
 
 ### The loop
 
@@ -259,9 +292,11 @@ A page has one thread, and `std::thread::spawn` fails on it.
 
 What the browser calls on that thread between the loop's turns, such as a promise of the app's own that settled or a listener it put on the page, may write a signal as another thread may on a desktop: the loop is woken and draws what changed.
 
-Images decode on that thread, each after the turn of the loop that asked for it, so a large image holds
-frames back while it decodes. `DecodedImages::wait_idle` cannot wait there: it tells whether a decode is
-pending.
+A picture is decoded by the browser, off that thread (`createImageBitmap`), and made smaller there when the
+picture is asked for at a smaller size: a large photo does not hold frames back. Its pixels are read back as the
+`image` crate gives them, unpremultiplied and in the picture's own colors. What the browser does not decode (a TIFF;
+an ICO in some browsers) and an SVG, which lurq draws itself, are decoded on the page's thread after the turn of
+the loop that asked for them. `DecodedImages::wait_idle` cannot wait there: it tells whether a decode is pending.
 
 ### The clipboard
 
@@ -273,7 +308,11 @@ With the `clipboard` feature:
   [`PasteEvent`](../styling-events/#paste). When the browser refuses, what the page copied last is pasted.
 - `read_from_clipboard` and `read_clipboard` return what the page copied last: a page cannot read the system
   clipboard without waiting.
-- Only text crosses. `copy_image_to_clipboard` and `copy_files_to_clipboard` return `false`.
+- A picture crosses as a PNG. `copy_image_to_clipboard` writes one; a paste reads the clipboard's items, a PNG and
+  text, and gives the picture to [`PasteEvent`](../styling-events/#paste) as on a desktop. Chrome and Edge ask the
+  person the first time a page reads the clipboard; Firefox shows a button to press beside the pointer; Safari
+  reads only in the press of a paste the person made. A browser that refuses the items gives the text alone.
+- Files do not cross: `copy_files_to_clipboard` returns `false`, and a paste has no files. A page has no paths.
 
 ### Input
 
@@ -293,6 +332,67 @@ With the `clipboard` feature:
   Chrome or Edge has zoomed (80 pixels a notch at 125%), on a system set to scroll other than three lines a
   notch, in Firefox on a page whose root font is much larger, and on macOS, where a notch is the distance the
   system made of it and nothing tells it from a touchpad's.
+- Text that comes other than as keys reaches a text input as on a desktop: an input method's composition (shown
+  underlined until it is committed), a dead key and its letter, a phone's keyboard, dictation and the system's
+  panel of emoji. While a text input has the focus, the page's focus is on a transparent textarea of the shell's
+  own at the input's caret, where the input method's window opens; its keys go on to the canvas as before, and
+  what it is given as text is the input's. A delete a phone's keyboard asks for is the input's Backspace.
+- A finger is a touch, as on iOS: a tap presses, a drag scrolls, the gestures [iOS](../ios/#touch) tells are told.
+  A pen is the browser's pen (`pointerType`): it presses as `PointerKind::Pen`, with its pressure.
+
+### Sound
+
+With the `media` feature, `Media::sound` and `ui::AudioPlayer::source` play in a page's own `<audio>`: an address
+as it is, which the browser reads as it plays and may read from another server without asking it (an `<audio>` is
+not bound by CORS, as a `fetch` is); a file or a resource as the page's own file at that path; bytes as a blob of
+the page. Play, pause, seek, the rate, the volume and muted are done at once, and the media's events are told as
+on a desktop: `on_load`, `on_playing_change`, `on_waiting_change`, `on_ended`, `on_error`. Nothing is loaded
+whole before it plays, and nothing is kept: the browser keeps what it keeps of what pages load.
+
+A browser starts a sound only in the press or the key that asked for it, or a moment after: a sound told to play
+with no person's press (as the page opens) is paused again, and its state says it does not play.
+
+A video is not played in a browser: `Media::open` says `MediaError::Unavailable`. What a desktop does with no
+copy of each frame, a browser does through an external texture (`importExternalTexture`), which wgpu's backend
+for the web does not implement yet (wgpu 30).
+
+### Loading files and addresses
+
+A load of the app's [`Loader`](../resources-media/#loading) reads with the page's `fetch`: an address, and a file or a
+resource of the app, which in a browser is the page's own file at that path, read from beside the page. The
+loader's headers, timeout and limit hold; a header the browser keeps to itself (`User-Agent`, `Cookie`) is not
+sent.
+
+The browser decides what a page may read. An address on another server is read only where that server lets the
+page's origin read it (CORS); most pages of the web do not, and a link preview of one fails with a sentence that
+names both causes, the network and CORS: the browser tells the page no more. An app reads such addresses through
+a server of its own:
+
+```rust
+loader.proxy(|address| format!("https://example.com/fetch?url={address}"));
+```
+
+`Loader::proxy` is there on every platform; what the app's server does with the address is the app's.
+
+### Files
+
+With the `file_dialog` feature, `FileDialog::pick` opens the browser's file input, which only a press may open.
+A file chosen has its name, its size and its bytes, read as it is chosen: `DroppedFile::read` gives them on every
+platform (from its path on a desktop). `FileDialog::save` hands bytes to the browser as a download of the dialog's
+file name, where on a desktop it opens the dialog for where to save and writes the file. There is no dialog for a
+folder or for where to save: `pick_folder` and `pick_save` give nothing.
+
+Files dragged onto the page from the system reach the element under them as on a desktop
+([file drag and drop](../styling-events/#file-drag-and-drop)). While they hover the browser tells only
+their kinds, so each is named `dragged/<n>.<extension of its kind>` until it is dropped; on the drop they are read,
+and `DroppedFile::from_path` of a dropped path is the file with its bytes.
+
+### The store
+
+With the `persistent_storage` feature, `PersistentStorage::open(name)` keeps the values in the page's
+`localStorage`, under `lurq:<name>:`, where a desktop keeps a file: what a page keeps between visits of the same
+origin. A browser keeps a few megabytes for an origin, and the person may clear them with the site's data; a store
+that is full says so in its error.
 
 ### Shaders
 
@@ -307,12 +407,13 @@ line too, or its pipeline is invalid in a browser and valid everywhere else.
 
 | Command | Does |
 | --- | --- |
-| `python scripts/gallery-web.py` | Builds into `target/gallery-web`: the module, the page, the fonts |
+| `python scripts/gallery-web.py` | Builds into `target/gallery-web` with the `web` profile: the module, the page, the fonts |
 | `... --serve` | Builds, then serves on `http://127.0.0.1:8123` |
 | `... --no-build` | Serves what is already built |
 | `... --port 9000` | Serves on another port |
 | `... --dev` | An unoptimised build: quicker to build, slower to run |
 | `... --fonts DIR` | Copies the page's fonts from `DIR` |
+| `... --system-fonts` | Copies Windows' Segoe UI and Consolas, as the desktop gallery draws there; not to publish |
 
 The page fetches its fonts from `fonts/` beside it. `fonts/index.txt` names them: a file a line, and the
 families the generic ones draw with.
@@ -326,9 +427,10 @@ Inter-Bold.ttf
 JetBrainsMono-Regular.ttf
 ```
 
-Without `--fonts`, on Windows, the script copies the system's Segoe UI and Consolas, so the page looks as the
-desktop gallery does. Those are Microsoft's and are not to be published: a gallery put on a server needs
-`--fonts` with fonts it may ship.
+The script copies the gallery's own fonts, Inter and JetBrains Mono, under the SIL Open Font License
+(`crates/gallery/web/fonts`): a gallery put on a server may ship them. `--system-fonts`, on Windows, copies the
+system's Segoe UI and Consolas instead, so the page looks as the desktop gallery does there; those are Microsoft's
+and are not to be published.
 
 The address names the page and the backend: `index.html#/button` is the Button page, and follows the
 gallery as it goes from page to page; `?backend=webgl` draws through WebGL2.
@@ -344,20 +446,33 @@ gallery as it goes from page to page; `?backend=webgl` draws through WebGL2.
 - **The module does not load.** The CLI and the crate of wasm-bindgen differ, or the server does not send
   `.wasm` as `application/wasm`.
 
+## What a page cannot do
+
+What follows is the browser's, not lurq's: no app in a page does it.
+
+- **Threads.** A page has one thread: `std::thread::spawn` fails, nothing waits for another thread, and what a
+  desktop does off the loop (a decode, a load) the browser does, and answers between the loop's turns.
+- **The clipboard without asking.** A page reads the system clipboard only through the browser, which may ask the
+  person first; at once it reads only what it copied itself. Files do not cross the clipboard.
+- **Paths.** A page reads no file by its path and is given none: a file chosen or dropped comes with its bytes, a
+  file is saved as a download, and there is no dialog for a folder.
+- **Another server's addresses.** A `fetch` of another server is read only where that server allows the page's
+  origin (CORS): an app reads the others through a server of its own ([`Loader::proxy`](#loading-files-and-addresses)).
+- **Sound by itself.** A sound starts only in, or right after, a person's press or key.
+- **Listening.** A page cannot listen on a socket: no [MCP server](../mcp/) runs in it.
+- **The system's fonts.** A page cannot read them: it brings its own ([The fonts](#the-fonts)).
+- **Its window.** The page lays out the canvas: no size, position, title bar, minimize or maximize of the app's,
+  and `WindowHandle::close` stops the loop and leaves the page.
+
 ## Not done yet
 
 `docs/web-gaps.md` in the repository has each of these with what it takes.
 
-- Text typed through an input method, a dead key or a phone's keyboard: only the keys of a hardware keyboard
-  reach a text input. A finger on a touch screen was not tried.
-- More than one window, and with it [DevTools](../devtools/). Native menus, file dialogs and file drags.
-- Features. The gallery's set runs in a browser: `winit`, `wgpu`, `webgl`, `router`, `clipboard`, `image`.
-  `markdown`, `canvas` (SVG with it), `form` and `query` build for it and have not all been run there. `mcp`,
-  `devtools`, `persistent_storage`, `tokio`, `screenshot` and `dx12` rest on threads, sockets, files or Direct3D
-  and were not tried.
-- Browsers. Chromium and Firefox were run, Safari was not. WebGL2 was run in Chromium by asking for it; no
-  browser without WebGPU was tried, and on WebGL2 SVG and video frames (NV12) were not looked
-  at.
+- **Video.** A video waits for wgpu to take the page's frames without a copy ([Sound](#sound)).
+- More than one window, and with it [DevTools](../devtools/). Native menus.
+- Browsers. Chrome and Edge (Chromium) were run, with a mouse, a keyboard, a pen and touch emulated by the
+  browser, through WebGPU and WebGL2; Firefox and Safari, and a phone's browser, are checked by hand with
+  `design/browser-checks.md`.
 - The address is the fragment only: a path of the address itself (`/button`, which a server has to send
   the page for) is not followed, and the page's title does not change with the screen.
 - A page reader finds nothing in a canvas, and the browser's own search and selection see no text.

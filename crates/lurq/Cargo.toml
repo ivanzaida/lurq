@@ -102,7 +102,8 @@ markdown = ["dep:pulldown-cmark", "dep:unicode-bidi", "dep:unicode-linebreak"]
 http = ["dep:ureq"]
 # `ui::find_matches` takes a regular expression where its options say so (`FindOptions::regex`).
 regex = ["dep:regex"]
-# Values kept on the disk between runs (`lurq::persistent_storage`, `#[derive(PersistentValue)]`).
+# Values kept on the disk between runs (`lurq::persistent_storage`, `#[derive(PersistentValue)]`); in a browser, in
+# the page's `localStorage`.
 persistent_storage = ["dep:redb"]
 # JSON: an app's translations read from JSON (`I18n::from_json`), and the Profiler's recording files.
 serde = ["dep:serde_json"]
@@ -156,7 +157,6 @@ unicode-linebreak = { version = "0.1.5", optional = true }
 # Grapheme boundaries inside a ligature, as cosmic-text splits them.
 unicode-segmentation = "1.12"
 raw-window-handle = "0.6"
-redb = { version = "4.1.0", optional = true }
 # Regular expressions in `ui::find_matches`, the search of a find bar's text.
 regex = { version = "1.13", optional = true }
 swash = "0.2.10"
@@ -192,6 +192,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["r
 # The system clipboard. A browser has none `arboard` can reach: see `clipboard::web`.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 arboard = { version = "3", optional = true }
+# The store of a desktop and a phone, a file (`persistent_storage`); a page keeps it in `localStorage`.
+redb = { version = "4.1.0", optional = true }
 
 # The browser: the page's canvas, its clipboard, and the promises a GPU device comes from.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -201,7 +203,49 @@ js-sys = "0.3"
 # The page's clock, behind `lurq::time`: std's `Instant::now` and `SystemTime::now` panic in a browser.
 web-time = "1"
 web-sys = { version = "0.3", features = [
+    # What a load reads through the page's `fetch` (`resources`).
+    "AbortController",
+    "AbortSignal",
+    "Headers",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+    "RequestInit",
+    "Response",
+    # The store of a page (`persistent_storage`).
+    "Storage",
+    # A sound, played by the page's `<audio>` (`media`).
+    "HtmlAudioElement",
+    "HtmlMediaElement",
+    "MediaError",
+    "Url",
+    # Text composed or inserted, taken from a textarea of the shell's (`winit_shell::web_text`).
+    "CompositionEvent",
+    "DomRect",
+    "HtmlTextAreaElement",
+    "InputEvent",
+    "KeyboardEvent",
+    "KeyboardEventInit",
+    # Files dragged onto the page (`winit_shell::web_drop`).
+    "DataTransfer",
+    "DataTransferItem",
+    "DataTransferItemList",
+    "DragEvent",
+    "FileList",
+    # Pictures decoded by the browser (`images::decoded::web_decode`).
+    "ColorSpaceConversion",
+    "ImageBitmap",
+    "ImageBitmapOptions",
+    "ImageData",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
+    "PremultiplyAlpha",
+    "ResizeQuality",
+    # A file saved as a download (`files::FileDialog::save`).
+    "HtmlAnchorElement",
     "Clipboard",
+    # A picture on the clipboard, as a PNG (`clipboard::web`).
+    "BlobPropertyBag",
+    "ClipboardItem",
     "CssStyleDeclaration",
     "Document",
     "Element",
@@ -219,6 +263,8 @@ web-sys = { version = "0.3", features = [
     "MouseEvent",
     "Navigator",
     "Node",
+    # The mark of the first frame in the page's timeline.
+    "Performance",
     # A pen's pointer events, which winit gives as the mouse's (`winit_shell::web::PenPointer`).
     "PointerEvent",
     "PopStateEvent",

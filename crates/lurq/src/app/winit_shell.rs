@@ -55,6 +55,10 @@ mod touch_delivery_tests;
 mod trackpad_gestures;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(target_arch = "wasm32")]
+mod web_drop;
+#[cfg(target_arch = "wasm32")]
+mod web_text;
 #[cfg(any(target_arch = "wasm32", test))]
 mod web_wheel;
 
@@ -80,7 +84,9 @@ type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
 
 pub struct WinitWindow {
   app: App,
-  tree: Tree,
+  // A tree is some 11 KB: boxed, the window's builders and the loop hand on a pointer, where a build without
+  // optimizations kept a copy of the whole on the stack at each step.
+  tree: Box<Tree>,
   attrs: WindowAttributes,
   start_without_focus: bool,
   corner_radius: Option<WindowCornerRadius>,
@@ -94,7 +100,7 @@ impl WinitWindow {
   pub fn new(app: App, tree: Tree) -> Self {
     Self {
       app,
-      tree,
+      tree: Box::new(tree),
       attrs: WindowAttributes::default(),
       start_without_focus: false,
       corner_radius: None,
@@ -338,7 +344,7 @@ impl WinitWindow {
 }
 
 struct ManagedWindow {
-  tree: Tree,
+  tree: Box<Tree>,
   window: Option<Window>,
   cursor_pos: (f64, f64),
   cursor: CursorIcon,
@@ -370,6 +376,12 @@ struct ManagedWindow {
   /// Whether the mouse's events are a pen's; see [`web::PenPointer`].
   #[cfg(target_arch = "wasm32")]
   pen_pointer: Option<web::PenPointer>,
+  /// The textarea composed and inserted text comes to; see `web_text`.
+  #[cfg(target_arch = "wasm32")]
+  web_text: Option<web_text::WebText>,
+  /// Files dragged onto the page; see `web_drop`.
+  #[cfg(target_arch = "wasm32")]
+  web_drop: Option<web_drop::WebDrop>,
   /// The phone or tablet the window emulates, with the mouse as its fingers; see [`App::emulate`].
   emulator: Option<crate::app::runtime::mouse_fingers::MouseFingers>,
   /// The status bar was last asked to be hidden.
@@ -401,7 +413,7 @@ struct ManagedWindow {
 
 impl ManagedWindow {
   fn new(
-    tree: Tree,
+    tree: Box<Tree>,
     attrs: WindowAttributes,
     start_without_focus: bool,
     corner_radius: Option<WindowCornerRadius>,
@@ -439,6 +451,10 @@ impl ManagedWindow {
       wheel_pointer: None,
       #[cfg(target_arch = "wasm32")]
       pen_pointer: None,
+      #[cfg(target_arch = "wasm32")]
+      web_text: None,
+      #[cfg(target_arch = "wasm32")]
+      web_drop: None,
       emulator: None,
       #[cfg(target_os = "ios")]
       status_bar_hidden: false,
@@ -579,6 +595,8 @@ impl ManagedWindow {
     {
       self.wheel_pointer = web::WheelPointer::watch(&window);
       self.pen_pointer = web::PenPointer::watch(&window);
+      self.web_text = web_text::WebText::new(&window, self.tree.window().loop_waker());
+      self.web_drop = web_drop::WebDrop::new(&window, self.tree.window().loop_waker());
     }
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
@@ -890,6 +908,10 @@ impl ManagedWindow {
       set_window_cursor(w, &mut self.cursor, self.tree.cursor());
       // The pass painted the focused input's caret where it now is.
       self.ime.apply(w, &self.tree);
+      #[cfg(target_arch = "wasm32")]
+      if let Some(web_text) = &mut self.web_text {
+        web_text.follow(&self.tree);
+      }
       // The pass laid the window's controls out: the system's lights go where the app's are.
       #[cfg(target_os = "macos")]
       self.native_controls.apply(w, &self.tree);
@@ -902,6 +924,8 @@ impl ManagedWindow {
       let presented = report.rendered;
       let mut paint_duration = Duration::ZERO;
       if presented {
+        #[cfg(target_arch = "wasm32")]
+        web::mark_first_frame();
         let now = Instant::now();
         self.frames.presented(PresentedFrame {
           started: pass_started_at,
@@ -1111,8 +1135,9 @@ impl ManagedWindow {
         }
       }
       WindowEvent::Resized(size) => {
-        // On iOS the event's size is the safe area's, and the tree is as large as the screen.
-        #[cfg(target_os = "ios")]
+        // On iOS the event's size is the safe area's, and the tree is as large as the screen. In a browser it can
+        // be the canvas's CSS size, not its pixels' (`surface_size`).
+        #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
         let size = self.window.as_ref().map_or(size, surface_size);
         self.tree.resize(size.width, size.height);
         self.sync_window_state();
@@ -2487,16 +2512,38 @@ impl ApplicationHandler for WinitHandler {
       self.main.check_redraw();
       self.check_secondary_redraw();
     }
-    // The text of a paste the browser has answered; see `clipboard::web`.
+    // What a paste the browser has answered holds; see `clipboard::web`.
     #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
-    if let Some(text) = crate::clipboard::web::take_pasted() {
+    if let Some(pasted) = crate::clipboard::web::take_pasted() {
       // What this page copied with its Markdown, where the clipboard still holds what it wrote: the plain text,
       // and the Markdown beside it.
       use crate::app::events::ClipboardContent;
-      self.main.tree.paste(match crate::app::runtime::copied_rich(&text) {
-        Some((plain, markdown)) => ClipboardContent::text(plain).with_markdown(markdown),
-        None => ClipboardContent::text(text),
-      });
+      let mut content = match pasted.text {
+        Some(text) => match crate::app::runtime::copied_rich(&text) {
+          Some((plain, markdown)) => ClipboardContent::text(plain).with_markdown(markdown),
+          None => ClipboardContent::text(text),
+        },
+        None => ClipboardContent::empty(),
+      };
+      if let Some(image) = pasted.image {
+        content = content.with_image(image);
+      }
+      self.main.tree.paste(content);
+    }
+    // What came to the page as text and not as keys: see `web_text`.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(typed) = self.main.web_text.as_ref().map(web_text::WebText::take)
+      && !typed.is_empty()
+    {
+      web_text::give(&mut self.main.tree, typed);
+      self.main.check_redraw();
+    }
+    // Files dragged onto the page: see `web_drop`.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(web_drop) = &self.main.web_drop
+      && web_drop.give(&mut self.main.tree)
+    {
+      self.main.check_redraw();
     }
     self.main.tick();
     // What the person set for the whole system, read again each turn: it is a few calls, and the loop turns
@@ -2615,7 +2662,7 @@ impl ApplicationHandler for WinitHandler {
         .iter()
         .filter_map(|secondary_window| self.main.tree.secondary_window(secondary_window.index()))
         .map(|secondary| secondary.tree())
-        .chain(std::iter::once(&self.main.tree))
+        .chain(std::iter::once(&*self.main.tree))
     };
     let next_redraw = trees().filter_map(Tree::next_scheduled_redraw).min();
     // A file drag hovering over a window reads the pointer at its poll
@@ -2695,14 +2742,19 @@ impl ApplicationHandler for WinitHandler {
 fn surface_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
   #[cfg(target_os = "ios")]
   return window.outer_size();
-  // A canvas's size reaches winit from an observer: until it has run, the size is read from the page.
+  // A canvas's size reaches winit from an observer: until it has run, the size is read from the page. The
+  // observer's is taken when it agrees with the page's: it is the exact count of the canvas's pixels, where the
+  // page's is its CSS size times the ratio, rounded. It does not always agree: Chromium's device emulation tells
+  // the CSS size as the pixels', and a surface that size is stretched over the canvas, everything 1.5 times too
+  // large at a ratio of 1.5.
   #[cfg(target_arch = "wasm32")]
   {
     let size = window.inner_size();
-    if size.width == 0 || size.height == 0 {
-      return web::canvas_size(window).unwrap_or(size);
-    }
-    return size;
+    return match web::canvas_size(window) {
+      Some(page) if web::size_disagrees(size, page) => page,
+      Some(page) if size.width == 0 || size.height == 0 => page,
+      _ => size,
+    };
   }
   #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
   window.inner_size()

@@ -105,7 +105,7 @@ pub fn read_clipboard() -> Option<ClipboardContent> {
 /// Puts an RGBA image on the clipboard, as other programs paste it: Windows
 /// gets a DIB, macOS a TIFF and PNG. Rows are `width * 4` bytes, top to
 /// bottom. `false` for a size the bytes do not fill, or a clipboard that
-/// cannot be opened; always `false` in a browser.
+/// cannot be opened. A browser takes it as a PNG.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn copy_image_to_clipboard(width: u32, height: u32, rgba: &[u8]) -> bool {
   let Ok(image) = ClipboardImage::from_rgba(width, height, rgba.to_vec()) else {
@@ -123,9 +123,10 @@ pub fn copy_image_to_clipboard(width: u32, height: u32, rgba: &[u8]) -> bool {
     .is_ok()
 }
 
+/// In a browser, a PNG of it through the async Clipboard API; see `clipboard::web`.
 #[cfg(target_arch = "wasm32")]
-pub fn copy_image_to_clipboard(_width: u32, _height: u32, _rgba: &[u8]) -> bool {
-  false
+pub fn copy_image_to_clipboard(width: u32, height: u32, rgba: &[u8]) -> bool {
+  web::copy_image(width, height, rgba)
 }
 
 /// Puts file paths on the clipboard, as Explorer and Finder copy files.

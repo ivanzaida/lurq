@@ -23,7 +23,6 @@ mod kit;
 mod narrow;
 mod pages;
 mod playground;
-#[cfg(not(target_arch = "wasm32"))]
 mod scene;
 mod shell;
 #[cfg(test)]

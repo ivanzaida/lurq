@@ -604,80 +604,87 @@ pub(crate) fn engine_style(
   if let Some(color) = &value.foreground {
     text = text.text_color(color.clone());
   }
-  let mut style = SelectStyle::unstyled()
-    .trigger(text)
-    .placeholder_text(ink(theme, &placeholder));
+  // The style is written field by field, not through its builders: each builder takes the whole style and gives it
+  // back, and a build without optimizations keeps a copy of it on the stack for each, some 450 KB of stack here,
+  // which overflowed the main thread's where a select is drawn deep in a page (a table's filter row).
+  let mut style = SelectStyle::unstyled();
+  style.trigger = text;
+  style.placeholder_text = Some(ink(theme, &placeholder));
   if let Some(gap) = rest.gap {
-    style = style.trigger_gap(gap);
+    style.trigger_gap = gap;
   }
   let states = trigger.styles();
   if !states.hovered.is_empty() {
-    style = style.trigger_hovered(engine_part(&states.hovered, theme));
+    style.trigger_hovered = Some(engine_part(&states.hovered, theme));
   }
   if !states.focus_visible.is_empty() {
-    style = style.trigger_focused(engine_part(&states.focus_visible, theme));
+    style.trigger_focused = Some(engine_part(&states.focus_visible, theme));
   }
   // Merged over the trigger last while the list is open: the whole of the trigger as the open case has it.
-  style = style.trigger_open(engine_part(
+  style.trigger_open = Some(engine_part(
     &in_state(SelectState::Open.into()).part(Trigger).rest(),
     theme,
   ));
 
   let chevron = recipe.part(Chevron).forced(forced).rest();
-  style = style.chevron(icon(icons::CHEVRON_DOWN, &chevron, theme));
+  style.chevron = icon(icons::CHEVRON_DOWN, &chevron, theme);
   if let Some(color) = &chevron.foreground {
-    style = style.chevron_color(color.clone());
+    style.chevron_color = Some(color.clone().into());
   }
 
   // The list is not forced: a forced interaction is the trigger's.
   let menu = recipe.part(Panel).rest();
-  style = style
-    // Its height is the most it is, which the engine says apart: not the least the panel is.
-    .menu(engine_part(&PartStyle { height: None, ..menu.clone() }, theme))
-    .menu_gap(spacing(menu.gap, theme).unwrap_or(4.0));
+  // Its height is the most it is, which the engine says apart: not the least the panel is.
+  style.menu = engine_part(
+    &PartStyle {
+      height: None,
+      ..menu.clone()
+    },
+    theme,
+  );
+  style.menu_gap = spacing(menu.gap, theme).unwrap_or(4.0);
   if let Some(height) = px(menu.height, theme) {
-    style = style.max_menu_height(height);
+    style.max_menu_height = height;
   }
   // The list is as wide as its trigger, or as its least width where that is more: a narrow trigger's list holds
   // its options whole.
   if let Some(width) = px(menu.min_width, theme) {
-    style = style.min_menu_width(width);
+    style.min_menu_width = width;
   }
 
   let item = recipe.part(Item);
   let chosen = in_state(SelectState::Selected.into()).part(Item);
-  style = style
-    .option(engine_part(&item.rest(), theme))
-    .option_selected(engine_part(&chosen.rest(), theme))
-    .option_disabled(engine_part(
-      &in_state(SelectState::Disabled.into()).part(Item).rest(),
-      theme,
-    ))
-    .option_detail(engine_part(&recipe.part(Detail).rest(), theme))
-    .option_hint(engine_part(&recipe.part(Hint).rest(), theme))
-    .group_label(engine_part(&recipe.part(Group).rest(), theme))
-    .separator(engine_part(&recipe.part(Separator).rest(), theme));
+  style.option = engine_part(&item.rest(), theme);
+  style.option_selected = Some(engine_part(&chosen.rest(), theme));
+  style.option_disabled = Some(engine_part(
+    &in_state(SelectState::Disabled.into()).part(Item).rest(),
+    theme,
+  ));
+  style.option_detail = engine_part(&recipe.part(Detail).rest(), theme);
+  style.option_hint = engine_part(&recipe.part(Hint).rest(), theme);
+  style.group_label = engine_part(&recipe.part(Group).rest(), theme);
+  style.separator = engine_part(&recipe.part(Separator).rest(), theme);
   // The item under the keys looks as the one under the pointer does.
   if !item.styles().hovered.is_empty() {
-    style = style.option_hovered(engine_part(&item.styles().hovered, theme));
+    style.option_hovered = Some(engine_part(&item.styles().hovered, theme));
   }
   if !chosen.styles().hovered.is_empty() {
-    style = style.option_selected_hovered(engine_part(&chosen.styles().hovered, theme));
+    style.option_selected_hovered = Some(engine_part(&chosen.styles().hovered, theme));
   }
   if let Some(gap) = item.rest().gap {
-    style = style.checkmark_gap(gap).option_adornment_gap(gap);
+    style.checkmark_gap = gap.into();
+    style.option_adornment_gap = gap.into();
   }
 
   let check = in_state(SelectState::Selected.into()).part(Check).rest();
-  style = style
-    .checkmark(icon(icons::CHECK, &check, theme))
-    .checkmark_position(SelectCheckmarkPosition::Trailing)
-    .single_checkmark(true);
+  style.checkmark = icon(icons::CHECK, &check, theme);
+  style.checkmark_position = SelectCheckmarkPosition::Trailing;
+  style.single_checkmark = true;
   if let Some(side) = px(check.width, theme) {
-    style = style.checkmark_size(side);
+    style.checkmark_size = Some(side.max(0.0));
   }
   if let Some(color) = &check.foreground {
-    style = style.checkmark_color(color.clone());
+    style.checkmark_color = Some(color.clone().into());
   }
   style
 }

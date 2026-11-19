@@ -11,6 +11,21 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-19
 
+### The browser's work, in this order, with text through an input method and a store in localStorage
+
+- **Question.** The sweep of the gallery in a browser (192 pages, WebGPU and WebGL2: no console error, every page
+  drawn; the notes of the session that made the browser supported) left a list of work. In what order, and does it
+  take two things the decision below did not name: text that comes through an input method, and the persistent
+  store?
+- **Decision (Ivan, 2026-11-19).** The order the session proposed ("Так, у цьому порядку"): the canvas's size and
+  scale; the size of the page and its first frame; fonts; the network; sound; files; then text through an input
+  method (a hidden field, as on iOS: "Так, у фазі 2"); decoding pictures off the frame; the clipboard's pictures;
+  pointer, touch and pen; the persistent store over `localStorage` ("Зробити через localStorage"); the gallery's
+  own gaps. The fonts are Inter and JetBrains Mono, from their projects' releases, under the SIL Open Font
+  License, kept in the repository so that the web gallery can be put on a server. `wasm-opt` (binaryen) is not
+  downloaded: the size is what cargo's profile and wasm-bindgen make.
+- **State.** In work on `claude/browser-support-926cf3`.
+
 ### The browser becomes a supported platform
 
 - **Question.** The gallery builds for the browser (WebGPU, WebGL2 with `webgl`) and runs, but the browser was "a
@@ -21,7 +36,12 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   page of the gallery works there, what a desktop has works there or has the browser's own equivalent, and what
   cannot is said in the docs as the platform's limit, not a defect. The README and Getting Started say so once it
   holds. The decision of 2026-11-17 on video (no copy of each frame) stands unless Ivan changes it.
-- **State.** Decided; in work in a session of its own.
+- **State.** Built on `claude/browser-support-926cf3` (2026-11-19), to be merged into `feat/design-system`: every
+  page of the gallery runs in Chromium through WebGPU and WebGL2 with no error; sound, loads over `fetch`, files,
+  composed text, browser-decoded pictures, the clipboard's pictures, touch and pen, a store in `localStorage`, fonts
+  the gallery may publish, a page built for its size. README and Getting Started list the browser as supported;
+  `web.md` says what a page cannot do. Firefox, Safari and phones are checked by hand with
+  `design/browser-checks.md`; a video waits as decided on 2026-11-17.
 
 ## 2026-11-18
 

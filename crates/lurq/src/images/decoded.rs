@@ -16,6 +16,8 @@
 mod cache;
 #[cfg(test)]
 mod cache_tests;
+#[cfg(target_arch = "wasm32")]
+mod web_decode;
 mod worker;
 
 use std::{
@@ -245,6 +247,18 @@ pub fn decode_image(source: &ImageSource, cap: Option<ImageSizeCap>) -> Result<I
     ));
   }
   Ok(ImageData::from_rgba(rgba.into_raw(), width, height))
+}
+
+/// Whether the browser decodes `bytes` (`web_decode`): every picture but a drawing, which lurq draws itself.
+#[cfg(target_arch = "wasm32")]
+fn browser_decodes(bytes: &[u8]) -> bool {
+  #[cfg(feature = "canvas")]
+  return !looks_like_svg(bytes);
+  #[cfg(not(feature = "canvas"))]
+  {
+    let _ = bytes;
+    true
+  }
 }
 
 /// Whether `bytes` start as an SVG does: an `<svg>`, after an XML declaration, a doctype and comments where

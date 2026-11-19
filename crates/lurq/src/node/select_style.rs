@@ -201,8 +201,30 @@ impl SelectPartStyle {
 /// `option_selected_highlighted` when `option_highlighted` is set; otherwise
 /// it looks like the pointer hover (`option_hovered` /
 /// `option_selected_hovered`).
+///
+/// It is a box of its parts: seventeen part styles are some 14 KB, and a style handed through its builders, each
+/// taking it and giving it back, was copied whole at each step, which a build without optimizations kept on the
+/// stack for every step (a combobox's 200 KB of stack, a select's 460 KB).
 #[derive(Clone)]
-pub struct SelectStyle {
+pub struct SelectStyle(Box<SelectStyleParts>);
+
+impl std::ops::Deref for SelectStyle {
+  type Target = SelectStyleParts;
+
+  fn deref(&self) -> &SelectStyleParts {
+    &self.0
+  }
+}
+
+impl std::ops::DerefMut for SelectStyle {
+  fn deref_mut(&mut self) -> &mut SelectStyleParts {
+    &mut self.0
+  }
+}
+
+/// What a [`SelectStyle`] holds.
+#[derive(Clone)]
+pub struct SelectStyleParts {
   pub(crate) trigger: SelectPartStyle,
   pub(crate) trigger_hovered: Option<SelectPartStyle>,
   pub(crate) trigger_focused: Option<SelectPartStyle>,
@@ -356,7 +378,7 @@ impl Default for SelectStyle {
         .unwrap_or(BackgroundColor::Palette(legacy::FOCUS))
     };
     let muted = |part| look.ink(part).unwrap_or(TextColor::Palette(legacy::MUTED));
-    Self {
+    Self(Box::new(SelectStyleParts {
       trigger: SelectPartStyle::new()
         .background(fill(&look, Trigger, None, legacy::TRIGGER))
         .border_inside(BorderSize::Sm, edge(&look, Trigger, None))
@@ -393,8 +415,8 @@ impl Default for SelectStyle {
       separator: SelectPartStyle::new()
         .background(fill(&look, Separator, None, legacy::EDGE))
         .padding(Padding::symmetric(0.0, 4.0)),
-      ..Self::unstyled()
-    }
+      ..*Self::unstyled().0
+    }))
   }
 }
 
@@ -415,7 +437,7 @@ impl SelectStyle {
   /// styles the select itself. Its trigger paints nothing until a part sets
   /// a `background` or border.
   pub fn unstyled() -> Self {
-    Self {
+    Self(Box::new(SelectStyleParts {
       trigger: SelectPartStyle::default(),
       trigger_hovered: None,
       trigger_focused: None,
@@ -451,7 +473,7 @@ impl SelectStyle {
       menu_fits_options: false,
       max_menu_height: 240.0,
       menu_gap: 4.0,
-    }
+    }))
   }
 
   /// Replaces the trigger part. The default part fills the trigger with the

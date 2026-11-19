@@ -225,12 +225,14 @@ impl Drop for Load {
 }
 
 type Allow = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+type Proxy = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 struct Settings {
   root: Option<PathBuf>,
   timeout: Duration,
   max_bytes: u64,
   allow: Option<Allow>,
+  proxy: Option<Proxy>,
 }
 
 struct Shared {
@@ -293,6 +295,7 @@ impl Loader {
           timeout: DEFAULT_LOAD_TIMEOUT,
           max_bytes: DEFAULT_MAX_LOAD_BYTES,
           allow: None,
+          proxy: None,
         }),
         entries: Mutex::new(HashMap::new()),
         pool: OnceLock::new(),
@@ -337,6 +340,31 @@ impl Loader {
   pub fn allow(&self, allow: impl Fn(&str) -> bool + Send + Sync + 'static) -> &Self {
     self.shared.settings.write().allow = Some(Arc::new(allow));
     self
+  }
+
+  /// Where an address is fetched from: `proxy` is given the address the app asked for and gives the one to fetch,
+  /// a server of the app's own that fetches it. Every address is fetched where it is, unless told. A browser
+  /// reads an address on another server only where that server lets the page's origin read it (CORS); one that
+  /// does not, as most pages of the web do not, is read through such a server:
+  ///
+  /// ```no_run
+  /// # let loader = lurq::resources::Loader::new();
+  /// loader.proxy(|address| format!("https://example.com/fetch?url={address}"));
+  /// ```
+  ///
+  /// [`allow`](Self::allow) is asked of the address the app asked for, and the cache on the disk keeps it under
+  /// that address.
+  pub fn proxy(&self, proxy: impl Fn(&str) -> String + Send + Sync + 'static) -> &Self {
+    self.shared.settings.write().proxy = Some(Arc::new(proxy));
+    self
+  }
+
+  /// The address `address` is fetched from: the [proxy](Self::proxy)'s, or itself.
+  fn fetched_from(&self, address: &str) -> String {
+    match &self.shared.settings.read().proxy {
+      Some(proxy) => proxy(address),
+      None => address.to_owned(),
+    }
   }
 
   /// Reads on the tokio runtime `handle` is of, and not on threads of the loader's own: a load is a blocking
@@ -463,12 +491,37 @@ impl Loader {
 
   /// Starts reading `source` into `entry`: all of it, or its first `head` bytes.
   fn start(&self, source: &Source, entry: Arc<Entry>, head: Option<u64>) {
+    // The page's `fetch`: a file and a resource are the page's own files at their paths.
     #[cfg(target_arch = "wasm32")]
     {
-      let _ = (source, head);
-      entry.finish(Err(LoadError::Unsupported(
-        "a file or an address is not loaded in a browser yet",
-      )));
+      let (timeout, max_bytes, allow) = {
+        let settings = self.shared.settings.read();
+        (settings.timeout, settings.max_bytes, settings.allow.clone())
+      };
+      let address = match &source.kind {
+        SourceKind::Url(address) if allow.as_ref().is_some_and(|allow| !allow(address)) => {
+          entry.finish(Err(LoadError::Denied));
+          return;
+        }
+        SourceKind::Url(address) => self.fetched_from(address),
+        SourceKind::File(path) => super::web_fetch::address_of(path),
+        SourceKind::Resource(resource) => super::web_fetch::address_of(&self.resource_path(resource)),
+        SourceKind::Bytes(_) => return,
+      };
+      let headers = source.headers.clone();
+      wasm_bindgen_futures::spawn_local(async move {
+        let told = |loaded, total| entry.progress(loaded, total);
+        let result = super::web_fetch::fetch(
+          &address,
+          &headers,
+          timeout,
+          head.unwrap_or(max_bytes),
+          head.is_some(),
+          told,
+        )
+        .await;
+        entry.finish(result);
+      });
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -487,6 +540,10 @@ impl Loader {
         entry.finish(Err(LoadError::Denied));
         return;
       }
+      let fetched = match &source.kind {
+        SourceKind::Url(address) => self.fetched_from(address),
+        _ => String::new(),
+      };
       let source = source.clone();
       let disk = self.shared.disk.clone();
       let unread = Unread(entry.clone());
@@ -497,7 +554,7 @@ impl Loader {
           (Some(path), _, Some(head)) => FileReader::open(&path)
             .and_then(|reader| read_start(&reader, head))
             .map_err(LoadError::from),
-          (None, SourceKind::Url(address), Some(head)) => fetch(address, &source, timeout, head, true, told),
+          (None, SourceKind::Url(_), Some(head)) => fetch(&fetched, &source, timeout, head, true, told),
           (Some(path), _, None) => FileReader::open(&path)
             .and_then(|reader| read_all(&reader, Some(max_bytes), told))
             .map_err(|error| match error.kind() {
@@ -507,7 +564,7 @@ impl Loader {
           // What the cache on the disk keeps of the address is read from there; what is fetched is kept.
           (None, SourceKind::Url(address), None) => match disk.read(source.cache_key(), max_bytes) {
             Some(bytes) => Ok(bytes),
-            None => fetch(address, &source, timeout, max_bytes, false, told).inspect(|bytes| {
+            None => fetch(&fetched, &source, timeout, max_bytes, false, told).inspect(|bytes| {
               disk.put(source.cache_key(), address, bytes);
             }),
           },

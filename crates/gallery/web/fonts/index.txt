@@ -1,0 +1,13 @@
+# The page's fonts: crates/gallery/src/web.rs reads this. Inter and JetBrains Mono, under the SIL Open Font
+# License 1.1 (the two OFL files beside them), from their projects' releases: Inter 4.1, JetBrains Mono 2.304.
+sans-serif = Inter
+monospace = JetBrains Mono
+Inter-Regular.ttf
+Inter-Italic.ttf
+Inter-Medium.ttf
+Inter-SemiBold.ttf
+Inter-Bold.ttf
+Inter-BoldItalic.ttf
+JetBrainsMono-Regular.ttf
+JetBrainsMono-Italic.ttf
+JetBrainsMono-Bold.ttf

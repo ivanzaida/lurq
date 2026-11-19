@@ -46,6 +46,12 @@ pub fn start() {
       device.backend()
     )));
     let mut app = App::new();
+    // What the Persistent Storage page saves is kept in the page's `localStorage`, there the next time it is opened.
+    if let Err(error) = app.set_persistent_storage_path("gallery") {
+      web_sys::console::warn_1(&JsValue::from_str(&format!(
+        "the gallery's store did not open: {error}"
+      )));
+    }
     if let Err(error) = load_fonts(&mut app).await {
       status(Some(&format!("The gallery's fonts did not load: {error}")));
       return;
@@ -53,7 +59,12 @@ pub fn start() {
     status(None);
     // The overview, unless the address names a page: the router follows the address.
     crate::run(app, "/".to_owned(), move || {
-      Box::new(WgpuRenderEngine::new().with_device(device.clone()))
+      // The GPU Viewport page's picture is drawn by an extension of the renderer, as on a desktop.
+      Box::new(
+        WgpuRenderEngine::new()
+          .with_device(device.clone())
+          .with_frame_extension(crate::scene::Scene::default()),
+      )
     });
   });
 }
