@@ -1881,7 +1881,17 @@ let choose = ctx.future_action(move |()| {
 | Windows | Paths, from Explorer | The system's (`rfd`, with the feature `file_dialog`): paths and sizes. It is modal to the window it is opened over: the window takes no input until it closes |
 | macOS, Linux | Paths, from Finder or a file manager | The system's: paths and sizes. It has no parent window yet, so it is not modal to the app's: a press of the window behind it puts the dialog behind the window |
 | A browser | None: winit reports no drop from the system | The browser's file input, which a press must open: names and sizes, no path. Its bytes are not read through lurq yet |
-| iOS | None | None: `pick` gives nothing |
+| iOS | None | lurq's own, with no feature: a menu of where the files come from (the photo library, the camera, Files), then the system's photo picker, a camera or the document picker. Files are given as copies in the app's temporary folder, with their paths |
+
+On a phone a dialog of files asks first where they come from, as Safari's file input does. `sources` says which it offers (`FileSource::Files`, `PhotoLibrary`, `Camera`), of those the device has; one alone opens at once. Its words are the locale's (`Locale::fields`, `Locale::common`):
+
+```rust
+use lurq::files::{FileDialog, FileSource};
+
+FileDialog::new().sources([FileSource::Camera, FileSource::PhotoLibrary]).multiple(true).pick_result(&window)
+```
+
+The camera is offered where the device has one and the app's Info.plist says why it uses it (`NSCameraUsageDescription`); without the words iOS would end the app, so lurq leaves the camera out and says once in the log what to add. A dialog of one file opens the system's camera, with its review ("Use Photo"). A dialog of several opens lurq's own, as a messenger's is: it stays open between photos, with the lenses the phone has (0.5×, 1×, 2×), a pinch to zoom, a tap to focus, the flash (auto, on, off) and the other camera; the photos taken are beside the shutter, and a tap opens them in a viewer as a gallery's (swiped, zoomed, one taken out); Done gives them all, Cancel none. Each photo is a JPEG in the temporary folder. Where the person has not let the app use the camera, the system's camera is shown, which says so. On a desktop, which has no camera, `sources` chooses the photo library where it is the one source: Photos on macOS, the user's Pictures on Windows.
 
 The same dialog chooses a folder and where a file is to be saved, each given as its path, or `None` when the person cancelled:
 
@@ -1899,6 +1909,6 @@ let save = ctx.future_action(move |()| {
 });
 ```
 
-`pick_folder` takes the dialog's title and the `folder` it opens in; `pick_save` its filters too, as the kinds the file can be saved as, and the `file_name` it starts with. The system asks before a file that is there is chosen, and lurq writes nothing. A browser has neither dialog (a page is given no path) and iOS none at all: both give `None` there. `ui::PathField` is made of these.
+`pick_folder` takes the dialog's title and the `folder` it opens in; `pick_save` its filters too, as the kinds the file can be saved as, and the `file_name` it starts with. The system asks before a file that is there is chosen, and lurq writes nothing. A browser has neither dialog (a page is given no path), and gives `None`. On iOS the folder is the folder itself, which the app may read and write while it runs; where to save is chosen after an empty file of the name is made, which the person puts where they choose (Files, iCloud Drive, the phone), and its path there is given. `ui::PathField` is made of these.
 
 Without the feature `file_dialog`, `pick` gives nothing and says so once through `tracing`. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) registered, `pick` asks the broker and no system dialog opens: an agent answers it. `ui::DropZone` and `ui::FileUpload` are made of these.

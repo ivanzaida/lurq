@@ -71,7 +71,7 @@ lurq = { version = "0.62.0", features = ["markdown", "http"] }
 | `winit` | yes | The `WinitWindow` shell and desktop event loop integration. |
 | `wgpu` | yes | WGPU render engine: Vulkan, Metal, Direct3D 12 or WebGPU. |
 | `clipboard` | yes | System clipboard integration for text input copy, cut, paste, and selectable text copy shortcuts; reading text, images and files from the clipboard. |
-| `file_dialog` | yes | The system's dialog for files to open, behind `lurq::files::FileDialog` (none on iOS). |
+| `file_dialog` | yes | The system's dialog for files to open, behind `lurq::files::FileDialog`. iOS has its own without the feature: the photo library, the camera and Files. |
 | `image` | yes | Pictures from files and bytes: PNG, JPEG, WebP, GIF, BMP and TIFF decoding, `ui::Picture`, background images. |
 | `canvas` | yes | Drawing: persistent Canvas 2D with gradients and effects, the charts, `Sparkline`, `Gauge` and `SignaturePad` of `lurq::ui`, and SVG (`Svg`, `SvgData`). |
 | `form` | yes | Form handles, validation, submission, and compound form controls. |
