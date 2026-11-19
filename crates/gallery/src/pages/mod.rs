@@ -1572,6 +1572,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<engine::zoom_scroll::ZoomScrollPage>(()),
   },
   Page {
+    path: "/engine/gestures",
+    name: "Gestures",
+    icon: Some("hand"),
+    about: "engine primitive gestures touch fingers pinch rotate turn pan drag tap double tap long press scale angle translation phase transform PinchEvent RotateEvent PanEvent TapEvent LongPressEvent GesturePhase on_pinch on_rotate on_pan on_tap on_double_tap on_long_press",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::gestures::GesturesPage>(()),
+  },
+  Page {
     path: "/engine/visual",
     name: "Visual",
     icon: Some("layers"),
