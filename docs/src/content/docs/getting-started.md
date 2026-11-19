@@ -21,7 +21,7 @@ Use a current stable Rust toolchain; the workspace uses edition 2024. In a sourc
 | Windows | Yes |
 | macOS | Yes, the latest release |
 | iOS | Yes, the latest release ([iOS](../ios/)) |
-| The browser (WebGPU, WebGL2) | Builds and runs ([In a browser](#in-a-browser), [Web](../web/)); not part of the supported platforms |
+| The browser | Yes: Chrome, Edge, Firefox and Safari, through WebGPU or WebGL2 ([In a browser](#in-a-browser), [Web](../web/)). One thread, no paths, the clipboard read through the browser, no video yet: [what a page cannot do](../web/#what-a-page-cannot-do) |
 | Linux | **No** |
 
 **Linux is not supported.** lurq is built and checked on Linux so that the crate publishes and its documentation builds, but nobody runs it there: there is no Linux machine to try a window, input, the clipboard, file dialogs, fonts or the GPU on, and what lurq does for the other systems (the system's appearance, reduced motion, menus, media, touch) is not written for Linux desktops. An app may build for Linux; what it does there is not tested, and issues that only Linux shows are not worked on.

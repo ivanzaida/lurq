@@ -4,11 +4,13 @@
 
 ## Platforms
 
-lurq supports **Windows**, **macOS** (the latest release) and **iOS** (the latest release).
+lurq supports **Windows**, **macOS** (the latest release), **iOS** (the latest release) and **the browser**: Chrome,
+Edge, Firefox and Safari, through WebGPU, or WebGL2 with the `webgl` feature. In a browser what a page cannot do is
+the platform's limit (one thread, no paths, the clipboard read only through the browser, another server's addresses
+only where it allows them, no video yet): see [Web](docs/src/content/docs/web.md).
 
 **Linux is not supported.** The crate builds there, so that it publishes and its documentation builds, but it is not
-run or tested on Linux, and issues only Linux shows are not worked on. A browser build (WebGPU, or WebGL2 with the
-`webgl` feature) exists, and is not part of the supported platforms.
+run or tested on Linux, and issues only Linux shows are not worked on.
 
 ## Install
 

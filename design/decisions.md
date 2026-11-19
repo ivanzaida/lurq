@@ -36,7 +36,12 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   page of the gallery works there, what a desktop has works there or has the browser's own equivalent, and what
   cannot is said in the docs as the platform's limit, not a defect. The README and Getting Started say so once it
   holds. The decision of 2026-11-17 on video (no copy of each frame) stands unless Ivan changes it.
-- **State.** Decided; in work in a session of its own.
+- **State.** Built on `claude/browser-support-926cf3` (2026-11-19), to be merged into `feat/design-system`: every
+  page of the gallery runs in Chromium through WebGPU and WebGL2 with no error; sound, loads over `fetch`, files,
+  composed text, browser-decoded pictures, the clipboard's pictures, touch and pen, a store in `localStorage`, fonts
+  the gallery may publish, a page built for its size. README and Getting Started list the browser as supported;
+  `web.md` says what a page cannot do. Firefox, Safari and phones are checked by hand with
+  `design/browser-checks.md`; a video waits as decided on 2026-11-17.
 
 ## 2026-11-18
 

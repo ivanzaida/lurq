@@ -1,94 +1,58 @@
 # Web: what is not done
 
-What a lurq app in a browser still does differently from the same app on a desktop, or does not do at all.
-Kept next to the work on `feat/gallery-web`; an entry goes when its gap is closed. The guide for what does
-work is `docs/src/content/docs/web.md`.
+What a lurq app in a browser still does differently from the same app on a desktop, or does not do at all, beyond
+what a page cannot do (`docs/src/content/docs/web.md`, "What a page cannot do"). An entry goes when its gap is closed.
+What to check by hand in each browser is `design/browser-checks.md`.
 
-"Not checked" means nobody has run it in a browser, not that it is known to be broken. What was run was run in
-Chromium and in Firefox, on Windows, with a mouse and a hardware keyboard.
+"Not checked" means nobody has run it in that browser, not that it is known to be broken. The browser's work of
+2026-11-19 was run in Chromium (the Claude app's browser and a headless Chrome, Windows), with a mouse, a keyboard,
+a pen and touch emulated by the browser, through WebGPU and WebGL2.
 
 ## Browsers
 
-- **Chromium and Firefox were run.** In Firefox the gallery was looked through by hand; which of WebGPU and
-  WebGL2 it drew through there was not noted. Safari: not checked.
-- **WebGL2 was asked for, not fallen back to.** The gallery was run through WebGL2 with
-  `index.html?backend=webgl` in a browser that has WebGPU. A browser that has none, where
-  `WgpuDevice::request()` has to find that out and take WebGL2 by itself: not checked.
-- **Neither WebGPU nor WebGL2**: `WgpuDevice::request()` returns an error and the app says so; nothing is
-  drawn.
-- **A lost device or context.** A browser takes a GPU device away when the tab is long in the background or
-  the driver restarts. The engine makes its surface again when the surface is lost, with the device it was
-  given: a device that is itself gone is not asked for again. Not checked what a person then sees.
+- **Firefox, Safari, a phone's browser: not checked** since the browser became supported. `design/browser-checks.md`.
+- **WebGL2 was asked for, not fallen back to.** A browser that has no WebGPU, where `WgpuDevice::request()` has to
+  find that out and take WebGL2 by itself: not checked.
+- **A lost device or context.** The engine makes its surface again when the surface is lost, with the device it
+  was given: a device that is itself gone is not asked for again. Not checked what a person then sees.
 
-## Text input
+## Media
 
-- **Input methods, dead keys, a phone's keyboard.** winit hears a canvas's key presses and nothing else: text
-  that comes through composition (CJK, a dead key and a letter, a phone's on-screen keyboard, dictation) does
-  not reach a text input. It needs what iOS got (`winit_shell/ios_text.rs`): an element of the page that takes
-  the text, here a hidden `<input>` or `contenteditable` the shell keeps in step with the focused input.
-- **A key held when the page gets the focus.** winit tells a pressed key before the modifiers that came with
-  it, so the first key of a page that was focused with Ctrl already down is taken without it. A keyboard that
-  presses Ctrl as its own key first, as every one does, is not affected.
-- **The clipboard's images and files.** A paste shortcut reads text (`navigator.clipboard.readText`). Images
-  and files reach a page through a `paste` event, which the canvas's key handling cancels. `on_paste` handlers
-  therefore see text only, and `copy_image_to_clipboard` and `copy_files_to_clipboard` return `false`.
-- **Reading the clipboard without a paste.** `read_from_clipboard` and `read_clipboard` return what the page
-  copied last: a page cannot read the system clipboard without waiting.
+- **Video.** Not played: decided 2026-11-17, a video in a browser waits for wgpu's web backend to implement external
+  textures (`importExternalTexture`); wgpu 30.0.2 has `create_external_texture` `unimplemented!` there.
+- **A sound's autoplay.** A sound told to play with no press of a person's is paused again by the browser, and its
+  state says so. A media has no event for "the browser refused"; it is not playing.
 
-## Pointer and touch
+## Input
 
-- **Touch.** A finger on a canvas arrives as winit's touch events, which the shell turns into a pointer only
-  on iOS (`winit_shell/touch.rs` is built for iOS and tests). On a phone's or tablet's browser: not checked,
-  and a finger likely does nothing.
-- **Hover before the pointer moves.** The wheel says where the pointer is (`web::WheelPointer`), so a page
-  scrolls under a pointer at rest. What is under that pointer is not hovered until it moves.
-- **Dragging the window, resizing it, its minimize and maximize**: a page has none. `WindowChrome` in its
-  default mode draws no title bar; one in `AlwaysCustom` mode draws controls that have nothing to act on.
+- **A masked input** (a password) takes keys, not composition: on a phone's keyboard, a password's letters come as
+  keys only where the keyboard sends them so.
+- **Hover before the pointer moves.** The wheel says where the pointer is (`web::WheelPointer`), so a page scrolls
+  under a pointer at rest. What is under that pointer is not hovered until it moves.
+
+## Pictures and the clipboard
+
+- **A picture copied to the clipboard** (`copy_image_to_clipboard`) and **pasted from it** are built and not run in
+  a browser: no page of the gallery copies or pastes a picture.
+- **The Backgrounds and SVG pages' "from a resource" sections** read pictures by path through the old resource
+  loader (`http`), which a page has not: they say so. A `ui::Picture` of a file reads it through the app's `Loader`.
 
 ## Windows
 
 - **More than one window.** winit makes a canvas for every window, and the shell puts only the first into the
-  page: a secondary window's canvas is made and never shown. What it takes: a place in the page for each
-  (a floating panel, or one the page docks), its size and position from what the window asked for, a title
-  bar the shell moves it by (`drag_window` does nothing in a browser), and the canvas taken away when the
-  window closes. The GPU device is already shared: `with_device` gives every window's engine the same one.
-  A WebGL2 device is one canvas's, so further windows there need a device each, or one canvas for all.
-- **DevTools** is a tree in a secondary window, so it waits for the above. Past that, three places of it are a
-  desktop's: the save and open dialogs (`rfd` on a thread of its own; a page downloads and uploads), a
-  screenshot's read-back (waits for the GPU on a thread; a page is called back), and the profiler's writer
-  thread.
-- **Native menus, file dialogs, file drags onto the window**: not there.
-
-## Features
-
-- **Run in a browser:** `winit`, `wgpu`, `webgl`, `router`, `clipboard`, `image` (the gallery's).
-- **Build for it, not run:** `markdown`, `svg`, `form`, `i18n`, `query`.
-- **`canvas` does not build.** Its uploads and its readiness wait on a thread and a condition variable
-  (`canvas/gpu.rs`, `wgpu_render/canvas.rs`).
-- **Not tried:** `mcp` (a socket to listen on), `devtools` (see Windows), `resources` (`ureq`; a page fetches),
-  `persistent_storage` (its files are `redb`'s, and a page has IndexedDB or the origin's private file system;
-  its in-memory default was not tried either), `tokio`
-  (a runtime with threads), `screenshot` (waits for the GPU on a thread), `dx12`.
-- **On WebGL2, not looked at:** the `svg` pipeline and video frames (NV12 images).
+  page: a secondary window's canvas is made and never shown. What it takes: a place in the page for each (a
+  floating panel, or one the page docks), its size and position from what the window asked for, a title bar the
+  shell moves it by (`drag_window` does nothing in a browser), and the canvas taken away when the window closes.
+- **DevTools** is a tree in a secondary window, so it waits for the above.
+- **Native menus**: not there.
 
 ## The page
 
-- **The address is the fragment only.** A router the address follows (`RouterHandle::follow_address`)
-  keeps its path in the fragment (`index.html#/button`). A path of the address itself (`/button`) is not
-  followed: it takes a server that sends the page for every path. The page's title does not change with
-  the screen, so the browser's history lists every entry under one name.
-- **The router's own `back` and `forward` were not run in a browser.** They move the browser's history
-  with `history.go`, and the gallery has nothing that calls them. Run there: navigating, the browser's
-  back and forward buttons, a typed address, a reload, and going back past a reload.
+- **The address is the fragment only.** A path of the address itself (`/button`) is not followed: it takes a server
+  that sends the page for every path. The page's title does not change with the screen.
 - **A history entry's state does not outlive a reload** (`push_with_state`): it is in memory.
-- **A page reader finds nothing.** Everything is pixels of one canvas: no text to select by the browser, to
-  search with Ctrl+F, to translate or to read out. The element tree an MCP client reads is not given to the
-  page.
-- **Fonts.** `scripts/gallery-web.py` copies Segoe UI and Consolas from Windows, which may not be published.
-  A deployed gallery needs fonts it may ship (`--fonts DIR`); which ones is not decided. cosmic-text has no
-  list of fallback fonts for a browser, so a character the named fonts lack is looked for in every loaded
-  font in turn: a page that shows text of many scripts has to load fonts for them.
-- **Size.** The gallery's `.wasm` is 16 MB (12 MB without `webgl`), built for speed and not passed through
-  `wasm-opt`. Nothing is shown while it downloads but the page's own "Loading" line.
-- **Images decode on the page's thread**, one after the turn of the loop that asked for it: a large image
-  holds frames back while it decodes.
+- **A page reader finds nothing.** Everything is pixels of one canvas: no text to select by the browser, to search
+  with Ctrl+F, to translate or to read out.
+- **cosmic-text has no list of fallback fonts** for a browser: a character the loaded fonts lack is looked for in
+  every loaded font in turn; a page that shows text of many scripts loads fonts for them.
+- **The wasm build has warnings** of code that is dead in a browser (the thread pool, the readers of files).

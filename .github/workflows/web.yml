@@ -1,0 +1,50 @@
+name: Web build
+
+# The browser is a supported platform: the gallery, every component and its pages, and lurq with a browser's
+# features must build for wasm32-unknown-unknown, with WebGL2 (`webgl`), which the gallery's page takes.
+# What a person checks by hand in each browser is design/browser-checks.md.
+
+on:
+  push:
+    branches: [master, feat/design-system]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Rust with the wasm32 target
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+          rustup default stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: web-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: The gallery for a browser (WebGPU and WebGL2)
+        run: cargo check -p gallery --target wasm32-unknown-unknown --locked
+
+      - name: lurq with a browser's features
+        run: >
+          cargo check -p lurq --target wasm32-unknown-unknown --locked --no-default-features
+          --features winit,wgpu,webgl,clipboard,file_dialog,image,canvas,form,router,query,media,persistent_storage,markdown
+
+      - name: lurq with the window and WebGPU alone
+        run: cargo check -p lurq --target wasm32-unknown-unknown --locked --no-default-features --features winit,wgpu
