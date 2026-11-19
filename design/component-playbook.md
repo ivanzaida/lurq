@@ -321,6 +321,18 @@ an alias.
   `force(..)` where something in it is pressed or takes the focus: a component of items draws it on the item Tab
   would stop on. Every builder of an item that is an element: `id`, `key`, `disabled` (a column, a token of a
   text and a panel of links are not).
+- **The id names the parts** (decided 2026-11-19, `design/decisions.md`). The component resolves its recipe
+  `.owned_by(self.id.as_ref())`, and every other recipe of the same build its parts are drawn from (another case:
+  current, disabled, lined) `.owned_like(&recipe)`, so that the node of each part but the root is `x-<part>`, the
+  name as `names!` writes it, and a second node of a part `x-<part>-2`. Its `impl Themed` sets `ROOT` where its id
+  is on another part than `root` (an overlay's `panel`, a select's `trigger`). A repeated part with a key of its
+  own is named by it, `.part(..).keyed(key)`: a day by its ISO date, a weekday by its English short name, the sides
+  `previous` and `next`, an item by its key or value (`recipe.keyed_item(key, Part::Item)`). An item the app gave
+  an id is built from `recipe.item(item.id.as_ref(), Part::Item)` and names its parts after it. A component of
+  `ui` built inside is given the part it stands for, by `rules_for` or `.rules(&recipe.lend(name))`, `name` its own
+  short name where it is the only one of its kind there (`calendar`), else the part's; a node around it that has
+  the part's style takes `part.unnamed()`. A renderer never builds a part it drops: the next of the part would be
+  numbered after it. With no id, nothing is named.
 - **Every typed control**: `label`, `placeholder` where it has one, `size`, `invalid`, `warning`, `valid`,
   `read_only`, `disabled`, `full_width`, `name` (with `form`), and is a `FieldControl`.
 - **Every choice control**: the value and `on_change`, `bind(Signal<bool>)` for one bound to a signal, `label`,

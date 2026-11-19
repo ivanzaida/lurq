@@ -279,6 +279,27 @@ Column::new().theme(&dark).background(PaletteColor::Background).child(nav);
 - What is declared in the subtree and drawn over the window, the content of a `Popup`, a `Modal`, the menu of a `Select`, is laid out and painted with the subtree's theme too.
 - `ui::current_theme()` is the theme of what is being built. Outside a render there is none, and it is a neutral one that follows nothing: build components where they are rendered.
 
+### Ids Of Parts
+
+A component given an id keeps it on its root, and names the node of each of its other parts after it: `x-` and the part's name as its `*Part` enum writes it in a recipe, underscores and all. What finds a node by id (`Tree::get_element_by_id`, a test, DevTools, an agent over MCP) reaches a badge's label or a progress's fill with no id written for it.
+
+```rust
+use lurq::ui::{Badge, Button, DataList};
+
+// status, status-dot, status-label
+Badge::new("Online").dot(true).id("status");
+// about, about-term, about-value, about-term-2, about-value-2
+DataList::new().text("Version", "0.63.0").text("License", "MIT").id("about");
+// save, and its spinner save-spinner, the spinner's indicator save-spinner-indicator
+Button::new("Saving…").loading(true).id("save");
+```
+
+- A part of which there are several is told apart by its key where it has one: a day of a calendar by its date (`due-calendar-day-2026-11-20`), a weekday by its English short name (`x-weekday-mon`, the same in every locale), the buttons of a calendar's sides `x-nav-previous` and `x-nav-next`, an item, an option, a tab or a segment by its key or value. Where it has none, by the order it is built in: `x-term`, `x-term-2`, `x-term-3`.
+- A node that has an id keeps it. An item the app gave an id `y` is `y`, and names its own parts after it (`y-label`, `y-chevron`), whether the component has an id or not.
+- A component built inside another and given no id of its own is named after what it stands for there, and names its own parts after that: the spinner of a button `save-spinner`, the calendar of a date picker `due` `due-calendar` (not after the panel it stands in), a dialog's close button `x-close`.
+- A component given no id gives its parts none, and the ids are the same at every render of the same content, so a node keeps its state from one to the next.
+- A renderer of a theme gets the same: what it gives `.part(&view.part(..))` is named, `view.recipe.part_id(part)` is the id of the next node of a part for an element built otherwise, and `style.keyed(key)` names one by its key.
+
 ## Icon
 
 A glyph of the theme's set, by name.

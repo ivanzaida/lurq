@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **A component's id names its parts.** A component of `lurq::ui` given `.id(x)` keeps `x` on its root and gives the node of each of its other parts `x-<part>`, the part's name as its recipe writes it, underscores and all (`status-dot`, `status-label`, `upload-fill`, `x-trigger_icon`), so `Tree::get_element_by_id`, a test, DevTools or an agent over MCP reaches a part with no id written for it. A part of which there are several is named by its key where it has one (a calendar's day `due-calendar-day-2026-11-20`, a weekday `x-weekday-mon`, its sides `x-nav-previous` and `x-nav-next`, an item, option, tab or segment by its key or value) and by its order where it has none (`about-term`, `about-term-2`). An item with an id keeps it and names its own parts after it; a component built inside another and given no id is named after what it stands for (a button's spinner `save-spinner`, a date picker's calendar `due-calendar`) and names its parts after that. The ids are the same at every render of the same content. A node that had an id keeps it, and a component given no id names nothing, so this breaks nothing but what counted on a node having no id: in a component given an id, nodes that had none now have one, which a lookup by id, a test that lists ids, and the matching of retained nodes among siblings see. A theme's renderer gets the same through what it gives `.part(..)`; `ResolvedRecipe::owned_by`, `owned_like`, `item`, `keyed_item`, `part_id` and `lend`, `ResolvedPart::keyed` and `unnamed`, and `Themed::ROOT` are what a component of an app's own uses to do as lurq's do. See [ids of parts](docs/src/content/docs/design-system.md#ids-of-parts).
+
 ## 0.63.0 — 2026-11-19
 
 Breaking:
