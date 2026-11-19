@@ -255,7 +255,9 @@ impl EmptyState {
       actions: self.actions,
       size: self.size,
       bordered,
-      recipe: theme.resolve::<EmptyState>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<EmptyState>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

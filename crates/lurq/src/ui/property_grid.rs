@@ -1168,12 +1168,16 @@ impl PropertyGrid {
     }
     .state(PropertyGridState::Disabled, self.disabled)
     .state(PropertyGridState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<PropertyGrid>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<PropertyGrid>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let resolve = |states: &[(PropertyGridState, bool)]| {
       let case = states
         .iter()
         .fold(case.clone(), |case, (state, on)| case.state(*state, *on));
-      theme.resolve::<PropertyGrid>(&case, Some(&self.rules))
+      theme
+        .resolve::<PropertyGrid>(&case, Some(&self.rules))
+        .owned_like(&recipe)
     };
     let name_width = self
       .host
@@ -1215,10 +1219,12 @@ impl PropertyGrid {
     }
     let mut recipe = recipe;
     if let Some(height) = self.height {
-      recipe = theme.resolve::<PropertyGrid>(
-        &case,
-        Some(&self.rules.clone().base(PropertyGridPart::Root, |s| s.height(height))),
-      );
+      recipe = theme
+        .resolve::<PropertyGrid>(
+          &case,
+          Some(&self.rules.clone().base(PropertyGridPart::Root, |s| s.height(height))),
+        )
+        .owned_like(&recipe);
     }
     let view = PropertyGridView {
       label: self
@@ -1316,6 +1322,13 @@ impl PropertyGridView {
     self.recipe.theme()
   }
 
+  /// The recipe of a category's row or a property's, its parts named after the row's id, the grid's and its own
+  /// (`grid-opacity-label`), counted from naught each time it is built: a row of a long grid is built again as it
+  /// is scrolled to.
+  fn row_recipe(&self, recipe: &ResolvedRecipe, own: &str, root: PropertyGridPart) -> ResolvedRecipe {
+    recipe.item(self.child_id(own).as_ref(), root)
+  }
+
   fn child_id(&self, suffix: &str) -> Option<Arc<str>> {
     self.id.as_ref().map(|id| Arc::from(format!("{id}-{suffix}")))
   }
@@ -1355,8 +1368,13 @@ impl PropertyGridView {
   /// A category's row: its chevron and its title. A press, or Left and Right, close and open it.
   pub fn category_row(&self, index: usize, entry: bool) -> Option<components::Button> {
     let view = self.categories.get(index)?;
+    let recipe = self.row_recipe(
+      &view.recipe,
+      view.category.id.as_deref().unwrap_or(&view.category.title),
+      PropertyGridPart::Category,
+    );
     let part = |name: PropertyGridPart| {
-      let part = view.recipe.part(name);
+      let part = recipe.part(name);
       if entry { part.forced(self.forced) } else { part }
     };
     let unavailable = view.category.disabled || self.disabled;
@@ -1420,8 +1438,9 @@ impl PropertyGridView {
     let category_view = self.categories.get(category)?;
     let view = category_view.rows.get(row)?;
     let property = &view.property;
+    let recipe = self.row_recipe(&view.recipe, &property.id, PropertyGridPart::Row);
     let part = |name: PropertyGridPart| {
-      let part = view.recipe.part(name);
+      let part = recipe.part(name);
       if entry { part.forced(self.forced) } else { part }
     };
     let read_only = property.read_only || self.read_only;
@@ -1434,11 +1453,11 @@ impl PropertyGridView {
     };
     let cx = EditorContext {
       theme: self.theme().clone(),
-      editor: view.recipe.part(PropertyGridPart::Editor),
+      editor: recipe.part(PropertyGridPart::Editor),
       axis: [
-        view.recipe.part(PropertyGridPart::Axis),
-        view.recipe.part(PropertyGridPart::AxisX),
-        view.recipe.part(PropertyGridPart::AxisY),
+        recipe.part(PropertyGridPart::Axis),
+        recipe.part(PropertyGridPart::AxisX),
+        recipe.part(PropertyGridPart::AxisY),
       ],
       label: property.name.clone(),
       read_only,
@@ -1461,8 +1480,8 @@ impl PropertyGridView {
           })
           .clone()
       }),
-      stepper_part: view.recipe.part(PropertyGridPart::Stepper),
-      swatch_part: view.recipe.part(PropertyGridPart::Swatch),
+      stepper_part: recipe.part(PropertyGridPart::Stepper),
+      swatch_part: recipe.part(PropertyGridPart::Swatch),
     };
     let row_key: Arc<str> = Arc::from(format!("property-{}", property.key.as_deref().unwrap_or(&property.id)));
     let editor_ref = ElementRef::new();
@@ -1552,7 +1571,8 @@ impl PropertyGridView {
           "a11y_name",
           crate::core::fill(&super::current_locale().fields.reset, &[("name", &property.name)]),
         )
-        .child(glyph(&reset_part, Name::from(icons::ROTATE_LEFT), false));
+        // The control has the part's id, not its glyph.
+        .child(glyph(&reset_part.clone().unnamed(), Name::from(icons::ROTATE_LEFT), false));
       if able {
         control = control.on_click(move |_| {
           reset();
@@ -1707,13 +1727,18 @@ impl PropertyGridView {
   /// two. Its rows stay while it closes over them, only painted, and are gone with its body's exit.
   pub fn panel(&self, index: usize) -> Column {
     let view = &self.categories[index];
+    let recipe = self.row_recipe(
+      &view.recipe,
+      view.category.id.as_deref().unwrap_or(&view.category.title),
+      PropertyGridPart::Category,
+    );
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .clip()
       .presence()
       // Keyed as its category's row is: the same panel from render to render, whose height runs.
       .key(format!("panel-{}", view.category.known_as()))
-      .part(&view.recipe.part(PropertyGridPart::Panel));
+      .part(&recipe.part(PropertyGridPart::Panel));
     if let Some(id) = self.child_id(&format!(
       "{}-panel",
       view.category.id.as_deref().unwrap_or(&view.category.title)
@@ -1724,7 +1749,7 @@ impl PropertyGridView {
       let mut body = Column::new()
         .key("rows")
         .align_items(Alignment::Stretch)
-        .part(&view.recipe.part(PropertyGridPart::Body));
+        .part(&recipe.part(PropertyGridPart::Body));
       for row in 0..view.rows.len() {
         if let Some(row) = self.property_row(index, row, false) {
           body = body.child(row);

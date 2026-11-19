@@ -439,7 +439,9 @@ impl Toast {
       close_button: self.close_button,
       label: self.label,
       timer: self.timer,
-      recipe: theme.resolve::<Toast>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Toast>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_close: self.on_close,
       left: self.left,
@@ -513,8 +515,13 @@ impl ToastView {
 
   /// The action it was given, in the style of its part.
   pub fn action(&self) -> Option<Row> {
-    let action = self.action.clone()?;
-    Some(Row::new().part(&self.part(ToastPart::Action)).child(action))
+    // The button or the link stands for the part, and has its id.
+    let lent = self.recipe.lend(ToastPart::Action);
+    let action: Element = match self.action.clone()? {
+      ToastAction::Button(button) => button.rules(&lent).into(),
+      ToastAction::Link(link) => link.rules(&lent).into(),
+    };
+    Some(Row::new().part(&self.part(ToastPart::Action).unnamed()).child(action))
   }
 
   /// What closes it: a press of it tells every handler of `on_close`. It is

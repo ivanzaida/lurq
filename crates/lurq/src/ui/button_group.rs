@@ -204,7 +204,9 @@ impl ButtonGroup {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<ButtonGroup>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<ButtonGroup>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     // The group pads its buttons across; a button that is an icon alone keeps its square, with its icon in the
     // middle, as it is out of a group.
     let item = recipe.rules_for(ButtonGroupPart::Item, ButtonPart::Root).state(

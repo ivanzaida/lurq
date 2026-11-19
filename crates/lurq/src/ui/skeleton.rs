@@ -294,7 +294,9 @@ impl Skeleton {
       } else {
         self.animation
       },
-      recipe: theme.resolve::<Skeleton>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<Skeleton>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

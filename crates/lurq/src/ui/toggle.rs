@@ -249,7 +249,9 @@ impl Toggle {
       icon_only: self.icon_only,
       on: self.on,
       disabled: self.disabled,
-      recipe: theme.resolve::<Toggle>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Toggle>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       focuses: self.focuses,

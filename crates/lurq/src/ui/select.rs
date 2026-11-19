@@ -388,7 +388,9 @@ impl<V: 'static> Select<V> {
       invalid,
       read_only: self.read_only,
       disabled: self.disabled,
-      recipe: theme.resolve::<Select>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Select>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       case,
       rules: self.rules,
       forced: self.forced,
@@ -793,6 +795,8 @@ impl<V: 'static> crate::ui::Styled for Select<V> {
 /// Every select has the one recipe and renderer, whatever its values are.
 impl<V: 'static> Themed for Select<V> {
   const NAME: &'static str = "select";
+  /// Its id is on the trigger: the box that is pressed.
+  const ROOT: &'static str = "trigger";
   type Renderer = SelectRenderer;
 
   fn parts() -> crate::ui::Declared {

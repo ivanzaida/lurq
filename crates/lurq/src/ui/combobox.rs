@@ -1060,7 +1060,9 @@ impl<V: 'static> Combobox<V> {
       invalid: self.boxed.judgment() == Some(Judgment::Invalid),
       disabled: self.boxed.disabled,
       loading: self.loading,
-      recipe: theme.resolve::<Combobox>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Combobox>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       case,
       rules: self.rules,
       forced: self.forced,
@@ -1456,8 +1458,13 @@ pub(crate) fn status_row(
     .align_items(Alignment::Center)
     .part(&part);
   if loading {
-    let spinner = recipe.part(ComboboxPart::Spinner);
-    row = row.child(Row::new().part(&spinner).child(Spinner::new()));
+    // The spinner stands for the part, and has its id.
+    let spinner = recipe.part(ComboboxPart::Spinner).unnamed();
+    row = row.child(
+      Row::new()
+        .part(&spinner)
+        .child(Spinner::new().rules(&recipe.lend(ComboboxPart::Spinner))),
+    );
   }
   let text = if loading { loading_text } else { empty };
   Some(row.child(part.text(text).nowrap()).into())
@@ -1544,6 +1551,8 @@ impl<V: 'static> crate::ui::Styled for Combobox<V> {
 /// Every combobox has the one recipe and renderer, whatever its values are.
 impl<V: 'static> Themed for Combobox<V> {
   const NAME: &'static str = "combobox";
+  /// Its id is on the trigger: the box that is pressed.
+  const ROOT: &'static str = "trigger";
   type Renderer = ComboboxRenderer;
 
   fn parts() -> crate::ui::Declared {

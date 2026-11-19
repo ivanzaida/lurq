@@ -199,7 +199,9 @@ impl Radio {
       selected: self.selected,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme.resolve::<Radio>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Radio>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       id: self.id,
@@ -617,7 +619,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<T> {
     }
     .state(RadioGroupState::Horizontal, !self.orientation.is_vertical())
     .state(RadioGroupState::Vertical, self.orientation.is_vertical());
-    let recipe = theme.resolve::<Self>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Self>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let item = recipe.rules_for(RadioGroupPart::Item, RadioPart::Root);
     let takes = |choice: &Choice<T>| !self.disabled && !choice.disabled;
     // What Tab stops on: the selected radio, else the first that takes a press.

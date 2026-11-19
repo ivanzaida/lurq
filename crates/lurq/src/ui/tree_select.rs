@@ -625,7 +625,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> TreeSele
       .case(self.states.clone())
       .state(SelectState::Open, is_open && !self.inline)
       .state(SelectState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<TreeSelect<T, V>>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<TreeSelect<T, V>>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
 
     // The chosen that are items, in the app's order, each with the labels down to it.
     let mut paths: Vec<(T, Vec<Arc<str>>)> = Vec::new();
@@ -1140,6 +1142,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::u
 /// Every tree select has the one recipe and renderer, whatever its values are and however many it holds.
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for TreeSelect<T, V> {
   const NAME: &'static str = "tree_select";
+  /// Its id is on the trigger: the box that is pressed.
+  const ROOT: &'static str = "trigger";
   type Renderer = TreeSelectRenderer;
 
   fn parts() -> crate::ui::Declared {

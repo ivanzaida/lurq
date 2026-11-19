@@ -621,9 +621,15 @@ impl Component for CarouselHost {
       .state(CarouselState::Disabled, carousel.disabled)
       .state(CarouselState::Current, current)
     };
+    let recipe = theme
+      .resolve::<Carousel>(&case(false), Some(&carousel.rules))
+      .owned_by(carousel.id.as_ref());
+    let current = theme
+      .resolve::<Carousel>(&case(true), Some(&carousel.rules))
+      .owned_like(&recipe);
     let view = CarouselView {
-      recipe: theme.resolve::<Carousel>(&case(false), Some(&carousel.rules)),
-      current: theme.resolve::<Carousel>(&case(true), Some(&carousel.rules)),
+      recipe,
+      current,
       index,
       places,
       shown,

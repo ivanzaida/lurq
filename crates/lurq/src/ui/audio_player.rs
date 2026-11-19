@@ -992,7 +992,9 @@ impl AudioPlayer {
       AudioPlayerState::Scrubbing,
       kept.scrub.as_ref().is_some_and(|scrub| scrub.get() >= 0.0),
     );
-    let recipe = theme.resolve::<AudioPlayer>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<AudioPlayer>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let words = self.words.clone();
     let mut tip = |label: &str, element: Element| match ctx.as_deref_mut() {
       Some(ctx) => Tooltip::new(label).mount(ctx, element),
@@ -1274,6 +1276,7 @@ impl AudioPlayer {
         controls.speed_menu = Some(
           MediaSpeedMenu::new(open.clone(), anchor.clone(), rate as f32)
             .on_change(move |rate| tell(rate))
+            .rules(&recipe.lend(<MediaSpeedMenu as Themed>::NAME))
             .build(theme),
         );
       }
@@ -1303,8 +1306,9 @@ impl AudioPlayer {
     // The time of the mini player, which a press turns between what is gone and what is left.
     if variant == AudioPlayerVariant::Mini && !narrow && kept.fold < 2 {
       let duration = (!still && self.duration > 0.0).then_some(self.duration);
-      let mut time =
-        MediaTime::new(position, duration).remaining(kept.remaining.as_ref().is_some_and(|left| left.get()));
+      let mut time = MediaTime::new(position, duration)
+        .remaining(kept.remaining.as_ref().is_some_and(|left| left.get()))
+        .rules(&recipe.lend(<MediaTime as Themed>::NAME));
       if let Some(remaining) = &kept.remaining {
         let remaining = remaining.clone();
         time = time.on_click(move |_: MouseEvent| remaining.update(|left| *left = !*left));

@@ -345,7 +345,9 @@ impl BulletedList {
       number_text: self.number_text,
       depth: self.depth,
       label: self.label,
-      recipe: theme.resolve::<BulletedList>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<BulletedList>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       rules: self.rules,
       id: self.id,
       key: self.key,
@@ -424,7 +426,18 @@ impl BulletedListView {
   /// The mark of the `index`th item, in a box as high as one line of it: the item's own icon or element, else the
   /// list's bullet, number or icon. A list with no marker has none, but for an item with a mark of its own.
   pub fn mark(&self, index: usize, icon: Option<Name>, media: Option<Element>) -> Option<Element> {
-    let part = self.part(BulletedListPart::Mark);
+    self.mark_in(&self.recipe, index, icon, media)
+  }
+
+  /// The mark, its parts named after the item `recipe` is of.
+  fn mark_in(
+    &self,
+    recipe: &ResolvedRecipe,
+    index: usize,
+    icon: Option<Name>,
+    media: Option<Element>,
+  ) -> Option<Element> {
+    let part = recipe.part(BulletedListPart::Mark);
     let held = Row::new()
       .height(self.line_height())
       .align_items(Alignment::Center)
@@ -461,45 +474,58 @@ impl BulletedListView {
       ),
       BulletedListMarker::None => None,
       // A list of icons draws a bullet for nothing: every item of it has the list's icon or its own.
-      BulletedListMarker::Bullet | BulletedListMarker::Icon(_) => {
-        Some(held.child(Row::new().part(&self.part(BulletedListPart::Bullet))).into())
-      }
+      BulletedListMarker::Bullet | BulletedListMarker::Icon(_) => Some(
+        held
+          .child(Row::new().part(&recipe.part(BulletedListPart::Bullet)))
+          .into(),
+      ),
     }
   }
 
   /// What an item says, wrapping at the room it has; none where it says nothing.
   pub fn label(&self, text: &str) -> Option<Element> {
+    Self::label_in(&self.recipe, text)
+  }
+
+  /// What an item says, its node named after the item `recipe` is of.
+  fn label_in(recipe: &ResolvedRecipe, text: &str) -> Option<Element> {
     if text.is_empty() {
       return None;
     }
-    let part = self.part(BulletedListPart::Label);
+    let part = recipe.part(BulletedListPart::Label);
     Some(part.text(text).part(&part).width(Dimension::Pct(100.0)).into())
   }
 
   /// The `index`th item: its mark, and beside it its line over what it holds and the list in it. A `listitem` to
   /// what reads the tree.
   pub fn item(&self, index: usize, item: BulletedListItem) -> Element {
-    let mark = self.mark(index, item.icon, item.media);
+    // An item with an id names its own parts after it.
+    let recipe = self.recipe.item(item.id.as_ref(), BulletedListPart::Item);
+    let mark = self.mark_in(&recipe, index, item.icon, item.media);
     let mut body = Column::new()
       .flex(1.0)
       .min_width(0.0)
       .align_items(Alignment::Stretch)
       .overflow_visible()
-      .part(&self.part(BulletedListPart::Body));
-    if let Some(label) = self.label(&item.text) {
+      .part(&recipe.part(BulletedListPart::Body));
+    if let Some(label) = Self::label_in(&recipe, &item.text) {
       body = body.child(label);
     }
     body = body.with_children(item.body);
     if let Some(mut list) = item.list {
       list.depth = self.depth + 1;
       // What the app said of this list it says of the lists in it, under what it said of each.
-      list.rules = self.rules.clone().extend(&list.rules);
+      list.rules = self
+        .rules
+        .clone()
+        .extend(&recipe.lend(<BulletedList as Themed>::NAME))
+        .extend(&list.rules);
       body = body.child(list.build(self.theme()));
     }
     let mut row = Row::new()
       .align_items(Alignment::Start)
       .overflow_visible()
-      .part(&self.part(BulletedListPart::Item))
+      .part(&recipe.part(BulletedListPart::Item))
       .describe("a11y_role", "listitem");
     if let Some(id) = item.id {
       row = row.id(id);

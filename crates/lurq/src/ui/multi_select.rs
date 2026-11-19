@@ -461,7 +461,9 @@ impl<V: 'static> MultiSelect<V> {
       clearable: self.clearable,
       clear_label: self.clear_label,
       read_only: self.boxed.read_only,
-      recipe: theme.resolve::<MultiSelect>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<MultiSelect>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       case,
       rules: self.rules,
       forced: self.forced,
@@ -595,10 +597,11 @@ impl MultiSelectView {
   /// checked where it is chosen.
   pub fn select_style(&self) -> SelectStyle {
     let theme = self.theme().clone();
+    // Drawn by the engine for each option, each time it draws the list: no node of them is named.
     let (check, icon, unchecked) = (
-      self.recipe.part(MultiSelectPart::Check),
-      self.recipe.part(MultiSelectPart::CheckIcon),
-      self.recipe.part(MultiSelectPart::Unchecked),
+      self.recipe.part(MultiSelectPart::Check).unnamed(),
+      self.recipe.part(MultiSelectPart::CheckIcon).unnamed(),
+      self.recipe.part(MultiSelectPart::Unchecked).unnamed(),
     );
     let side = combobox::side(&check.rest(), &theme, 16.0);
     let checked = {
@@ -915,6 +918,8 @@ impl<V: 'static> crate::ui::Styled for MultiSelect<V> {
 /// Every multiselect has the one recipe and renderer, whatever its values are.
 impl<V: 'static> Themed for MultiSelect<V> {
   const NAME: &'static str = "multi_select";
+  /// Its id is on the trigger: the box that is pressed.
+  const ROOT: &'static str = "trigger";
   type Renderer = MultiSelectRenderer;
 
   fn parts() -> crate::ui::Declared {

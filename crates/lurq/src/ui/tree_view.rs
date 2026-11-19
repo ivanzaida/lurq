@@ -566,6 +566,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       breakpoint,
       states: self.states.clone(),
     };
+    let root = theme
+      .resolve::<TreeView<T>>(
+        &base.clone().state(TreeViewState::Disabled, self.disabled),
+        Some(&self.rules),
+      )
+      .owned_by(self.id.as_ref());
     // A row is in one of eight cases: each is resolved once, however many rows there are.
     let mut recipes: HashMap<(bool, bool, bool), ResolvedRecipe> = HashMap::new();
     let mut recipe = |selected: bool, open: bool, disabled: bool| {
@@ -577,7 +583,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
             .state(TreeViewState::Selected, selected)
             .state(TreeViewState::Open, open)
             .state(TreeViewState::Disabled, disabled);
-          theme.resolve::<TreeView<T>>(&case, Some(&self.rules))
+          theme.resolve::<TreeView<T>>(&case, Some(&self.rules)).owned_like(&root)
         })
         .clone()
     };
@@ -721,7 +727,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       multiple,
       guides: self.guides,
       label: self.label.clone(),
-      recipe: recipe(false, false, self.disabled),
+      recipe: root,
       id: self.id.clone(),
       key: self.key.clone(),
     };
@@ -995,13 +1001,14 @@ fn nest(rows: &mut std::iter::Peekable<std::vec::IntoIter<TreeRow>>, gap: &Spaci
       continue;
     }
     let (at, open, path) = (row.level, row.open, row.path.clone());
+    let named = row.named();
     let mut panel = Column::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Stretch)
       .clip()
       .presence()
       .key("panel")
-      .part(&row.part(TreeViewPart::Panel));
+      .part(&named.part(TreeViewPart::Panel));
     if open && rows.peek().is_some_and(|next| next.level > at) {
       panel = panel.child(
         Column::new()
@@ -1009,7 +1016,7 @@ fn nest(rows: &mut std::iter::Peekable<std::vec::IntoIter<TreeRow>>, gap: &Spaci
           .align_items(Alignment::Stretch)
           .spacing(gap.clone())
           .padding_top(gap.clone())
-          .part(&row.part(TreeViewPart::Body))
+          .part(&named.part(TreeViewPart::Body))
           .with_children(nest(rows, gap)),
       );
     }
@@ -1219,6 +1226,7 @@ impl TreeRow {
       let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
       let spinner = Spinner::new()
         .decorative(true)
+        .rules(&self.recipe.lend(<Spinner as Themed>::NAME))
         .style(SpinnerPart::Indicator, |s| s.square(side));
       return Row::new().part(&part).child(spinner.build(self.theme())).into();
     }
@@ -1273,9 +1281,20 @@ impl TreeRow {
       .child(part.text(&self.label).nowrap())
   }
 
+  /// The row's recipe, its parts named after its id, else after its key or its place in the tree (its path), and
+  /// counted from naught: the same each time it is built, as a row of a virtual list is built again when it is
+  /// shown.
+  pub(crate) fn named(&self) -> ResolvedRecipe {
+    match &self.id {
+      Some(_) => self.recipe.item(self.id.as_ref(), TreeViewPart::Row),
+      None => self.recipe.keyed_item(&self.path, TreeViewPart::Row),
+    }
+  }
+
   /// How the default renderer builds a row: its indent, then its chevron, its icon, its label and what is at
   /// its end.
   pub fn render(mut self) -> Element {
+    self.recipe = self.named();
     let mut row = self.button();
     if let Some(indent) = self.indent() {
       row = row.child(indent);

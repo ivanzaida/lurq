@@ -171,6 +171,8 @@ pub struct PasswordInput {
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
+  /// The id the control is given, which the password input's own parts are named after.
+  id: Option<Arc<str>>,
 }
 
 impl PasswordInput {
@@ -190,6 +192,7 @@ impl PasswordInput {
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
+      id: None,
     }
   }
 
@@ -360,6 +363,8 @@ impl PasswordInput {
 
   /// The id of the control: what is typed in and focused.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    let id = id.into();
+    self.id = Some(id.clone());
     self.input = self.input.id(id);
     self
   }
@@ -395,7 +400,9 @@ impl PasswordInput {
       strength: self.strength,
       strength_text: self.strength_text.or_else(|| self.strength.map(PasswordStrength::text)),
       new_password: self.new_password,
-      recipe: theme.resolve::<PasswordInput>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<PasswordInput>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_reveal: self.on_reveal,
       input: self.input.view(theme),

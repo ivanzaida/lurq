@@ -295,7 +295,9 @@ impl MediaTime {
       live_text: self.live_text,
       size: self.size,
       label: self.label,
-      recipe: theme.resolve::<MediaTime>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<MediaTime>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       on_click: self.on_click,
       forced: self.forced,
       id: self.id,

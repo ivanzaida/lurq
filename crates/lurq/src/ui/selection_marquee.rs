@@ -346,7 +346,9 @@ impl SelectionMarquee {
       rect: drawn,
       disabled: self.disabled,
       label: self.label.clone(),
-      recipe: theme.resolve::<SelectionMarquee>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<SelectionMarquee>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       model: Arc::new(Model {
         scroll: self.scroll.clone(),
         on_start: self.on_start.clone(),

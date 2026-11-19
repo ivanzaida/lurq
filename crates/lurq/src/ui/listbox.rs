@@ -444,13 +444,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
     .state(ListboxState::Disabled, self.disabled)
     .state(ListboxState::Invalid, self.invalid)
     .state(ListboxState::FullWidth, self.full_width);
+    let root = theme
+      .resolve::<Self>(&base, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let resolve = |chosen: bool, disabled: bool, detail: bool| {
       let case = base
         .clone()
         .state(ListboxState::Chosen, chosen)
         .state(ListboxState::OptionDisabled, disabled)
         .state(ListboxState::Detail, detail);
-      theme.resolve::<Self>(&case, Some(&self.rules))
+      theme.resolve::<Self>(&case, Some(&self.rules)).owned_like(&root)
     };
     // An option is in one of eight cases: each is resolved once, however many options there are.
     let cases = [false, true]
@@ -504,9 +507,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
       .map(|(index, option)| {
         let is_chosen = chosen.contains(option.value());
         let disabled = !enabled[index];
+        // An option has an id of its own, which its parts are named after.
+        let id: Option<Arc<str>> = self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}")));
         let recipe = cases[usize::from(is_chosen)][usize::from(option.is_disabled())]
           [usize::from(option.detail_text().is_some())]
-        .clone();
+        .item(id.as_ref(), ListboxPart::Option);
         let state = SelectAdornmentState {
           selected: is_chosen,
           disabled,
@@ -534,15 +539,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
           entry: entry == Some(index),
           position: (position, 0),
           multiple: many,
-          checkbox: boxes
-            .as_ref()
-            .map(|boxes| boxes[usize::from(is_chosen)][usize::from(disabled)].clone()),
+          checkbox: boxes.as_ref().map(|boxes| {
+            boxes[usize::from(is_chosen)][usize::from(disabled)]
+              .clone()
+              .owned_like(&recipe)
+          }),
           recipe,
           forced: self.forced,
           pick,
           select_all,
           row: None,
-          id: self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}"))),
+          id,
         }
       })
       .collect::<Vec<_>>();
@@ -562,7 +569,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<
       disabled: self.disabled,
       label: self.label.clone(),
       description: self.description.clone(),
-      recipe: cases[0][0][0].clone(),
+      recipe: root,
       id: self.id.clone(),
       key: self.key.clone(),
     }
@@ -741,6 +748,14 @@ pub struct ListboxOption {
 }
 
 impl ListboxOption {
+  /// The option as an option component of a virtual list builds it again, from render to render: its parts named
+  /// after its id from naught each time, so that they are named alike.
+  fn again(mut self) -> Self {
+    self.recipe = self.recipe.item(self.id.as_ref(), ListboxPart::Option);
+    self.checkbox = self.checkbox.map(|checkbox| checkbox.owned_like(&self.recipe));
+    self
+  }
+
   /// The style of a part, as this option is to be drawn.
   /// The style of a part, as this option is to be drawn: a disabled one as nothing points at it or presses it,
   /// whatever the listbox is forced to.
@@ -1275,7 +1290,7 @@ impl Component for ListboxOptionHost {
       let shown = props.shown.lock().unwrap();
       (shown.options.get(props.index).cloned(), shown.gap.clone())
     };
-    let Some(option) = option else {
+    let Some(option) = option.map(ListboxOption::again) else {
       return Column::new();
     };
     let mut column = Column::new()

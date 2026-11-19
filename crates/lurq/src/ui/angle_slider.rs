@@ -282,7 +282,9 @@ impl AngleSlider {
         None => super::current_locale().input.angle.clone(),
       }),
       disabled: self.disabled,
-      recipe: theme.resolve::<AngleSlider>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<AngleSlider>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       value_text: self.value_text.unwrap_or_else(|| {
         let decimals = decimals_of(range.step);
         Arc::new(move |angle| format!("{}°", number(angle, decimals)))

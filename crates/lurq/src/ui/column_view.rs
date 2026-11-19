@@ -332,8 +332,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     };
-    let resolve = |case: Case| theme.resolve::<ColumnView<T>>(&case, Some(&self.rules));
-    let root = resolve(base.clone().state(ColumnViewState::Disabled, self.disabled));
+    let root = theme
+      .resolve::<ColumnView<T>>(
+        &base.clone().state(ColumnViewState::Disabled, self.disabled),
+        Some(&self.rules),
+      )
+      .owned_by(self.id.as_ref());
+    let resolve = |case: Case| {
+      theme
+        .resolve::<ColumnView<T>>(&case, Some(&self.rules))
+        .owned_like(&root)
+    };
     // An item is in one of six cases: each is resolved once, however many items there are.
     let cases: Vec<ResolvedRecipe> = (0..6)
       .map(|case| {
@@ -460,7 +469,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ColumnView<T> {
             let selected = level.chosen == Some(index);
             let current = selected && end == Some(column);
             let disabled = self.disabled || item.disabled;
-            let recipe = cases[(usize::from(selected) + usize::from(current)) * 2 + usize::from(disabled)].clone();
+            let recipe = &cases[(usize::from(selected) + usize::from(current)) * 2 + usize::from(disabled)];
+            // An item names its parts after its id, else after its key, where the app gave it one.
+            let recipe = match &item.key {
+              Some(key) if item.id.is_none() => recipe.keyed_item(key, ColumnViewPart::Item),
+              _ => recipe.item(item.id.as_ref(), ColumnViewPart::Item),
+            };
             let opens = item.lazy || !item.items.is_empty();
             let actions = (!disabled).then(|| {
               let (choose, go, activate) = (model.clone(), model.clone(), model.clone());
@@ -784,6 +798,7 @@ impl ColumnViewColumn {
         Spinner::new()
           .label(&self.loading_label)
           .label_hidden(true)
+          .rules(&self.recipe.lend(ColumnViewPart::Spinner))
           .style(SpinnerPart::Indicator, |s| s.square(side))
           .build(self.theme()),
       )
