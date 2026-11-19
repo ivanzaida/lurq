@@ -13,6 +13,16 @@ Older notes this gathers: the plan's [13.3](design-system-plan.md#133-to-check-o
 Feature names are those after the feature cleanup of 2026-11-17 (`default` is the desktop set; `svg` is in
 `canvas`). If that branch is not merged yet, add `form,router,canvas,image` by hand.
 
+**On the simulator, by real touches.** Xcode 27 shows a simulator in DeviceHub
+(`Xcode.app/Contents/Applications/DeviceHub.app`; its Controls menu turns the device, its Device menu has the
+keyboard and the accessibility settings). `scripts/simtouch` (built by its `build.sh`) clicks and drags on the
+device's screen there, which the simulator makes fingers of: UIKit's own views take them, the system's menus,
+photo picker, Files and sheets among them, which the gallery's MCP touches do not reach. Its coordinates are the
+pixels of `xcrun simctl io <id> screenshot`. Run a gallery built without `mcp` for the system's dialogs (with it,
+MCP's broker answers them), opened on a page by `xcrun simctl launch <id> <bundle> --route /file-upload`. Pictures
+go into the library by `xcrun simctl addmedia`. Not there: the camera's picture (its shutter takes none), the ring
+switch, a call, three fingers.
+
 ## 1. It builds, links and starts
 
 - [x] **The workspace on a Mac.** `cargo build -p lurq`, `cargo build -p gallery --features devtools,mcp`,

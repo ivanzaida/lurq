@@ -8,6 +8,67 @@ is in [design-system-plan.md](design-system-plan.md#7-phases-27--components).
 Each entry: **the question**, **the decision**, **why**, and its **state** (proposed, decided, in work on a branch,
 built, dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-19
+
+### The camera takes one photo after another while the dialog takes several
+
+- **Question.** "Take Photo" of a file dialog that takes several files (`multiple`) took one photo and closed: iOS's
+  camera (`UIImagePickerController`) takes one picture at a time.
+- **Decision (Ivan, 2026-11-19, at the phone: "нема можливості зробити декілька фото", then "дороби декілька
+  фото").** With `multiple`, the camera opens again after each photo kept ("Use Photo"), until the person cancels;
+  the photos kept are given together then. One photo for a dialog of one file, as before.
+- **Why.** A person who adds photos to a list of files expects to take them in a row, not to go through the menu
+  for each.
+- **State.** In work on `feat/design-system`.
+
+### A sent file can be removed from a file upload
+
+- **Question.** A `ui::FileUpload` showed the remove control on a file waiting, being sent or failed; a file sent
+  had its check alone, and could not be taken out of the list.
+- **Decision (Ivan, 2026-11-19).** A sent file has the remove control too: on a finger beside its check, always;
+  under a pointer the check gives way to it while the row is hovered or the control focused.
+- **Why.** What was given by mistake must be taken back, whether its upload ended or not.
+- **State.** In work on `feat/design-system`.
+
+### A sound goes on by itself after a call, when iOS says it may
+
+- **Question.** A call or another app's sound pauses lurq's sound; when the interruption ended it stayed paused.
+- **Decision (Ivan, 2026-11-19: "давай додамо епловську поведінку").** When iOS ends the interruption with
+  `AVAudioSessionInterruptionOptionShouldResume`, a sound that was playing when it began plays on from where it
+  was; without it, it stays paused, as Apple's guide for players says.
+- **Why.** As Music and Podcasts do.
+- **State.** In work on `feat/design-system`.
+
+### The app chooses whether its sound plays with the ring switch on silent
+
+- **Question.** With the ring switch on silent lurq's sound was silent: iOS's default session (`SoloAmbient`).
+  A player of music or of podcasts is heard on silent; a game's sounds and a UI's are not.
+- **Decision (Ivan, 2026-11-19).** The default stays iOS's: silent on silent. `App::set_audio_category` takes
+  `AudioCategory::Playback` for an app that plays what a person listens to: heard on silent, and on with the
+  screen locked where the app may play in the background. The gallery sets `Playback`.
+- **Why.** An app that makes sounds of its own should not be loud by surprise; one that plays media is expected
+  to be heard.
+- **State.** In work on `feat/design-system`.
+
+### Three fingers in a text field do what iOS's own fields do
+
+- **Question.** In a focused text field on an iPhone a swipe of three fingers did nothing (no undo, no "Nothing to
+  Undo"), and a tap of three fingers showed the system's bar of editing commands, which no tap put away.
+- **Decision (Ivan, 2026-11-19, at the phone).** In a field, three fingers are the system's, and work as in a field
+  of UIKit: a swipe left undoes and right redoes through the field's undo, the bar's buttons work and it goes away
+  as it does in another app.
+- **Why.** A gesture the system shows and does not carry out looks broken.
+- **State.** In work on `feat/design-system`.
+
+### The gallery has a page of gestures
+
+- **Question.** A rotation of two fingers about a still one (`on_rotate`) could not be tried on the phone: no page
+  of the gallery listens for it, and the lightbox does not turn its pictures, as Photos does not.
+- **Decision (Ivan, 2026-11-19).** An engine page of the gallery has a square that fingers pinch, turn and drag,
+  and says which gesture came, with its numbers.
+- **Why.** Each gesture lurq knows is tried on the phone where it is shown.
+- **State.** In work on `feat/design-system`.
+
 ## 2026-11-18
 
 ### On iOS a choice of files offers the photo library and the camera, as Safari does

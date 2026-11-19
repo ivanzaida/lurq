@@ -568,6 +568,21 @@ impl App {
     &self.shared.loader
   }
 
+  /// Tells the system what the app's sound is: on iOS, whether it is heard with the ring switch on silent. The
+  /// system's default is kept unless told: a sound of the app's own, silent on silent. An app that plays what a
+  /// person listens to (music, a podcast, a video) says so at its start:
+  ///
+  /// ```no_run
+  /// let app = lurq::app::App::new();
+  /// app.set_audio_category(lurq::media::AudioCategory::Playback);
+  /// ```
+  ///
+  /// Elsewhere it changes nothing.
+  #[cfg(feature = "media")]
+  pub fn set_audio_category(&self, category: crate::media::AudioCategory) {
+    crate::media::set_audio_category(category);
+  }
+
   /// Turns on the cache on the disk, in `folder`: what the app loads from an address (a sound, a picture) is
   /// kept there as a file, is there for the next run of the app, and is read from the folder and not from the
   /// network when it is asked for again. It is said where the app is made:
