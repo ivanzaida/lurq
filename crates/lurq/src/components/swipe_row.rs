@@ -237,7 +237,16 @@ pub struct SwipeRow {
   /// The row as it is laid out: how wide it is, and how high, which its actions are too.
   row: ElementRef,
   height: Signal<f32>,
+  /// Whether the content was out of its place, or on its way, at the last render: the actions stay under it
+  /// until [`SETTLE`] after it went back.
+  moved: Arc<Mutex<bool>>,
+  /// Ends the time the content takes to go back, and has the row rendered again without its actions.
+  settle: crate::app::ctx::Timeout,
+  settled: Signal<u32>,
 }
+
+/// Longer than the content takes to spring back to its place: the actions are taken away under it after that.
+const SETTLE: Duration = Duration::from_millis(1000);
 
 impl SwipeRow {
   /// Around `content`, which is as high as the row is and paints its own background.
@@ -254,8 +263,16 @@ impl SwipeRow {
 impl Component for SwipeRow {
   type Props = SwipeRowProps;
 
-  fn create(_ctx: &mut Ctx) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let settled = Signal::new(0u32);
+    let settle = ctx.create_timeout(SETTLE, {
+      let settled = settled.clone();
+      move || settled.update(|times| *times = times.wrapping_add(1))
+    });
     Self {
+      moved: Arc::default(),
+      settle,
+      settled,
       open: Signal::new(0),
       drag: Signal::new(NO_DRAG),
       held: Arc::default(),
@@ -285,6 +302,18 @@ impl Component for SwipeRow {
     let dragged = drag != NO_DRAG;
     let at = if dragged { drag } else { rest };
     let pace = if dragged { Duration::ZERO } else { style.duration };
+    // A row at rest has nothing under its content: an action there would show through at an edge of the content
+    // that falls between two pixels. Out of its place, and while it goes back, the actions are there.
+    self.settled.get();
+    let out = dragged || at != 0.0;
+    {
+      let mut moved = self.moved.lock();
+      if *moved && !out {
+        self.settle.restart();
+      }
+      *moved = out;
+    }
+    let bare = !out && !self.settle.is_active();
     let curve = Easing::Spring {
       velocity: *self.velocity.lock(),
     };
@@ -461,12 +490,16 @@ impl Component for SwipeRow {
       .child(
         // As high as the content was last laid out: the row is as high as its content, and its actions
         // fill it.
-        Row::new()
-          .width(FILL)
-          .height(height)
-          .child(actions(&props.leading, false, at.max(0.0)))
-          .child(Row::new().flex(1.0))
-          .child(actions(&props.trailing, true, (-at).max(0.0))),
+        if bare {
+          Row::new().width(FILL).height(height)
+        } else {
+          Row::new()
+            .width(FILL)
+            .height(height)
+            .child(actions(&props.leading, false, at.max(0.0)))
+            .child(Row::new().flex(1.0))
+            .child(actions(&props.trailing, true, (-at).max(0.0)))
+        },
       )
       .child(content)
   }
