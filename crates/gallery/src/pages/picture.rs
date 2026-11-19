@@ -582,114 +582,126 @@ impl Component for PicturePage {
         .force_bar_shown(Some(true))
     };
 
-    let large = items()
-      .id("picture-large")
-      .child(item(
-        self
-          .lake()
-          .title("Lake at dusk")
-          .size_px(640.0, 360.0)
-          .lightbox(true)
-          .id("picture-opens"),
-        "picture · 640 × 360 · cover · a press opens it in a lightbox",
-      ))
-      .child(item(
-        self
-          .lake()
-          .width(212.0)
-          .aspect_ratio(3.0 / 2.0)
-          .caption("Figure 1. The lake at dusk."),
-        "figure · a caption under it",
-      ));
+    let large = crate::kit::apart(|| {
+      items()
+        .id("picture-large")
+        .child(item(
+          self
+            .lake()
+            .title("Lake at dusk")
+            .size_px(640.0, 360.0)
+            .lightbox(true)
+            .id("picture-opens"),
+          "picture · 640 × 360 · cover · a press opens it in a lightbox",
+        ))
+        .child(item(
+          self
+            .lake()
+            .width(212.0)
+            .aspect_ratio(3.0 / 2.0)
+            .caption("Figure 1. The lake at dusk."),
+          "figure · a caption under it",
+        ))
+    });
 
-    let states = items()
-      .id("picture-states")
-      .child(item(stage(Picture::empty().loading(true)), "loading · the skeleton"))
-      .child(item(
-        stage(
-          Picture::empty()
-            .loading(true)
-            .placeholder(PicturePlaceholder::blur_pixels(self.small.clone())),
-        ),
-        "loading · a small version, blurred",
-      ))
-      .child(item(
-        stage(
-          Picture::empty()
-            .loading(true)
-            .progress(0.42)
-            .progress_text(|_| "42% · 1.4 of 3.4 MB".to_owned()),
-        ),
-        "loading · slow, the progress",
-      ))
-      .child(item(
-        stage(broken().label(LAKE)),
-        "error · the name and a way to try again",
-      ))
-      .child(item(
-        stage(Picture::empty().label(LAKE)),
-        "no source · the glyph and the name",
-      ))
-      .child(item(
-        stage(with_bar(self.lake()).badge(Badge::new("New"))),
-        "under the pointer · the bar comes in",
-      ))
-      .child(item(
-        stage(
-          with_bar(self.lake())
-            .on_click(|_| {})
-            .force(Some(lurq::ui::Interaction::FocusVisible)),
-        ),
-        "focus-visible · a ring, the bar shown",
-      ));
+    let states = crate::kit::apart(|| {
+      items()
+        .id("picture-states")
+        .child(item(stage(Picture::empty().loading(true)), "loading · the skeleton"))
+        .child(item(
+          stage(
+            Picture::empty()
+              .loading(true)
+              .placeholder(PicturePlaceholder::blur_pixels(self.small.clone())),
+          ),
+          "loading · a small version, blurred",
+        ))
+        .child(item(
+          stage(
+            Picture::empty()
+              .loading(true)
+              .progress(0.42)
+              .progress_text(|_| "42% · 1.4 of 3.4 MB".to_owned()),
+          ),
+          "loading · slow, the progress",
+        ))
+        .child(item(
+          stage(broken().label(LAKE)),
+          "error · the name and a way to try again",
+        ))
+        .child(item(
+          stage(Picture::empty().label(LAKE)),
+          "no source · the glyph and the name",
+        ))
+        .child(item(
+          stage(with_bar(self.lake()).badge(Badge::new("New"))),
+          "under the pointer · the bar comes in",
+        ))
+        .child(item(
+          stage(
+            with_bar(self.lake())
+              .on_click(|_| {})
+              .force(Some(lurq::ui::Interaction::FocusVisible)),
+          ),
+          "focus-visible · a ring, the bar shown",
+        ))
+    });
 
     let thumb = |picture: Picture| picture.size_px(160.0, 100.0).size(PictureSize::Sm);
-    let in_a_row = items()
-      .id("picture-row")
-      .child(item(thumb(self.lake()).selectable(true), "in a row · at rest"))
-      .child(item(
-        thumb(self.lake()).selectable(true).force_bar_shown(Some(true)),
-        "under the pointer · the mark",
-      ))
-      .child(item(
-        thumb(self.lake())
-          .selectable(true)
-          .force(Some(lurq::ui::Interaction::FocusVisible)),
-        "focus-visible",
-      ))
-      .child(item(thumb(self.lake()).selectable(true).selected(true), "selected"))
-      .child(item(thumb(self.lake()).selectable(true).disabled(true), "disabled"));
+    let in_a_row = crate::kit::apart(|| {
+      items()
+        .id("picture-row")
+        .child(item(thumb(self.lake()).selectable(true), "in a row · at rest"))
+        .child(item(
+          thumb(self.lake()).selectable(true).force_bar_shown(Some(true)),
+          "under the pointer · the mark",
+        ))
+        .child(item(
+          thumb(self.lake())
+            .selectable(true)
+            .force(Some(lurq::ui::Interaction::FocusVisible)),
+          "focus-visible",
+        ))
+        .child(item(thumb(self.lake()).selectable(true).selected(true), "selected"))
+        .child(item(thumb(self.lake()).selectable(true).disabled(true), "disabled"))
+    });
 
     let fit = |fit: PictureFit, anchor: StackAlignment| self.lake().size_px(130.0, 73.0).fit(fit).anchor(anchor);
     // The picture a quarter of its size, so that its own size is larger than the box and is cut by it.
-    let own = Picture::new(self.quarter.clone())
-      .label(LAKE)
-      .size_px(130.0, 73.0)
-      .fit(PictureFit::None);
-    let fits = items()
-      .id("picture-fits")
-      .child(item(
-        fit(PictureFit::Cover, StackAlignment::Center),
-        "cover · the default",
-      ))
-      .child(item(fit(PictureFit::Contain, StackAlignment::Center), "contain"))
-      .child(item(fit(PictureFit::Fill, StackAlignment::Center), "fill"))
-      .child(item(own, "none · its own size"))
-      .child(item(fit(PictureFit::Cover, StackAlignment::TopCenter), "cover · top"))
-      .child(item(
-        fit(PictureFit::Cover, StackAlignment::BottomCenter),
-        "cover · bottom",
-      ));
+    let own = crate::kit::apart(|| {
+      Picture::new(self.quarter.clone())
+        .label(LAKE)
+        .size_px(130.0, 73.0)
+        .fit(PictureFit::None)
+    });
+    let fits = crate::kit::apart(|| {
+      items()
+        .id("picture-fits")
+        .child(item(
+          fit(PictureFit::Cover, StackAlignment::Center),
+          "cover · the default",
+        ))
+        .child(item(fit(PictureFit::Contain, StackAlignment::Center), "contain"))
+        .child(item(fit(PictureFit::Fill, StackAlignment::Center), "fill"))
+        .child(item(own, "none · its own size"))
+        .child(item(fit(PictureFit::Cover, StackAlignment::TopCenter), "cover · top"))
+        .child(item(
+          fit(PictureFit::Cover, StackAlignment::BottomCenter),
+          "cover · bottom",
+        ))
+    });
 
     let ratio = |ratio: f32| self.lake().height(96.0).aspect_ratio(ratio);
-    let ratios = items()
-      .id("picture-ratios")
-      .child(item(ratio(1.0), "1:1"))
-      .child(item(ratio(4.0 / 3.0), "4:3"))
-      .child(item(ratio(16.0 / 9.0), "16:9"))
-      .child(item(ratio(3.0 / 2.0), "3:2"))
-      .child(item(ratio(3.0 / 4.0), "3:4 · portrait"))
-      .child(item(ratio(1.0).shape(PictureShape::Circle), "circle"));
+    let ratios = crate::kit::apart(|| {
+      items()
+        .id("picture-ratios")
+        .child(item(ratio(1.0), "1:1"))
+        .child(item(ratio(4.0 / 3.0), "4:3"))
+        .child(item(ratio(16.0 / 9.0), "16:9"))
+        .child(item(ratio(3.0 / 2.0), "3:2"))
+        .child(item(ratio(3.0 / 4.0), "3:4 · portrait"))
+        .child(item(ratio(1.0).shape(PictureShape::Circle), "circle"))
+    });
 
     let over = |picture: Picture| {
       picture
@@ -697,312 +709,324 @@ impl Component for PicturePage {
         .size(PictureSize::Lg)
         .force_bar_shown(Some(true))
     };
-    let over_it = items()
-      .id("picture-over")
-      .child(item(
-        over(self.lake()).badge(Badge::new("New")),
-        "badge · top start, 12 in",
-      ))
-      .child(item(
-        over(self.lake())
-          .title("Lake at dusk")
-          .description("Ivan Zaida · 4032 × 3024"),
-        "caption · on the lower edge",
-      ))
-      .child(item(
-        over(self.lake()).on_download(|| {}).menu_items(menu()),
-        "actions · the lower end",
-      ));
+    let over_it = crate::kit::apart(|| {
+      items()
+        .id("picture-over")
+        .child(item(
+          over(self.lake()).badge(Badge::new("New")),
+          "badge · top start, 12 in",
+        ))
+        .child(item(
+          over(self.lake())
+            .title("Lake at dusk")
+            .description("Ivan Zaida · 4032 × 3024"),
+          "caption · on the lower edge",
+        ))
+        .child(item(
+          over(self.lake()).on_download(|| {}).menu_items(menu()),
+          "actions · the lower end",
+        ))
+    });
 
-    let sizes = items()
-      .id("picture-sizes")
-      .child(item(
-        with_bar(self.lake()).size_px(200.0, 113.0),
-        "compact · the rest in the menu",
-      ))
-      .child(item(
-        Row::new()
-          .max_width(FILL)
-          .spacing(8.0)
-          .wrap()
-          .child(self.lake().size_px(96.0, 96.0))
-          .child(Picture::empty().loading(true).progress(0.42).size_px(96.0, 96.0))
-          .child(broken().label(LAKE).size_px(96.0, 96.0)),
-        "thumbnail · 96 · a state is a glyph or a line",
-      ))
-      .child(item(
-        Row::new()
-          .spacing(8.0)
-          .child(self.lake().size_px(40.0, 40.0).shape(PictureShape::Circle))
-          .child(self.lake().size_px(40.0, 40.0))
-          .child(
-            Picture::empty()
-              .loading(true)
-              .size_px(40.0, 40.0)
-              .shape(PictureShape::Circle),
-          )
-          .child(Picture::empty().label(LAKE).size_px(40.0, 40.0)),
-        "avatar-sized · 40 · nothing over it",
-      ));
-
-    let own_layer = Stack::new().size(FILL, FILL).child(
-      Column::new()
-        .size(FILL, FILL)
-        .justify(Justify::SpaceBetween)
-        .child(
+    let sizes = crate::kit::apart(|| {
+      items()
+        .id("picture-sizes")
+        .child(item(
+          with_bar(self.lake()).size_px(200.0, 113.0),
+          "compact · the rest in the menu",
+        ))
+        .child(item(
           Row::new()
-            .width(FILL)
-            .padding(12.0)
-            .align_items(Alignment::Center)
+            .max_width(FILL)
+            .spacing(8.0)
+            .wrap()
+            .child(self.lake().size_px(96.0, 96.0))
+            .child(Picture::empty().loading(true).progress(0.42).size_px(96.0, 96.0))
+            .child(broken().label(LAKE).size_px(96.0, 96.0)),
+          "thumbnail · 96 · a state is a glyph or a line",
+        ))
+        .child(item(
+          Row::new()
+            .spacing(8.0)
+            .child(self.lake().size_px(40.0, 40.0).shape(PictureShape::Circle))
+            .child(self.lake().size_px(40.0, 40.0))
             .child(
-              Row::new()
-                .spacing(6.0)
-                .padding_horizontal(4.0)
-                .padding_vertical(4.0)
-                .align_items(Alignment::Center)
-                .rounded(RadiusSize::Full)
-                .background("#00000066")
-                .child(Avatar::new("Ivan Zaida").size(AvatarSize::Sm))
-                .child(
-                  Row::new()
-                    .padding_horizontal(4.0)
-                    .child(text("@lurq.dev", 12.0, FontWeight::Medium).color("#ffffff")),
-                ),
+              Picture::empty()
+                .loading(true)
+                .size_px(40.0, 40.0)
+                .shape(PictureShape::Circle),
             )
-            .child(Row::new().flex(1.0))
-            .child(
-              Button::new("Like")
-                .icon(icons::HEART)
-                .icon_only(true)
-                .variant(ButtonVariant::Ghost)
-                .shape(ButtonShape::Pill)
-                .size(ButtonSize::Sm),
-            ),
-        )
-        .child(
-          Column::new()
-            .width(FILL)
-            .spacing(4.0)
-            .padding_horizontal(16.0)
-            .padding_vertical(14.0)
-            .child(text("The lake at dusk", 14.0, FontWeight::SemiBold).color("#ffffff"))
-            .child(
-              text(
-                "From the east shore, an hour after the wind dropped.",
-                13.0,
-                FontWeight::Normal,
+            .child(Picture::empty().label(LAKE).size_px(40.0, 40.0)),
+          "avatar-sized · 40 · nothing over it",
+        ))
+    });
+
+    let own_layer = crate::kit::apart(|| {
+      Stack::new().size(FILL, FILL).child(
+        Column::new()
+          .size(FILL, FILL)
+          .justify(Justify::SpaceBetween)
+          .child(
+            Row::new()
+              .width(FILL)
+              .padding(12.0)
+              .align_items(Alignment::Center)
+              .child(
+                Row::new()
+                  .spacing(6.0)
+                  .padding_horizontal(4.0)
+                  .padding_vertical(4.0)
+                  .align_items(Alignment::Center)
+                  .rounded(RadiusSize::Full)
+                  .background("#00000066")
+                  .child(Avatar::new("Ivan Zaida").size(AvatarSize::Sm))
+                  .child(
+                    Row::new()
+                      .padding_horizontal(4.0)
+                      .child(text("@lurq.dev", 12.0, FontWeight::Medium).color("#ffffff")),
+                  ),
               )
-              .color("#ffffff"),
-            ),
-        ),
-    );
-    let on_a_phone = items()
-      .id("picture-phone")
-      .child(item(
-        self
-          .lake()
-          .size_px(360.0, 240.0)
-          .variant(PictureVariant::Phone)
-          .title("Lake at dusk")
-          .description("Ivan Zaida · 4032 × 3024")
-          .badge(Badge::new("New"))
-          .on_download(|| {})
-          .menu_items([MenuItem::new("Copy"), MenuItem::new("Share…")])
-          .lightbox(true)
-          .id("picture-phone-lake"),
-        "phone · 360 × 240 · a tap opens it, a long press its actions",
-      ))
-      .child(item(
-        Column::new().width(360.0).max_width(FILL).child(
-          ActionSheet::new(
-            Signal::new(true),
-            [
-              MenuItem::new("Download"),
-              MenuItem::new("Copy"),
-              MenuItem::new("Share…"),
-            ],
+              .child(Row::new().flex(1.0))
+              .child(
+                Button::new("Like")
+                  .icon(icons::HEART)
+                  .icon_only(true)
+                  .variant(ButtonVariant::Ghost)
+                  .shape(ButtonShape::Pill)
+                  .size(ButtonSize::Sm),
+              ),
           )
-          .title("Lake at dusk")
-          .inline(true),
-        ),
-        "long press · the actions in a sheet",
-      ));
+          .child(
+            Column::new()
+              .width(FILL)
+              .spacing(4.0)
+              .padding_horizontal(16.0)
+              .padding_vertical(14.0)
+              .child(text("The lake at dusk", 14.0, FontWeight::SemiBold).color("#ffffff"))
+              .child(
+                text(
+                  "From the east shore, an hour after the wind dropped.",
+                  13.0,
+                  FontWeight::Normal,
+                )
+                .color("#ffffff"),
+              ),
+          ),
+      )
+    });
+    let on_a_phone = crate::kit::apart(|| {
+      items()
+        .id("picture-phone")
+        .child(item(
+          self
+            .lake()
+            .size_px(360.0, 240.0)
+            .variant(PictureVariant::Phone)
+            .title("Lake at dusk")
+            .description("Ivan Zaida · 4032 × 3024")
+            .badge(Badge::new("New"))
+            .on_download(|| {})
+            .menu_items([MenuItem::new("Copy"), MenuItem::new("Share…")])
+            .lightbox(true)
+            .id("picture-phone-lake"),
+          "phone · 360 × 240 · a tap opens it, a long press its actions",
+        ))
+        .child(item(
+          Column::new().width(360.0).max_width(FILL).child(
+            ActionSheet::new(
+              Signal::new(true),
+              [
+                MenuItem::new("Download"),
+                MenuItem::new("Copy"),
+                MenuItem::new("Share…"),
+              ],
+            )
+            .title("Lake at dusk")
+            .inline(true),
+          ),
+          "long press · the actions in a sheet",
+        ))
+    });
 
-    let without = items()
-      .id("picture-without")
-      .child(item(
-        stage(self.lake()).bare(true),
-        "bare · no box, no corners, no line",
-      ))
-      .child(item(
-        stage(self.lake()).bar(false).child(own_layer),
-        "your own layer over the picture",
-      ));
+    let without = crate::kit::apart(|| {
+      items()
+        .id("picture-without")
+        .child(item(
+          stage(self.lake()).bare(true),
+          "bare · no box, no corners, no line",
+        ))
+        .child(item(
+          stage(self.lake()).bar(false).child(own_layer),
+          "your own layer over the picture",
+        ))
+    });
 
-    let rows = [
-      (
-        "new / from_file / from_bytes / from_resource / from_url / from_source / empty",
-        "the source",
-        "",
-        "Pixels the app has, a file or bytes decoded off the UI thread, a resource of the app, an address on the \
+    let rows = crate::kit::apart(|| {
+      [
+        (
+          "new / from_file / from_bytes / from_resource / from_url / from_source / empty",
+          "the source",
+          "",
+          "Pixels the app has, a file or bytes decoded off the UI thread, a resource of the app, an address on the \
          network, or nothing: a box that says it has no picture.",
-      ),
-      (
-        "label",
-        "&str",
-        "",
-        "What the picture is called: what it shows of itself where there are no pixels, and its name to tooling. \
+        ),
+        (
+          "label",
+          "&str",
+          "",
+          "What the picture is called: what it shows of itself where there are no pixels, and its name to tooling. \
          An alt text. `decorative(true)` for a picture that says nothing the words around it do not.",
-      ),
-      (
-        "width / height",
-        "Length",
-        "",
-        "As a browser's img: with neither it is as large as its pixels, with one the other follows their ratio, \
+        ),
+        (
+          "width / height",
+          "Length",
+          "",
+          "As a browser's img: with neither it is as large as its pixels, with one the other follows their ratio, \
          with both it is a box. The width is the most it takes: in a narrower room a box of pixels keeps its \
          shape.",
-      ),
-      (
-        "aspect_ratio",
-        "f32",
-        "",
-        "The box's width over its height: it holds the box of a picture whose pixels are not there yet.",
-      ),
-      (
-        "fit",
-        "PictureFit",
-        "Cover",
-        "Cover, Contain, Fill, None (its own size).",
-      ),
-      (
-        "anchor",
-        "StackAlignment",
-        "Center",
-        "Where the pixels are held in the box where they are cut or do not fill it.",
-      ),
-      ("shape", "PictureShape", "Rounded", "Rounded, Circle."),
-      (
-        "bare",
-        "bool",
-        "false",
-        "The pixels alone: no fill, no corners, no line around them.",
-      ),
-      (
-        "size",
-        "PictureSize",
-        "by its width",
-        "Lg from 240 wide, Md under it, Sm at 96 and under, Xs at 40 and under: what a small picture keeps of \
+        ),
+        (
+          "aspect_ratio",
+          "f32",
+          "",
+          "The box's width over its height: it holds the box of a picture whose pixels are not there yet.",
+        ),
+        (
+          "fit",
+          "PictureFit",
+          "Cover",
+          "Cover, Contain, Fill, None (its own size).",
+        ),
+        (
+          "anchor",
+          "StackAlignment",
+          "Center",
+          "Where the pixels are held in the box where they are cut or do not fill it.",
+        ),
+        ("shape", "PictureShape", "Rounded", "Rounded, Circle."),
+        (
+          "bare",
+          "bool",
+          "false",
+          "The pixels alone: no fill, no corners, no line around them.",
+        ),
+        (
+          "size",
+          "PictureSize",
+          "by its width",
+          "Lg from 240 wide, Md under it, Sm at 96 and under, Xs at 40 and under: what a small picture keeps of \
          what lies over it.",
-      ),
-      (
-        "placeholder",
-        "PicturePlaceholder",
-        "Skeleton",
-        "What the box shows while the pixels are on their way: the sheen, a small version of the picture blurred \
+        ),
+        (
+          "placeholder",
+          "PicturePlaceholder",
+          "Skeleton",
+          "What the box shows while the pixels are on their way: the sheen, a small version of the picture blurred \
          (`PicturePlaceholder::blur`), or the box alone.",
-      ),
-      (
-        "loading",
-        "bool",
-        "false",
-        "The box as it is while the pixels are on their way, for a picture the app is still fetching.",
-      ),
-      (
-        "progress",
-        "Option<f64>",
-        "None",
-        "How far the load has come, of 1: a rail in place of the sheen. `progress_text` says the words under it.",
-      ),
-      (
-        "error_description / retry_label",
-        "&str",
-        "",
-        "The line that says a picture did not load, and its button: \"The picture didn't load.\", \"Try again\".",
-      ),
-      (
-        "on_load / on_error",
-        "Fn() / Fn(&PictureError)",
-        "",
-        "Told once the pixels are there, and once the picture did not come, with why: a kind (NotFound,          NotAPicture, Network, Server, TooLarge, …), which the locale says (MediaWords::picture_error).",
-      ),
-      (
-        "on_retry",
-        "Fn()",
-        "",
-        "A press of the button that asks again, before the picture asks.",
-      ),
-      (
-        "caption",
-        "&str",
-        "",
-        "A caption under the picture, which makes it a figure.",
-      ),
-      (
-        "title / description",
-        "&str",
-        "",
-        "What the bar over the picture's bottom edge says. The bar shows under the pointer and with the focus.",
-      ),
-      (
-        "badge",
-        "Element",
-        "",
-        "What stands at the top of the picture, at its start.",
-      ),
-      (
-        "on_download",
-        "Fn()",
-        "",
-        "A press of the download button, which the bar has once this is given.",
-      ),
-      (
-        "menu_item / menu_items",
-        "MenuItem",
-        "",
-        "The menu behind More, which the bar has once it has an item.",
-      ),
-      (
-        "action / actions",
-        "Element",
-        "",
-        "Buttons of the app's own in the bar.",
-      ),
-      (
-        "bar / force_bar_shown",
-        "bool / Option<bool>",
-        "true / None",
-        "Whether the bar is drawn, and whether it shows whatever the pointer does.",
-      ),
-      (
-        "child / children",
-        "Element",
-        "",
-        "The app's own layer over the whole picture.",
-      ),
-      ("on_click", "Fn(&MouseEvent)", "", "A press of the picture as a whole."),
-      (
-        "selectable / selected / on_change",
-        "bool / bool / Fn(bool)",
-        "false",
-        "A picture that can be chosen, whether it is, and what a press would make it.",
-      ),
-      (
-        "lightbox / open / on_open_change",
-        "bool / Signal<bool> / Fn(bool)",
-        "false",
-        "A press, and the last button of a large picture's bar, open the picture in a Lightbox over the window; \
+        ),
+        (
+          "loading",
+          "bool",
+          "false",
+          "The box as it is while the pixels are on their way, for a picture the app is still fetching.",
+        ),
+        (
+          "progress",
+          "Option<f64>",
+          "None",
+          "How far the load has come, of 1: a rail in place of the sheen. `progress_text` says the words under it.",
+        ),
+        (
+          "error_description / retry_label",
+          "&str",
+          "",
+          "The line that says a picture did not load, and its button: \"The picture didn't load.\", \"Try again\".",
+        ),
+        (
+          "on_load / on_error",
+          "Fn() / Fn(&PictureError)",
+          "",
+          "Told once the pixels are there, and once the picture did not come, with why: a kind (NotFound,          NotAPicture, Network, Server, TooLarge, …), which the locale says (MediaWords::picture_error).",
+        ),
+        (
+          "on_retry",
+          "Fn()",
+          "",
+          "A press of the button that asks again, before the picture asks.",
+        ),
+        (
+          "caption",
+          "&str",
+          "",
+          "A caption under the picture, which makes it a figure.",
+        ),
+        (
+          "title / description",
+          "&str",
+          "",
+          "What the bar over the picture's bottom edge says. The bar shows under the pointer and with the focus.",
+        ),
+        (
+          "badge",
+          "Element",
+          "",
+          "What stands at the top of the picture, at its start.",
+        ),
+        (
+          "on_download",
+          "Fn()",
+          "",
+          "A press of the download button, which the bar has once this is given.",
+        ),
+        (
+          "menu_item / menu_items",
+          "MenuItem",
+          "",
+          "The menu behind More, which the bar has once it has an item.",
+        ),
+        (
+          "action / actions",
+          "Element",
+          "",
+          "Buttons of the app's own in the bar.",
+        ),
+        (
+          "bar / force_bar_shown",
+          "bool / Option<bool>",
+          "true / None",
+          "Whether the bar is drawn, and whether it shows whatever the pointer does.",
+        ),
+        (
+          "child / children",
+          "Element",
+          "",
+          "The app's own layer over the whole picture.",
+        ),
+        ("on_click", "Fn(&MouseEvent)", "", "A press of the picture as a whole."),
+        (
+          "selectable / selected / on_change",
+          "bool / bool / Fn(bool)",
+          "false",
+          "A picture that can be chosen, whether it is, and what a press would make it.",
+        ),
+        (
+          "lightbox / open / on_open_change",
+          "bool / Signal<bool> / Fn(bool)",
+          "false",
+          "A press, and the last button of a large picture's bar, open the picture in a Lightbox over the window; \
          whether it is open, to read and to set, and what tells of it. A picture that is chosen by a press is \
          opened by the button.",
-      ),
-      (
-        "variant",
-        "PictureVariant",
-        "by the pointer",
-        "Desktop, Phone: the phone's under a finger (Pointer::Coarse), unless told. A large picture runs \
+        ),
+        (
+          "variant",
+          "PictureVariant",
+          "by the pointer",
+          "Desktop, Phone: the phone's under a finger (Pointer::Coarse), unless told. A large picture runs \
          edge to edge, its bar is always there with no buttons, and a long press brings its actions in a sheet.",
-      ),
-      ("disabled", "bool", "false", "Half the opacity; it takes nothing."),
-    ];
+        ),
+        ("disabled", "bool", "false", "Half the opacity; it takes nothing."),
+      ]
+    });
     let playground = self.play(ctx);
     self.frame.page(
       ctx,
@@ -1017,7 +1041,7 @@ impl Component for PicturePage {
         since: Some("0.63"),
         source: file!(),
       },
-      vec![
+      crate::kit::apart(|| vec![
         Section::new(
           "Playground",
           "Every prop of Picture is a control on the right. Its menu opens and its buttons have their tooltips; a \
@@ -1172,7 +1196,7 @@ impl Component for PicturePage {
           "What a picture is given.",
           props_table(&rows, &[], self.frame.room()),
         ),
-      ],
+      ]),
     )
   }
 }

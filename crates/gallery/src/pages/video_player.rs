@@ -354,7 +354,7 @@ impl Component for Demo {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let scene = *ctx.props::<Scene>();
-    let (width, size) = match scene {
+    let (width, size) = crate::kit::apart(|| match scene {
       Scene::Large => (640.0, None),
       Scene::Compact => (320.0, Some(VideoPlayerSize::Md)),
       Scene::Minimal => (200.0, Some(VideoPlayerSize::Sm)),
@@ -362,30 +362,32 @@ impl Component for Demo {
       Scene::Touch => (360.0, None),
       Scene::TouchSide => (780.0, None),
       _ => (432.0, None),
-    };
+    });
     let position = f64::from(self.position.get());
     // As wide as the board draws it and no wider than what holds it, a window as narrow as a phone; its height is
     // what 16 by 9 makes of the width it has.
-    let mut player = VideoPlayer::new()
-      .media(picture())
-      .width(width)
-      .max_width(Length::Fill)
-      .live(scene == Scene::Live)
-      .waiting(scene == Scene::Waiting)
-      .ended(self.ended.get())
-      .playing(self.playing.clone())
-      .position(self.position.clone())
-      .volume(self.volume.clone())
-      .muted(self.muted.clone())
-      .rate(self.rate.clone())
-      .captions(self.captions.clone())
-      .caption_cues(&VideoPlayerPage::captions())
-      .captions_track("English")
-      .qualities(&["1080p", "720p", "480p"])
-      .quality(self.quality.clone())
-      .fullscreen(self.fullscreen.clone())
-      .picture_in_picture(self.picture_in_picture.clone())
-      .preview(|_| picture().into());
+    let mut player = crate::kit::apart(|| {
+      VideoPlayer::new()
+        .media(picture())
+        .width(width)
+        .max_width(Length::Fill)
+        .live(scene == Scene::Live)
+        .waiting(scene == Scene::Waiting)
+        .ended(self.ended.get())
+        .playing(self.playing.clone())
+        .position(self.position.clone())
+        .volume(self.volume.clone())
+        .muted(self.muted.clone())
+        .rate(self.rate.clone())
+        .captions(self.captions.clone())
+        .caption_cues(&VideoPlayerPage::captions())
+        .captions_track("English")
+        .qualities(&["1080p", "720p", "480p"])
+        .quality(self.quality.clone())
+        .fullscreen(self.fullscreen.clone())
+        .picture_in_picture(self.picture_in_picture.clone())
+        .preview(|_| picture().into())
+    });
     if scene != Scene::Live {
       player = player.duration(LENGTH).buffered((position + 56.0).min(LENGTH));
     }
@@ -413,11 +415,13 @@ impl Component for Demo {
         .error("This video can't be played")
         .error_description("Check the connection and try again.");
     }
-    let (replayed, seeked, retried) = (
-      (self.ended.clone(), self.position.clone()),
-      self.ended.clone(),
-      (self.error.clone(), self.playing.clone()),
-    );
+    let (replayed, seeked, retried) = crate::kit::apart(|| {
+      (
+        (self.ended.clone(), self.position.clone()),
+        self.ended.clone(),
+        (self.error.clone(), self.playing.clone()),
+      )
+    });
     player
       .on_playing_change(move |to| {
         // Played again once it ended: from the start.
@@ -531,7 +535,7 @@ impl VideoPlayerPage {
     // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and a
     // position read here would build the whole page again for every step of a drag. The player finds the cue of
     // its position in the track it is given.
-    let make = {
+    let make = crate::kit::apart(|| {
       let (playing, position, volume, muted, rate) = (
         self.playing.clone(),
         self.position.clone(),
@@ -624,9 +628,9 @@ impl VideoPlayerPage {
           })
           .on_retry(move || retried.set(false))
       }
-    };
+    });
     let record = self.playground.recorder();
-    let shown = {
+    let shown = crate::kit::apart(|| {
       let make = make.clone();
       let forced = self.playground.forced();
       // No wider than the stage, as an app's player is no wider than its window: in a window as narrow as a
@@ -683,7 +687,7 @@ impl VideoPlayerPage {
           .key("played")
           .mount(ctx)
       }
-    };
+    });
 
     let mut code = vec!["VideoPlayer::new()".to_owned()];
     code.push(match chosen {
@@ -730,80 +734,90 @@ impl VideoPlayerPage {
       ]
       .map(str::to_owned),
     );
-    let tree = vec![
-      format!("root        {} · radius lg, clipped", self.playground.measured()),
-      "├─ media     the frame the app gives, the poster over it".to_owned(),
-      "├─ veil      #00000099 while ended or failed".to_owned(),
-      "├─ overlay   the app's own layer, with and without controls".to_owned(),
-      "├─ center    the 64 disc · a spinner · the error".to_owned(),
-      "├─ captions  16/500 on #000000B3, 12 over the bar".to_owned(),
-      "└─ controls  88 · seek bar · row of 36 on a gradient to #000000B3".to_owned(),
-    ];
-    let facts = format!(
-      "{} · {}×",
-      if sourced {
-        "plays its source".to_owned()
-      } else if live {
-        "live".to_owned()
-      } else {
-        format!("{} long", media_time_text(LENGTH, false))
-      },
-      self.rate.get()
-    );
+    let tree = crate::kit::apart(|| {
+      vec![
+        format!("root        {} · radius lg, clipped", self.playground.measured()),
+        "├─ media     the frame the app gives, the poster over it".to_owned(),
+        "├─ veil      #00000099 while ended or failed".to_owned(),
+        "├─ overlay   the app's own layer, with and without controls".to_owned(),
+        "├─ center    the 64 disc · a spinner · the error".to_owned(),
+        "├─ captions  16/500 on #000000B3, 12 over the bar".to_owned(),
+        "└─ controls  88 · seek bar · row of 36 on a gradient to #000000B3".to_owned(),
+      ]
+    });
+    let facts = crate::kit::apart(|| {
+      format!(
+        "{} · {}×",
+        if sourced {
+          "plays its source".to_owned()
+        } else if live {
+          "live".to_owned()
+        } else {
+          format!("{} long", media_time_text(LENGTH, false))
+        },
+        self.rate.get()
+      )
+    });
     let (set_size, set_width) = (self.size.clone(), self.width.clone());
-    let reset = (
-      [self.size.clone(), self.width.clone(), self.source.clone()],
-      [
-        self.playing.clone(),
-        self.muted.clone(),
-        self.captions.clone(),
-        self.fullscreen.clone(),
-        self.picture_in_picture.clone(),
-        self.waiting.clone(),
-        self.ended.clone(),
-        self.live.clone(),
-        self.error.clone(),
-        self.overlay.clone(),
-      ],
-      [self.poster.clone(), self.controls.clone()],
+    let reset = crate::kit::apart(|| {
       (
-        self.position.clone(),
-        self.volume.clone(),
-        self.rate.clone(),
-        self.quality.clone(),
-      ),
-      (self.path.clone(), self.address.clone()),
-    );
-    let flags = [
-      flag("playing", &self.playing),
-      flag("waiting", &self.waiting),
-      flag("ended", &self.ended),
-      flag("live", &self.live),
-      flag("error", &self.error),
-      flag("poster", &self.poster),
-      flag("muted", &self.muted),
-      flag("captions", &self.captions),
-      flag("fullscreen", &self.fullscreen),
-      flag("picture_in_picture", &self.picture_in_picture),
-      flag("controls", &self.controls),
-      flag("child: your layer", &self.overlay),
-    ];
-    let mut controls_list = vec![
-      prop(
-        "size",
-        "VideoPlayerSize",
-        self.playground.select(0, &SIZES, &size, move |size| {
-          set_size.set(SIZES.iter().position(|(_, chosen)| *chosen == size).unwrap_or(0))
-        }),
-      ),
-      prop(
-        "width",
-        "Length",
-        self.playground.select(1, &WIDTHS, &width, move |width| {
-          set_width.set(WIDTHS.iter().position(|(_, chosen)| *chosen == width).unwrap_or(0))
-        }),
-      ),
-    ];
+        [self.size.clone(), self.width.clone(), self.source.clone()],
+        [
+          self.playing.clone(),
+          self.muted.clone(),
+          self.captions.clone(),
+          self.fullscreen.clone(),
+          self.picture_in_picture.clone(),
+          self.waiting.clone(),
+          self.ended.clone(),
+          self.live.clone(),
+          self.error.clone(),
+          self.overlay.clone(),
+        ],
+        [self.poster.clone(), self.controls.clone()],
+        (
+          self.position.clone(),
+          self.volume.clone(),
+          self.rate.clone(),
+          self.quality.clone(),
+        ),
+        (self.path.clone(), self.address.clone()),
+      )
+    });
+    let flags = crate::kit::apart(|| {
+      [
+        flag("playing", &self.playing),
+        flag("waiting", &self.waiting),
+        flag("ended", &self.ended),
+        flag("live", &self.live),
+        flag("error", &self.error),
+        flag("poster", &self.poster),
+        flag("muted", &self.muted),
+        flag("captions", &self.captions),
+        flag("fullscreen", &self.fullscreen),
+        flag("picture_in_picture", &self.picture_in_picture),
+        flag("controls", &self.controls),
+        flag("child: your layer", &self.overlay),
+      ]
+    });
+    let mut controls_list = crate::kit::apart(|| {
+      vec![
+        prop(
+          "size",
+          "VideoPlayerSize",
+          self.playground.select(0, &SIZES, &size, move |size| {
+            set_size.set(SIZES.iter().position(|(_, chosen)| *chosen == size).unwrap_or(0))
+          }),
+        ),
+        prop(
+          "width",
+          "Length",
+          self.playground.select(1, &WIDTHS, &width, move |width| {
+            set_width.set(WIDTHS.iter().position(|(_, chosen)| *chosen == width).unwrap_or(0))
+          }),
+        ),
+      ]
+    });
     #[cfg(not(target_arch = "wasm32"))]
     {
       let (to_source, stop, rewind, over) = (
@@ -1562,66 +1576,67 @@ impl Component for VideoPlayerPage {
         since: Some("0.63"),
         source: file!(),
       },
-      vec![
-        Section::new(
-          "Playground",
-          "Every prop of VideoPlayer is a control on the right. With no source nothing is decoded: a clock of the \
+      crate::kit::apart(|| {
+        vec![
+          Section::new(
+            "Playground",
+            "Every prop of VideoPlayer is a control on the right. With no source nothing is decoded: a clock of the \
            page's own moves the position on while it plays, and at the end it stops and says it ended. With a \
            source (the gallery's clip from its bytes, a file by its path, a video at an address) the player \
            really plays it, and its picture, its length and where it is are the video's own. A file of your own \
            is its path, typed in place of the gallery's. Every press of the player tells the page what it is to \
            be, and the page sets it.",
-          playground,
-        ),
-        Section::new(
-          "States",
-          "Paused the play disc stands in the middle and the bar stays; playing, the bar fades out 3 s after the \
-           pointer rests. Ended and failed are under a veil. Live has its badge for the time.",
-          self.frame.demo(
-            0,
-            states,
-            ".ended(true)",
-            &[
-              "VideoPlayer::new().media(frame).duration(250.0).position(position)",
-              "    .ended(true)",
-              "",
-              "VideoPlayer::new().media(frame)",
-              "    .error(\"This video can't be played\")",
-              "    .error_description(\"Check the connection and try again.\")",
-              "    .on_retry(move || retry())",
-            ],
+            playground,
           ),
-        ),
-        Section::new(
-          "Playing a file",
-          "Given a source (a file, bytes, a resource, an address), a mounted player decodes it with the system's \
+          Section::new(
+            "States",
+            "Paused the play disc stands in the middle and the bar stays; playing, the bar fades out 3 s after the \
+           pointer rests. Ended and failed are under a veil. Live has its badge for the time.",
+            self.frame.demo(
+              0,
+              states,
+              ".ended(true)",
+              &[
+                "VideoPlayer::new().media(frame).duration(250.0).position(position)",
+                "    .ended(true)",
+                "",
+                "VideoPlayer::new().media(frame)",
+                "    .error(\"This video can't be played\")",
+                "    .error_description(\"Check the connection and try again.\")",
+                "    .on_retry(move || retry())",
+              ],
+            ),
+          ),
+          Section::new(
+            "Playing a file",
+            "Given a source (a file, bytes, a resource, an address), a mounted player decodes it with the system's \
            decoder and draws its frames: play, pause, the seek bar, the speed and the keys move the video itself. \
            Its sound is heard through the system's output, and the volume and the mute are its own.",
-          self.frame.demo(
-            5,
-            real,
-            ".source(&Source::file(\"clip.mp4\"))",
-            &[
-              "VideoPlayer::new()",
-              "    .source(&Source::file(\"clips/lake.mp4\"))",
-              "    .width(640.0)",
-              "    .max_width(Length::Fill)",
-              "    .mount(ctx)",
-            ],
+            self.frame.demo(
+              5,
+              real,
+              ".source(&Source::file(\"clip.mp4\"))",
+              &[
+                "VideoPlayer::new()",
+                "    .source(&Source::file(\"clips/lake.mp4\"))",
+                "    .width(640.0)",
+                "    .max_width(Length::Fill)",
+                "    .mount(ctx)",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Frames of a decoder of your own",
-          if cfg!(windows) {
-            "An app that decodes by itself (a stream, a codec the system has not) gives lurq the textures its \
+          Section::new(
+            "Frames of a decoder of your own",
+            if cfg!(windows) {
+              "An app that decodes by itself (a stream, a codec the system has not) gives lurq the textures its \
              frames are in, and lurq draws them where they are: a frame is never in the memory of the program. \
              Each row is a decoder, which a thread of the gallery stands for: the three ways one gives a \
              frame, and one on another card than the window's, as on a laptop with two. The last column is \
              what frames.way() says: on the card, the frame is drawn where the decoder put it, with no copy; \
              through memory, it is copied once, which is how a frame of another card comes. The textures are \
              larger than the picture, as a codec's are, with pink past the picture, none of which shows."
-          } else {
-            "An app that decodes by itself (a stream, a codec the system has not, a camera) gives lurq the \
+            } else {
+              "An app that decodes by itself (a stream, a codec the system has not, a camera) gives lurq the \
              buffers its frames are in, and lurq draws them where they are, on Metal: a frame is not copied on \
              its way to the screen. Each row is a decoder, which a thread of the gallery stands for, writing a \
              moving test picture: into buffers of the system's that Metal makes textures of (NV12 as it says no \
@@ -1629,130 +1644,131 @@ impl Component for VideoPlayerPage {
              MTLSharedEvent says it is written), and as three planes in memory, which a decoder of software \
              gives and which are sent to the card once a frame. The system's own decoders give such buffers \
              already, and a video lurq plays comes the same way."
-          },
-          self.frame.demo(
-            6,
-            decoded,
-            if cfg!(windows) {
-              "Video::new(NativeImageData::from_card_frames(w, h, frames).image_data())"
-            } else {
-              "Video::new(NativeImageData::from_cv_pixel_buffer_frames(w, h, frames).image_data())"
             },
-            if cfg!(windows) {
-              &[
-                "// once: the textures the decoder writes, by their shared handles, and its fence",
-                "let frames = unsafe { CardFrames::with_fence(surfaces, fence) };",
-                "let image = NativeImageData::from_card_frames(1920, 1080, frames.clone()).image_data();",
-                "",
-                "// the decoder's thread, for each frame",
-                "frames.show(",
-                "  CardFrame::of(surface)",
-                "    .crop(CardCrop { left: 0, top: 0, width: 1920, height: 1080 })",
-                "    .ready_at(fence_value)",
-                "    .lease(gives_the_surface_back),",
-                ");",
-                "",
-                "// the screen",
-                "Video::new(image)",
-              ]
-            } else {
-              &[
-                "// once: the frames, and the image of them",
-                "let frames = CvPixelBufferFrames::new();",
-                "let image = NativeImageData::from_cv_pixel_buffer_frames(1920, 1080, frames.clone()).image_data();",
-                "",
-                "// the decoder's thread, for each frame: a buffer the system's decoder gave,",
-                "frames.show(unsafe { MacosCvPixelBuffer::retain(pixel_buffer) });",
-                "// or one of the app's own, written into from memory",
-                "let buffer = MacosCvPixelBuffer::nv12(1920, 1080)?;",
-                "buffer.write_nv12(|gray, gray_stride, color, color_stride| decode_into(gray, color));",
-                "frames.show(buffer);",
-                "// or red, green and blue: MacosCvPixelBuffer::bgra(w, h), then buffer.write_bgra(..)",
-                "",
-                "// a frame the app's own Metal writes: shown once its command buffer signals the event",
-                "command_buffer.encodeSignalEvent_value(&event, value);",
-                "frames.show_after(buffer, &event, value);",
-                "",
-                "// a decoder of software, its three planes in memory (I420), sent as they are",
-                "let planes = ImageData::streaming_i420(first_frame, 1920, 1080);",
-                "planes.set_streaming_i420(next_frame);",
-                "",
-                "// the screen",
-                "Video::new(image)",
-              ]
-            },
+            self.frame.demo(
+              6,
+              decoded,
+              if cfg!(windows) {
+                "Video::new(NativeImageData::from_card_frames(w, h, frames).image_data())"
+              } else {
+                "Video::new(NativeImageData::from_cv_pixel_buffer_frames(w, h, frames).image_data())"
+              },
+              if cfg!(windows) {
+                &[
+                  "// once: the textures the decoder writes, by their shared handles, and its fence",
+                  "let frames = unsafe { CardFrames::with_fence(surfaces, fence) };",
+                  "let image = NativeImageData::from_card_frames(1920, 1080, frames.clone()).image_data();",
+                  "",
+                  "// the decoder's thread, for each frame",
+                  "frames.show(",
+                  "  CardFrame::of(surface)",
+                  "    .crop(CardCrop { left: 0, top: 0, width: 1920, height: 1080 })",
+                  "    .ready_at(fence_value)",
+                  "    .lease(gives_the_surface_back),",
+                  ");",
+                  "",
+                  "// the screen",
+                  "Video::new(image)",
+                ]
+              } else {
+                &[
+                  "// once: the frames, and the image of them",
+                  "let frames = CvPixelBufferFrames::new();",
+                  "let image = NativeImageData::from_cv_pixel_buffer_frames(1920, 1080, frames.clone()).image_data();",
+                  "",
+                  "// the decoder's thread, for each frame: a buffer the system's decoder gave,",
+                  "frames.show(unsafe { MacosCvPixelBuffer::retain(pixel_buffer) });",
+                  "// or one of the app's own, written into from memory",
+                  "let buffer = MacosCvPixelBuffer::nv12(1920, 1080)?;",
+                  "buffer.write_nv12(|gray, gray_stride, color, color_stride| decode_into(gray, color));",
+                  "frames.show(buffer);",
+                  "// or red, green and blue: MacosCvPixelBuffer::bgra(w, h), then buffer.write_bgra(..)",
+                  "",
+                  "// a frame the app's own Metal writes: shown once its command buffer signals the event",
+                  "command_buffer.encodeSignalEvent_value(&event, value);",
+                  "frames.show_after(buffer, &event, value);",
+                  "",
+                  "// a decoder of software, its three planes in memory (I420), sent as they are",
+                  "let planes = ImageData::streaming_i420(first_frame, 1920, 1080);",
+                  "planes.set_streaming_i420(next_frame);",
+                  "",
+                  "// the screen",
+                  "Video::new(image)",
+                ]
+              },
+            ),
           ),
-        ),
-        Section::new(
-          "Sizes",
-          "The form follows the player's width: compact under 400, minimal under 280. The large form folds its \
+          Section::new(
+            "Sizes",
+            "The form follows the player's width: compact under 400, minimal under 280. The large form folds its \
            volume into its button under 480. size says the form where the app wants another.",
-          self.frame.demo(
-            1,
-            sizes,
-            ".size(VideoPlayerSize::Md)",
-            &[
-              "VideoPlayer::new().media(frame).width(640.0).height(360.0)",
-              "VideoPlayer::new().media(frame).width(320.0).height(180.0)",
-              "VideoPlayer::new().media(frame).width(200.0).height(113.0)",
-            ],
+            self.frame.demo(
+              1,
+              sizes,
+              ".size(VideoPlayerSize::Md)",
+              &[
+                "VideoPlayer::new().media(frame).width(640.0).height(360.0)",
+                "VideoPlayer::new().media(frame).width(320.0).height(180.0)",
+                "VideoPlayer::new().media(frame).width(200.0).height(113.0)",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Touch",
-          "For a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play, the time \
+          Section::new(
+            "Touch",
+            "For a finger: round buttons of 44 over a scrim, ten seconds back and on beside a larger play, the time \
            and fullscreen over a seek bar with a thumb of 16, and no volume. In fullscreen it is the form for a \
            phone on its side. It is the form under a finger (Pointer::Coarse, as on iOS and Android), and \
            touch(true) chooses it anywhere: here on a desktop.",
-          self.frame.demo(
-            4,
-            touch,
-            ".touch(true)",
-            &[
-              "VideoPlayer::new()",
-              "    .media(frame)",
-              "    .touch(true)",
-              "    .title(\"Night Drive\")",
-              "    .description(\"Aurora Lane · Low Tide\")",
-              "    .on_back(|| minimize())",
-            ],
+            self.frame.demo(
+              4,
+              touch,
+              ".touch(true)",
+              &[
+                "VideoPlayer::new()",
+                "    .media(frame)",
+                "    .touch(true)",
+                "    .title(\"Night Drive\")",
+                "    .description(\"Aurora Lane · Low Tide\")",
+                "    .on_back(|| minimize())",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Without controls",
-          "The picture and the app's layer alone, with no bar and nothing in the middle.",
-          self.frame.demo(
-            2,
-            bare,
-            ".controls(false)",
-            &["VideoPlayer::new().media(frame).controls(false)"],
+          Section::new(
+            "Without controls",
+            "The picture and the app's layer alone, with no bar and nothing in the middle.",
+            self.frame.demo(
+              2,
+              bare,
+              ".controls(false)",
+              &["VideoPlayer::new().media(frame).controls(false)"],
+            ),
           ),
-        ),
-        Section::new(
-          "Your own controls",
-          "With no controls of its own, the player holds the app's over its picture: here made of the system's \
+          Section::new(
+            "Your own controls",
+            "With no controls of its own, the player holds the app's over its picture: here made of the system's \
            parts, the overlay play button and round buttons on dark discs.",
-          self.frame.demo(
-            3,
-            own,
-            ".controls(false).child(layer)",
-            &[
-              "VideoPlayer::new()",
-              "    .media(frame)",
-              "    .width(243.0)",
-              "    .aspect(9.0 / 16.0)",
-              "    .controls(false)",
-              "    .child(",
-              "        Stack::new()",
-              "            .child(PlayButton::new().variant(PlayButtonVariant::Overlay).on_change(play))",
-              "            .child(your_column_of_actions),",
-              "    )",
-              "    .mount(ctx)",
-            ],
+            self.frame.demo(
+              3,
+              own,
+              ".controls(false).child(layer)",
+              &[
+                "VideoPlayer::new()",
+                "    .media(frame)",
+                "    .width(243.0)",
+                "    .aspect(9.0 / 16.0)",
+                "    .controls(false)",
+                "    .child(",
+                "        Stack::new()",
+                "            .child(PlayButton::new().variant(PlayButtonVariant::Overlay).on_change(play))",
+                "            .child(your_column_of_actions),",
+                "    )",
+                "    .mount(ctx)",
+              ],
+            ),
           ),
-        ),
-        Section::new("Props", "", props_table(&rows, &[], self.frame.room())),
-      ],
+          Section::new("Props", "", props_table(&rows, &[], self.frame.room())),
+        ]
+      }),
     )
   }
 }

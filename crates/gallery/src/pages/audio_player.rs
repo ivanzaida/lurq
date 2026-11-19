@@ -322,17 +322,19 @@ impl Component for Demo {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let scene = *ctx.props::<Scene>();
     let (variant, length) = (scene.variant(), scene.length());
-    let mut player = AudioPlayer::new(self.position.clone(), length)
-      .variant(variant)
-      .playing(self.playing.clone())
-      .volume(self.volume.clone())
-      .muted(self.muted.clone())
-      .rate(self.rate.clone())
-      .shuffle(self.shuffle.clone())
-      .repeat(self.repeat.clone())
-      .loading(matches!(scene, Scene::CardLoading | Scene::RowLoading))
-      .unheard(self.unheard.get())
-      .disabled(scene == Scene::RowDisabled);
+    let mut player = crate::kit::apart(|| {
+      AudioPlayer::new(self.position.clone(), length)
+        .variant(variant)
+        .playing(self.playing.clone())
+        .volume(self.volume.clone())
+        .muted(self.muted.clone())
+        .rate(self.rate.clone())
+        .shuffle(self.shuffle.clone())
+        .repeat(self.repeat.clone())
+        .loading(matches!(scene, Scene::CardLoading | Scene::RowLoading))
+        .unheard(self.unheard.get())
+        .disabled(scene == Scene::RowDisabled)
+    });
     player = match variant {
       AudioPlayerVariant::Full => player
         .title("Night Drive")
@@ -367,14 +369,16 @@ impl Component for Demo {
         });
     }
     let unheard = self.unheard.clone();
-    let player = player
-      .on_playing_change(move |to| {
-        if to && unheard.get_untracked() {
-          unheard.set(false);
-        }
-      })
-      .key("demo")
-      .mount(ctx);
+    let player = crate::kit::apart(|| {
+      player
+        .on_playing_change(move |to| {
+          if to && unheard.get_untracked() {
+            unheard.set(false);
+          }
+        })
+        .key("demo")
+        .mount(ctx)
+    });
     match scene {
       Scene::Mini(width) => window(f32::from(width), player).into(),
       _ => player,
@@ -423,19 +427,21 @@ impl AudioPlayerPage {
     let window_index = self.window.get().min(WINDOWS.len() - 1);
     let (title, description) = (self.title.get(), self.description.get());
     let (artwork_on, waveform) = (self.artwork.get(), self.waveform.get());
-    let (loading, error, unheard, disabled) = (
-      self.loading.get(),
-      self.error.get(),
-      self.unheard.get(),
-      self.disabled.get(),
-    );
+    let (loading, error, unheard, disabled) = crate::kit::apart(|| {
+      (
+        self.loading.get(),
+        self.error.get(),
+        self.unheard.get(),
+        self.disabled.get(),
+      )
+    });
     let full = variant == AudioPlayerVariant::Full;
     let mini = variant == AudioPlayerVariant::Mini;
     let texts = full || mini;
     let waves = variant == AudioPlayerVariant::Voice || (variant == AudioPlayerVariant::Compact && waveform);
 
     // What the props make, with nothing listening: what a window of its own shows, and the base of the live one.
-    let plain = {
+    let plain = crate::kit::apart(|| {
       let (title, description) = (title.clone(), description.clone());
       move || {
         let mut player = AudioPlayer::controlled(84.0_f64.min(f64::from(length)), length, |_| {})
@@ -455,7 +461,7 @@ impl AudioPlayerPage {
         }
         player
       }
-    };
+    });
 
     // What it really plays, where a source is chosen: where it is and how long are then the sound's.
     let chosen = self.source.get().min(SOURCES.len() - 1);
@@ -467,7 +473,8 @@ impl AudioPlayerPage {
       move || record(format!("{what}()"))
     };
     let position = self.position.clone();
-    let mut player = AudioPlayer::new(self.position.clone(), if sourced { 0.0 } else { length })
+    let mut player = crate::kit::apart(|| {
+      AudioPlayer::new(self.position.clone(), if sourced { 0.0 } else { length })
       .variant(variant)
       .loading(loading)
       .error(error.then_some("This track can't be played."))
@@ -555,7 +562,8 @@ impl AudioPlayerPage {
       .on_waiting_change({
         let record = record.clone();
         move |to| record(format!("on_waiting_change({to})"))
-      });
+      })
+    });
     if texts {
       player = player.title(&title).description(&description);
       if artwork_on {
@@ -575,14 +583,16 @@ impl AudioPlayerPage {
       None => player,
     };
 
-    let mut code = vec![
-      "// position: Signal<f32>, playing: Signal<bool>, ...".to_owned(),
-      if sourced {
-        "AudioPlayer::new(position, 0.0)".to_owned()
-      } else {
-        format!("AudioPlayer::new(position, {length:.1})")
-      },
-    ];
+    let mut code = crate::kit::apart(|| {
+      vec![
+        "// position: Signal<f32>, playing: Signal<bool>, ...".to_owned(),
+        if sourced {
+          "AudioPlayer::new(position, 0.0)".to_owned()
+        } else {
+          format!("AudioPlayer::new(position, {length:.1})")
+        },
+      ]
+    });
     match chosen {
       1 => code.push("    .source(&Source::bytes(include_bytes!(\"track.m4a\").to_vec()))".to_owned()),
       FILED => code.push(format!("    .source(&Source::file({:?}))", self.path.get().trim())),
@@ -635,7 +645,7 @@ impl AudioPlayerPage {
     }
     code.push("    .mount(ctx)".to_owned());
 
-    let tree = match variant {
+    let tree = crate::kit::apart(|| match variant {
       AudioPlayerVariant::Full => vec![
         format!("root          {}", self.playground.measured()),
         "├─ header      artwork 64 · title · description · more 32".to_owned(),
@@ -664,37 +674,47 @@ impl AudioPlayerPage {
         "   ├─ transport previous 32 · play · next 32".to_owned(),
         "   └─ tools    time · volume · queue 32 · expand 32 (from 480)".to_owned(),
       ],
-    };
+    });
 
-    let variants: Vec<(&str, usize)> = VARIANTS
-      .iter()
-      .enumerate()
-      .map(|(index, item)| (item.0, index))
-      .collect();
-    let repeats = [
-      ("Off", AudioRepeat::Off),
-      ("All", AudioRepeat::All),
-      ("One", AudioRepeat::One),
-    ];
-    let windows: Vec<(&str, usize)> = WINDOWS
-      .iter()
-      .enumerate()
-      .map(|(index, item)| (item.0, index))
-      .collect();
-    let (to_variant, to_repeat, to_window, rewind) = (
-      self.variant.clone(),
-      self.repeat.clone(),
-      self.window.clone(),
-      self.position.clone(),
-    );
-    let mut controls = vec![prop(
-      "variant",
-      "AudioPlayerVariant",
-      self.playground.select(0, &variants, &variant_index, move |index| {
-        to_variant.set(index);
-        rewind.set(0.0);
-      }),
-    )];
+    let variants: Vec<(&str, usize)> = crate::kit::apart(|| {
+      VARIANTS
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item.0, index))
+        .collect()
+    });
+    let repeats = crate::kit::apart(|| {
+      [
+        ("Off", AudioRepeat::Off),
+        ("All", AudioRepeat::All),
+        ("One", AudioRepeat::One),
+      ]
+    });
+    let windows: Vec<(&str, usize)> = crate::kit::apart(|| {
+      WINDOWS
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item.0, index))
+        .collect()
+    });
+    let (to_variant, to_repeat, to_window, rewind) = crate::kit::apart(|| {
+      (
+        self.variant.clone(),
+        self.repeat.clone(),
+        self.window.clone(),
+        self.position.clone(),
+      )
+    });
+    let mut controls = crate::kit::apart(|| {
+      vec![prop(
+        "variant",
+        "AudioPlayerVariant",
+        self.playground.select(0, &variants, &variant_index, move |index| {
+          to_variant.set(index);
+          rewind.set(0.0);
+        }),
+      )]
+    });
     if mini {
       controls.push(prop(
         "window",
@@ -767,26 +787,28 @@ impl AudioPlayerPage {
     controls.push(flag("error", &self.error));
     controls.push(flag("disabled", &self.disabled));
 
-    let changed = usize::from(variant_index != 0)
-      + usize::from(sourced)
-      + usize::from(title != "Night Drive")
-      + usize::from(description != "Aurora Lane · Low Tide")
-      + [
-        !artwork_on,
-        self.playing.get(),
-        self.muted.get(),
-        self.shuffle.get(),
-        self.repeat.get() != AudioRepeat::Off,
-        waveform,
-        loading,
-        error,
-        unheard,
-        disabled,
-      ]
-      .into_iter()
-      .filter(|changed| *changed)
-      .count();
-    let reset = {
+    let changed = crate::kit::apart(|| {
+      usize::from(variant_index != 0)
+        + usize::from(sourced)
+        + usize::from(title != "Night Drive")
+        + usize::from(description != "Aurora Lane · Low Tide")
+        + [
+          !artwork_on,
+          self.playing.get(),
+          self.muted.get(),
+          self.shuffle.get(),
+          self.repeat.get() != AudioRepeat::Off,
+          waveform,
+          loading,
+          error,
+          unheard,
+          disabled,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count()
+    });
+    let reset = crate::kit::apart(|| {
       let (variant, window, title, description) = (
         self.variant.clone(),
         self.window.clone(),
@@ -833,15 +855,17 @@ impl AudioPlayerPage {
         unheard.set(false);
         disabled.set(false);
       }
-    };
-    let facts = if sourced {
-      format!("{variant_name} · plays its source")
-    } else {
-      format!(
-        "{variant_name} · {} long",
-        lurq::ui::media_time_text(f64::from(length), false)
-      )
-    };
+    });
+    let facts = crate::kit::apart(|| {
+      if sourced {
+        format!("{variant_name} · plays its source")
+      } else {
+        format!(
+          "{variant_name} · {} long",
+          lurq::ui::media_time_text(f64::from(length), false)
+        )
+      }
+    });
     self.playground.window_shows({
       // Behind a lock: the artwork is an element, which threads do not share.
       let player = std::sync::Mutex::new(alone.force(None));

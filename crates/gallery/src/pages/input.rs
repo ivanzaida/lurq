@@ -307,404 +307,428 @@ impl Component for InputPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let says = |value: &Signal<String>| format!("the signal has: {:?}", value.get());
-    let live = items().child(item(
-      Input::new(self.name.clone()).placeholder("Display name"),
-      &says(&self.name),
-    ));
-    let states = items()
-      .child(item(showing("").placeholder("Placeholder"), "default"))
-      .child(item(showing("Ivan Zaida"), "filled"))
-      .child(item(showing("Placeholder").force(Some(Interaction::Hovered)), "hover"))
-      .child(item(
-        showing("Ivan Zaida").force(Some(Interaction::FocusVisible)),
-        "focus",
+    let live = crate::kit::apart(|| {
+      items().child(item(
+        Input::new(self.name.clone()).placeholder("Display name"),
+        &says(&self.name),
       ))
-      .child(item(showing("not-an-email").invalid(true), "invalid"))
-      .child(item(showing("80").warning(true), "warning"))
-      .child(item(
-        showing("ivan@lurq.dev").valid(true).icon(icons::CHECK_CIRCLE),
-        "valid",
-      ))
-      .child(item(showing("8770b598").read_only(true), "read only"))
-      .child(item(showing("").placeholder("Read only").disabled(true), "disabled"))
-      .child(item(
-        showing("").placeholder("Search components").icon(icons::SEARCH),
-        "with icon",
-      ));
+    });
+    let states = crate::kit::apart(|| {
+      items()
+        .child(item(showing("").placeholder("Placeholder"), "default"))
+        .child(item(showing("Ivan Zaida"), "filled"))
+        .child(item(showing("Placeholder").force(Some(Interaction::Hovered)), "hover"))
+        .child(item(
+          showing("Ivan Zaida").force(Some(Interaction::FocusVisible)),
+          "focus",
+        ))
+        .child(item(showing("not-an-email").invalid(true), "invalid"))
+        .child(item(showing("80").warning(true), "warning"))
+        .child(item(
+          showing("ivan@lurq.dev").valid(true).icon(icons::CHECK_CIRCLE),
+          "valid",
+        ))
+        .child(item(showing("8770b598").read_only(true), "read only"))
+        .child(item(showing("").placeholder("Read only").disabled(true), "disabled"))
+        .child(item(
+          showing("").placeholder("Search components").icon(icons::SEARCH),
+          "with icon",
+        ))
+    });
     let mut sizes = items();
     for (size, name, _, height) in SIZES {
       sizes = sizes.child(item(showing("Ivan Zaida").size(size), &format!("{name} · {height}")));
     }
 
     let email_ok = self.email.get().contains('@') && !self.email.get().ends_with('@');
-    let fields = items()
-      .child(
-        Field::new(
-          "Display name",
-          Input::new(self.name.clone())
-            .placeholder("Placeholder")
-            .full_width(true),
+    let fields = crate::kit::apart(|| {
+      items()
+        .child(
+          Field::new(
+            "Display name",
+            Input::new(self.name.clone())
+              .placeholder("Placeholder")
+              .full_width(true),
+          )
+          .description("Shown in the title bar.")
+          .required(true),
         )
-        .description("Shown in the title bar.")
-        .required(true),
-      )
-      .child({
-        // The field's error makes the input invalid: the input is not told.
-        let field = Field::new("Email", Input::new(self.email.clone()).full_width(true));
-        if email_ok {
-          field.description("Where receipts go.")
-        } else {
-          field.error("Enter a full email address.")
-        }
-      })
-      .child(Field::new("Bio", showing("").placeholder("Tell us what happened").full_width(true)).optional(true));
-    let judged = items()
-      .child(
-        Field::new("Project name", showing("lurq design system").full_width(true)).description("18 / 40 characters"),
-      )
-      .child(
-        Field::new("Port", showing("80").full_width(true))
-          .description("Ports below 1024 need admin rights.")
-          .warning(true),
-      )
-      .child(
-        Field::new("Username", showing("ivanzaida").full_width(true))
-          .description("This name is available.")
-          .valid(true),
-      )
-      .child(
-        Field::new("Invite code", showing("LURQ-2026").valid(true).full_width(true))
-          .error("This code was used a moment ago."),
-      );
-    let focusing = items()
-      .child(
-        Field::new(
-          "Workspace",
-          Input::new(self.workspace.clone()).placeholder("acme").full_width(true),
+        .child({
+          // The field's error makes the input invalid: the input is not told.
+          let field = Field::new("Email", Input::new(self.email.clone()).full_width(true));
+          if email_ok {
+            field.description("Where receipts go.")
+          } else {
+            field.error("Enter a full email address.")
+          }
+        })
+        .child(Field::new("Bio", showing("").placeholder("Tell us what happened").full_width(true)).optional(true))
+    });
+    let judged = crate::kit::apart(|| {
+      items()
+        .child(
+          Field::new("Project name", showing("lurq design system").full_width(true)).description("18 / 40 characters"),
         )
-        .description("Press the label: the caret goes into the input."),
-      )
-      .child(
-        Field::new("Region", showing("eu-central").full_width(true))
-          .description("A disabled field's label focuses nothing.")
-          .disabled(true),
-      );
-    let beside = Column::new()
-      .spacing(16.0)
-      .child(Field::new("Time zone", showing("Europe/Kyiv").full_width(true)).orientation(Orientation::Horizontal))
-      .child(Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal));
+        .child(
+          Field::new("Port", showing("80").full_width(true))
+            .description("Ports below 1024 need admin rights.")
+            .warning(true),
+        )
+        .child(
+          Field::new("Username", showing("ivanzaida").full_width(true))
+            .description("This name is available.")
+            .valid(true),
+        )
+        .child(
+          Field::new("Invite code", showing("LURQ-2026").valid(true).full_width(true))
+            .error("This code was used a moment ago."),
+        )
+    });
+    let focusing = crate::kit::apart(|| {
+      items()
+        .child(
+          Field::new(
+            "Workspace",
+            Input::new(self.workspace.clone()).placeholder("acme").full_width(true),
+          )
+          .description("Press the label: the caret goes into the input."),
+        )
+        .child(
+          Field::new("Region", showing("eu-central").full_width(true))
+            .description("A disabled field's label focuses nothing.")
+            .disabled(true),
+        )
+    });
+    let beside = crate::kit::apart(|| {
+      Column::new()
+        .spacing(16.0)
+        .child(Field::new("Time zone", showing("Europe/Kyiv").full_width(true)).orientation(Orientation::Horizontal))
+        .child(Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal))
+    });
     // The fluid field: the label inside the box of an input, a textarea and a select.
-    let fluid = items()
-      .child(item(
-        Field::new("Workspace name", Input::new(self.fluid_name.clone())).fluid(true),
-        "the board's fluid field",
-      ))
-      .child(item(
-        Field::new("Notes", Textarea::new(self.fluid_notes.clone()).rows(2, 5)).fluid(true),
-        "a textarea",
-      ))
-      .child(item(
-        Field::new(
-          "Theme",
-          Select::new(
-            self.fluid_theme.clone(),
-            [("system", "System"), ("light", "Light"), ("dark", "Dark")],
-          ),
-        )
-        .fluid(true),
-        "a select",
-      ));
-    let fluid_states = items()
-      .child(item(
-        Field::new("Workspace name", showing("lurq-demo").force(Some(Interaction::Hovered))).fluid(true),
-        "hover",
-      ))
-      .child(item(
-        Field::new(
-          "Workspace name",
-          showing("lurq-demo").force(Some(Interaction::FocusVisible)),
-        )
-        .fluid(true),
-        "focus",
-      ))
-      .child(item(
-        Field::new("Workspace name", showing("lurq demo"))
-          .fluid(true)
-          .required(true)
-          .error("A name has no spaces."),
-        "required · error",
-      ))
-      .child(item(
-        Field::new("Workspace name", showing("lurq-demo").read_only(true))
-          .fluid(true)
-          .description("Set by your organization."),
-        "read only · description",
-      ))
-      .child(item(
-        Field::new("Workspace name", showing("lurq-demo"))
-          .fluid(true)
-          .disabled(true),
-        "disabled",
-      ))
-      .child(item(
-        Field::new("Search", showing("").placeholder("Components").icon(icons::SEARCH)).fluid(true),
-        "with icon · placeholder",
-      ));
+    let fluid = crate::kit::apart(|| {
+      items()
+        .child(item(
+          Field::new("Workspace name", Input::new(self.fluid_name.clone())).fluid(true),
+          "the board's fluid field",
+        ))
+        .child(item(
+          Field::new("Notes", Textarea::new(self.fluid_notes.clone()).rows(2, 5)).fluid(true),
+          "a textarea",
+        ))
+        .child(item(
+          Field::new(
+            "Theme",
+            Select::new(
+              self.fluid_theme.clone(),
+              [("system", "System"), ("light", "Light"), ("dark", "Dark")],
+            ),
+          )
+          .fluid(true),
+          "a select",
+        ))
+    });
+    let fluid_states = crate::kit::apart(|| {
+      items()
+        .child(item(
+          Field::new("Workspace name", showing("lurq-demo").force(Some(Interaction::Hovered))).fluid(true),
+          "hover",
+        ))
+        .child(item(
+          Field::new(
+            "Workspace name",
+            showing("lurq-demo").force(Some(Interaction::FocusVisible)),
+          )
+          .fluid(true),
+          "focus",
+        ))
+        .child(item(
+          Field::new("Workspace name", showing("lurq demo"))
+            .fluid(true)
+            .required(true)
+            .error("A name has no spaces."),
+          "required · error",
+        ))
+        .child(item(
+          Field::new("Workspace name", showing("lurq-demo").read_only(true))
+            .fluid(true)
+            .description("Set by your organization."),
+          "read only · description",
+        ))
+        .child(item(
+          Field::new("Workspace name", showing("lurq-demo"))
+            .fluid(true)
+            .disabled(true),
+          "disabled",
+        ))
+        .child(item(
+          Field::new("Search", showing("").placeholder("Components").icon(icons::SEARCH)).fluid(true),
+          "with icon · placeholder",
+        ))
+    });
     // Every other text control in a fluid field. The field mounts the ones that keep something between renders: a
     // password's reveal, what is half typed in a date, whether a picker is open.
     let frameworks = [("lurq", "lurq"), ("gpui", "GPUI"), ("slint", "Slint"), ("iced", "Iced")];
-    let languages = [
-      ("rust", "Rust"),
-      ("wgsl", "WGSL"),
-      ("typescript", "TypeScript"),
-      ("swift", "Swift"),
-    ];
-    let fluid_every = items()
-      .child(item(
-        Field::new("Password", PasswordInput::new(self.fluid_password.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a password input",
-      ))
-      .child(item(
-        Field::new("Search", SearchField::new(self.fluid_query.clone()).shortcut("/")).fluid(true),
-        "a search field",
-      ))
-      .child(item(
-        Field::new("Quantity", NumberInput::new(self.fluid_quantity.clone()).min(0).max(99)).fluid(true),
-        "a number input",
-      ))
-      .child(item(
-        Field::new(
-          "Framework",
-          Combobox::new(
-            self.fluid_framework.clone(),
-            frameworks.map(|(value, label)| (value.to_owned(), label)),
-          ),
-        )
-        .fluid(true),
-        "a combobox",
-      ))
-      .child(item(
-        Field::new(
-          "Languages",
-          MultiSelect::new(
-            self.fluid_languages.clone(),
-            languages.map(|(value, label)| (value.to_owned(), label)),
-          ),
-        )
-        .fluid(true),
-        "a multi select · grows by its lines of tags",
-      ))
-      .child(item(
-        Field::new("Date of birth", DateField::new(self.fluid_born.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a date field",
-      ))
-      .child(item(
-        Field::new("Starts at", TimeField::new(self.fluid_starts.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a time field",
-      ))
-      .child(item(
-        Field::new("Due date", DatePicker::new(self.fluid_due.clone()).clearable(true))
-          .fluid(true)
-          .mount(ctx),
-        "a date picker",
-      ))
-      .child(item(
-        Field::new("Sprint", DateRangePicker::new(self.fluid_sprint.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a date range picker",
-      ))
-      .child(item(
-        Field::new("Alarm", TimePicker::new(self.fluid_alarm.clone()))
-          .fluid(true)
-          .mount(ctx),
-        "a time picker",
-      ))
-      .child(item(
-        Field::new(
-          "Tags",
-          TokenInput::new(self.fluid_tags.clone()).find_tokens(|text| Token::separated(text, ' ')),
-        )
-        .fluid(true),
-        "a token input",
-      ))
-      .child(item(
-        Field::new(
-          "Comment",
-          Mentions::new(self.fluid_comment.clone(), &self.fluid_mentions).trigger(
-            '@',
-            ["Ivan Zaida", "Mira Chen", "Noor Haddad"]
-              .into_iter()
-              .map(Mention::new)
-              .collect::<Vec<_>>(),
-          ),
-        )
-        .fluid(true),
-        "a mentions field · as high as its rows",
-      ))
-      .child(item(
-        Field::new("Accent", ColorField::new(self.fluid_accent.clone())).fluid(true),
-        "a color field",
-      ));
+    let languages = crate::kit::apart(|| {
+      [
+        ("rust", "Rust"),
+        ("wgsl", "WGSL"),
+        ("typescript", "TypeScript"),
+        ("swift", "Swift"),
+      ]
+    });
+    let fluid_every = crate::kit::apart(|| {
+      items()
+        .child(item(
+          Field::new("Password", PasswordInput::new(self.fluid_password.clone()))
+            .fluid(true)
+            .mount(ctx),
+          "a password input",
+        ))
+        .child(item(
+          Field::new("Search", SearchField::new(self.fluid_query.clone()).shortcut("/")).fluid(true),
+          "a search field",
+        ))
+        .child(item(
+          Field::new("Quantity", NumberInput::new(self.fluid_quantity.clone()).min(0).max(99)).fluid(true),
+          "a number input",
+        ))
+        .child(item(
+          Field::new(
+            "Framework",
+            Combobox::new(
+              self.fluid_framework.clone(),
+              frameworks.map(|(value, label)| (value.to_owned(), label)),
+            ),
+          )
+          .fluid(true),
+          "a combobox",
+        ))
+        .child(item(
+          Field::new(
+            "Languages",
+            MultiSelect::new(
+              self.fluid_languages.clone(),
+              languages.map(|(value, label)| (value.to_owned(), label)),
+            ),
+          )
+          .fluid(true),
+          "a multi select · grows by its lines of tags",
+        ))
+        .child(item(
+          Field::new("Date of birth", DateField::new(self.fluid_born.clone()))
+            .fluid(true)
+            .mount(ctx),
+          "a date field",
+        ))
+        .child(item(
+          Field::new("Starts at", TimeField::new(self.fluid_starts.clone()))
+            .fluid(true)
+            .mount(ctx),
+          "a time field",
+        ))
+        .child(item(
+          Field::new("Due date", DatePicker::new(self.fluid_due.clone()).clearable(true))
+            .fluid(true)
+            .mount(ctx),
+          "a date picker",
+        ))
+        .child(item(
+          Field::new("Sprint", DateRangePicker::new(self.fluid_sprint.clone()))
+            .fluid(true)
+            .mount(ctx),
+          "a date range picker",
+        ))
+        .child(item(
+          Field::new("Alarm", TimePicker::new(self.fluid_alarm.clone()))
+            .fluid(true)
+            .mount(ctx),
+          "a time picker",
+        ))
+        .child(item(
+          Field::new(
+            "Tags",
+            TokenInput::new(self.fluid_tags.clone()).find_tokens(|text| Token::separated(text, ' ')),
+          )
+          .fluid(true),
+          "a token input",
+        ))
+        .child(item(
+          Field::new(
+            "Comment",
+            Mentions::new(self.fluid_comment.clone(), &self.fluid_mentions).trigger(
+              '@',
+              ["Ivan Zaida", "Mira Chen", "Noor Haddad"]
+                .into_iter()
+                .map(Mention::new)
+                .collect::<Vec<_>>(),
+            ),
+          )
+          .fluid(true),
+          "a mentions field · as high as its rows",
+        ))
+        .child(item(
+          Field::new("Accent", ColorField::new(self.fluid_accent.clone())).fluid(true),
+          "a color field",
+        ))
+    });
 
-    let input_rows = [
-      (
-        "value",
-        "Signal<String>",
-        "",
-        "What the input shows; what is typed is set on it.",
-      ),
-      (
-        "placeholder",
-        "&str",
-        "",
-        "What it says while it is empty, in the muted foreground.",
-      ),
-      (
-        "label",
-        "&str",
-        "",
-        "What it is called, to what reads the tree. It draws nothing; a field gives it its own label.",
-      ),
-      (
-        "icon",
-        "impl Into<Name>",
-        "",
-        "A glyph of the theme's set at the start of the box.",
-      ),
-      (
-        "size",
-        "InputSize",
-        "Md",
-        "Sm 32, Md 36, Lg 40 high; text of 13, 14, 15.",
-      ),
-      (
-        "invalid",
-        "bool",
-        "false",
-        "Its edge is in the destructive color, and in its focus.",
-      ),
-      ("warning", "bool", "false", "Its edge is in the warning color."),
-      (
-        "valid",
-        "bool",
-        "false",
-        "Its edge is in the success color, and so is its icon.",
-      ),
-      (
-        "read_only",
-        "bool",
-        "false",
-        "It can be focused, selected and copied, and not changed.",
-      ),
-      (
-        "disabled",
-        "bool",
-        "false",
-        "Half the opacity on the muted fill; it takes no input.",
-      ),
-      (
-        "full_width",
-        "bool",
-        "false",
-        "As wide as what holds it, in place of 260.",
-      ),
-      (
-        "on_input",
-        "impl Fn(&TextInputEvent)",
-        "",
-        "Called before an edit, which it may refuse.",
-      ),
-      (
-        "on_submit",
-        "impl Fn(&str)",
-        "",
-        "Called with what it holds when Enter is pressed in it.",
-      ),
-      (
-        "completion",
-        "&str",
-        "",
-        "What would complete what is typed, drawn after it while the caret is at the end: Tab takes it.",
-      ),
-      (
-        "squiggles",
-        "impl IntoIterator<Item = Range<usize>>",
-        "",
-        "Wavy lines in the destructive color under ranges of its text: what the app's spelling checker marks.",
-      ),
-      (
-        "name",
-        "impl Into<Arc<str>>",
-        "",
-        "The name of its value in the form it is in.",
-      ),
-    ];
-    let field_rows = [
-      ("label", "&str", "", "What the control is called, above it."),
-      (
-        "control",
-        "impl FieldControl",
-        "",
-        "An input, a textarea, a switch, any element. An input or a textarea is called by the label and judged as \
+    let input_rows = crate::kit::apart(|| {
+      [
+        (
+          "value",
+          "Signal<String>",
+          "",
+          "What the input shows; what is typed is set on it.",
+        ),
+        (
+          "placeholder",
+          "&str",
+          "",
+          "What it says while it is empty, in the muted foreground.",
+        ),
+        (
+          "label",
+          "&str",
+          "",
+          "What it is called, to what reads the tree. It draws nothing; a field gives it its own label.",
+        ),
+        (
+          "icon",
+          "impl Into<Name>",
+          "",
+          "A glyph of the theme's set at the start of the box.",
+        ),
+        (
+          "size",
+          "InputSize",
+          "Md",
+          "Sm 32, Md 36, Lg 40 high; text of 13, 14, 15.",
+        ),
+        (
+          "invalid",
+          "bool",
+          "false",
+          "Its edge is in the destructive color, and in its focus.",
+        ),
+        ("warning", "bool", "false", "Its edge is in the warning color."),
+        (
+          "valid",
+          "bool",
+          "false",
+          "Its edge is in the success color, and so is its icon.",
+        ),
+        (
+          "read_only",
+          "bool",
+          "false",
+          "It can be focused, selected and copied, and not changed.",
+        ),
+        (
+          "disabled",
+          "bool",
+          "false",
+          "Half the opacity on the muted fill; it takes no input.",
+        ),
+        (
+          "full_width",
+          "bool",
+          "false",
+          "As wide as what holds it, in place of 260.",
+        ),
+        (
+          "on_input",
+          "impl Fn(&TextInputEvent)",
+          "",
+          "Called before an edit, which it may refuse.",
+        ),
+        (
+          "on_submit",
+          "impl Fn(&str)",
+          "",
+          "Called with what it holds when Enter is pressed in it.",
+        ),
+        (
+          "completion",
+          "&str",
+          "",
+          "What would complete what is typed, drawn after it while the caret is at the end: Tab takes it.",
+        ),
+        (
+          "squiggles",
+          "impl IntoIterator<Item = Range<usize>>",
+          "",
+          "Wavy lines in the destructive color under ranges of its text: what the app's spelling checker marks.",
+        ),
+        (
+          "name",
+          "impl Into<Arc<str>>",
+          "",
+          "The name of its value in the form it is in.",
+        ),
+      ]
+    });
+    let field_rows = crate::kit::apart(|| {
+      [
+        ("label", "&str", "", "What the control is called, above it."),
+        (
+          "control",
+          "impl FieldControl",
+          "",
+          "An input, a textarea, a switch, any element. An input or a textarea is called by the label and judged as \
          the field is, unless it says so itself; a press of the label focuses the control.",
-      ),
-      ("description", "&str", "", "What the control is for, under it."),
-      (
-        "error",
-        "&str",
-        "",
-        "What is wrong, in place of the description; the field is invalid.",
-      ),
-      (
-        "invalid / warning / valid",
-        "bool",
-        "false",
-        "The color of the description, and the judgment of an input or a textarea in it.",
-      ),
-      (
-        "disabled",
-        "bool",
-        "false",
-        "Its control takes no input, and its label focuses nothing.",
-      ),
-      (
-        "required",
-        "bool",
-        "false",
-        "A * after the label, in the destructive color.",
-      ),
-      (
-        "optional",
-        "bool",
-        "false",
-        "\"Optional\" after the label; optional_text in other words.",
-      ),
-      (
-        "orientation",
-        "Orientation",
-        "Vertical",
-        "Horizontal: the label in a column of 110 beside the control.",
-      ),
-      (
-        "full_width",
-        "bool",
-        "false",
-        "As wide as what holds it, in place of 260.",
-      ),
-      (
-        "fluid",
-        "bool",
-        "false",
-        "The label inside the box of the control, over what it holds, and the box as wide as the field (240): for every text control a field holds. A field of another control (a switch, a month picker) is drawn as it is without it.",
-      ),
-    ];
+        ),
+        ("description", "&str", "", "What the control is for, under it."),
+        (
+          "error",
+          "&str",
+          "",
+          "What is wrong, in place of the description; the field is invalid.",
+        ),
+        (
+          "invalid / warning / valid",
+          "bool",
+          "false",
+          "The color of the description, and the judgment of an input or a textarea in it.",
+        ),
+        (
+          "disabled",
+          "bool",
+          "false",
+          "Its control takes no input, and its label focuses nothing.",
+        ),
+        (
+          "required",
+          "bool",
+          "false",
+          "A * after the label, in the destructive color.",
+        ),
+        (
+          "optional",
+          "bool",
+          "false",
+          "\"Optional\" after the label; optional_text in other words.",
+        ),
+        (
+          "orientation",
+          "Orientation",
+          "Vertical",
+          "Horizontal: the label in a column of 110 beside the control.",
+        ),
+        (
+          "full_width",
+          "bool",
+          "false",
+          "As wide as what holds it, in place of 260.",
+        ),
+        (
+          "fluid",
+          "bool",
+          "false",
+          "The label inside the box of the control, over what it holds, and the box as wide as the field (240): for every text control a field holds. A field of another control (a switch, a month picker) is drawn as it is without it.",
+        ),
+      ]
+    });
     let playground = self.play(ctx);
     self.frame.page(
       ctx,
@@ -718,7 +742,7 @@ impl Component for InputPage {
         since: Some("0.62"),
         source: file!(),
       },
-      vec![
+      crate::kit::apart(|| vec![
         Section::new(
           "Playground",
           "Every prop of Input is a control on the right. The input on the stage is live: what is typed in it goes \
@@ -965,7 +989,7 @@ impl Component for InputPage {
           "What a field is given.",
           props_table(&field_rows, &["label", "control"], self.frame.room()),
         ),
-      ],
+      ]),
     )
   }
 }

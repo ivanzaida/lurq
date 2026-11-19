@@ -364,162 +364,178 @@ impl Component for AvatarPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let sizes = SIZES
-      .iter()
-      .fold(items(), |row, (label, size)| {
-        row.child(item(Avatar::new("Ivan Zaida").size(*size), label))
-      })
-      .child(item(Avatar::new("Lurq Team").shape(AvatarShape::Square), "square"))
-      .child(item(Avatar::new("Build bot").icon(icons::TERMINAL), "icon"))
-      .child(item(Avatar::new(""), "no name: a person"));
-    let [blue, orange, green] = self.portraits.clone();
-    let pictures = items()
-      .id("avatar-pictures")
-      .child(item(Avatar::new("Ivan Zaida").picture(blue.clone()), "round"))
-      .child(item(
-        Avatar::new("Anna K.").picture(orange.clone()).size(AvatarSize::Xl),
-        "56",
-      ))
-      .child(item(
-        Avatar::new("Lurq Team")
-          .picture(green.clone())
-          .shape(AvatarShape::Square)
-          .size(AvatarSize::Lg),
-        "square",
-      ))
-      .child(item(
-        Avatar::new("Mark R.").picture(broken()),
-        "fails: the initials stay",
-      ));
-    let presences = PRESENCES[1..].iter().fold(items(), |row, (label, presence)| {
-      row.child(item(
-        Avatar::new("Ivan Zaida").picture(blue.clone()).presence(*presence),
-        &label.to_lowercase(),
-      ))
+    let sizes = crate::kit::apart(|| {
+      SIZES
+        .iter()
+        .fold(items(), |row, (label, size)| {
+          row.child(item(Avatar::new("Ivan Zaida").size(*size), label))
+        })
+        .child(item(Avatar::new("Lurq Team").shape(AvatarShape::Square), "square"))
+        .child(item(Avatar::new("Build bot").icon(icons::TERMINAL), "icon"))
+        .child(item(Avatar::new(""), "no name: a person"))
     });
-    let groups = Column::new()
-      .spacing(24.0)
-      .child(item(
-        AvatarGroup::new(PEOPLE.map(Avatar::new))
-          .max_shown(3)
-          .label("Reviewers"),
-        "max 3 of 6",
-      ))
-      .child(item(
-        AvatarGroup::new([
-          Avatar::new("Ivan Zaida").picture(blue.clone()),
-          Avatar::new("Anna K.").picture(orange.clone()),
-          Avatar::new("Ivy Chen").picture(green.clone()),
-          Avatar::new("Mark R."),
-        ])
-        .size(AvatarSize::Lg)
-        .label("Editors"),
-        "40, pictures and initials",
-      ))
-      .child(item(
-        AvatarGroup::new(PEOPLE.map(Avatar::new))
-          .size(AvatarSize::Sm)
-          .max_shown(4)
-          .label("Watching"),
-        "24, max 4",
-      ));
-    let on_card = Row::new()
-      .padding(16.0)
-      .rounded(RadiusSize::Lg)
-      .background(PaletteColor::Card)
-      .border(line())
-      .overflow_visible()
-      .child(
-        AvatarGroup::new(PEOPLE.map(Avatar::new))
-          .max_shown(3)
-          .label("Reviewers")
-          .style(AvatarGroupPart::Item, |s| {
-            s.border(Border::outside(2.0, PaletteColor::Card))
-          }),
-      );
-    let people = items()
-      .child(item(
-        Persona::new("Ivan Zaida")
-          .description("Available · Kyiv")
-          .presence(AvatarPresence::Online),
-        "persona",
-      ))
-      .child(item(
-        Persona::new("Ivy Chen")
-          .description("Away · back at 15:00")
-          .presence(AvatarPresence::Away),
-        "persona · away",
-      ));
-    let alone = items()
-      .child(item(Self::status(AvatarPresence::Online, "Online"), "online"))
-      .child(item(Self::status(AvatarPresence::Away, "Away"), "away"))
-      .child(item(Self::status(AvatarPresence::Busy, "Do not disturb"), "busy"))
-      .child(item(Self::status(AvatarPresence::Offline, "Offline"), "offline"))
-      .child(item(
-        Row::new()
-          .spacing(8.0)
-          .align_items(Alignment::Center)
-          .overflow_visible()
-          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xs))
-          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Sm))
-          .child(Presence::new(AvatarPresence::Online))
-          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Lg))
-          .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xl)),
-        "6, 8, 10, 12, 14",
-      ));
-    let rows = [
-      (
-        "name",
-        "&str",
-        "",
-        "Who it is: its initials are the first letters of the first word and the last, and it is what tooling \
+    let [blue, orange, green] = self.portraits.clone();
+    let pictures = crate::kit::apart(|| {
+      items()
+        .id("avatar-pictures")
+        .child(item(Avatar::new("Ivan Zaida").picture(blue.clone()), "round"))
+        .child(item(
+          Avatar::new("Anna K.").picture(orange.clone()).size(AvatarSize::Xl),
+          "56",
+        ))
+        .child(item(
+          Avatar::new("Lurq Team")
+            .picture(green.clone())
+            .shape(AvatarShape::Square)
+            .size(AvatarSize::Lg),
+          "square",
+        ))
+        .child(item(
+          Avatar::new("Mark R.").picture(broken()),
+          "fails: the initials stay",
+        ))
+    });
+    let presences = crate::kit::apart(|| {
+      PRESENCES[1..].iter().fold(items(), |row, (label, presence)| {
+        row.child(item(
+          Avatar::new("Ivan Zaida").picture(blue.clone()).presence(*presence),
+          &label.to_lowercase(),
+        ))
+      })
+    });
+    let groups = crate::kit::apart(|| {
+      Column::new()
+        .spacing(24.0)
+        .child(item(
+          AvatarGroup::new(PEOPLE.map(Avatar::new))
+            .max_shown(3)
+            .label("Reviewers"),
+          "max 3 of 6",
+        ))
+        .child(item(
+          AvatarGroup::new([
+            Avatar::new("Ivan Zaida").picture(blue.clone()),
+            Avatar::new("Anna K.").picture(orange.clone()),
+            Avatar::new("Ivy Chen").picture(green.clone()),
+            Avatar::new("Mark R."),
+          ])
+          .size(AvatarSize::Lg)
+          .label("Editors"),
+          "40, pictures and initials",
+        ))
+        .child(item(
+          AvatarGroup::new(PEOPLE.map(Avatar::new))
+            .size(AvatarSize::Sm)
+            .max_shown(4)
+            .label("Watching"),
+          "24, max 4",
+        ))
+    });
+    let on_card = crate::kit::apart(|| {
+      Row::new()
+        .padding(16.0)
+        .rounded(RadiusSize::Lg)
+        .background(PaletteColor::Card)
+        .border(line())
+        .overflow_visible()
+        .child(
+          AvatarGroup::new(PEOPLE.map(Avatar::new))
+            .max_shown(3)
+            .label("Reviewers")
+            .style(AvatarGroupPart::Item, |s| {
+              s.border(Border::outside(2.0, PaletteColor::Card))
+            }),
+        )
+    });
+    let people = crate::kit::apart(|| {
+      items()
+        .child(item(
+          Persona::new("Ivan Zaida")
+            .description("Available · Kyiv")
+            .presence(AvatarPresence::Online),
+          "persona",
+        ))
+        .child(item(
+          Persona::new("Ivy Chen")
+            .description("Away · back at 15:00")
+            .presence(AvatarPresence::Away),
+          "persona · away",
+        ))
+    });
+    let alone = crate::kit::apart(|| {
+      items()
+        .child(item(Self::status(AvatarPresence::Online, "Online"), "online"))
+        .child(item(Self::status(AvatarPresence::Away, "Away"), "away"))
+        .child(item(Self::status(AvatarPresence::Busy, "Do not disturb"), "busy"))
+        .child(item(Self::status(AvatarPresence::Offline, "Offline"), "offline"))
+        .child(item(
+          Row::new()
+            .spacing(8.0)
+            .align_items(Alignment::Center)
+            .overflow_visible()
+            .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xs))
+            .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Sm))
+            .child(Presence::new(AvatarPresence::Online))
+            .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Lg))
+            .child(Presence::new(AvatarPresence::Online).size(AvatarSize::Xl)),
+          "6, 8, 10, 12, 14",
+        ))
+    });
+    let rows = crate::kit::apart(|| {
+      [
+        (
+          "name",
+          "&str",
+          "",
+          "Who it is: its initials are the first letters of the first word and the last, and it is what tooling \
          calls the avatar. A name with no letters shows the icon of a person.",
-      ),
-      (
-        "picture",
-        "impl Into<Picture>",
-        "",
-        "A picture in place of the initials, filling the face and clipped to its shape. While it is on its way and \
+        ),
+        (
+          "picture",
+          "impl Into<Picture>",
+          "",
+          "A picture in place of the initials, filling the face and clipped to its shape. While it is on its way and \
          when it does not come, the initials or the icon show.",
-      ),
-      (
-        "icon",
-        "&str",
-        "",
-        "An icon in place of the initials, by its name in the theme: for what is not a person.",
-      ),
-      ("size", "AvatarSize", "Md", "Xs 20, Sm 24, Md 32, Lg 40, Xl 56."),
-      (
-        "shape",
-        "AvatarShape",
-        "Circle",
-        "Circle, or Square with the corners of a control.",
-      ),
-      (
-        "presence",
-        "Option<AvatarPresence>",
-        "None",
-        "The dot at the bottom end: online, away, busy or offline.",
-      ),
-      (
-        "presence_label",
-        "&str",
-        "",
-        "What the dot says to tooling after the name, in place of the presence's own word.",
-      ),
-      (
-        "AvatarGroup::max_shown",
-        "usize",
-        "",
-        "The most avatars a group shows; after them it shows how many it leaves out, \"+3\".",
-      ),
-      (
-        "AvatarGroup::label",
-        "&str",
-        "",
-        "What the group is called to tooling: without one, the names it shows.",
-      ),
-    ];
+        ),
+        (
+          "icon",
+          "&str",
+          "",
+          "An icon in place of the initials, by its name in the theme: for what is not a person.",
+        ),
+        ("size", "AvatarSize", "Md", "Xs 20, Sm 24, Md 32, Lg 40, Xl 56."),
+        (
+          "shape",
+          "AvatarShape",
+          "Circle",
+          "Circle, or Square with the corners of a control.",
+        ),
+        (
+          "presence",
+          "Option<AvatarPresence>",
+          "None",
+          "The dot at the bottom end: online, away, busy or offline.",
+        ),
+        (
+          "presence_label",
+          "&str",
+          "",
+          "What the dot says to tooling after the name, in place of the presence's own word.",
+        ),
+        (
+          "AvatarGroup::max_shown",
+          "usize",
+          "",
+          "The most avatars a group shows; after them it shows how many it leaves out, \"+3\".",
+        ),
+        (
+          "AvatarGroup::label",
+          "&str",
+          "",
+          "What the group is called to tooling: without one, the names it shows.",
+        ),
+      ]
+    });
     let playground = self.play(ctx);
     self.frame.page(
       ctx,
@@ -533,151 +549,153 @@ impl Component for AvatarPage {
         since: Some("0.62"),
         source: file!(),
       },
-      vec![
-        Section::new(
-          "Playground",
-          "Every prop of Avatar is a control on the right, and the most a group of six shows. A broken picture \
+      crate::kit::apart(|| {
+        vec![
+          Section::new(
+            "Playground",
+            "Every prop of Avatar is a control on the right, and the most a group of six shows. A broken picture \
            shows what an avatar does when its picture fails: the initials stay.",
-          playground,
-        ),
-        Section::new(
-          "Sizes and shapes",
-          "Five sizes, round or square. An icon takes the place of the initials for what is not a person, and a \
+            playground,
+          ),
+          Section::new(
+            "Sizes and shapes",
+            "Five sizes, round or square. An icon takes the place of the initials for what is not a person, and a \
            name with no letters shows a person.",
-          self.frame.demo(
-            0,
-            sizes,
-            ".size(AvatarSize::Xl)",
-            &[
-              "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Xs)",
-              "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Sm)",
-              "Avatar::new(\"Ivan Zaida\")",
-              "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Lg)",
-              "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Xl)",
-              "Avatar::new(\"Lurq Team\").shape(AvatarShape::Square)",
-              "Avatar::new(\"Build bot\").icon(icons::TERMINAL)",
-              "Avatar::new(\"\")",
-            ],
+            self.frame.demo(
+              0,
+              sizes,
+              ".size(AvatarSize::Xl)",
+              &[
+                "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Xs)",
+                "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Sm)",
+                "Avatar::new(\"Ivan Zaida\")",
+                "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Lg)",
+                "Avatar::new(\"Ivan Zaida\").size(AvatarSize::Xl)",
+                "Avatar::new(\"Lurq Team\").shape(AvatarShape::Square)",
+                "Avatar::new(\"Build bot\").icon(icons::TERMINAL)",
+                "Avatar::new(\"\")",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Pictures",
-          "A picture fills the face and is clipped to its shape. The app builds the image as it likes, from \
+          Section::new(
+            "Pictures",
+            "A picture fills the face and is clipped to its shape. The app builds the image as it likes, from \
            pixels, a file or bytes; while it decodes and when it fails, the initials show in its place.",
-          self.frame.demo(
-            1,
-            pictures,
-            ".picture(Picture::from_file(path))",
-            &[
-              "Avatar::new(\"Ivan Zaida\").picture(Picture::from_file(\"ivan.png\"))",
-              "Avatar::new(\"Anna K.\")",
-              "    .picture(Picture::from_file(\"anna.png\").downscale_to(112, 112))",
-              "    .size(AvatarSize::Xl)",
-              "Avatar::new(\"Lurq Team\")",
-              "    .picture(pixels)",
-              "    .shape(AvatarShape::Square)",
-              "    .size(AvatarSize::Lg)",
-              "// Bytes that are no picture: the decode fails, and the initials stay.",
-              "Avatar::new(\"Mark R.\").picture(Picture::from_bytes(broken_bytes))",
-            ],
+            self.frame.demo(
+              1,
+              pictures,
+              ".picture(Picture::from_file(path))",
+              &[
+                "Avatar::new(\"Ivan Zaida\").picture(Picture::from_file(\"ivan.png\"))",
+                "Avatar::new(\"Anna K.\")",
+                "    .picture(Picture::from_file(\"anna.png\").downscale_to(112, 112))",
+                "    .size(AvatarSize::Xl)",
+                "Avatar::new(\"Lurq Team\")",
+                "    .picture(pixels)",
+                "    .shape(AvatarShape::Square)",
+                "    .size(AvatarSize::Lg)",
+                "// Bytes that are no picture: the decode fails, and the initials stay.",
+                "Avatar::new(\"Mark R.\").picture(Picture::from_bytes(broken_bytes))",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Presence",
-          "A dot at the bottom end of the face says whether the person is there, ringed in the background's color. \
+          Section::new(
+            "Presence",
+            "A dot at the bottom end of the face says whether the person is there, ringed in the background's color. \
            Tooling hears it after the name: \"Ivan Zaida, away\".",
-          self.frame.demo(
-            2,
-            presences,
-            ".presence(AvatarPresence::Online)",
-            &[
-              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Online)",
-              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Away)",
-              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Busy)",
-              "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Offline)",
-            ],
+            self.frame.demo(
+              2,
+              presences,
+              ".presence(AvatarPresence::Online)",
+              &[
+                "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Online)",
+                "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Away)",
+                "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Busy)",
+                "Avatar::new(\"Ivan Zaida\").picture(portrait).presence(AvatarPresence::Offline)",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Presence on its own",
-          "The same dot with no avatar under it, before a word in a list of who is there. It is the dot of the \
+          Section::new(
+            "Presence on its own",
+            "The same dot with no avatar under it, before a word in a list of who is there. It is the dot of the \
            avatar's recipe, as large as on an avatar of its size, with no ring; tooling hears the presence's word, \
            or its label.",
-          self.frame.demo(
-            6,
-            alone,
-            "Presence::new(AvatarPresence::Online)",
-            &[
+            self.frame.demo(
+              6,
+              alone,
               "Presence::new(AvatarPresence::Online)",
-              "Presence::new(AvatarPresence::Away).label(\"Away until 15:00\")",
-              "Presence::new(AvatarPresence::Online).size(AvatarSize::Lg)",
-            ],
+              &[
+                "Presence::new(AvatarPresence::Online)",
+                "Presence::new(AvatarPresence::Away).label(\"Away until 15:00\")",
+                "Presence::new(AvatarPresence::Online).size(AvatarSize::Lg)",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Groups",
-          "Each avatar lies over the end of the one before it, ringed in the background's color. With a most, the \
+          Section::new(
+            "Groups",
+            "Each avatar lies over the end of the one before it, ringed in the background's color. With a most, the \
            group shows that many and how many it leaves out as the last. The group gives its avatars its size.",
-          self.frame.demo(
-            3,
-            groups,
-            "AvatarGroup::new(avatars).max_shown(3)",
-            &[
-              "let people = [\"Ivan Zaida\", \"Anna K.\", \"Mark R.\", \"Ivy Chen\", \"Ivo Kovac\", \"Lena Quinn\"];",
-              "AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label(\"Reviewers\")",
-              "",
-              "AvatarGroup::new([",
-              "    Avatar::new(\"Ivan Zaida\").picture(ivan),",
-              "    Avatar::new(\"Anna K.\").picture(anna),",
-              "    Avatar::new(\"Ivy Chen\").picture(ivy),",
-              "    Avatar::new(\"Mark R.\"),",
-              "])",
-              ".size(AvatarSize::Lg)",
-              ".label(\"Editors\")",
-              "",
-              "AvatarGroup::new(people.map(Avatar::new)).size(AvatarSize::Sm).max_shown(4).label(\"Watching\")",
-            ],
+            self.frame.demo(
+              3,
+              groups,
+              "AvatarGroup::new(avatars).max_shown(3)",
+              &[
+                "let people = [\"Ivan Zaida\", \"Anna K.\", \"Mark R.\", \"Ivy Chen\", \"Ivo Kovac\", \"Lena Quinn\"];",
+                "AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label(\"Reviewers\")",
+                "",
+                "AvatarGroup::new([",
+                "    Avatar::new(\"Ivan Zaida\").picture(ivan),",
+                "    Avatar::new(\"Anna K.\").picture(anna),",
+                "    Avatar::new(\"Ivy Chen\").picture(ivy),",
+                "    Avatar::new(\"Mark R.\"),",
+                "])",
+                ".size(AvatarSize::Lg)",
+                ".label(\"Editors\")",
+                "",
+                "AvatarGroup::new(people.map(Avatar::new)).size(AvatarSize::Sm).max_shown(4).label(\"Watching\")",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "On a card",
-          "The ring is the color of the surface behind the group: on a card, the card's.",
-          self.frame.demo(
-            4,
-            on_card,
-            ".style(AvatarGroupPart::Item, ..)",
-            &[
-              "AvatarGroup::new(people.map(Avatar::new))",
-              "    .max_shown(3)",
-              "    .label(\"Reviewers\")",
-              "    .style(AvatarGroupPart::Item, |s| s.border(Border::outside(2.0, PaletteColor::Card)))",
-            ],
+          Section::new(
+            "On a card",
+            "The ring is the color of the surface behind the group: on a card, the card's.",
+            self.frame.demo(
+              4,
+              on_card,
+              ".style(AvatarGroupPart::Item, ..)",
+              &[
+                "AvatarGroup::new(people.map(Avatar::new))",
+                "    .max_shown(3)",
+                "    .label(\"Reviewers\")",
+                "    .style(AvatarGroupPart::Item, |s| s.border(Border::outside(2.0, PaletteColor::Card)))",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Beside a name",
-          "A person in a list or a menu: the avatar with its presence, the name and a line under it. That is a \
+          Section::new(
+            "Beside a name",
+            "A person in a list or a menu: the avatar with its presence, the name and a line under it. That is a \
            Persona, which has a page of its own.",
-          self.frame.demo(
-            5,
-            people,
-            "Persona::new(name).description(..).presence(..)",
-            &[
-              "Persona::new(\"Ivan Zaida\")",
-              "    .description(\"Available · Kyiv\")",
-              "    .presence(AvatarPresence::Online)",
-              "Persona::new(\"Ivy Chen\")",
-              "    .description(\"Away · back at 15:00\")",
-              "    .presence(AvatarPresence::Away)",
-            ],
+            self.frame.demo(
+              5,
+              people,
+              "Persona::new(name).description(..).presence(..)",
+              &[
+                "Persona::new(\"Ivan Zaida\")",
+                "    .description(\"Available · Kyiv\")",
+                "    .presence(AvatarPresence::Online)",
+                "Persona::new(\"Ivy Chen\")",
+                "    .description(\"Away · back at 15:00\")",
+                "    .presence(AvatarPresence::Away)",
+              ],
+            ),
           ),
-        ),
-        Section::new(
-          "Props",
-          "What an avatar and a group are given.",
-          props_table(&rows, &["name"], self.frame.room()),
-        ),
-      ],
+          Section::new(
+            "Props",
+            "What an avatar and a group are given.",
+            props_table(&rows, &["name"], self.frame.room()),
+          ),
+        ]
+      }),
     )
   }
 }

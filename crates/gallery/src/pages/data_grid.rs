@@ -415,14 +415,16 @@ impl DataGridPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let selection = self.selection.get().min(SELECTIONS.len() - 1);
     let (density_name, density) = DENSITIES[self.density.get().min(DENSITIES.len() - 1)];
-    let (fixed_height, pin_name, read_only, resizable, footer, bind_range) = (
-      self.fixed_height.get(),
-      self.pin_name.get(),
-      self.read_only.get(),
-      self.resizable.get(),
-      self.footer.get(),
-      self.bind_range.get(),
-    );
+    let (fixed_height, pin_name, read_only, resizable, footer, bind_range) = crate::kit::apart(|| {
+      (
+        self.fixed_height.get(),
+        self.pin_name.get(),
+        self.read_only.get(),
+        self.resizable.get(),
+        self.footer.get(),
+        self.bind_range.get(),
+      )
+    });
     let column_menu = self.column_menu.get();
     let row_numbers = self.row_numbers.get();
     let (_, grouping) = GROUPINGS[self.grouping.get().min(GROUPINGS.len() - 1)];
@@ -439,57 +441,61 @@ impl DataGridPage {
     let rows = self.played.clone();
     let sort = self.played_sort.get();
 
-    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to, exported_to) = (
-      record.clone(),
-      record.clone(),
-      record.clone(),
-      record.clone(),
-      record.clone(),
-      record.clone(),
-      record,
-    );
+    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to, exported_to) = crate::kit::apart(|| {
+      (
+        record.clone(),
+        record.clone(),
+        record.clone(),
+        record.clone(),
+        record.clone(),
+        record.clone(),
+        record,
+      )
+    });
     let exporting = self.exporting.get();
     let played_detail = self.played_detail.get();
     let played_bar = self.played_bar.get();
-    let mut grid = DataGrid::new(played_columns, sorted(rows.get(), &sort))
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .density(density)
-      .read_only(read_only)
-      .resizable(resizable)
-      .column_menu(column_menu)
-      .export(exporting)
-      .on_export(move |export| {
-        exported_to(format!(
-          "on_export({:?}, {:?}, {} rows, {} bytes)",
-          export.scope,
-          export.format,
-          export.rows,
-          export.text.len()
-        ))
-      })
-      .row_numbers(row_numbers)
-      .filters(self.played_filters.clone())
-      .filter_row(filtering && filter_row)
-      .group_by(grouping.iter().copied())
-      .open(self.played_open.clone())
-      .on_open_change(move |key, open| opened_to(format!("on_open_change({:?}, {open})", key.values)))
-      .column_layout(self.played_layout.clone())
-      .on_column_layout_change(move |layout| arranged_to(format!("on_column_layout_change({})", said_layout(layout))))
-      .sort(self.played_sort.clone())
-      .on_sort_change(move |sort| sorted_to(format!("on_sort_change({sort:?})")))
-      .on_edit({
-        let rows = rows.clone();
-        move |edit| {
-          let taken = take(&rows, edit.row, edit.column, &edit.value);
-          edited(format!(
-            "on_edit({:?}, {:?}, {:?}) -> {taken}",
-            edit.row, edit.column, edit.value
-          ));
-          taken
-        }
-      })
-      .force(self.playground.forced());
+    let mut grid = crate::kit::apart(|| {
+      DataGrid::new(played_columns, sorted(rows.get(), &sort))
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .density(density)
+        .read_only(read_only)
+        .resizable(resizable)
+        .column_menu(column_menu)
+        .export(exporting)
+        .on_export(move |export| {
+          exported_to(format!(
+            "on_export({:?}, {:?}, {} rows, {} bytes)",
+            export.scope,
+            export.format,
+            export.rows,
+            export.text.len()
+          ))
+        })
+        .row_numbers(row_numbers)
+        .filters(self.played_filters.clone())
+        .filter_row(filtering && filter_row)
+        .group_by(grouping.iter().copied())
+        .open(self.played_open.clone())
+        .on_open_change(move |key, open| opened_to(format!("on_open_change({:?}, {open})", key.values)))
+        .column_layout(self.played_layout.clone())
+        .on_column_layout_change(move |layout| arranged_to(format!("on_column_layout_change({})", said_layout(layout))))
+        .sort(self.played_sort.clone())
+        .on_sort_change(move |sort| sorted_to(format!("on_sort_change({sort:?})")))
+        .on_edit({
+          let rows = rows.clone();
+          move |edit| {
+            let taken = take(&rows, edit.row, edit.column, &edit.value);
+            edited(format!(
+              "on_edit({:?}, {:?}, {:?}) -> {taken}",
+              edit.row, edit.column, edit.value
+            ));
+            taken
+          }
+        })
+        .force(self.playground.forced())
+    });
     if selection > 0 {
       grid = grid
         .selected(self.played_selected.clone())
@@ -523,28 +529,30 @@ impl DataGridPage {
         });
     }
 
-    let mut code = vec![
-      "// files: Signal<Vec<File>>, the app's rows".to_owned(),
-      "DataGrid::new([".to_owned(),
-      format!(
-        "    TableColumn::new(\"name\", \"Name\").text(|row| row.name.clone()).mono(true).sortable(true){}",
-        if pin_name { ".pin(ColumnPin::Start)" } else { "" }
-      ),
-      "        .editor(CellEditor::text(|row| row.name.clone())),".to_owned(),
-      "    TableColumn::new(\"status\", \"Status\").width(120.0).cell(|row| badge(row.status))".to_owned(),
-      "        .editor(CellEditor::choice(STATUSES, |row| row.status)),".to_owned(),
-      "    TableColumn::new(\"size\", \"Size\").width(90.0).numeric().text(|row| format!(\"{} KB\", row.size))"
-        .to_owned(),
-      "        .editor(CellEditor::number(|row| row.size)),".to_owned(),
-      "    TableColumn::new(\"shared\", \"Shared\").width(80.0).editor(CellEditor::checkbox(|row| row.shared)),"
-        .to_owned(),
-      "    TableColumn::new(\"updated\", \"Updated\").width(110.0).muted(true).text(|row| row.updated.into()),"
-        .to_owned(),
-      "], files.get())".to_owned(),
-      ".row_key(|row| row.name.clone())".to_owned(),
-      ".label(\"Files\")".to_owned(),
-      ".sort(sort)".to_owned(),
-    ];
+    let mut code = crate::kit::apart(|| {
+      vec![
+        "// files: Signal<Vec<File>>, the app's rows".to_owned(),
+        "DataGrid::new([".to_owned(),
+        format!(
+          "    TableColumn::new(\"name\", \"Name\").text(|row| row.name.clone()).mono(true).sortable(true){}",
+          if pin_name { ".pin(ColumnPin::Start)" } else { "" }
+        ),
+        "        .editor(CellEditor::text(|row| row.name.clone())),".to_owned(),
+        "    TableColumn::new(\"status\", \"Status\").width(120.0).cell(|row| badge(row.status))".to_owned(),
+        "        .editor(CellEditor::choice(STATUSES, |row| row.status)),".to_owned(),
+        "    TableColumn::new(\"size\", \"Size\").width(90.0).numeric().text(|row| format!(\"{} KB\", row.size))"
+          .to_owned(),
+        "        .editor(CellEditor::number(|row| row.size)),".to_owned(),
+        "    TableColumn::new(\"shared\", \"Shared\").width(80.0).editor(CellEditor::checkbox(|row| row.shared)),"
+          .to_owned(),
+        "    TableColumn::new(\"updated\", \"Updated\").width(110.0).muted(true).text(|row| row.updated.into()),"
+          .to_owned(),
+        "], files.get())".to_owned(),
+        ".row_key(|row| row.name.clone())".to_owned(),
+        ".label(\"Files\")".to_owned(),
+        ".sort(sort)".to_owned(),
+      ]
+    });
     match selection {
       1 => code.push(".selected(selected)".to_owned()),
       2 => code.push(".selected(selected).checkboxes(false)".to_owned()),
@@ -587,87 +595,95 @@ impl DataGridPage {
     code.push(".on_edit(|edit| /* take it into files, or refuse it */ true)".to_owned());
     code.push(".mount(ctx)".to_owned());
 
-    let tree = vec![
-      format!("root        {} · a table's · grid", self.playground.measured()),
-      "├─ row_number  at the start, held there · pressed to select".to_owned(),
-      "├─ header   the table's · a menu_trigger and a resizer at each column's end · drop_line".to_owned(),
-      "├─ group_row  a row at its level · chevron, group_label, group_count".to_owned(),
-      "├─ row      not a stop · Left and Right its own".to_owned(),
-      "└─ summary  at the bottom, held there · summary_label, summary_value".to_owned(),
-      "   └─ cell     a gridcell · the ring inside it from the keyboard · in_range, range_top..range_end".to_owned(),
-      "      └─ editor   Input, NumberInput or Select, Sm, while it is edited".to_owned(),
-    ];
+    let tree = crate::kit::apart(|| {
+      vec![
+        format!("root        {} · a table's · grid", self.playground.measured()),
+        "├─ row_number  at the start, held there · pressed to select".to_owned(),
+        "├─ header   the table's · a menu_trigger and a resizer at each column's end · drop_line".to_owned(),
+        "├─ group_row  a row at its level · chevron, group_label, group_count".to_owned(),
+        "├─ row      not a stop · Left and Right its own".to_owned(),
+        "└─ summary  at the bottom, held there · summary_label, summary_value".to_owned(),
+        "   └─ cell     a gridcell · the ring inside it from the keyboard · in_range, range_top..range_end".to_owned(),
+        "      └─ editor   Input, NumberInput or Select, Sm, while it is edited".to_owned(),
+      ]
+    });
 
     let (set_selection, set_density) = (self.selection.clone(), self.density.clone());
     let indexed = |names: &[&'static str]| -> Vec<(&'static str, usize)> {
       names.iter().enumerate().map(|(index, name)| (*name, index)).collect()
     };
-    let densities: Vec<(&str, usize)> = DENSITIES
-      .iter()
-      .enumerate()
-      .map(|(index, (name, _))| (*name, index))
-      .collect();
-    let reset = (
-      self.selection.clone(),
-      self.density.clone(),
-      self.fixed_height.clone(),
-      self.pin_name.clone(),
-      self.read_only.clone(),
-      self.resizable.clone(),
-      self.footer.clone(),
-      self.played.clone(),
-      self.played_selected.clone(),
-      self.played_sort.clone(),
-      self.bind_range.clone(),
-      self.played_range.clone(),
-      self.column_menu.clone(),
-      self.played_layout.clone(),
-      self.grouping.clone(),
-      self.played_open.clone(),
-      self.summary.clone(),
-      self.row_numbers.clone(),
-      self.big.clone(),
+    let densities: Vec<(&str, usize)> = crate::kit::apart(|| {
+      DENSITIES
+        .iter()
+        .enumerate()
+        .map(|(index, (name, _))| (*name, index))
+        .collect()
+    });
+    let reset = crate::kit::apart(|| {
       (
-        self.filtering.clone(),
-        self.filter_row.clone(),
-        self.played_filters.clone(),
-        self.exporting.clone(),
-        self.played_detail.clone(),
-        self.played_bar.clone(),
-      ),
-    );
-    let still = {
+        self.selection.clone(),
+        self.density.clone(),
+        self.fixed_height.clone(),
+        self.pin_name.clone(),
+        self.read_only.clone(),
+        self.resizable.clone(),
+        self.footer.clone(),
+        self.played.clone(),
+        self.played_selected.clone(),
+        self.played_sort.clone(),
+        self.bind_range.clone(),
+        self.played_range.clone(),
+        self.column_menu.clone(),
+        self.played_layout.clone(),
+        self.grouping.clone(),
+        self.played_open.clone(),
+        self.summary.clone(),
+        self.row_numbers.clone(),
+        self.big.clone(),
+        (
+          self.filtering.clone(),
+          self.filter_row.clone(),
+          self.played_filters.clone(),
+          self.exporting.clone(),
+          self.played_detail.clone(),
+          self.played_bar.clone(),
+        ),
+      )
+    });
+    let still = crate::kit::apart(|| {
       let rows = rows.get();
       move || -> Element { DataGrid::new(columns(pin_name), rows.clone()).label("Files").into() }
-    };
+    });
     let big = self.big.get();
-    let shown = if big {
-      // The same props over a million rows of 200 columns, a note on every seventh that wraps.
-      let mut grid = DataGrid::new_shared(million_columns(), million())
-        .label("Jobs")
-        .density(density)
-        .read_only(read_only)
-        .resizable(resizable)
-        .column_menu(column_menu)
-        .row_numbers(row_numbers)
-        .count(footer)
-        .height(400.0)
-        .force(self.playground.forced())
-        .key("played-million");
-      if selection > 0 {
-        grid = grid.selected(self.big_selected.clone()).checkboxes(selection == 1);
+    let shown = crate::kit::apart(|| {
+      if big {
+        // The same props over a million rows of 200 columns, a note on every seventh that wraps.
+        let mut grid = DataGrid::new_shared(million_columns(), million())
+          .label("Jobs")
+          .density(density)
+          .read_only(read_only)
+          .resizable(resizable)
+          .column_menu(column_menu)
+          .row_numbers(row_numbers)
+          .count(footer)
+          .height(400.0)
+          .force(self.playground.forced())
+          .key("played-million");
+        if selection > 0 {
+          grid = grid.selected(self.big_selected.clone()).checkboxes(selection == 1);
+        }
+        code = vec![
+          "// rows: Arc<Vec<Job>>, a million; columns: the job pinned, a note that wraps, 198 metrics".to_owned(),
+          "DataGrid::new_shared(columns, rows)".to_owned(),
+          ".label(\"Jobs\")".to_owned(),
+          ".height(400.0)".to_owned(),
+          ".mount(ctx)".to_owned(),
+        ];
+        self.playground.styled(grid).mount(ctx)
+      } else {
+        self.playground.styled(grid).mount(ctx)
       }
-      code = vec![
-        "// rows: Arc<Vec<Job>>, a million; columns: the job pinned, a note that wraps, 198 metrics".to_owned(),
-        "DataGrid::new_shared(columns, rows)".to_owned(),
-        ".label(\"Jobs\")".to_owned(),
-        ".height(400.0)".to_owned(),
-        ".mount(ctx)".to_owned(),
-      ];
-      self.playground.styled(grid).mount(ctx)
-    } else {
-      self.playground.styled(grid).mount(ctx)
-    };
+    });
     self.playground.card(
       ctx,
       Spec {
@@ -929,75 +945,85 @@ impl Component for DataGridPage {
       ]
     };
     let board_sort = self.board_sort.get();
-    let page_rows: Vec<File> = files(24)
-      .into_iter()
-      .skip((self.page.get().max(1) - 1) * 3)
-      .take(3)
-      .collect();
-    let board = DataGrid::new(board_columns(), sorted(page_rows, &board_sort))
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .sort(self.board_sort.clone())
-      .selected(self.board_selected.clone())
-      .total(24)
-      .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
-      .style(lurq::ui::TablePart::Root, |s| {
-        s.width(640.0).max_width(lurq::ui::Length::Fill)
-      })
-      .key("board")
-      .mount(ctx);
+    let page_rows: Vec<File> = crate::kit::apart(|| {
+      files(24)
+        .into_iter()
+        .skip((self.page.get().max(1) - 1) * 3)
+        .take(3)
+        .collect()
+    });
+    let board = crate::kit::apart(|| {
+      DataGrid::new(board_columns(), sorted(page_rows, &board_sort))
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .sort(self.board_sort.clone())
+        .selected(self.board_selected.clone())
+        .total(24)
+        .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
+        .style(lurq::ui::TablePart::Root, |s| {
+          s.width(640.0).max_width(lurq::ui::Length::Fill)
+        })
+        .key("board")
+        .mount(ctx)
+    });
 
     // Editing in place, each commit written under the grid.
     let (rows, log) = (self.edited.clone(), self.log.clone());
-    let editing = DataGrid::new(columns(false), rows.get())
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .on_edit({
-        let (rows, log) = (rows.clone(), log.clone());
-        move |edit| {
-          let taken = take(&rows, edit.row, edit.column, &edit.value);
-          log.update(|log| {
-            log.insert(
-              0,
-              format!(
-                "{} · {} → {:?}{}",
-                edit.row,
-                edit.column,
-                edit.value,
-                if taken { "" } else { " · refused" }
-              ),
-            );
-            log.truncate(3);
-          });
-          taken
-        }
-      })
-      .key("editing")
-      .mount(ctx);
+    let editing = crate::kit::apart(|| {
+      DataGrid::new(columns(false), rows.get())
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .on_edit({
+          let (rows, log) = (rows.clone(), log.clone());
+          move |edit| {
+            let taken = take(&rows, edit.row, edit.column, &edit.value);
+            log.update(|log| {
+              log.insert(
+                0,
+                format!(
+                  "{} · {} → {:?}{}",
+                  edit.row,
+                  edit.column,
+                  edit.value,
+                  if taken { "" } else { " · refused" }
+                ),
+              );
+              log.truncate(3);
+            });
+            taken
+          }
+        })
+        .key("editing")
+        .mount(ctx)
+    });
     let said = self.log.get();
-    let editing = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(editing)
-      .child(quiet(
-        &if said.is_empty() {
-          "Edit a cell: Enter, F2, a double press or a letter. An empty name is refused.".to_owned()
-        } else {
-          said.join("   ")
-        },
-        12.0,
-      ));
+    let editing = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(editing)
+        .child(quiet(
+          &if said.is_empty() {
+            "Edit a cell: Enter, F2, a double press or a letter. An empty name is refused.".to_owned()
+          } else {
+            said.join("   ")
+          },
+          12.0,
+        ))
+    });
 
     // A range of cells: what it spans, by the rows' keys and the columns' ids, and the sizes in it added up.
     let ranged_rows = self.ranged.clone();
-    let range_grid = DataGrid::new(columns(false), ranged_rows.get())
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .cell_selection(self.range.clone())
-      .on_edit(move |edit| take(&ranged_rows, edit.row, edit.column, &edit.value))
-      .key("range")
-      .mount(ctx);
-    let range_said = match self.range.get() {
+    let range_grid = crate::kit::apart(|| {
+      DataGrid::new(columns(false), ranged_rows.get())
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .cell_selection(self.range.clone())
+        .on_edit(move |edit| take(&ranged_rows, edit.row, edit.column, &edit.value))
+        .key("range")
+        .mount(ctx)
+    });
+    let range_said = crate::kit::apart(|| match self.range.get() {
       Some(range) => {
         let files = self.ranged.get();
         let sizes: f64 = files
@@ -1021,125 +1047,135 @@ impl Component for DataGridPage {
       None => "Drag from a cell, or Shift with the arrows or a press. Ctrl+C copies the range as tab-separated \
                text, Ctrl+V pastes into it, Delete clears what is edited, Ctrl+A is every cell."
         .to_owned(),
-    };
-    let range_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(range_grid)
-      .child(quiet(&range_said, 12.0));
+    });
+    let range_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(range_grid)
+        .child(quiet(&range_said, 12.0))
+    });
 
     // A column's menu: the arrangement it makes, which the app could store, under the grid.
     let menu_rows = self.menu_rows.clone();
-    let menu_grid = DataGrid::new(columns(false), sorted(menu_rows.get(), &self.menu_sort.get()))
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .sort(self.menu_sort.clone())
-      .column_layout(self.layout.clone())
-      .on_edit(move |edit| take(&menu_rows, edit.row, edit.column, &edit.value))
-      .key("menu")
-      .mount(ctx);
+    let menu_grid = crate::kit::apart(|| {
+      DataGrid::new(columns(false), sorted(menu_rows.get(), &self.menu_sort.get()))
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .sort(self.menu_sort.clone())
+        .column_layout(self.layout.clone())
+        .on_edit(move |edit| take(&menu_rows, edit.row, edit.column, &edit.value))
+        .key("menu")
+        .mount(ctx)
+    });
     let arrangement = self.layout.get();
     let reset_layout = self.layout.clone();
     let saved = self.stored_layout.get();
     let store = (self.layout.clone(), self.menu_sort.clone(), self.stored_layout.clone());
     let restore = store.clone();
     // The text forms, which change as the grid does: what Store keeps and Restore reads back.
-    let text = format!(
-      "{}\nsort: {}",
-      if arrangement.columns.is_empty() {
-        "(the columns as the app gives them)".to_owned()
-      } else {
-        arrangement.to_text()
-      },
-      match self.menu_sort.get() {
-        sort if sort.is_empty() => "none".to_owned(),
-        sort => TableSort::list_to_text(&sort),
-      }
-    );
-    let menu_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(menu_grid)
-      .child(quiet(
-        &if arrangement.columns.is_empty() {
-          "Point at a header and press its ⋮, or press Alt+↓ on it. Drag a header to move its column, or press \
-           Ctrl+Shift+PageUp or PageDown on it."
-            .to_owned()
+    let text = crate::kit::apart(|| {
+      format!(
+        "{}\nsort: {}",
+        if arrangement.columns.is_empty() {
+          "(the columns as the app gives them)".to_owned()
         } else {
-          said_layout(&arrangement)
+          arrangement.to_text()
         },
-        12.0,
-      ))
-      .child(
-        Column::new()
-          .width(crate::kit::FILL)
-          .padding(12.0)
-          .rounded(lurq::app::theme::RadiusSize::Md)
-          .background(lurq::app::theme::PaletteColor::Muted)
-          .child(mono(&text, 12.0).color(lurq::app::theme::PaletteColor::MutedForeground)),
+        match self.menu_sort.get() {
+          sort if sort.is_empty() => "none".to_owned(),
+          sort => TableSort::list_to_text(&sort),
+        }
       )
-      .child(
-        // What does not fit beside the others goes on to the next line: no button gives up its label.
-        Row::new()
-          .width(crate::kit::FILL)
-          .spacing(8.0)
-          .wrap()
-          .align_items(Alignment::Center)
-          .child(
-            Button::new("Store")
-              .variant(ButtonVariant::Outline)
-              .size(ButtonSize::Sm)
-              .on_click(move |_| {
-                let sort = TableSort::list_to_text(&store.1.get());
-                store.2.set(Some((store.0.get().to_text(), sort)));
-              }),
-          )
-          .child(
-            Button::new("Restore")
-              .variant(ButtonVariant::Outline)
-              .size(ButtonSize::Sm)
-              .disabled(saved.is_none())
-              .on_click(move |_| {
-                if let Some((layout, sort)) = restore.2.get() {
-                  // Read back and made valid for the columns the grid has now.
-                  if let Some(layout) = ColumnLayout::parse(&layout) {
-                    let ids: Vec<Arc<str>> = columns(false).iter().map(|column| Arc::from(column.id())).collect();
-                    restore.0.set(layout.valid(ids.iter().map(|id| &**id)));
+    });
+    let menu_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(menu_grid)
+        .child(quiet(
+          &if arrangement.columns.is_empty() {
+            "Point at a header and press its ⋮, or press Alt+↓ on it. Drag a header to move its column, or press \
+           Ctrl+Shift+PageUp or PageDown on it."
+              .to_owned()
+          } else {
+            said_layout(&arrangement)
+          },
+          12.0,
+        ))
+        .child(
+          Column::new()
+            .width(crate::kit::FILL)
+            .padding(12.0)
+            .rounded(lurq::app::theme::RadiusSize::Md)
+            .background(lurq::app::theme::PaletteColor::Muted)
+            .child(mono(&text, 12.0).color(lurq::app::theme::PaletteColor::MutedForeground)),
+        )
+        .child(
+          // What does not fit beside the others goes on to the next line: no button gives up its label.
+          Row::new()
+            .width(crate::kit::FILL)
+            .spacing(8.0)
+            .wrap()
+            .align_items(Alignment::Center)
+            .child(
+              Button::new("Store")
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm)
+                .on_click(move |_| {
+                  let sort = TableSort::list_to_text(&store.1.get());
+                  store.2.set(Some((store.0.get().to_text(), sort)));
+                }),
+            )
+            .child(
+              Button::new("Restore")
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm)
+                .disabled(saved.is_none())
+                .on_click(move |_| {
+                  if let Some((layout, sort)) = restore.2.get() {
+                    // Read back and made valid for the columns the grid has now.
+                    if let Some(layout) = ColumnLayout::parse(&layout) {
+                      let ids: Vec<Arc<str>> = columns(false).iter().map(|column| Arc::from(column.id())).collect();
+                      restore.0.set(layout.valid(ids.iter().map(|id| &**id)));
+                    }
+                    restore.1.set(TableSort::parse_list(&sort).unwrap_or_default());
                   }
-                  restore.1.set(TableSort::parse_list(&sort).unwrap_or_default());
-                }
-              }),
-          )
-          .child(
-            Button::new("Reset columns")
-              .variant(ButtonVariant::Ghost)
-              .size(ButtonSize::Sm)
-              .icon(icons::REFRESH)
-              .disabled(arrangement.columns.is_empty())
-              .on_click(move |_| reset_layout.set(ColumnLayout::default())),
-          )
-          .child(quiet(
-            &match &saved {
-              Some((layout, _)) => format!("stored: {} chars", layout.len()),
-              None => "nothing stored yet".to_owned(),
-            },
-            12.0,
-          )),
-      );
+                }),
+            )
+            .child(
+              Button::new("Reset columns")
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Sm)
+                .icon(icons::REFRESH)
+                .disabled(arrangement.columns.is_empty())
+                .on_click(move |_| reset_layout.set(ColumnLayout::default())),
+            )
+            .child(quiet(
+              &match &saved {
+                Some((layout, _)) => format!("stored: {} chars", layout.len()),
+                None => "nothing stored yet".to_owned(),
+              },
+              12.0,
+            )),
+        )
+    });
 
     // Group rows: by the status, each group opened and closed, the rows of the closed ones not built.
     let group_rows = self.group_rows.clone();
-    let grouped = DataGrid::new(columns(false), group_rows.get())
-      .label("Files")
-      .height(320.0)
-      .group_by(["status"])
-      .open(self.groups_open.clone())
-      .on_edit(move |edit| {
-        let name = group_rows.get().get(*edit.row).map(|file| file.name.clone());
-        name.is_some_and(|name| take(&group_rows, &name, edit.column, &edit.value))
-      })
-      .key("groups")
-      .mount(ctx);
+    let grouped = crate::kit::apart(|| {
+      DataGrid::new(columns(false), group_rows.get())
+        .label("Files")
+        .height(320.0)
+        .group_by(["status"])
+        .open(self.groups_open.clone())
+        .on_edit(move |edit| {
+          let name = group_rows.get().get(*edit.row).map(|file| file.name.clone());
+          name.is_some_and(|name| take(&group_rows, &name, edit.column, &edit.value))
+        })
+        .key("groups")
+        .mount(ctx)
+    });
 
     // Summary rows: the grid's at its bottom, and each group's at the end of its rows.
     let summed_rows = self.summed_rows.clone();
@@ -1154,17 +1190,19 @@ impl Component for DataGridPage {
       }
     });
     summed_columns[2] = summed_columns[2].clone().summary(SummaryKind::Sum);
-    let summed = DataGrid::new(summed_columns, summed_rows.get())
-      .label("Files")
-      .height(360.0)
-      .group_by(["status"])
-      .open(self.summed_open.clone())
-      .on_edit(move |edit| {
-        let name = summed_rows.get().get(*edit.row).map(|file| file.name.clone());
-        name.is_some_and(|name| take(&summed_rows, &name, edit.column, &edit.value))
-      })
-      .key("summary")
-      .mount(ctx);
+    let summed = crate::kit::apart(|| {
+      DataGrid::new(summed_columns, summed_rows.get())
+        .label("Files")
+        .height(360.0)
+        .group_by(["status"])
+        .open(self.summed_open.clone())
+        .on_edit(move |edit| {
+          let name = summed_rows.get().get(*edit.row).map(|file| file.name.clone());
+          name.is_some_and(|name| take(&summed_rows, &name, edit.column, &edit.value))
+        })
+        .key("summary")
+        .mount(ctx)
+    });
 
     // Row numbers: a column of them at the start, which stays, pressed to select a row, its header all of them.
     // Sorted by several columns: the status first, the rows of a status by their size, the largest first.
@@ -1189,154 +1227,161 @@ impl Component for DataGridPage {
     let multi = self.multi_sort.get();
     let mut multi_rows = files(8);
     TableSort::sort_rows(&multi, &multi_columns(), &mut multi_rows);
-    let multi_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(
-        DataGrid::new(multi_columns(), multi_rows)
-          .row_key(|row: &File| row.name.clone())
-          .label("Files")
-          .read_only(true)
-          .sort(self.multi_sort.clone())
-          .key("multi-sort")
-          .mount(ctx),
-      )
-      .child(quiet(
-        &format!(
-          "sort: {}",
-          if multi.is_empty() {
-            "none".to_owned()
-          } else {
-            TableSort::list_to_text(&multi)
-          }
-        ),
-        12.0,
-      ));
+    let multi_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(
+          DataGrid::new(multi_columns(), multi_rows)
+            .row_key(|row: &File| row.name.clone())
+            .label("Files")
+            .read_only(true)
+            .sort(self.multi_sort.clone())
+            .key("multi-sort")
+            .mount(ctx),
+        )
+        .child(quiet(
+          &format!(
+            "sort: {}",
+            if multi.is_empty() {
+              "none".to_owned()
+            } else {
+              TableSort::list_to_text(&multi)
+            }
+          ),
+          12.0,
+        ))
+    });
 
     // Filtered: each column by its kind, from its menu and in the row under the header.
     let filters_now = self.filters.get();
     let (clear, shown_filters) = (self.filters.clone(), filters_now.clone());
-    let filter_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(
-        DataGrid::new(filtered_columns(columns(false)), files(8))
-          .row_key(|row: &File| row.name.clone())
-          .label("Files")
-          .read_only(true)
-          .count(true)
-          .height(360.0)
-          .filters(self.filters.clone())
-          .filter_row(true)
-          .key("filtered")
-          .mount(ctx),
-      )
-      .child(
-        // What does not fit beside the other goes on to the next line, and the filters wrap in the card's width.
-        Row::new()
-          .width(crate::kit::FILL)
-          .spacing(8.0)
-          .wrap()
-          .align_items(Alignment::Center)
-          .child(Column::new().max_width(crate::kit::FILL).child(quiet(
-            &format!(
-              "filters: {}",
-              if shown_filters.is_empty() {
-                "none".to_owned()
-              } else {
-                shown_filters.to_text()
-              }
+    let filter_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(
+          DataGrid::new(filtered_columns(columns(false)), files(8))
+            .row_key(|row: &File| row.name.clone())
+            .label("Files")
+            .read_only(true)
+            .count(true)
+            .height(360.0)
+            .filters(self.filters.clone())
+            .filter_row(true)
+            .key("filtered")
+            .mount(ctx),
+        )
+        .child(
+          // What does not fit beside the other goes on to the next line, and the filters wrap in the card's width.
+          Row::new()
+            .width(crate::kit::FILL)
+            .spacing(8.0)
+            .wrap()
+            .align_items(Alignment::Center)
+            .child(Column::new().max_width(crate::kit::FILL).child(quiet(
+              &format!(
+                "filters: {}",
+                if shown_filters.is_empty() {
+                  "none".to_owned()
+                } else {
+                  shown_filters.to_text()
+                }
+              ),
+              12.0,
+            )))
+            .child(
+              Button::new("Clear all")
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Sm)
+                .disabled(filters_now.is_empty())
+                .on_click(move |_| clear.set(TableFilters::new())),
             ),
-            12.0,
-          )))
-          .child(
-            Button::new("Clear all")
-              .variant(ButtonVariant::Ghost)
-              .size(ButtonSize::Sm)
-              .disabled(filters_now.is_empty())
-              .on_click(move |_| clear.set(TableFilters::new())),
-          ),
-      );
+        )
+    });
 
     // Searched: every match in the cells marked, F3 to the next, Ctrl+F the find bar over the grid.
     let found = self.found.get();
     let told = self.found.clone();
-    let search_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(
-        SearchField::new(self.query.clone())
-          .placeholder("Search the files")
-          .label("Search the files"),
-      )
-      .child(
-        DataGrid::new(columns(false), files(8))
-          .row_key(|row: &File| row.name.clone())
-          .label("Files")
-          .read_only(true)
-          .height(280.0)
-          .search(self.query.clone())
-          .find_bar(true)
-          .on_matches_change(move |matches| told.set(matches))
-          .key("searched")
-          .mount(ctx),
-      )
-      .child(quiet(
-        &match found.current {
-          Some(current) => format!("on_matches_change: match {} of {}", current + 1, found.count),
-          None => "on_matches_change: no match".to_owned(),
-        },
-        12.0,
-      ));
+    let search_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(
+          SearchField::new(self.query.clone())
+            .placeholder("Search the files")
+            .label("Search the files"),
+        )
+        .child(
+          DataGrid::new(columns(false), files(8))
+            .row_key(|row: &File| row.name.clone())
+            .label("Files")
+            .read_only(true)
+            .height(280.0)
+            .search(self.query.clone())
+            .find_bar(true)
+            .on_matches_change(move |matches| told.set(matches))
+            .key("searched")
+            .mount(ctx),
+        )
+        .child(quiet(
+          &match found.current {
+            Some(current) => format!("on_matches_change: match {} of {}", current + 1, found.count),
+            None => "on_matches_change: no match".to_owned(),
+          },
+          12.0,
+        ))
+    });
 
     // Rows on demand: the server sorts, filters and searches; the grid asks for the ranges in view.
     let fail = self.fail_next.clone();
     let told = self.asked.clone();
     let failing = self.fail_next.clone();
-    let source_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(
-        DataGrid::on_demand(
-          vec![
-            TableColumn::new("id", "Id")
-              .width(90.0)
-              .mono(true)
-              .sortable(true)
-              .text(|ticket: &Ticket| ticket.id.to_string()),
-            TableColumn::new("title", "Title")
-              .sortable(true)
-              .filter_text(true)
-              .text(|ticket: &Ticket| ticket.title.clone()),
-            TableColumn::new("size", "Size")
-              .width(100.0)
-              .numeric()
-              .sortable(true)
-              .filter_number(|ticket: &Ticket| ticket.size as f64)
-              .text(|ticket: &Ticket| format!("{} KB", ticket.size)),
-            TableColumn::new("open", "Open")
-              .width(90.0)
-              .filter_bool(|ticket: &Ticket| ticket.open)
-              .text(|ticket: &Ticket| if ticket.open { "open" } else { "closed" }.to_owned()),
-          ],
-          100_000,
-          move |request: GridRequest| {
-            let answered = answer(&request, &fail);
-            async move { answered }
-          },
+    let source_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(
+          DataGrid::on_demand(
+            vec![
+              TableColumn::new("id", "Id")
+                .width(90.0)
+                .mono(true)
+                .sortable(true)
+                .text(|ticket: &Ticket| ticket.id.to_string()),
+              TableColumn::new("title", "Title")
+                .sortable(true)
+                .filter_text(true)
+                .text(|ticket: &Ticket| ticket.title.clone()),
+              TableColumn::new("size", "Size")
+                .width(100.0)
+                .numeric()
+                .sortable(true)
+                .filter_number(|ticket: &Ticket| ticket.size as f64)
+                .text(|ticket: &Ticket| format!("{} KB", ticket.size)),
+              TableColumn::new("open", "Open")
+                .width(90.0)
+                .filter_bool(|ticket: &Ticket| ticket.open)
+                .text(|ticket: &Ticket| if ticket.open { "open" } else { "closed" }.to_owned()),
+            ],
+            100_000,
+            move |request: GridRequest| {
+              let answered = answer(&request, &fail);
+              async move { answered }
+            },
+          )
+          .label("Tickets")
+          .height(360.0)
+          .count(true)
+          .filter_row(true)
+          .sort(self.asked_sort.clone())
+          .filters(self.asked_filters.clone())
+          .on_query_change(move |query| told.set(query.to_text()))
+          .key("on-demand")
+          .mount(ctx),
         )
-        .label("Tickets")
-        .height(360.0)
-        .count(true)
-        .filter_row(true)
-        .sort(self.asked_sort.clone())
-        .filters(self.asked_filters.clone())
-        .on_query_change(move |query| told.set(query.to_text()))
-        .key("on-demand")
-        .mount(ctx),
-      )
-      .child(
-        Row::new()
+        .child(
+          Row::new()
           .spacing(8.0)
           .align_items(Alignment::Center)
           .child(
@@ -1356,98 +1401,107 @@ impl Component for DataGridPage {
             ),
             12.0,
           ))),
-      );
+        )
+    });
 
     // Written out from a column's menu: the app is told the text, shown here as it would save it.
     let exported = self.exported.clone();
-    let export_grid = Column::new()
-      .spacing(10.0)
-      .width(crate::kit::FILL)
-      .child(
-        DataGrid::new(columns(false), files(6))
-          .row_key(|row: &File| row.name.clone())
-          .label("Files")
-          .selected(self.export_selected.clone())
-          .on_export(move |export| {
-            exported.set(format!(
-              "// files.{} · {:?}, {} rows\n{}",
-              export.format.extension(),
-              export.scope,
-              export.rows,
-              export.text.trim_end()
-            ))
-          })
-          .key("export")
-          .mount(ctx),
-      )
-      .child(match self.exported.get() {
-        text if text.is_empty() => Element::from(quiet(
-          "Open a column's menu, then Export: the text the app is told is shown here.",
-          12.0,
-        )),
-        text => lurq::ui::CodeBlock::new(&text).into(),
-      });
+    let export_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(10.0)
+        .width(crate::kit::FILL)
+        .child(
+          DataGrid::new(columns(false), files(6))
+            .row_key(|row: &File| row.name.clone())
+            .label("Files")
+            .selected(self.export_selected.clone())
+            .on_export(move |export| {
+              exported.set(format!(
+                "// files.{} · {:?}, {} rows\n{}",
+                export.format.extension(),
+                export.scope,
+                export.rows,
+                export.text.trim_end()
+              ))
+            })
+            .key("export")
+            .mount(ctx),
+        )
+        .child(match self.exported.get() {
+          text if text.is_empty() => Element::from(quiet(
+            "Open a column's menu, then Export: the text the app is told is shown here.",
+            12.0,
+          )),
+          text => lurq::ui::CodeBlock::new(&text).into(),
+        })
+    });
 
     // The board's bar over a grid: the search, a tag for each filter set, Filter, the density, the columns, Export.
-    let bar_grid = DataGrid::new(filtered_columns(columns(false)), files(8))
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .toolbar(true)
-      .filters(self.bar_filters.clone())
-      .height(320.0)
-      .key("bar")
-      .mount(ctx);
+    let bar_grid = crate::kit::apart(|| {
+      DataGrid::new(filtered_columns(columns(false)), files(8))
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .toolbar(true)
+        .filters(self.bar_filters.clone())
+        .height(320.0)
+        .key("bar")
+        .mount(ctx)
+    });
 
     // A tree of folders and files, and files whose rows open on their details.
-    let tree_grid = Column::new()
-      .spacing(16.0)
-      .width(crate::kit::FILL)
-      .child(
-        DataGrid::new(
-          vec![
-            TableColumn::new("name", "Name")
+    let tree_grid = crate::kit::apart(|| {
+      Column::new()
+        .spacing(16.0)
+        .width(crate::kit::FILL)
+        .child(
+          DataGrid::new(
+            vec![
+              TableColumn::new("name", "Name")
               // No narrower than a name three folders deep: in a narrower grid the columns scroll sideways.
               .min_width(200.0)
               .text(|row: &Entry| row.name.to_owned()),
-            TableColumn::new("kind", "Kind")
-              .width(110.0)
-              .muted(true)
-              .text(|row: &Entry| row.kind.to_owned()),
-            TableColumn::new("size", "Size")
-              .width(80.0)
-              .numeric()
-              .text(|row: &Entry| row.size.map_or_else(|| "—".to_owned(), |size| format!("{size} KB"))),
-          ],
-          entries(),
-        )
-        .row_key(|row: &Entry| row.name.to_owned())
-        .label("Files")
-        .read_only(true)
-        .tree(|row: &Entry| row.parent.map(str::to_owned))
-        .expanded(self.tree_open.clone())
-        .key("tree")
-        .mount(ctx),
-      )
-      .child(
-        DataGrid::new(columns(false), files(6))
-          .row_key(|row: &File| row.name.clone())
-          .label("Builds")
+              TableColumn::new("kind", "Kind")
+                .width(110.0)
+                .muted(true)
+                .text(|row: &Entry| row.kind.to_owned()),
+              TableColumn::new("size", "Size")
+                .width(80.0)
+                .numeric()
+                .text(|row: &Entry| row.size.map_or_else(|| "—".to_owned(), |size| format!("{size} KB"))),
+            ],
+            entries(),
+          )
+          .row_key(|row: &Entry| row.name.to_owned())
+          .label("Files")
           .read_only(true)
-          .detail(file_detail)
-          .details(self.details_open.clone())
-          .key("details")
+          .tree(|row: &Entry| row.parent.map(str::to_owned))
+          .expanded(self.tree_open.clone())
+          .key("tree")
           .mount(ctx),
-      );
+        )
+        .child(
+          DataGrid::new(columns(false), files(6))
+            .row_key(|row: &File| row.name.clone())
+            .label("Builds")
+            .read_only(true)
+            .detail(file_detail)
+            .details(self.details_open.clone())
+            .key("details")
+            .mount(ctx),
+        )
+    });
 
-    let numbered = DataGrid::new(columns(false), files(8))
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .height(280.0)
-      .selected(self.numbered_selected.clone())
-      .checkboxes(false)
-      .row_numbers(true)
-      .key("numbers")
-      .mount(ctx);
+    let numbered = crate::kit::apart(|| {
+      DataGrid::new(columns(false), files(8))
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .height(280.0)
+        .selected(self.numbered_selected.clone())
+        .checkboxes(false)
+        .row_numbers(true)
+        .key("numbers")
+        .mount(ctx)
+    });
 
     // Pinned at both ends: the name stays at the start, the actions at the end, while the columns between scroll.
     let pinned_rows = self.pinned.clone();
@@ -1469,129 +1523,137 @@ impl Component for DataGridPage {
       .pin(ColumnPin::End),
     );
     let pinned_room = self.frame.stage_room();
-    let pinned = DataGrid::new(pinned_columns, pinned_rows.get())
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .height(280.0)
-      .on_edit(move |edit| take(&pinned_rows, edit.row, edit.column, &edit.value))
-      .key("pinned")
-      .mount(ctx);
+    let pinned = crate::kit::apart(|| {
+      DataGrid::new(pinned_columns, pinned_rows.get())
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .height(280.0)
+        .on_edit(move |edit| take(&pinned_rows, edit.row, edit.column, &edit.value))
+        .key("pinned")
+        .mount(ctx)
+    });
     // A column pinned at each end leaves the others no room in a card as narrow as a phone: the grid keeps a
     // width with room for them, and scrolls sideways in the card.
     let pinned = crate::kit::fit("pinned", pinned_room, PINNED, pinned);
 
     // A million rows of two hundred columns: the cells in view are built, the notes that wrap measured.
-    let thousands = DataGrid::new_shared(million_columns(), million())
-      .label("Jobs")
-      .read_only(true)
-      .row_numbers(true)
-      .count(true)
-      .height(400.0)
-      .key("million")
-      .mount(ctx);
+    let thousands = crate::kit::apart(|| {
+      DataGrid::new_shared(million_columns(), million())
+        .label("Jobs")
+        .read_only(true)
+        .row_numbers(true)
+        .count(true)
+        .height(400.0)
+        .key("million")
+        .mount(ctx)
+    });
 
-    let read_only = DataGrid::new(columns(false), files(3))
-      .row_key(|row: &File| row.name.clone())
-      .label("Files")
-      .read_only(true)
-      .key("read-only")
-      .mount(ctx);
+    let read_only = crate::kit::apart(|| {
+      DataGrid::new(columns(false), files(3))
+        .row_key(|row: &File| row.name.clone())
+        .label("Files")
+        .read_only(true)
+        .key("read-only")
+        .mount(ctx)
+    });
 
-    let rows = [
-      (
-        "columns",
-        "impl IntoIterator<Item = TableColumn<R>>",
-        "",
-        "A table's columns; editor(CellEditor) on one says how its cells are edited.",
-      ),
-      (
-        "rows",
-        "impl IntoIterator<Item = R>",
-        "",
-        "The rows, in the order the app wants them.",
-      ),
-      (
-        "row_key",
-        "impl Fn(&R) -> K",
-        "the row's place",
-        "What tells a row apart: the selection and an edit name rows by it.",
-      ),
-      (
-        "on_edit",
-        "impl Fn(&CellEdit<K>) -> bool",
-        "",
-        "Told the row's key, the column's id and the new value at each commit; false refuses it.",
-      ),
-      (
-        "CellEditor",
-        "text / number / choice / checkbox",
-        "",
-        "An Input, a NumberInput, a Select of the column's choices, or a box ticked in the cell.",
-      ),
-      (
-        "read_only",
-        "bool",
-        "false",
-        "No cell is edited; the cells still take the focus.",
-      ),
-      (
-        "TableColumn::summary / summary_text",
-        "SummaryKind / Fn(&[&R]) -> String",
-        "none",
-        "What a column says in the summary rows: a sum, an average, a count, the least or the most, or the app's.",
-      ),
-      (
-        "row_numbers",
-        "bool",
-        "false",
-        "A column of the rows' numbers at the start, which stays: pressed to select a row, its header all of them.",
-      ),
-      (
-        "group_by / open",
-        "columns' ids / Signal<Vec<GroupKey>>",
-        "none / the grid's own",
-        "Rows grouped by the values of columns, nested; the groups open, with open_controlled and on_open_change.",
-      ),
-      (
-        "column_layout",
-        "Signal<ColumnLayout>",
-        "the grid's own",
-        "How the columns are arranged: their order, which are hidden, their widths and pins; with its controlled \
+    let rows = crate::kit::apart(|| {
+      [
+        (
+          "columns",
+          "impl IntoIterator<Item = TableColumn<R>>",
+          "",
+          "A table's columns; editor(CellEditor) on one says how its cells are edited.",
+        ),
+        (
+          "rows",
+          "impl IntoIterator<Item = R>",
+          "",
+          "The rows, in the order the app wants them.",
+        ),
+        (
+          "row_key",
+          "impl Fn(&R) -> K",
+          "the row's place",
+          "What tells a row apart: the selection and an edit name rows by it.",
+        ),
+        (
+          "on_edit",
+          "impl Fn(&CellEdit<K>) -> bool",
+          "",
+          "Told the row's key, the column's id and the new value at each commit; false refuses it.",
+        ),
+        (
+          "CellEditor",
+          "text / number / choice / checkbox",
+          "",
+          "An Input, a NumberInput, a Select of the column's choices, or a box ticked in the cell.",
+        ),
+        (
+          "read_only",
+          "bool",
+          "false",
+          "No cell is edited; the cells still take the focus.",
+        ),
+        (
+          "TableColumn::summary / summary_text",
+          "SummaryKind / Fn(&[&R]) -> String",
+          "none",
+          "What a column says in the summary rows: a sum, an average, a count, the least or the most, or the app's.",
+        ),
+        (
+          "row_numbers",
+          "bool",
+          "false",
+          "A column of the rows' numbers at the start, which stays: pressed to select a row, its header all of them.",
+        ),
+        (
+          "group_by / open",
+          "columns' ids / Signal<Vec<GroupKey>>",
+          "none / the grid's own",
+          "Rows grouped by the values of columns, nested; the groups open, with open_controlled and on_open_change.",
+        ),
+        (
+          "column_layout",
+          "Signal<ColumnLayout>",
+          "the grid's own",
+          "How the columns are arranged: their order, which are hidden, their widths and pins; with its controlled \
          form and on_column_layout_change.",
-      ),
-      (
-        "column_menu",
-        "bool",
-        "true",
-        "A menu on each header: sort, pin, size to fit, hide, show the others.",
-      ),
-      (
-        "cell_selection",
-        "Signal<Option<CellRange<K>>>",
-        "the grid's own",
-        "The range of cells selected, by the rows' keys and the columns' ids; with its controlled form and \
+        ),
+        (
+          "column_menu",
+          "bool",
+          "true",
+          "A menu on each header: sort, pin, size to fit, hide, show the others.",
+        ),
+        (
+          "cell_selection",
+          "Signal<Option<CellRange<K>>>",
+          "the grid's own",
+          "The range of cells selected, by the rows' keys and the columns' ids; with its controlled form and \
          on_cell_selection_change.",
-      ),
-      (
-        "resizable",
-        "bool",
-        "true",
-        "Columns made wider or narrower by their edge or Ctrl and an arrow on their header.",
-      ),
-      (
-        "selected / sort",
-        "Signal<Vec<K>> / Signal<Vec<TableSort>>",
-        "none",
-        "As a table has them, with their controlled forms and handlers.",
-      ),
-      ("density / height / count / pagination", "", "", "As a table has them."),
-      (
-        "mount",
-        "&mut Ctx",
-        "",
-        "The grid that works: cells that take the focus and are edited, the rows and columns in view built.",
-      ),
-    ];
+        ),
+        (
+          "resizable",
+          "bool",
+          "true",
+          "Columns made wider or narrower by their edge or Ctrl and an arrow on their header.",
+        ),
+        (
+          "selected / sort",
+          "Signal<Vec<K>> / Signal<Vec<TableSort>>",
+          "none",
+          "As a table has them, with their controlled forms and handlers.",
+        ),
+        ("density / height / count / pagination", "", "", "As a table has them."),
+        (
+          "mount",
+          "&mut Ctx",
+          "",
+          "The grid that works: cells that take the focus and are edited, the rows and columns in view built.",
+        ),
+      ]
+    });
 
     let playground = self.play(ctx);
     self.frame.page(
@@ -1607,7 +1669,7 @@ impl Component for DataGridPage {
         since: Some("0.62"),
         source: file!(),
       },
-      vec![
+      crate::kit::apart(|| vec![
         Section::new(
           "Playground",
           "Every prop of DataGrid is a control on the right. Tab into the cells, move with the arrows, edit with \
@@ -1968,7 +2030,7 @@ impl Component for DataGridPage {
           "What a data grid is given beside a table's.",
           props_table(&rows, &["columns", "rows"], self.frame.room()),
         ),
-      ],
+      ]),
     )
   }
 }
