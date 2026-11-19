@@ -790,6 +790,9 @@ impl Prepared {
       states: self.states.clone(),
     }
     .state(WindowTabsState::Disabled, self.disabled);
+    let owner = theme
+      .resolve::<WindowTabs>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = WindowTabsView {
       tabs: self.tabs,
       disabled: self.disabled,
@@ -799,6 +802,7 @@ impl Prepared {
       case,
       rules: self.rules,
       recipes: std::array::from_fn(|_| OnceCell::new()),
+      owner,
       add: self.add,
       reorder: self.reorder,
       words: self.words,
@@ -886,6 +890,8 @@ pub struct WindowTabsView {
   rules: Recipe,
   /// The recipe of a tab in each mix of its own states, resolved when it is first asked for.
   recipes: [OnceCell<ResolvedRecipe>; 16],
+  /// What the recipes name their parts after, and count them with.
+  owner: ResolvedRecipe,
   add: Option<Heard>,
   reorder: Moved,
   words: Words,
@@ -902,16 +908,19 @@ impl WindowTabsView {
     let index =
       usize::from(selected) | usize::from(dirty) << 1 | usize::from(dragged) << 2 | usize::from(disabled) << 3;
     self.recipes[index].get_or_init(|| {
-      self.theme.resolve::<WindowTabs>(
-        &self
-          .case
-          .clone()
-          .state(WindowTabsState::Selected, selected)
-          .state(WindowTabsState::Dirty, dirty)
-          .state(WindowTabsState::Dragged, dragged)
-          .state(WindowTabsState::Disabled, disabled),
-        Some(&self.rules),
-      )
+      self
+        .theme
+        .resolve::<WindowTabs>(
+          &self
+            .case
+            .clone()
+            .state(WindowTabsState::Selected, selected)
+            .state(WindowTabsState::Dirty, dirty)
+            .state(WindowTabsState::Dragged, dragged)
+            .state(WindowTabsState::Disabled, disabled),
+          Some(&self.rules),
+        )
+        .owned_like(&self.owner)
     })
   }
 
@@ -926,10 +935,13 @@ impl WindowTabsView {
     let tab = &self.tabs[index];
     let dragged = self.drag.is_some_and(|drag| drag.from == index);
     let forced = self.forced.filter(|_| self.entry() == Some(index));
-    self
-      .recipe(tab.selected, tab.dirty, dragged, self.disabled || tab.disabled)
-      .part(part)
-      .forced(forced)
+    let recipe = self.recipe(tab.selected, tab.dirty, dragged, self.disabled || tab.disabled);
+    // A tab with an id names its parts after it; one with a key only, after the tabs' id and the key.
+    let recipe = match (&tab.id, &tab.key) {
+      (None, Some(key)) => recipe.keyed_item(key, WindowTabsPart::Tab),
+      (id, _) => recipe.item(id.as_ref(), WindowTabsPart::Tab),
+    };
+    recipe.part(part).forced(forced)
   }
 
   /// The tab Tab stops on: the selected one, else the first that is not disabled. None where all are.

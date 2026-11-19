@@ -270,7 +270,7 @@ impl QrCode {
       matrix,
       quiet_zone: self.quiet_zone,
       media: self.media,
-      recipe: theme.resolve::<QrCode>(&case, Some(&rules)),
+      recipe: theme.resolve::<QrCode>(&case, Some(&rules)).owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

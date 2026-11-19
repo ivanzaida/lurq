@@ -814,6 +814,13 @@ impl Prepared {
     // The list alone, along the top: mounted it is measured with every tab whole, and built with nothing kept its
     // tabs give way in a room too narrow for them.
     let alone = overflow.is_none() && !vertical;
+    let plain = resolve(false, false).owned_by(self.id.as_ref());
+    let recipes = [
+      resolve(true, false).owned_like(&plain),
+      resolve(false, true).owned_like(&plain),
+      resolve(true, true).owned_like(&plain),
+    ];
+    let [selected, disabled, both] = recipes;
     let view = TabsView {
       tabs: self.tabs,
       variant: self.variant,
@@ -821,12 +828,7 @@ impl Prepared {
       disabled: self.disabled,
       manual: self.manual,
       label: self.label,
-      recipes: [
-        resolve(false, false),
-        resolve(true, false),
-        resolve(false, true),
-        resolve(true, true),
-      ],
+      recipes: [plain, selected, disabled, both],
       list_ref: ElementRef::new(),
       tab_refs,
       room: fits.map(|fits| fits.root.clone()),
@@ -927,9 +929,13 @@ impl TabsView {
     let tab = &self.tabs[index];
     let disabled = self.disabled || tab.disabled;
     let forced = self.forced.filter(|_| self.entry() == Some(index));
-    self.recipes[usize::from(tab.selected) + 2 * usize::from(disabled)]
-      .part(part)
-      .forced(forced)
+    let recipe = &self.recipes[usize::from(tab.selected) + 2 * usize::from(disabled)];
+    // A tab with an id names its parts after it; one with a key only, after the tabs' id and the key.
+    let recipe = match (&tab.id, &tab.key) {
+      (None, Some(key)) => recipe.keyed_item(key, TabsPart::Tab),
+      (id, _) => recipe.item(id.as_ref(), TabsPart::Tab),
+    };
+    recipe.part(part).forced(forced)
   }
 
   /// The tab Tab stops on: the selected one, else the first that is not disabled. None where all are.
@@ -1105,9 +1111,17 @@ impl TabsView {
     };
     let mut button = components::Button::empty()
       .focusable(false)
-      .part(&self.part(TabsPart::ScrollButton))
+      .part(
+        &self
+          .part(TabsPart::ScrollButton)
+          .keyed(if back { "back" } else { "on" }),
+      )
       .describe("a11y_name", name)
-      .child(glyph(&self.part(TabsPart::ScrollIcon), Name::new(icon), false))
+      .child(glyph(
+        &self.part(TabsPart::ScrollIcon).keyed(if back { "back" } else { "on" }),
+        Name::new(icon),
+        false,
+      ))
       .on_click(move |_| {
         let by = (scroll.viewport_width() * SCROLL_STEP).max(1.0);
         scroll.scroll_by(if back { -by } else { by }, 0.0);

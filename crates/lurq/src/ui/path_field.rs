@@ -352,7 +352,9 @@ impl PathField {
       .boxed
       .case(self.states.clone())
       .state(PathFieldState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<PathField>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<PathField>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let default = match self.picks {
       Some(PathKind::File | PathKind::SaveFile) => icons::FILE,
       Some(PathKind::Folder) | None => icons::FOLDER,

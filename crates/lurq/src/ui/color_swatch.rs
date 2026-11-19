@@ -231,7 +231,9 @@ impl ColorSwatch {
       label: self.label.unwrap_or_else(|| Arc::from(self.color.to_hex_upper())),
       selected: self.selected,
       disabled: self.disabled,
-      recipe: theme.resolve::<ColorSwatch>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ColorSwatch>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       on_click: self.on_click,
       forced: self.forced,
       id: self.id,

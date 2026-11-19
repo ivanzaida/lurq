@@ -375,11 +375,12 @@ impl TableOfContents {
       case = case.state(*state, true);
     }
     let resolve = |entry: Case| theme.resolve::<TableOfContents>(&entry, Some(&self.rules));
+    let recipe = resolve(case.clone()).owned_by(self.id.as_ref());
     let view = TableOfContentsView {
       current: current.min(self.entries.len().saturating_sub(1)),
-      recipe: resolve(case.clone()),
-      marked: resolve(case.clone().state(TableOfContentsState::Current, true)),
-      disabled: resolve(case.clone().state(TableOfContentsState::Disabled, true)),
+      marked: resolve(case.clone().state(TableOfContentsState::Current, true)).owned_like(&recipe),
+      disabled: resolve(case.clone().state(TableOfContentsState::Disabled, true)).owned_like(&recipe),
+      recipe,
       entries: self.entries,
       title: self.title,
       label: self.label,
@@ -505,7 +506,11 @@ impl TableOfContentsView {
   /// reads the tree, which says whether it is the current location.
   pub fn entry(&self, index: usize) -> components::Button {
     let entry = &self.entries[index];
-    let recipe = self.entry_recipe(index);
+    // An entry with an id names its parts after it; one with a key only, after the list's id and the key.
+    let recipe = match (&entry.id, &entry.key) {
+      (None, Some(key)) => self.entry_recipe(index).keyed_item(key, TableOfContentsPart::Entry),
+      (id, _) => self.entry_recipe(index).item(id.as_ref(), TableOfContentsPart::Entry),
+    };
     let current = index == self.current;
     let part = recipe
       .part(TableOfContentsPart::Entry)

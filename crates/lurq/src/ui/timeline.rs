@@ -658,7 +658,9 @@ impl<T: Send + Sync + 'static> Timeline<T> {
     .state(TimelineState::Alternate, align == TimelineAlign::Alternate)
     .state(TimelineState::TimeColumn, align == TimelineAlign::TimeColumn)
     .state(TimelineState::Mark, marked);
-    let recipe = theme.resolve::<Self>(&base, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Self>(&base, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let more = !self.on_load_more.is_empty();
     let count = self.items.len();
     let chosen: Arc<[Arc<dyn Fn(&T) + Send + Sync>]> = self.on_select.into();
@@ -721,7 +723,14 @@ impl<T: Send + Sync + 'static> Timeline<T> {
           on_select: handlers,
           disabled: item.disabled,
           forced: if forced_at == Some(index) { self.forced } else { None },
-          recipe: theme.resolve::<Self>(&case, Some(&self.rules)),
+          recipe: {
+            // An item with an id names its parts after it; one with a key only, after the timeline's id and the key.
+            let recipe = theme.resolve::<Self>(&case, Some(&self.rules)).owned_like(&recipe);
+            match (&item.id, &item.key) {
+              (None, Some(key)) => recipe.keyed_item(key, TimelinePart::Item),
+              (id, _) => recipe.item(id.as_ref(), TimelinePart::Item),
+            }
+          },
           id: item.id,
           key: item.key,
         }
@@ -747,7 +756,7 @@ impl<T: Send + Sync + 'static> Timeline<T> {
         on_load_more: self.on_load_more,
         horizontal,
         align,
-        recipe: theme.resolve::<Self>(&case, Some(&self.rules)),
+        recipe: theme.resolve::<Self>(&case, Some(&self.rules)).owned_like(&recipe),
       }
     });
     TimelineView {
@@ -996,7 +1005,7 @@ impl TimelineItemView {
   pub fn mark(&mut self) -> Element {
     let part = self.part(TimelinePart::Mark);
     if self.pending {
-      return spinner_mark(&part);
+      return spinner_mark(&self.recipe, part);
     }
     match self.mark.take() {
       Some(Mark::Icon(name)) => well(&part)
@@ -1251,15 +1260,16 @@ fn well(part: &ResolvedPart) -> Row {
     .part(part)
 }
 
-/// A spinner as wide as the mark of `part`, in it.
-fn spinner_mark(part: &ResolvedPart) -> Element {
+/// A spinner as wide as the mark of `part`, in it: the spinner stands for the mark of `recipe`, and has its id.
+fn spinner_mark(recipe: &ResolvedRecipe, part: ResolvedPart) -> Element {
   let side = part.rest().width.unwrap_or(12.0.into());
-  well(part)
+  well(&part.unnamed())
     .child(
       Spinner::new()
         .decorative(true)
+        .rules(&recipe.lend(TimelinePart::Mark))
         .style(SpinnerPart::Indicator, move |s| s.square(side))
-        .build(part.theme()),
+        .build(recipe.theme()),
     )
     .into()
 }
@@ -1311,7 +1321,7 @@ impl TimelineMore {
   /// Its mark: a hollow dot, more to come, or a spinner while it loads.
   pub fn mark(&self) -> Element {
     if self.loading {
-      spinner_mark(&self.part(TimelinePart::Mark))
+      spinner_mark(&self.recipe, self.part(TimelinePart::Mark))
     } else {
       Row::new().part(&self.part(TimelinePart::Dot)).into()
     }
@@ -1325,6 +1335,7 @@ impl TimelineMore {
     Button::new(label.as_ref())
       .variant(ButtonVariant::Ghost)
       .size(ButtonSize::Sm)
+      .rules(&self.recipe.lend("button"))
       .disabled(self.loading)
       .on_click(move |_: MouseEvent| {
         for handler in &handlers {

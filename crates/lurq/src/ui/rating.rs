@@ -473,7 +473,9 @@ impl Core {
     .state(RatingState::ReadOnly, self.read_only)
     .state(RatingState::Invalid, self.invalid)
     .state(RatingState::Disabled, self.disabled);
-    let recipe = theme.resolve::<Rating>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Rating>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let shown = preview
       .as_ref()
       .filter(|_| interactive)
@@ -685,12 +687,18 @@ impl RatingView {
   pub fn star(&self, index: u32) -> Element {
     let side = self.side();
     let lit = self.lit(index);
-    let mut star = Stack::new().part(&self.part(RatingPart::Star));
+    // Each star's parts are told apart by its number from 1: `x-star-3`, `x-filled-3`.
+    let number = index + 1;
+    let mut star = Stack::new().part(&self.part(RatingPart::Star).keyed(number));
     if lit < 1.0 {
-      star = star.child(glyph(&self.part(RatingPart::Empty), self.empty_icon.clone(), false));
+      star = star.child(glyph(
+        &self.part(RatingPart::Empty).keyed(number),
+        self.empty_icon.clone(),
+        false,
+      ));
     }
     if lit > 0.0 {
-      let filled = glyph(&self.part(RatingPart::Filled), self.icon.clone(), false);
+      let filled = glyph(&self.part(RatingPart::Filled).keyed(number), self.icon.clone(), false);
       star = star.child(if lit < 1.0 {
         // The lit part of a star is the lit star in a room as wide as that part, which cuts the rest off.
         Row::new().width(side * lit).height(side).child(filled).into()

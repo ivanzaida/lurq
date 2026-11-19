@@ -1183,7 +1183,9 @@ impl<'a> Builder<'a> {
       root: kept.root.clone(),
       groups: kept.groups.clone(),
     };
-    let recipe = theme.resolve::<DockLayout>(&Self::case(&layout, &[]), Some(&layout.rules));
+    let recipe = theme
+      .resolve::<DockLayout>(&Self::case(&layout, &[]), Some(&layout.rules))
+      .owned_by(layout.id.as_ref());
     Self {
       ctx,
       theme: theme.clone(),
@@ -1221,6 +1223,7 @@ impl<'a> Builder<'a> {
     self
       .theme
       .resolve::<DockLayout>(&Self::case(&self.layout, states), Some(&self.layout.rules))
+      .owned_like(&self.recipe)
       .part(part)
   }
 

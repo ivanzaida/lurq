@@ -909,7 +909,9 @@ impl RichTextEditor {
       .case(self.states.clone())
       .state(RichTextEditorState::Focused, focused)
       .state(RichTextEditorState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<RichTextEditor>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<RichTextEditor>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let input = &kept.controller.input;
     let editable = !self.boxed.read_only && !self.boxed.disabled;
     let format = RichTextFormat {
@@ -1764,6 +1766,7 @@ impl RichTextEditorView {
         let apply = apply.clone();
         Button::new(&self.words.apply)
           .size(ButtonSize::Sm)
+          .rules(&self.recipe.lend("apply"))
           .on_click(move |_| apply())
           .build(self.theme())
       });
@@ -1771,6 +1774,7 @@ impl RichTextEditorView {
       row = row.child(
         Button::new(&self.words.remove_link)
           .variant(ButtonVariant::Ghost)
+          .rules(&self.recipe.lend("remove_link"))
           .size(ButtonSize::Sm)
           .on_click(move |_| remove())
           .build(self.theme()),

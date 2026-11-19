@@ -265,7 +265,9 @@ impl Drawer {
       states: self.states.clone(),
     }
     .state(DrawerState::Open, open);
-    let recipe = theme.resolve::<Drawer>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Drawer>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     if self.overlay {
       return over_the_page(self, &recipe);
     }

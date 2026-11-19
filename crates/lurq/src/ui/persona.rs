@@ -187,7 +187,9 @@ impl Persona {
       states: self.states.clone(),
     }
     .state(PersonaState::Description, self.description.is_some());
-    let recipe = theme.resolve::<Persona>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Persona>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let mut avatar = self
       .avatar
       .unwrap_or_else(|| Avatar::new(&self.name))

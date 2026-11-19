@@ -350,7 +350,9 @@ impl Toggles {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<ToggleGroup>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<ToggleGroup>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let item = recipe.rules_for(ToggleGroupPart::Item, TogglePart::Root);
     let separator = recipe.part(ToggleGroupPart::Separator);
     let separated = separator.rest().width.is_some() || separator.rest().height.is_some();

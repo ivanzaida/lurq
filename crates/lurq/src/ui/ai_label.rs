@@ -186,7 +186,9 @@ impl AiLabel {
       label: self.label,
       icon,
       size: self.size,
-      recipe: theme.resolve::<AiLabel>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<AiLabel>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

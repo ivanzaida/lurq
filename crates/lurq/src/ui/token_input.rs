@@ -611,7 +611,9 @@ impl TokenInput {
       invalid: self.boxed.judgment() == Some(Judgment::Invalid),
       read_only: self.boxed.read_only,
       disabled: self.boxed.disabled,
-      recipe: theme.resolve::<TokenInput>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<TokenInput>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       case,
       rules: self.rules,
       forced: self.forced,

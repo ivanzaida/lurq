@@ -247,7 +247,9 @@ impl Checkbox {
       indeterminate: self.indeterminate,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme.resolve::<Checkbox>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Checkbox>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       on_leave: self.on_leave,
@@ -702,7 +704,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> CheckboxGroup<T> {
     }
     .state(CheckboxGroupState::Horizontal, !self.orientation.is_vertical())
     .state(CheckboxGroupState::Vertical, self.orientation.is_vertical());
-    let recipe = theme.resolve::<Self>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Self>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let item = recipe.rules_for(CheckboxGroupPart::Item, CheckboxPart::Root);
     let entry = self
       .choices

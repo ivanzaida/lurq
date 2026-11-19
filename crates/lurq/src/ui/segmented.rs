@@ -251,7 +251,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
         Some(&self.rules),
       )
     };
-    let (plain, chosen) = (resolve(false), resolve(true));
+    let plain = resolve(false).owned_by(self.id.as_ref());
+    let chosen = resolve(true).owned_like(&plain);
     // One choice: Tab stops in it once, at the chosen segment, and an arrow key moves the focus and the
     // choice with it.
     let mut root = Row::new()

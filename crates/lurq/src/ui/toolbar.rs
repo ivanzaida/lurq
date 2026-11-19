@@ -669,7 +669,9 @@ impl Toolbar {
   pub fn build(self, theme: &Theme) -> Element {
     let (bar, key) = self.prepare(theme);
     let count = bar.slots.len();
-    let recipe = resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false);
+    // The bar's own parts, named after its id: what `prepare` named are the controls and their groups, and no part
+    // of these.
+    let recipe = resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false).owned_by(bar.id.as_ref());
     let view = ToolbarView {
       shown: bar
         .slots
@@ -706,7 +708,7 @@ impl Toolbar {
     if self.disabled {
       states.push(ToolbarState::Disabled.into());
     }
-    let recipe = resolve(theme, self.variant, self.size, &self.rules, &states, false);
+    let recipe = resolve(theme, self.variant, self.size, &self.rules, &states, false).owned_by(self.id.as_ref());
     let mut slots = Vec::new();
     let mut separated = false;
     let count = self.items.len();
@@ -1113,7 +1115,7 @@ impl Component for ToolbarHost {
       let next = (index + 1..count).find(|next| !dropped[*next]);
       bar.slots[index].line_after = next.is_some_and(|next| !bar.slots[next].spacer);
     }
-    let recipe = resolve(&theme, bar.variant, bar.size, &bar.rules, &bar.states, overflowing);
+    let recipe = resolve(&theme, bar.variant, bar.size, &bar.rules, &bar.states, overflowing).owned_by(bar.id.as_ref());
     let refs = {
       let mut refs = self.refs.lock();
       while refs.len() < count {
@@ -1335,8 +1337,9 @@ impl ToolbarView {
   /// between the spacer and the button.
   pub fn more(&mut self) -> Option<Element> {
     let button = self.more.take()?;
+    // The More button in it is `<id>-more`: the row is not named after the part as well.
     let mut row = Row::new()
-      .part(&self.part(ToolbarPart::More))
+      .part(&self.part(ToolbarPart::More).unnamed())
       .align_items(Alignment::Center)
       .overflow_visible()
       .drop_marker(self.secondary.is_empty());

@@ -333,7 +333,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> CommandBar<T> {
     for state in &states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<CommandBar>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<CommandBar>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let label = self
       .label
       .unwrap_or_else(|| super::current_locale().navigation.commands.clone());
@@ -755,7 +757,9 @@ impl CommandBarCommand {
       large: self.large,
       on: self.on,
       disabled: self.disabled,
-      recipe: theme.resolve::<CommandBarCommand>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<CommandBarCommand>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       id: self.id,
       key: self.key,

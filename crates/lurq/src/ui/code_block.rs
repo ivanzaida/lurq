@@ -520,7 +520,9 @@ impl CodeBlock {
       framed: self.framed,
       row_height: self.row_height,
       has_header,
-      recipe: theme.resolve::<CodeBlock>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<CodeBlock>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       window: super::theme::current_window(),
       shown_copied: copied,
@@ -912,7 +914,8 @@ impl CodeBlockView {
       .part(&self.part(CodeBlockPart::Header));
     let mut title = Row::new().flex_shrink(1.0).min_width(0.0);
     if let Some(heading) = &heading {
-      title = title.child(one_line(&self.part(CodeBlockPart::Title), heading));
+      // The row around it has the title's id.
+      title = title.child(one_line(&self.part(CodeBlockPart::Title).unnamed(), heading));
     }
     if let Some(id) = &self.id {
       title = title.id(format!("{id}-title"));
@@ -975,7 +978,8 @@ impl CodeBlockView {
     lines: Range<usize>,
     (pad_top, pad_bottom): (f32, f32),
   ) -> Element {
-    let code_part = self.part(CodeBlockPart::Code);
+    // The code is `<id>-code` where the block has an id, on what holds all of it: no row of it takes that name.
+    let code_part = self.part(CodeBlockPart::Code).unnamed();
     if lines.is_empty() {
       return Column::new().into();
     }
@@ -1113,7 +1117,8 @@ impl CodeBlockView {
     lines: Range<usize>,
     (pad_top, pad_bottom): (f32, f32),
   ) -> Column {
-    let code_part = self.part(CodeBlockPart::Code);
+    // The code is `<id>-code` where the block has an id, on what holds all of it: no row of it takes that name.
+    let code_part = self.part(CodeBlockPart::Code).unnamed();
     let marked = self.part(CodeBlockPart::Marked);
     let number_part = self.part(CodeBlockPart::LineNumber);
     let numbers_width = self.numbers_width();

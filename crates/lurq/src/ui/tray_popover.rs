@@ -531,14 +531,20 @@ impl TrayPopover {
       rules = rules.base(TrayPopoverPart::Panel, |s| s.width(width));
     }
     let rules = rules.extend(&self.rules);
+    let recipe = theme
+      .resolve::<TrayPopover>(&case, Some(&rules))
+      .owned_by(self.id.as_ref());
+    let disabled = theme
+      .resolve::<TrayPopover>(&case.clone().state(TrayPopoverState::Disabled, true), Some(&rules))
+      .owned_like(&recipe);
     let view = TrayPopoverView {
       title: self.title,
       icon: self.icon,
       status: self.status,
       status_variant: self.status_variant,
       anchored: self.anchored.is_some(),
-      recipe: theme.resolve::<TrayPopover>(&case, Some(&rules)),
-      disabled: theme.resolve::<TrayPopover>(&case.clone().state(TrayPopoverState::Disabled, true), Some(&rules)),
+      recipe,
+      disabled,
       media: self.media,
       items: self.items,
       close: self.anchored.as_ref().map(|anchored| anchored.open.clone()),
@@ -740,7 +746,7 @@ impl TrayPopoverView {
           .flex(1.0)
           .min_width(Dimension::Px(0.0))
           .part(&says)
-          .child(one_line(&part, &label)),
+          .child(one_line(&part.clone().unnamed(), &label)),
       )
       // A press of the switch is the switch's own: the row does not turn it a second time.
       .child(
@@ -760,7 +766,13 @@ impl TrayPopoverView {
 
   /// A row that runs a command: an anchored popover closes, and then every handler is told.
   pub fn action(&self, action: TrayAction, forced: Option<Interaction>) -> Element {
-    let part = self.row_part(TrayPopoverPart::Item, action.disabled).forced(forced);
+    let row = if action.disabled { &self.disabled } else { &self.recipe };
+    // A row with an id names its parts after it; one with a key only, after the popover's id and the key.
+    let row = match (&action.id, &action.key) {
+      (None, Some(key)) => row.keyed_item(key, TrayPopoverPart::Item),
+      (id, _) => row.item(id.as_ref(), TrayPopoverPart::Item),
+    };
+    let part = row.part(TrayPopoverPart::Item).forced(forced);
     let (close, handlers) = (self.close.clone(), action.on_select);
     let mut row = pressable(&part, action.disabled)
       .width(Dimension::Pct(100.0))
@@ -769,7 +781,8 @@ impl TrayPopoverView {
       .focus_label(action.label.clone())
       .describe("a11y_role", "menuitem")
       .describe("a11y_name", action.label.clone())
-      .child(one_line(&part, &action.label))
+      // Its label is in the row's style, and is no node of the row's part.
+      .child(one_line(&part.clone().unnamed(), &action.label))
       .on_click(move |_: MouseEvent| {
         if let Some(open) = &close {
           open.set(false);
@@ -846,6 +859,7 @@ impl crate::ui::Styled for TrayPopover {
 
 impl Themed for TrayPopover {
   const NAME: &'static str = "tray_popover";
+  const ROOT: &'static str = "panel";
   type Renderer = TrayPopoverRenderer;
 
   fn parts() -> crate::ui::Declared {
