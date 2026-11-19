@@ -529,7 +529,8 @@ impl Component for FileUploadPage {
         ),
         Section::new(
           "A file's states",
-          "Waiting, it says its size and can be removed; being sent, how far, with its bar; sent, the check; failed, \
+          "Waiting, it says its size and can be removed; being sent, how far, with its bar; sent, the check, which \
+           gives way to the remove control under the pointer and has it beside it under a finger; failed, \
            its error under it and a retry before the remove control. The app sets each.",
           self.frame.demo(
             1,

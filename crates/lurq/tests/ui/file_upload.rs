@@ -1,5 +1,5 @@
 //! A file upload: the board's button and list, what a drop adds, what a
-//! person removes and retries, the forms of its list, and its states.
+//! person removes and retries, a file sent removed under a finger and a pointer, the forms of its list, and its states.
 
 use std::{
   path::PathBuf,
@@ -10,13 +10,17 @@ use lurq::{
   app::{
     App,
     events::{DraggedPaths, DroppedPath},
-    theme::{PaletteColor, ThemePalette},
+    theme::{PaletteColor, Theme, ThemePalette},
   },
   components::{Column, Row},
   core::Signal,
   files::DroppedFile,
+  layout::quad::QuadContent,
   node::color::Color,
-  ui::{FileUpload, FileUploadRenderer, FileUploadView, RejectReason, RejectedFile, UploadFile, UploadState},
+  ui::{
+    Case, FileUpload, FileUploadPart, FileUploadRenderer, FileUploadView, Opacity, Recipe, RejectReason, RejectedFile,
+    Themed, UploadFile, UploadState,
+  },
 };
 
 use super::stage::Stage;
@@ -396,4 +400,98 @@ fn a_file_given_again_is_refused_as_a_duplicate() {
       ("b.png".to_owned(), RejectReason::Duplicate)
     ]
   );
+}
+
+/// An app a finger points in, as an app on a phone starts: pinned, so that the stage's own clicks leave it.
+fn for_a_finger() -> App {
+  let app = App::new();
+  app.set_pointer(lurq::app::Pointer::Coarse);
+  app
+}
+
+#[test]
+fn under_a_finger_a_file_sent_has_its_remove_control_beside_its_check() {
+  let files = Signal::new(vec![file("a.png", 10).done(), file("b.png", 20)]);
+  let bound = files.clone();
+  let mut stage = Stage::in_app(for_a_finger(), move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(FileUpload::new(bound.clone()).id("upload"))
+      .into()
+  });
+  let (ix, _, iw, _) = stage.bounds("upload-a.png");
+  let (rx, _, rw, _) = stage.bounds("upload-a.png-remove");
+  assert_eq!(rx + rw, ix + iw - 12.0, "at the row's end, inside its padding");
+  let (wx, ..) = stage.bounds("upload-b.png-remove");
+  assert_eq!(wx, rx, "at the end, as a waiting file's");
+  stage.tap("upload-a.png-remove");
+  stage.pass();
+  assert_eq!(names(&files.get()), ["b.png"]);
+}
+
+#[test]
+fn under_a_pointer_a_file_sents_check_gives_way_to_its_remove_control_while_its_row_is_pointed_at_or_focused() {
+  // The design: the control hidden at rest over the check, shown in the row's light, and the check hidden then.
+  let theme = Theme::new();
+  let recipe = FileUpload::recipe().resolve(&Case::new(), &theme);
+  assert_eq!(
+    recipe.part(FileUploadPart::Reveal).styles().rest.opacity,
+    Some(Opacity::Value(0.0))
+  );
+  assert_eq!(
+    recipe.part(FileUploadPart::Reveal).styles().within.opacity,
+    Some(Opacity::Value(1.0))
+  );
+  assert_eq!(
+    recipe.part(FileUploadPart::Status).styles().within.opacity,
+    Some(Opacity::Value(0.0))
+  );
+
+  // Live: the part is lit with the row. A rule of the test's paints it while it is.
+  let lit = light(PaletteColor::Primary);
+  let files = Signal::new(vec![file("a.png", 10).done(), file("b.png", 20)]);
+  let bound = files.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Row::new()
+      .padding(8.0)
+      .child(
+        FileUpload::new(bound.clone())
+          .rules(&Recipe::new().within(FileUploadPart::Reveal, |s| s.background(PaletteColor::Primary)))
+          .id("upload")
+          .mount(ctx),
+      )
+      .into()
+  });
+  let shown = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .any(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == lit))
+  };
+  assert!(!shown(&stage), "at rest: the check");
+  stage.hover("upload-a.png");
+  assert!(shown(&stage), "the row under the pointer: the remove control");
+  stage.hover("upload-b.png");
+  assert!(!shown(&stage), "another row under the pointer");
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(
+    focused(&mut stage, &[]).as_deref(),
+    Some("upload-a.png-remove"),
+    "the keyboard reaches it"
+  );
+  assert!(shown(&stage), "the control with the focus");
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(names(&files.get()), ["b.png"]);
+}
+
+#[test]
+fn a_file_sent_that_is_not_removed_has_its_check_alone() {
+  let mut stage = Stage::new(|_| {
+    FileUpload::new(Signal::new(vec![file("a.png", 10).done().disabled(true)]))
+      .id("upload")
+      .into()
+  });
+  assert!(stage.tree.get_element_by_id_mut("upload-a.png-remove").is_none());
 }

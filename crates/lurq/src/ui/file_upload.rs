@@ -8,7 +8,7 @@ use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
-  theme::{Themed, current_theme},
+  theme::{Themed, current_theme, touch_form},
 };
 use crate::{
   app::{
@@ -16,10 +16,10 @@ use crate::{
     events::{FileDragEvent, FileDropEvent},
     theme::{OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{Column, Row},
+  components::{Column, Row, Stack},
   core::Signal,
   files::{DroppedFile, FileKind},
-  layout::{Alignment, text_style::FontWeight},
+  layout::{Alignment, stack_alignment::StackAlignment, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border as Edge, dimension::Dimension, node_kind::TextOverflow},
 };
 
@@ -46,12 +46,16 @@ pub enum FileUploadPart {
   Progress,
   /// What went wrong with a file that failed.
   Error,
-  /// The mark of a file that was sent.
+  /// The mark of a file that was sent. Under a pointer it gives way to the remove control while the file's row is
+  /// pointed at or holds the focus.
   Status,
   /// What takes a file out of the list.
   Remove,
   /// What sends a failed file again.
   Retry,
+  /// Around the remove control of a file that was sent, under a pointer: over its check, hidden until the row is
+  /// pointed at or the focus is in it. Under a finger the control stands beside the check, without it.
+  Reveal,
 }
 
 names!(FileUploadPart {
@@ -68,6 +72,7 @@ names!(FileUploadPart {
   Status => "status",
   Remove => "remove",
   Retry => "retry",
+  Reveal => "reveal",
 });
 
 /// The states of a file upload a recipe styles, besides what the pointer and the keyboard do to it. The states of
@@ -268,7 +273,9 @@ impl Files {
 /// then the handlers are told; held by the app
 /// ([`FileUpload::controlled`]), it is only told. The app moves each file on
 /// with [`UploadFile::uploading`], [`UploadFile::done`] and
-/// [`UploadFile::failed`]. Files dropped anywhere on it are given as a drop
+/// [`UploadFile::failed`]. A file sent is removed as well: under a finger its
+/// remove control stands beside its check, under a pointer the check gives way
+/// to it while the row is pointed at or holds the focus. Files dropped anywhere on it are given as a drop
 /// zone's are. Opening the dialog, and the zone showing a drag, are what the
 /// upload mounted with [`FileUpload::mount`] does: converted into an element
 /// on its own, its button opens nothing.
@@ -879,11 +886,21 @@ impl FileUploadView {
     let able = self.operated && !file.disabled;
     match file.state {
       UploadState::Done => {
-        item = item.child(glyph(
-          &part(FileUploadPart::Status),
-          Name::from(icons::CHECK_CIRCLE),
-          false,
-        ));
+        let check = glyph(&part(FileUploadPart::Status), Name::from(icons::CHECK_CIRCLE), false);
+        item = match (able, touch_form()) {
+          // A file a person does not take out: its check alone.
+          (false, _) => item.child(check),
+          // A finger points at nothing: the control stands beside the check, always.
+          (true, true) => item.child(check).child(self.remove(index, able)),
+          // Under a pointer the check gives way to the control while the row is pointed at or holds the focus.
+          (true, false) => item.interaction_group(true).child(
+            Stack::new().stack_align(StackAlignment::Center).child(check).child(
+              Row::new()
+                .part(&part(FileUploadPart::Reveal))
+                .child(self.remove(index, able)),
+            ),
+          ),
+        };
       }
       UploadState::Failed => {
         let retry = {
@@ -954,7 +971,7 @@ impl FileUploadView {
 
   fn pressed(&self, index: usize) -> bool {
     let file = &self.files[index];
-    self.operated && !file.disabled && file.state != UploadState::Done
+    self.operated && !file.disabled
   }
 
   /// The ref the element at `target` carries in this render, where the focus is to go there.
@@ -1130,9 +1147,11 @@ impl Themed for FileUpload {
   /// the border's color inside it, the medium radius, padded 12 across and 10 down, its parts 10 apart: the icon of
   /// its kind, 16 in the muted foreground; its name in 13 medium, cut with an ellipsis, and 8 after it its size or
   /// how far it is sent in 11 mono in the muted foreground; while it is sent a bar of 4, 6 under the line; at the
-  /// end the check in the success color once it was sent, or the remove control of 16 in the muted foreground. The
-  /// board draws no failed file: its edge is destructive, its error in 12 in the destructive color under its line,
-  /// with a retry control before the remove control. A drop zone in place of the button is as wide as the list.
+  /// end the check in the success color once it was sent, or the remove control of 16 in the muted foreground. A
+  /// file sent has its remove control too: beside its check under a finger, in its place under a pointer while its
+  /// row is pointed at or holds the focus. The board draws no failed file: its edge is destructive, its error in 12 in
+  /// the destructive color under its line, with a retry control before the remove control. A drop zone in place of the
+  /// button is as wide as the list.
   fn recipe() -> Recipe {
     use FileUploadPart::*;
     use PaletteColor::{Border as BorderColor, Destructive, Foreground, MutedForeground, Success};
@@ -1178,6 +1197,11 @@ impl Themed for FileUpload {
       .hovered(Retry, |s| s.foreground(Foreground))
       .focus_visible(Remove, |s| s.focus_ring())
       .focus_visible(Retry, |s| s.focus_ring())
+      // A file sent, under a pointer: its check gives way to its remove control while its row is pointed at or
+      // holds the focus.
+      .base(Reveal, |s| s.opacity(0.0))
+      .within(Reveal, |s| s.opacity(1.0))
+      .within(Status, |s| s.opacity(0.0))
       .state(FileUploadState::Zone, Root, |s| s.width(320.0))
       .state(FileUploadState::Failed, Item, |s| s.border(edge(Destructive)))
       .state(FileUploadState::Failed, Icon, |s| s.foreground(Destructive))
