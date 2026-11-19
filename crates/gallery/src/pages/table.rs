@@ -676,87 +676,105 @@ impl Component for TablePage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let board = Table::new(board_columns(), crates(3))
-      .row_key(|row: &Krate| row.name)
-      .label("Crates")
-      .selected(self.board_selected.clone())
-      .checkboxes(false)
-      .style(TablePart::Root, |s| s.width(640.0).max_width(Length::Fill));
+    let board = crate::kit::apart(|| {
+      Table::new(board_columns(), crates(3))
+        .row_key(|row: &Krate| row.name)
+        .label("Crates")
+        .selected(self.board_selected.clone())
+        .checkboxes(false)
+        .style(TablePart::Root, |s| s.width(640.0).max_width(Length::Fill))
+    });
 
-    let grid_columns = vec![
-      TableColumn::new("name", "Name")
-        .text(|row: &Krate| row.name.to_owned())
-        .mono(true)
-        .min_width(170.0)
-        .sortable(true),
-      TableColumn::new("status", "Status")
-        .width(110.0)
-        .cell(|row: &Krate| row.status.badge()),
-      TableColumn::new("size", "Size")
-        .width(70.0)
-        .numeric()
-        .text(|row: &Krate| format!("{} KB", row.size))
-        .sort_key(|row: &Krate| row.size),
-    ];
+    let grid_columns = crate::kit::apart(|| {
+      vec![
+        TableColumn::new("name", "Name")
+          .text(|row: &Krate| row.name.to_owned())
+          .mono(true)
+          .min_width(170.0)
+          .sortable(true),
+        TableColumn::new("status", "Status")
+          .width(110.0)
+          .cell(|row: &Krate| row.status.badge()),
+        TableColumn::new("size", "Size")
+          .width(70.0)
+          .numeric()
+          .text(|row: &Krate| format!("{} KB", row.size))
+          .sort_key(|row: &Krate| row.size),
+      ]
+    });
     let page = self.page.get();
     let grid_sort = self.grid_sort.get();
     let page_rows: Vec<Krate> = (0..3).map(|index| krate((page - 1) * 3 + index)).collect();
-    let grid = Table::new(grid_columns.clone(), sorted(&grid_columns, page_rows, &grid_sort))
-      .row_key(|row: &Krate| row.name)
-      .label("Files")
-      .sort(self.grid_sort.clone())
-      .selected(self.grid_selected.clone())
-      .total(24)
-      .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
-      .style(TablePart::Root, |s| s.width(640.0).max_width(Length::Fill));
+    let grid = crate::kit::apart(|| {
+      Table::new(grid_columns.clone(), sorted(&grid_columns, page_rows, &grid_sort))
+        .row_key(|row: &Krate| row.name)
+        .label("Files")
+        .sort(self.grid_sort.clone())
+        .selected(self.grid_selected.clone())
+        .total(24)
+        .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
+        .style(TablePart::Root, |s| s.width(640.0).max_width(Length::Fill))
+    });
 
     let sort = self.sort.get();
     let sort_columns = columns(false, None);
-    let sorting = Table::new(sort_columns.clone(), sorted(&sort_columns, crates(6), &sort))
-      .row_key(|row: &Krate| row.name)
-      .label("Crates")
-      .sort(self.sort.clone());
+    let sorting = crate::kit::apart(|| {
+      Table::new(sort_columns.clone(), sorted(&sort_columns, crates(6), &sort))
+        .row_key(|row: &Krate| row.name)
+        .label("Crates")
+        .sort(self.sort.clone())
+    });
 
-    let tall = Table::new(columns(true, None), crates(40))
-      .row_key(|row: &Krate| row.name)
-      .label("Crates")
-      .selected(self.tall_selected.clone())
-      .height(280.0)
-      .style(TablePart::Root, |s| s.width(560.0).max_width(Length::Fill))
-      .mount(ctx);
+    let tall = crate::kit::apart(|| {
+      Table::new(columns(true, None), crates(40))
+        .row_key(|row: &Krate| row.name)
+        .label("Crates")
+        .selected(self.tall_selected.clone())
+        .height(280.0)
+        .style(TablePart::Root, |s| s.width(560.0).max_width(Length::Fill))
+        .mount(ctx)
+    });
 
-    let thousands = Table::new_shared(columns(false, None), self.many.clone())
-      .row_key(|row: &Krate| row.name)
-      .label("Generated crates")
-      .selected(self.many_selected.clone())
-      .count(true)
-      .height(360.0)
-      .mount(ctx);
+    let thousands = crate::kit::apart(|| {
+      Table::new_shared(columns(false, None), self.many.clone())
+        .row_key(|row: &Krate| row.name)
+        .label("Generated crates")
+        .selected(self.many_selected.clone())
+        .count(true)
+        .height(360.0)
+        .mount(ctx)
+    });
 
-    let empty = Table::new(narrow_columns(), Vec::new())
-      .row_key(|row: &Krate| row.name)
-      .empty(
-        EmptyState::new("No crates match “blurr”")
-          .description("Check the spelling or clear the filter.")
-          .icon(icons::SEARCH_CLOSE)
-          .size(EmptyStateSize::Sm)
-          .action(
-            Button::new("Clear filter")
-              .variant(ButtonVariant::Outline)
-              .size(ButtonSize::Sm),
-          ),
-      )
-      .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill));
-    let loading = Table::new(narrow_columns(), crates(3))
-      .row_key(|row: &Krate| row.name)
-      .loading(true)
-      .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill));
-    let forms = Row::new()
-      .spacing(28.0)
-      .wrap()
-      .align_items(Alignment::Start)
-      .child(item(empty, "empty: the table's empty state under the header"))
-      .child(item(loading, "loading: skeletons where the rows will be"));
+    let empty = crate::kit::apart(|| {
+      Table::new(narrow_columns(), Vec::new())
+        .row_key(|row: &Krate| row.name)
+        .empty(
+          EmptyState::new("No crates match “blurr”")
+            .description("Check the spelling or clear the filter.")
+            .icon(icons::SEARCH_CLOSE)
+            .size(EmptyStateSize::Sm)
+            .action(
+              Button::new("Clear filter")
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm),
+            ),
+        )
+        .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill))
+    });
+    let loading = crate::kit::apart(|| {
+      Table::new(narrow_columns(), crates(3))
+        .row_key(|row: &Krate| row.name)
+        .loading(true)
+        .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill))
+    });
+    let forms = crate::kit::apart(|| {
+      Row::new()
+        .spacing(28.0)
+        .wrap()
+        .align_items(Alignment::Start)
+        .child(item(empty, "empty: the table's empty state under the header"))
+        .child(item(loading, "loading: skeletons where the rows will be"))
+    });
 
     let state = |forced: Option<Interaction>| {
       Table::new(narrow_columns(), crates(2))
@@ -766,124 +784,128 @@ impl Component for TablePage {
         .force(forced)
         .style(TablePart::Root, |s| s.width(420.0).max_width(Length::Fill))
     };
-    let states = Row::new()
-      .spacing(28.0)
-      .wrap()
-      .align_items(Alignment::Start)
-      .child(item(state(None), "at rest, and a row selected"))
-      .child(item(state(Some(Interaction::Hovered)), "under the pointer"))
-      .child(item(
-        state(Some(Interaction::FocusVisible)),
-        "focused from the keyboard",
-      ));
+    let states = crate::kit::apart(|| {
+      Row::new()
+        .spacing(28.0)
+        .wrap()
+        .align_items(Alignment::Start)
+        .child(item(state(None), "at rest, and a row selected"))
+        .child(item(state(Some(Interaction::Hovered)), "under the pointer"))
+        .child(item(
+          state(Some(Interaction::FocusVisible)),
+          "focused from the keyboard",
+        ))
+    });
 
-    let rows = [
-      (
-        "columns",
-        "impl IntoIterator<Item = TableColumn<R>>",
-        "",
-        "The columns: `TableColumn::new(id, title)` with `text` or `cell`, `width`, `share`, `fit`, `min_width`, \
+    let rows = crate::kit::apart(|| {
+      [
+        (
+          "columns",
+          "impl IntoIterator<Item = TableColumn<R>>",
+          "",
+          "The columns: `TableColumn::new(id, title)` with `text` or `cell`, `width`, `share`, `fit`, `min_width`, \
          `max_width`, `align`, `numeric`, `mono`, `muted`, `sortable`, `sort_by`, `sort_key`, `sticky`, \
          `controls`; `TableColumn::actions(id, cell)` for a row's buttons.",
-      ),
-      (
-        "rows",
-        "impl IntoIterator<Item = R>",
-        "",
-        "The rows, in the order the app wants them. `new_shared` takes an `Arc<Vec<R>>` kept from render to render.",
-      ),
-      (
-        "row_key",
-        "impl Fn(&R) -> K",
-        "the row's place",
-        "What tells a row apart: the selection and the handlers name rows by it.",
-      ),
-      (
-        "sort",
-        "Signal<Vec<TableSort>>",
-        "none",
-        "What the rows are sorted by: a press of a sortable header sets it to ascending, descending, none. \
+        ),
+        (
+          "rows",
+          "impl IntoIterator<Item = R>",
+          "",
+          "The rows, in the order the app wants them. `new_shared` takes an `Arc<Vec<R>>` kept from render to render.",
+        ),
+        (
+          "row_key",
+          "impl Fn(&R) -> K",
+          "the row's place",
+          "What tells a row apart: the selection and the handlers name rows by it.",
+        ),
+        (
+          "sort",
+          "Signal<Vec<TableSort>>",
+          "none",
+          "What the rows are sorted by: a press of a sortable header sets it to ascending, descending, none. \
          `sort_controlled(sort, on_change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
-      ),
-      (
-        "selected",
-        "Signal<Vec<K>>",
-        "none",
-        "The rows selected, with a column of checkboxes. `selected_controlled(keys, on_change)` is the same held by the app.",
-      ),
-      (
-        "checkboxes",
-        "bool",
-        "true",
-        "Whether a table whose rows are selected has the column of checkboxes.",
-      ),
-      (
-        "density",
-        "Density",
-        "the theme's",
-        "Rows of 36 compact, 44, 52 comfortable.",
-      ),
-      (
-        "height / max_height",
-        "Length",
-        "its rows'",
-        "The table's height: the header stays and the rows scroll under it.",
-      ),
-      (
-        "empty",
-        "impl Into<Element>",
-        "No rows",
-        "What stands under the header where there are no rows; empty_text(..) says it in other words.",
-      ),
-      (
-        "on_sort_change / on_selection_change",
-        "impl Fn(&[TableSort]) / impl Fn(&[K])",
-        "",
-        "Told the new sort, and the whole new selection where it changed, bound or not.",
-      ),
-      (
-        "select_all_label / select_row_label / count_text",
-        "&str / impl Fn(usize, Option<usize>) -> String",
-        "English",
-        "The words the table writes itself: its checkboxes' names, the footer's count.",
-      ),
-      (
-        "loading",
-        "bool",
-        "false",
-        "Rows of skeletons under the header; `loading_rows(n)` how many.",
-      ),
-      (
-        "pagination / count / total",
-        "Pagination / bool / usize",
-        "none",
-        "A footer that counts the rows and what is selected, with the pagination at its end.",
-      ),
-      (
-        "on_row_click / on_row_activate",
-        "impl Fn(&K)",
-        "",
-        "Told of a press of a row, and of a double press or Enter.",
-      ),
-      (
-        "mount",
-        "&mut Ctx",
-        "",
-        "Builds the rows in view and a few around them, keeps the measured widths, and takes PageUp and PageDown.",
-      ),
-      (
-        "label / disabled",
-        "&str / bool",
-        "",
-        "What the table is called to what reads the tree; no row takes input.",
-      ),
-      (
-        "style / rules",
-        "TablePart",
-        "",
-        "Root, Scroll, Header, HeaderCell, SortIcon, Row, Cell, Select, Empty, Footer, Count.",
-      ),
-    ];
+        ),
+        (
+          "selected",
+          "Signal<Vec<K>>",
+          "none",
+          "The rows selected, with a column of checkboxes. `selected_controlled(keys, on_change)` is the same held by the app.",
+        ),
+        (
+          "checkboxes",
+          "bool",
+          "true",
+          "Whether a table whose rows are selected has the column of checkboxes.",
+        ),
+        (
+          "density",
+          "Density",
+          "the theme's",
+          "Rows of 36 compact, 44, 52 comfortable.",
+        ),
+        (
+          "height / max_height",
+          "Length",
+          "its rows'",
+          "The table's height: the header stays and the rows scroll under it.",
+        ),
+        (
+          "empty",
+          "impl Into<Element>",
+          "No rows",
+          "What stands under the header where there are no rows; empty_text(..) says it in other words.",
+        ),
+        (
+          "on_sort_change / on_selection_change",
+          "impl Fn(&[TableSort]) / impl Fn(&[K])",
+          "",
+          "Told the new sort, and the whole new selection where it changed, bound or not.",
+        ),
+        (
+          "select_all_label / select_row_label / count_text",
+          "&str / impl Fn(usize, Option<usize>) -> String",
+          "English",
+          "The words the table writes itself: its checkboxes' names, the footer's count.",
+        ),
+        (
+          "loading",
+          "bool",
+          "false",
+          "Rows of skeletons under the header; `loading_rows(n)` how many.",
+        ),
+        (
+          "pagination / count / total",
+          "Pagination / bool / usize",
+          "none",
+          "A footer that counts the rows and what is selected, with the pagination at its end.",
+        ),
+        (
+          "on_row_click / on_row_activate",
+          "impl Fn(&K)",
+          "",
+          "Told of a press of a row, and of a double press or Enter.",
+        ),
+        (
+          "mount",
+          "&mut Ctx",
+          "",
+          "Builds the rows in view and a few around them, keeps the measured widths, and takes PageUp and PageDown.",
+        ),
+        (
+          "label / disabled",
+          "&str / bool",
+          "",
+          "What the table is called to what reads the tree; no row takes input.",
+        ),
+        (
+          "style / rules",
+          "TablePart",
+          "",
+          "Root, Scroll, Header, HeaderCell, SortIcon, Row, Cell, Select, Empty, Footer, Count.",
+        ),
+      ]
+    });
     let playground = self.play(ctx);
     let with_bar = self.with_bar(ctx);
     self.frame.page(
@@ -898,7 +920,8 @@ impl Component for TablePage {
         since: Some("0.63"),
         source: file!(),
       },
-      vec![
+      crate::kit::apart(|| {
+        vec![
         Section::new(
           "Playground",
           "Every prop of Table is a control on the right. The table on the stage is live: a press of a header \
@@ -1067,7 +1090,8 @@ impl Component for TablePage {
           "What a table is given.",
           props_table(&rows, &["columns", "rows"], self.frame.room()),
         ),
-      ],
+      ]
+      }),
     )
   }
 }

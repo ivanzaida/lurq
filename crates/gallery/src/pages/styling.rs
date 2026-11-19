@@ -42,7 +42,9 @@ const SHAPES: [(&str, usize); 4] = [("design", 0), ("pill", 1), ("square", 2), (
 /// A theme of a scene's own: a copy of the gallery's look as the page was opened, in the gallery's appearance.
 struct Scoped {
   theme: Theme,
-  base: ThemeDefinition,
+  /// Boxed: a theme's definition is large, and the page holds five of these, which a build without
+  /// optimizations copied whole on the stack as the page was made.
+  base: Box<ThemeDefinition>,
 }
 
 impl Scoped {
@@ -50,7 +52,7 @@ impl Scoped {
     let base = ctx.theme().definition();
     Self {
       theme: Theme::from_definition(base.clone()),
-      base,
+      base: Box::new(base),
     }
   }
 
@@ -221,7 +223,7 @@ impl StylingPage {
       &chosen,
       move |index| {
         primary.set(index);
-        theme.apply(base.clone());
+        theme.apply((*base).clone());
         if let Some(hex) = PRIMARIES[index].1 {
           theme.set_palette_color(PaletteColor::Primary, Color::from_hex(hex));
         }
@@ -398,7 +400,7 @@ impl Component for StylingPage {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
-    let page = Self {
+    let page = crate::kit::apart(|| Self {
       frame: Frame::new(ctx),
       palette: Scoped::new(ctx),
       primary: ctx.signal(0),
@@ -414,7 +416,7 @@ impl Component for StylingPage {
       style_layer: ctx.signal(true),
       renderer: Scoped::new(ctx),
       own_label: ctx.signal(true),
-    };
+    });
     // A state the app names, styled by the theme: what `.state("pinned", true)` turns on.
     page.states.theme.patch_recipe::<Button>(|r| {
       r.state("pinned", ButtonPart::Root, |s| {
