@@ -4,7 +4,6 @@
 //!
 //! The sizes here are the design's (`pencil/lurq-design-system-demo.pen`).
 
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex};
 
 use lurq::{
