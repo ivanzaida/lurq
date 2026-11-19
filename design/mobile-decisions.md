@@ -10,6 +10,46 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 
 ## 2026-11-19
 
+### The camera of several photos is lurq's own, on AVFoundation, as Telegram's and the Camera app's are
+
+- **Question.** The system's camera without its controls, with lurq's over it, took photos in a row, but had no zoom,
+  no lens to choose, no flash and no focus of its own, and showed the photos taken as a strip of thumbnails. Ivan at
+  the phone: "превью дебільне, треба нормальне як в галереї і нема зума і інших налаштувань камери".
+- **Decision (Ivan, 2026-11-19).** For a dialog that takes several files lurq shows a camera of its own, on
+  AVFoundation (`AVCaptureSession`, `AVCapturePhotoOutput`), as Telegram's and the Camera app's are:
+  - the picture 3 by 4, a pinch zooms it, a tap focuses and exposes where it is;
+  - the lenses as the Camera app shows them (0.5×, 1×, 2× or the telephoto's), from the device's own switch-over
+    factors; turning to the front camera and back; the flash: auto, on, off;
+  - the shutter takes a photo at once, with the system's sound, in the orientation the phone is held;
+  - the last photo taken beside the shutter, with how many there are; a tap opens them in a viewer as a
+    gallery's: full screen, swiped one to the next, pinched or double-tapped to zoom, "3 of 5", and a button that
+    takes the one shown out;
+  - Done gives them all, Cancel none.
+  Its words are the locale's: `FieldWords::take_photo`, `switch_camera`, `flash`, `flash_auto`, `flash_on`,
+  `flash_off`, `zoom`, and `common.done`, `cancel`, `close`, `remove`, `place_of`. Where the person has not let
+  the app use the camera, the system's camera is shown, which says so. A dialog of one file keeps the system's
+  camera and its review.
+- **Why.** A person who takes photos to give expects the camera they use every day: zoom and lenses, the flash,
+  focus, and to look at what they took before they give it.
+- **State.** Built on `feat/design-system`, tried on an iPhone 2026-11-19. Replaces "The camera stays open for
+  several photos, as Telegram's does" below.
+
+### The camera stays open for several photos, as Telegram's does
+
+- **Question.** With `multiple`, the camera opened again after each photo kept: shoot, "Use Photo", the camera goes
+  away and comes back, for each one. Ivan at the phone: "воно по черзі - а треба щоб як в телеграмі".
+- **Decision (Ivan, 2026-11-19).** For a dialog that takes several files the camera stays open between photos, as
+  Telegram's does: the system's camera (`UIImagePickerController`) without its own controls, and lurq's over it
+  (`cameraOverlayView`): the shutter takes a photo at once, with no "Use Photo"; the photos taken stand in a row over
+  the bottom of the picture, and a tap on one takes it out (Ivan at the phone: "нема превью тих багатьох фоток");
+  the last photo taken stands beside the shutter with how many there are; Done gives them all, Cancel gives none; a button turns to the other camera. Its words
+  are the locale's (`FieldWords::take_photo`, `switch_camera`, `common.done`, `common.cancel`, `common.remove`). A dialog of one file
+  keeps the system's camera as it is.
+- **Why.** Taking photos in a row is one gesture each, as in the messengers a person knows; a review after each one
+  and the camera going away between them make it a chore.
+- **State.** Replaced the same day by "The camera of several photos is lurq's own, on AVFoundation" above. It
+  replaced "The camera takes one photo after another while the dialog takes several" below.
+
 ### The camera takes one photo after another while the dialog takes several
 
 - **Question.** "Take Photo" of a file dialog that takes several files (`multiple`) took one photo and closed: iOS's
@@ -19,7 +59,7 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   the photos kept are given together then. One photo for a dialog of one file, as before.
 - **Why.** A person who adds photos to a list of files expects to take them in a row, not to go through the menu
   for each.
-- **State.** In work on `feat/design-system`.
+- **State.** Replaced the same day by "The camera stays open for several photos, as Telegram's does" above.
 
 ### A sent file can be removed from a file upload
 

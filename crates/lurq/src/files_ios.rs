@@ -70,7 +70,7 @@ fn open_source(main: MainThreadMarker, source: FileSource, dialog: FileDialog, a
   match source {
     FileSource::Files => present(main, dialog, answering),
     FileSource::PhotoLibrary => super::photos::present(main, &dialog, answering),
-    FileSource::Camera => camera(main, answering, dialog.multiple),
+    FileSource::Camera => camera(main, answering, &dialog),
   }
 }
 
@@ -177,15 +177,11 @@ fn camera_ready() -> bool {
   }
 }
 
-/// The camera that is open, and what is told the pictures.
+/// The camera that is open for one picture, and what is told it.
 struct Shooting {
   answering: Answering,
   picker: Retained<AnyObject>,
   _delegate: Retained<AnyObject>,
-  /// Whether the dialog takes several files: the camera opens again after each picture kept, until it is put
-  /// away, and the pictures kept are given then.
-  multiple: bool,
-  taken: Vec<DroppedFile>,
 }
 
 // SAFETY: touched on the main thread alone.
@@ -198,18 +194,26 @@ unsafe extern "C" {
   fn UIImageJPEGRepresentation(image: *mut AnyObject, quality: f64) -> *mut AnyObject;
 }
 
-/// The system's camera: for one picture, or for one after another where the dialog takes several. iOS's camera
-/// takes one at a time; it is shown anew after each picture kept.
-fn camera(_main: MainThreadMarker, answering: Answering, multiple: bool) {
-  show_camera(answering, multiple, Vec::new());
+/// The camera: the system's for one picture, with its review ("Use Photo"); lurq's over the system's where the
+/// dialog takes several, which stays open between them ([`super::camera`]).
+fn camera(main: MainThreadMarker, answering: Answering, dialog: &FileDialog) {
+  if dialog.multiple {
+    let words = dialog
+      .words
+      .clone()
+      .unwrap_or_else(|| super::SourceWords::of(&crate::core::Locale::english()));
+    super::camera::shoot(main, answering, words);
+    return;
+  }
+  system_camera(answering);
 }
 
-/// Shows the camera, with the pictures kept so far.
-fn show_camera(answering: Answering, multiple: bool, taken: Vec<DroppedFile>) {
+/// The system's camera, for one picture with its review; where the app may not use the camera, it says so.
+pub(super) fn system_camera(answering: Answering) {
   let mut shooting = SHOOTING.lock().unwrap();
   let over = top_controller();
   let (Some(over), None) = (over, shooting.as_ref()) else {
-    answering.give(taken);
+    answering.give(Vec::new());
     return;
   };
   // SAFETY: on the main thread, with UIKit's picker of the camera.
@@ -224,75 +228,67 @@ fn show_camera(answering: Answering, multiple: bool, taken: Vec<DroppedFile>) {
       answering,
       picker,
       _delegate: delegate,
-      multiple,
-      taken,
     });
   }
 }
 
-/// The picture taken: kept as a JPEG in a folder of its own of the temporary folder, and given; where the dialog
-/// takes several, kept with the others and the camera shown again.
-extern "C-unwind" fn shot(_this: &AnyObject, _cmd: Sel, _picker: &AnyObject, info: &AnyObject) {
-  let Some(mut shooting) = SHOOTING.lock().unwrap().take() else {
-    return;
-  };
+/// Where a new photo is kept: a JPEG of its own in a folder of the temporary folder.
+pub(super) fn photo_path() -> Option<PathBuf> {
+  let folder = std::env::temp_dir().join(format!("lurq-camera-{}", std::process::id()));
+  std::fs::create_dir_all(&folder).ok()?;
+  let millis = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|since| since.as_millis())
+    .unwrap_or_default();
+  let mut path = folder.join(format!("Photo-{millis}.jpg"));
+  let mut more = 1;
+  while path.exists() {
+    path = folder.join(format!("Photo-{millis}-{more}.jpg"));
+    more += 1;
+  }
+  Some(path)
+}
+
+/// The picture of a camera's info, kept as a JPEG ([`photo_path`]).
+fn keep_photo(info: &AnyObject) -> Option<PathBuf> {
   // SAFETY: the picker's info, a dictionary that holds the picture taken under its key.
-  let file = unsafe {
+  unsafe {
     let image: Option<Retained<AnyObject>> =
       msg_send![info, objectForKey: &*NSString::from_str("UIImagePickerControllerOriginalImage")];
-    image.and_then(|image| {
-      let data = UIImageJPEGRepresentation(Retained::as_ptr(&image).cast_mut(), 0.9);
-      if data.is_null() {
-        return None;
-      }
-      let folder = std::env::temp_dir().join(format!("lurq-camera-{}", std::process::id()));
-      std::fs::create_dir_all(&folder).ok()?;
-      let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_millis())
-        .unwrap_or_default();
-      let path = folder.join(format!("Photo-{seconds}.jpg"));
-      let written: Bool = msg_send![data, writeToFile: &*NSString::from_str(path.to_str()?), atomically: Bool::YES];
-      written.as_bool().then_some(path)
-    })
-  };
-  shooting.taken.extend(file.map(DroppedFile::from_path));
-  let Shooting {
-    answering,
-    picker,
-    multiple,
-    taken,
-    ..
-  } = shooting;
-  if !multiple {
-    // SAFETY: on the main thread, the picker shown.
-    unsafe {
-      let _: () = msg_send![&*picker, dismissViewControllerAnimated: Bool::YES, completion: std::ptr::null::<c_void>()];
+    let image = image?;
+    let data = UIImageJPEGRepresentation(Retained::as_ptr(&image).cast_mut(), 0.9);
+    if data.is_null() {
+      return None;
     }
-    answering.give(taken);
-    return;
-  }
-  // The next picture: once this camera is put away, another is shown.
-  let next = Mutex::new(Some((answering, taken)));
-  let again = block2::RcBlock::new(move || {
-    if let Some((answering, taken)) = next.lock().unwrap().take() {
-      show_camera(answering, true, taken);
-    }
-  });
-  // SAFETY: on the main thread, the picker shown; the block is called once, when it is put away.
-  unsafe {
-    let _: () = msg_send![&*picker, dismissViewControllerAnimated: Bool::YES, completion: &*again];
+    let path = photo_path()?;
+    let written: Bool = msg_send![data, writeToFile: &*NSString::from_str(path.to_str()?), atomically: Bool::YES];
+    written.as_bool().then_some(path)
   }
 }
 
-/// The camera was put away: the pictures kept before are given, none for a camera of one picture.
+/// The picture taken and kept ("Use Photo"): given.
+extern "C-unwind" fn shot(_this: &AnyObject, _cmd: Sel, _picker: &AnyObject, info: &AnyObject) {
+  let Some(shooting) = SHOOTING.lock().unwrap().take() else {
+    return;
+  };
+  let taken = keep_photo(info).map(DroppedFile::from_path);
+  // SAFETY: on the main thread, the picker shown.
+  unsafe {
+    let _: () =
+      msg_send![&*shooting.picker, dismissViewControllerAnimated: Bool::YES, completion: std::ptr::null::<c_void>()];
+  }
+  shooting.answering.give(taken.into_iter().collect());
+}
+
+/// The camera was put away: nothing is given.
 extern "C-unwind" fn shot_none(_this: &AnyObject, _cmd: Sel, _picker: &AnyObject) {
   if let Some(shooting) = SHOOTING.lock().unwrap().take() {
+    // SAFETY: on the main thread, the picker shown.
     unsafe {
       let _: () =
         msg_send![&*shooting.picker, dismissViewControllerAnimated: Bool::YES, completion: std::ptr::null::<c_void>()];
     }
-    shooting.answering.give(shooting.taken);
+    shooting.answering.give(Vec::new());
   }
 }
 
@@ -522,23 +518,23 @@ pub(super) fn top_controller() -> Option<Retained<AnyObject>> {
 /// A rectangle of UIKit's (`CGRect`), as a view's bounds and a popover's place are.
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Rect {
-  origin: Point,
-  size: Size,
+pub(super) struct Rect {
+  pub(super) origin: Point,
+  pub(super) size: Size,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Point {
-  x: f64,
-  y: f64,
+pub(super) struct Point {
+  pub(super) x: f64,
+  pub(super) y: f64,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Size {
-  width: f64,
-  height: f64,
+pub(super) struct Size {
+  pub(super) width: f64,
+  pub(super) height: f64,
 }
 
 // SAFETY: the layouts are CoreGraphics', of `CGFloat`s, which are `f64` on every device iOS runs on.

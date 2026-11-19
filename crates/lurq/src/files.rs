@@ -292,7 +292,11 @@ pub enum FileSource {
   Files,
   /// The photo library: its pictures and videos, as the dialog's filters take them.
   PhotoLibrary,
-  /// A picture taken with the camera, there and then. A phone's alone: there is none on a desktop.
+  /// A picture taken with the camera, there and then. A phone's alone: there is none on a desktop. On iOS a dialog of
+  /// one file has the system's camera, with its review ("Use Photo"); a dialog of several ([`FileDialog::multiple`])
+  /// has lurq's own, which stays open between photos, with the lenses, a pinch to zoom, a tap to focus, the flash, the
+  /// other camera and a viewer of the photos taken, and gives them all at Done. Each photo is a JPEG of the temporary
+  /// folder. The app's Info.plist must say why it uses the camera (`NSCameraUsageDescription`), or it is not offered.
   #[cfg(any(target_os = "ios", target_os = "android"))]
   Camera,
 }
@@ -304,6 +308,16 @@ pub(crate) struct SourceWords {
   pub(crate) take_photo: Arc<str>,
   pub(crate) choose_file: Arc<str>,
   pub(crate) cancel: Arc<str>,
+  pub(crate) switch_camera: Arc<str>,
+  pub(crate) done: Arc<str>,
+  pub(crate) remove: Arc<str>,
+  pub(crate) close: Arc<str>,
+  pub(crate) place_of: Arc<str>,
+  pub(crate) flash: Arc<str>,
+  pub(crate) flash_auto: Arc<str>,
+  pub(crate) flash_on: Arc<str>,
+  pub(crate) flash_off: Arc<str>,
+  pub(crate) zoom: Arc<str>,
 }
 
 impl SourceWords {
@@ -313,6 +327,16 @@ impl SourceWords {
       take_photo: locale.fields.take_photo.clone(),
       choose_file: locale.fields.choose_file.clone(),
       cancel: locale.common.cancel.clone(),
+      switch_camera: locale.fields.switch_camera.clone(),
+      done: locale.common.done.clone(),
+      remove: locale.common.remove.clone(),
+      close: locale.common.close.clone(),
+      place_of: locale.common.place_of.clone(),
+      flash: locale.fields.flash.clone(),
+      flash_auto: locale.fields.flash_auto.clone(),
+      flash_on: locale.fields.flash_on.clone(),
+      flash_off: locale.fields.flash_off.clone(),
+      zoom: locale.fields.zoom.clone(),
     }
   }
 }
@@ -429,7 +453,8 @@ impl FileDialog {
     self
   }
 
-  /// Whether several files can be chosen at once.
+  /// Whether several files can be chosen at once. On a phone the camera then takes several photos before it closes
+  /// ([`FileSource::Camera`]).
   pub fn multiple(mut self, multiple: bool) -> Self {
     self.multiple = multiple;
     self
@@ -854,6 +879,11 @@ mod native {
 #[cfg(target_os = "ios")]
 #[path = "files_ios.rs"]
 mod native;
+
+/// On iOS, lurq's own camera, on AVFoundation, for a dialog that takes several photos.
+#[cfg(target_os = "ios")]
+#[path = "files_camera_ios.rs"]
+mod camera;
 
 /// The photo library as a source of files: iOS's, and macOS's with the system's dialogs (`file_dialog`).
 #[cfg(any(target_os = "ios", all(target_os = "macos", feature = "file_dialog")))]
