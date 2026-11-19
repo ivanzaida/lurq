@@ -9,6 +9,20 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-19
+
+### The browser becomes a supported platform
+
+- **Question.** The gallery builds for the browser (WebGPU, WebGL2 with `webgl`) and runs, but the browser was "a
+  build that exists, not supported": no video or sound, no network for what loads an address, one thread (pictures
+  decode between frames), a clipboard of text only, file dialogs and `open_url` unchecked, fonts copied from
+  Windows that may not be published, gestures and the pointer unchecked there, nothing measured.
+- **Decision (Ivan, 2026-11-19: "Робимо підтримку").** The browser joins Windows, macOS and iOS as supported: every
+  page of the gallery works there, what a desktop has works there or has the browser's own equivalent, and what
+  cannot is said in the docs as the platform's limit, not a defect. The README and Getting Started say so once it
+  holds. The decision of 2026-11-17 on video (no copy of each frame) stands unless Ivan changes it.
+- **State.** Decided; in work in a session of its own.
+
 ## 2026-11-18
 
 ### A link preview's picture: plated when transparent, whole when wide in the compact form
