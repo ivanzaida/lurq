@@ -118,10 +118,42 @@ impl DecodedImages {
     source: impl FnOnce() -> ImageSource,
     wake: Option<WindowWaker>,
   ) -> ImageLoadState {
+    #[cfg(target_arch = "wasm32")]
+    return self.load_in_browser(key, cap, source, wake);
+    #[cfg(not(target_arch = "wasm32"))]
     self.load_with(key, cap, wake, || {
       let source = source();
       move || decode_image(&source, cap)
     })
+  }
+
+  /// [`load`](Self::load) in a browser: the browser decodes what it can off the page's thread (`web_decode`), and
+  /// the rest is decoded as on a desktop, on the page's thread after this turn of the loop.
+  #[cfg(target_arch = "wasm32")]
+  fn load_in_browser(
+    &self,
+    key: ImageKey,
+    cap: Option<ImageSizeCap>,
+    source: impl FnOnce() -> ImageSource,
+    wake: Option<WindowWaker>,
+  ) -> ImageLoadState {
+    let mut finish = match self.begin(key, cap, wake) {
+      Ok(finish) => finish,
+      Err(state) => return state,
+    };
+    let source = source();
+    wasm_bindgen_futures::spawn_local(async move {
+      let decoded = match &source {
+        ImageSource::Bytes(bytes) if super::browser_decodes(bytes) => super::web_decode::decode(bytes, cap).await,
+        _ => None,
+      };
+      finish.result = Some(match decoded {
+        Some(decoded) => Ok(decoded),
+        None => decode_image(&source, cap),
+      });
+      drop(finish);
+    });
+    ImageLoadState::Loading
   }
 
   /// [`load`](Self::load) with the decode given as a job: `decode()` builds
@@ -136,6 +168,28 @@ impl DecodedImages {
   where
     J: FnOnce() -> Result<ImageData, ImageDecodeError> + Send + 'static,
   {
+    let mut finish = match self.begin(key, cap, wake) {
+      Ok(finish) => finish,
+      Err(state) => return state,
+    };
+    let job = decode();
+    // A job the workers do not take is dropped with its guard, which fails
+    // the entry: one finish either way.
+    self.shared.workers.submit(move || {
+      finish.result = Some(job());
+      drop(finish);
+    });
+    ImageLoadState::Loading
+  }
+
+  /// The state of the entry under `key` and `cap` where there is one (`Err`), joined by `wake`; or a new entry,
+  /// loading, and the guard that finishes it (`Ok`).
+  fn begin(
+    &self,
+    key: ImageKey,
+    cap: Option<ImageSizeCap>,
+    wake: Option<WindowWaker>,
+  ) -> Result<FinishOnDrop, ImageLoadState> {
     let cache_key = (key, cap);
     let mut inner = self.shared.inner.lock();
     inner.clock += 1;
@@ -147,7 +201,7 @@ impl DecodedImages {
       {
         entry.wakers.push(wake);
       }
-      return entry.state.clone();
+      return Err(entry.state.clone());
     }
     inner.entries.insert(
       cache_key,
@@ -160,19 +214,11 @@ impl DecodedImages {
     );
     inner.pending += 1;
     drop(inner);
-    let job = decode();
-    let mut finish = FinishOnDrop {
+    Ok(FinishOnDrop {
       shared: Arc::clone(&self.shared),
       cache_key,
       result: None,
-    };
-    // A job the workers do not take is dropped with its guard, which fails
-    // the entry: one finish either way.
-    self.shared.workers.submit(move || {
-      finish.result = Some(job());
-      drop(finish);
-    });
-    ImageLoadState::Loading
+    })
   }
 
   /// A cache whose workers are gone: every decode fails without running.

@@ -51,7 +51,7 @@ objc2-metal = { version = "0.3", default-features = false, features = ["std", "M
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # A page names lurq's features itself, as a browser app does: the desktop set, with WebGL2 for a browser without
 # WebGPU.
-lurq = { path = "../lurq", default-features = false, features = ["webgl", "winit", "clipboard", "file_dialog", "image", "canvas", "form", "router", "query"] }
+lurq = { path = "../lurq", default-features = false, features = ["webgl", "winit", "clipboard", "file_dialog", "image", "canvas", "form", "router", "query", "persistent_storage"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

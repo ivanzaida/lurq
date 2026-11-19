@@ -2,66 +2,10 @@
 //! writes, reads and removes a value of a key, as a type; its sections are the demo's Persistent Storage page: a
 //! profile saved as one value, the state of what was saved, and a snapshot of everything the store holds.
 //!
-//! The store is a file of a desktop app (the `persistent_storage` feature, which the browser's build is without):
-//! there the page says so in a line.
+//! The store is a file of a desktop app, and a page's `localStorage` in a browser.
 
-#[cfg(target_arch = "wasm32")]
-pub use browser::PersistentStoragePage;
-#[cfg(not(target_arch = "wasm32"))]
 pub use desktop::PersistentStoragePage;
 
-/// What the page is in a browser: a line in place of the store.
-#[cfg(target_arch = "wasm32")]
-mod browser {
-  use lurq::{
-    app::{component::Component, ctx::Ctx},
-    node::Element,
-  };
-
-  use crate::{
-    doc::{Frame, Header, Section},
-    kit::{FILL, quiet},
-  };
-
-  pub struct PersistentStoragePage {
-    frame: Frame,
-  }
-
-  impl Component for PersistentStoragePage {
-    type Props = ();
-
-    fn create(ctx: &mut Ctx) -> Self {
-      Self { frame: Frame::new(ctx) }
-    }
-
-    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-      self.frame.page(
-        ctx,
-        Header {
-          breadcrumb: &["Engine", "Persistent Storage"],
-          title: "Persistent Storage",
-          description: "Small typed values an app keeps between its runs: preferences, counters, the tab that was \
-                        open.",
-          import: Some("use lurq::persistent_storage::{PersistentStorage, PersistentWrite};"),
-          status: Some("Stable"),
-          since: None,
-          source: file!(),
-        },
-        vec![Section::new(
-          "In a browser",
-          "The store is a file of a desktop app, and this build of the gallery is a page of a browser.",
-          quiet(
-            "The persistent store is a file of a desktop app: open the gallery on a desktop to try it.",
-            13.0,
-          )
-          .width(FILL),
-        )],
-      )
-    }
-  }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 mod desktop {
   use std::{path::PathBuf, sync::Arc};
 
@@ -131,6 +75,13 @@ mod desktop {
   /// opens its file at its start (`main.rs`), and a store that holds a file locks it for itself. The file is the
   /// app's where it is locked so; where it is not there, or not locked, the store is in memory (a test, which
   /// sets no file). A second gallery whose store found the file held by the first is told wrong: it is in memory.
+  #[cfg(target_arch = "wasm32")]
+  fn kept() -> Option<PathBuf> {
+    // The gallery's page opens its store in the page's `localStorage` (`web.rs`).
+    Some(PathBuf::from("localStorage"))
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
   fn kept() -> Option<PathBuf> {
     let path = crate::cache_folder().join("storage.redb");
     // Asked with a lock that reads and is let go at once: nothing is written to the file.

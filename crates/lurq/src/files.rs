@@ -16,11 +16,13 @@
 //!   dialog is the system's (`rfd`, with the feature `file_dialog`), and a chosen file has its path and size. On
 //!   Windows the dialog is modal to the window it is opened over; on macOS and Linux it has no parent window yet, so it
 //!   is not modal to the app's.
-//! - **A browser**: no drop from the system reaches the page (winit reports none), and a page reads no path. The dialog
-//!   is the browser's file input, which asks the person to confirm first (a press must open it); a chosen file has its
-//!   name, its size and its bytes, read as it is chosen ([`DroppedFile::read`]), and no path. A page is given no path,
-//!   so there is no dialog for a folder or for where to save: [`FileDialog::pick_folder`] and [`FileDialog::pick_save`]
-//!   give nothing, and [`FileDialog::save`] hands the bytes to the browser as a download.
+//! - **A browser**: files dragged onto the page from the system arrive with their names (while they hover, the browser
+//!   tells only their kinds, so each is named `dragged/<n>.<extension of its kind>` until it is dropped) and, on the
+//!   drop, their bytes: [`DroppedFile::from_path`] of a dropped path is the file with its bytes. A page reads no path.
+//!   The dialog is the browser's file input, which asks the person to confirm first (a press must open it); a chosen
+//!   file has its name, its size and its bytes, read as it is chosen ([`DroppedFile::read`]), and no path. A page is
+//!   given no path, so there is no dialog for a folder or for where to save: [`FileDialog::pick_folder`] and
+//!   [`FileDialog::pick_save`] give nothing, and [`FileDialog::save`] hands the bytes to the browser as a download.
 //! - **iOS**: no drop; the dialog is the system's document picker (`UIDocumentPickerViewController`), with or without
 //!   the feature `file_dialog`. A file chosen to open is a copy the system puts in the app's temporary folder, read by
 //!   its path; a folder chosen is the app's to read and write while it runs; and where to save is chosen by putting an
@@ -67,6 +69,14 @@ impl DroppedFile {
   /// is not there, or a folder).
   pub fn from_path(path: impl Into<PathBuf>) -> Self {
     let path = path.into();
+    // A file dropped on a page: its path is a name the shell gave it, and its bytes are held for it.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(bytes) = dropped_on_the_page(&path) {
+      let name = path
+        .file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+      return Self::new(&name, None).with_bytes(bytes);
+    }
     let size = std::fs::metadata(&path)
       .ok()
       .filter(|metadata| metadata.is_file())
@@ -572,6 +582,29 @@ impl FileDialog {
 }
 
 /// The path of the one thing a dialog for a folder or for where to save chose.
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+  /// The files of the last drop on the page, by the paths the shell gave them (`dropped/<n>/<name>`).
+  static DROPPED: std::cell::RefCell<Vec<(PathBuf, Arc<[u8]>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Holds the files of a drop on the page, in place of the last drop's: what [`DroppedFile::from_path`] finds.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn hold_dropped(files: Vec<(PathBuf, Arc<[u8]>)>) {
+  DROPPED.with(|dropped| *dropped.borrow_mut() = files);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn dropped_on_the_page(path: &Path) -> Option<Arc<[u8]>> {
+  DROPPED.with(|dropped| {
+    dropped
+      .borrow()
+      .iter()
+      .find(|(held, _)| held == path)
+      .map(|(_, bytes)| bytes.clone())
+  })
+}
+
 /// Hands `bytes` to the browser as a download named `name`: a link to a blob of them, pressed and let go.
 #[cfg(target_arch = "wasm32")]
 fn download(name: &str, bytes: &[u8]) -> bool {

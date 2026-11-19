@@ -28,24 +28,15 @@ use crate::{
 const SIZES: [(&str, usize); 3] = [("320 × 180", 0), ("480 × 270", 1), ("FILL × 240", 2)];
 const COLORS: [(&str, usize); 3] = [("Ocean", 0), ("Ember", 1), ("Moss", 2)];
 
-/// The slot the page's viewport shows: on a desktop the one the gallery's extension draws into, in a browser one
-/// nothing draws into.
+/// The slot the page's viewport shows: the one the gallery's extension draws into.
 fn page_slot() -> WgpuExternalImageSlot {
-  #[cfg(not(target_arch = "wasm32"))]
-  return crate::scene::slot().clone();
-  #[cfg(target_arch = "wasm32")]
-  WgpuExternalImageSlot::new()
+  crate::scene::slot().clone()
 }
 
 /// Tells the gallery's extension the colors of its rings and whether they turn.
 fn tell_scene(colors: usize, turning: bool) {
-  #[cfg(not(target_arch = "wasm32"))]
-  {
-    crate::scene::COLORS_AT.store(colors, Ordering::Relaxed);
-    crate::scene::TURNING.store(turning, Ordering::Relaxed);
-  }
-  #[cfg(target_arch = "wasm32")]
-  let _ = (colors, turning, Ordering::Relaxed);
+  crate::scene::COLORS_AT.store(colors, Ordering::Relaxed);
+  crate::scene::TURNING.store(turning, Ordering::Relaxed);
 }
 
 /// Whether the window is drawn with DirectX 12 (`--renderer dx12`). lurq's DirectX 12 renderer cannot sample a

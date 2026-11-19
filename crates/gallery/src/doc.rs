@@ -4,10 +4,9 @@
 //!
 //! The sizes here are the design's (`pencil/lurq-design-system-demo.pen`).
 
-use std::{
-  path::{Path, PathBuf},
-  sync::{Arc, Mutex},
-};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::{
@@ -43,6 +42,7 @@ const READING_LINE_IN_WINDOW: f32 = 240.0;
 #[derive(Clone)]
 pub struct PageScroll(pub ElementRef);
 /// The design system's board, from the root of the repository.
+#[cfg(not(target_arch = "wasm32"))]
 const BOARD: &str = "pencil/lurq-design-system.pen";
 
 /// What a page says of itself above its sections.
@@ -274,6 +274,7 @@ fn prose(content: &str, size: f32) -> Text {
 
 /// The root of the repository the gallery was built from. None on a phone or a tablet: the app has no way to the
 /// files, and nothing there to open them with.
+#[cfg(not(target_arch = "wasm32"))]
 fn repository() -> Option<PathBuf> {
   if cfg!(target_os = "ios") {
     return None;
@@ -281,7 +282,12 @@ fn repository() -> Option<PathBuf> {
   Some(Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?.to_path_buf())
 }
 
+/// Where the repository's files are shown on the web, on the branch the gallery is published from.
+#[cfg(target_arch = "wasm32")]
+const REPOSITORY_FILES: &str = "https://github.com/ivanzaida/lurq/blob/master";
+
 /// Opens a file in what the system opens it with: a source file in an editor, a board in Pencil.
+#[cfg(not(target_arch = "wasm32"))]
 fn open(path: &Path) {
   let program = if cfg!(target_os = "windows") {
     "explorer"
@@ -293,8 +299,24 @@ fn open(path: &Path) {
   let _ = std::process::Command::new(program).arg(path).spawn();
 }
 
+/// What a page offers beside its name in a browser: its source, on GitHub. A page has no files to open.
+#[cfg(target_arch = "wasm32")]
+fn page_actions(source: &'static str) -> Row {
+  let address = format!("{REPOSITORY_FILES}/{}", source.replace('\\', "/"));
+  Row::new().spacing(8.0).align_items(Alignment::Center).child(
+    Button::new("View source")
+      .variant(ButtonVariant::Outline)
+      .size(ButtonSize::Sm)
+      .icon("code")
+      .on_click(move |_| {
+        let _ = lurq::app::open_url(&address);
+      }),
+  )
+}
+
 /// What a page offers beside its name: its source, and the design it is built from. Each is there when the
 /// gallery runs from the repository, where the file is.
+#[cfg(not(target_arch = "wasm32"))]
 fn page_actions(source: &'static str) -> Row {
   let mut actions = Row::new().spacing(8.0).align_items(Alignment::Center);
   let Some(root) = repository() else {

@@ -56,6 +56,8 @@ mod trackpad_gestures;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(target_arch = "wasm32")]
+mod web_drop;
+#[cfg(target_arch = "wasm32")]
 mod web_text;
 #[cfg(any(target_arch = "wasm32", test))]
 mod web_wheel;
@@ -375,6 +377,9 @@ struct ManagedWindow {
   /// The textarea composed and inserted text comes to; see `web_text`.
   #[cfg(target_arch = "wasm32")]
   web_text: Option<web_text::WebText>,
+  /// Files dragged onto the page; see `web_drop`.
+  #[cfg(target_arch = "wasm32")]
+  web_drop: Option<web_drop::WebDrop>,
   /// The phone or tablet the window emulates, with the mouse as its fingers; see [`App::emulate`].
   emulator: Option<crate::app::runtime::mouse_fingers::MouseFingers>,
   /// The status bar was last asked to be hidden.
@@ -446,6 +451,8 @@ impl ManagedWindow {
       pen_pointer: None,
       #[cfg(target_arch = "wasm32")]
       web_text: None,
+      #[cfg(target_arch = "wasm32")]
+      web_drop: None,
       emulator: None,
       #[cfg(target_os = "ios")]
       status_bar_hidden: false,
@@ -587,6 +594,7 @@ impl ManagedWindow {
       self.wheel_pointer = web::WheelPointer::watch(&window);
       self.pen_pointer = web::PenPointer::watch(&window);
       self.web_text = web_text::WebText::new(&window, self.tree.window().loop_waker());
+      self.web_drop = web_drop::WebDrop::new(&window, self.tree.window().loop_waker());
     }
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
@@ -2502,16 +2510,23 @@ impl ApplicationHandler for WinitHandler {
       self.main.check_redraw();
       self.check_secondary_redraw();
     }
-    // The text of a paste the browser has answered; see `clipboard::web`.
+    // What a paste the browser has answered holds; see `clipboard::web`.
     #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
-    if let Some(text) = crate::clipboard::web::take_pasted() {
+    if let Some(pasted) = crate::clipboard::web::take_pasted() {
       // What this page copied with its Markdown, where the clipboard still holds what it wrote: the plain text,
       // and the Markdown beside it.
       use crate::app::events::ClipboardContent;
-      self.main.tree.paste(match crate::app::runtime::copied_rich(&text) {
-        Some((plain, markdown)) => ClipboardContent::text(plain).with_markdown(markdown),
-        None => ClipboardContent::text(text),
-      });
+      let mut content = match pasted.text {
+        Some(text) => match crate::app::runtime::copied_rich(&text) {
+          Some((plain, markdown)) => ClipboardContent::text(plain).with_markdown(markdown),
+          None => ClipboardContent::text(text),
+        },
+        None => ClipboardContent::empty(),
+      };
+      if let Some(image) = pasted.image {
+        content = content.with_image(image);
+      }
+      self.main.tree.paste(content);
     }
     // What came to the page as text and not as keys: see `web_text`.
     #[cfg(target_arch = "wasm32")]
@@ -2519,6 +2534,13 @@ impl ApplicationHandler for WinitHandler {
       && !typed.is_empty()
     {
       web_text::give(&mut self.main.tree, typed);
+      self.main.check_redraw();
+    }
+    // Files dragged onto the page: see `web_drop`.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(web_drop) = &self.main.web_drop
+      && web_drop.give(&mut self.main.tree)
+    {
       self.main.check_redraw();
     }
     self.main.tick();
