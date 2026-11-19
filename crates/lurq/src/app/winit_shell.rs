@@ -84,7 +84,9 @@ type SizeChangedFn = Box<dyn FnMut(u32, u32)>;
 
 pub struct WinitWindow {
   app: App,
-  tree: Tree,
+  // A tree is some 11 KB: boxed, the window's builders and the loop hand on a pointer, where a build without
+  // optimizations kept a copy of the whole on the stack at each step.
+  tree: Box<Tree>,
   attrs: WindowAttributes,
   start_without_focus: bool,
   corner_radius: Option<WindowCornerRadius>,
@@ -98,7 +100,7 @@ impl WinitWindow {
   pub fn new(app: App, tree: Tree) -> Self {
     Self {
       app,
-      tree,
+      tree: Box::new(tree),
       attrs: WindowAttributes::default(),
       start_without_focus: false,
       corner_radius: None,
@@ -342,7 +344,7 @@ impl WinitWindow {
 }
 
 struct ManagedWindow {
-  tree: Tree,
+  tree: Box<Tree>,
   window: Option<Window>,
   cursor_pos: (f64, f64),
   cursor: CursorIcon,
@@ -411,7 +413,7 @@ struct ManagedWindow {
 
 impl ManagedWindow {
   fn new(
-    tree: Tree,
+    tree: Box<Tree>,
     attrs: WindowAttributes,
     start_without_focus: bool,
     corner_radius: Option<WindowCornerRadius>,
@@ -2660,7 +2662,7 @@ impl ApplicationHandler for WinitHandler {
         .iter()
         .filter_map(|secondary_window| self.main.tree.secondary_window(secondary_window.index()))
         .map(|secondary| secondary.tree())
-        .chain(std::iter::once(&self.main.tree))
+        .chain(std::iter::once(&*self.main.tree))
     };
     let next_redraw = trees().filter_map(Tree::next_scheduled_redraw).min();
     // A file drag hovering over a window reads the pointer at its poll
