@@ -377,3 +377,33 @@ fn ctx_scroll_into_view_start_brings_the_top_of_an_element_to_the_top_of_the_vie
     bounds(&mut tree, "item-1").y
   );
 }
+
+#[test]
+fn what_the_on_screen_keyboard_covers_is_not_in_view() {
+  // A page as high as the window (600), its list going on under where the keyboard comes up and past the window.
+  let mut column = Column::new();
+  for index in 0..40 {
+    column = column.child(button(index));
+  }
+  let mut tree = headless(ScrollVertical::new(column).height(600.0));
+  // Item 13 ([520..560]) is in view with no keyboard: a request leaves it where it is.
+  tree
+    .get_element_by_id_mut("item-13")
+    .expect("item-13")
+    .scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  assert_within(bounds(&mut tree, "item-13"), 520.0, 560.0, "no keyboard");
+
+  // A keyboard of 300 over a bottom safe area of 34: the item rises over its top, at 300.
+  tree.window().set_safe_area(lurq::app::window::SafeAreaInsets {
+    bottom: 300.0,
+    keyboard: 266.0,
+    ..Default::default()
+  });
+  tree
+    .get_element_by_id_mut("item-13")
+    .expect("item-13")
+    .scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  assert_within(bounds(&mut tree, "item-13"), 260.0, 300.0, "over the keyboard");
+}

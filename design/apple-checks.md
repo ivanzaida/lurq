@@ -80,12 +80,16 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   sheet, a dialog) ends at once; off again, it moves again.
   2026-11-18: `the_platform_has_the_setting` passes on a Mac; Ivan turned the setting on with the gallery open and
   it took effect.
-- [ ] **Reduce motion, iOS.** Settings › Accessibility › Motion › Reduce Motion, back to `mobile_demo`: a sheet and a
+- [x] **Reduce motion, iOS.** Settings › Accessibility › Motion › Reduce Motion, back to `mobile_demo`: a sheet and a
   stack push switch without moving. It links on the simulator and on a device.
+  2026-11-19, on the simulator (iPhone 17, iOS 26.5), in the gallery's phone stack: with the setting off a screen
+  pushed slides in from the side; turned on with the gallery open, the next push fades in where it stands, as iOS's
+  own do.
 - [ ] **Light and dark** follow the system, and change live when the system's appearance changes (macOS: System
   Settings › Appearance; iOS: Control Centre).
   2026-11-18, macOS: the gallery on its theme System went dark and light again as the system's appearance was
-  changed under it, with no click (`appearance preferences` of System Events). iOS is not looked at.
+  changed under it, with no click (`appearance preferences` of System Events). 2026-11-19, iOS on the simulator: the
+  gallery on System went dark as the simulator's appearance was changed under it (`simctl ui appearance`).
 - [x] **The window's chrome on a Mac** (`ui::WindowChrome`): the traffic lights where macOS puts them and working,
   the title bar dragging the window, double-click zooming it, the gallery's tabs in the title bar (open, close,
   reorder, a new tab with Cmd+T), full screen and back.
@@ -98,10 +102,11 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   on it zooming it (Ivan, 2026-11-18: "ок").
 - [x] **Picture in picture.** Video Player page: picture in picture opens a small window that stays over other
   apps' windows (`always_on_top`), and closes back. 2026-11-18: Ivan: it works on a Mac.
-- [ ] **Opening an address** (`open_url`). Link Preview page and a `ui::Link` with `href`: macOS opens the default
+- [x] **Opening an address** (`open_url`). Link Preview page and a `ui::Link` with `href`: macOS opens the default
   browser (`NSWorkspace openURL:`), iOS opens Safari (`UIApplication openURL:`). A `file:` address is refused.
   2026-11-18: a preview opens the page in the browser on a Mac (Ivan saw it). The playground took the click itself
-  (`on_open` on by default), which looked like nothing opening: it is off by default now. iOS not looked at.
+  (`on_open` on by default), which looked like nothing opening: it is off by default now. 2026-11-19, iOS on the
+  simulator: a tap on a preview opened Safari at lurq.dev.
 - [ ] **File dialogs** (macOS): Path Field page — Browse… picks a folder, Save as… saves a file with the filter and
   the name; Cancel gives nothing. iOS has no dialog: the button says so or does nothing, and nothing crashes.
   2026-11-18: Ivan: the dialogs and the drop zone work on a Mac. iOS not looked at.
@@ -156,10 +161,18 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   over it and inside it. 2026-11-18: Ivan, on his iPhone, with the pointer starting coarse and a tap clicking once.
 - [x] **Lists**: scrolling with momentum, pull to refresh, a swipe row's actions. 2026-11-18: Ivan, on his iPhone, in
   the gallery's phone stack (Router and Outlets, "Open on the whole screen"): all of them, and the bounce at an end.
-- [ ] **The safe area**: Lightbox, Sheet, the tab bar and the navigation bar keep clear of the notch and the home
+- [x] **The safe area**: Lightbox, Sheet, the tab bar and the navigation bar keep clear of the notch and the home
   indicator, upright and on its side.
+  2026-11-19, on the simulator turned by DeviceHub (Xcode 27's Simulator): the phone stack's bar and rows and a
+  sheet keep clear of the notch on either side. The lightbox did not: on its side its close button and caption, and
+  in the form of a pointer its round button, were under the notch (it kept clear of the top and the bottom alone,
+  and in the phone's form alone). Fixed: it keeps clear of the four edges in both forms, and was seen so.
 - [ ] **The phone pieces' colors** (on recipes since 2026-11-17): the tab bar, the navigation bar, a sheet and pull
   to refresh in light and dark, as the board's Mobile frames.
+  2026-11-19, on the simulator, dark: the navigation bar, the list, pull to refresh and a swipe row's actions. Each
+  row of a dark list had a line of Flag's orange and Delete's red under it, the actions at rest showing through
+  where the row's edge fell between two pixels; fixed (a row at rest has nothing under it). Not compared with the
+  board yet.
 - [ ] **The gestures added on 2026-11-17, on a real phone, and adapted to how iOS does them** (time and distance
   thresholds, what the system keeps for itself): one-finger zoom (double tap held and dragged); three fingers
   swiped left/right undo/redo, pinched in/out copy/paste, tapped open the editing menu — and that iOS's own
@@ -189,7 +202,11 @@ Feature names are those after the feature cleanup of 2026-11-17 (`default` is th
   2026-11-18: Ivan: the pinch and the smart zoom work on a Mac.
 - [ ] **The emulator against the device.** The same page on the phone and on a Mac with `LURQ_DEVICE=phone`: the
   gestures feel and do the same; note what the mouse cannot imitate.
-- [ ] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).
+- [x] **The on-screen keyboard** over a field: the field stays in view (or write down that lurq does not move it).
+  2026-11-19, on the simulator with its keyboard on screen: Notes at the bottom of the Form page stayed under the
+  keyboard. lurq brought the focused input into view of its list, and the gallery's page goes on under the
+  keyboard, so the input was in view of it. What the keyboard covers is out of view now
+  (`runtime/scroll_into_view.rs`): Notes rises over the keyboard.
 
 ## 6. Sound and video
 
@@ -197,6 +214,8 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
 
 - [ ] **A sound plays** (`Media::sound`, `AVAudioPlayer`, made on a thread that is not the main one with no run
   loop): Audio Player page, a file and bytes; pause, seek, volume, mute; it ends and the player says so.
+  2026-11-19, on the simulator, the gallery's track from its bytes: its time goes on (0:10, 0:12 of 0:24), a pause
+  holds it, it ends at 0:24 with Play back, and plays again from 0:00. Not heard; seek, volume and mute not tried.
 - [ ] **Interrupted** by a call or another app's sound, it is paused, not ended.
 - [ ] **iOS's audio session**: with the ring switch on silent the app's sound is silent (the default session);
   whether lurq should set a playback category is a decision to take then.
@@ -210,6 +229,8 @@ The steps of [apple-verification.md](../docs/evidence/media-sound/apple-verifica
   ones Windows runs), and in the gallery the clip opens, plays and its time goes on, its frames drawn from the
   decoder's buffers with no copy (see 8). On Ivan's iPhone the video at an address plays and the app lags while
   it does: not explained yet. Not yet looked at: by ear; a clip filmed upright (drawn on its side, a known gap).
+  2026-11-19, iOS on the simulator: the clip from its bytes opens at 0:00 of 0:15, plays its bars and its counter,
+  and ends at 0:15 with Replay.
 
 ## 7. The tools
 

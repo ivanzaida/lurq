@@ -12,6 +12,10 @@
 //! viewport an element is brought into leaves out the room of what sticks to its edges, unless the element is in
 //! what sticks.
 //!
+//! While the on-screen keyboard is up, what it covers at the bottom of the window is not in view either: a viewport
+//! that goes on under it is taken to end at its top, so that an input at the bottom of a page that does not pad
+//! itself by the safe area rises over the keyboard all the same, as a field of UIKit's does.
+//!
 //! `Ctx::scroll_into_view_start` brings the element's top to the top of each viewport that scrolls down, as the web's
 //! `block: "start"` does, and is else resolved the same way.
 
@@ -52,20 +56,22 @@ impl Tree {
       return false;
     };
     targets.extend(requested.and_then(|element| node_with_ref(root, &element)));
+    let window = self.window().info();
+    let shown_above = (window.safe_area.keyboard > 0.0).then(|| window.logical_size().height - window.safe_area.bottom);
     let mut scrolled = false;
     for node_id in targets {
-      scrolled |= scroll_into_view(root, layout, node_id);
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Nearest, shown_above, |_, _| None);
     }
     // To the start of what scrolls it: after the nearest requests, so that it has the last word on its container.
     if let Some(node_id) = to_start.and_then(|element| node_with_ref(root, &element)) {
-      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Start, |_, _| None);
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Start, shown_above, |_, _| None);
     }
     // A range of a text: the lines it covers, where the text is laid out now.
     if let Some((element, range)) = range
       && let Some(node_id) = node_with_ref(root, &element)
     {
       let engine = &self.layout_engine;
-      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Nearest, |node, result| {
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Nearest, shown_above, |node, result| {
         engine
           .text_range_rect(node, result, range.clone())
           .map(|(x, y, width, height)| Rect { x, y, width, height })
@@ -90,7 +96,7 @@ fn node_with_ref(node: &Node, element: &OwnedElementRef) -> Option<NodeId> {
 /// Scrolls every scroll container around `node_id` just enough to show the
 /// node, innermost first. Returns whether any container moved.
 pub(super) fn scroll_into_view(root: &Node, layout: &LayoutResult, node_id: NodeId) -> bool {
-  scroll_part_into_view(root, layout, node_id, Block::Nearest, |_, _| None)
+  scroll_part_into_view(root, layout, node_id, Block::Nearest, None, |_, _| None)
 }
 
 /// Where a container that scrolls down brings what is scrolled into view.
@@ -104,7 +110,8 @@ enum Block {
 
 /// Scrolls every scroll container around `node_id` just enough to show the
 /// part of the node `part` gives, in the node's box (the lines of a range of
-/// a text); the whole node where it gives none. Returns whether any
+/// a text); the whole node where it gives none, over `shown_above` (in the
+/// window, where the keyboard's top is) when it is given. Returns whether any
 /// container moved; nothing moves where `part` finds nothing in a node that
 /// has it.
 fn scroll_part_into_view(
@@ -112,6 +119,7 @@ fn scroll_part_into_view(
   layout: &LayoutResult,
   node_id: NodeId,
   block: Block,
+  shown_above: Option<f32>,
   part: impl Fn(&Node, &LayoutResult) -> Option<Rect>,
 ) -> bool {
   let mut containers = Vec::new();
@@ -135,7 +143,12 @@ fn scroll_part_into_view(
       ScrollDirection::Vertical => (false, true),
       ScrollDirection::Both => (true, true),
     };
-    let viewport = clear_of_sticky(container, node_id, target);
+    let mut viewport = clear_of_sticky(container, node_id, target);
+    if let Some(bottom) = shown_above
+      && bottom > viewport.y
+    {
+      viewport.height = viewport.height.min(bottom - viewport.y);
+    }
     let dx = if scrolls_x {
       axis_delta(target.x, target.width, viewport.x, viewport.width)
     } else {

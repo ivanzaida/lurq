@@ -162,3 +162,30 @@ fn a_swipe_all_the_way_does_the_first_action() {
   assert_eq!(stage.flagged.load(Ordering::SeqCst), 0);
   assert_eq!(stage.open.get_untracked(), 0);
 }
+
+/// Whether a text of an action is in the tree.
+fn shows(tree: &mut Tree, text: &str) -> bool {
+  tree
+    .find_element(|element| element.text_content().is_some_and(|content| content == text))
+    .is_some()
+}
+
+#[test]
+fn a_row_at_rest_has_nothing_under_its_content() {
+  let mut stage = stage();
+  // Under a row at rest an action would show through where an edge of the content falls between two pixels.
+  assert!(
+    !shows(&mut stage.tree, "Delete"),
+    "a closed row has no actions under it"
+  );
+  stage.open.set(-1);
+  run_pass(&mut stage.tree);
+  assert!(shows(&mut stage.tree, "Delete"), "an open row shows its actions");
+  // Closed again, they stay while the content goes back over them.
+  stage.open.set(0);
+  run_pass(&mut stage.tree);
+  assert!(
+    shows(&mut stage.tree, "Delete"),
+    "the actions stay while the row closes"
+  );
+}
