@@ -30,7 +30,7 @@ const PAD: f32 = 360.0;
 const SCALES: (f32, f32) = (0.25, 6.0);
 
 /// The gestures the page hears, in the order of their lines.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, lurq::DevtoolsInspectable)]
 enum Gesture {
   Pinch,
   Rotate,
@@ -67,7 +67,7 @@ impl Gesture {
 }
 
 /// Where the square is: what the gestures did to it.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, lurq::DevtoolsInspectable)]
 struct Pose {
   scale: f32,
   /// Clockwise, in radians.
