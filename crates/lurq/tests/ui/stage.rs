@@ -217,6 +217,23 @@ impl Stage {
     }
   }
 
+  /// The ids of the elements of the window, in tree order.
+  pub fn ids(&self) -> Vec<String> {
+    fn collect(element: lurq::node::ElementRef<'_>, ids: &mut Vec<String>) {
+      if let Some(id) = element.id() {
+        ids.push(id.to_string());
+      }
+      for child in element.children() {
+        collect(child, ids);
+      }
+    }
+    let mut ids = Vec::new();
+    if let Some(root) = self.tree.root() {
+      collect(root, &mut ids);
+    }
+    ids
+  }
+
   /// The quad that draws the border of the element with `id`: with content
   /// in the element, its border is painted over the content, apart from its fill.
   pub fn border(&mut self, id: &str) -> Option<Quad> {

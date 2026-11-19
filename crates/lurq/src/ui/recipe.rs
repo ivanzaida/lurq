@@ -13,7 +13,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use super::part_style::PartStyle;
+use super::{
+  part_ids::{Lent, Owner},
+  part_style::PartStyle,
+};
 use crate::{
   app::theme::{Breakpoint, Density, RoleName, Theme},
   components::Text,
@@ -255,6 +258,8 @@ impl Case {
 #[derive(Clone, Debug, Default)]
 pub struct Recipe {
   rules: Vec<Rule>,
+  /// The part of another component this recipe was lent from, which names a component given no id of its own.
+  lent: Option<Lent>,
 }
 
 impl Recipe {
@@ -377,6 +382,7 @@ impl Recipe {
   /// `other` wins.
   pub fn extend(mut self, other: &Recipe) -> Self {
     self.rules.extend(other.rules.iter().cloned());
+    self.lent = Lent::over(self.lent, other.lent.as_ref());
     self
   }
 
@@ -388,6 +394,10 @@ impl Recipe {
     self.rules.is_empty()
   }
 
+  pub(crate) fn lent(&self) -> Option<&Lent> {
+    self.lent.as_ref()
+  }
+
   /// The style of every part for a component in `case`, in `theme`.
   pub fn resolve(&self, case: &Case, theme: &Theme) -> ResolvedRecipe {
     resolve(&[self], case, theme)
@@ -397,8 +407,17 @@ impl Recipe {
 /// The styles of every part of a component in one case: the rules of
 /// `recipes` that hold, each recipe's over the one before it.
 pub(crate) fn resolve(recipes: &[&Recipe], case: &Case, theme: &Theme) -> ResolvedRecipe {
-  ResolvedRecipe::new(theme, Arc::new(resolve_styles(recipes, &case.in_theme(theme))))
+  let lent = recipes.iter().rev().find_map(|recipe| recipe.lent.clone());
+  ResolvedRecipe::new(
+    theme,
+    Arc::new(resolve_styles(recipes, &case.in_theme(theme))),
+    ROOT,
+    lent,
+  )
 }
+
+/// The part a component puts its id on, unless it says another ([`Themed::ROOT`](super::Themed::ROOT)).
+pub(crate) const ROOT: &str = "root";
 
 /// The styles of [`resolve`], apart from a theme: they are the same in every
 /// theme with the same recipes, so a theme keeps them.
@@ -467,18 +486,96 @@ pub(crate) struct ResolvedStyles {
 
 /// The style of every part of a component as it is being built: what a
 /// renderer builds the component's nodes from.
+///
+/// Once [`owned_by`](Self::owned_by) the id of the component, it names the
+/// nodes it styles after it: `x-label` for the node of the part `label`, as
+/// [`ResolvedPart::apply`] gives it.
 #[derive(Clone)]
 pub struct ResolvedRecipe {
   theme: Theme,
   styles: Arc<ResolvedStyles>,
+  /// The part the component's id is on.
+  root: Name,
+  /// The id its parts are named after.
+  owner: Option<Owner>,
+  /// The part of the component it is built in that it stands for, if it was lent one.
+  lent: Option<Lent>,
 }
 
 impl ResolvedRecipe {
-  pub(crate) fn new(theme: &Theme, styles: Arc<ResolvedStyles>) -> Self {
+  pub(crate) fn new(theme: &Theme, styles: Arc<ResolvedStyles>, root: impl Into<Name>, lent: Option<Lent>) -> Self {
     Self {
       theme: theme.clone(),
       styles,
+      root: root.into(),
+      owner: None,
+      lent,
     }
+  }
+
+  /// The recipe of a component whose id is `id`, which names the nodes of its parts after it: `x-label`, `x-dot`,
+  /// and `x-label-2` for a second node of a part. The root's node is not named: the component puts `id` on it.
+  /// Given no id, the component takes the id of the part of the component it is built in that it stands for (as
+  /// [`rules_for`](Self::rules_for) or [`lend`](Self::lend) gave it), and puts it on its root; with neither, its
+  /// parts have no ids. What a component calls once, where it resolves its recipe.
+  pub fn owned_by(mut self, id: Option<&Arc<str>>) -> Self {
+    self.owner = match id {
+      Some(id) => Some(Owner::new(id.clone(), self.root, true)),
+      None => self.lent.take().and_then(|lent| lent.owner(self.root)),
+    };
+    self
+  }
+
+  /// This recipe naming its parts after the id `other` names them after, counted with `other`'s: a second recipe of
+  /// the same component in another case (an item while it is current, a row while it is disabled), resolved in the
+  /// same build.
+  pub fn owned_like(mut self, other: &ResolvedRecipe) -> Self {
+    self.owner = other.owner.as_ref().map(|owner| owner.rooted(self.root));
+    self.lent = None;
+    self
+  }
+
+  /// The recipe an item of the component is built with, its node the part `root`: given an id `y`, it names the
+  /// item's parts after it (`y-term`, `y-value`), whether the component has an id or not; given none, after the
+  /// component's id, as the rest of it.
+  pub fn item(&self, id: Option<&Arc<str>>, root: impl Into<Name>) -> Self {
+    let mut item = self.clone();
+    if let Some(id) = id {
+      item.owner = Some(Owner::new(id.clone(), root.into(), true));
+    }
+    item
+  }
+
+  /// The recipe an item of the component is built with that has no id of its own and a key that tells it from the
+  /// others (its value, a date): where the component has an id `x`, the item's node of the part `root` is
+  /// `x-<root>-<key>`, and its parts are named after that. Where the component has none, as the rest of it.
+  pub fn keyed_item(&self, key: &str, root: impl Into<Name>) -> Self {
+    let mut item = self.clone();
+    item.owner = self.owner.as_ref().map(|owner| owner.item(root.into(), key));
+    item
+  }
+
+  /// The id of the next node of `part`, for an element the renderer builds without the part's style, or a
+  /// component it gives the id to itself: `x-<part>`, numbered as [`ResolvedPart::apply`] numbers. `None` where the
+  /// component has no id, and for its root.
+  pub fn part_id(&self, part: impl Into<Name>) -> Option<Arc<str>> {
+    self.owner.as_ref()?.next(part.into())
+  }
+
+  /// Rules that lend `part` to a component built inside this one, given to it by its `rules`: the component, given
+  /// no id of its own, takes `part`'s id (`x-close`) and names its parts after it. [`rules_for`](Self::rules_for)
+  /// lends its part too. `part` may be a name that is no part of this recipe's: the inner component's own short
+  /// name (`calendar`), where it is the only one of its kind in this one, so that it is `x-calendar` and not named
+  /// after the panel it stands in.
+  pub fn lend(&self, part: impl Into<Name>) -> Recipe {
+    Recipe {
+      rules: Vec::new(),
+      lent: self.lent_part(part.into(), true),
+    }
+  }
+
+  fn lent_part(&self, part: Name, to_root: bool) -> Option<Lent> {
+    self.owner.clone().map(|owner| Lent::new(owner, part, to_root))
   }
 
   /// The style of a part. A part no rule styles has an empty one.
@@ -487,6 +584,8 @@ impl ResolvedRecipe {
       recipe: self.clone(),
       part: part.into(),
       forced: None,
+      named: true,
+      key: None,
     }
   }
 
@@ -510,9 +609,12 @@ impl ResolvedRecipe {
   /// items, and gives each button in it these rules over the theme's for a
   /// button (`Button::rules`).
   pub fn rules_for(&self, part: impl Into<Name>, inner: impl Into<Name>) -> Recipe {
-    let styles = self.styles(part.into()).clone();
+    let part = part.into();
+    let styles = self.styles(part).clone();
     let inner = inner.into();
-    Recipe::new()
+    let mut recipe = Recipe::new();
+    recipe.lent = self.lent_part(part, inner.as_str() == ROOT);
+    recipe
       .base(inner, |_| styles.rest.clone())
       .hovered(inner, |_| styles.hovered.clone())
       .pressed(inner, |_| styles.pressed.clone())
@@ -533,6 +635,10 @@ pub struct ResolvedPart {
   recipe: ResolvedRecipe,
   part: Name,
   forced: Option<Interaction>,
+  /// Whether the node it is given is named after the part ([`ResolvedRecipe::owned_by`]).
+  named: bool,
+  /// What tells its node from the others of the part, in place of their order.
+  key: Option<Arc<str>>,
 }
 
 impl ResolvedPart {
@@ -541,6 +647,30 @@ impl ResolvedPart {
   pub fn forced(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
+  }
+
+  /// The part, its node told apart from the others of the part by `key` (`x-day-2026-11-20`, `x-nav-previous`) in
+  /// place of its place among them (`x-day-20`): a day of a calendar, a button of each side. The key is an
+  /// identifier, the same in every language.
+  pub fn keyed(mut self, key: impl std::fmt::Display) -> Self {
+    self.key = Some(Arc::from(key.to_string()));
+    self
+  }
+
+  /// The part, its node given no id: a node that holds the component the part was lent to
+  /// ([`ResolvedRecipe::lend`]), which has the part's id on its own root.
+  pub fn unnamed(mut self) -> Self {
+    self.named = false;
+    self
+  }
+
+  /// The id the node of the part is given: by its key, or the next of the part.
+  fn id(&self) -> Option<Arc<str>> {
+    let owner = self.recipe.owner.as_ref()?;
+    match &self.key {
+      Some(key) => owner.keyed(self.part, key),
+      None => owner.next(self.part),
+    }
   }
 
   /// The styles the rules gave the part.
@@ -589,7 +719,16 @@ impl ResolvedPart {
 
   /// Gives a node the part's style: what it shows at rest, and what it shows
   /// under the pointer, held down and focused from the keyboard.
+  ///
+  /// A node with no id is given the part's id, where the component has one: see
+  /// [`ResolvedRecipe::owned_by`].
   pub(crate) fn apply(&self, node: &mut Node) {
+    if self.named
+      && node.element_id.is_none()
+      && let Some(id) = self.id()
+    {
+      NodeUpdate::id(node, id);
+    }
     let theme = self.theme();
     let styles = self.styles();
     self.rest().apply(node, theme);

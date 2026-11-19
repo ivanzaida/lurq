@@ -302,7 +302,9 @@ impl Spinner {
       label: self.label,
       label_hidden: self.label_hidden,
       decorative: self.decorative,
-      recipe: theme.resolve::<Spinner>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Spinner>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

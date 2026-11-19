@@ -326,7 +326,9 @@ impl Badge {
       dot_only: self.dot_only,
       count: self.count,
       shown: self.count.is_none_or(|n| n > 0 || self.show_zero),
-      recipe: theme.resolve::<Badge>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Badge>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       on: self.on,
       id: self.id,
       key: self.key,

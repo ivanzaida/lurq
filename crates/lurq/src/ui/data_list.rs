@@ -199,6 +199,12 @@ impl DataList {
     }
     .state(DataListState::Horizontal, !self.orientation.is_vertical())
     .state(DataListState::Vertical, self.orientation.is_vertical());
+    let recipe = theme
+      .resolve::<DataList>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    let separator = theme
+      .resolve::<DataList>(&case.state(DataListState::Separator, true), Some(&self.rules))
+      .owned_like(&recipe);
     let view = DataListView {
       items: self
         .items
@@ -217,8 +223,8 @@ impl DataList {
         .collect(),
       orientation: self.orientation,
       label: self.label,
-      recipe: theme.resolve::<DataList>(&case, Some(&self.rules)),
-      separator: theme.resolve::<DataList>(&case.state(DataListState::Separator, true), Some(&self.rules)),
+      recipe,
+      separator,
       id: self.id,
       key: self.key,
     };

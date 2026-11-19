@@ -26,6 +26,10 @@ pub trait Themed: 'static {
   /// The name the theme keeps the component's recipe and renderer under.
   const NAME: &'static str;
 
+  /// The part the component puts its id on, which [`ResolvedRecipe::owned_by`] names no other node after: `"root"`
+  /// unless the component says another (an overlay's `"panel"`).
+  const ROOT: &'static str = super::recipe::ROOT;
+
   /// What builds the component's nodes: usually
   /// `Arc<dyn Fn(&View) -> Element + Send + Sync>` for the component's view.
   type Renderer: Clone + Send + Sync + 'static;
@@ -356,9 +360,10 @@ impl Theme {
     let layers = self.with_ui(|ui| ui.layers::<C>());
     let case = &case.in_theme(self);
     let mut recipes: Vec<&Recipe> = layers.iter().map(|layer| &**layer).collect();
+    let lent = instance.and_then(|rules| rules.lent()).cloned();
     if let Some(instance) = instance.filter(|rules| !rules.is_empty()) {
       recipes.push(instance);
-      return ResolvedRecipe::new(self, Arc::new(resolve_styles(&recipes, case)));
+      return ResolvedRecipe::new(self, Arc::new(resolve_styles(&recipes, case)), C::ROOT, lent);
     }
     let key = (Name::new(C::NAME), case.clone());
     let version = self.version();
@@ -372,7 +377,7 @@ impl Theme {
       .entry(key)
       .or_insert_with(|| Arc::new(resolve_styles(&recipes, case)))
       .clone();
-    ResolvedRecipe::new(self, styles)
+    ResolvedRecipe::new(self, styles, C::ROOT, lent)
   }
 
   /// The renderer the theme gives a component in place of its default one.

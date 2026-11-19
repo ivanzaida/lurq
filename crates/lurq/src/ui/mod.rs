@@ -119,6 +119,7 @@ mod number_input;
 mod opening_rows;
 mod outcome;
 mod pagination;
+mod part_ids;
 mod part_style;
 mod password_input;
 mod path_field;
