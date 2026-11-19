@@ -37,6 +37,8 @@ The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appea
 - A growing child with a flex basis, and the least width of a `Column` in a row that shrinks to its content: see [Layout](#layout).
 - A notch of a mouse's wheel, which is animated, and a finger's tap that a handler takes or that is of two fingers, which clicks nothing: see [Focus, Keys And Pointer](#focus-keys-and-pointer).
 - Going back: the mouse's side buttons, Alt+← and Alt+→ (Cmd+[ and Cmd+] on a Mac), a swipe and Android's back move the mounted router by themselves, and an `on_history_swipe` handler that moved it too moves it twice: see [Back And Forward](#back-and-forward).
+- An undo in a text input, which takes back a run of typing, where it took back one character: see [Undo Takes Back A Run Of Typing](#undo-takes-back-a-run-of-typing).
+- On a Mac, an Edit menu lurq puts in the bar, which takes Cmd+Z, Cmd+C, Cmd+V and the others before the window: see [A Mac's Edit Menu](#a-macs-edit-menu).
 - The phone's sheet, tab bar, navigation bar, pull to refresh, swipe row and a stack's shades, and the engine's `Select`, checkbox and slider, which take their colors from the theme through a recipe: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 - A child of a `presence()` container added again while it leaves, and a transition when the theme changes: see [Animation And Presence](#animation-and-presence).
 - The DevTools window, which is drawn in the design system's theme whatever the app's is: see [DevTools](#devtools).
@@ -642,6 +644,21 @@ The `on_mouse_enter` and `on_mouse_leave` of a disabled element run as the point
 
 A handler that must not run while its element is disabled checks for itself, with the value the app disabled it by or with `InteractionState::is_disabled()`. See [Disabled](../styling-events/#disabled).
 
+### Undo Takes Back A Run Of Typing
+
+An undo in a text input takes back what was typed as the platform's own fields do, where it took back one character at a time. A run of typing is one step until the caret moves or typing turns to deleting (Backspace held down is one step); on Windows a word that begins starts a step too, as RichEdit and Notepad have it. Typing that comes more than a second after the typing before is a step of its own. A paste, a cut and the deletion of a selection are each a step.
+
+The pause is the app's to set, or to take away, so that only the caret and the turn to deleting end a step:
+
+```rust
+use std::time::Duration;
+
+app.set_typing_undo_pause(Some(Duration::from_millis(1500)));
+app.set_typing_undo_pause(None);
+```
+
+A test that typed and undid one character at a time and counted the steps counts runs now.
+
 ## Windows And Chrome
 
 ### A Modal Over The Window Ends At The Title Bar
@@ -681,6 +698,18 @@ ChromeTitleBar::new()
 ```
 
 and gives the window's edge its color with `WindowChrome::border(ChromeBorderPolicy::Visible { size: 1.0, color: Color::from_hex("#252a32").into() })`.
+
+### A Mac's Edit Menu
+
+On macOS every app has an Edit menu now: Undo, Redo, Cut, Copy, Paste, Select All with their keys, and the system's Emoji & Symbols, in the words of the app's locale. Each item runs on the focus of the window in front what its key runs there, so a text input behaves as it did. An app with no bar of its own (`App::set_menu_bar`) gets the system's menu of the app beside it.
+
+The menu takes its keys before the window. An app that takes Cmd+Z, Cmd+X, Cmd+C, Cmd+V or Cmd+A for itself, in a handler of keys, turns it off:
+
+```rust
+app.set_edit_menu(false);
+```
+
+An app with a bar of its own that has an item of editing (`MenuAction::edit(EditCommand::..)`, or the whole of `Menu::edit()`) has its Edit menu where it put it, and lurq adds none.
 
 ## Animation And Presence
 
@@ -924,4 +953,5 @@ A `match` with no `_` arm must take a new variant. A struct written out field by
 | `DevToolsProps` (`devtools`) | `system` | The inspected window's settings, `window.info().system` |
 | `ComponentValueChangeDebug` (`devtools`) | `sequence` | `sequence: 0` |
 | `PersistentStorageSnapshotEntry` | `fields` | `fields: Vec::new()` |
+| `ImagePixelFormat` | `I420`, a picture of three planes as a software decoder gives it | A `match` arm |
 | `AppEvent` | `GraphicsDeviceLost` | A `match` arm: the window's graphics device was lost, and lurq draws it with another |
