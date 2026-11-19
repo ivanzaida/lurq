@@ -25,7 +25,38 @@ pub(crate) struct Owner {
   /// first node of its root by the recipe.
   own: bool,
   /// How many nodes of each part have been named, shared by every clone of the recipe of one build.
-  counts: Arc<Mutex<HashMap<Name, usize>>>,
+  counts: Arc<Mutex<Counts>>,
+}
+
+/// How many nodes of each part have been named, in each of the last renders the owner's parts were built in: what
+/// a renderer builds in a closure that runs again in a later render (a panel's content, a component that renders
+/// again by itself with the rules it was lent) counts from the start again, and is named as it was the first time.
+#[derive(Default)]
+struct Counts {
+  renders: Vec<(u64, HashMap<Name, usize>)>,
+}
+
+impl Counts {
+  /// The renders kept: a recipe that a closure keeps and builds from at every render does not grow.
+  const KEPT: usize = 4;
+
+  /// One more node of `part` in the render going on: how many there are with it.
+  fn add(&mut self, part: Name) -> usize {
+    let render = super::theme::current_render();
+    let at = match self.renders.iter().position(|(held, _)| *held == render) {
+      Some(at) => at,
+      None => {
+        if self.renders.len() == Self::KEPT {
+          self.renders.remove(0);
+        }
+        self.renders.push((render, HashMap::new()));
+        self.renders.len() - 1
+      }
+    };
+    let count = self.renders[at].1.entry(part).or_default();
+    *count += 1;
+    *count
+  }
 }
 
 impl Owner {
@@ -46,13 +77,11 @@ impl Owner {
   /// The id of the next node of `part`: `None` for the root, whose id is the owner's own, but the first node of a
   /// root the owner was lent.
   pub(crate) fn next(&self, part: Name) -> Option<Arc<str>> {
-    let mut counts = self.counts.lock();
-    let count = counts.entry(part).or_default();
-    *count += 1;
+    let count = self.counts.lock().add(part);
     if part == self.root {
-      return (!self.own && *count == 1).then(|| self.id.clone());
+      return (!self.own && count == 1).then(|| self.id.clone());
     }
-    Some(match *count {
+    Some(match count {
       1 => self.named(part, None),
       n => self.named(part, Some(&n.to_string())),
     })
