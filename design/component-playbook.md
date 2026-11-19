@@ -332,7 +332,10 @@ an alias.
   `ui` built inside is given the part it stands for, by `rules_for` or `.rules(&recipe.lend(name))`, `name` its own
   short name where it is the only one of its kind there (`calendar`), else the part's; a node around it that has
   the part's style takes `part.unnamed()`. A renderer never builds a part it drops: the next of the part would be
-  numbered after it. With no id, nothing is named.
+  numbered after it. The count is kept for each render, so what a closure builds again in a later render (a panel's
+  content, a component that renders again by itself) is numbered as the first time; a row of a virtual list, whose
+  place among those built moves with the scroll, is keyed (by its id, key or path), never numbered. With no id,
+  nothing is named.
 - **Every typed control**: `label`, `placeholder` where it has one, `size`, `invalid`, `warning`, `valid`,
   `read_only`, `disabled`, `full_width`, `name` (with `form`), and is a `FieldControl`.
 - **Every choice control**: the value and `on_change`, `bind(Signal<bool>)` for one bound to a signal, `label`,
