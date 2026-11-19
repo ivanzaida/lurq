@@ -70,7 +70,7 @@ fn open_source(main: MainThreadMarker, source: FileSource, dialog: FileDialog, a
   match source {
     FileSource::Files => present(main, dialog, answering),
     FileSource::PhotoLibrary => super::photos::present(main, &dialog, answering),
-    FileSource::Camera => camera(main, answering),
+    FileSource::Camera => camera(main, answering, dialog.multiple),
   }
 }
 
@@ -177,11 +177,15 @@ fn camera_ready() -> bool {
   }
 }
 
-/// The camera that is open, and what is told the picture.
+/// The camera that is open, and what is told the pictures.
 struct Shooting {
   answering: Answering,
   picker: Retained<AnyObject>,
   _delegate: Retained<AnyObject>,
+  /// Whether the dialog takes several files: the camera opens again after each picture kept, until it is put
+  /// away, and the pictures kept are given then.
+  multiple: bool,
+  taken: Vec<DroppedFile>,
 }
 
 // SAFETY: touched on the main thread alone.
@@ -194,12 +198,18 @@ unsafe extern "C" {
   fn UIImageJPEGRepresentation(image: *mut AnyObject, quality: f64) -> *mut AnyObject;
 }
 
-/// The system's camera, for one picture.
-fn camera(_main: MainThreadMarker, answering: Answering) {
+/// The system's camera: for one picture, or for one after another where the dialog takes several. iOS's camera
+/// takes one at a time; it is shown anew after each picture kept.
+fn camera(_main: MainThreadMarker, answering: Answering, multiple: bool) {
+  show_camera(answering, multiple, Vec::new());
+}
+
+/// Shows the camera, with the pictures kept so far.
+fn show_camera(answering: Answering, multiple: bool, taken: Vec<DroppedFile>) {
   let mut shooting = SHOOTING.lock().unwrap();
   let over = top_controller();
   let (Some(over), None) = (over, shooting.as_ref()) else {
-    answering.give(Vec::new());
+    answering.give(taken);
     return;
   };
   // SAFETY: on the main thread, with UIKit's picker of the camera.
@@ -214,19 +224,20 @@ fn camera(_main: MainThreadMarker, answering: Answering) {
       answering,
       picker,
       _delegate: delegate,
+      multiple,
+      taken,
     });
   }
 }
 
-/// The picture taken: kept as a JPEG in a folder of its own of the temporary folder, and given.
+/// The picture taken: kept as a JPEG in a folder of its own of the temporary folder, and given; where the dialog
+/// takes several, kept with the others and the camera shown again.
 extern "C-unwind" fn shot(_this: &AnyObject, _cmd: Sel, _picker: &AnyObject, info: &AnyObject) {
-  let Some(shooting) = SHOOTING.lock().unwrap().take() else {
+  let Some(mut shooting) = SHOOTING.lock().unwrap().take() else {
     return;
   };
   // SAFETY: the picker's info, a dictionary that holds the picture taken under its key.
   let file = unsafe {
-    let _: () =
-      msg_send![&*shooting.picker, dismissViewControllerAnimated: Bool::YES, completion: std::ptr::null::<c_void>()];
     let image: Option<Retained<AnyObject>> =
       msg_send![info, objectForKey: &*NSString::from_str("UIImagePickerControllerOriginalImage")];
     image.and_then(|image| {
@@ -245,19 +256,43 @@ extern "C-unwind" fn shot(_this: &AnyObject, _cmd: Sel, _picker: &AnyObject, inf
       written.as_bool().then_some(path)
     })
   };
-  shooting
-    .answering
-    .give(file.map(DroppedFile::from_path).into_iter().collect());
+  shooting.taken.extend(file.map(DroppedFile::from_path));
+  let Shooting {
+    answering,
+    picker,
+    multiple,
+    taken,
+    ..
+  } = shooting;
+  if !multiple {
+    // SAFETY: on the main thread, the picker shown.
+    unsafe {
+      let _: () = msg_send![&*picker, dismissViewControllerAnimated: Bool::YES, completion: std::ptr::null::<c_void>()];
+    }
+    answering.give(taken);
+    return;
+  }
+  // The next picture: once this camera is put away, another is shown.
+  let next = Mutex::new(Some((answering, taken)));
+  let again = block2::RcBlock::new(move || {
+    if let Some((answering, taken)) = next.lock().unwrap().take() {
+      show_camera(answering, true, taken);
+    }
+  });
+  // SAFETY: on the main thread, the picker shown; the block is called once, when it is put away.
+  unsafe {
+    let _: () = msg_send![&*picker, dismissViewControllerAnimated: Bool::YES, completion: &*again];
+  }
 }
 
-/// The camera was put away: nothing is given.
+/// The camera was put away: the pictures kept before are given, none for a camera of one picture.
 extern "C-unwind" fn shot_none(_this: &AnyObject, _cmd: Sel, _picker: &AnyObject) {
   if let Some(shooting) = SHOOTING.lock().unwrap().take() {
     unsafe {
       let _: () =
         msg_send![&*shooting.picker, dismissViewControllerAnimated: Bool::YES, completion: std::ptr::null::<c_void>()];
     }
-    shooting.answering.give(Vec::new());
+    shooting.answering.give(shooting.taken);
   }
 }
 
