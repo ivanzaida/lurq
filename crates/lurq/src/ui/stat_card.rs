@@ -292,7 +292,9 @@ impl StatCard {
       tone: self.variant,
       on_click: self.on_click,
       forced: self.forced,
-      recipe: theme.resolve::<StatCard>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<StatCard>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };
@@ -381,7 +383,12 @@ impl StatCardView {
       .part(&self.part(StatCardPart::Footer));
     if let Some(delta) = &self.delta {
       let variant = StatCardVariant::named(self.tone).unwrap_or_default().badge();
-      footer = footer.child(Badge::new(delta).variant(variant).build(self.theme()));
+      footer = footer.child(
+        Badge::new(delta)
+          .variant(variant)
+          .rules(&self.recipe.lend("badge"))
+          .build(self.theme()),
+      );
     }
     if let Some(description) = &self.description {
       let part = self.part(StatCardPart::Description);

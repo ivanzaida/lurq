@@ -296,7 +296,9 @@ impl Outcome {
       body: self.body,
       actions: self.actions,
       bordered: self.bordered,
-      recipe: theme.resolve::<Outcome>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Outcome>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

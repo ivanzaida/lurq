@@ -284,7 +284,9 @@ impl Textarea {
       invalid: self.boxed.judgment() == Some(Judgment::Invalid),
       read_only: self.boxed.read_only,
       disabled: self.boxed.disabled,
-      recipe: theme.resolve::<Textarea>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Textarea>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       boxed: self.boxed,
       on_input: self.on_input,
@@ -429,6 +431,7 @@ impl crate::ui::Styled for Textarea {
 
 impl Themed for Textarea {
   const NAME: &'static str = "textarea";
+  const ROOT: &'static str = "control";
   type Renderer = TextareaRenderer;
 
   fn parts() -> crate::ui::Declared {

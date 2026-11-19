@@ -267,7 +267,9 @@ impl Menubar {
       label: self.label,
       open: open.filter(|_| !self.disabled),
       mnemonics,
-      recipe: theme.resolve::<Menubar>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Menubar>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       case,
       rules: self.rules,
       forced: self.forced,
@@ -469,6 +471,11 @@ impl MenubarView {
     self
       .theme()
       .resolve::<Menubar>(&case, Some(&self.rules))
+      .owned_like(&self.recipe)
+      .item(
+        self.menus.get(index).and_then(|menu| menu.id.as_ref()),
+        MenubarPart::Item,
+      )
       .part(part)
       .forced(self.forced.filter(|_| self.entry() == Some(index)))
   }
@@ -683,6 +690,7 @@ impl crate::ui::Styled for Menubar {
 
 impl Themed for Menubar {
   const NAME: &'static str = "menubar";
+  const ROOT: &'static str = "bar";
   type Renderer = MenubarRenderer;
 
   fn parts() -> crate::ui::Declared {

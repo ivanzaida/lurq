@@ -332,7 +332,9 @@ impl Popconfirm {
       rules = rules.base(PopconfirmPart::Panel, |s| s.width(width));
     }
     let rules = rules.extend(&self.rules);
-    let recipe = theme.resolve::<Popconfirm>(&case, Some(&rules));
+    let recipe = theme
+      .resolve::<Popconfirm>(&case, Some(&rules))
+      .owned_by(self.id.as_ref());
     let rules = recipe
       .rules_for(PopconfirmPart::Panel, PopoverPart::Panel)
       .extend(&recipe.rules_for(PopconfirmPart::Body, PopoverPart::Body));

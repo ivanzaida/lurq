@@ -489,7 +489,9 @@ impl Sheet {
       dismiss_on_veil: self.dismiss_on_veil,
       dismiss_on_escape: self.dismiss_on_escape,
       inline: self.inline,
-      recipe: theme.resolve::<Sheet>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Sheet>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       open: self.open,
       detents: self.detents,
       detent: self.detent,
@@ -1059,6 +1061,7 @@ impl crate::ui::Styled for Sheet {
 
 impl Themed for Sheet {
   const NAME: &'static str = "sheet";
+  const ROOT: &'static str = "panel";
   type Renderer = SheetRenderer;
 
   fn parts() -> crate::ui::Declared {

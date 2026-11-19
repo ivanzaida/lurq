@@ -236,7 +236,9 @@ impl MediaSpeedMenu {
       rate: self.rate,
       rates: self.rates,
       inline: self.inline,
-      recipe: theme.resolve::<MediaSpeedMenu>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<MediaSpeedMenu>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       open: self.open,
       anchor: self.anchor,
       on_change: Arc::new(self.on_change),
@@ -320,6 +322,7 @@ impl MediaSpeedMenuView {
     let mut item = MenuItem::new(&media_rate_text(rate))
       .checked(current)
       .key(format!("rate-{rate}"))
+      .named_by(&self.recipe, MediaSpeedMenuPart::Item)
       .rules(&rules)
       .on_select(move || {
         if !current {
@@ -392,6 +395,7 @@ impl crate::ui::Styled for MediaSpeedMenu {
 
 impl Themed for MediaSpeedMenu {
   const NAME: &'static str = "media_speed_menu";
+  const ROOT: &'static str = "panel";
   type Renderer = MediaSpeedMenuRenderer;
 
   fn parts() -> crate::ui::Declared {

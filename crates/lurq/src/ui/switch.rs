@@ -210,7 +210,9 @@ impl Switch {
       on: self.on,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme.resolve::<Switch>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Switch>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       id: self.id,
@@ -354,6 +356,7 @@ impl crate::ui::Styled for Switch {
 
 impl Themed for Switch {
   const NAME: &'static str = "switch";
+  const ROOT: &'static str = "track";
   type Renderer = SwitchRenderer;
 
   fn parts() -> crate::ui::Declared {

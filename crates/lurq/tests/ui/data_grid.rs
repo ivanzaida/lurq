@@ -2111,7 +2111,12 @@ fn filtered_rows_are_grouped_and_a_groups_count_is_of_those_let_through() {
   stage.pass();
   // theme.rs of 9 is filtered out: Passing holds canvas.rs alone, and Building blur.rs.
   assert_eq!(rows_built(&stage), [1], "the open group's rows the filter lets through");
-  assert_eq!(ids_with(&stage, "g-group-").len(), 2, "a group for each status left");
+  // A group's row is `g-group-<place>`; its parts are named after it (`g-group-0-label`).
+  let groups = ids_with(&stage, "g-group-")
+    .into_iter()
+    .filter(|id| id["g-group-".len()..].chars().all(|c| c.is_ascii_digit()))
+    .count();
+  assert_eq!(groups, 2, "a group for each status left");
   filters.set(TableFilters::new());
   stage.pass();
   assert_eq!(rows_built(&stage), [1, 2]);

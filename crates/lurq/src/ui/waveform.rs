@@ -244,7 +244,9 @@ impl Waveform {
       step: self.step,
       label: self.label,
       disabled: self.disabled,
-      recipe: theme.resolve::<Waveform>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Waveform>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       bound: self.bound,
       on_change: self.on_change,
       on_change_end: self.on_change_end,

@@ -819,11 +819,17 @@ impl Component for LightboxHost {
       whole.id = whole.id.map(|id| Arc::from(format!("{id}-full")));
       whole.into()
     });
+    let recipe = theme
+      .resolve::<Lightbox>(&case(false), Some(&lightbox.rules))
+      .owned_by(lightbox.id.as_ref());
+    let current = theme
+      .resolve::<Lightbox>(&case(true), Some(&lightbox.rules))
+      .owned_like(&recipe);
     let view = LightboxView {
       expand,
       expanded,
-      recipe: theme.resolve::<Lightbox>(&case(false), Some(&lightbox.rules)),
-      current: theme.resolve::<Lightbox>(&case(true), Some(&lightbox.rules)),
+      recipe,
+      current,
       index,
       zoom,
       shown,
@@ -1316,6 +1322,7 @@ impl LightboxView {
       )));
       menu = Some(
         Menu::new(self.more_open.clone(), self.more.clone())
+          .rules(&self.recipe.lend("menu"))
           .label(&lightbox.words.more)
           .placement(Placement::BottomEnd)
           .items(items)

@@ -414,7 +414,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
   /// The transfer as a renderer sees it, but for its lists, which are given apart, to be built or mounted: each a
   /// listbox, and whether it is long enough to build only the items near its view.
   fn view(&self, theme: &Theme, kept: Kept<T>) -> (TransferView, [Option<(Listbox<T, [T]>, bool)>; 2]) {
-    let recipe = theme.resolve::<Transfer<T>>(&self.case(kept.stacked), Some(&self.rules));
+    let recipe = theme
+      .resolve::<Transfer<T>>(&self.case(kept.stacked), Some(&self.rules))
+      .owned_by(self.id.as_ref());
     // The words it was not told: its own locale's, else the app's, read where it is built.
     let words = match &self.locale {
       Some(words) => words.clone(),
@@ -531,7 +533,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Transfer<T> {
         select_all_label: told(&self.select_all_label, &words.select_all),
         disabled: self.disabled,
         all,
-        recipe: recipe.clone(),
+        // Its parts are named after its own id: `x-source-title`.
+        recipe: recipe.item(id.as_ref(), TransferPart::List),
         id,
       };
       (side, list)
