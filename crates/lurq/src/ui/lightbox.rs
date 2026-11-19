@@ -695,13 +695,12 @@ impl Component for LightboxHost {
         }
       }
     };
-    // Over the whole of a phone's screen it keeps clear of what the system draws over its edges.
-    let safe = match phone && !lightbox.inline {
-      true => {
-        let safe = ctx.safe_area();
-        (safe.top, safe.bottom)
-      }
-      false => (0.0, 0.0),
+    // Over the whole of a phone's screen it keeps clear of what the system draws over its edges: the status bar
+    // and the home indicator, and on its side the camera's notch and the corners. In either form: a phone on its
+    // side may be wide enough for the form of a pointer.
+    let safe = match lightbox.inline {
+      false => ctx.safe_area(),
+      true => crate::app::window::SafeAreaInsets::default(),
     };
     let drop = self.drop.get();
     let zoom = zoom_signal.get().clamp(1.0, max);
@@ -932,8 +931,9 @@ pub struct LightboxView {
   shift: Arc<dyn Fn(f32, f32) + Send + Sync>,
   /// Whether it is the phone's form.
   pub phone: bool,
-  /// How far in from the top and the bottom of the screen what the system draws ends, on a phone.
-  safe: (f32, f32),
+  /// How far in from each edge of the screen what the system draws ends, on a phone; nothing where it stands in
+  /// a page.
+  safe: crate::app::window::SafeAreaInsets,
   /// The stage's size, once it is laid out.
   room: (f32, f32),
   /// How far down a finger has dragged the picture, and where that is kept.
@@ -1480,7 +1480,7 @@ impl LightboxView {
     // Under it, what the system draws over the screen's lower edge.
     Column::new()
       .width(full)
-      .padding_bottom(self.safe.1)
+      .padding_bottom(self.safe.bottom)
       .child(bottom)
       .into()
   }
@@ -1578,7 +1578,9 @@ impl LightboxView {
       let stage = self.phone_stage();
       let bottom = self.phone_bottom();
       return panel
-        .padding_top(self.safe.0)
+        .padding_top(self.safe.top)
+        .padding_left(self.safe.left)
+        .padding_right(self.safe.right)
         .child(top)
         .child(stage)
         .child(bottom)
@@ -1586,7 +1588,13 @@ impl LightboxView {
     }
     let top = self.top();
     let stage = self.stage();
-    panel = panel.child(top).child(stage);
+    panel = panel
+      .padding_top(self.safe.top)
+      .padding_left(self.safe.left)
+      .padding_right(self.safe.right)
+      .padding_bottom(self.safe.bottom)
+      .child(top)
+      .child(stage);
     if let Some(strip) = self.filmstrip() {
       panel = panel.child(strip);
     }

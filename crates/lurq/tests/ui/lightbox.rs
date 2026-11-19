@@ -1058,3 +1058,46 @@ fn finger_tap(stage: &mut Stage, x: f32, y: f32) {
   stage.frame();
   stage.pass();
 }
+
+#[test]
+fn over_a_phone_on_its_side_its_buttons_keep_clear_of_the_notch() {
+  // A phone on its side: the notch's side and the other are kept clear alike, as iOS says.
+  let safe = lurq::app::window::SafeAreaInsets {
+    left: 62.0,
+    right: 62.0,
+    bottom: 21.0,
+    ..Default::default()
+  };
+  for variant in [None, Some(LightboxVariant::Desktop)] {
+    let mut stage = Stage::first_frame_in(for_a_finger(), 874.0, 402.0, move |_| {
+      let lightbox = Lightbox::new(Signal::new(true), pictures()).id("viewer");
+      Column::new()
+        .size(874.0, 402.0)
+        .child(match variant {
+          Some(variant) => lightbox.variant(variant),
+          None => lightbox,
+        })
+        .into()
+    });
+    stage.tree.window().set_safe_area(safe);
+    settled(&mut stage);
+    assert_eq!(
+      stage.bounds("viewer"),
+      (0.0, 0.0, 874.0, 402.0),
+      "{variant:?}: its black takes the screen"
+    );
+    // The stage, from edge to edge of the room it has; the first picture's, with nothing before it.
+    let mut ends = vec!["viewer-close", "viewer-stage"];
+    if variant.is_some() {
+      ends.push("viewer-next");
+    }
+    for id in ends {
+      let (x, _, width, _) = stage.bounds(id);
+      assert!(
+        x >= 62.0 - 0.5 && x + width <= 874.0 - 62.0 + 0.5,
+        "{variant:?}: {id} at {x}..{} is under the notch's side or the other",
+        x + width
+      );
+    }
+  }
+}
