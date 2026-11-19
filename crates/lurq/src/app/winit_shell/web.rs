@@ -124,6 +124,22 @@ pub(super) fn canvas_size(window: &Window) -> Option<PhysicalSize<u32>> {
   (width >= 1.0 && height >= 1.0).then(|| PhysicalSize::new(width as u32, height as u32))
 }
 
+/// The name of the page's performance mark at the first frame the app presents: what a page's own script, a
+/// profiler or a test measures the start of the app by (`performance.getEntriesByName("lurq:first-frame")`).
+const FIRST_FRAME_MARK: &str = "lurq:first-frame";
+
+/// Marks the first frame presented in the page's performance timeline, once.
+pub(super) fn mark_first_frame() {
+  use std::sync::atomic::{AtomicBool, Ordering};
+  static MARKED: AtomicBool = AtomicBool::new(false);
+  if MARKED.swap(true, Ordering::Relaxed) {
+    return;
+  }
+  if let Some(performance) = web_sys::window().and_then(|window| window.performance()) {
+    let _ = performance.mark(FIRST_FRAME_MARK);
+  }
+}
+
 /// Whether winit's size of the canvas is not the page's: off by more than the rounding of a fractional ratio.
 pub(super) fn size_disagrees(winit: PhysicalSize<u32>, page: PhysicalSize<u32>) -> bool {
   winit.width != 0

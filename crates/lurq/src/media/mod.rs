@@ -32,13 +32,13 @@
 use std::{
   collections::VecDeque,
   sync::{Arc, Condvar, Mutex, MutexGuard},
-  time::{Duration, Instant},
 };
 
 pub use crate::core::{MediaError, MediaInfo};
 use crate::{
   images::ImageData,
   resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Source, SourceKind},
+  time::{Duration, Instant},
 };
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -56,6 +56,8 @@ pub(crate) fn lose_card_for_test() {
 }
 #[cfg(windows)]
 mod output;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 pub use cache::{DEFAULT_SOUND_CACHE_BYTES, SoundCache, sound_cache};
 #[doc(hidden)]
@@ -271,6 +273,9 @@ impl Shared {
       .unwrap_or_else(|poisoned| poisoned.into_inner())
       .push_back(command);
     self.told.notify_all();
+    // A page has no thread of the media's: what it is told is done now.
+    #[cfg(target_arch = "wasm32")]
+    web::told(self);
   }
 
   /// Whether nothing holds the media any more. It waits `wait` to be told so, and takes no command.
@@ -459,8 +464,12 @@ impl Media {
       SourceKind::Resource(resource) => Ok(Asked::Opened(Opened::File(loader.resource_path(resource)))),
       SourceKind::Bytes(bytes) => Ok(Asked::Opened(Opened::Bytes(bytes.clone(), None))),
       SourceKind::Url(address) if !loader.allows(address) => Err(MediaError::Denied),
+      // A browser reads the address itself as it plays: nothing is loaded first, nor kept.
+      #[cfg(target_arch = "wasm32")]
+      SourceKind::Url(address) => Ok(Asked::Opened(Opened::Url(address.clone()))),
       // A sound is loaded whole and kept; kept already, it is there: as a file where the app's cache on the
       // disk is on, in memory where it is not.
+      #[cfg(not(target_arch = "wasm32"))]
       SourceKind::Url(address) if heard => {
         let (key, disk) = (source.cache_key(), loader.media_disk_cache());
         sound_cache().follow(disk);
@@ -481,6 +490,7 @@ impl Media {
           }
         })
       }
+      #[cfg(not(target_arch = "wasm32"))]
       SourceKind::Url(address) => Ok(Asked::Opened(Opened::Url(address.clone()))),
     };
     match asked {
@@ -514,7 +524,18 @@ impl Media {
     }
   }
 
-  #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
+  /// The page's `<audio>`: see [`web`].
+  #[cfg(target_arch = "wasm32")]
+  fn start(shared: &Arc<Shared>, asked: Asked, heard: bool) {
+    let opened = match asked {
+      Asked::Opened(opened) => opened,
+      Asked::Kept { path, .. } => Opened::File(path),
+      Asked::Load { address, .. } => Opened::Url(address),
+    };
+    web::start(shared, opened, heard);
+  }
+
+  #[cfg(not(any(windows, target_os = "macos", target_os = "ios", target_arch = "wasm32")))]
   fn start(shared: &Arc<Shared>, _: Asked, _: bool) {
     shared.fail(MediaError::Unavailable(Arc::from(
       "this build has no decoder for this system yet",

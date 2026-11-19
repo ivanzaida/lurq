@@ -18,8 +18,9 @@
 //!   is not modal to the app's.
 //! - **A browser**: no drop from the system reaches the page (winit reports none), and a page reads no path. The dialog
 //!   is the browser's file input, which asks the person to confirm first (a press must open it); a chosen file has its
-//!   name and size and no path. Its bytes are not read through lurq yet. A page is given no path, so there is no dialog
-//!   for a folder or for where to save: [`FileDialog::pick_folder`] and [`FileDialog::pick_save`] give nothing.
+//!   name, its size and its bytes, read as it is chosen ([`DroppedFile::read`]), and no path. A page is given no path,
+//!   so there is no dialog for a folder or for where to save: [`FileDialog::pick_folder`] and [`FileDialog::pick_save`]
+//!   give nothing, and [`FileDialog::save`] hands the bytes to the browser as a download.
 //! - **iOS**: no drop; the dialog is the system's document picker (`UIDocumentPickerViewController`), with or without
 //!   the feature `file_dialog`. A file chosen to open is a copy the system puts in the app's temporary folder, read by
 //!   its path; a folder chosen is the app's to read and write while it runs; and where to save is chosen by putting an
@@ -47,6 +48,17 @@ pub struct DroppedFile {
   name: Arc<str>,
   size: Option<u64>,
   path: Option<PathBuf>,
+  bytes: Option<FileBytes>,
+}
+
+/// What a file holds, where the platform gave it with the file: a browser's. Printed as its length.
+#[derive(Clone, PartialEq, Eq)]
+struct FileBytes(Arc<[u8]>);
+
+impl std::fmt::Debug for FileBytes {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{} bytes", self.0.len())
+  }
 }
 
 impl DroppedFile {
@@ -67,6 +79,7 @@ impl DroppedFile {
       name: Arc::from(name),
       size,
       path: Some(path),
+      bytes: None,
     }
   }
 
@@ -76,6 +89,30 @@ impl DroppedFile {
       name: Arc::from(name),
       size,
       path: None,
+      bytes: None,
+    }
+  }
+
+  /// The same file holding `bytes`: what a browser gives, which has no path to read them from. Its size is theirs.
+  pub fn with_bytes(mut self, bytes: impl Into<Arc<[u8]>>) -> Self {
+    let bytes = bytes.into();
+    self.size = Some(bytes.len() as u64);
+    self.bytes = Some(FileBytes(bytes));
+    self
+  }
+
+  /// What it holds: the bytes it came with (a browser's), or its file read from its path. An error where it has
+  /// neither, or the file cannot be read.
+  pub fn read(&self) -> std::io::Result<Arc<[u8]>> {
+    if let Some(FileBytes(bytes)) = &self.bytes {
+      return Ok(bytes.clone());
+    }
+    match &self.path {
+      Some(path) => std::fs::read(path).map(Arc::from),
+      None => Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "the file has no path and came with no bytes",
+      )),
     }
   }
 
@@ -453,6 +490,31 @@ impl FileDialog {
     async move { path_of(asked.await) }
   }
 
+  /// Saves `bytes` as a file where the person says. On a desktop and on iOS it opens the dialog for where to save
+  /// ([`pick_save`](Self::pick_save)) and writes the file there; in a browser the bytes are a download of the
+  /// dialog's [file name](Self::file_name), which the browser saves where it saves downloads, or asks where, as the
+  /// person set it. `true` once the file is written, or handed to the browser; `false` when the person cancelled or
+  /// it could not be written.
+  pub fn save(self, window: &WindowHandle, bytes: Arc<[u8]>) -> impl Future<Output = bool> + Send + 'static + use<> {
+    #[cfg(target_arch = "wasm32")]
+    {
+      let _ = window;
+      let name = self.file_name.clone().unwrap_or_else(|| "download".to_owned());
+      let handed = download(&name, &bytes);
+      return std::future::ready(handed);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let chosen = self.pick_save(window);
+      async move {
+        match chosen.await {
+          Some(path) => std::fs::write(path, &bytes).is_ok(),
+          None => false,
+        }
+      }
+    }
+  }
+
   /// Opens the dialog for what it asks, over `window`: the broker's where the window's tree registered one
   /// with its MCP server, the system's otherwise. A folder and a path to save at come back as one file with that path.
   fn ask(self, window: &WindowHandle) -> Picked {
@@ -510,6 +572,37 @@ impl FileDialog {
 }
 
 /// The path of the one thing a dialog for a folder or for where to save chose.
+/// Hands `bytes` to the browser as a download named `name`: a link to a blob of them, pressed and let go.
+#[cfg(target_arch = "wasm32")]
+fn download(name: &str, bytes: &[u8]) -> bool {
+  use wasm_bindgen::JsCast;
+  let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
+  let Ok(blob) = web_sys::Blob::new_with_u8_array_sequence(&parts) else {
+    return false;
+  };
+  let Ok(address) = web_sys::Url::create_object_url_with_blob(&blob) else {
+    return false;
+  };
+  let handed = web_sys::window()
+    .and_then(|window| window.document())
+    .and_then(|document| document.create_element("a").ok())
+    .and_then(|link| link.dyn_into::<web_sys::HtmlAnchorElement>().ok())
+    .map(|link| {
+      link.set_href(&address);
+      link.set_download(name);
+      link.click();
+    })
+    .is_some();
+  // The browser has taken the blob by the time the press returns: it is let go a moment later all the same.
+  let later = wasm_bindgen::closure::Closure::once_into_js(move || {
+    let _ = web_sys::Url::revoke_object_url(&address);
+  });
+  if let Some(window) = web_sys::window() {
+    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(later.unchecked_ref(), 10_000);
+  }
+  handed
+}
+
 fn path_of(chosen: Vec<DroppedFile>) -> Option<PathBuf> {
   chosen.into_iter().next().and_then(|file| file.path)
 }
@@ -694,8 +787,8 @@ mod native {
 mod native {
   use super::{Answer, Asks, DroppedFile, FileDialog};
 
-  /// The browser's file input, run by the page's own executor; the files cross as their names and sizes. A page
-  /// is given no path: there is no dialog for a folder or for where to save.
+  /// The browser's file input, run by the page's own executor; the files cross with their names and bytes, read as
+  /// they are chosen. A page is given no path: there is no dialog for a folder or for where to save.
   pub(super) fn pick(dialog: FileDialog) -> Answer {
     if dialog.asks != Asks::Files {
       return Answer::ready(Vec::new());
@@ -714,10 +807,11 @@ mod native {
       } else {
         native.pick_file().await.into_iter().collect()
       };
-      let files = handles
-        .into_iter()
-        .map(|handle| DroppedFile::new(&handle.file_name(), Some(handle.inner().size() as u64)))
-        .collect();
+      let mut files = Vec::with_capacity(handles.len());
+      for handle in handles {
+        let name = handle.file_name();
+        files.push(DroppedFile::new(&name, None).with_bytes(handle.read().await));
+      }
       answering.give(files);
     });
     answer

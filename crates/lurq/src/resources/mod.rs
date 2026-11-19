@@ -33,6 +33,8 @@ mod resource_cache;
 mod resource_loader;
 mod source;
 mod thread_pool;
+#[cfg(target_arch = "wasm32")]
+mod web_fetch;
 
 #[cfg(feature = "http")]
 pub use core::{LoadResourceResult, ResourceConfig, ResourceError};

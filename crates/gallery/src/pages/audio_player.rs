@@ -66,7 +66,6 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
 }
 
 /// The gallery's own track: twenty-four seconds of plucked notes, in the gallery's binary.
-#[cfg(not(target_arch = "wasm32"))]
 const TRACK: &[u8] = include_bytes!("../../assets/media/track.m4a");
 
 /// A sound anyone may fetch: the address the playground plays until another is typed.
@@ -81,7 +80,6 @@ const FILED: usize = 2;
 const ADDRESSED: usize = 3;
 
 /// The track as bytes: one source for every render, so that it is one sound.
-#[cfg(not(target_arch = "wasm32"))]
 fn track_bytes() -> lurq::resources::Source {
   static TRACK_BYTES: std::sync::OnceLock<lurq::resources::Source> = std::sync::OnceLock::new();
   TRACK_BYTES
@@ -89,8 +87,15 @@ fn track_bytes() -> lurq::resources::Source {
     .clone()
 }
 
-/// Where the track is as a file on this machine's disk, written there once: the path the playground plays as a
-/// file until another is typed.
+/// Where the track is as a file: on this machine's disk, written there once, or in a browser the page's own file
+/// beside it (`scripts/gallery-web.py` puts it there). The path the playground plays as a file until another is typed.
+#[cfg(target_arch = "wasm32")]
+fn track_path() -> String {
+  "media/track.m4a".to_owned()
+}
+
+/// Where the track is as a file: on this machine's disk, written there once, or in a browser the page's own file
+/// beside it (`scripts/gallery-web.py` puts it there). The path the playground plays as a file until another is typed.
 #[cfg(not(target_arch = "wasm32"))]
 fn track_path() -> String {
   static TRACK_FILE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
@@ -108,7 +113,6 @@ fn track_path() -> String {
 
 /// The source the playground's player plays: none for the first of [`SOURCES`], and for a path or an address
 /// that is not typed yet.
-#[cfg(not(target_arch = "wasm32"))]
 fn source_of(chosen: usize, path: &str, address: &str) -> Option<lurq::resources::Source> {
   match chosen {
     1 => Some(track_bytes()),
@@ -119,7 +123,6 @@ fn source_of(chosen: usize, path: &str, address: &str) -> Option<lurq::resources
 }
 
 /// What a key in a path or an address does: what plays stops, so that half of one is not asked for.
-#[cfg(not(target_arch = "wasm32"))]
 fn stops(playing: &Signal<bool>) -> impl Fn() + Send + Sync + 'static {
   let playing = playing.clone();
   move || {
@@ -130,6 +133,18 @@ fn stops(playing: &Signal<bool>) -> impl Fn() + Send + Sync + 'static {
 }
 
 /// Under the address: whether its sound is kept and how much is kept in all, and what lets go of it.
+/// In a browser the page reads an address itself as it plays, and keeps what the browser keeps: nothing is kept by
+/// lurq.
+#[cfg(target_arch = "wasm32")]
+fn kept_line(_: Option<&lurq::resources::Source>, _: u64) -> Element {
+  quiet(
+    "read by the browser as it plays, and kept as it keeps what pages load",
+    12.0,
+  )
+  .min_height(28.0)
+  .into()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn kept_line(source: Option<&lurq::resources::Source>, kept: u64) -> Element {
   let cache = lurq::media::sound_cache();
@@ -393,7 +408,6 @@ pub struct AudioPlayerPage {
   address: Signal<String>,
   /// The path typed for a file: the gallery's own track on this disk until another is.
   path: Signal<String>,
-  #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
   kept: Signal<u64>,
   /// The page's clock: while the playground plays with no source, it moves the position on, and stops it at
   /// the end; and it reads how much is kept.
@@ -445,10 +459,7 @@ impl AudioPlayerPage {
 
     // What it really plays, where a source is chosen: where it is and how long are then the sound's.
     let chosen = self.source.get().min(SOURCES.len() - 1);
-    #[cfg(not(target_arch = "wasm32"))]
     let source = source_of(chosen, &self.path.get(), &self.address.get());
-    #[cfg(target_arch = "wasm32")]
-    let source: Option<()> = None;
     let sourced = chosen != 0;
     let record = self.playground.recorder();
     let say = |what: &'static str| {
@@ -556,21 +567,13 @@ impl AudioPlayerPage {
     }
     // The window of its own shows the player with no source: two players of one sound would be heard twice.
     let alone = player.clone().buffered(f64::from(length).min(200.0));
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-      player = match &source {
-        Some(source) => player.source(source),
-        // The page reads nothing that moves as it plays or is dragged: the player is a component of its own,
-        // and a position read here would build the whole page again for every step of a drag.
-        None if !sourced => player.buffered(f64::from(length).min(200.0)),
-        None => player,
-      };
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-      let _ = &source;
-      player = player.buffered(f64::from(length).min(200.0));
-    }
+    player = match &source {
+      Some(source) => player.source(source),
+      // The page reads nothing that moves as it plays or is dragged: the player is a component of its own,
+      // and a position read here would build the whole page again for every step of a drag.
+      None if !sourced => player.buffered(f64::from(length).min(200.0)),
+      None => player,
+    };
 
     let mut code = vec![
       "// position: Signal<f32>, playing: Signal<bool>, ...".to_owned(),
@@ -705,7 +708,6 @@ impl AudioPlayerPage {
       controls.push(prop("title", "&str", field(&self.title)));
       controls.push(prop("description", "&str", field(&self.description)));
     }
-    #[cfg(not(target_arch = "wasm32"))]
     {
       let (to_source, stop, rewind) = (self.source.clone(), self.playing.clone(), self.position.clone());
       controls.push(prop(
@@ -812,10 +814,7 @@ impl AudioPlayerPage {
       move || {
         source.set(0);
         address.set(ADDRESS.to_owned());
-        #[cfg(not(target_arch = "wasm32"))]
         path.set(track_path());
-        #[cfg(target_arch = "wasm32")]
-        let _ = &path;
         variant.set(0);
         window.set(0);
         title.set("Night Drive".to_owned());
@@ -956,10 +955,7 @@ impl Component for AudioPlayerPage {
       disabled: ctx.signal(false),
       source,
       address: ctx.signal(ADDRESS.to_owned()),
-      #[cfg(not(target_arch = "wasm32"))]
       path: ctx.signal(track_path()),
-      #[cfg(target_arch = "wasm32")]
-      path: ctx.signal(String::new()),
       kept,
       _clock: clock,
     }

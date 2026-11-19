@@ -235,7 +235,7 @@ mod tests {
       error: None,
       rate: 1.0,
       at: 0.0,
-      since: std::time::Instant::now(),
+      since: crate::time::Instant::now(),
       sent: 0,
       frame: None,
     }

@@ -55,6 +55,8 @@ mod touch_delivery_tests;
 mod trackpad_gestures;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(target_arch = "wasm32")]
+mod web_text;
 #[cfg(any(target_arch = "wasm32", test))]
 mod web_wheel;
 
@@ -370,6 +372,9 @@ struct ManagedWindow {
   /// Whether the mouse's events are a pen's; see [`web::PenPointer`].
   #[cfg(target_arch = "wasm32")]
   pen_pointer: Option<web::PenPointer>,
+  /// The textarea composed and inserted text comes to; see `web_text`.
+  #[cfg(target_arch = "wasm32")]
+  web_text: Option<web_text::WebText>,
   /// The phone or tablet the window emulates, with the mouse as its fingers; see [`App::emulate`].
   emulator: Option<crate::app::runtime::mouse_fingers::MouseFingers>,
   /// The status bar was last asked to be hidden.
@@ -439,6 +444,8 @@ impl ManagedWindow {
       wheel_pointer: None,
       #[cfg(target_arch = "wasm32")]
       pen_pointer: None,
+      #[cfg(target_arch = "wasm32")]
+      web_text: None,
       emulator: None,
       #[cfg(target_os = "ios")]
       status_bar_hidden: false,
@@ -579,6 +586,7 @@ impl ManagedWindow {
     {
       self.wheel_pointer = web::WheelPointer::watch(&window);
       self.pen_pointer = web::PenPointer::watch(&window);
+      self.web_text = web_text::WebText::new(&window, self.tree.window().loop_waker());
     }
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
@@ -890,6 +898,10 @@ impl ManagedWindow {
       set_window_cursor(w, &mut self.cursor, self.tree.cursor());
       // The pass painted the focused input's caret where it now is.
       self.ime.apply(w, &self.tree);
+      #[cfg(target_arch = "wasm32")]
+      if let Some(web_text) = &mut self.web_text {
+        web_text.follow(&self.tree);
+      }
       // The pass laid the window's controls out: the system's lights go where the app's are.
       #[cfg(target_os = "macos")]
       self.native_controls.apply(w, &self.tree);
@@ -902,6 +914,8 @@ impl ManagedWindow {
       let presented = report.rendered;
       let mut paint_duration = Duration::ZERO;
       if presented {
+        #[cfg(target_arch = "wasm32")]
+        web::mark_first_frame();
         let now = Instant::now();
         self.frames.presented(PresentedFrame {
           started: pass_started_at,
@@ -2498,6 +2512,14 @@ impl ApplicationHandler for WinitHandler {
         Some((plain, markdown)) => ClipboardContent::text(plain).with_markdown(markdown),
         None => ClipboardContent::text(text),
       });
+    }
+    // What came to the page as text and not as keys: see `web_text`.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(typed) = self.main.web_text.as_ref().map(web_text::WebText::take)
+      && !typed.is_empty()
+    {
+      web_text::give(&mut self.main.tree, typed);
+      self.main.check_redraw();
     }
     self.main.tick();
     // What the person set for the whole system, read again each turn: it is a few calls, and the loop turns

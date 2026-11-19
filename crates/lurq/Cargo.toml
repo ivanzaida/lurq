@@ -201,6 +201,28 @@ js-sys = "0.3"
 # The page's clock, behind `lurq::time`: std's `Instant::now` and `SystemTime::now` panic in a browser.
 web-time = "1"
 web-sys = { version = "0.3", features = [
+    # What a load reads through the page's `fetch` (`resources`).
+    "AbortController",
+    "AbortSignal",
+    "Headers",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+    "RequestInit",
+    "Response",
+    # A sound, played by the page's `<audio>` (`media`).
+    "HtmlAudioElement",
+    "HtmlMediaElement",
+    "MediaError",
+    "Url",
+    # Text composed or inserted, taken from a textarea of the shell's (`winit_shell::web_text`).
+    "CompositionEvent",
+    "DomRect",
+    "HtmlTextAreaElement",
+    "InputEvent",
+    "KeyboardEvent",
+    "KeyboardEventInit",
+    # A file saved as a download (`files::FileDialog::save`).
+    "HtmlAnchorElement",
     "Clipboard",
     "CssStyleDeclaration",
     "Document",
@@ -219,6 +241,8 @@ web-sys = { version = "0.3", features = [
     "MouseEvent",
     "Navigator",
     "Node",
+    # The mark of the first frame in the page's timeline.
+    "Performance",
     # A pen's pointer events, which winit gives as the mouse's (`winit_shell::web::PenPointer`).
     "PointerEvent",
     "PopStateEvent",
