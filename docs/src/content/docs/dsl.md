@@ -299,12 +299,12 @@ use lurq::{
   node::color::Color,
 };
 
-app.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+app.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#2563eb"));
 
 app.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
 lurq::components::Rect::new(120.0, 40.0)
-  .background(PaletteColor::Accent)
+  .background(PaletteColor::Primary)
   .padding(SpacingSize::Sm)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
   .rounded(RadiusSize::Md);
@@ -363,6 +363,17 @@ lurq::components::Text::new("Selectable text")
 ```
 
 Selectable text supports drag selection, double-click word selection, and triple-click line selection. `TextInput` has the same pointer selection gestures plus caret movement, undo/redo, and signal-backed edits.
+
+Mark ranges of a text, such as the matches of a search, with `.highlights(...)`: a fill behind each range, one per line it covers, under the glyphs and under a selection, which follows the text as it wraps. `padding(x, y)` lets a fill reach past its words, and `border(width, color)` edges it, as the current match; the text is shaped and placed as without them. `ctx.scroll_range_into_view(&text_ref, range)` brings a range into view (see [Scroll](../layout/#scroll)), and the design system's `ui::Highlight` does both for a search.
+
+```rust
+use lurq::{app::theme::PaletteColor, components::{Text, TextHighlight}};
+
+Text::new("the cat and the hat").highlights(vec![
+  TextHighlight::new(0..3, PaletteColor::WarningMuted).radius(2.0).padding(3.0, 1.0),
+  TextHighlight::new(12..15, PaletteColor::WarningMuted).radius(2.0).padding(3.0, 1.0).border(2.0, PaletteColor::Warning),
+])
+```
 
 Align text within its own box with `TextAlign` or layout `Alignment`:
 

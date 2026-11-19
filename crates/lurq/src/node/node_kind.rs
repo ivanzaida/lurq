@@ -28,10 +28,10 @@ use crate::{
 
 mod checkbox;
 mod slider;
-mod text_input;
+pub(crate) mod text_input;
 
 pub(crate) use checkbox::CheckboxState;
-pub(crate) use slider::{SliderPartRect, SliderState};
+pub(crate) use slider::{SliderAxis, SliderChangeHandler, SliderPartRect, SliderState, SliderThumb};
 pub(crate) use text_input::{TextInputState, WeakTextInputState};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -57,6 +57,9 @@ pub enum KeyboardKind {
   Phone,
   /// Letters with a key that says Search.
   Search,
+  /// No keyboard on the screen: a field whose value is chosen from what a tap of it opens (a date, a time), which
+  /// a keyboard over it would hide. A keyboard attached to the device types into it all the same.
+  None,
 }
 
 /// What a text input holds, for a platform that fills inputs in from what it knows of the person: a phone
@@ -119,6 +122,9 @@ pub(crate) struct LoadingImage {
   pub(crate) source: crate::images::ImageSource,
   pub(crate) fit: crate::node::BackgroundSize,
   pub(crate) error_view: Option<crate::node::node_kind::ErrorViewCallback>,
+  /// What builds the placeholder again, for an image asked for anew after it failed: the node's children were
+  /// the error view meanwhile.
+  pub(crate) placeholder_view: Option<crate::node::node_kind::PlaceholderViewCallback>,
   /// The error view was built: the decode failed and the children show it.
   pub(crate) failed: bool,
 }
@@ -136,6 +142,7 @@ impl Clone for LoadingImage {
       source: self.source.clone(),
       fit: self.fit,
       error_view: self.error_view.clone(),
+      placeholder_view: self.placeholder_view.clone(),
       failed: self.failed,
     }
   }
@@ -145,19 +152,24 @@ impl Clone for LoadingImage {
 #[cfg(feature = "image")]
 pub(crate) type ErrorViewCallback = Arc<dyn Fn(&crate::images::ImageDecodeError) -> crate::node::Element + Send + Sync>;
 
+/// Builds what an image node shows while its decode runs.
+#[cfg(feature = "image")]
+pub(crate) type PlaceholderViewCallback = Arc<dyn Fn() -> crate::node::Element + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) enum NodeKind {
   Empty,
   #[cfg(feature = "canvas")]
   Canvas {
     canvas: crate::canvas::CanvasHandle,
+    /// What draws it, and the key it draws for: called when the key changes and when its size or scale does.
+    painter: Option<crate::canvas::CanvasPainter>,
   },
   Text {
     state: TextState,
     style: TextStyleSource,
     transform_mode: TextTransformMode,
   },
-  #[cfg(feature = "markdown")]
   RichText {
     state: TextState,
     spans: Vec<crate::layout::quad::RichTextSpan>,
@@ -212,12 +224,14 @@ pub(crate) enum NodeKind {
   #[cfg(feature = "image")]
   ResourceImage {
     path: Arc<str>,
+    /// How the pixels fill the node's box once they are loaded.
+    fit: crate::node::BackgroundSize,
   },
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   Svg {
     data: crate::svg::SvgData,
   },
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   ResourceSvg {
     path: Arc<str>,
   },
@@ -235,15 +249,14 @@ impl NodeKind {
       Self::Empty | Self::Text { .. } | Self::TextInput { .. } => false,
       #[cfg(feature = "canvas")]
       Self::Canvas { .. } => false,
-      #[cfg(feature = "markdown")]
       Self::RichText { .. } => false,
       #[cfg(feature = "raster")]
       Self::Image { .. } | Self::Video { .. } => false,
       #[cfg(feature = "image")]
       Self::LoadingImage { .. } | Self::ResourceImage { .. } => false,
-      #[cfg(feature = "svg")]
+      #[cfg(feature = "canvas")]
       Self::Svg { .. } => false,
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       Self::ResourceSvg { .. } => false,
     }
   }
@@ -305,10 +318,13 @@ impl TextStyleSource {
   }
 
   /// Whether the text names its color: one set on it, or the color of the
-  /// style it was built from. Otherwise its color is its typography style's,
-  /// which a foreground above it replaces.
+  /// style it was built from where that is not the default text color. A
+  /// style that keeps the default color names none, as a typography style
+  /// that keeps it names none for the theme's foreground. A text that names
+  /// no color takes the foreground above it.
   pub(crate) fn names_color(&self) -> bool {
-    self.color.is_some() || matches!(self.base, TextStyleBase::Explicit(_))
+    self.color.is_some()
+      || matches!(&self.base, TextStyleBase::Explicit(style) if style.color != crate::layout::text_style::DEFAULT_TEXT_COLOR)
   }
 
   pub(crate) fn set_text_align(&mut self, align: impl Into<TextAlign>) {
@@ -385,6 +401,20 @@ impl TextStyleSource {
 #[derive(Clone)]
 pub(crate) struct TextState {
   inner: Arc<Mutex<TextInner>>,
+}
+
+/// How many times a text's state took another layout than it held: a cached tree prepared after it last moved
+/// holds what its texts show while this stays where it was.
+static TEXT_STATE_WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Counts a text state that took another layout.
+pub(crate) fn note_text_state_write() {
+  TEXT_STATE_WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How many times a text state took another layout, so far.
+pub(crate) fn text_state_writes() -> u64 {
+  TEXT_STATE_WRITES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The carets of a text's painted layout: in device pixels, `scale` of
@@ -594,6 +624,17 @@ impl TextState {
       .collect()
   }
 
+  /// The parts of the lines that bytes `range` of `value` cover, in logical
+  /// pixels in the text's box: where a range is drawn, to scroll it into view.
+  pub(crate) fn range_lines(&self, value: &str, range: std::ops::Range<usize>) -> Vec<TextSelectionRange> {
+    let start = clamp_to_char_boundary(value, range.start);
+    let end = clamp_to_char_boundary(value, range.end);
+    if start >= end {
+      return Vec::new();
+    }
+    self.inner.lock().unwrap().line_ranges(value, start, end)
+  }
+
   /// Writes what laying the text out under one set of constraints produced:
   /// the string to draw instead of the content, whether the renderer wraps,
   /// and, for selectable text, the carets of the painted layout (`None`
@@ -606,15 +647,21 @@ impl TextState {
     text_top: f32,
   ) {
     let mut inner = self.inner.lock().unwrap();
+    let mut changed = inner.render_wrap != render_wrap || inner.text_top != text_top;
     // Serving a cached layout usually writes back what the state already
     // holds; skip the reference-count traffic then.
     if inner.display_text.as_ref().map(Arc::as_ptr) != display_text.map(Arc::as_ptr) {
       inner.display_text = display_text.cloned();
+      changed = true;
     }
     inner.render_wrap = render_wrap;
     inner.text_top = text_top;
     if let Some(carets) = carets {
+      changed |= !inner.carets.positions.same(&carets.positions) || inner.carets.scale != carets.scale;
       inner.carets = carets.clone();
+    }
+    if changed {
+      note_text_state_write();
     }
   }
 

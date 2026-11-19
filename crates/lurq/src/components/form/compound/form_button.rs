@@ -1,10 +1,9 @@
 use std::{fmt, sync::Arc};
 
 use crate::{
-  app::{ctx::Ctx, events::MouseEvent, theme::BorderSize},
-  components::{Button, Text},
-  layout::{Alignment, layout_kind::Justify},
-  node::{CursorIcon, Element, Style, border::Border},
+  app::{ctx::Ctx, events::MouseEvent},
+  node::Element,
+  ui::{self, ButtonVariant},
 };
 
 type ClickCallback = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
@@ -99,6 +98,9 @@ impl PartialEq for FormSecondaryButtonProps {
   }
 }
 
+/// The button of a form's main action: the design system's [`ui::Button`] in its primary variant, as wide as what
+/// holds it, which submits the form unless it is made a plain [`button`](FormPrimaryButtonProps::button). It is
+/// styled by the theme's recipe for `ui::Button`.
 pub struct FormPrimaryButton;
 
 impl crate::app::component::Component for FormPrimaryButton {
@@ -110,13 +112,13 @@ impl crate::app::component::Component for FormPrimaryButton {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let style = ctx.theme().form().button.primary.clone();
-    let palette = ctx.theme().palette().clone();
-    let typography = ctx.theme().typography().clone();
-    render_form_button(&props.label, props.submit, props.on_click, style, &typography, &palette)
+    form_button(&props.label, props.submit, props.on_click, ButtonVariant::Primary)
   }
 }
 
+/// The button of a form's lesser action (cancel, go back): the design system's [`ui::Button`] in its outline
+/// variant, as wide as what holds it, which submits nothing unless it is made a
+/// [`submit`](FormSecondaryButtonProps::submit) button. It is styled by the theme's recipe for `ui::Button`.
 pub struct FormSecondaryButton;
 
 impl crate::app::component::Component for FormSecondaryButton {
@@ -128,53 +130,16 @@ impl crate::app::component::Component for FormSecondaryButton {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<Self::Props>().clone();
-    let style = ctx.theme().form().button.secondary.clone();
-    let palette = ctx.theme().palette().clone();
-    let typography = ctx.theme().typography().clone();
-    render_form_button(&props.label, props.submit, props.on_click, style, &typography, &palette)
+    form_button(&props.label, props.submit, props.on_click, ButtonVariant::Outline)
   }
 }
 
-fn render_form_button(
-  label: &str,
-  submit: bool,
-  on_click: Option<ClickCallback>,
-  style: crate::app::theme::FormButtonRole,
-  typography: &crate::app::theme::ThemeTypography,
-  palette: &crate::app::theme::ThemePalette,
-) -> Button {
-  let mut button = Button::empty()
-    .width(style.width)
-    .height(style.height)
-    .padding_custom(style.padding)
-    .background(style.background)
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .cursor(CursorIcon::Pointer)
-    .child(Text::styled(label, style.text.resolve(typography, palette)))
-    .border(Border::inside(BorderSize::Sm, style.border))
-    .rounded(style.radius);
-
-  if submit {
-    button = button.submit();
-  } else {
-    button = button.button();
-  }
-  button = button.hovered_style(state_style(style.background_hover, style.border_hover));
-  button = button.active_style(state_style(style.background_active, style.border_active));
-  button = button.focus_visible_style(Style::new().border(Border::inside(BorderSize::Sm, style.border_focus)));
+fn form_button(label: &str, submit: bool, on_click: Option<ClickCallback>, variant: ButtonVariant) -> Element {
+  let mut button = ui::Button::new(label).variant(variant).full_width(true).submit(submit);
   if let Some(on_click) = on_click {
-    button = button.on_click(move |event| on_click(&event));
+    button = button.on_click(move |event: MouseEvent| on_click(&event));
   }
-
-  button
-}
-
-fn state_style(background: crate::app::theme::PaletteColor, border: crate::app::theme::PaletteColor) -> Style {
-  let mut style = Style::new();
-  style = style.background(background);
-  style = style.border(Border::inside(BorderSize::Sm, border));
-  style
+  button.into()
 }
 
 fn debug_button_props(

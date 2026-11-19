@@ -4,16 +4,17 @@
 
 use std::{
   sync::{
-    Arc, Mutex,
+    Arc, Mutex, Weak,
     atomic::{AtomicBool, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use crate::{
   app::ctx::OutsidePress,
   layout::layout_kind::ScrollState,
-  node::{SelectStyle, select_icon::SelectAdornment},
+  node::{SelectAdornmentState, SelectStyle, node_kind::TextInputState, select_icon::SelectAdornment},
+  time::Instant,
 };
 
 pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;
@@ -32,6 +33,10 @@ struct SelectInner {
   // Per-render config, rebuilt by the generic `Select<T>` wrapper each render.
   labels: Vec<Arc<str>>,
   details: Vec<Option<Arc<str>>>,
+  /// The short text at the end of each option's row.
+  hints: Vec<Option<Arc<str>>>,
+  /// The label of the group each option starts, where it starts one.
+  groups: Vec<Option<Arc<str>>>,
   disabled: Vec<bool>,
   /// The builders of the elements before and after each option's label.
   leading: Vec<Option<SelectAdornment>>,
@@ -45,6 +50,16 @@ struct SelectInner {
   /// re-renders, like a text input's value signal.
   binding: Option<usize>,
   outside_press: OutsidePress,
+  /// The text input of a combobox, which holds the focus while the list is open and shows the chosen option's label.
+  combobox: Option<TextInputState>,
+  /// Whether what is typed in a combobox may be no option's label: typing then highlights nothing, and Enter with
+  /// nothing highlighted is left to the input.
+  free_text: bool,
+  /// The row the open list draws after its options, that cannot be chosen: what it says while it has no options, or
+  /// while more are loading.
+  status: Option<SelectAdornment>,
+  /// Whether its value can be read and not changed: its list does not open, and nothing is committed.
+  read_only: bool,
   // Runtime state, preserved across re-renders via `copy_runtime_state_from`.
   open: bool,
   highlighted: Option<usize>,
@@ -54,6 +69,27 @@ struct SelectInner {
   reveal: Option<usize>,
   type_ahead: String,
   type_ahead_at: Option<Instant>,
+  /// Something was typed in a combobox: the next options it is given are what was typed filters, and the first of
+  /// them that can be chosen is highlighted.
+  highlight_first: bool,
+}
+
+/// A select that does not keep it alive: what a combobox's text input holds of the select it is in.
+#[derive(Clone)]
+pub(crate) struct WeakSelectState {
+  inner: Weak<Mutex<SelectInner>>,
+  layout_dirty: Weak<AtomicBool>,
+  layout_subscribers: Weak<crate::core::layout_dirty::LayoutSubscribers>,
+}
+
+impl WeakSelectState {
+  pub(crate) fn upgrade(&self) -> Option<SelectState> {
+    Some(SelectState {
+      inner: self.inner.upgrade()?,
+      layout_dirty: self.layout_dirty.upgrade()?,
+      layout_subscribers: self.layout_subscribers.upgrade()?,
+    })
+  }
 }
 
 impl SelectInner {
@@ -107,6 +143,10 @@ impl SelectInner {
   }
 
   fn open_menu(&mut self, highlighted: Option<usize>) {
+    // A select that is read only shows its value and opens no list.
+    if self.read_only {
+      return;
+    }
     self.open = true;
     self.highlighted = highlighted;
     self.menu_scroll = ScrollState::new();
@@ -121,6 +161,8 @@ impl SelectState {
       inner: Arc::new(Mutex::new(SelectInner {
         labels: Vec::new(),
         details: Vec::new(),
+        hints: Vec::new(),
+        groups: Vec::new(),
         disabled: Vec::new(),
         leading: Vec::new(),
         trailing: Vec::new(),
@@ -131,12 +173,17 @@ impl SelectState {
         on_change: None,
         binding: None,
         outside_press: OutsidePress::default(),
+        combobox: None,
+        free_text: false,
+        status: None,
+        read_only: false,
         open: false,
         highlighted: None,
         menu_scroll: ScrollState::new(),
         reveal: None,
         type_ahead: String::new(),
         type_ahead_at: None,
+        highlight_first: false,
       })),
       layout_dirty: Arc::new(AtomicBool::new(false)),
       layout_subscribers: Arc::default(),
@@ -149,6 +196,12 @@ impl SelectState {
 
   pub(crate) fn set_details(&self, details: Vec<Option<Arc<str>>>) {
     self.inner.lock().unwrap().details = details;
+  }
+
+  pub(crate) fn set_extras(&self, hints: Vec<Option<Arc<str>>>, groups: Vec<Option<Arc<str>>>) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.hints = hints;
+    inner.groups = groups;
   }
 
   pub(crate) fn set_disabled(&self, disabled: Vec<bool>) {
@@ -177,6 +230,11 @@ impl SelectState {
     self.inner.lock().unwrap().style = style;
   }
 
+  /// Whether the value can be read and not changed: the list does not open, and nothing is committed.
+  pub(crate) fn set_read_only(&self, read_only: bool) {
+    self.inner.lock().unwrap().read_only = read_only;
+  }
+
   pub(crate) fn set_on_change(&self, on_change: SelectChangeCallback) {
     self.inner.lock().unwrap().on_change = Some(on_change);
   }
@@ -187,6 +245,65 @@ impl SelectState {
 
   pub(crate) fn outside_press(&self) -> OutsidePress {
     self.inner.lock().unwrap().outside_press
+  }
+
+  pub(crate) fn downgrade(&self) -> WeakSelectState {
+    WeakSelectState {
+      inner: Arc::downgrade(&self.inner),
+      layout_dirty: Arc::downgrade(&self.layout_dirty),
+      layout_subscribers: Arc::downgrade(&self.layout_subscribers),
+    }
+  }
+
+  /// Makes the select a combobox around `input`.
+  pub(crate) fn set_combobox(&self, input: TextInputState, free_text: bool) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.combobox = Some(input);
+    inner.free_text = free_text;
+  }
+
+  /// The text input of a combobox.
+  pub(crate) fn combobox(&self) -> Option<TextInputState> {
+    self.inner.lock().unwrap().combobox.clone()
+  }
+
+  pub(crate) fn is_combobox(&self) -> bool {
+    self.inner.lock().unwrap().combobox.is_some()
+  }
+
+  /// Whether the text input of a combobox has the focus: the select is drawn focused then.
+  pub(crate) fn input_focused(&self) -> bool {
+    self.combobox().is_some_and(|input| input.is_focused())
+  }
+
+  pub(crate) fn set_status(&self, status: Option<SelectAdornment>) {
+    self.inner.lock().unwrap().status = status;
+  }
+
+  /// The row after the options, built. Returned built and not as its builder called here: a builder is app code and
+  /// runs without the state locked.
+  pub(crate) fn status(&self) -> Option<crate::node::Element> {
+    let build = self.inner.lock().unwrap().status.clone()?;
+    Some(build(&SelectAdornmentState::default()))
+  }
+
+  /// Something was typed in a combobox: the list opens, or stays open, with nothing highlighted until the options
+  /// what was typed filters come; then the first that can be chosen is, unless what is typed may be no option's.
+  pub(crate) fn typed(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    if !inner.open {
+      inner.open_menu(None);
+    }
+    inner.highlight_first = !inner.free_text;
+    // Until the filtered options come, the first of those there are.
+    inner.highlighted = if inner.highlight_first {
+      inner.first_enabled()
+    } else {
+      None
+    };
+    inner.reveal = inner.highlighted;
+    drop(inner);
+    self.mark_layout_dirty();
   }
 
   pub(crate) fn set_binding(&self, signal_id: usize) {
@@ -213,6 +330,15 @@ impl SelectState {
 
   pub(crate) fn detail(&self, index: usize) -> Option<Arc<str>> {
     self.inner.lock().unwrap().details.get(index).cloned().flatten()
+  }
+
+  pub(crate) fn hint(&self, index: usize) -> Option<Arc<str>> {
+    self.inner.lock().unwrap().hints.get(index).cloned().flatten()
+  }
+
+  /// The label of the group option `index` starts, if it starts one.
+  pub(crate) fn group(&self, index: usize) -> Option<Arc<str>> {
+    self.inner.lock().unwrap().groups.get(index).cloned().flatten()
   }
 
   /// The builders of the elements before and after the label of option
@@ -303,8 +429,13 @@ impl SelectState {
   /// Open from the keyboard, highlighting the selected option (or the first
   /// enabled one).
   pub(crate) fn open_with_highlight(&self) {
+    self.open_with_highlight_from(true);
+  }
+
+  /// Open from the keyboard, highlighting the selected option, or the first (from the end: the last) enabled one.
+  pub(crate) fn open_with_highlight_from(&self, forward: bool) {
     let mut inner = self.inner.lock().unwrap();
-    let highlighted = inner.initial_highlight(true);
+    let highlighted = inner.initial_highlight(forward);
     inner.open_menu(highlighted);
     drop(inner);
     self.mark_layout_dirty();
@@ -414,17 +545,27 @@ impl SelectState {
   /// close the menu. Multi-select keeps the menu open. Disabled options do
   /// nothing.
   pub(crate) fn commit(&self, index: usize) {
-    let (callback, multiple) = {
+    let (callback, multiple, combobox, label) = {
       let inner = self.inner.lock().unwrap();
-      if !inner.is_enabled(index) {
+      if !inner.is_enabled(index) || inner.read_only {
         return;
       }
-      (inner.on_change.clone(), inner.multiple)
+      (
+        inner.on_change.clone(),
+        inner.multiple,
+        inner.combobox.clone(),
+        inner.labels.get(index).cloned(),
+      )
     };
     if let Some(callback) = callback {
       callback(index);
     }
     if !multiple {
+      // A combobox shows the label of what was chosen in its input, as what is typed, with the caret at its end.
+      if let (Some(input), Some(label)) = (combobox, label) {
+        input.set_value(label.to_string());
+        input.move_end(false);
+      }
       self.set_open(false);
     }
   }
@@ -435,7 +576,7 @@ impl SelectState {
     }
     let old_inner = old.inner.lock().unwrap();
     let mut inner = self.inner.lock().unwrap();
-    inner.open = old_inner.open;
+    inner.open = old_inner.open && !inner.read_only;
     // The highlight names an option, not a row: it survives only while that
     // row still shows the same enabled option, so Enter never commits an
     // option the user did not move to.
@@ -447,5 +588,11 @@ impl SelectState {
     inner.reveal = old_inner.reveal;
     inner.type_ahead = old_inner.type_ahead.clone();
     inner.type_ahead_at = old_inner.type_ahead_at;
+    // The options what was typed filters are these: the first that can be chosen is highlighted.
+    if old_inner.highlight_first && inner.open {
+      let first = inner.first_enabled();
+      inner.highlighted = first;
+      inner.reveal = first;
+    }
   }
 }

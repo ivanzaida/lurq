@@ -99,6 +99,22 @@ VsOut vs_main(VsIn input)
   return output;
 }
 
+float4 encode_srgb(float4 color)
+{
+  float3 c = saturate(color.rgb);
+  float3 low = c * 12.92;
+  float3 high = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+  return float4(c <= 0.0031308 ? low : high, color.a);
+}
+
+float4 decode_srgb(float4 color)
+{
+  float3 c = saturate(color.rgb);
+  float3 low = c / 12.92;
+  float3 high = pow((c + 0.055) / 1.055, 2.4);
+  return float4(lerp(high, low, step(c, 0.04045)), color.a);
+}
+
 float4 sample_gradient(int off, float2 local, float2 half_size)
 {
   float4 h0 = gradients[off];
@@ -106,6 +122,20 @@ float4 sample_gradient(int off, float2 local, float2 half_size)
   int count = (int)h0.x;
   int kind = (int)h0.y;
   const float PI = 3.14159265359;
+
+  if (kind == 3)
+  {
+    // The four corners mixed across and then down, in sRGB-encoded values as a
+    // picture's colors are written, back in linear light for the rest.
+    float2 uv = saturate((local + half_size) / max(2.0 * half_size, float2(1e-5, 1e-5)));
+    float4 top_left = encode_srgb(gradients[off + 2]);
+    float4 top_right = encode_srgb(gradients[off + 4]);
+    float4 bottom_right = encode_srgb(gradients[off + 6]);
+    float4 bottom_left = encode_srgb(gradients[off + 8]);
+    float4 top = lerp(top_left, top_right, uv.x);
+    float4 bottom = lerp(bottom_left, bottom_right, uv.x);
+    return decode_srgb(lerp(top, bottom, uv.y));
+  }
 
   float t;
   if (kind == 0)
@@ -711,13 +741,6 @@ float box_shadow_alpha(float2 local, float2 half_size, float4 box_radii, float4 
 // The render target is not sRGB, so the fixed-function blend mixes
 // sRGB-encoded values, as CSS and design tools do. `ps_main` works in linear
 // light like the rest of the pipeline and encodes each result it returns.
-float4 encode_srgb(float4 color)
-{
-  float3 c = saturate(color.rgb);
-  float3 low = c * 12.92;
-  float3 high = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
-  return float4(c <= 0.0031308 ? low : high, color.a);
-}
 
 float4 ps_main(VsOut input) : SV_TARGET
 {

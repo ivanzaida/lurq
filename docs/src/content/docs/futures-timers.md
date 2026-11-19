@@ -262,7 +262,7 @@ An offstage component (`ctx.mount_offstage`, `Router::mount_offstage`) is still 
 Enable `tokio` and configure a live runtime handle to spawn futures and streams on Tokio. Add a direct Tokio dependency when application code uses its APIs:
 
 ```toml
-lurq = { version = "0.62.0", features = ["tokio"] }
+lurq = { version = "0.63.0", features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 ```
 
@@ -333,6 +333,9 @@ interval.start();
 | `.restart()` | Reset the next fire to `now + duration`. |
 | `.stop()` | Stop repeating. |
 | `.is_active()` | Whether the interval is running. |
+
+An interval is not in step with the display: it fires between frames, or twice in one. What moves every frame (a
+spring, physics, a game) is stepped by [`ctx.on_frame`](../animation-transforms/#your-own-frames).
 
 ### Lifecycle
 

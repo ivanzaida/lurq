@@ -52,8 +52,7 @@ pub(crate) struct TextOutput {
   /// A plain text that draws an underline or a line through it: where its
   /// lines lie.
   pub(super) decoration: Option<Arc<super::text_decorations::TextDecorationLayout>>,
-  /// Rich text that paints underlines or links: where its text lies.
-  #[cfg(feature = "markdown")]
+  /// Rich text that paints underlines, links or objects: where its text lies.
   pub(super) inline: Option<Arc<super::inline_links::InlineTextLayout>>,
 }
 
@@ -91,7 +90,6 @@ impl TextLayoutOutput {
 
 impl TextOutput {
   /// This output, painting underlines or links as `inline` lays them out.
-  #[cfg(feature = "markdown")]
   pub(super) fn with_inline(&self, inline: Arc<super::inline_links::InlineTextLayout>) -> Self {
     Self {
       display_text: self.display_text.clone(),
@@ -111,7 +109,6 @@ impl TextOutput {
       carets: self.carets.clone(),
       text_top: self.text_top,
       decoration: Some(decoration),
-      #[cfg(feature = "markdown")]
       inline: self.inline.clone(),
     }
   }
@@ -125,20 +122,12 @@ impl TextOutput {
       carets: Some(carets),
       text_top,
       decoration: self.decoration.clone(),
-      #[cfg(feature = "markdown")]
       inline: self.inline.clone(),
     }
   }
 
   fn inline_memory_bytes(&self) -> usize {
-    #[cfg(feature = "markdown")]
-    {
-      self.inline.as_ref().map_or(0, |inline| inline.estimated_memory_bytes())
-    }
-    #[cfg(not(feature = "markdown"))]
-    {
-      0
-    }
+    self.inline.as_ref().map_or(0, |inline| inline.estimated_memory_bytes())
   }
 
   fn apply(&self, state: &TextState) {
@@ -166,6 +155,9 @@ pub(crate) struct TextInputOutput {
   pub(super) text_height: f32,
   pub(super) line_height: f32,
   pub(super) text_band: Option<(f32, f32)>,
+  /// The room the caret takes after the text, which a single-line input scrolls into view with it: the theme's
+  /// caret's width.
+  pub(super) caret_width: f32,
   /// The input's padding around `size`, with a reserved scrollbar's lane
   /// ([`LayoutEngine::text_input_scrollbar_lane`]) in its right side. A
   /// multiline input scrolls it with the text.
@@ -174,6 +166,7 @@ pub(crate) struct TextInputOutput {
 
 impl TextInputOutput {
   fn apply(&self, state: &TextInputState) {
+    crate::node::node_kind::note_text_state_write();
     state.set_token_layout(self.token_layout.clone());
     state.set_caret_positions(self.caret_positions.clone());
     state.set_caret_height(self.line_height);
@@ -208,7 +201,7 @@ impl TextInputOutput {
   /// shows its configured end.
   fn horizontal_scroll(&self, state: &TextInputState) -> f32 {
     let caret_x = state.caret_x() + state.scroll_x();
-    let caret_width = 1.0;
+    let caret_width = self.caret_width;
     let max_scroll = (self.text_width + caret_width - self.size.width).max(0.0);
     if !state.is_focused() {
       return match state.unfocused_overflow_anchor() {
@@ -267,7 +260,6 @@ impl LayoutEngine {
     };
     match (node.node_kind(), output) {
       (NodeKind::Text { state, .. }, TextLayoutOutput::Text(output)) => output.apply(state),
-      #[cfg(feature = "markdown")]
       (NodeKind::RichText { state, .. }, TextLayoutOutput::Text(output)) => output.apply(state),
       (NodeKind::TextInput { state, .. }, TextLayoutOutput::TextInput(output)) => output.apply(state),
       _ => {}
@@ -295,6 +287,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 }

@@ -43,8 +43,8 @@ impl<T> std::fmt::Debug for Shared<T> {
 #[test]
 fn default_theme_has_palette() {
   let t = Theme::new();
-  assert_eq!(t.palette_color(PaletteColor::Accent).to_hex(), "#2563eb");
-  assert_eq!(t.palette().accent.to_hex(), "#2563eb");
+  assert_eq!(t.palette_color(PaletteColor::Primary).to_hex(), "#18181b");
+  assert_eq!(t.palette().primary.to_hex(), "#18181b");
 }
 
 #[test]
@@ -68,25 +68,25 @@ fn named_theme_values_can_be_set_and_resolved() {
 #[test]
 fn set_palette_color_updates_variant() {
   let t = Theme::new();
-  t.set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
+  t.set_palette_color(PaletteColor::Primary, Color::from_hex("#123456"));
 
-  assert_eq!(t.palette_color(PaletteColor::Accent).to_hex(), "#123456");
-  assert_eq!(t.palette().accent.to_hex(), "#123456");
+  assert_eq!(t.palette_color(PaletteColor::Primary).to_hex(), "#123456");
+  assert_eq!(t.palette().primary.to_hex(), "#123456");
 }
 
 #[test]
 fn set_palette_replaces_named_palette() {
   let t = Theme::new();
   let palette = ThemePalette {
-    accent: Color::from_hex("#abcdef"),
-    surface_base: Color::from_hex("#101010"),
+    primary: Color::from_hex("#abcdef"),
+    background: Color::from_hex("#101010"),
     ..ThemePalette::default()
   };
 
   t.set_palette(palette);
 
-  assert_eq!(t.palette_color(PaletteColor::Accent).to_hex(), "#abcdef");
-  assert_eq!(t.palette_color(PaletteColor::SurfaceBase).to_hex(), "#101010");
+  assert_eq!(t.palette_color(PaletteColor::Primary).to_hex(), "#abcdef");
+  assert_eq!(t.palette_color(PaletteColor::Background).to_hex(), "#101010");
   let mut radii = ThemeRadii::default();
   radii.set(RadiusSize::Lg, 8.0);
   assert_eq!(radii.get(RadiusSize::Lg), 8.0);
@@ -175,12 +175,12 @@ fn set_spacing_replaces_named_spacing() {
 #[test]
 fn default_theme_has_radii() {
   let t = Theme::new();
-  assert_eq!(t.radius_value(RadiusSize::Sm), 3.0);
-  assert_eq!(t.radius_value(RadiusSize::Md), 5.0);
-  assert_eq!(t.radius_value(RadiusSize::Lg), 6.0);
-  assert_eq!(t.radii().sm, 3.0);
-  assert_eq!(t.radii().md, 5.0);
-  assert_eq!(t.radii().lg, 6.0);
+  assert_eq!(t.radius_value(RadiusSize::Sm), 4.0);
+  assert_eq!(t.radius_value(RadiusSize::Md), 6.0);
+  assert_eq!(t.radius_value(RadiusSize::Lg), 8.0);
+  assert_eq!(t.radii().sm, 4.0);
+  assert_eq!(t.radii().md, 6.0);
+  assert_eq!(t.radii().lg, 8.0);
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn set_radii_replaces_named_radii() {
 fn default_theme_has_fonts() {
   let t = Theme::new();
   let fonts = t.fonts();
-  assert_eq!(fonts.body.font_size, 16.0);
+  assert_eq!(fonts.body.font_size, 14.0);
   assert_eq!(fonts.heading.font_size, 24.0);
 }
 
@@ -229,8 +229,8 @@ fn set_fonts_updates() {
 #[test]
 fn default_theme_has_typography() {
   let t = Theme::new();
-  assert_eq!(t.default_text_style().font_size, 16.0);
-  assert_eq!(t.typography().body.font_size, 16.0);
+  assert_eq!(t.default_text_style().font_size, 14.0);
+  assert_eq!(t.typography().body.font_size, 14.0);
   assert_eq!(t.typography_style(TypographyStyle::Heading).font_size, 24.0);
 }
 
@@ -276,14 +276,14 @@ fn set_typography_replaces_named_typography() {
 fn theme_lens_reads_sets_and_updates_value() {
   let theme = Theme::new();
   let brand = theme.lens(
-    |theme| theme.palette_color(PaletteColor::Accent),
-    |theme, color| theme.set_palette_color(PaletteColor::Accent, color),
+    |theme| theme.palette_color(PaletteColor::Primary),
+    |theme, color| theme.set_palette_color(PaletteColor::Primary, color),
   );
 
-  assert_eq!(brand.get().to_hex(), "#2563eb");
+  assert_eq!(brand.get().to_hex(), "#18181b");
 
   brand.set(Color::from_hex("#123456"));
-  assert_eq!(theme.palette_color(PaletteColor::Accent).to_hex(), "#123456");
+  assert_eq!(theme.palette_color(PaletteColor::Primary).to_hex(), "#123456");
 
   brand.update(|color| *color = Color::from_hex("#abcdef"));
   assert_eq!(brand.get().to_hex(), "#abcdef");
@@ -403,6 +403,6 @@ fn window_resize_recomputes_breakpoint_without_reentering_window_lock() {
 fn theme_clone_shares_state() {
   let t1 = Theme::new();
   let t2 = t1.clone();
-  t1.set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
-  assert_eq!(t2.palette_color(PaletteColor::Accent).to_hex(), "#123456");
+  t1.set_palette_color(PaletteColor::Primary, Color::from_hex("#123456"));
+  assert_eq!(t2.palette_color(PaletteColor::Primary).to_hex(), "#123456");
 }

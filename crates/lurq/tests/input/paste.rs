@@ -345,3 +345,115 @@ fn a_ctrl_v_from_the_os_reads_as_much_of_the_clipboard_as_the_paste_needs() {
   );
   assert_eq!(seen.lock().unwrap().as_slice(), &[1]);
 }
+
+/// What copies wrote, in place of the OS clipboard.
+#[derive(Default)]
+struct Written(Mutex<Vec<String>>);
+
+impl lurq::app::ClipboardWriter for Written {
+  fn write_text(&self, text: &str) -> bool {
+    self.0.lock().unwrap().push(text.to_owned());
+    true
+  }
+}
+
+/// A focused element that is not an input, in a column that hears copies and pastes, with the test's
+/// clipboards.
+fn focused_cell(heard: Arc<Mutex<Vec<String>>>) -> (Tree, Arc<Written>) {
+  let mut runtime = Tree::new();
+  let (copies, pastes) = (heard.clone(), heard);
+  runtime.set_root(
+    Column::new()
+      .on_copy(move |event: lurq::app::events::CopyEvent| {
+        copies.lock().unwrap().push(format!("copy cut={}", event.is_cut()));
+        event.set_text("a\tb\nc\td");
+      })
+      .on_paste(move |event: PasteEvent| {
+        pastes
+          .lock()
+          .unwrap()
+          .push(format!("paste {}", event.text().unwrap_or_default()));
+      })
+      .child(lurq::components::Row::new().size(80.0, 30.0).tab_index(0).id("input")),
+  );
+  let mut runtime = focus(runtime);
+  TestClipboard::install(&mut runtime);
+  let written = Arc::new(Written::default());
+  runtime.set_clipboard_writer(Some(written.clone()));
+  (runtime, written)
+}
+
+#[test]
+fn ctrl_c_on_a_focused_element_that_is_not_an_input_writes_what_its_handler_says() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (mut runtime, written) = focused_cell(heard.clone());
+  crate::support::shortcut(&mut runtime, "c", "KeyC", false);
+  crate::support::shortcut(&mut runtime, "x", "KeyX", false);
+  assert_eq!(*heard.lock().unwrap(), ["copy cut=false", "copy cut=true"]);
+  assert_eq!(*written.0.lock().unwrap(), ["a\tb\nc\td", "a\tb\nc\td"]);
+}
+
+#[test]
+fn ctrl_v_on_a_focused_element_that_is_not_an_input_reaches_its_handlers_with_the_clipboard() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (mut runtime, _) = focused_cell(heard.clone());
+  crate::support::shortcut(&mut runtime, "v", "KeyV", false);
+  assert_eq!(*heard.lock().unwrap(), ["paste secret"]);
+  assert!(
+    runtime.paste(ClipboardContent::text("given")),
+    "a paste of given content too"
+  );
+  assert_eq!(heard.lock().unwrap().last().map(String::as_str), Some("paste given"));
+}
+
+#[test]
+fn a_copy_nothing_hears_writes_nothing() {
+  let mut runtime = Tree::new();
+  runtime.set_root(lurq::components::Row::new().size(80.0, 30.0).tab_index(0).id("input"));
+  let mut runtime = focus(runtime);
+  let written = Arc::new(Written::default());
+  runtime.set_clipboard_writer(Some(written.clone()));
+  crate::support::shortcut(&mut runtime, "c", "KeyC", false);
+  assert!(written.0.lock().unwrap().is_empty());
+  assert!(
+    !runtime.paste(ClipboardContent::text("given")),
+    "no handler takes a paste"
+  );
+}
+
+/// A copy button of an app's: a press asks the window to put its code on the clipboard.
+struct CopyButton;
+
+impl lurq::app::component::Component for CopyButton {
+  type Props = ();
+
+  fn create(_ctx: &mut lurq::app::ctx::Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut lurq::app::ctx::Ctx) -> impl Into<lurq::node::Element> {
+    let window = ctx.window();
+    Column::new().child(
+      lurq::components::Rect::new(80.0, 30.0)
+        .id("copy")
+        .on_click(move |_: lurq::app::events::MouseEvent| window.copy_to_clipboard("fn main() {}")),
+    )
+  }
+}
+
+/// A press puts a text on the clipboard through the window: it is written where a copy shortcut writes, once the
+/// press is handled.
+#[test]
+fn a_press_puts_a_text_on_the_clipboard_through_the_window() {
+  let mut app = lurq::app::App::new();
+  let mut runtime = Tree::new();
+  runtime.mount_root::<CopyButton>(&mut app, ());
+  let written = Arc::new(Written::default());
+  runtime.set_clipboard_writer(Some(written.clone()));
+  runtime.pass_headless(&mut app);
+  pointer_click(&mut runtime, 10.0, 10.0, MouseButton::Left);
+  assert_eq!(*written.0.lock().unwrap(), ["fn main() {}"]);
+  // Nothing is written twice.
+  runtime.pass_headless(&mut app);
+  assert_eq!(written.0.lock().unwrap().len(), 1);
+}

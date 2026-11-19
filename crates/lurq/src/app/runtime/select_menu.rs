@@ -1,7 +1,7 @@
 //! The open `Select` menu: building its overlay each pass and the keyboard
 //! defaults of a focused select.
 
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use super::{Tree, clamp_overlay_position, find_node_by_id, overlay_position, resolve_overlay_collision};
 use crate::{
@@ -12,14 +12,15 @@ use crate::{
   core::ElementRect,
   layout::{Alignment, Size, layout_kind::Justify, layout_result::LayoutResult},
   node::{
-    EventHandler, Node, SelectAdornmentState, SelectCheckmarkPosition, SelectPartStyle, SelectStyle, SpacingValue,
-    Style, SyntheticNodeRole,
+    EventHandler, Node, NodeUpdate, SelectAdornmentState, SelectCheckmarkPosition, SelectPartStyle, SelectStyle,
+    SpacingValue, Style, SyntheticNodeRole,
     border::ThemedBorderRadius,
     dimension::Dimension,
     node_kind::{NodeKind, SelectState, TextOverflow},
     radius_value::RadiusValue,
     select_style::SelectOptionState,
   },
+  time::Instant,
 };
 
 /// Minimum option row height when the option part sets none.
@@ -36,11 +37,38 @@ pub(super) fn build_select_menu(
 ) -> Node {
   let style = state.style();
   let labels = state.labels();
-  let rows = labels
-    .iter()
-    .enumerate()
-    .map(|(index, label)| option_row(state, &style, index, label, labels.len(), measure))
-    .collect();
+  // A group's separator and label are rows of their own: where each option's row is among them.
+  let mut rows = Vec::with_capacity(labels.len());
+  let mut positions = Vec::with_capacity(labels.len());
+  for (index, label) in labels.iter().enumerate() {
+    if let Some(group) = state.group(index) {
+      if !rows.is_empty() {
+        rows.push(separator_row(&style));
+      }
+      if !group.is_empty() {
+        rows.push(group_label_row(&style, &group));
+      }
+    }
+    positions.push(rows.len());
+    rows.push(option_row(state, &style, index, label, labels.len(), false, measure));
+  }
+  // A list as wide as its longest option: each option as wide as what it holds, with the room of a mark, in the
+  // menu's own padding and border.
+  let fitted = style.menu_fits_options.then(|| {
+    let options = labels
+      .iter()
+      .enumerate()
+      .map(|(index, label)| option_row(state, &style, index, label, labels.len(), true, measure))
+      .collect();
+    let probe = Node::column(0.0, Alignment::Start, options).apply_select_part(&style.menu);
+    measure(&probe).size.width.ceil()
+  });
+  // What the list says of itself, after its options: that it has none, or that more are loading.
+  if let Some(status) = state.status() {
+    let mut row = Node::row(0.0, Alignment::Center, vec![status.into_node()]).width(Dimension::Pct(100.0));
+    row.set_tag_name("SelectStatus");
+    rows.push(row);
+  }
 
   // The menu's padding goes on the scrolled list, so it scrolls with the
   // options like CSS padding on a scroll container.
@@ -49,7 +77,10 @@ pub(super) fn build_select_menu(
   if let Some(padding) = menu_part.padding.take() {
     list = list.padding_custom(padding);
   }
-  let width = bounds.width.max(style.min_menu_width).min(viewport.width.max(0.0));
+  let width = fitted
+    .unwrap_or(bounds.width)
+    .max(style.min_menu_width)
+    .min(viewport.width.max(0.0));
   let mut menu = crate::node::dsl::scroll_vertical(list)
     .with_scroll_state(state.menu_scroll())
     .apply_select_part(&menu_part)
@@ -60,10 +91,15 @@ pub(super) fn build_select_menu(
   }
   menu.set_tag_name("SelectMenu");
   menu.set_synthetic_role(SyntheticNodeRole::SelectMenu);
+  // To what reads the tree, a listbox, which says which of its options the keys are on.
+  NodeUpdate::describe(&mut menu, Arc::from("a11y_role"), Arc::from("listbox"));
+  if let Some(label) = state.highlighted().and_then(|index| labels.get(index)) {
+    NodeUpdate::describe(&mut menu, Arc::from("a11y_activedescendant"), label.clone());
+  }
 
   let measured = measure(&menu);
   if let Some(index) = state.take_reveal()
-    && let Some((start, end)) = option_extent(&measured, index)
+    && let Some((start, end)) = positions.get(index).and_then(|row| option_extent(&measured, *row))
   {
     state.menu_scroll().reveal_y_pending(start, end);
   }
@@ -83,11 +119,49 @@ pub(super) fn build_select_menu(
   menu.absolute_positioned(x, y, Some(Dimension::Px(width)), None)
 }
 
-/// The vertical extent of option `index` in the menu's scroll content.
+/// The vertical extent of the menu's row `index` in its scroll content.
 fn option_extent(menu: &LayoutResult, index: usize) -> Option<(f32, f32)> {
   let list = menu.children.first()?;
   let row = list.result.children.get(index)?;
   Some((row.offset.y, row.offset.y + row.result.size.height))
+}
+
+/// The line above a group that is not the first row of the menu.
+fn separator_row(style: &SelectStyle) -> Node {
+  let mut part = style.separator.clone();
+  let thickness = part.min_height.take().unwrap_or(1.0);
+  let padding = part.padding.take();
+  let line_color = part.background.take();
+  let mut line = Node::row(0.0, Alignment::Start, Vec::new())
+    .width(Dimension::Pct(100.0))
+    .height(Dimension::Px(thickness));
+  if let Some(color) = line_color {
+    line = line.background(color);
+  }
+  let mut row = Node::row(0.0, Alignment::Start, vec![line])
+    .width(Dimension::Pct(100.0))
+    .apply_select_part(&part);
+  if let Some(padding) = padding {
+    row = row.padding_custom(padding);
+  }
+  row.set_tag_name("SelectSeparator");
+  row
+}
+
+/// The label over a group.
+fn group_label_row(style: &SelectStyle, label: &str) -> Node {
+  let part = &style.group_label;
+  let text = part
+    .text_node(label)
+    .text_wrap(false)
+    .text_overflow(TextOverflow::Elipsis)
+    .min_width(0.0)
+    .flex(1.0);
+  let mut row = Node::row(0.0, Alignment::Center, vec![text])
+    .width(Dimension::Pct(100.0))
+    .apply_select_part(part);
+  row.set_tag_name("SelectGroupLabel");
+  row
 }
 
 fn option_row(
@@ -96,6 +170,8 @@ fn option_row(
   index: usize,
   label: &str,
   count: usize,
+  // The row as wide as what it holds and with the room of a mark, to be measured: not one of the menu's rows.
+  probe: bool,
   measure: &mut dyn FnMut(&Node) -> LayoutResult,
 ) -> Node {
   let option = SelectOptionState {
@@ -115,10 +191,28 @@ fn option_row(
     text_color: part.text_color.clone(),
   };
   let (leading, trailing) = state.adornments(index);
-  let slots = [leading, trailing].map(|build| build.map(|build| build(&adornment).into_node().flex_shrink(0.0)));
-  let content = option_content(&part, style, label, state.detail(index), slots, measure);
+  let [leading, trailing] =
+    [leading, trailing].map(|build| build.map(|build| build(&adornment).into_node().flex_shrink(0.0)));
+  // The hint goes at the end, after the trailing element, in its own style over the row's.
+  let hint = state.hint(index).map(|hint| {
+    let mut hint_part = part.clone();
+    hint_part.merge_from(&style.option_hint);
+    hint_part.text_node(&hint).text_wrap(false).flex_shrink(0.0)
+  });
+  let trailing = match (trailing, hint) {
+    (Some(element), Some(hint)) => {
+      Some(Node::row(style.option_adornment_gap, Alignment::Center, vec![element, hint]).flex_shrink(0.0))
+    }
+    (element, hint) => element.or(hint),
+  };
+  let slots = [leading, trailing];
+  let content = option_content(&part, style, label, state.detail(index), slots, !probe, measure);
   let multiple = state.multiple();
-  let (gap, children) = if style.shows_checkmark(multiple) {
+  // A slot keeps the labels in line where the mark is before them. After them, in a single-select, only the chosen
+  // row needs it: the others' labels may run to the row's end.
+  let slot_kept =
+    probe || !matches!(style.checkmark_position, SelectCheckmarkPosition::Trailing) || multiple || option.selected;
+  let (gap, children) = if style.shows_checkmark(multiple) && slot_kept {
     let slot = checkmark_slot(style, &part, option.selected);
     let children = match style.checkmark_position {
       SelectCheckmarkPosition::Leading => vec![slot, content],
@@ -129,14 +223,21 @@ fn option_row(
     (SpacingValue::from(0.0), vec![content])
   };
 
-  let mut row = Node::row(gap, Alignment::Center, children)
-    .width(Dimension::Pct(100.0))
-    .apply_select_part(&part);
+  let mut row = Node::row(gap, Alignment::Center, children).apply_select_part(&part);
+  if probe {
+    return row;
+  }
+  row = row.width(Dimension::Pct(100.0));
   if part.min_height.is_none() {
     row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
   }
   row.set_tag_name("SelectOption");
+  let yes_no = |on: bool| Arc::from(if on { "true" } else { "false" });
+  NodeUpdate::describe(&mut row, Arc::from("a11y_role"), Arc::from("option"));
+  NodeUpdate::describe(&mut row, Arc::from("a11y_name"), Arc::from(label));
+  NodeUpdate::describe(&mut row, Arc::from("a11y_selected"), yes_no(option.selected));
   if option.disabled {
+    NodeUpdate::describe(&mut row, Arc::from("a11y_disabled"), yes_no(true));
     return row;
   }
 
@@ -169,8 +270,12 @@ fn option_content(
   label: &str,
   detail: Option<Arc<str>>,
   [leading, trailing]: [Option<Node>; 2],
+  // Whether the text takes the room of its row; a row measured for its natural width does not grow.
+  grows: bool,
   measure: &mut dyn FnMut(&Node) -> LayoutResult,
 ) -> Node {
+  let grow = |node: Node| if grows { node.flex(1.0) } else { node };
+  let full = |node: Node| if grows { node.width(Dimension::Pct(100.0)) } else { node };
   let line = |node: Node| {
     node
       .text_wrap(false)
@@ -186,22 +291,14 @@ fn option_content(
   let adorned = leading.is_some() || trailing.is_some();
   let gap = style.option_adornment_gap;
   let around = |before: Option<Node>, text: Node, after: Option<Node>, align: Alignment| {
-    let children = before.into_iter().chain([text.flex(1.0)]).chain(after).collect();
+    let children = before.into_iter().chain([grow(text)]).chain(after).collect();
     Node::row(gap, align, children)
   };
 
   match (detail, adorned) {
-    (None, false) => label.flex(1.0),
-    (None, true) => around(leading, label, trailing, Alignment::Center)
-      .min_width(0.0)
-      .flex(1.0),
-    (Some(detail), false) => Node::column(
-      0.0,
-      Alignment::Start,
-      vec![label.width(Dimension::Pct(100.0)), detail.width(Dimension::Pct(100.0))],
-    )
-    .min_width(0.0)
-    .flex(1.0),
+    (None, false) => grow(label),
+    (None, true) => grow(around(leading, label, trailing, Alignment::Center).min_width(0.0)),
+    (Some(detail), false) => grow(Node::column(0.0, Alignment::Start, vec![full(label), full(detail)]).min_width(0.0)),
     (Some(detail), true) => {
       let mut spacer = |slot: &Option<Node>| {
         slot.as_ref().map(|element| {
@@ -211,17 +308,17 @@ fn option_content(
         })
       };
       let (before, after) = (spacer(&leading), spacer(&trailing));
-      let full = |row: Node| row.width(Dimension::Pct(100.0));
-      Node::column(
-        0.0,
-        Alignment::Start,
-        vec![
-          full(around(leading, label, trailing, Alignment::Center)),
-          full(around(before, detail, after, Alignment::Start)),
-        ],
+      grow(
+        Node::column(
+          0.0,
+          Alignment::Start,
+          vec![
+            full(around(leading, label, trailing, Alignment::Center)),
+            full(around(before, detail, after, Alignment::Start)),
+          ],
+        )
+        .min_width(0.0),
       )
-      .min_width(0.0)
-      .flex(1.0)
     }
   }
 }
@@ -229,8 +326,13 @@ fn option_content(
 /// The checkmark slot every option reserves, so labels line up whether or not
 /// the option is selected.
 fn checkmark_slot(style: &SelectStyle, part: &SelectPartStyle, selected: bool) -> Node {
-  let icon = selected.then(|| {
-    style.checkmark.build(
+  let mark = if selected {
+    Some(&style.checkmark)
+  } else {
+    style.checkmark_unchecked.as_ref()
+  };
+  let icon = mark.map(|mark| {
+    mark.build(
       part.text_style(),
       style.checkmark_size,
       style.checkmark_color.as_ref().or(part.text_color.as_ref()),
@@ -311,7 +413,8 @@ impl Tree {
   /// highlighted. Open: arrows move the highlight over enabled options,
   /// Home/End jump to the first/last one, typing jumps by label prefix, Enter
   /// or Space commits, and Escape or Tab close without a change. Focus stays
-  /// on the select throughout.
+  /// on the select throughout, but for Tab, which goes on from it as it does
+  /// from a closed select, as Tab in an open menu goes on from its trigger.
   pub(super) fn dispatch_select_key(&mut self, key: SelectKey<'_>) -> bool {
     let Some(focused) = self.focused_node else {
       return false;
@@ -325,6 +428,13 @@ impl Tree {
     let NodeKind::Select { state } = node.node_kind() else {
       return false;
     };
+    if state.is_open() && key.is("Tab") {
+      // Closed, and the Tab is not taken: it goes on from the select, which is drawn closed whether or not it
+      // moves the focus.
+      state.set_open(false);
+      self.needs_redraw = true;
+      return false;
+    }
     if state.is_open() {
       handle_open_select_key(state, key)
     } else {
@@ -343,7 +453,7 @@ fn handle_closed_select_key(state: &SelectState, key: SelectKey<'_>) -> bool {
 
 fn handle_open_select_key(state: &SelectState, key: SelectKey<'_>) -> bool {
   let now = Instant::now();
-  if key.is("Escape") || key.is("Tab") {
+  if key.is("Escape") {
     state.set_open(false);
   } else if key.is("ArrowDown") {
     state.move_highlight(1);

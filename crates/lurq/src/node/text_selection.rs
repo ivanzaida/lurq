@@ -10,6 +10,13 @@ const CARET_INDEX_MIN_POSITIONS: usize = 256;
 #[derive(Clone)]
 pub(crate) struct CaretPositions(Arc<CaretData>);
 
+impl CaretPositions {
+  /// Whether `other` is these very positions, not only equal ones.
+  pub(crate) fn same(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
 struct CaretData {
   positions: OnceLock<Vec<CaretPosition>>,
   segments: Vec<CaretSegment>,

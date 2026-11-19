@@ -1,10 +1,11 @@
 use pulldown_cmark::{
-  Alignment as CmarkAlignment, CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd,
+  Alignment as CmarkAlignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag,
+  TagEnd,
 };
 
 use super::{
-  MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
-  MarkdownTableAlignment, MarkdownTableRow,
+  MarkdownAdmonitionKind, MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline,
+  MarkdownListItem, MarkdownTableAlignment, MarkdownTableRow, rich_text::markdown_html_text,
 };
 
 pub fn parse_markdown(source: &str) -> MarkdownDocument {
@@ -28,6 +29,20 @@ enum Frame {
   },
   BlockQuote {
     blocks: Vec<MarkdownBlock>,
+  },
+  Admonition {
+    kind: MarkdownAdmonitionKind,
+    blocks: Vec<MarkdownBlock>,
+  },
+  /// A `<details>` element, open from its HTML block to the one that closes it.
+  Details {
+    summary: Option<String>,
+    open: bool,
+    blocks: Vec<MarkdownBlock>,
+  },
+  /// A `<kbd>` element, from its opening tag to its closing one: its words.
+  Kbd {
+    text: String,
   },
   FootnoteDefinition {
     label: String,
@@ -97,6 +112,8 @@ impl MarkdownParser {
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_MATH);
+    // GitHub's admonitions: `> [!NOTE]` and the rest.
+    options.insert(Options::ENABLE_GFM);
 
     for event in Parser::new_ext(source, options) {
       self.push_event(event);
@@ -132,7 +149,11 @@ impl MarkdownParser {
         level: heading_level(level),
         inlines: Vec::new(),
       }),
-      Tag::BlockQuote(_) => self.frames.push(Frame::BlockQuote { blocks: Vec::new() }),
+      Tag::BlockQuote(Some(kind)) => self.frames.push(Frame::Admonition {
+        kind: admonition_kind(kind),
+        blocks: Vec::new(),
+      }),
+      Tag::BlockQuote(None) => self.frames.push(Frame::BlockQuote { blocks: Vec::new() }),
       Tag::FootnoteDefinition(label) => self.frames.push(Frame::FootnoteDefinition {
         label: label.to_string(),
         blocks: Vec::new(),
@@ -227,8 +248,11 @@ impl MarkdownParser {
   }
 
   fn close_blockquote(&mut self) {
-    if let Some(Frame::BlockQuote { blocks }) = self.frames.pop() {
-      self.push_block(MarkdownBlock::BlockQuote(blocks));
+    match self.frames.pop() {
+      Some(Frame::BlockQuote { blocks }) => self.push_block(MarkdownBlock::BlockQuote(blocks)),
+      Some(Frame::Admonition { kind, blocks }) => self.push_block(MarkdownBlock::Admonition { kind, blocks }),
+      Some(other) => self.frames.push(other),
+      None => {}
     }
   }
 
@@ -244,9 +268,79 @@ impl MarkdownParser {
     }
   }
 
+  /// An HTML block: a `<details>` opens what the blocks after it go into, a
+  /// `</details>` closes it, and a `<summary>` names it; any other is a block
+  /// of its own.
   fn close_html_block(&mut self) {
-    if let Some(Frame::HtmlBlock { text }) = self.frames.pop() {
-      self.push_block(MarkdownBlock::Html(text));
+    let Some(Frame::HtmlBlock { text }) = self.frames.pop() else {
+      return;
+    };
+    let mut rest = text.as_str();
+    loop {
+      let trimmed = rest.trim_start();
+      if let Some(after) = strip_tag(trimmed, "details") {
+        let (open, after) = details_open(after);
+        self.frames.push(Frame::Details {
+          summary: None,
+          open,
+          blocks: Vec::new(),
+        });
+        rest = after;
+      } else if let Some(after) = strip_tag(trimmed, "summary") {
+        // Past the tag's own attributes and its `>`.
+        let after = after.find('>').map_or("", |end| &after[end + 1..]);
+        let (summary, after) = match after.find("</summary>") {
+          Some(end) => (&after[..end], &after[end + "</summary>".len()..]),
+          None => (after, ""),
+        };
+        if let Some(Frame::Details { summary: named, .. }) = self.frames.last_mut() {
+          *named = Some(markdown_html_text(summary).trim().to_owned());
+        }
+        rest = after;
+      } else if let Some(after) = trimmed.strip_prefix("</details>") {
+        if let Some(position) = self
+          .frames
+          .iter()
+          .rposition(|frame| matches!(frame, Frame::Details { .. }))
+        {
+          // A block left open inside it ends with it.
+          while self.frames.len() > position + 1 {
+            self.end_open_frame();
+          }
+          if let Some(Frame::Details { summary, open, blocks }) = self.frames.pop() {
+            self.push_block(MarkdownBlock::Details {
+              summary: summary.unwrap_or_else(|| "Details".to_owned()),
+              open,
+              blocks,
+            });
+          }
+        }
+        rest = after;
+      } else {
+        break;
+      }
+    }
+    if !rest.trim().is_empty() {
+      self.push_block(MarkdownBlock::Html(rest.to_owned()));
+    }
+  }
+
+  /// Ends the frame on top as its closing event would.
+  fn end_open_frame(&mut self) {
+    match self.frames.last() {
+      Some(Frame::Paragraph { .. }) => self.close_paragraph(),
+      Some(Frame::Details { .. }) => {
+        if let Some(Frame::Details { summary, open, blocks }) = self.frames.pop() {
+          self.push_block(MarkdownBlock::Details {
+            summary: summary.unwrap_or_else(|| "Details".to_owned()),
+            open,
+            blocks,
+          });
+        }
+      }
+      _ => {
+        self.frames.pop();
+      }
     }
   }
 
@@ -353,16 +447,34 @@ impl MarkdownParser {
 
   fn push_text(&mut self, text: &str) {
     match self.frames.last_mut() {
-      Some(Frame::CodeBlock { text: code, .. }) | Some(Frame::HtmlBlock { text: code }) => code.push_str(text),
+      Some(Frame::CodeBlock { text: code, .. })
+      | Some(Frame::HtmlBlock { text: code })
+      | Some(Frame::Kbd { text: code }) => code.push_str(text),
       _ => self.push_inline(MarkdownInline::Text(text.to_owned())),
     }
   }
 
+  /// HTML in a block goes into it; in a sentence, `<kbd>` opens a key and
+  /// `</kbd>` closes it, and any other tag is kept as it is.
   fn push_html(&mut self, html: &str) {
-    match self.frames.last_mut() {
-      Some(Frame::HtmlBlock { text }) => text.push_str(html),
-      _ => self.push_inline(MarkdownInline::Html(html.to_owned())),
+    if let Some(Frame::HtmlBlock { text }) = self.frames.last_mut() {
+      text.push_str(html);
+      return;
     }
+    let tag = html.trim().to_ascii_lowercase();
+    if tag == "<kbd>" {
+      self.frames.push(Frame::Kbd { text: String::new() });
+      return;
+    }
+    if tag == "</kbd>"
+      && let Some(Frame::Kbd { .. }) = self.frames.last()
+    {
+      if let Some(Frame::Kbd { text }) = self.frames.pop() {
+        self.push_inline(MarkdownInline::Kbd(text));
+      }
+      return;
+    }
+    self.push_inline(MarkdownInline::Html(html.to_owned()));
   }
 
   fn push_display_math(&mut self, text: &str) {
@@ -387,6 +499,8 @@ impl MarkdownParser {
     match self.frames.last_mut() {
       Some(Frame::Document { blocks })
       | Some(Frame::BlockQuote { blocks })
+      | Some(Frame::Admonition { blocks, .. })
+      | Some(Frame::Details { blocks, .. })
       | Some(Frame::FootnoteDefinition { blocks, .. })
       | Some(Frame::Item { blocks }) => blocks.push(block),
       _ => {}
@@ -405,7 +519,15 @@ impl MarkdownParser {
       | Some(Frame::Image { inlines, .. }) => inlines.push(inline),
       Some(Frame::Item { blocks })
       | Some(Frame::BlockQuote { blocks })
+      | Some(Frame::Admonition { blocks, .. })
+      | Some(Frame::Details { blocks, .. })
       | Some(Frame::FootnoteDefinition { blocks, .. }) => push_implicit_paragraph_inline(blocks, inline),
+      // A key in a key: its words go into the key's.
+      Some(Frame::Kbd { text }) => {
+        if let MarkdownInline::Text(words) = inline {
+          text.push_str(&words);
+        }
+      }
       _ => {}
     }
   }
@@ -416,6 +538,43 @@ fn push_implicit_paragraph_inline(blocks: &mut Vec<MarkdownBlock>, inline: Markd
     inlines.push(inline);
   } else {
     blocks.push(MarkdownBlock::Paragraph(vec![inline]));
+  }
+}
+
+/// What follows `<tag` (or `<tag>`) at the start of `text`, where the tag is that one.
+fn strip_tag<'t>(text: &'t str, tag: &str) -> Option<&'t str> {
+  let rest = text.strip_prefix('<')?;
+  let name = rest.get(..tag.len())?;
+  if !name.eq_ignore_ascii_case(tag) {
+    return None;
+  }
+  let after = &rest[tag.len()..];
+  after
+    .starts_with(|c: char| c == '>' || c.is_whitespace())
+    .then_some(after)
+}
+
+/// Whether a `<details` tag says `open`, and what follows the tag.
+fn details_open(after_name: &str) -> (bool, &str) {
+  match after_name.find('>') {
+    Some(end) => {
+      let attributes = &after_name[..end];
+      let open = attributes
+        .split_whitespace()
+        .any(|attribute| attribute.eq_ignore_ascii_case("open") || attribute.to_ascii_lowercase().starts_with("open="));
+      (open, &after_name[end + 1..])
+    }
+    None => (false, ""),
+  }
+}
+
+fn admonition_kind(kind: BlockQuoteKind) -> MarkdownAdmonitionKind {
+  match kind {
+    BlockQuoteKind::Note => MarkdownAdmonitionKind::Note,
+    BlockQuoteKind::Tip => MarkdownAdmonitionKind::Tip,
+    BlockQuoteKind::Important => MarkdownAdmonitionKind::Important,
+    BlockQuoteKind::Warning => MarkdownAdmonitionKind::Warning,
+    BlockQuoteKind::Caution => MarkdownAdmonitionKind::Caution,
   }
 }
 

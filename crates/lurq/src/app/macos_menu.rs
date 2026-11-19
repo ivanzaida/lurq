@@ -53,8 +53,12 @@ unsafe extern "C-unwind" fn send_event(app: &NSApplication, selector: Sel, event
   if kind == NSEventType::KeyDown {
     // Ask the native menu exactly once, before winit/tree shortcuts. AppKit's
     // default sendEvent receives only unhandled events. Suppress the matching up
-    // event too (winit otherwise forwards Command key-up explicitly).
-    if let Some(menu) = app.mainMenu() {
+    // event too (winit otherwise forwards Command key-up explicitly). While an
+    // element takes every key (`captures_keys`), the menu is not asked: the key
+    // is the element's, a shortcut being recorded included.
+    if !crate::app::runtime::key_capture::keys_captured()
+      && let Some(menu) = app.mainMenu()
+    {
       if menu.performKeyEquivalent(event) {
         STATE.with(|s| {
           s.borrow_mut().as_mut().unwrap().consumed.insert(event.keyCode());
@@ -212,16 +216,30 @@ pub(crate) fn sync() {
   let update = STATE.with(|s| {
     let mut s = s.borrow_mut();
     let s = s.as_mut()?;
-    let (version, model) = s.controller.snapshot(s.version)?;
+    let (version, model, own) = s.controller.snapshot(s.version)?;
     s.version = Some(version);
-    model.map(|model| (model, s.target.clone()))
+    model.map(|model| (model, own, s.target.clone()))
   });
-  let Some((model, target)) = update else {
+  let Some((mut model, own, target)) = update else {
     return;
   };
+  // A bar lurq makes for an app that gave none is called after the app, as the system's was.
+  if !own {
+    let name = unsafe {
+      let info: Retained<AnyObject> = msg_send![objc2::class!(NSProcessInfo), processInfo];
+      let name: Retained<NSString> = msg_send![&*info, processName];
+      name.to_string()
+    };
+    if !name.is_empty() {
+      model.application.name = name.into();
+    }
+  }
   let mtm = MainThreadMarker::new().unwrap();
   let app = NSApplication::sharedApplication(mtm);
   let bar = menu(mtm, "");
+  let words = STATE
+    .with(|s| s.borrow().as_ref().map(|s| s.controller.words()))
+    .unwrap_or_default();
   let application = menu(mtm, &model.application.name);
   if let Some(action) = &model.application.about {
     add_action(&application, mtm, &target, action);
@@ -230,24 +248,24 @@ pub(crate) fn sync() {
     add_action(&application, mtm, &target, action);
   }
   application.addItem(&NSMenuItem::separatorItem(mtm));
-  let services = menu(mtm, "Services");
-  add_submenu(&application, mtm, "Services", &services);
+  let services = menu(mtm, &words.navigation.services);
+  add_submenu(&application, mtm, &words.navigation.services, &services);
   app.setServicesMenu(Some(&services));
   for (label, key, selector, flags) in [
     (
-      format!("Hide {}", model.application.name),
+      crate::core::fill(&words.navigation.hide_app, &[("app", &model.application.name)]),
       "h",
       sel!(hide:),
       NSEventModifierFlags::Command,
     ),
     (
-      "Hide Others".into(),
+      words.navigation.hide_others.to_string(),
       "h",
       sel!(hideOtherApplications:),
       NSEventModifierFlags::Command | NSEventModifierFlags::Option,
     ),
     (
-      "Show All".into(),
+      words.navigation.show_all.to_string(),
       "",
       sel!(unhideAllApplications:),
       NSEventModifierFlags::empty(),
@@ -264,7 +282,23 @@ pub(crate) fn sync() {
   add_action(&application, mtm, &target, &model.application.quit);
   add_submenu(&bar, mtm, &model.application.name, &application);
   for model in &model.menus {
-    add_submenu(&bar, mtm, &model.title, &build_menu(mtm, &target, model));
+    let built = build_menu(mtm, &target, model);
+    // The Edit menu has the system's characters, as an app's of AppKit's has them.
+    if model.has_edit_items() {
+      built.addItem(&NSMenuItem::separatorItem(mtm));
+      let emoji = item(
+        mtm,
+        &words.navigation.emoji_and_symbols,
+        " ",
+        Some(sel!(orderFrontCharacterPalette:)),
+      );
+      unsafe {
+        emoji.setTarget(Some(&app));
+      }
+      emoji.setKeyEquivalentModifierMask(NSEventModifierFlags::Control | NSEventModifierFlags::Command);
+      built.addItem(&emoji);
+    }
+    add_submenu(&bar, mtm, &model.title, &built);
   }
   app.setMainMenu(Some(&bar));
 }

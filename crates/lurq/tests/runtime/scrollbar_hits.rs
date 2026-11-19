@@ -185,19 +185,39 @@ fn where_nested_lanes_overlap_the_outer_bar_painted_on_top_wins() {
   target_os = "ios",
   ignore = "a desktop's scrollbar; a phone's default is an indicator that fades"
 )]
-fn in_the_corner_of_a_two_axis_scroller_the_horizontal_bar_painted_on_top_wins() {
-  let state = ScrollState::new();
-  let mut runtime = Tree::new();
-  runtime.set_root(
-    ScrollBoth::new(Rect::new(800.0, 800.0))
-      .with_scroll_state(state.clone())
-      .scrollbar(tracked_bar())
-      .size(200.0, 100.0),
-  );
-  render_pass(&mut runtime);
+fn in_the_corner_of_a_two_axis_scroller_neither_bar_takes_the_press_and_each_tracks_end_pages_its_own() {
+  // Where both bars are there, each track ends before the other's lane: the vertical one at y 88 (100 less 2,
+  // less the lane of 8 and the 2 of the bar across), the horizontal one at x 188. The corner is no bar's.
+  let scroller = || {
+    let state = ScrollState::new();
+    let mut runtime = Tree::new();
+    runtime.set_root(
+      ScrollBoth::new(Rect::new(800.0, 800.0))
+        .with_scroll_state(state.clone())
+        .scrollbar(tracked_bar())
+        .size(200.0, 100.0),
+    );
+    render_pass(&mut runtime);
+    (runtime, state)
+  };
 
+  let (mut runtime, state) = scroller();
   pointer_click(&mut runtime, 194.0, 94.0, MouseButton::Left);
+  assert_eq!(
+    (state.scroll_x(), state.scroll_y()),
+    (0.0, 0.0),
+    "a press in the corner pages neither"
+  );
 
+  // At the end of the horizontal track, beside the corner: the bar across pages.
+  let (mut runtime, state) = scroller();
+  pointer_click(&mut runtime, 184.0, 94.0, MouseButton::Left);
   assert_eq!(state.scroll_x(), 200.0, "the horizontal bar pages");
-  assert_eq!(state.scroll_y(), 0.0, "the vertical bar under it does not");
+  assert_eq!(state.scroll_y(), 0.0, "the vertical bar does not");
+
+  // At the end of the vertical track, over the corner: the bar down pages.
+  let (mut runtime, state) = scroller();
+  pointer_click(&mut runtime, 194.0, 84.0, MouseButton::Left);
+  assert_eq!(state.scroll_y(), 100.0, "the vertical bar pages");
+  assert_eq!(state.scroll_x(), 0.0, "the horizontal bar does not");
 }

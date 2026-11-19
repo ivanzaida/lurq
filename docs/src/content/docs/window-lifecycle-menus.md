@@ -3,7 +3,7 @@ title: Window lifecycle and native menus
 description: Veto OS close requests, defer a decision to a dialog, and install reactive macOS menus.
 ---
 
-Introduced in **lurq 0.18.1**; the behavior below describes **0.62.0**. The `winit` shell delivers close requests and menu
+Introduced in **lurq 0.18.1**; the behavior below describes **0.63.0**. The `winit` shell delivers close requests and menu
 activations on its event-loop thread. These APIs also have headless MCP coverage.
 
 ## Closing a window
@@ -134,10 +134,35 @@ An `Accelerator` contains a lowercase character/named key and `SyntheticModifier
 Backspace, Delete, ArrowUp/Down/Left/Right, and F1–F24. Invalid multi-character
 keys have no native equivalent. `display()` gives a readable modifier/key label.
 
+An `Accelerator` is the key combination of lurq everywhere: what a menu item is chosen by, what `ui::Kbd` draws and what
+a `ui::ShortcutRecorder` holds. `Accelerator::parse("Ctrl+Shift+P")` reads one as a person writes it (`Mod` is ⌘ on a
+Mac and Ctrl elsewhere, `Cmd`, `Option`, `Esc`, `Space` and `F5` too), and its `Display` writes it back in that form,
+the modifiers in the order Ctrl, Alt, Shift, Meta: what an app stores. `Accelerator::from_key_event(&event)` is the
+combination a key that went down makes (a letter or a digit unshifted, `None` for a modifier alone), and
+`accelerator.matches(&event)` asks whether a key is it. `has_modifier()` says whether a modifier is held with the key.
+
+```rust
+use lurq::app::{Accelerator, events::KeyboardEvent};
+
+let save = Accelerator::parse("Mod+S").unwrap();
+Row::new().on_key_down(move |event: KeyboardEvent| {
+  if save.matches(&event) {
+    event.prevent_default();
+    // save
+  }
+});
+```
+
 On macOS, a handled native key equivalent consumes both key down and its matching
 key up before the tree sees them. Keep menu-owned shortcuts in the menu model;
 remove their duplicate macOS tree handlers. Unhandled keys continue to the tree.
 On other platforms, keep your existing drawn-menu shortcut handlers.
+
+The bar has no Edit menu of its own. An app's Undo, Redo, Cut, Copy, Paste and Select All items take
+`EditCommand::accelerator()` as their accelerator and run the command on what has the focus with
+`window.edit(EditCommand::Undo)` (a `WindowHandle` the menu handler keeps), as the key would: a focused text input's
+own history first, then the `on_undo` handlers of the focused element and its ancestors. See
+[Editing commands](../styling-events/#editing-commands-undo-redo-copy-cut-paste).
 
 ## MCP and verification
 
@@ -155,22 +180,22 @@ inspection to verify a dialog or secondary-window removal. A successful primary
 close also shuts down its MCP server. Synthetic `key` input goes directly to the
 tree; use `menu_activate` to exercise the menu model headlessly.
 
-Run the interactive demo with:
+Run the interactive example with:
 
 ```sh
-cargo run -p demo --bin lifecycle --features mcp
+cargo run -p lurq --example lifecycle --features mcp
 ```
 
 It has a dirty checkbox, a deferred confirmation dialog, drawn chrome, a
 Preferences window, and File/Edit/Help menus. Save is enabled only while dirty.
 Use its explicit request-close action or an OS close request to test vetoes;
-the demo's built-in chrome close button still has the unconditional-close
+the example's built-in chrome close button still has the unconditional-close
 behavior described above.
 On Windows, exercise native close and MCP together with:
 
 ```sh
-cargo build -p demo --bin lifecycle --features mcp
-python scripts/windows-lifecycle-check.py target/debug/lifecycle.exe target/lifecycle-evidence
+cargo build -p lurq --example lifecycle --features mcp
+python scripts/windows-lifecycle-check.py target/debug/examples/lifecycle.exe target/lifecycle-evidence
 ```
 
 The main-thread native integration test runs with:

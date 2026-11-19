@@ -4,7 +4,8 @@
 //! The paint shapes a text in device pixels: its style scaled by the display
 //! scale, wrapped at its box's width rounded up in device pixels,
 //! `ceil(width * scale)`, and placed in its whole box (a `Text`'s padding
-//! does not move its glyphs). At a fractional width or scale that is not the
+//! does not move its glyphs) where `GlyphEngine::painted_text_offset` puts
+//! its first line. At a fractional width or scale that is not the
 //! logical layout: a word ending between the two wraps in one and not the
 //! other, and glyph advances differ by rounding. A selection's hit-testing,
 //! highlight and copied text index the carets of the painted layout, kept in
@@ -59,10 +60,15 @@ impl LayoutEngine {
         let text = output.display_text.as_deref().unwrap_or(content);
         self.painted_text(glyph_engine, text, &style, output.render_wrap, result.size)
       }
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, spans, .. } if state.measures_carets() => {
         let wrap = node.text_wrap && node.text_overflow == crate::node::node_kind::TextOverflow::Clip;
-        self.painted_rich_text(glyph_engine, spans, wrap, result.size)
+        // A paragraph's objects are as wide in its carets as in its paint: a selection and a highlight past one
+        // meet the words they cover.
+        let objects = self.object_spans(glyph_engine, node, spans, result.size.width);
+        let laid_out = objects
+          .as_ref()
+          .map_or(spans.as_slice(), |(widened, _)| widened.as_slice());
+        self.painted_rich_text(glyph_engine, laid_out, wrap, result.size)
       }
       _ => return,
     };
@@ -85,13 +91,16 @@ impl LayoutEngine {
     scaled.scale_pixels(scale);
     let max_width = painted_max_width(scale, wrap, style.text_align, size.width);
     let positions = glyph_engine.caret_positions(text, &scaled, max_width, wrap);
-    let top = glyph_engine.text_vertical_align_offset(
+    let top = glyph_engine.painted_text_offset(
       text,
+      style,
       &scaled,
+      size.width,
+      size.height,
       max_width,
       wrap,
       style.vertical_align,
-      size.height * scale,
+      scale,
     ) / scale;
     PaintedText {
       carets: PaintedCarets { positions, scale },
@@ -102,7 +111,6 @@ impl LayoutEngine {
   /// `spans` laid out as the paint lays them out in a box of `size`:
   /// centered in it, unless the paragraph paints links or underlines and
   /// writes its own frame's top afterwards.
-  #[cfg(feature = "markdown")]
   fn painted_rich_text(
     &self,
     glyph_engine: &mut GlyphEngine,

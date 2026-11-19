@@ -132,14 +132,14 @@ fn a_color_given_as_a_palette_role_transitions() {
   let mut stage = Stage::new(
     Column::new().child(
       Rect::new(120.0, 40.0)
-        .background(PaletteColor::Accent)
+        .background(PaletteColor::Primary)
         .transition(Transition::background_color().duration_ms(1000).linear())
-        .hovered(|style| style.background(PaletteColor::AccentHover)),
+        .hovered(|style| style.background(PaletteColor::PrimaryHover)),
     ),
   );
   // A role whose color changes is a change of the color: it runs the transition too. Let that one end.
-  stage.app.theme().set_palette_color(PaletteColor::Accent, RED);
-  stage.app.theme().set_palette_color(PaletteColor::AccentHover, BLUE);
+  stage.app.theme().set_palette_color(PaletteColor::Primary, RED);
+  stage.app.theme().set_palette_color(PaletteColor::PrimaryHover, BLUE);
   stage.at(0);
   stage.at(2000);
   assert_eq!(stage.fill(), RED);

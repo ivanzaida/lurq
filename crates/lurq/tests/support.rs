@@ -11,13 +11,53 @@ use std::{
 };
 
 use lurq::{
-  app::{App, Tree, events::MouseButton, render_engine::RenderEngine},
+  app::{
+    App, Tree,
+    events::MouseButton,
+    render_engine::RenderEngine,
+    theme::{CaretHeight, ThemeCaret},
+  },
   layout::render_list::{GlyphCmd, RectCmd, RenderList},
   node::color::Color,
 };
 
+/// Presses and lets go of `key` with the platform's shortcut key held: Ctrl, or Command on Apple's platforms,
+/// where Ctrl+A, Ctrl+C or Ctrl+Z is no command. `code` is the key's place, as `"KeyA"`.
+pub fn shortcut(tree: &mut Tree, key: &str, code: &str, shift: bool) {
+  let apple = cfg!(target_vendor = "apple");
+  tree.key_down_with_meta(key.to_owned(), code.to_owned(), shift, !apple, false, apple);
+  tree.key_up_with_meta(key.to_owned(), code.to_owned(), shift, !apple, false, apple);
+}
+
+/// Redo from the keyboard: Ctrl+Y, or Cmd+Shift+Z on Apple's platforms, which have no Cmd+Y.
+pub fn redo(tree: &mut Tree) {
+  if cfg!(target_vendor = "apple") {
+    shortcut(tree, "Z", "KeyZ", true);
+  } else {
+    shortcut(tree, "y", "KeyY", false);
+  }
+}
+
 pub fn default_app() -> App {
   App::new()
+}
+
+/// How wide the default theme draws a text input's caret: what a test finds the caret by.
+pub fn caret_width() -> f32 {
+  ThemeCaret::default().width()
+}
+
+/// How high the default theme draws the caret in text of `font_size`.
+pub fn caret_height(font_size: f32) -> f32 {
+  match ThemeCaret::default().height() {
+    CaretHeight::FontSize(share) => font_size * share,
+    CaretHeight::TextBand => font_size,
+  }
+}
+
+/// How thick the default theme draws the line under what an input method composes.
+pub fn composition_line() -> f32 {
+  ThemeCaret::default().composition_line()
 }
 use raw_window_handle::{
   DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
@@ -61,8 +101,6 @@ pub struct RenderSnapshot {
   pub image_opacities: Vec<f32>,
   #[cfg(feature = "image")]
   pub images: Vec<ImageSnapshot>,
-  #[cfg(feature = "svg")]
-  pub svg_orders: Vec<usize>,
   pub layers: Vec<lurq::layout::opacity_layer::LayerCmd>,
   pub backdrops: Vec<lurq::layout::backdrop::BackdropCmd>,
 }
@@ -177,8 +215,6 @@ impl RenderEngine for CapturingRenderEngine {
           uv_max: image.uv_max,
         })
         .collect(),
-      #[cfg(feature = "svg")]
-      svg_orders: list.svgs.iter().map(|svg| svg.order).collect(),
       layers: list.layers.clone(),
       backdrops: list.backdrops.clone(),
     });
@@ -198,8 +234,6 @@ fn empty_snapshot() -> RenderSnapshot {
     image_opacities: vec![],
     #[cfg(feature = "image")]
     images: vec![],
-    #[cfg(feature = "svg")]
-    svg_orders: vec![],
     layers: vec![],
     backdrops: vec![],
   }

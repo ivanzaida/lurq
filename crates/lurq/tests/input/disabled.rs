@@ -6,6 +6,7 @@ use std::sync::{
   atomic::{AtomicUsize, Ordering},
 };
 
+#[allow(deprecated)]
 use lurq::{
   app::{
     App, Tree,
@@ -96,6 +97,7 @@ fn a_click_on_a_disabled_element_runs_no_handler() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn everything_in_a_disabled_element_is_disabled_with_it() {
   let (inner, bump) = counter();
   let checked = Signal::new(false);
@@ -179,6 +181,41 @@ fn a_disabled_element_is_not_hovered_or_pressed_but_the_elements_it_is_in_stay_h
   assert!(!row.is_active() && !item.is_active(), "and presses nothing");
   tree.mouse_up(x, y, MouseButton::Left);
   assert!(row.is_hovered());
+}
+
+#[test]
+fn a_disabled_element_hears_the_pointer_come_and_go_and_nothing_else_of_it() {
+  let item = InteractionState::new();
+  let (entered, enter) = counter();
+  let (left, leave) = counter();
+  let (pressed, press) = counter();
+  let mut app = App::new();
+  let mut tree = mounted(
+    &mut app,
+    Row::new().padding(10.0).child(
+      Rect::new(120.0, 32.0)
+        .id("item")
+        .interactive(item.clone())
+        .disabled(true)
+        .on_mouse_enter(enter)
+        .on_mouse_leave(leave)
+        .on_click(move |_| press()),
+    ),
+  );
+  let (x, y) = center(&mut tree, "item");
+
+  tree.mouse_move(x, y);
+  assert_eq!((clicks(&entered), clicks(&left)), (1, 0), "the pointer came");
+  assert!(!item.is_hovered(), "and does not hover it");
+  tree.mouse_move(x + 4.0, y);
+  assert_eq!(clicks(&entered), 1, "moving on it is no coming again");
+
+  pointer_click(&mut tree, x, y, MouseButton::Left);
+  assert_eq!(clicks(&pressed), 0, "a press reaches nothing");
+  assert!(!item.is_active());
+
+  tree.mouse_move(400.0, 300.0);
+  assert_eq!((clicks(&entered), clicks(&left)), (1, 1), "the pointer went");
 }
 
 #[test]

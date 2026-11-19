@@ -1,0 +1,538 @@
+//! The page of the lightbox: its playground, the lightbox in a page as the board draws it, one picture alone,
+//! and the lightbox over the window.
+
+use std::sync::Arc;
+
+use lurq::{
+  app::{component::Component, ctx::Ctx},
+  components::{Column, Row},
+  core::Signal,
+  images::ImageData,
+  layout::Alignment,
+  node::Element,
+  ui::{Button, ButtonVariant, Lightbox, LightboxVariant, Picture},
+};
+
+use super::picture::lake;
+use crate::{
+  doc::{Frame, Header, Section},
+  kit::{FILL, props_table, quiet},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
+};
+
+const COUNTS: [(&str, usize); 3] = [("1", 1), ("3", 3), ("8", 8)];
+const CLOSEST: [(&str, f32); 3] = [("2 ×", 2.0), ("4 ×", 4.0), ("8 ×", 8.0)];
+const ROOMS: [(&str, (f32, f32)); 3] = [
+  ("560 × 380", (560.0, 380.0)),
+  ("420 × 290", (420.0, 290.0)),
+  ("320 × 420", (320.0, 420.0)),
+];
+
+/// What the pictures are called, in turn.
+const TITLES: [(&str, &str); 4] = [
+  ("Lake at dusk", "Ivan Zaida · 4032 × 3024"),
+  ("The ridge", "A portrait: it stands whole between two bands"),
+  ("The far shore", "A wide one: it lies whole between two bands"),
+  ("The sun", ""),
+];
+
+/// Something on a stage with what it is under it.
+fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  // No wider than the stage: what is shown gets narrower with it, and what is said under it wraps.
+  Column::new()
+    .max_width(FILL)
+    .spacing(10.0)
+    .child(Row::new().max_width(FILL).padding(2.0).overflow_visible().child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+pub struct LightboxPage {
+  frame: Frame,
+  playground: Playground,
+  count: Signal<usize>,
+  room: Signal<(f32, f32)>,
+  closest: Signal<f32>,
+  wrap: Signal<bool>,
+  filmstrip: Signal<bool>,
+  counter: Signal<bool>,
+  download: Signal<bool>,
+  close: Signal<bool>,
+  /// Whether the lightbox over the window is open.
+  open: Signal<bool>,
+  /// Which picture the phone's viewer shows.
+  phone_at: Signal<usize>,
+  /// The page's pictures, drawn once: the lake as it is, standing and lying.
+  shots: [ImageData; 3],
+}
+
+/// `count` pictures: the three shots in turn, each with what it is called.
+pub(super) fn pictures_of(shots: &[ImageData; 3], count: usize) -> Vec<Picture> {
+  (0..count)
+    .map(|at| {
+      let (title, description) = TITLES[at % TITLES.len()];
+      let picture = Picture::new(shots[at % shots.len()].clone()).label(title).title(title);
+      match description {
+        "" => picture,
+        description => picture.description(description),
+      }
+    })
+    .collect()
+}
+
+/// What Download does in the page's lightboxes: the picture at `index`, as a PNG, saved where the person says in the
+/// system's dialog for where to save (on a phone, the system's picker of places in Files).
+pub(super) fn saver(
+  window: lurq::app::window::WindowHandle,
+  shots: [ImageData; 3],
+) -> impl Fn(usize) + Send + Sync + 'static {
+  move |index: usize| {
+    let shot = shots[index % shots.len()].clone();
+    let (title, _) = TITLES[index % TITLES.len()];
+    let asked = lurq::files::FileDialog::new()
+      .title("Save the picture")
+      .filter("PNG", &["png"])
+      .file_name(&format!("{title}.png"))
+      .pick_save(&window);
+    std::thread::spawn(move || {
+      let Some(path) = block_on(asked) else {
+        return;
+      };
+      let png = lurq::app::events::ClipboardImage::from_rgba(shot.width(), shot.height(), shot.data().to_vec())
+        .ok()
+        .and_then(|image| image.to_png().ok());
+      match png {
+        Some(png) => {
+          if let Err(error) = std::fs::write(&path, png) {
+            eprintln!("the gallery did not save {}: {error}", path.display());
+          }
+        }
+        None => eprintln!("the gallery did not make a PNG of the picture"),
+      }
+    });
+  }
+}
+
+/// Runs a future to its end on this thread.
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+  use std::{
+    pin::pin,
+    sync::Arc,
+    task::{Context, Poll, Wake, Waker},
+    thread::Thread,
+  };
+  struct Unpark(Thread);
+  impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+      self.0.unpark();
+    }
+  }
+  let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+  let mut cx = Context::from_waker(&waker);
+  let mut future = pin!(future);
+  loop {
+    if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
+      return output;
+    }
+    std::thread::park();
+  }
+}
+
+impl LightboxPage {
+  fn pictures(&self, count: usize) -> Vec<Picture> {
+    pictures_of(&self.shots, count)
+  }
+
+  /// The playground: a lightbox in the page, as the panel's props make it.
+  fn play(&self, ctx: &mut Ctx) -> Element {
+    let (count, room, closest) = (self.count.get(), self.room.get(), self.closest.get());
+    let (wrap, filmstrip, counter) = (self.wrap.get(), self.filmstrip.get(), self.counter.get());
+    let (download, close) = (self.download.get(), self.close.get());
+    let shots = self.shots.clone();
+    let save = std::sync::Arc::new(saver(ctx.window(), self.shots.clone()));
+    let record = self.playground.recorder();
+    let open = Signal::new(true);
+
+    let plain = {
+      let open = open.clone();
+      move || {
+        Lightbox::new(open.clone(), pictures_of(&shots, count))
+          .inline(true)
+          .width(room.0)
+          .height(room.1)
+          .zoom_max(closest)
+          .wrap(wrap)
+          .filmstrip(filmstrip)
+          .counter(counter)
+          .close_button(close)
+      }
+    };
+    let live = {
+      let (plain, record, playground) = (plain.clone(), record.clone(), &self.playground);
+      move |_: &mut Ctx| -> Element {
+        let (turned, closer, dismissed) = (record.clone(), record.clone(), record.clone());
+        let mut lightbox = playground
+          .styled(plain())
+          .on_index_change(move |index| turned(format!("on_index_change({index})")))
+          .on_zoom_change(move |zoom| closer(format!("on_zoom_change({zoom:.2})")))
+          .on_dismiss(move || dismissed("on_dismiss".to_owned()));
+        if download {
+          let (record, save) = (record.clone(), save.clone());
+          lightbox = lightbox.on_download(move |index| {
+            record(format!("on_download({index})"));
+            save(index);
+          });
+        }
+        lightbox.into()
+      }
+    };
+    let still = {
+      let plain = plain.clone();
+      move || -> Element {
+        let lightbox = plain();
+        if download {
+          lightbox.on_download(|_| {}).into()
+        } else {
+          lightbox.into()
+        }
+      }
+    };
+
+    let mut code = vec!["Lightbox::new(open, pictures)".to_owned()];
+    if closest != 4.0 {
+      code.push(format!("    .zoom_max({closest:.1})"));
+    }
+    if wrap {
+      code.push("    .wrap(true)".to_owned());
+    }
+    if !filmstrip {
+      code.push("    .filmstrip(false)".to_owned());
+    }
+    if !counter {
+      code.push("    .counter(false)".to_owned());
+    }
+    if download {
+      code.push("    .on_download(save)".to_owned());
+    }
+    if !close {
+      code.push("    .close_button(false)".to_owned());
+    }
+    let mut tree = vec![
+      "root".to_owned(),
+      "├─ top        the counter, and the buttons".to_owned(),
+    ];
+    tree.push("├─ stage      the picture, its caption, the round buttons over its sides".to_owned());
+    tree.push(
+      if filmstrip && count > 1 {
+        "└─ filmstrip  the small pictures, the one shown marked"
+      } else {
+        "└─ (no strip)"
+      }
+      .to_owned(),
+    );
+
+    let (to_count, to_room, to_closest) = (self.count.clone(), self.room.clone(), self.closest.clone());
+    let (to_wrap, to_filmstrip, to_counter) = (self.wrap.clone(), self.filmstrip.clone(), self.counter.clone());
+    let (to_download, to_close) = (self.download.clone(), self.close.clone());
+    let (pick_count, pick_room, pick_closest) = (self.count.clone(), self.room.clone(), self.closest.clone());
+    self.playground.card(
+      ctx,
+      Spec {
+        title: "Lightbox",
+        make: Arc::new(still),
+        shown: Shown::built(live),
+        fill: false,
+        forceable: false,
+        facts: format!("{count} pictures · up to {closest} ×"),
+        event: "on_index_change / on_zoom_change / on_dismiss / on_download",
+        code,
+        tree,
+        controls: vec![
+          prop(
+            "pictures",
+            "how many",
+            self
+              .playground
+              .select(0, &COUNTS, &count, move |which| pick_count.set(which)),
+          ),
+          prop(
+            "width, height",
+            "in a page",
+            self
+              .playground
+              .select(1, &ROOMS, &room, move |which| pick_room.set(which)),
+          ),
+          prop(
+            "zoom_max",
+            "f32",
+            self
+              .playground
+              .select(2, &CLOSEST, &closest, move |which| pick_closest.set(which)),
+          ),
+          divider(),
+          flag("wrap", &self.wrap),
+          flag("filmstrip", &self.filmstrip),
+          flag("counter", &self.counter),
+          divider(),
+          flag("on_download", &self.download),
+          flag("close_button", &self.close),
+        ],
+        changed: [
+          count != 8,
+          room != (560.0, 380.0),
+          closest != 4.0,
+          wrap,
+          !filmstrip,
+          !counter,
+          !download,
+          !close,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
+        reset: Arc::new(move || {
+          to_count.set(8);
+          to_room.set((560.0, 380.0));
+          to_closest.set(4.0);
+          to_wrap.set(false);
+          to_filmstrip.set(true);
+          to_counter.set(true);
+          to_download.set(true);
+          to_close.set(true);
+        }),
+      },
+    )
+  }
+}
+
+impl Component for LightboxPage {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      frame: Frame::new(ctx),
+      playground: Playground::new(ctx, 3),
+      count: ctx.signal(8),
+      room: ctx.signal((560.0, 380.0)),
+      closest: ctx.signal(4.0),
+      wrap: ctx.signal(false),
+      filmstrip: ctx.signal(true),
+      counter: ctx.signal(true),
+      download: ctx.signal(true),
+      close: ctx.signal(true),
+      open: ctx.signal(false),
+      phone_at: ctx.signal(2),
+      shots: [lake(640, 480), lake(360, 540), lake(900, 400)],
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let shown = Signal::new(true);
+    let save = || saver(ctx.window(), self.shots.clone());
+    let in_page = Row::new()
+      .width(FILL)
+      .spacing(24.0)
+      .wrap()
+      .align_items(Alignment::End)
+      .id("lightbox-in-page")
+      .child(item(
+        Lightbox::new(shown.clone(), self.pictures(12))
+          .inline(true)
+          .width(420.0)
+          .height(290.0)
+          .on_download(save()),
+        "twelve pictures · 420 × 290, as the board draws it",
+      ))
+      .child(item(
+        Lightbox::new(shown.clone(), self.pictures(1))
+          .inline(true)
+          .width(420.0)
+          .height(290.0),
+        "one picture · no counter, no strip, no round buttons",
+      ));
+
+    let on_a_phone = Row::new().width(FILL).id("lightbox-phone").child(item(
+      Lightbox::new(shown.clone(), self.pictures(12))
+        .inline(true)
+        .variant(LightboxVariant::Phone)
+        .width(360.0)
+        .height(640.0)
+        .index(self.phone_at.clone())
+        .on_share(|_| {})
+        .on_download(save())
+        .id("lightbox-phone-viewer"),
+      "the phone's viewer · 360 × 640, at the third of twelve",
+    ));
+
+    let open = self.open.clone();
+    let over = Row::new()
+      .width(FILL)
+      .id("lightbox-over")
+      .child(
+        Button::new("Open the lightbox")
+          .variant(ButtonVariant::Outline)
+          .id("lightbox-open")
+          .on_click(move |_| open.set(true)),
+      )
+      .child(
+        Lightbox::new(self.open.clone(), self.pictures(8))
+          .wrap(true)
+          .on_download(save())
+          .id("lightbox-window"),
+      );
+
+    let rows = [
+      (
+        "new(open, pictures)",
+        "Signal<bool>, Picture…",
+        "",
+        "Open while the signal says so, with the pictures it shows. `picture` and `pictures` add more.",
+      ),
+      (
+        "index / index_controlled / on_index_change",
+        "Signal<usize> / usize, Fn(usize) / Fn(usize)",
+        "",
+        "Which picture is shown, counted from 0. Without a signal the lightbox keeps it, and starts at the first.",
+      ),
+      (
+        "zoom / on_zoom_change / zoom_max",
+        "Signal<f32> / Fn(f64) / f32",
+        "1 / 4",
+        "How close the picture is, 1 where it fits, and the closest it is brought.",
+      ),
+      (
+        "variant",
+        "LightboxVariant",
+        "by the pointer",
+        "Desktop, Phone: the phone's viewer under a finger (Pointer::Coarse), whatever the window's width and the \
+         density, unless told. A narrow window of a desktop has the desktop's, laid out narrow.",
+      ),
+      (
+        "on_share / menu_item / menu_items",
+        "Fn(usize) / MenuItem",
+        "",
+        "On a phone: the Share button, and the menu behind More, which holds Download first where it is given.",
+      ),
+      (
+        "preload",
+        "usize",
+        "1",
+        "How many pictures each way of the one shown are brought on once it came, so that an arrow shows the next \
+         at once; 0 for none.",
+      ),
+      (
+        "filmstrip / counter",
+        "bool",
+        "more than one",
+        "The strip of small pictures and the counter: there with more than one picture unless told.",
+      ),
+      (
+        "counter_text",
+        "Fn(usize, usize) -> String",
+        "3 / 12",
+        "What the counter says, from which picture it is, counted from 1, and how many there are.",
+      ),
+      ("wrap", "bool", "false", "The first comes after the last."),
+      (
+        "on_download / action / actions",
+        "Fn(usize) / Element",
+        "",
+        "Shows Download, called with the picture shown; and buttons of the app's own before it.",
+      ),
+      (
+        "inline / width / height",
+        "bool / Length",
+        "false",
+        "In the page where it is declared, in place of over the window, and how large it is there.",
+      ),
+      (
+        "on_dismiss / dismiss_on_escape / dismiss_on_veil / close_button",
+        "Fn() / bool",
+        "true",
+        "What closes it: Escape, a press around the picture, the Close button; and what is told when it is.",
+      ),
+      (
+        "label / close_label / previous_label / next_label / zoom_in_label / zoom_out_label / fit_label / \
+         download_label",
+        "&str",
+        "",
+        "What it and its buttons are called to tooling that reads the tree.",
+      ),
+    ];
+    let playground = self.play(ctx);
+    self.frame.page(
+      ctx,
+      Header {
+        breadcrumb: &["Components", "Media", "Lightbox"],
+        title: "Lightbox",
+        description: "Pictures looked at one at a time, larger and closer: the picture whole in the room it has, \
+                      the counter, the buttons that bring it closer, the round buttons that turn to the next, and \
+                      a strip of them all.",
+        import: Some("use lurq::ui::Lightbox;"),
+        status: Some("Stable"),
+        since: Some("0.63"),
+        source: file!(),
+      },
+      vec![
+        Section::new(
+          "Playground",
+          "Every prop of Lightbox is a control on the right. Turn the wheel over the picture to bring it closer \
+           about the pointer, drag it, press + and - and 0, and the arrows.",
+          playground,
+        ),
+        Section::new(
+          "In a page",
+          "The lightbox as the board draws it, and what one picture alone leaves of it.",
+          self.frame.demo(
+            0,
+            in_page,
+            ".inline(true)",
+            &[
+              "Lightbox::new(open, pictures).inline(true).width(420.0).height(290.0).on_download(save)",
+              "",
+              "Lightbox::new(open, [picture]).inline(true).width(420.0).height(290.0)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Over the window",
+          "Open while its signal says so. Escape, Close and a press around the picture dismiss it, and the focus \
+           goes back to what had it.",
+          self.frame.demo(
+            1,
+            over,
+            "Lightbox::new(open, pictures)",
+            &[
+              "let open = ctx.signal(false);",
+              "Button::new(\"Open the lightbox\").on_click(move |_| open.set(true));",
+              "Lightbox::new(open, pictures).wrap(true).on_download(save)",
+            ],
+          ),
+        ),
+        Section::new(
+          "On a phone",
+          "Under a finger (Pointer::Coarse: on iOS and Android, and once a finger touches the screen) the \
+           lightbox is the phone's viewer: black, the whole screen, a swipe to the next picture, a pinch or a \
+           double tap closer, a drag down to close. Close, Share and More are at the top, the caption and the dots \
+           under the picture. The window's width does not choose it: here on a desktop it is told, and shown in a \
+           page as a phone would show it. The hand over a playground points with a finger.",
+          self.frame.demo(
+            2,
+            on_a_phone,
+            ".variant(LightboxVariant::Phone)",
+            &[
+              "// Under a finger it is the phone's on its own.",
+              "Lightbox::new(open, pictures).on_share(share).on_download(save)",
+              "",
+              "Lightbox::new(open, pictures).variant(LightboxVariant::Phone)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Props",
+          "What a lightbox is given.",
+          props_table(&rows, &[], self.frame.room()),
+        ),
+      ],
+    )
+  }
+}

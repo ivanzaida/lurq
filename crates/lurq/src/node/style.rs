@@ -43,6 +43,13 @@ pub(crate) struct StateStyles {
   pub(crate) drag_over: Option<Style>,
   /// While the node is disabled. Paint only: it is no source of layout.
   pub(crate) disabled: Option<Style>,
+  /// While the interaction group the node is in is under the pointer or holds the focus
+  /// (`Node::interaction_group`). Paint only: it is no source of layout.
+  pub(crate) within: Option<Style>,
+  /// While the interaction group the node is in is under the pointer. Paint only, laid over `within`.
+  pub(crate) within_hovered: Option<Style>,
+  /// While the interaction group the node is in is held down. Paint only, laid over `within_hovered`.
+  pub(crate) within_pressed: Option<Style>,
   layout_sources: LayoutStyleSources,
 }
 

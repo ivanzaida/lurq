@@ -35,12 +35,14 @@ Common modifiers:
 | `.min_size(width, height)` / `.max_size(width, height)`                 | Set minimum or maximum width and height                                |
 | `.min_width(width)` / `.max_width(width)`                               | Set a width bound                                                      |
 | `.min_height(height)` / `.max_height(height)`                           | Set a height bound                                                     |
+| `.aspect_ratio(ratio)`                                                  | Give the axis that is auto from the one that is known, by width over height |
 | `.padding(...)` / `.padding_horizontal(...)` / `.padding_vertical(...)` | Add insets around the child from a concrete dimension or `SpacingSize` |
 | `.background(color)`                                                    | Fill the element background from a concrete color or `PaletteColor`    |
 | `.rounded(radius)`                                                      | Set border radius from `f32` or `RadiusSize`                           |
 | `.border_inside(width, color)`                                          | Draw an inside border from a concrete width or `BorderSize`            |
 | `.offset(x, y)`                                                         | Shift visually without changing parent layout                          |
 | `.relative(x, y)`                                                       | Alias for `.offset(x, y)`                                              |
+| `.offset_by_size(x, y)`                                                 | Shift by shares of the element's own width and height, once it is laid out, on top of `.offset`: `(-0.5, -0.5)` puts its middle where its top left corner was |
 | `.absolute(x, y, width, height)`                                        | Absolute stack positioning with forced size                            |
 | `.absolute_position(x, y)`                                              | Absolute stack positioning with measured size                          |
 | `.transform(Transform2D)`                                               | Apply a visual 2D transform around the element center                  |
@@ -49,6 +51,8 @@ Common modifiers:
 | `.flex_shrink(factor)`                                                  | Give up main-axis space when a row/column overflows                    |
 | `.shrink_order(order)` / `.shrink_limit(ShrinkLimit)`                   | When and how far a shrinking child gives way                           |
 | `.shrink_drop_below(size)`                                              | Shrink a child down to `size`, then drop it                            |
+| `.drop_marker(bool)`                                                    | Lay a child out only while another child of its line is dropped        |
+| `.drop_outside(SizeBounds)`                                             | Lay a child of a stack out only while the stack is within a range of sizes |
 
 Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
 sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
@@ -61,6 +65,41 @@ lurq::components::Spacer::new().width(Dimension::Pct(50.0))
 lurq::components::Spacer::new().width(Dimension::Auto)
 lurq::components::Spacer::new().min_width(160.0).max_height(240.0)
 lurq::components::Spacer::new().min_size(120.0, 80.0).max_size(320.0, 180.0)
+```
+
+### Aspect ratio
+
+`.aspect_ratio(ratio)` is CSS `aspect-ratio`: the box's width over its height, `16.0 / 9.0` for a box of 16 by 9. It
+gives the axis that is auto from the one that is known.
+
+```rust
+use lurq::{components::Spacer, node::dimension::Dimension};
+
+// 320 wide, so 180 high.
+Spacer::new().width(320.0).aspect_ratio(16.0 / 9.0)
+// As wide as the column it is in, and square.
+Spacer::new().width(Dimension::Pct(100.0)).aspect_ratio(1.0)
+```
+
+- An axis is known where it is said (`.width(...)`, `.height(...)`, a percentage of a parent whose size is known) or
+  where the parent fixes it: a child that fills a row with `.flex(1.0)`, a child stretched across a line.
+- With neither axis known, the box is as wide as the room it is given and its height follows. Where the width has no
+  bound (in a row that scrolls sideways) it is as high as the room and its width follows.
+- With both axes known it does nothing. `min_*` and `max_*` still bound the axis it gives.
+- A ratio that is not a positive number is ignored.
+
+An image has a ratio of its own, that of its pixels, which gives it the other axis when one is said. `.aspect_ratio`
+stands for that ratio: the box takes the ratio it is told, and the image's fit places the pixels in it. It is also
+what holds the box of an image whose pixels are not there yet. An image decoded at runtime or loaded from a resource
+has no size until it arrives, so a page that does not say one moves when it does, as a page does around an `<img>`
+with no size. Say the ratio and the box is right from the first frame:
+
+```rust
+use lurq::{components::Image, node::dimension::Dimension};
+
+Image::from_file("photos/lake.jpg")
+  .width(Dimension::Pct(100.0))
+  .aspect_ratio(3.0 / 2.0)
 ```
 
 ## Constraints Model
@@ -149,6 +188,50 @@ Stack layout:
 
 Absolute children do not contribute to stack size.
 
+#### A child for some sizes of its stack
+
+`.drop_outside(SizeBounds)` lays a child of a stack out only while the stack is within a range of sizes. Outside it
+the child is dropped, as `ShrinkLimit::Drop` drops a child of a line: laid out at zero size, neither drawn nor hit,
+with no Tab stop in it and no focus kept in it, while it stays mounted and keeps its state. It is how a component is
+another thing at another size with nothing measured, no state and no frame in between: each form is a child of the
+stack with the bounds it lives in, and layout shows the one that holds.
+
+```rust
+use lurq::{
+  components::{Rect, Stack},
+  layout::layout_kind::SizeBounds,
+  node::dimension::Dimension,
+};
+
+// A picture that fills its room, with a bar from 240 wide and a single button under that.
+Stack::new()
+  .width(Dimension::Pct(100.0))
+  .child(picture)
+  .child(bar.drop_outside(SizeBounds::new().min_width(240.0)))
+  .child(more_button.drop_outside(SizeBounds::new().below_width(240.0)))
+```
+
+- `min_width(w)` is at `w` and wider, `above_width(w)` wider than `w`; `max_width(w)` is at `w` and narrower,
+  `below_width(w)` narrower than `w`; the same four for the height. Bounds with nothing said hold at every size, and
+  bounds of two children that leave no size out and share none show exactly one of them.
+- The size asked is the stack's own, as its constraints and its other children make it. A child with bounds never
+  makes its stack larger: it is laid out once the stack has its size, within that size, and a share it takes
+  (`Dimension::Pct`) is a share of that size. In a stack that holds only such children the size is the least the
+  stack's constraints allow, which is the size the stack is given where it is told one.
+- So a stack sized by its content asks the bounds of that content, not of the room it was offered: a picture 200
+  wide in a column of 400 is asked at 200. This is what CSS container queries get from size containment, and why a
+  child with bounds cannot change the answer it is given.
+- It is decided in the same layout pass as everything else, and again whenever the stack is laid out: a stack that
+  becomes narrower drops what does not live there in the frame that makes it narrower.
+- On a child of a row, a column or a grid it does nothing.
+
+`ui::Picture` chooses what it shows at a small size this way where its size is not said.
+
+A size in percent of an absolute child (`Dimension::Pct`) is a share of what the stack is laid out in. Where that
+leaves a side unbounded (a stack as high as its content, in a column that scrolls), it is a share of the stack as its
+other children make it, as CSS sizes an absolutely positioned box by its container: a layer over what a stack holds,
+`.absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Pct(100.0))`, is as large as that.
+
 ### Grid
 
 `Grid` lays its children out in the cells of columns and rows, as CSS grid does.
@@ -197,6 +280,54 @@ A track, a column or a row, is a `GridTrack`:
 - `Auto` columns that do not fit the width give way in proportion, and their text wraps.
 - An absolutely positioned child takes no cell and is placed over the grid, as in a `Stack`.
 
+### Columns That Rows Share
+
+A table's header and each of its rows are elements of their own, each pressed, hovered and selected as one, and their
+cells line up in columns whatever is in them. `ColumnTracks` is the list of columns they share: a row given it with
+`.column_tracks(&tracks)` lays its children out side by side, one to a track, each as wide as its track; what holds the
+rows, given it with `.measures_column_tracks(&tracks)`, measures the cells of the rows in it.
+
+```rust
+use lurq::{
+  components::{Column, Row, Text},
+  layout::column_tracks::{ColumnTracks, TrackSpec},
+};
+
+// Kept from render to render, in a component's field: another list is other columns.
+let tracks = ColumnTracks::new([TrackSpec::share(1.0).min(120.0), TrackSpec::content(), TrackSpec::px(80.0)]);
+let row = |name: &str, kind: &str, size: &str| {
+  Row::new()
+    .spacing(16.0)
+    .column_tracks(&tracks)
+    .child(Text::new(name))
+    .child(Text::new(kind))
+    .child(Text::new(size))
+};
+Column::new()
+  .measures_column_tracks(&tracks)
+  .child(row("Name", "Kind", "Size"))
+  .child(row("blur.rs", "Rust", "12 KB"))
+```
+
+| Track | Width |
+|-------|-------|
+| `TrackSpec::px(120.0)` | A length in logical pixels. |
+| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content, what scrolls sideways before it is stretched), at its least: what is in it does not widen it. |
+| `TrackSpec::content()` | As wide as the widest of its cells that has been measured. |
+
+- `.min(px)` and `.max(px)` hold a track between a least and a most. The shares split what is left between theirs; where
+  the tracks do not fit, none gives way below its least, and the row is wider than its room.
+- The row's `.spacing(..)` is the gap between two tracks. A cell is laid out as wide as its track, and the row is as
+  tall as its tallest cell; `.align_items(..)` says how the others sit in it.
+- What measures the tracks measures the rows that are its children and the rows in those, three deep, before it lays
+  them out, and a track keeps the widest cell it has had, so a column does not narrow as rows scroll by. Only rows that
+  are built are measured: in a list of thousands that builds those in view, a column is as wide as what has been seen.
+- `.track_span(n)` on a child of a row makes it take `n` tracks, as wide as they are with the gaps between them,
+  and what comes after it starts in the track after them. A table whose columns are out of view stands one such room
+  for them in place of a cell each; a room is not measured.
+- A list is a handle: clones are the same list, and two lists are equal only where they are the same. A row whose list
+  is another than before is laid out again, so columns that change are a new list.
+
 ## Relative Positioning
 
 ```rust
@@ -226,6 +357,21 @@ Use:
 - `.absolute_position(x, y)` when the positioned child should keep its measured size.
 
 There is no z-index. Rendering order is structural: later stack children paint above earlier children.
+
+## Repeat
+
+`.repeat(Repeat)` paints what an element holds again and again across the element's box: a watermark, a pattern.
+
+```rust
+use lurq::{components::{Rect, Stack}, layout::Repeat};
+
+Stack::new()
+  .size(lurq::node::dimension::Dimension::Pct(100.0), lurq::node::dimension::Dimension::Pct(100.0))
+  .repeat(Repeat::new().gap(27.0, 29.0).stagger(40.0))
+  .child(Rect::new(20.0, 20.0).background("#e4e4e7"));
+```
+
+What the element holds is laid out once, where it is, and is the first tile. The tiles are the first child's box with the gap after it, across and down both ways from the first, every other row moved by the stagger, and they are cut to the element's box where it clips. Only the tiles that can be seen are painted: in a scroll, those in its view, so a pattern over a page of any length costs the tiles in view and scrolling builds nothing. The copies are paint alone: no pointer hits them and tooling does not read them, and what the element holds is in the tree once. A child that fades fades in every tile. A tile that holds what cannot be painted twice (a text input) is painted once, where it is. `ui::Watermark` is built on it.
 
 ## Alignment
 
@@ -291,12 +437,32 @@ lurq::components::Row::new()
 Flex layout:
 
 1. Lay out non-flex children first.
-2. Subtract fixed child sizes and spacing from available space.
-3. Divide remaining space by flex factor.
+2. Subtract fixed child sizes, spacing and flex bases from available space.
+3. Divide remaining space by flex factor, on top of each basis.
 4. Lay out flex children with tight constraints for their assigned size.
 
+`.flex_full(grow, shrink, basis)` gives a child a basis: the length it starts from, as `flex-basis` does on the web.
+The bases come out of the free room first, so a growing child is its basis and its share of what is left after the
+gaps, the children sized on their own and every basis. Where nothing is left, a child is its basis, and the line
+shrinks what may shrink by the shortage.
+
+```rust
+// 200 wide: the first is 50 + (200 - 50 - 50) = 150, the second 50.
+lurq::components::Row::new()
+  .width(200.0)
+  .child(lurq::components::Spacer::new().flex_full(1.0, 0.0, Some(50.0)))
+  .child(lurq::components::Spacer::new().width(50.0))
+```
+
+A basis is a least length for a child that grows and does not shrink: the line between two steps, which the steps give
+way before.
+
 In an unbounded main axis (for example a column inside `ScrollVertical`, or a column measured by its own content) there
-is no remaining space: a flex child gets its `basis`, or its natural size when it has none.
+is no remaining space: a flex child gets its `basis`, or its natural size when it has none. A line of unbounded room
+that is to be at least so long, as the content of a `ScrollBoth::fill_width` is, has the room that least length leaves:
+where every growing child has a basis, they grow into it, as a flex container with a `min-width` does on the web, and
+nothing shrinks, so the line is longer where the bases need more. `ui::WindowTabs` shares a strip's width among its tabs
+so, and scrolls past their least.
 
 ### Shrink
 
@@ -331,11 +497,30 @@ factor in a single-line `Row` or `Column`.
 | `MinSize`     | Down to its `min_width`/`min_height`, 0 without one (the default)                                     |
 | `Content`     | Down to its content minimum, never below an explicit `min_width`/`min_height`                         |
 | `Drop`        | Not at all: it keeps its natural size, or is dropped (zero size, no spacing, not drawn and not hit)   |
+| `ContentFirst`| Down to its content minimum while its order can take the overflow, then below it to its `min_width`, the last first |
 
 The content minimum of a `Row` in a row (or a `Column` in a column) is its padding and spacing, the natural size of
-every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). Anything
-else (text, rects, stacks, scroll containers, wrapping rows, lines on the other axis) keeps its natural size, like a
-flex item with CSS `min-width: auto`. Within one order, droppable children are dropped, last first, only while the
+every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). The
+content minimum of a line on the other axis (a `Column` in a row) is the widest of its children's, where a child with
+a `min_width`/`min_height` of its own counts at it: a text that may wrap says `min_width(0.0)`. Anything else (text,
+rects, stacks, scroll containers, wrapping rows) keeps its natural size, like a flex item with CSS `min-width: auto`.
+
+`ContentFirst` is for what has a part to keep and a part to give: a step whose description wraps before its title is
+cut. The children of an order keep to their content minimum while they can take the overflow above it; when they
+cannot, the last of them gives way below it, then the one before, each down to its `min_width`. A child that gives way
+lays its own line out as collapsed, so what in it has `ContentFirst` gives way below its content too.
+
+```rust
+use lurq::{components::{Column, Spacer}, layout::layout_kind::ShrinkLimit};
+
+// A title of 60 that keeps its width over a description that may wrap to nothing.
+Column::new()
+  .flex_shrink(1.0)
+  .shrink_limit(ShrinkLimit::ContentFirst)
+  .min_width(0.0)
+  .child(Spacer::new().size(60.0, 16.0))
+  .child(Spacer::new().size(150.0, 32.0).min_width(0.0));
+``` Within one order, droppable children are dropped, last first, only while the
 shrinking children of that order cannot absorb the rest of the overflow. This holds for the line that gives way, not
 inside a shrinking item of it: an item whose row holds droppable children drops them all at once when it collapses
 (see below). A dropped child stays mounted and keeps its
@@ -347,7 +532,7 @@ zero-size rect at its place in the line, where the next child starts. Devtools a
 What gives way whole only accumulates as a line narrows: a child dropped at one width is dropped at every narrower
 one. A dropped child frees its whole size and spacing, which can be more than the line needed; the rest goes back to
 children that only trimmed (labels, spacers), never to a child that dropped, so the line stays filled without bringing
-anything back. The same holds one line down. A shrinking item whose own row holds droppable children (a `Drop` or
+anything back. Where the line has a growing child (a spacer between two groups), what a drop freed beyond the need is that child's, as free room is: the group after the spacer stays at the end of the line. The same holds one line down. A shrinking item whose own row holds droppable children (a `Drop` or
 `shrink_drop_below` child, or such an item nested in it) keeps its natural size until its line needs it to give way.
 It then collapses, after the children of its order that drop, as a whole step like a drop: its row drops every one of
 them (and collapses every such item in it) at once, so it holds its padding, its other children at their natural size
@@ -363,7 +548,8 @@ its order still cannot absorb the overflow with every shrinking child at its flo
 the next order shrinks at all. A child already narrower than `size` drops without shrinking; a negative or NaN `size`
 counts as 0. Within one order, children with `Drop` are dropped first, then those with `shrink_drop_below`, each last
 first, and either kind counts as gone in an ancestor's content minimum. With `ShrinkLimit::Drop` the size has no
-effect.
+effect. What a dropped child leaves beyond the overflow goes to the line's growing children, by their factors: a
+`Spacer` with `flex(1.0)` before a button keeps the button at the end of the line as children before it drop.
 
 ```rust
 // The request words trim to 100 px, then drop so the count stays whole.
@@ -409,6 +595,117 @@ Row::new()
 As the row narrows, the time is dropped first, then the approval detail is ellipsized down to the icon and count, and
 only then does the run label shrink.
 
+### What did not fit: the drop marker
+
+A row whose children drop where it is too narrow often needs one more child that stands for them: a More button at
+the end of a toolbar that opens a menu of what went. `.drop_marker(true)` makes a child of a single-line `Row` or
+`Column` that one: it takes its room only while another child of the line is dropped, and is dropped itself (zero size,
+no spacing, not drawn, not hit, no Tab stop) while none is. The line gives way as it would without the marker, and only
+when that drops or collapses a child does it give way again with the marker's room taken, so what fits beside the
+marker stays and the rest drops. The marker itself does not shrink, and a line has one. In a wrapping row it has no
+effect.
+
+The row says what it dropped through the element refs of its children: a dropped child, and everything in it, reports
+a zero-size rect where the next child starts, and `ElementRef::observe_rect` is called when that changes. A component
+that keeps a menu of the dropped children puts a ref on each and sets a signal from the observer, which renders it
+again with the menu as the layout left it; the row itself needs no second pass.
+
+```rust
+use lurq::{
+  components::{Button, Row},
+  core::{ElementRef, Signal},
+  layout::layout_kind::ShrinkLimit,
+};
+
+// In a component: `tools` holds a ref for each tool, `dropped` is `ctx.signal(vec![false; tools.len()])`.
+let mut bar = Row::new().spacing(2.0);
+for (index, name) in ["Bold", "Italic", "Link", "Image"].into_iter().enumerate() {
+  let (at, dropped) = (tools[index].clone(), dropped.clone());
+  at.observe_rect(move |rect| {
+    let gone = rect.width == 0.0 && rect.height == 0.0;
+    if dropped.get_untracked()[index] != gone {
+      dropped.update(|dropped| dropped[index] = gone);
+    }
+  });
+  bar = bar.child(
+    Button::new(name)
+      .tab_index(0)
+      .ref_element(at)
+      .flex_shrink(1.0)
+      .shrink_limit(ShrinkLimit::Drop),
+  );
+}
+// Laid out only while a tool is dropped; its menu lists the tools `dropped` marks.
+bar.child(Button::new("More").tab_index(0).drop_marker(true))
+```
+
+### A form that follows its own room
+
+A form that only shows or hides parts by the size of its own box needs nothing of what follows: put the parts in a
+stack and give each `.drop_outside(...)` (see [Stack](#a-child-for-some-sizes-of-its-stack)). What follows is for a
+form that has to be built differently, which only a render can do.
+
+A component whose form depends on the room it is given, not on the window (a timeline whose two sides fold to one in
+a narrow panel), reads its width through an element ref. `ElementRef::observe_rect` calls its observer after layout,
+and a signal written there renders the component again in the next frame: the frame in between shows the old form.
+`ElementRef::observe_rect_before_paint` calls it at the same point, but what it changes is rendered and laid out again
+before that frame is painted: the component shows the form that fits from its first frame, and as a splitter's
+divider drags its pane across the width, with no frame of the other.
+
+The observer writes only where the rect crosses what it watches for, so a pane dragged within one side of the width
+renders nothing again. The element it is on takes the room it is given (`width(Dimension::Pct(100.0))`), not its
+content's width, which the form would change.
+
+What the observer gives an element through its ref is laid out before the frame is painted too: a size
+(`ElementRefMut::set_size`) renders nothing, and the frame that measured the room shows the element at it.
+`ui::Splitter` keeps its panes between their least and most sizes so, and a pane whose share of a narrow room is
+under its least size is at its least size in the first frame, with its divider at its edge.
+
+What is laid out again may be measured anew: a splitter in the pane of a splitter that was put back has another room
+than it was first measured in. So the frame is laid out again until nothing that is watched changes, four times at
+most. An observer that writes another value on every rect it is given (a width that depends on what the width
+changes) uses all four in every frame and settles in none: write what the rect decides, not what it was.
+
+```rust
+use lurq::{components::Column, core::ElementRef, node::dimension::Dimension};
+
+// In `create`: `roomy` is `ctx.signal(None::<bool>)`, `anchor` an `ElementRef` kept on the component.
+let watch = roomy.clone();
+anchor.observe_rect_before_paint(move |rect| {
+  let fits = Some(rect.width >= 480.0);
+  if watch.get_untracked() != fits {
+    watch.set(fits);
+  }
+});
+// In `render`: the room it is given, measured, around the form that fits it.
+Column::new()
+  .width(Dimension::Pct(100.0))
+  .ref_element(anchor.clone())
+  .child(if roomy.get() == Some(false) { narrow() } else { wide() })
+```
+
+`ui::Toolbar` with `overflow(true)` is built this way.
+
+**Several observers of one ref.** `observe_rect` and `observe_rect_before_paint` set the ref's own observer: a second
+registration replaces the first, so the owner of the element registers it in every render and has one. Code that
+watches a ref it was given (a list of a page's sections that follows their scroll, a tooltip on the app's button)
+adds an observer beside it with `ElementRef::add_rect_observer` or `add_rect_observer_before_paint`, and takes no
+observer away. Each is called while the `RectObserver` it gives is kept and is removed when that is dropped: a
+component that adds one in each render keeps the handles of its last render and drops those of the one before, and
+its observers go with it when it is unmounted. An added observer is called when the rect changes, not for the rect
+the element has when it is added.
+
+```rust
+use lurq::core::{ElementRef, RectObserver};
+
+// Kept on the component, `Mutex<Vec<RectObserver>>`: the observers of its last render.
+let added: Vec<RectObserver> = sections
+  .iter()
+  .map(|section: &ElementRef| section.add_rect_observer_before_paint(move |rect| watch(rect.y)))
+  .collect();
+*self.watching.lock().unwrap() = added; // those of the render before are removed here
+```
+
 ## Scroll
 
 ```rust
@@ -424,6 +721,12 @@ Scroll containers give their child unbounded constraints on the scroll axis and 
 layout/rendering. Without a fixed size on the scroll axis, a scroll container takes its content's size within its
 constraints, so `.max_height(...)` makes it grow with its content up to the cap and scroll beyond it.
 
+`ScrollBoth::fill_width(true)` lays the content out at least as wide as the viewport, and wider only where it needs
+more: a table's columns share the room there is, and it scrolls sideways only where they do not fit. Without it the
+content of a `ScrollBoth` is as wide as it is itself, as unbounded room makes it. `ScrollHorizontal::fill_width(true)`
+does the same for what scrolls only sideways: a row of items that grow to share the viewport, and scroll once their
+least widths are more than it.
+
 To bring an element into view, request it from a component with `ctx.scroll_into_view(&element_ref)` (the ref attached
 with `.ref_element(...)`), or call `scroll_into_view()` on the `ElementHandle` from `tree.get_element_by_id_mut(id)`.
 Every scroll container around the element, nearest first, scrolls by the smallest amount that shows it, on each axis it
@@ -435,6 +738,42 @@ into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/
 ```rust
 // `details` is a ref retained by the component and attached with `.ref_element(details.clone())`.
 ctx.scroll_into_view(&details);
+```
+
+`ctx.scroll_into_view_start(&element_ref)` brings the element's top to the top of every container around it that
+scrolls down, as far as the content lets it, like the web's `scrollIntoView({ block: "start", inline: "nearest" })`:
+an element already in view moves to the top too. It is what a list of a page's sections does when one of them is
+pressed (`ui::TableOfContents`). The top is clear of what sticks to the container's top, and a container that scrolls
+sideways moves by the smallest amount that shows the element.
+
+```rust
+// The heading comes to the top of the page, under the header that sticks there.
+ctx.scroll_into_view_start(&heading);
+```
+
+To take a container back to its top, as a button at the foot of a long page does, ask from a component with
+`ctx.scroll_to_top_of(&scroll_state)`, given the `ScrollState` the container was built with (`with_scroll_state`), or
+call `tree.scroll_state_to_top(&scroll_state)`. The content goes there as a wheel's scroll goes: over the frames that
+follow, on the wheel's curve, with an `on_scroll` event of no delta for each step, and at once while motion is reduced
+or the theme's `smooth_scroll` is off. A notch of the wheel that comes meanwhile adds to where the content is going,
+and anything else that scrolls the container (`set_scroll`, a drag of the thumb, a finger) stops it there. A state
+that scrolls nothing in the tree, or is at its top already, asks for nothing. `ui::BackToTop` is the design system's
+button for it. (`ctx.scroll_to_top()`, with no state, is a phone's tap on its status bar: the page at the middle of the
+window.)
+
+```rust
+// `scroll` is the ScrollState the page's ScrollVertical was given.
+ctx.scroll_to_top_of(&scroll);
+```
+
+`ctx.scroll_range_into_view(&text_ref, range)` does the same for a range of a text, in bytes of its content: the lines
+the range covers are brought into view, and no more of the text, wherever it is wrapped. The current match of a search,
+in a long text that scrolls. The text must know where its characters are drawn, which one that is selectable or has
+`highlights` does; of another the whole element is brought into view.
+
+```rust
+// The current match: marked on the text with `Text::highlights`, and scrolled to.
+ctx.scroll_range_into_view(&document, current.clone());
 ```
 
 `VirtualizedList` sizes the same way: `.height(...)` or `.flex(...)` gives it a fixed viewport, while `.max_height(...)`
@@ -453,6 +792,20 @@ is scrolled to the top of the viewport. The row does not need to be mounted: the
 estimated row heights and settles on the exact offset over the next few frames as the rows around it are measured. A
 key that is not among the items is dropped, except while the list has no items yet, so a list mounted before its data
 loads still opens on the row.
+
+`.reveal_request(n)` reveals the `reveal_key`'s row again each time `n` changes, whether the key changed or not: for a
+list asked for one row twice, scrolled away from it between the two, as a focus group over rows the list builds only in
+part asks for the row its keys step to (see [Focus And Keyboard
+Navigation](../focus-navigation/#rows-a-list-builds-in-part)).
+
+```rust
+// reveal: Signal<Option<String>>, asked: Signal<u64>; asking again adds one to `asked`.
+VirtualizedList::new(ctx, items)
+  .height(480.0)
+  .reveal_key(reveal.get())
+  .reveal_request(asked.get())
+  .mount_keyed::<ItemRow, _, _, _>(|item| item.id, |item| item.clone())
+```
 
 When the items change so that the row keys differ (a row added, removed or moved), the list keeps the first visible row
 where it was, and a list at its end stays at its end. Rows added or removed below that row (a message appended to a
@@ -509,6 +862,10 @@ vertical event, as a [code block](../resources-media/#code-blocks) does.
 
 `on_scroll_reach_top` and `on_scroll_reach_bottom` run on the container that moved.
 
+A notch of a mouse's wheel is [animated](../styling-events/#the-mouse-wheel), and which container takes it is decided on
+where each is going, not on where it is drawn: over a list that is still on its way to its end the next notch scrolls
+the page, as it would had the list been drawn there at once.
+
 A finger's scroll is a gesture with one container for all of it, chosen where the finger lands: see
 [iOS](../ios/#scrolling).
 
@@ -540,6 +897,25 @@ ScrollVertical::new(Column::new().child(section)).size(240.0, 320.0)
 - It sticks in the nearest scroll container around it. In none, it stays where it is laid out.
 - It is painted over its siblings and is hit before them, so a press on a stuck header does not reach the row under it.
 - Scrolling only moves it: nothing in it or around it is laid out again. An element ref on it reports where it is drawn.
+- A container's bars run over the whole viewport, what sticks included, as a browser's do beside a banner that stays.
+  `.scrollbars_clear_of_sticky(true)` on `ScrollVertical`, `ScrollHorizontal` or `ScrollBoth` keeps them beside what
+  scrolls: the bar down starts under what sticks at the top (a table's header) and ends above what sticks at the
+  bottom, the bar across runs from what sticks at the start (its first column) to what sticks at the end (a column
+  pinned there), each as far in as that reaches (its inset and its size), and the thumb is the share of what scrolls
+  that shows. Each keeps clear along its own axis only: the bar down stands at the container's end edge, over the
+  edge of what sticks at the right (a column pinned there) and never over what scrolls, and the bar across at its
+  bottom edge, over what sticks at the bottom, or in a lane of its own. Painting, the pointer on the bar and a drag of
+  its thumb go by that track, so a thumb at the track's end is the end of the scroll. `ui::Table` asks for it.
+- An overlay bar across lies over the bottom of what scrolls, a table's last row in view. `.reserve_bar_across(true)`
+  on `ScrollHorizontal` or `ScrollBoth` gives it a lane of its own under the content, as wide as a `Reserved` gutter
+  (the bar and its edge inset on both sides), while the content is wider than the viewport: the viewport ends above
+  the lane, so nothing it shows is ever under the bar, and the bar down ends where the viewport does. Content that
+  fits has no lane and no strip under it. `ui::Table` asks for it.
+- A wheel turned up and down scrolls a container down, or what holds it, and a container that scrolls only across
+  lets it by. `.wheel_across(true)` on `ScrollHorizontal` or `ScrollBoth` takes such a turn sideways, as a browser's
+  strip of tabs does: turned down, the content moves to its end; what is left of the turn at the container's end goes
+  to what holds it, as with any scroll. A turn that has a sideways part (a touchpad's) is taken as it is. Off by
+  default, so a list across inside a page lets the page take the wheel. `ui::WindowTabs` asks for it.
 
 ### Middle-button autoscroll
 
@@ -602,6 +978,36 @@ VirtualizedList::new(ctx, tasks)
   .mount_keyed::<TaskRow, _, _, _>(|task| task.id, |task| task.clone())
 ```
 
+## What a Frame Walks
+
+A frame costs what changed and what is in view, not what the tree holds. A frame that only scrolls a document of
+3,000 blocks (some 22,000 nodes) lays out the scroll container and draws what is in view, about the same as one of
+300 blocks does.
+
+- **Each subtree knows what is in it** that a frame's walks look for: an element ref, a layer (an overlay, a modal)
+  or a dropdown's anchor, a text input, a select, a scroll container, a child its line may drop
+  (`ShrinkLimit::Drop`, `shrink_drop_below`, a drop marker), a transition, an animation that plays. The walks that
+  index the tree's layers and refs, tell the refs where their elements are, list the dropped nodes and check scroll
+  offsets pass by a subtree that holds none. This knowledge is made again whenever the node, or anything under it,
+  changes or is built again, so a ref added deep in a subtree nothing else touched is found in the frame it appears.
+- **A cached subtree served as it was** is not prepared again: a long content scrolled in its container is the tree
+  laid out last frame, with no walk through its texts or its own scroll containers, while no text's layout changed.
+- **The paint culls a subtree that does not clip** (`overflow_visible`) where all it may paint is out of view: the
+  layout knows where each subtree paints (its box with its own shadows and outline, and its children's where it does
+  not clip them), and leaves 32 px of room for what states and text draw past it. A subtree that may move without a
+  layout (a transform, a transition or an animation of where it is, a canvas, a border outside its box) is never
+  culled for being out of view.
+- **Transitions tick what may have changed**: a subtree in which nothing runs is ticked clean, and not ticked again
+  until it changes, a state of interaction (a hover, a press, the focus) or a theme changes anywhere, or a
+  transition starts in it. Animations tick only where one plays.
+- **A component built again on its own costs itself and its way to the root**: its output is looked for only down
+  the subtrees that hold a component's output, the nodes it brought are numbered and take the disabled state of what
+  they are in, and the rest of the tree is not numbered again; the column it is in is patched where it changed, the
+  rest of the column not walked again. A component built again beside a document of 3,000 blocks takes 0.4 ms
+  where it took 0.9.
+
+`perf_profile` names these steps as [frame sections](../profiling/#frame-sections), to see where a frame goes.
+
 ## Text
 
 Text is measured by the glyph engine and wraps within its width constraint.
@@ -647,6 +1053,10 @@ Text::new("Read the docs").underline(TextUnderline::new());
 Text::new("12.99").strikethrough(TextStrikethrough::new().color(muted));
 ```
 
+- `TextStyle::case` draws a text in capitals (`TextCase::Upper`) or in small letters (`Lower`), like CSS
+  `text-transform`: a typography role says it, as `TypographyStyle::Heading6` does. Only what is drawn changes; the
+  text, what is copied of it, what tooling reads and where a caret stands are the text as written. A letter whose
+  other case is more than one letter or is written in more bytes (`ß`) is drawn as written.
 - `Text::underline(...)` and `Text::strikethrough(...)` set them on one text; `TextStyle::underline` and
   `TextStyle::strikethrough` set them in a style, a typography role's included.
 - Each unset value follows the text: its color (the [foreground](../styling-events/#foreground) it takes, when it names

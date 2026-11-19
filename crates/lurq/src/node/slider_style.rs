@@ -1,4 +1,4 @@
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 use std::sync::Arc;
 
 #[cfg(feature = "raster")]
@@ -8,8 +8,26 @@ use crate::node::{
   border::{Border, BorderRadius, Borders, ThemedBorderRadius},
   border_size_value::BorderSizeValue,
   color::Color,
+  outline::Outline,
   radius_value::RadiusValue,
 };
+
+/// Which way a slider's track runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SliderOrientation {
+  /// Along the width, the least value at the left.
+  #[default]
+  Horizontal,
+  /// Along the height, the least value at the bottom.
+  Vertical,
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SliderOrientation {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
 
 #[derive(Clone, Default)]
 pub struct SliderPartStyle {
@@ -18,9 +36,11 @@ pub struct SliderPartStyle {
   pub(crate) color: Option<Color>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) border: Option<Borders>,
+  /// A ring around the part, past its edge: a thumb's focus ring.
+  pub(crate) outline: Option<Outline>,
   #[cfg(feature = "raster")]
   pub(crate) background_image: Option<crate::images::ImageData>,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) background_resource_image: Option<Arc<str>>,
   #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
@@ -92,6 +112,13 @@ impl SliderPartStyle {
     self
   }
 
+  /// A ring around the part, painted over the slider: the line, its color
+  /// and its distance from the part's edge, as a node's outline has them.
+  pub fn outline(mut self, outline: Outline) -> Self {
+    self.outline = Some(outline);
+    self
+  }
+
   #[cfg(feature = "raster")]
   pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
     match data.into() {
@@ -101,7 +128,7 @@ impl SliderPartStyle {
       crate::images::ImageKind::Native(data) => {
         self.background_image = Some(data.image_data());
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);
       }
@@ -141,12 +168,15 @@ impl SliderPartStyle {
     if other.border.is_some() {
       self.border = other.border.clone();
     }
+    if other.outline.is_some() {
+      self.outline = other.outline.clone();
+    }
     #[cfg(feature = "raster")]
     {
       if other.background_image.is_some() {
         self.background_image = other.background_image.clone();
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       if other.background_resource_image.is_some() {
         self.background_resource_image = other.background_resource_image.clone();
       }

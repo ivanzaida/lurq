@@ -1,7 +1,5 @@
 #[cfg(feature = "devtools")]
 use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "devtools")]
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
   any::{Any, TypeId},
   collections::HashSet,
@@ -10,22 +8,23 @@ use std::{
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
   task::Context as TaskContext,
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::Mutex;
 
 #[cfg(feature = "devtools")]
 use super::component::{ComponentInfo, DevtoolsInspectable};
-#[cfg(feature = "i18n")]
-use super::i18n::I18n;
 use super::{
   app_state::App,
   component::Component,
   events::MouseEvent,
+  i18n::I18n,
   theme::Theme,
   window::{Window, WindowWaker},
 };
+#[cfg(feature = "devtools")]
+use crate::time::{SystemTime, UNIX_EPOCH};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
@@ -36,10 +35,14 @@ use crate::{
     tracking,
   },
   node::{Element, HitTestBehavior, Node},
+  time::Instant,
 };
 
+mod frames;
 mod futures;
 
+pub(crate) use frames::WindowFrames;
+pub use frames::{Frame, FrameCallback};
 pub use futures::{FutureAction, FutureHandle, FutureState, FutureStatus, StreamEmitter, StreamHandle};
 use futures::{FutureSlot, RuntimeFutureHandle};
 
@@ -63,6 +66,7 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
   node.set_component_memos_debug(ctx.memos_debug());
   node.set_component_effects_debug(ctx.effects_debug());
   node.set_component_contexts_debug(ctx.contexts_debug());
+  node.set_component_render_debug(Some(ctx.render_debug()));
 }
 
 fn attach_component_metadata(
@@ -150,6 +154,13 @@ pub enum Placement {
   RightEnd,
 }
 
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Placement {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CollisionStrategy {
   None,
@@ -189,6 +200,9 @@ pub enum OutsidePress {
   PassThrough,
 }
 
+/// What runs when a press outside an overlay or Escape closes it: see [`Overlay::on_dismiss`].
+pub(crate) type OverlayDismiss = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 pub(crate) struct OverlaySpec {
   pub(crate) anchor: ElementRef,
   pub(crate) node: Node,
@@ -202,6 +216,21 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_outside_click: bool,
   pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
+  /// What runs when a press outside the overlay or Escape closes it.
+  pub(crate) on_dismiss: Option<OverlayDismiss>,
+  /// Whether the focus goes into the overlay as it opens and back as it closes: see [`Overlay::takes_focus`].
+  pub(crate) takes_focus: bool,
+  /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
+  /// see [`Overlay::tab_after_anchor`].
+  pub(crate) tab_after_anchor: bool,
+  /// Whether Tab stays in the overlay while the focus is in it: see [`Overlay::traps_tab`].
+  pub(crate) traps_tab: bool,
+  /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
+  pub(crate) at: Option<(f32, f32)>,
+  /// Where it stands by that point, as by an anchor of no size: see [`Overlay::at_placed`].
+  pub(crate) at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of, top, right, bottom, left: see [`Overlay::keep_clear`].
+  pub(crate) clear: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -258,6 +287,10 @@ pub(crate) struct ModalSpec {
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_escape: bool,
   pub(crate) layer: ModalLayer,
+  /// Whether the focus goes into the modal as it opens and back to what had it as it closes.
+  pub(crate) takes_focus: bool,
+  /// What runs after a person dismissed the modal, its open signal set to `false`: see [`Modal::on_dismiss`].
+  pub(crate) on_dismiss: Option<OverlayDismiss>,
 }
 
 impl ModalSpec {
@@ -273,6 +306,8 @@ impl ModalSpec {
       open_signal: self.open_signal.clone(),
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
+      takes_focus: self.takes_focus,
+      on_dismiss: self.on_dismiss.clone(),
     }
   }
 }
@@ -297,6 +332,13 @@ impl OverlaySpec {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      on_dismiss: self.on_dismiss.clone(),
+      takes_focus: self.takes_focus,
+      tab_after_anchor: self.tab_after_anchor,
+      traps_tab: self.traps_tab,
+      at: self.at,
+      at_placement: self.at_placement,
+      clear: self.clear,
     }
   }
 }
@@ -308,6 +350,8 @@ pub struct Modal {
   dismiss_on_escape: bool,
   layer: ModalLayer,
   dismiss: Option<Signal<bool>>,
+  takes_focus: bool,
+  on_dismiss: Vec<OverlayDismiss>,
 }
 
 impl Modal {
@@ -319,6 +363,8 @@ impl Modal {
       dismiss_on_escape: true,
       layer: ModalLayer::Dialog,
       dismiss: None,
+      takes_focus: false,
+      on_dismiss: Vec::new(),
     }
   }
 
@@ -342,6 +388,23 @@ impl Modal {
     self
   }
 
+  /// Whether the focus goes into the modal as it opens, to its first stop of Tab, and back to what had it when
+  /// it closes, as a browser's `<dialog>` opened with `showModal()` does. A focus that has gone somewhere else
+  /// by then stays there. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
+    self
+  }
+
+  /// What runs after a person dismissed the modal, its open signal set to `false` first: Escape, wherever the
+  /// focus is, for a modal driven by a signal that Escape closes; and whatever the app's own content calls a
+  /// dismissal (a press on its veil) through the same handler. Not when the app sets the signal. A second
+  /// handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(std::sync::Arc::new(handler));
+    self
+  }
+
   /// The signal Escape sets to `false`, for a modal that stays open after it: one that is shown on its way
   /// out, as a [`Sheet`](crate::components::Sheet) is.
   pub(crate) fn dismisses(mut self, open: Signal<bool>) -> Self {
@@ -360,12 +423,22 @@ impl Modal {
       return None;
     }
 
+    let handlers = self.on_dismiss;
+    let on_dismiss = (!handlers.is_empty()).then(|| {
+      std::sync::Arc::new(move || {
+        for handler in &handlers {
+          handler();
+        }
+      }) as OverlayDismiss
+    });
     Some(ModalSpec {
       target: self.target,
       node: *self.node,
       open_signal: self.dismiss.or_else(|| self.open.signal()),
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
+      takes_focus: self.takes_focus,
+      on_dismiss,
     })
   }
 }
@@ -394,7 +467,14 @@ pub struct Overlay {
   dismiss_on_outside_click: bool,
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  on_dismiss: Option<OverlayDismiss>,
   switch_on_anchor_press: bool,
+  takes_focus: bool,
+  tab_after_anchor: bool,
+  traps_tab: bool,
+  at: Option<(f32, f32)>,
+  at_placement: Option<Placement>,
+  clear: [f32; 4],
 }
 
 impl Overlay {
@@ -412,7 +492,14 @@ impl Overlay {
       dismiss_on_outside_click: false,
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
+      on_dismiss: None,
       switch_on_anchor_press: true,
+      takes_focus: false,
+      tab_after_anchor: false,
+      traps_tab: false,
+      at: None,
+      at_placement: None,
+      clear: [0.0; 4],
     }
   }
 
@@ -476,6 +563,13 @@ impl Overlay {
     self
   }
 
+  /// What runs after a press outside the overlay or Escape closed it, its open signal set to `false`: what a
+  /// dismissal means to the app, beyond the overlay closing. Only an overlay driven by a signal is dismissed.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss = Some(std::sync::Arc::new(handler));
+    self
+  }
+
   /// Whether the anchor is this overlay's trigger, which a left press opens.
   /// While another dropdown is open, a press on a trigger closes it and goes
   /// on to the trigger, so one press switches dropdowns. Defaults to `true`;
@@ -484,6 +578,84 @@ impl Overlay {
   /// `dismiss_on_outside_click(true)` and a signal-backed open state.
   pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
     self.switch_on_anchor_press = switch;
+    self
+  }
+
+  /// Whether the keyboard focus goes into the overlay as it opens and back as
+  /// it closes, as [`Modal::takes_focus`] does for a modal: a popover's, a
+  /// menu's.
+  ///
+  /// - As it opens, the focus goes to the first element in it that takes the focus. An app's focus request in the same
+  ///   pass wins. The ring shows as the input that opened it shows it: after a key, not after a press of the pointer.
+  /// - As it closes with the focus inside it, the focus goes back to what had it when it opened (the button that opened
+  ///   a menu, the item of a submenu), or, where that is gone or nothing had it, to its anchor. A focus that has gone
+  ///   somewhere else stays there.
+  /// - Tab goes through its elements right after its anchor's, as a web popover's come after its invoker's.
+  /// - An overlay that is hidden because its anchor is out of view is still open: it does not take the focus again when
+  ///   the anchor comes back.
+  ///
+  /// Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
+    self
+  }
+
+  /// Whether Tab goes through the overlay's elements right after its
+  /// anchor's, as with [`Self::takes_focus`], while the focus stays where it
+  /// is as the overlay opens: a hover card's links, a toggletip's, a teaching
+  /// tip that does not take the focus from what a person is doing. As it
+  /// closes with the focus inside it, the focus goes back to its anchor. Off
+  /// by default; [`Self::takes_focus`] does this and more.
+  pub fn tab_after_anchor(mut self, tab: bool) -> Self {
+    self.tab_after_anchor = tab;
+    self
+  }
+
+  /// Whether Tab stays in the overlay while the focus is in it, as it stays in a modal: from its last element
+  /// Tab goes to its first, and Shift+Tab from its first to its last, where it would go on to what follows its
+  /// anchor. For an overlay a person is to finish before going on that is no modal: the card of a tour.
+  ///
+  /// - It holds Tab only while the focus is in it, or in an overlay that hangs from an element of it. With the focus on
+  ///   the page Tab goes through the page, and into the overlay after its anchor.
+  /// - It does not close the page to the pointer, and Escape and a press outside close it as its other settings say. As
+  ///   it closes the focus goes back as [`Self::takes_focus`] says.
+  /// - A modal opened over it holds Tab itself.
+  /// - With nothing in it that takes the focus, Tab does nothing while the focus is in it.
+  ///
+  /// Its elements are in the order of Tab right after its anchor's, as with [`Self::tab_after_anchor`]. Off by
+  /// default.
+  pub fn traps_tab(mut self, traps: bool) -> Self {
+    self.traps_tab = traps;
+    self
+  }
+
+  /// A point of the window, in logical pixels, that the overlay stands at in
+  /// place of its anchor: where a secondary press or a long press was, for a
+  /// context menu. `None`, the default, places it by its anchor.
+  ///
+  /// It opens down and toward the end from the point, `offset` away from it,
+  /// and on the other side of the point along an axis where the window has no
+  /// room that way; then the collision strategy keeps it inside the window as
+  /// it does an anchored one. The placement is not used. The anchor is still
+  /// what it hangs from: a press on it is not outside it, the focus goes back
+  /// to it, and it is hidden while the anchor is out of view.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.at = point;
+    self
+  }
+
+  /// With [`at`](Self::at), stands the overlay by the point as by an anchor of no size, at `placement` of it,
+  /// measured first: `Placement::Top` centres it above the point, and the collision strategy flips it below
+  /// where there is no room above. What lurq shows at a finger (the menu of editing commands) stands so.
+  pub(crate) fn at_placed(mut self, placement: Placement) -> Self {
+    self.at_placement = Some(placement);
+    self
+  }
+
+  /// Keeps the overlay off the window's edges by these, top, right, bottom and left, in logical pixels, where the
+  /// collision strategy clamps it: a phone's safe area.
+  pub(crate) fn keep_clear(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    self.clear = [top, right, bottom, left];
     self
   }
 
@@ -507,6 +679,13 @@ impl Overlay {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      on_dismiss: self.on_dismiss,
+      takes_focus: self.takes_focus,
+      tab_after_anchor: self.tab_after_anchor,
+      traps_tab: self.traps_tab,
+      at: self.at,
+      at_placement: self.at_placement,
+      clear: self.clear,
     })
   }
 }
@@ -579,7 +758,6 @@ impl Timeout {
 
   /// The delay of the next start or restart; a running timeout keeps its
   /// fire time.
-  #[cfg(feature = "markdown")]
   pub(crate) fn set_duration(&self, duration: Duration) {
     self.timer.inner.lock().duration = duration;
   }
@@ -607,6 +785,24 @@ impl Interval {
   }
 }
 
+thread_local! {
+  /// The moment a timer started on this thread takes as now, where a test drives time itself
+  /// ([`set_timer_clock`]): the wall clock where there is none.
+  static TIMER_CLOCK: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Has every timer started or restarted on this thread from now on count its delay from `now`, until set back to
+/// `None`: `Tree::tick_timers_at` then fires it at moments a test counts from its own clock, however long the
+/// machine takes between them.
+pub(crate) fn set_timer_clock(now: Option<Instant>) {
+  TIMER_CLOCK.with(|clock| clock.set(now));
+}
+
+/// The moment a timer starts at: the test's, or the wall clock's.
+fn timer_now() -> Instant {
+  TIMER_CLOCK.with(std::cell::Cell::get).unwrap_or_else(Instant::now)
+}
+
 impl Timer {
   fn new(
     duration: Duration,
@@ -626,7 +822,7 @@ impl Timer {
   }
 
   fn start(&self) {
-    let now = Instant::now();
+    let now = timer_now();
     let wake = {
       let mut inner = self.inner.lock();
       if inner.next_fire.is_some() {
@@ -639,7 +835,7 @@ impl Timer {
   }
 
   fn restart(&self) {
-    self.restart_at(Instant::now());
+    self.restart_at(timer_now());
   }
 
   fn restart_at(&self, now: Instant) {
@@ -697,9 +893,52 @@ impl Timer {
 #[derive(Default)]
 struct ElementRequests {
   focus: Option<ElementRef>,
+  /// The focus is to go on as Tab would from where it is, or was, and back where nothing follows: see
+  /// [`FocusHandle::focus_onward`].
+  focus_onward: bool,
   scroll_into_view: Option<ElementRef>,
+  /// An element to scroll to the start of what scrolls it.
+  scroll_into_view_start: Option<ElementRef>,
+  /// A range of a text to scroll into view, in bytes of its content.
+  scroll_range_into_view: Option<(ElementRef, std::ops::Range<usize>)>,
   blur: bool,
   scroll_to_top: bool,
+  /// The scroll containers to take to their tops, by their states.
+  scroll_states_to_top: Vec<crate::layout::layout_kind::ScrollState>,
+  /// The scroll containers to take to an offset, by their states: the last asked of each.
+  scroll_states_to: Vec<(crate::layout::layout_kind::ScrollState, f32, f32)>,
+}
+
+/// What moves the focus from a handler, which has no `Ctx`: made by [`Ctx::focus_handle`], kept by a component and
+/// given to its handlers. Its requests are carried out once the render that follows them is reconciled, as
+/// [`Ctx::focus`]'s are.
+#[derive(Clone)]
+pub struct FocusHandle {
+  requests: Arc<Mutex<ElementRequests>>,
+  window: Option<crate::app::window::Window>,
+}
+
+impl FocusHandle {
+  fn wake(&self) {
+    if let Some(window) = &self.window {
+      window.wake();
+    }
+  }
+
+  /// Focuses `element`, as [`Ctx::focus`] does.
+  pub fn focus(&self, element: &ElementRef) {
+    self.requests.lock().focus = Some(element.clone());
+    self.wake();
+  }
+
+  /// Moves the focus on to the next stop of Tab after where it is, or after where it was where what had it has
+  /// left the tree; to the stop before where nothing follows; and nowhere where there is no stop. What a control
+  /// that takes itself out of the tree asks where nothing better is known: the close of a preview in a draft, a
+  /// chip a person removed. The focus is never left to nothing.
+  pub fn focus_onward(&self) {
+    self.requests.lock().focus_onward = true;
+    self.wake();
+  }
 }
 
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
@@ -709,11 +948,119 @@ pub(crate) enum BottomBarInset {
   Over(f32),
 }
 
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for BottomBarInset {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+crate::register_inspectable!(BottomBarInset);
+
 /// A component keeps its descendants clear of everything at the window's edges itself: for them
 /// [`Ctx::safe_area`] is nothing at every side. A sheet's content is such: the sheet stands clear of the status
 /// bar, and pads its content by the home indicator and the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SafeAreaTaken;
+
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SafeAreaTaken {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+crate::register_inspectable!(SafeAreaTaken);
+
+/// What runs a command of editing on the focus of a window, from a handler: [`Ctx::edit_runner`].
+#[derive(Clone)]
+pub struct EditRunner {
+  window: Option<crate::app::window::Window>,
+}
+
+impl EditRunner {
+  /// Runs `command` on what has the focus once the event that asked is handled; see [`Ctx::edit`].
+  pub fn run(&self, command: crate::app::events::EditCommand) {
+    if let Some(window) = &self.window {
+      window.request_edit(command);
+    }
+  }
+}
+
+/// What goes back or forward in a window from a handler, as the keys and the mouse's side buttons do:
+/// [`Ctx::history_runner`].
+#[derive(Clone)]
+pub struct HistoryRunner {
+  window: Option<crate::app::window::Window>,
+}
+
+impl HistoryRunner {
+  /// Goes back once the event that asked is handled; see [`Ctx::history_back`].
+  pub fn back(&self) {
+    self.run(crate::app::events::NavigationCommand::Back);
+  }
+
+  /// Goes forward once the event that asked is handled; see [`Ctx::history_forward`].
+  pub fn forward(&self) {
+    self.run(crate::app::events::NavigationCommand::Forward);
+  }
+
+  /// Goes back or forward by `command`, on what has the focus and out from it.
+  pub fn run(&self, command: crate::app::events::NavigationCommand) {
+    self.request(command, crate::app::window::NavigationOrigin::Focus, None);
+  }
+
+  /// Goes back or forward from a part of the window, the element `part` is on: from the focused element where it
+  /// is in that part, otherwise from the last element in it that has a handler for the command, or from the part
+  /// itself; then out from there, as from the focus. What a back button of a panel runs, which has the focus itself
+  /// and stands beside what goes back.
+  pub fn run_in(&self, part: &crate::core::ElementRef, command: crate::app::events::NavigationCommand) {
+    self.request(command, crate::app::window::NavigationOrigin::Part(part.clone()), None);
+  }
+
+  /// As [`run_in`](Self::run_in), from `source`, with `done` told whether something took the command.
+  #[cfg_attr(not(feature = "router"), allow(dead_code))]
+  pub(crate) fn run_in_then(
+    &self,
+    part: &crate::core::ElementRef,
+    command: crate::app::events::NavigationCommand,
+    source: crate::app::events::NavigationSource,
+    done: impl FnOnce(bool) + Send + Sync + 'static,
+  ) {
+    let request = crate::app::window::NavigationRequest {
+      command,
+      source,
+      origin: crate::app::window::NavigationOrigin::Part(part.clone()),
+      done: Some(Box::new(done)),
+    };
+    match &self.window {
+      Some(window) => window.request_navigation(request),
+      None => {
+        if let Some(done) = request.done {
+          done(false);
+        }
+      }
+    }
+  }
+
+  fn request(
+    &self,
+    command: crate::app::events::NavigationCommand,
+    origin: crate::app::window::NavigationOrigin,
+    done: Option<crate::app::window::NavigationDone>,
+  ) {
+    if let Some(window) = &self.window {
+      window.request_navigation(crate::app::window::NavigationRequest {
+        command,
+        source: crate::app::events::NavigationSource::App,
+        origin,
+        done,
+      });
+    }
+  }
+}
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
@@ -732,10 +1079,14 @@ pub struct Ctx {
   effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   contexts_debug: Vec<ComponentContextDebug>,
+  #[cfg(feature = "devtools")]
+  render_debug: ComponentRenderDebug,
+  /// When the render that is running began: what its time is measured from.
+  #[cfg(feature = "devtools")]
+  render_started: Option<Instant>,
   theme: Option<Theme>,
   window: Option<crate::app::window::Window>,
   breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
-  #[cfg(feature = "i18n")]
   i18n: Option<I18n>,
   app: Option<App>,
   element_requests: Arc<Mutex<ElementRequests>>,
@@ -771,6 +1122,8 @@ pub struct Ctx {
   render_watch_handles: Vec<Box<dyn Any + Send + Sync>>,
   effects: Vec<Effect>,
   timers: Vec<Timer>,
+  /// The callbacks of `ctx.on_frame`.
+  frames: frames::ComponentFrames,
   /// Slots of the `ctx.future`, `ctx.stream` and `ctx.future_action` calls of
   /// a render, by call position.
   future_slots: Vec<FutureSlot>,
@@ -790,6 +1143,9 @@ pub struct Ctx {
   click_outside_cursor: usize,
   click_outside_active_cursors: Vec<usize>,
   rendering: bool,
+  /// A mount gives a node that stands for an unchanged component in place of a copy of its output: set while a
+  /// declared component is mounted ([`Self::mount_holding`]).
+  holding: bool,
 }
 
 #[derive(Clone)]
@@ -829,15 +1185,32 @@ pub struct ComponentMemoDebug {
 #[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComponentValueChangeDebug {
+  /// Which change this is among all the changes of every signal and memo of the process, from 1: a later one has
+  /// a greater number, so what happened after a moment is told from what happened before it.
+  pub sequence: u64,
   pub timestamp: String,
   pub from_value: String,
   pub to_value: String,
 }
 
+/// Numbers the changes DevTools is told of ([`ComponentValueChangeDebug::sequence`]).
+#[cfg(feature = "devtools")]
+static NEXT_VALUE_CHANGE: AtomicU64 = AtomicU64::new(1);
+
 #[cfg(feature = "devtools")]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComponentEffectDebug {
   pub id: usize,
+}
+
+/// How a component has rendered, for DevTools: counted where its render is called.
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ComponentRenderDebug {
+  /// How many times it has rendered since it was mounted.
+  pub count: u64,
+  /// How long its last render took, with the renders of what it mounted in it.
+  pub last: Duration,
 }
 
 #[cfg(feature = "devtools")]
@@ -848,10 +1221,90 @@ pub enum ComponentContextKind {
 }
 
 #[cfg(feature = "devtools")]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ComponentContextDebug {
   pub kind: ComponentContextKind,
   pub type_name: Arc<str>,
+  /// Whether it is a reactive context (`create_context`, `consume_context`): one whose value is set, and
+  /// renders what reads it again.
+  pub reactive: bool,
+  /// What a provided context holds, and how that changed. A context that is read here has neither: they are
+  /// its provider's.
+  value: Arc<Mutex<Option<Vec<ComponentInfo>>>>,
+  history: Arc<Mutex<Vec<ComponentContextChangeDebug>>>,
+}
+
+/// One change of what a context holds, as its type wrote the value before and the value after.
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentContextChangeDebug {
+  /// Which change this is among all the changes DevTools is told of, as a signal's is
+  /// ([`ComponentValueChangeDebug::sequence`]): the two count together.
+  pub sequence: u64,
+  pub timestamp: String,
+  pub from_value: Vec<ComponentInfo>,
+  pub to_value: Vec<ComponentInfo>,
+}
+
+#[cfg(feature = "devtools")]
+impl ComponentContextDebug {
+  /// What the context holds, as its type writes itself for DevTools: its fields, or one `value`. Empty for a
+  /// type that writes nothing of itself; `None` for a context that is read here and not provided.
+  pub fn value(&self) -> Option<Vec<ComponentInfo>> {
+    self.value.lock().clone()
+  }
+
+  /// The last 64 changes of what it holds, the oldest first.
+  pub fn history(&self) -> Vec<ComponentContextChangeDebug> {
+    self.history.lock().clone()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl PartialEq for ComponentContextDebug {
+  fn eq(&self, other: &Self) -> bool {
+    self.kind == other.kind
+      && self.type_name == other.type_name
+      && self.reactive == other.reactive
+      && self.value() == other.value()
+      && self.history() == other.history()
+  }
+}
+
+/// Takes the value a provided context holds now: where it is another than the one held before, the change is
+/// recorded.
+#[cfg(feature = "devtools")]
+fn record_context_value(
+  held: &Mutex<Option<Vec<ComponentInfo>>>,
+  history: &Mutex<Vec<ComponentContextChangeDebug>>,
+  next: Vec<ComponentInfo>,
+) {
+  let mut held = held.lock();
+  if held.as_ref() == Some(&next) {
+    return;
+  }
+  if let Some(previous) = held.as_ref() {
+    let mut history = history.lock();
+    history.push(ComponentContextChangeDebug {
+      sequence: NEXT_VALUE_CHANGE.fetch_add(1, Ordering::Relaxed),
+      timestamp: current_compact_timestamp(),
+      from_value: previous.clone(),
+      to_value: next.clone(),
+    });
+    if history.len() > 64 {
+      let overflow = history.len() - 64;
+      history.drain(0..overflow);
+    }
+  }
+  *held = Some(next);
+}
+
+/// What a value writes of itself for DevTools, where its type registered an inspector
+/// (`#[derive(DevtoolsInspectable)]`, `register_inspectable!`): nothing where it did not. No bound asks a
+/// context's type for one.
+#[cfg(feature = "devtools")]
+fn inspected<T: 'static>(value: &T) -> Vec<ComponentInfo> {
+  crate::app::component::inspect_registered(value).unwrap_or_default()
 }
 
 #[cfg(feature = "devtools")]
@@ -961,6 +1414,7 @@ fn update_debug_value_history(
   if let Some(previous) = current_value.as_ref() {
     let mut history = history.lock();
     history.push(ComponentValueChangeDebug {
+      sequence: NEXT_VALUE_CHANGE.fetch_add(1, Ordering::Relaxed),
       timestamp: current_compact_timestamp(),
       from_value: previous.to_string(),
       to_value: next_value
@@ -977,15 +1431,56 @@ fn update_debug_value_history(
   *current_value = next_value;
 }
 
+/// The moment a value changed, as DevTools writes it: by the clock and the zone of the system, where the
+/// engine can read the zone (`core::Time::now`), and in UTC where it cannot.
 #[cfg(feature = "devtools")]
 fn current_compact_timestamp() -> String {
   let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-  let millis = duration.subsec_millis();
-  let seconds_of_day = duration.as_secs() % 86_400;
+  compact_timestamp(
+    duration.as_secs(),
+    duration.subsec_millis(),
+    crate::core::Time::now().seconds(),
+  )
+}
+
+/// `utc_seconds` and `millis` since 1970 as a time of day in the zone where it is `local_seconds` after
+/// midnight now. The two clocks are read a moment apart, so the zone is taken to the quarter of an hour every
+/// zone is at, and the seconds and the milliseconds are those of one reading.
+#[cfg(feature = "devtools")]
+fn compact_timestamp(utc_seconds: u64, millis: u32, local_seconds: i64) -> String {
+  const DAY: i64 = 86_400;
+  const QUARTER: i64 = 900;
+  let utc_of_day = (utc_seconds % DAY as u64) as i64;
+  let zone = ((local_seconds - utc_of_day) as f64 / QUARTER as f64).round() as i64 * QUARTER;
+  let seconds_of_day = (utc_of_day + zone).rem_euclid(DAY);
   let hour = seconds_of_day / 3_600;
   let minute = seconds_of_day % 3_600 / 60;
   let second = seconds_of_day % 60;
   format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
+}
+
+#[cfg(all(test, feature = "devtools"))]
+mod timestamp_tests {
+  use super::compact_timestamp;
+
+  #[test]
+  fn a_change_is_timed_by_the_clock_of_the_zone() {
+    // 09:29:40.005 in UTC, read where it is two hours later.
+    let utc = 9 * 3_600 + 29 * 60 + 40;
+    assert_eq!(compact_timestamp(utc, 5, (utc + 2 * 3_600) as i64), "11:29:40.005");
+    // The zone's clock was read a second later: the seconds are still those of the first reading.
+    assert_eq!(compact_timestamp(utc, 5, (utc + 2 * 3_600 + 1) as i64), "11:29:40.005");
+    // A zone behind UTC, across midnight, and one at a quarter of an hour.
+    assert_eq!(compact_timestamp(3_600, 0, 20 * 3_600), "20:00:00.000");
+    assert_eq!(
+      compact_timestamp(utc, 0, (utc + 5 * 3_600 + 45 * 60) as i64),
+      "15:14:40.000"
+    );
+    // Where the zone is not read the clock is UTC's.
+    assert_eq!(compact_timestamp(utc, 250, utc as i64), "09:29:40.250");
+    // Days since 1970 do not matter.
+    assert_eq!(compact_timestamp(20_000 * 86_400 + utc, 0, utc as i64), "09:29:40.000");
+  }
 }
 
 #[cfg(feature = "devtools")]
@@ -1153,7 +1648,10 @@ struct ComponentWrapper<C: Component> {
 
 impl<C: Component> AnyComponent for ComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx).into()
+    let mut element: Element = self.component.render(ctx).into();
+    // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
+    element.node.mount_declared_components(ctx);
+    element
   }
 
   fn after_layout(&self) {
@@ -1200,10 +1698,13 @@ impl Ctx {
       effects_debug: Vec::new(),
       #[cfg(feature = "devtools")]
       contexts_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      render_debug: ComponentRenderDebug::default(),
+      #[cfg(feature = "devtools")]
+      render_started: None,
       theme: None,
       window: None,
       breakpoint: None,
-      #[cfg(feature = "i18n")]
       i18n: None,
       app: None,
       element_requests: Arc::default(),
@@ -1226,6 +1727,7 @@ impl Ctx {
       render_watch_handles: Vec::new(),
       effects: Vec::new(),
       timers: Vec::new(),
+      frames: frames::ComponentFrames::default(),
       future_slots: Vec::new(),
       stable_future_slots: Vec::new(),
       component_name: "root",
@@ -1240,6 +1742,7 @@ impl Ctx {
       click_outside_cursor: 0,
       click_outside_active_cursors: Vec::new(),
       rendering: false,
+      holding: false,
     }
   }
 
@@ -1270,7 +1773,6 @@ impl Ctx {
     self
   }
 
-  #[cfg(feature = "i18n")]
   pub(crate) fn with_i18n(mut self, i18n: I18n) -> Self {
     self.i18n = Some(i18n);
     self
@@ -1464,6 +1966,11 @@ impl Ctx {
   }
 
   #[cfg(feature = "devtools")]
+  pub(crate) fn render_debug(&self) -> ComponentRenderDebug {
+    self.render_debug
+  }
+
+  #[cfg(feature = "devtools")]
   pub(crate) fn signals_debug(&self) -> Vec<ComponentSignalDebug> {
     self.signals_debug.clone()
   }
@@ -1635,6 +2142,12 @@ impl Ctx {
     self.current_form().bool_control(name).resolve()
   }
 
+  /// The control of a range slider's field, its low value and its high one, in the nearest form.
+  #[cfg(feature = "form")]
+  pub fn range_control(&mut self, name: impl Into<Arc<str>>) -> crate::components::ResolvedControl<(f64, f64)> {
+    self.current_form().range_control(name).resolve()
+  }
+
   #[cfg(feature = "form")]
   fn current_form(&mut self) -> crate::components::FormHandle {
     self
@@ -1645,8 +2158,7 @@ impl Ctx {
 
   #[cfg(feature = "router")]
   pub fn router(&mut self, routes: crate::router::Routes) -> crate::router::RouterHandle {
-    let current_path = Signal::new(String::new());
-    crate::router::RouterHandle::new_with_signal(routes, current_path)
+    crate::router::RouterHandle::new(routes)
   }
 
   #[cfg(feature = "router")]
@@ -1789,7 +2301,13 @@ impl Ctx {
   /// renders nothing again.
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
+    #[cfg(feature = "router")]
+    if self.rendering
+      && let Some(navigator) = (&value as &dyn std::any::Any).downcast_ref::<crate::router::Navigator>()
+    {
+      crate::router::navigator::provide_in_render(navigator.clone());
+    }
     self.store_context(value);
   }
 
@@ -1801,7 +2319,7 @@ impl Ctx {
   /// handler, with the one provided there.
   pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     let id = TypeId::of::<T>();
     if self.rendering {
       let unchanged = self
@@ -1855,18 +2373,18 @@ impl Ctx {
 
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Consumed, std::any::type_name::<T>());
+    self.note_consumed(std::any::type_name::<T>(), false);
     self.note_context_read(TypeId::of::<T>());
     self.context_map.get::<T>()
   }
 
   pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(
-      ComponentContextKind::Provided,
-      std::any::type_name::<ReactiveContext<T>>(),
-    );
+    let (held, history) = self.note_provided(std::any::type_name::<ReactiveContext<T>>(), true, inspected(&value));
     let ctx = ReactiveContext::new(value);
+    // Each value the context is set to from now on is the same record's next change.
+    #[cfg(feature = "devtools")]
+    ctx.inspect_with(move |value: &T| record_context_value(&held, &history, inspected(value)));
     self.store_context(ctx.clone());
     ctx.subscribe(self.dirty_notifier(
       #[cfg(feature = "perf_profile")]
@@ -1877,10 +2395,7 @@ impl Ctx {
 
   pub fn consume_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self) -> Option<ReactiveContext<T>> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(
-      ComponentContextKind::Consumed,
-      std::any::type_name::<ReactiveContext<T>>(),
-    );
+    self.note_consumed(std::any::type_name::<ReactiveContext<T>>(), true);
     self.note_context_read(TypeId::of::<ReactiveContext<T>>());
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     ctx.subscribe(self.dirty_notifier(
@@ -1973,21 +2488,73 @@ impl Ctx {
   }
 
   #[cfg(feature = "devtools")]
-  fn push_context_debug(&mut self, kind: ComponentContextKind, type_name: &'static str) {
-    if self
+  /// The record of a context of `kind` and `type_name` this component has, made where it has none.
+  fn context_debug(
+    &mut self,
+    kind: ComponentContextKind,
+    type_name: &'static str,
+    reactive: bool,
+  ) -> &ComponentContextDebug {
+    let at = self
       .contexts_debug
       .iter()
-      .any(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name)
-    {
-      return;
-    }
-    self.contexts_debug.push(ComponentContextDebug {
-      kind,
-      type_name: Arc::from(type_name),
+      .position(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name);
+    let at = at.unwrap_or_else(|| {
+      self.contexts_debug.push(ComponentContextDebug {
+        kind,
+        type_name: Arc::from(type_name),
+        reactive,
+        value: Arc::default(),
+        history: Arc::default(),
+      });
+      self.contexts_debug.len() - 1
     });
+    &self.contexts_debug[at]
+  }
+
+  /// Tells DevTools the component provides a context that holds `value` now, and gives back the record of
+  /// what it holds and of its changes: a reactive context goes on writing to it as it is set.
+  #[cfg(feature = "devtools")]
+  #[allow(clippy::type_complexity)]
+  fn note_provided(
+    &mut self,
+    type_name: &'static str,
+    reactive: bool,
+    value: Vec<ComponentInfo>,
+  ) -> (
+    Arc<Mutex<Option<Vec<ComponentInfo>>>>,
+    Arc<Mutex<Vec<ComponentContextChangeDebug>>>,
+  ) {
+    let debug = self.context_debug(ComponentContextKind::Provided, type_name, reactive);
+    let (held, history) = (debug.value.clone(), debug.history.clone());
+    record_context_value(&held, &history, value);
+    (held, history)
+  }
+
+  /// Tells DevTools the component reads a context.
+  #[cfg(feature = "devtools")]
+  fn note_consumed(&mut self, type_name: &'static str, reactive: bool) {
+    self.context_debug(ComponentContextKind::Consumed, type_name, reactive);
   }
 
   // --- Theme ---
+
+  /// Builds an element in `theme`: a dark side bar in a light window, a
+  /// dense inspector. The theme is that of everything `build` builds and
+  /// mounts, down to the paint: components take their recipes and their
+  /// sizes from it, and the element is laid out and painted with its
+  /// palette, its radii, its type and its shadows. The components mounted in
+  /// it keep the theme when they render again on their own, and what
+  /// rendered it renders again when the theme changes.
+  pub fn in_theme<E: Into<Element>>(&mut self, theme: &Theme, build: impl FnOnce(&mut Ctx) -> E) -> Element {
+    theme.track_access();
+    let outer = self.theme.replace(theme.clone());
+    // A builder becomes an element here, in the theme: a component that is returned unbuilt is built in it.
+    let mut element: Element = crate::ui::in_theme(theme, || build(self).into());
+    self.theme = outer;
+    element.node.set_theme_scope(theme);
+    element
+  }
 
   pub fn theme(&self) -> &Theme {
     let theme = self.theme.as_ref().expect("theme not set");
@@ -2006,6 +2573,11 @@ impl Ctx {
 
   /// Current window geometry/state plus platform window commands.
   /// Reading this subscribes the component to window resize/move/scale changes.
+  /// The window of the tree being rendered, untracked; `None` where none is set.
+  pub(crate) fn window_untracked(&self) -> Option<&crate::app::window::Window> {
+    self.window.as_ref()
+  }
+
   pub fn window(&self) -> crate::app::window::WindowHandle {
     let window = self.window.as_ref().expect("window not set");
     window.track_access();
@@ -2033,6 +2605,11 @@ impl Ctx {
     self.app.as_ref().expect("app ref not set")
   }
 
+  /// The retained app services, borrowed, if a pass or mount set them.
+  pub(crate) fn app_if_set(&self) -> Option<&App> {
+    self.app.as_ref()
+  }
+
   /// The retained app services, if a pass or mount set them.
   pub(crate) fn app_handle(&self) -> Option<App> {
     self.app.clone()
@@ -2042,6 +2619,12 @@ impl Ctx {
   /// event handlers (see [`crate::app::WindowOpener`]).
   pub fn window_opener(&self) -> crate::app::WindowOpener {
     self.app_ref().window_opener()
+  }
+
+  /// Opens `url` in the app the system keeps for it: a web page in the browser. It is
+  /// [`open_url`](crate::app::open_url()), which a handler with no `Ctx` calls too.
+  pub fn open_url(&self, url: &str) -> Result<(), crate::app::OpenUrlError> {
+    crate::app::open_url(url)
   }
 
   /// Mutates the same shared services as the App passed to the tree.
@@ -2097,24 +2680,20 @@ impl Ctx {
     self.app_ref().write_bulk(entries)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn i18n(&self) -> &I18n {
     let i18n = self.i18n.as_ref().expect("i18n not set");
     i18n.track_access();
     i18n
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t(&self, key: &str) -> Arc<str> {
     self.i18n().t(key)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_ns(&self, namespace: &str, key: &str) -> Arc<str> {
     self.i18n().t_ns(namespace, key)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_args<I, K, V>(&self, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
@@ -2124,7 +2703,6 @@ impl Ctx {
     self.i18n().t_args(key, args)
   }
 
-  #[cfg(feature = "i18n")]
   pub fn t_ns_args<I, K, V>(&self, namespace: &str, key: &str, args: I) -> Arc<str>
   where
     I: IntoIterator<Item = (K, V)>,
@@ -2181,6 +2759,48 @@ impl Ctx {
     self.wake_window();
   }
 
+  /// Scrolls an element to the start of what scrolls it after the current render is laid out: every scroll
+  /// container around it that scrolls down brings the element's top to the top of its viewport, as far as its
+  /// content lets it, and one that scrolls sideways moves by the smallest amount that shows it: the web's
+  /// `scrollIntoView({ block: "start", inline: "nearest" })`. What a list of a page's sections does when one of
+  /// them is pressed. The top it is brought to is clear of what sticks to the container's top, as
+  /// [`Ctx::scroll_into_view`] keeps clear of it.
+  ///
+  /// The ref may be attached by the render that follows this call. Requests for refs absent from that tree are
+  /// ignored. The last request wins.
+  pub fn scroll_into_view_start(&self, element: &ElementRef) {
+    self.element_requests.lock().scroll_into_view_start = Some(element.clone());
+    self.wake_window();
+  }
+
+  /// Scrolls a range of a text into view after the current render is laid
+  /// out, as [`Ctx::scroll_into_view`] scrolls an element: the lines bytes
+  /// `range` of the text's content cover, and no more, are brought into
+  /// view. The current match of a search, which the text highlights
+  /// (`Text::highlights`). `element` is the text's ref; a range that is empty
+  /// or past the text's end scrolls nothing. The text must know where its
+  /// characters are drawn, which a text that is selectable or has highlights
+  /// does: of another one the whole element is brought into view. The last
+  /// request wins.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, components::Text, core::ElementRef, node::Element};
+  ///
+  /// # fn build(ctx: &mut Ctx, text: &ElementRef) -> Element {
+  /// // The fourth word of the text, wherever it was wrapped to.
+  /// ctx.scroll_range_into_view(text, 15..20);
+  /// Text::new("one two three four five").ref_element(text.clone()).into()
+  /// # }
+  /// ```
+  pub fn scroll_range_into_view(&self, element: &ElementRef, range: std::ops::Range<usize>) {
+    self.element_requests.lock().scroll_range_into_view = Some((element.clone(), range));
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_range_into_view_request(&self) -> Option<(ElementRef, std::ops::Range<usize>)> {
+    self.element_requests.lock().scroll_range_into_view.take()
+  }
+
   fn wake_window(&self) {
     if let Some(window) = &self.window {
       window.wake();
@@ -2190,7 +2810,80 @@ impl Ctx {
   /// Whether a focus or scroll-into-view request is waiting for the runtime.
   pub(crate) fn has_element_request(&self) -> bool {
     let requests = self.element_requests.lock();
-    requests.focus.is_some() || requests.scroll_into_view.is_some() || requests.blur || requests.scroll_to_top
+    requests.focus.is_some()
+      || requests.scroll_into_view.is_some()
+      || requests.scroll_into_view_start.is_some()
+      || requests.scroll_range_into_view.is_some()
+      || requests.blur
+      || requests.scroll_to_top
+      || requests.focus_onward
+  }
+
+  /// Runs a command of editing on what has the focus, as its key does: Undo, Redo, Cut, Copy, Paste or Select All.
+  /// A focused text input does it to its own text first; otherwise the focused element's handlers (`on_undo`,
+  /// `on_redo`, `on_select_all`, `on_copy`, `on_paste`), and its ancestors' innermost first, until one takes it
+  /// ([`EditCommand`](crate::app::events::EditCommand)). What an Edit menu's item or a toolbar's tool runs, through
+  /// [`Ctx::edit_runner`], which a handler keeps.
+  ///
+  /// It is run once the event that asked is handled, on what has the focus then: after the focus the event moved is
+  /// where it goes (a menu that closed gave it back to what had it). So a control that runs it does not keep the
+  /// focus itself: a tool of a bar that is not focusable (`.focusable(false)`), or an item of a menu. A paste asked
+  /// for while lurq delivers synthetic input (an MCP client's click) reads no clipboard. With no window (a component
+  /// rendered with no tree) it does nothing.
+  pub fn edit(&self, command: crate::app::events::EditCommand) {
+    self.edit_runner().run(command);
+  }
+
+  /// What runs a command of editing on what has the focus ([`Ctx::edit`]), to keep in a handler: an Edit menu's
+  /// item, a toolbar's tool. Reading it does not render the component again when the window changes.
+  ///
+  /// ```
+  /// use lurq::{app::{ctx::Ctx, events::EditCommand}, components::Button, node::Element};
+  ///
+  /// # fn build(ctx: &mut Ctx) -> Element {
+  /// let edit = ctx.edit_runner();
+  /// Button::new("Undo").focusable(false).on_click(move |_| edit.run(EditCommand::Undo)).into()
+  /// # }
+  /// ```
+  pub fn edit_runner(&self) -> EditRunner {
+    EditRunner {
+      window: self.window.clone(),
+    }
+  }
+
+  /// Goes back, as Alt+← (Cmd+[ on a Mac), the mouse's back button and Android's back do: on the focused element
+  /// and out from it, innermost first, its `on_history_back` handlers and the routers mounted there, until one takes
+  /// it; then the routers mounted elsewhere in the window, the innermost first
+  /// ([`NavigationCommand`](crate::app::events::NavigationCommand)). What a menu's item or a button runs, through
+  /// [`Ctx::history_runner`], which a handler keeps: a dialog open over the page closes on it where it hears it, as
+  /// on a key.
+  ///
+  /// It is run once the event that asked is handled, on what has the focus then. With no window (a component
+  /// rendered with no tree) it does nothing.
+  pub fn history_back(&self) {
+    self.history_runner().back();
+  }
+
+  /// Goes forward, as Alt+→ (Cmd+] on a Mac) and the mouse's forward button do; see [`Ctx::history_back`].
+  pub fn history_forward(&self) {
+    self.history_runner().forward();
+  }
+
+  /// What goes back or forward ([`Ctx::history_back`]), to keep in a handler: a menu's item, a toolbar's button.
+  /// Reading it does not render the component again when the window changes.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, components::Button, node::Element};
+  ///
+  /// # fn build(ctx: &mut Ctx) -> Element {
+  /// let history = ctx.history_runner();
+  /// Button::new("Back").on_click(move |_| history.back()).into()
+  /// # }
+  /// ```
+  pub fn history_runner(&self) -> HistoryRunner {
+    HistoryRunner {
+      window: self.window.clone(),
+    }
   }
 
   /// Takes the focus from whatever has it, after the current render: a text input being typed into is left,
@@ -2216,6 +2909,42 @@ impl Ctx {
     std::mem::take(&mut self.element_requests.lock().scroll_to_top)
   }
 
+  /// Scrolls the container `state` is the state of to its top, after the current render: over the frames that
+  /// follow, as a tap on a phone's status bar scrolls the page ([`Ctx::scroll_to_top`]), and at once while
+  /// motion is reduced or the theme's smooth scroll is off. A wheel or a finger that scrolls the container
+  /// meanwhile stops it where it is. A state that scrolls nothing in the tree, or is at its top already, asks
+  /// for nothing. What a button that takes a page back to its top calls
+  /// ([`BackToTop`](crate::ui::BackToTop)).
+  pub fn scroll_to_top_of(&self, state: &crate::layout::layout_kind::ScrollState) {
+    let mut requests = self.element_requests.lock();
+    if !requests.scroll_states_to_top.iter().any(|asked| asked.same(state)) {
+      requests.scroll_states_to_top.push(state.clone());
+    }
+    drop(requests);
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_states_to_top(&self) -> Vec<crate::layout::layout_kind::ScrollState> {
+    std::mem::take(&mut self.element_requests.lock().scroll_states_to_top)
+  }
+
+  /// Scrolls the container `state` is the state of to the offset `(x, y)`, after the current render: over
+  /// the frames that follow, on the curve a mouse's wheel scrolls by, and at once while motion is reduced or
+  /// the theme's smooth scroll is off. The offset is held to the content. A wheel or a finger that scrolls the
+  /// container meanwhile stops it where it is, and a second request before the render is applied replaces
+  /// the first. What a carousel turns to a slide with ([`Carousel`](crate::ui::Carousel)).
+  pub fn scroll_state_to(&self, state: &crate::layout::layout_kind::ScrollState, x: f32, y: f32) {
+    let mut requests = self.element_requests.lock();
+    requests.scroll_states_to.retain(|(asked, ..)| !asked.same(state));
+    requests.scroll_states_to.push((state.clone(), x, y));
+    drop(requests);
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_states_to(&self) -> Vec<(crate::layout::layout_kind::ScrollState, f32, f32)> {
+    std::mem::take(&mut self.element_requests.lock().scroll_states_to)
+  }
+
   /// How far in from each edge of the window this component's content stays clear of what is over it there:
   /// the window's [`safe_area`](crate::app::window::WindowInfo), and at the bottom also the bar a component
   /// around this one draws over its content, as a `TabOutlet` does. Content
@@ -2232,6 +2961,19 @@ impl Ctx {
     safe_area
   }
 
+  /// What moves the focus from a handler, which has no `Ctx`: [`FocusHandle::focus`] and
+  /// [`FocusHandle::focus_onward`].
+  pub fn focus_handle(&self) -> FocusHandle {
+    FocusHandle {
+      requests: self.element_requests.clone(),
+      window: self.window.clone(),
+    }
+  }
+
+  pub(crate) fn take_focus_onward_request(&self) -> bool {
+    std::mem::take(&mut self.element_requests.lock().focus_onward)
+  }
+
   pub(crate) fn focus_request(&self) -> Option<ElementRef> {
     self.element_requests.lock().focus.clone()
   }
@@ -2242,6 +2984,10 @@ impl Ctx {
 
   pub(crate) fn take_scroll_into_view_request(&self) -> Option<ElementRef> {
     self.element_requests.lock().scroll_into_view.take()
+  }
+
+  pub(crate) fn take_scroll_into_view_start_request(&self) -> Option<ElementRef> {
+    self.element_requests.lock().scroll_into_view_start.take()
   }
 
   pub fn element_ref_mut(&mut self) -> ElementRefMut {
@@ -2346,6 +3092,22 @@ impl Ctx {
     self.mount_inner::<C>(Some(key), props, Some(slot_children), true)
   }
 
+  /// Runs `mount` with unchanged components held back: where the component it mounts is unchanged, the
+  /// element is a node that stands for it (`Node::held_component`), for the tree to put the component's live
+  /// nodes in. For a mount whose element nothing touches before the tree has it.
+  pub(crate) fn mount_holding(&mut self, mount: impl FnOnce(&mut Ctx) -> Element) -> Element {
+    let was = std::mem::replace(&mut self.holding, true);
+    let element = mount(self);
+    self.holding = was;
+    element
+  }
+
+  /// A copy of the last output of the component in slot `slot`, anywhere below this one, put together from
+  /// its slot and those of the components in it.
+  pub(crate) fn cached_output_of(&self, slot: u64) -> Option<Box<Node>> {
+    self.descendant_slot(slot)?.assembled_output()
+  }
+
   fn mount_inner<C: Component>(
     &mut self,
     key: Option<&str>,
@@ -2353,6 +3115,7 @@ impl Ctx {
     slot_children: Option<Vec<Element>>,
     active: bool,
   ) -> Element {
+    let holding = self.holding;
     let cursor = self.child_cursor;
     self.child_cursor += 1;
 
@@ -2382,6 +3145,16 @@ impl Ctx {
       let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
       let props_changed = slot.ctx.props_changed(&props);
       let inherited = slot.ctx.inherit_contexts(&self.context_map);
+      // A component is in the theme it is mounted in now (`in_theme`), not the one its slot was made in: a stage
+      // switched to the other appearance renders what is on it again, in that theme.
+      let theme_changed = match (&slot.ctx.theme, &self.theme) {
+        (Some(held), Some(now)) => !held.same_theme(now),
+        (None, Some(_)) => true,
+        _ => false,
+      };
+      if theme_changed {
+        slot.ctx.theme = self.theme.clone();
+      }
       slot.ctx.slot_children = slot_children;
       if props_changed {
         slot.ctx.set_props(props);
@@ -2401,6 +3174,7 @@ impl Ctx {
       let mut context_changed = inherited == Inherited::Changed;
       let mut needs_render = has_slot_children
         || props_changed
+        || theme_changed
         || inherited == Inherited::Changed
         || slot.ctx.any_dirty()
         || slot.rendered.is_none()
@@ -2452,6 +3226,9 @@ impl Ctx {
         slot.keep_rendered(&element.node);
         return element;
       }
+      if holding {
+        return Element::from_node(Node::held_component(slot.id, slot.key.as_deref()));
+      }
       let output = slot
         .assembled_output()
         .expect("a component that is not rendered again has kept its output");
@@ -2476,7 +3253,6 @@ impl Ctx {
       child_ctx.query_registry = self.query_registry.clone();
     }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
@@ -2573,7 +3349,6 @@ impl Ctx {
         group_ctx.query_registry = self.query_registry.clone();
       }
       group_ctx.click_outside_registry = self.click_outside_registry.clone();
-      #[cfg(feature = "i18n")]
       {
         group_ctx.i18n = self.i18n.clone();
       }
@@ -2671,7 +3446,6 @@ impl Ctx {
       child_ctx.query_registry = self.query_registry.clone();
     }
     child_ctx.click_outside_registry = self.click_outside_registry.clone();
-    #[cfg(feature = "i18n")]
     {
       child_ctx.i18n = self.i18n.clone();
     }
@@ -2736,17 +3510,36 @@ impl Ctx {
     }
     self.provided_in_render = false;
     self.clear_dirty();
+    #[cfg(feature = "devtools")]
+    {
+      self.render_started = Some(Instant::now());
+    }
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
     self.click_outside_cursor = 0;
     self.click_outside_active_cursors.clear();
     self.future_cursor = 0;
+    self.frames.begin_render();
     #[cfg(feature = "query")]
     {
       self.query_cursor = 0;
     }
     tracking::start_tracking();
     self.rendering = true;
+    // What the render builds goes through this router (`router::current_navigator`).
+    #[cfg(feature = "router")]
+    crate::router::navigator::enter_render(self.context_map.get::<crate::router::Navigator>());
+    // What the render builds is in the component's theme (`ui::current_theme`).
+    if let Some(theme) = &self.theme {
+      crate::ui::theme::enter_theme(
+        theme.clone(),
+        self.breakpoint.clone(),
+        self.app.as_ref().map(|app| app.shared.dates.clone()),
+        self.app.as_ref().map(|app| app.shared.locale.clone()),
+        self.app.as_ref().map(|app| app.shared.pointer.clone()),
+        self.window.clone(),
+      );
+    }
   }
 
   fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
@@ -2780,6 +3573,11 @@ impl Ctx {
   }
 
   pub(crate) fn end_render(&mut self) {
+    #[cfg(feature = "devtools")]
+    if let Some(started) = self.render_started.take() {
+      self.render_debug.count += 1;
+      self.render_debug.last = started.elapsed();
+    }
     self
       .click_outside_registry
       .lock()
@@ -2805,8 +3603,16 @@ impl Ctx {
     self.element_refs.truncate(self.element_ref_cursor);
     // Dropping a slot cancels its task.
     self.drop_unreached_future_slots();
+    self.frames.end_render();
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
+    if self.rendering && self.theme.is_some() {
+      crate::ui::theme::leave_theme();
+    }
+    #[cfg(feature = "router")]
+    if self.rendering {
+      crate::router::navigator::leave_render();
+    }
     self.rendering = false;
     if let Some(previous) = self.previous_render_contexts.take()
       && self.context_map.has_same_entries(&previous)
@@ -3052,6 +3858,7 @@ impl Ctx {
       }
       + self.effects.capacity() * std::mem::size_of::<Effect>()
       + self.timers.capacity() * std::mem::size_of::<Timer>()
+      + self.frames.capacity_bytes()
       + (self.future_slots.capacity() + self.stable_future_slots.capacity()) * std::mem::size_of::<FutureSlot>()
       + self.element_refs.capacity() * std::mem::size_of::<ElementRefMut>()
       + self.click_outside_active_cursors.capacity() * std::mem::size_of::<usize>()

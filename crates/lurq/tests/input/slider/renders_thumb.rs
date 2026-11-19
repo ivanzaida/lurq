@@ -15,7 +15,7 @@ fn slider_renders_track_and_thumb() {
     .set_palette_color(PaletteColor::Border, Color::from_hex("#cbd5e1"));
   app
     .theme()
-    .set_palette_color(PaletteColor::Accent, Color::from_hex("#475569"));
+    .set_palette_color(PaletteColor::Primary, Color::from_hex("#475569"));
   let mut runtime = Tree::new();
 
   runtime.set_root(lurq::components::Slider::new(value).range(0, 10).width(100.0));

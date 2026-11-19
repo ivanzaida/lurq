@@ -200,6 +200,8 @@ struct Locale(String);
 ctx.provide(Locale("en-US".into()));
 ```
 
+DevTools shows what the context holds where its type derives `lurq::DevtoolsInspectable`, and lists it with its value unknown where it does not: see [Inspectable Contexts](../devtools/#inspectable-contexts).
+
 Descendants can read the value by type:
 
 ```rust
@@ -277,7 +279,7 @@ use lurq::{
   node::color::Color,
 };
 
-ctx.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+ctx.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#2563eb"));
 ctx.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
 ctx.theme().set_typography_style(TypographyStyle::Body, TextStyle {
@@ -294,7 +296,7 @@ font_size: 13.0,
 );
 ```
 
-Use strict theme keys with APIs such as `.background(PaletteColor::Accent)`,
+Use strict theme keys with APIs such as `.background(PaletteColor::Primary)`,
 `Text::new("Label").variant(TypographyStyle::Label)`, `.rounded(RadiusSize::Md)`, `.spacing(SpacingSize::Sm)`, and
 `.padding(SpacingSize::Md)`. The lookup methods `palette_color`, `typography_style`, `radius_value`, and `spacing_value`
 are also available when component code needs the concrete value.
@@ -305,8 +307,8 @@ one theme value:
 
 ```rust
 let brand = ctx.theme().lens(
-| theme| theme.palette_color(PaletteColor::Accent),
-move | theme, color| theme.set_palette_color(PaletteColor::Accent, color),
+| theme| theme.palette_color(PaletteColor::Primary),
+move | theme, color| theme.set_palette_color(PaletteColor::Primary, color),
 );
 
 brand.set(Color::from_hex("#2563eb"));
@@ -370,7 +372,8 @@ component. Setting the title the window already has queues nothing, so a compone
 
 `set_icon` accepts a `WindowIcon` built from RGBA pixels (`None` clears it). On Windows the icon is both the small
 title-bar icon and the big icon of the taskbar button and Alt+Tab, scaled by Windows to each size; on macOS it does
-nothing, since the Dock and the app switcher show the application bundle's icon. `set_title_bar_color` and `set_corner_radius` customize native
+nothing, since the Dock and the app switcher show the application bundle's icon. `window.icon()` reads it back, and a
+title bar the app draws with `ui::WindowChrome` draws it, on every platform. `set_title_bar_color` and `set_corner_radius` customize native
 window chrome where the platform supports it; with the winit shell, title bar color maps to the Windows title background
 API, while corner radius maps to the Windows corner preference API and macOS AppKit content-view layer clipping.
 `set_border_color` sets the 1px compositor border Windows 11 (build 22000+) draws around every window, including
@@ -401,6 +404,12 @@ WindowChrome::new()
   .overlay(fullscreen_modal_layer(ctx))
   .mount(ctx)
 ```
+
+The chrome's content is laid out under its title bar, and so is a modal over the whole window
+(`Modal::target(ModalTarget::Root)`): it covers the window from the bar down, where a dialog is centred and a
+toast at the top is seen. What is passed to `WindowChrome::overlay` has all of the window, over the bar.
+`ctx.window().title_bar_inset()` is the height of the bar, `0.0` with no chrome or with one that is off; an app
+that draws a title bar another way says its height with `ctx.window().set_title_bar_inset(height)`.
 
 `window.start_drag()`, `window.start_resize(direction)`, and `window.stop_drag()` remain available as low-level escape
 hatches for custom shells or highly specialized chrome. If you use them directly, start native drag or resize from the
@@ -475,7 +484,50 @@ window.inject_inputs(SyntheticInput::text("hello"));
 ```
 
 `SyntheticInput` provides constructors for mouse moves, presses, releases, clicks, wheel scrolls, key presses, and text
-entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations.
+entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations. A wheel scroll is a notch of a mouse's wheel and is
+[animated](../styling-events/#the-mouse-wheel) as one: the content is where it was sent some frames later.
+
+## Moving The Focus From A Handler
+
+```rust
+let focus = ctx.focus_handle();
+Button::new("Remove").on_click(move |_| {
+  draft.remove(chip);
+  focus.focus_onward();
+});
+```
+
+`ctx.focus_handle()` is a `FocusHandle` a component keeps and gives its handlers, which have no `Ctx`.
+`focus(&element)` is `ctx.focus`. `focus_onward()` moves the focus on as Tab would, from where it is, or from where it
+was where what had it left the tree, and to the stop before where nothing follows: what a control that takes itself
+out (a chip, the close of a preview in a draft) asks, so that the focus is never left to nothing. Either is carried out
+once the render that follows it is reconciled.
+
+## Opening An Address
+
+```rust
+use lurq::app::open_url;
+
+ctx.open_url("https://lurq.dev/docs")?;
+// In a handler, which has no `Ctx`:
+Button::new("Open the docs").on_click(|_| {
+  let _ = open_url("https://lurq.dev/docs");
+});
+```
+
+`open_url(url)` hands an address to the system, which opens it in the app it keeps for its scheme: a web page in the
+browser, `mailto:` in the mail app. It returns once the address is handed on. `Ctx::open_url` and `App::open_url`
+are the same call. It is what `ui::LinkPreview` and `ui::Link::href` do when they are followed.
+
+- Windows: `ShellExecuteW`. macOS: `NSWorkspace`'s `openURL:`. iOS: `UIApplication`'s
+  `openURL:options:completionHandler:`. Linux and the other Unix systems: `xdg-open`. A browser: `window.open` in a
+  new tab. Any other platform answers `OpenUrlError::Unsupported`.
+- Only an address with a scheme is opened (`https:`, `mailto:`, `tel:`, an app's own), never a path or a `file:`
+  address: `OpenUrlError::NotAnAddress`, and nothing is asked of the system. A text from a stranger does not start a
+  program on the person's machine.
+- A test, or a tool that drives the app, puts a stand-in in place of the system for the thread the app's handlers run
+  on: `let _held = open_url::stand_in(|url| opened.lock().unwrap().push(url.to_owned()));`. Nothing leaves the app
+  while it is held.
 
 ## Slot Children
 
@@ -530,7 +582,9 @@ flags.
 
 Request focus with `ctx.focus(&element_ref)` after retaining the ref in `create` or obtaining its render slot. The request runs after reconciliation, including for newly mounted fields; the last request wins, and absent targets are ignored. The focused element is then scrolled into view. `element_ref.focused()` tracks focus reactively during render; `focus_signal()` exposes the same state as a signal. `element_ref.focus_visible()` and `focus_visible_signal()` track [focus-visible](../focus-navigation/#focus-visible), the keyboard-only part of focus, the same way.
 
-`ctx.scroll_into_view(&element_ref)` scrolls every scroll container around the element by the smallest amount that shows it, without focusing it. It is applied once the render that holds the ref is laid out, and the frame drawn next shows the element; the last request wins, and absent targets are ignored. See [Scroll](../layout/#scroll).
+`ctx.scroll_into_view(&element_ref)` scrolls every scroll container around the element by the smallest amount that shows it, without focusing it. It is applied once the render that holds the ref is laid out, and the frame drawn next shows the element; the last request wins, and absent targets are ignored. `ctx.scroll_range_into_view(&text_ref, range)` brings the lines a range of a text covers into view the same way, and `ctx.scroll_into_view_start(&element_ref)` brings the element's top to the top of what scrolls it, where the first only shows it. See [Scroll](../layout/#scroll).
+
+`ctx.scroll_to_top_of(&scroll_state)` takes the scroll container that state belongs to back to its top, after the current render: over the frames that follow, as a wheel's scroll goes, and at once while motion is reduced or the theme's smooth scroll is off. See [Scroll](../layout/#scroll).
 
 Refs created during render are retained by call position. Refs created in `create` must be stored on the component. Attach each ref to one live node.
 
@@ -559,6 +613,39 @@ lurq::components::Rect::new(100.0, 40.0)
 
 element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
 ```
+
+### Sizing An Element Without A Render
+
+`ElementRefMut::set_size(width, height)` lays the element out at another width or height than it was built with, each a `Dimension` (pixels, or `Dimension::Pct` of its parent) or `None` for the one it was built with. Nothing renders again: the next pass, which the call asks for, lays the element and what holds it out again, and its parent places it as it would any element of that size. The least and most size it was built with still hold, and the size stays until it is set again. Use it for what a person resizes continuously, a pane under a dragged divider, where rendering the component again on every move would rebuild what is in it:
+
+```rust
+use lurq::{app::events::DragEvent, components::{Column, Row}, core::ElementRefMut, node::dimension::Dimension};
+
+let pane = ElementRefMut::new();
+// The width the drag began at.
+let start = std::sync::Arc::new(std::sync::Mutex::new(240.0_f32));
+
+Row::new()
+  .child(Column::new().width(240.0).ref_element(pane.clone()).child(sidebar))
+  .child(
+    Column::new()
+      .width(1.0)
+      .on_drag_start({
+        let (pane, start) = (pane.clone(), start.clone());
+        move |_: DragEvent| *start.lock().unwrap() = pane.width()
+      })
+      .on_drag_move({
+        let (pane, start) = (pane.clone(), start.clone());
+        move |event: DragEvent| {
+          let width = (*start.lock().unwrap() + event.total_delta_x).clamp(160.0, 480.0);
+          pane.set_size(Some(Dimension::Px(width)), None);
+        }
+      }),
+  )
+  .child(Column::new().flex(1.0).child(editor));
+```
+
+`element_ref.size()` reads what was set. A ref made anew by each render starts with no size of its own, so keep what was set where the next render reads it (a signal read without subscribing, as `ui::Splitter` does) or keep the ref itself across renders.
 
 ## Interaction State
 
@@ -651,6 +738,26 @@ interval.start();
 
 See [Futures And Timers](../futures-timers/) for full details.
 
+## Frames
+
+```rust
+let frames = ctx.on_frame(move |frame| {
+  // Once in each frame the window draws, before it is laid out.
+  position.update(|at| *at += speed * frame.delta_secs());
+  true // `false` stops it
+});
+```
+
+`ctx.on_frame` runs a callback once in each frame the window draws, in step with the display, for as long as it
+returns `true`: for a spring, physics, a drag's inertia, a game. `Frame` has the frame's `time` and the `delta` since
+the frame before (zero on the first); what the callback sets is shown in that frame. The `FrameCallback` it returns
+has `.cancel()`, `.start()` and `.is_active()`. Call it in `Component::create`, or in `render`, where it is the
+callback of that place in the render; either way it is dropped with the component. While one runs the window draws a
+frame every refresh, so return `false` once nothing moves. `ctx.window().on_frame(..)` is the same for code that is
+not a component's.
+
+See [Your Own Frames](../animation-transforms/#your-own-frames) for when it runs, what it costs and how it is paused.
+
 ## Futures
 
 ```rust
@@ -734,8 +841,6 @@ context, and `route_path` / `route_params` expose the current match during rende
 See [Routing](../routing/) for route definitions, layouts, links, guards, and testing patterns.
 
 ## Internationalization
-
-Requires the `i18n` feature.
 
 ```rust
 let label = ctx.t("hello");

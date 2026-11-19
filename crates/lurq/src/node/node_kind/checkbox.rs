@@ -148,7 +148,7 @@ impl CheckboxState {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) fn resolve_resource_images(
     &self,
     mut resolve: impl FnMut(&Arc<str>) -> Option<crate::images::ImageData>,

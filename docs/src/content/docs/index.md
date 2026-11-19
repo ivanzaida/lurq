@@ -7,11 +7,13 @@ description: Documentation for the lurq Rust UI toolkit.
 
 `lurq` is a Rust UI toolkit with typed component builders, retained runtime state, reactive signals, GPU-backed rendering, and an in-app DevTools window.
 
-The guides describe **0.62.0**. Migration guides and dated performance reports retain their historical scope.
+The guides describe **0.63.0**. Migration guides and dated performance reports retain their historical scope.
 
 The docs are organized around the questions that come up while building:
 
-- [Getting Started](./getting-started/) shows the feature flags, demo command, and the smallest app shape.
+- [Getting Started](./getting-started/) shows the feature flags, the gallery's command, and the smallest app shape.
+- [Design System](./design-system/) covers the components of `lurq::ui` and what a theme styles them with: recipes, renderers, a bare theme, and `Button`.
+- [Migration To v0.63](./migration-v0-63/) covers moving an app from 0.62: the design system's theme becoming the default and how to keep the 0.62 look, the renamed palette roles, Markdown on the theme's roles, and what changed in layout, scrolling, the title bar and presence.
 - [Migration To v0.13](./migration-v0-13/) covers replacing legacy modal APIs, popup workarounds, and overlay host assertions.
 - [Mental Model](./mental-model/) explains how `App`, `Tree`, components, elements, layout, input, and render passes fit together.
 - [Components](./components/) covers props, mounting, keyed children, slots, and lifecycle.
@@ -30,6 +32,7 @@ The docs are organized around the questions that come up while building:
 - [Modals](./modals/) covers render-flow modal overlays, targets, controlling visibility, and how popups handle a press outside them.
 - [App Runtime](./app-runtime/) covers `App`, `Tree`, render engine factories, windows, profiling, frame flow, and browser-style element lookup (`get_element_by_id`, typed interaction handles).
 - [Window lifecycle and native menus](./window-lifecycle-menus/) covers close requests, confirmation dialogs, and macOS menus.
+- [Web](./web/) covers running an app as a page of a browser through WebGPU or WebGL2: what `main` waits for, the fonts, the canvas, and what a page does differently.
 - [DevTools](./devtools/) covers enabling the devtools feature, mounting the secondary window, inspecting components, and profiling renders.
 - [MCP Server](./mcp/) covers agent inspection, input, permissions, and custom tools.
 - [Resources And Media](./resources-media/) covers fonts, raw and decoded images, SVGs, resources, and Markdown.

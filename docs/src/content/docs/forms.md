@@ -8,10 +8,10 @@ description: Form handling, field binding, submission, and the Button component.
 Requires the `form` feature flag.
 
 ```toml
-lurq = { version = "0.62.0", features = ["form"] }
+lurq = { version = "0.63.0", features = ["form"] }
 ```
 
-Compound form controls read their defaults from `theme.form()`. See [Theme](../theme/#form-theme) for the strict form field, input, checkbox, slider, and button roles.
+The form's own controls, `FormTextInput`, `FormCheckboxInput`, `FormSliderInput`, `FormRangeSliderInput` and the two form buttons, are the design system's components bound to a field of the form, and the theme styles them by those components' recipes: see [Form Controls](#form-controls).
 
 ## Creating A Form
 
@@ -93,6 +93,22 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 Give each input a `.name(...)` so the form can collect its value on submission. Inputs without a name are ignored during submit.
 
 `form.number(...)` returns `Signal<f64>`. Use `FormSliderInput` to bridge a numeric form field to an integer slider; the plain `Slider::new` expects `Signal<i32>`, while `Slider::new_f32` expects `Signal<f32>`.
+
+A range slider's field is a pair: `form.range(name)` returns `Signal<(f64, f64)>`, the low value first, and `FormRangeSliderInput` bridges it to the engine's range slider as `FormSliderInput` does a number. The form submits the two values under the field's name, validates the field when the slider loses the focus, and a reset puts both thumbs back at the default.
+
+```rust
+use lurq::components::{FormOptions, FormRangeSliderInput, FormRangeSliderInputProps, validators};
+
+let form = ctx.form(
+  FormOptions::new()
+    .field("price", (20, 80))
+    .validate_range("price", validators::range_span(0.0, 100.0, 10.0, "At least 10 apart")),
+);
+
+ctx.mount::<FormRangeSliderInput>(
+  FormRangeSliderInputProps::new(form.range_control("price")).label("Price").range(0, 100),
+)
+```
 
 Here is the same pattern as a complete settings form with validation and inline errors:
 
@@ -278,6 +294,7 @@ Available resolvers:
 | `ctx.string_control(name)` | Resolve a string field control from the nearest form. |
 | `ctx.number_control(name)` | Resolve a numeric field control from the nearest form. |
 | `ctx.bool_control(name)` | Resolve a boolean field control from the nearest form. |
+| `ctx.range_control(name)` | Resolve a range field control from the nearest form. |
 | `ctx.form_control(&control)` | Resolve an explicit `Control<T>` descriptor. |
 
 Resolved controls expose `name`, `value`, `error`, `touched`, `dirty`, `submit_attempted`, `submitting`, `visible_error`, `should_show_error`, `mark_touched`, `validate`, `reset`, and `on_blur`.
@@ -288,6 +305,75 @@ For advanced composition outside form context, create explicit descriptors from 
 let email = form.string_control("email");
 let age = form.number_control("age");
 let active = form.bool_control("active");
+```
+
+## Form Controls
+
+The form controls are the design system's components (see [Design System](../design-system/)) bound to a form's control: a field of the form with its label, its hint and the error the form shows of it, mounted where the form is rendered.
+
+```rust
+use lurq::components::{
+  Column, FormCheckboxInput, FormCheckboxInputProps, FormPrimaryButton, FormPrimaryButtonProps,
+  FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps, FormTextInput,
+  FormTextInputProps,
+};
+
+ctx.form_view(self.form.clone(), |ctx| {
+  Column::new()
+    .width(320.0)
+    .spacing(16.0)
+    .child(ctx.mount::<FormTextInput>(
+      FormTextInputProps::new(self.form.string_control("email").required(true))
+        .label("Email")
+        .hint("We never share it.")
+        .placeholder("you@example.com"),
+    ))
+    .child(ctx.mount::<FormCheckboxInput>(
+      FormCheckboxInputProps::new(self.form.bool_control("terms")).label("I accept the terms"),
+    ))
+    .child(ctx.mount::<FormSliderInput>(
+      FormSliderInputProps::new(self.form.number_control("volume")).label("Volume").range(0, 100),
+    ))
+    .child(ctx.mount::<FormPrimaryButton>(FormPrimaryButtonProps::new("Create account")))
+    .child(ctx.mount::<FormSecondaryButton>(FormSecondaryButtonProps::new("Cancel")))
+})
+```
+
+| Control | What it is |
+| --- | --- |
+| `FormTextInput` | A `ui::Field` holding a `ui::Input` bound to a string control, or a `ui::Textarea` where it is `multiline()`. The box is 36 high unless `height(..)` says otherwise. An edit clears the field's error |
+| `FormCheckboxInput` | A `ui::Checkbox` bound to a boolean control, its label beside the box, in a `ui::Field` with no label above it and the hint under it. A checked box gives the form `on`; the form judges the field when the box loses the focus |
+| `FormSliderInput` | A `ui::Field` holding a `ui::Slider` bound to a number control, in whole steps over `range(min, max)`. The form judges the field when the slider loses the focus |
+| `FormRangeSliderInput` | The same with a `ui::RangeSlider`, bound to a range control |
+| `FormPrimaryButton` | A `ui::Button` of the variant `Primary` that submits the form, unless it is made `button()` |
+| `FormSecondaryButton` | A `ui::Button` of the variant `Outline` that submits nothing, unless it is made `submit()` |
+| `FormControlField<T>` | A `ui::Field` around what it is mounted with (`ctx.mount_with`), told by the form what it says of the control |
+
+- What the form says of a control, the field shows: the error the form shows of it ([`ErrorVisibility`](#submit-state)) in the place of the hint, in `Destructive`, and the control judged invalid with it; the field's `*` after the label of a control that is `required(true)`; a control that is `disabled(true)`, or one of a form that is submitting, disabled.
+- Each control and its field are as wide as what holds them, the buttons too.
+- They are styled by the theme's recipes for `ui::Field`, `ui::Input`, `ui::Textarea`, `ui::Checkbox`, `ui::Slider` and `ui::Button`, as every one of those components is: `theme.patch_recipe::<ui::Input>(..)` changes the box of a form's text field and of every other input. The deprecated `FormTheme` is read by nothing: see [Form Theme](../theme/#form-theme).
+- The focus is drawn as those components draw it: a ring in `Ring` around a button, a checkbox's box and a slider's thumb from the keyboard, and a line of 2 inside a text box for any focus. A press of a field's label focuses its control.
+
+A form control has the props above and no more. For what it does not have (a size, an icon, a fluid field, a description beside an error), build the field of the design system's components, bound to the control the same way:
+
+```rust
+use lurq::ui::{Field, Input, InputSize, icons};
+
+let email = ctx.string_control("email");
+let error = email.visible_error();
+let mut field = Field::new(
+  "Email",
+  Input::new(email.value())
+    .name(email.name())
+    .icon(icons::MAIL)
+    .size(InputSize::Lg)
+    .full_width(true),
+)
+.full_width(true)
+.required(email.is_required());
+if let Some(error) = error.as_deref() {
+  field = field.error(error);
+}
 ```
 
 ## Keyboard Navigation
@@ -312,6 +398,10 @@ Column::new()
 On submit the form collects all named input values, updates the corresponding field signals, validates the resulting values, and calls the `on_submit` callback with a `FormValues` snapshot when validation passes.
 
 For custom submit plumbing, `FormProps::on_submit_data(...)` receives raw `FormData` from the runtime.
+
+An element that is no engine control (a control of the design system made of rows and texts) gives the form a value
+with `.form_value(Some(text))` beside its `.name(..)`: a shortcut recorder named `palette` gives `Ctrl+Shift+P`.
+`.form_value(None)` gives nothing. A text input, a checkbox, a slider and a select give their own.
 
 ## Async Submit
 
@@ -464,6 +554,7 @@ Built-in validators:
 | `validators::min_len(min, message)` | `validate_string` |
 | `validators::max_len(max, message)` | `validate_string` |
 | `validators::range(min, max, message)` | `validate_number` |
+| `validators::range_span(min, max, span, message)` | `validate_range`: both values between `min` and `max`, and at least `span` apart |
 
 Validation and error APIs:
 
@@ -564,6 +655,7 @@ let email_dirty = email.dirty();
 | `form.string_field(name)` | `Signal<String>` |
 | `form.number_field(name)` | `Signal<f64>` |
 | `form.bool_field(name)` | `Signal<bool>` |
+| `form.range_field(name)` | `Signal<(f64, f64)>`, the low value first |
 
 `FormField` exposes `name`, `value`, `error`, `dirty`, `touched`, `is_dirty`, `is_touched`, `mark_touched`, `clear_touched`, `validate`, and `reset`.
 
@@ -577,6 +669,7 @@ let email_dirty = email.dirty();
 | `get_string(name)` | `Option<&str>` |
 | `get_number(name)` | `Option<f64>` |
 | `get_bool(name)` | `Option<bool>` |
+| `get_range(name)` | `Option<(f64, f64)>` |
 | `entries()` | Iterator over `(&str, &FormValue)` |
 | `len()` / `is_empty()` | Field count |
 

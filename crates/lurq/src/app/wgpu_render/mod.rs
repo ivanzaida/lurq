@@ -1,26 +1,50 @@
+mod app_errors;
 #[cfg(feature = "canvas")]
 mod canvas;
+#[cfg(all(windows, feature = "raster"))]
+mod card_copies;
+#[cfg(all(windows, feature = "raster"))]
+mod card_frames;
+#[cfg(all(test, windows, feature = "raster", feature = "media"))]
+mod card_frames_tests;
+#[cfg(all(test, feature = "raster", any(target_os = "macos", target_os = "ios")))]
+mod cv_pixel_buffer_tests;
+mod device_loss;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
+mod gradients;
+#[cfg(all(test, feature = "raster"))]
+mod i420_tests;
 mod layers;
+#[cfg(all(
+  test,
+  feature = "raster",
+  any(all(windows, feature = "media"), target_os = "macos", target_os = "ios")
+))]
+mod planes_drawn;
 #[cfg(test)]
 mod quad_tests;
+mod surface_proxy;
 mod vertex;
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+mod video_color;
+#[cfg(all(test, windows, feature = "screenshot"))]
+mod viewport_tests;
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use std::ffi::c_void;
 use std::time::Duration;
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocatorDefault};
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_foundation_sys::dictionary::CFDictionaryRef;
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
 use extension::WgpuFrameExtensionEntry;
-pub use extension::{SharedWgpuContext, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
-#[cfg(all(feature = "raster", target_os = "macos"))]
+pub use extension::{SharedWgpuContext, WgpuAppError, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use raw_window_handle::{DisplayHandle, WindowHandle};
 #[cfg(feature = "raster")]
@@ -28,7 +52,8 @@ use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 pub use wgpu::{
-  Backends as WgpuBackends, Features as WgpuFeatures, Limits as WgpuLimits, PresentMode as WgpuPresentMode,
+  Backend as WgpuBackend, Backends as WgpuBackends, Features as WgpuFeatures, Limits as WgpuLimits,
+  PresentMode as WgpuPresentMode,
 };
 
 #[cfg(feature = "perf_profile")]
@@ -142,8 +167,6 @@ enum OrderedDraw {
   Glyph(GlyphRun),
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "svg")]
-  Svg(usize),
 }
 
 impl OrderedDraw {
@@ -154,8 +177,6 @@ impl OrderedDraw {
       Self::Glyph(GlyphRun { start, count, .. }) => PaintedDraw::Glyphs { start, count },
       #[cfg(feature = "raster")]
       Self::Image(index) => PaintedDraw::Image(index),
-      #[cfg(feature = "svg")]
-      Self::Svg(index) => PaintedDraw::Svg(index),
     }
   }
 
@@ -175,23 +196,19 @@ enum ActivePipeline {
   Image,
   #[cfg(feature = "raster")]
   Nv12Image,
-  #[cfg(feature = "svg")]
-  Svg,
+  #[cfg(feature = "raster")]
+  I420Image,
   Layer,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActiveVertexBuffer {
   CommonQuad,
-  #[cfg(feature = "svg")]
-  Svg,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActiveIndexBuffer {
   CommonU16,
-  #[cfg(feature = "svg")]
-  SvgU32,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -202,6 +219,7 @@ struct ClipGlobalsKey([u32; 28]);
 enum ImageClipFormat {
   Rgba,
   Nv12,
+  I420,
 }
 
 #[cfg(feature = "raster")]
@@ -229,6 +247,29 @@ enum CachedImageTexture {
     height: u32,
     version: u64,
   },
+  /// A picture of memory of three planes (I420): gray, and the two of color apart.
+  I420 {
+    bind_group: wgpu::BindGroup,
+    y_view: wgpu::TextureView,
+    u_view: wgpu::TextureView,
+    v_view: wgpu::TextureView,
+    textures: [wgpu::Texture; 3],
+    width: u32,
+    height: u32,
+    frame_index: usize,
+    version: u64,
+  },
+  /// A frame of red, green and blue in a `CVPixelBuffer` (`BGRA`), drawn where it is as a picture is: one view,
+  /// of sRGB.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  CvRgba {
+    bind_group: wgpu::BindGroup,
+    view: wgpu::TextureView,
+    _held: MacosNativeRgbaTexture,
+    width: u32,
+    height: u32,
+    version: u64,
+  },
   Rgba {
     bind_group: wgpu::BindGroup,
     view: wgpu::TextureView,
@@ -241,32 +282,50 @@ enum CachedImageTexture {
   },
   Nv12 {
     bind_group: wgpu::BindGroup,
+    /// How the shader makes colors of the samples: the matrix and whether they take the full range, as the
+    /// instance's `opacity.zw` tells it (`shaders/yuv.wgsl`). BT.709 of the video range unless a frame says other.
+    color: [f32; 2],
     y_view: wgpu::TextureView,
     uv_view: wgpu::TextureView,
     y_texture: wgpu::Texture,
     uv_texture: wgpu::Texture,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     _macos_native: Option<MacosNativeNv12Texture>,
     width: u32,
     height: u32,
     frame_index: usize,
     version: u64,
   },
+  /// The frames of a video that stay on the card: each of its surfaces opened once, and the one that holds the
+  /// frame to draw drawn.
+  #[cfg(windows)]
+  Card(card_frames::Opened),
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 struct MacosNativeNv12Texture {
   _native: crate::images::NativeImageData,
+  /// The buffer the textures are of: held for as long as they are drawn, so that what decodes does not write the
+  /// next frame into it.
+  _buffer: crate::images::MacosCvPixelBuffer,
   _y_cv_texture: CvMetalTexture,
   _uv_cv_texture: CvMetalTexture,
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+/// What a [`CachedImageTexture::CvRgba`] holds for as long as it is drawn: the buffer, and CoreVideo's texture of it.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+struct MacosNativeRgbaTexture {
+  _native: crate::images::NativeImageData,
+  _buffer: crate::images::MacosCvPixelBuffer,
+  _cv_texture: CvMetalTexture,
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 struct CvMetalTexture {
   ptr: CVMetalTextureRef,
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 impl Drop for CvMetalTexture {
   fn drop(&mut self) {
     unsafe {
@@ -275,12 +334,34 @@ impl Drop for CvMetalTexture {
   }
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+/// The cache CoreVideo makes Metal's textures of a buffer with, for one device.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+struct CvMetalTextureCache {
+  ptr: CVMetalTextureCacheRef,
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+impl Drop for CvMetalTextureCache {
+  fn drop(&mut self) {
+    unsafe {
+      CFRelease(self.ptr.cast());
+    }
+  }
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+thread_local! {
+  /// The cache of the device that draws on this thread, with the device it is of.
+  static CV_TEXTURE_CACHE: std::cell::RefCell<Option<(usize, CvMetalTextureCache)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 type CVMetalTextureCacheRef = *mut c_void;
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 type CVMetalTextureRef = *mut c_void;
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 #[link(name = "CoreVideo", kind = "framework")]
 unsafe extern "C" {
   fn CVMetalTextureCacheCreate(
@@ -306,11 +387,50 @@ unsafe extern "C" {
   fn CVMetalTextureGetTexture(image: CVMetalTextureRef) -> *mut c_void;
 }
 
+/// The part of its texture `image` is drawn from: the part it asks for, within the picture's part of the
+/// texture where its frames stay on the card and the picture is not all of it.
+#[cfg(feature = "raster")]
+fn drawn_part(
+  cache: &std::collections::HashMap<u64, CachedImageTexture>,
+  image: &crate::images::ImageCmd,
+) -> ([f32; 2], [f32; 2]) {
+  #[cfg(windows)]
+  if let Some(CachedImageTexture::Card(opened)) = cache.get(&image.image_id) {
+    return opened.part(image.uv_min, image.uv_max);
+  }
+  let _ = cache;
+  (image.uv_min, image.uv_max)
+}
+
 #[cfg(feature = "raster")]
 impl CachedImageTexture {
+  /// Whether it is the textures of a frame that stays on the card, and `image` shows another frame now.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
+  fn is_another_frame_of_the_card(&self, image: &crate::images::ImageCmd) -> bool {
+    match self {
+      Self::Nv12 {
+        _macos_native: Some(_),
+        version,
+        ..
+      }
+      | Self::CvRgba { version, .. } => *version != image.version,
+      _ => false,
+    }
+  }
+
   fn is_compatible(&self, image: &crate::images::ImageCmd) -> bool {
     match self {
       Self::ExternalRgba { .. } => false,
+      // Frames of a pixel buffer: the same frames while the picture is as large.
+      #[cfg(any(target_os = "macos", target_os = "ios"))]
+      Self::CvRgba { width, height, .. } => {
+        *width == image.image_width
+          && *height == image.image_height
+          && image
+            .native
+            .as_ref()
+            .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
+      }
       Self::Rgba {
         width,
         height,
@@ -321,13 +441,42 @@ impl CachedImageTexture {
           && *width == image.image_width
           && *height == image.image_height
           && animation_frames.as_ref().map(Vec::len) == image.animation_frames.as_ref().map(|frames| frames.len())
+          && !is_card_frames(image)
       }
+      Self::I420 { width, height, .. } => {
+        image.image_format == crate::images::ImagePixelFormat::I420
+          && *width == image.image_width
+          && *height == image.image_height
+      }
+      // Frames of memory are not frames of the card, though both are NV12.
       Self::Nv12 { width, height, .. } => {
         image.image_format == crate::images::ImagePixelFormat::Nv12
           && *width == image.image_width
           && *height == image.image_height
+          && !is_card_frames(image)
+      }
+      #[cfg(windows)]
+      Self::Card(opened) => {
+        card_frames::of(image).is_some_and(|frames| opened.is_of(frames, (image.image_width, image.image_height)))
       }
     }
+  }
+}
+
+/// Whether `image` is frames that stay on the card.
+#[cfg(feature = "raster")]
+fn is_card_frames(image: &crate::images::ImageCmd) -> bool {
+  #[cfg(windows)]
+  {
+    image
+      .native
+      .as_ref()
+      .is_some_and(|native| native.backend() == crate::images::NativeImageBackend::CardFrames)
+  }
+  #[cfg(not(windows))]
+  {
+    let _ = image;
+    false
   }
 }
 
@@ -340,6 +489,33 @@ pub struct WgpuRenderEngine {
   canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   instance: Option<wgpu::Instance>,
   backends: wgpu::Backends,
+  /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`]. Or
+  /// the device of the app's other windows, which this shares.
+  prepared: Option<WgpuDevice>,
+  /// Whether the device is this engine's alone, and not the one the engines of the app's other windows share.
+  own_device: bool,
+  /// The window's physical pixels to one logical pixel, which the extensions are told.
+  scale_factor: f32,
+  /// The errors of the app's own calls on the device that no extension was told of yet.
+  untold: app_errors::Untold,
+  /// Whether the device is lost: the card was reset or taken away.
+  lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  /// How many frames to let pass before a device that was not given is asked for again.
+  device_wait: u32,
+  /// The device's number in the order of devices and of the views apps give.
+  device_number: u64,
+  /// Whether the device is of another card than the one a device was lost on, which made none in time.
+  displaced: bool,
+  /// Whether the device was made while something held the lost one still: it is not a whole one.
+  made_while_held: bool,
+  /// When that card was last asked whether it makes a device again, and how long until it is asked next.
+  #[cfg(not(target_arch = "wasm32"))]
+  card_asked: Option<(std::time::Instant, std::time::Duration)>,
+  /// Whether that card makes a device again: this engine is to be replaced by one that draws on it.
+  card_is_back: bool,
+  /// The slots whose views this drew: where the device is lost, their views are let go of.
+  #[cfg(feature = "raster")]
+  external_slots: Vec<crate::images::WgpuExternalImageWeak>,
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
@@ -352,10 +528,9 @@ pub struct WgpuRenderEngine {
   image_pipeline: Option<wgpu::RenderPipeline>,
   #[cfg(feature = "raster")]
   nv12_image_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "svg")]
-  svg_pipeline: Option<wgpu::RenderPipeline>,
-  #[cfg(feature = "svg")]
-  svg_bgl: Option<wgpu::BindGroupLayout>,
+  /// Pictures of three planes (I420): the NV12 shader with the two of color apart.
+  #[cfg(feature = "raster")]
+  i420_image_pipeline: Option<wgpu::RenderPipeline>,
   surface: Option<wgpu::Surface<'static>>,
   surface_config: Option<wgpu::SurfaceConfiguration>,
   surface_format: Option<wgpu::TextureFormat>,
@@ -366,17 +541,27 @@ pub struct WgpuRenderEngine {
   #[cfg(feature = "raster")]
   nv12_image_bgl: Option<wgpu::BindGroupLayout>,
   #[cfg(feature = "raster")]
+  i420_image_bgl: Option<wgpu::BindGroupLayout>,
+  #[cfg(feature = "raster")]
   image_sampler: Option<wgpu::Sampler>,
   #[cfg(feature = "raster")]
   image_texture_cache: std::collections::HashMap<u64, CachedImageTexture>,
+  /// The textures of the frames of a video that were drawn in the frame before: let go once this one is drawn.
+  #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+  retired_card_frames: Vec<CachedImageTexture>,
+  /// The leases of the card's frames that are drawn no more, until the card has finished with them.
+  #[cfg(all(feature = "raster", windows))]
+  card_leases: card_frames::Leases,
+  /// A device on each of the machine's cards, for frames the renderer's own card does not open.
+  #[cfg(all(feature = "raster", windows))]
+  card_readers: card_copies::Readers,
   #[cfg(feature = "raster")]
   image_clip_bind_groups: std::collections::HashMap<ImageClipBindGroupKey, wgpu::BindGroup>,
   globals_buffer: Option<wgpu::Buffer>,
   clip_globals: ClipGlobalsCache,
   quad_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
   glyph_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
-  gradient_buffer: Option<wgpu::Buffer>,
-  gradient_buffer_capacity: wgpu::BufferAddress,
+  gradients: Option<gradients::Gradients>,
   last_globals_bytes: Vec<u8>,
   last_gradient_bytes: Vec<u8>,
   atlas_texture: Option<wgpu::Texture>,
@@ -422,6 +607,13 @@ pub struct WgpuRenderEngine {
   width: u32,
   height: u32,
   frame_extensions: Vec<WgpuFrameExtensionEntry>,
+  /// Whether the surface's texture can be copied from; `false` on WebGL.
+  surface_copies: bool,
+  /// A test draws as on such a surface; see `without_surface_copies`.
+  #[cfg(test)]
+  deny_surface_copies: bool,
+  /// What a frame that is read back is painted into where it cannot; see `surface_proxy`.
+  surface_proxy: Option<surface_proxy::SurfaceProxy>,
   #[cfg(feature = "screenshot")]
   pending_frame_capture: Option<RenderFrameCapture>,
 }
@@ -434,6 +626,462 @@ fn default_backends() -> WgpuBackends {
   #[cfg(not(windows))]
   {
     WgpuBackends::all()
+  }
+}
+
+fn instance_descriptor(backends: WgpuBackends) -> wgpu::InstanceDescriptor {
+  let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+  descriptor.backends = backends;
+  // lurq waits for the frame latency object itself; see `wait_for_frame_latency`.
+  descriptor.backend_options.dx12.latency_waitable_object = wgpu::Dx12UseFrameLatencyWaitableObject::DontWait;
+  descriptor
+}
+
+/// The instances of wgpu the program has, by the backends each was made among.
+#[cfg(not(target_arch = "wasm32"))]
+static INSTANCES: std::sync::Mutex<Vec<(WgpuBackends, wgpu::Instance)>> = std::sync::Mutex::new(Vec::new());
+
+/// The instance of wgpu among `backends`: one for the program, which every engine and every device made
+/// ahead shares.
+///
+/// Each engine had its own, and so each window. Under Vulkan a program with two of them alive ended with an
+/// access violation when one was let go of, on the card this was run on, each time it was tried; one
+/// instance with a device for each window does not. Under Direct3D 12 either way holds.
+#[cfg(not(target_arch = "wasm32"))]
+fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+  let mut instances = INSTANCES.lock().unwrap();
+  if let Some((_, instance)) = instances.iter().find(|(among, _)| *among == backends) {
+    return instance.clone();
+  }
+  let instance = wgpu::Instance::new(instance_descriptor(backends));
+  instances.push((backends, instance.clone()));
+  instance
+}
+
+/// After a device is lost, an instance of Direct3D 12 alone is made anew for what takes the device's place,
+/// as it was before the instance was shared: what it knows of the cards is from before the loss. One that
+/// may draw through Vulkan is kept, for a second one beside it is what ends the program there.
+#[cfg(not(target_arch = "wasm32"))]
+fn forget_instances_after_a_loss() {
+  INSTANCES
+    .lock()
+    .unwrap()
+    .retain(|(among, _)| among.contains(WgpuBackends::VULKAN));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+  wgpu::Instance::new(instance_descriptor(backends))
+}
+
+/// The instance of a page. Whether a browser has WebGPU is known only once it was asked for an adapter, and an
+/// instance is of one kind from the start: with the `webgl` feature the browser is asked first, and the instance
+/// is WebGL's when it has no WebGPU.
+#[cfg(target_arch = "wasm32")]
+async fn new_page_instance(backends: WgpuBackends) -> wgpu::Instance {
+  #[cfg(feature = "webgl")]
+  return wgpu::util::new_instance_with_webgpu_detection(instance_descriptor(backends)).await;
+  #[cfg(not(feature = "webgl"))]
+  new_instance(backends)
+}
+
+/// The device an engine asks `adapter` for: the optional features and limits as far as the adapter has them.
+fn device_descriptor(
+  adapter: &wgpu::Adapter,
+  optional_features: wgpu::Features,
+  optional_limits: &wgpu::Limits,
+) -> wgpu::DeviceDescriptor<'static> {
+  // A frame of a video that stays on the card is an NV12 texture, where the card has them.
+  #[cfg(all(windows, feature = "raster"))]
+  let optional_features = optional_features
+    | wgpu::Features::TEXTURE_FORMAT_NV12
+    // Under Vulkan such a frame is a texture of Direct3D given to it by its handle.
+    | wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32;
+  // A frame of ten bits that stays on the card is two planes of 16-bit unorm.
+  #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "raster"))]
+  let optional_features = optional_features | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
+  #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
+  let mut required_features = adapter.features() & optional_features;
+  // Measures GPU time while a profiling session is active.
+  #[cfg(feature = "perf_profile")]
+  {
+    required_features |= gpu_timing::GpuTimer::requested_features(adapter);
+  }
+  wgpu::DeviceDescriptor {
+    label: Some("lurq"),
+    required_features,
+    required_limits: optional_limits.clone().or_worse_values_from(&adapter.limits()),
+    ..Default::default()
+  }
+}
+
+/// How long after an engine went to another card the card a device was lost on is first asked whether it
+/// makes a device again, and the longest between two such questions: each takes the time of making a device.
+#[cfg(not(target_arch = "wasm32"))]
+const CARD_ASKED_FIRST: std::time::Duration = std::time::Duration::from_secs(3);
+#[cfg(not(target_arch = "wasm32"))]
+const CARD_ASKED_AT_MOST: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A GPU device made ahead of the engine that draws with it.
+///
+/// An engine asks for its device when it draws the first frame and waits for
+/// the answer. A browser answers through a promise, which a page cannot wait
+/// for: there the app awaits [`WgpuDevice::request`] before it starts its
+/// window, and gives the device to each engine with
+/// [`WgpuRenderEngine::with_device`]. Elsewhere this is optional: it moves
+/// the wait off the first frame.
+///
+/// In a browser the device is the one of the page's canvas, the canvas the
+/// window then draws to: WebGPU's where the browser has it, and with the
+/// `webgl` feature WebGL2's where it has not. [`WgpuDevice::backend`] says
+/// which.
+///
+/// A device that is lost (its card was reset or taken away) is made again, once for all the engines that
+/// share it: the engine that takes the place of a lost one asks this for its device, and is given another.
+/// Not in a browser, where a device is not waited for.
+///
+/// ```no_run
+/// # async fn start() {
+/// use lurq::app::{
+///   Tree,
+///   wgpu_render::{WgpuDevice, WgpuRenderEngine},
+/// };
+///
+/// let device = WgpuDevice::request().await.expect("a GPU device");
+/// let mut tree = Tree::new();
+/// tree.set_render_engine_factory(move || Box::new(WgpuRenderEngine::new().with_device(device.clone())));
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct WgpuDevice {
+  /// The device as it is now: another one after a loss, and none while the card gives none.
+  made: std::sync::Arc<parking_lot::Mutex<Option<MadeDevice>>>,
+  /// Whether the card the device was lost on makes a device again, as an engine on another card found: the
+  /// device of the other card is let go of for one of that card.
+  back: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  /// Among which the device was asked for, and is asked for again, with these features where the card has them
+  /// and these limits.
+  backends: WgpuBackends,
+  features: wgpu::Features,
+  limits: wgpu::Limits,
+  backend: WgpuBackend,
+  /// The surface of the page's canvas, which the adapter was asked for, until the engine that draws to the
+  /// canvas takes it.
+  #[cfg(target_arch = "wasm32")]
+  surface: std::rc::Rc<std::cell::RefCell<Option<wgpu::Surface<'static>>>>,
+}
+
+/// The number of a device that was just made, in the order of devices and of the views apps give: a view
+/// given before the device was made is not of it.
+fn device_number() -> u64 {
+  #[cfg(feature = "raster")]
+  {
+    crate::images::next_in_order()
+  }
+  #[cfg(not(feature = "raster"))]
+  {
+    0
+  }
+}
+
+/// A device with what it was made of, and what says that it is lost.
+#[derive(Clone)]
+struct MadeDevice {
+  instance: wgpu::Instance,
+  adapter: wgpu::Adapter,
+  device: wgpu::Device,
+  queue: wgpu::Queue,
+  lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  /// The device's number in the order of devices and of the views apps give.
+  number: u64,
+  /// Whether it is of another card than the one a device was lost on, which made none in time.
+  displaced: bool,
+  /// Whether it was made while something held the lost device still: it is not a whole one.
+  while_held: bool,
+  /// The errors of the app's own calls on it that no extension was told of yet.
+  untold: app_errors::Untold,
+}
+
+/// Why [`WgpuDevice::request`] has no device: no adapter (a browser without WebGPU), or one that refused the device.
+#[derive(Clone, Debug)]
+pub struct WgpuDeviceError(String);
+
+impl std::fmt::Display for WgpuDeviceError {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    formatter.write_str(&self.0)
+  }
+}
+
+impl std::error::Error for WgpuDeviceError {}
+
+impl WgpuDevice {
+  /// Asks for a device as an engine does for its first frame, with the default backends, features and limits.
+  pub async fn request() -> Result<Self, WgpuDeviceError> {
+    Self::request_with(default_backends()).await
+  }
+
+  /// [`Self::request`] among `backends` only. In a browser, `WgpuBackends::GL` asks for WebGL2 also where there
+  /// is WebGPU, and `WgpuBackends::BROWSER_WEBGPU` for WebGPU alone.
+  pub async fn request_with(backends: WgpuBackends) -> Result<Self, WgpuDeviceError> {
+    let (features, limits) = (wgpu::Features::empty(), wgpu::Limits::default());
+    #[cfg(not(target_arch = "wasm32"))]
+    let made = Self::ask(backends, features, &limits).await?;
+    #[cfg(target_arch = "wasm32")]
+    let (made, surface) = Self::ask(backends).await?;
+    Ok(Self {
+      backend: made.adapter.get_info().backend,
+      // In a browser nothing of wgpu's goes to another thread, and this is shared as on any system.
+      #[allow(clippy::arc_with_non_send_sync)]
+      made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
+      back: std::sync::Arc::default(),
+      backends,
+      features,
+      limits,
+      #[cfg(target_arch = "wasm32")]
+      surface: std::rc::Rc::new(std::cell::RefCell::new(Some(surface))),
+    })
+  }
+
+  /// The device an engine made for itself, to be shared with the engines of the app's other windows.
+  #[cfg(not(target_arch = "wasm32"))]
+  fn of_engine(made: MadeDevice, backends: WgpuBackends, features: wgpu::Features, limits: wgpu::Limits) -> Self {
+    Self {
+      backend: made.adapter.get_info().backend,
+      made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
+      back: std::sync::Arc::default(),
+      backends,
+      features,
+      limits,
+    }
+  }
+
+  /// Asks for an adapter among `backends` and its device, as an engine does for its first frame.
+  #[cfg(not(target_arch = "wasm32"))]
+  async fn ask(
+    backends: WgpuBackends,
+    features: wgpu::Features,
+    limits: &wgpu::Limits,
+  ) -> Result<MadeDevice, WgpuDeviceError> {
+    let instance = new_instance(backends);
+    // After a loss, the card the device was lost on is asked first, and waited for a little.
+    let describe = |adapter: &wgpu::Adapter| device_descriptor(adapter, features, limits);
+    let (adapter, device, queue, displaced, while_held) =
+      match device_loss::the_card_again(&instance, None, describe).await {
+        device_loss::Again::Card(adapter, device, queue, held) => (adapter, device, queue, false, held),
+        device_loss::Again::Wait => {
+          return Err(WgpuDeviceError(
+            "the card a device was lost on makes none yet".to_owned(),
+          ));
+        }
+        device_loss::Again::Elsewhere(adapter, device, queue) => (adapter, device, queue, true, false),
+        device_loss::Again::Unasked => {
+          let (adapter, device, queue) = Self::ask_of(&instance, None, features, limits).await?;
+          (adapter, device, queue, false, false)
+        }
+      };
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let untold = app_errors::Untold::default();
+    // Where it is lost, the engines that draw with it are replaced, and are given another.
+    device_loss::watch(&device, &lost, &adapter, &untold);
+    Ok(MadeDevice {
+      instance,
+      adapter,
+      device,
+      queue,
+      lost,
+      number: device_number(),
+      displaced,
+      while_held,
+      untold,
+    })
+  }
+
+  /// Asks for an adapter among `backends` for the page's canvas, and its device.
+  #[cfg(target_arch = "wasm32")]
+  async fn ask(backends: WgpuBackends) -> Result<(MadeDevice, wgpu::Surface<'static>), WgpuDeviceError> {
+    // WebGL gives a device for a canvas, so the page's canvas is there before the device is.
+    #[cfg(target_arch = "wasm32")]
+    let (instance, surface) = {
+      let instance = new_page_instance(backends).await;
+      let canvas = crate::app::web_canvas::page_canvas()
+        .ok_or_else(|| WgpuDeviceError("the page has no document to put a canvas in".to_owned()))?;
+      // The handles are given as a window's are: wgpu's own implementation takes no canvas without a display
+      // handle, which `SurfaceTarget::Canvas` leaves out. The surface keeps its own reference to the canvas.
+      let value: &wasm_bindgen::JsValue = &canvas;
+      let window = raw_window_handle::WebCanvasWindowHandle::new(std::ptr::NonNull::from(value).cast());
+      let display = raw_window_handle::WebDisplayHandle::new();
+      let surface = unsafe {
+        instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+          raw_display_handle: Some(display.into()),
+          raw_window_handle: window.into(),
+        })
+      }
+      .map_err(|error| WgpuDeviceError(format!("the page's canvas cannot be drawn to: {error}")))?;
+      (instance, surface)
+    };
+    let (adapter, device, queue) = Self::ask_of(
+      &instance,
+      Some(&surface),
+      wgpu::Features::empty(),
+      &wgpu::Limits::default(),
+    )
+    .await?;
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let untold = app_errors::Untold::default();
+    // A device lost here is not made again; what the app does wrong on it ends nothing.
+    device_loss::watch(&device, &lost, &adapter, &untold);
+    let made = MadeDevice {
+      instance,
+      adapter,
+      device,
+      queue,
+      lost,
+      number: device_number(),
+      displaced: false,
+      while_held: false,
+      untold,
+    };
+    Ok((made, surface))
+  }
+
+  /// The adapter of `instance` that draws to `surface`, or any where there is none to draw to yet, and its
+  /// device.
+  async fn ask_of(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'static>>,
+    features: wgpu::Features,
+    limits: &wgpu::Limits,
+  ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), WgpuDeviceError> {
+    let adapter = instance
+      .request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        compatible_surface: surface,
+        force_fallback_adapter: false,
+      })
+      .await
+      .map_err(|error| WgpuDeviceError(format!("no suitable GPU adapter found: {error}")))?;
+    let (device, queue) = adapter
+      .request_device(&device_descriptor(&adapter, features, limits))
+      .await
+      .map_err(|error| WgpuDeviceError(format!("failed to create device: {error}")))?;
+    Ok((adapter, device, queue))
+  }
+
+  /// The device as it is now. One that is lost is let go of and another asked for, once for all that share
+  /// this; `None` while the card gives none, as Direct3D says it does not while anything holds the lost one.
+  /// One of another card, taken because the first card made none in time, is let go of the same way once
+  /// an engine found that the first card makes a device again.
+  fn current(&self) -> Option<MadeDevice> {
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
+    let mut made = self.made.lock();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let back = self.back.swap(false, std::sync::atomic::Ordering::AcqRel);
+      if made.as_ref().is_some_and(|made| {
+        device_loss::is_lost(&made.device, &made.lost) || (back && (made.displaced || made.while_held))
+      }) {
+        *made = None;
+      }
+      if made.is_none() {
+        *made = pollster::block_on(Self::ask(self.backends, self.features, &self.limits)).ok();
+      }
+    }
+    made.clone()
+  }
+
+  /// What the device draws through: `WgpuBackend::BrowserWebGpu` or `WgpuBackend::Gl` in a browser.
+  pub fn backend(&self) -> WgpuBackend {
+    self.backend
+  }
+}
+
+/// A device the engines of an app's windows share: one an engine on the thread that draws them asked for itself,
+/// as long as one of them draws with it.
+#[cfg(not(target_arch = "wasm32"))]
+struct SharedDevice {
+  backends: WgpuBackends,
+  features: wgpu::Features,
+  limits: wgpu::Limits,
+  backend: WgpuBackend,
+  made: std::sync::Weak<parking_lot::Mutex<Option<MadeDevice>>>,
+  back: std::sync::Weak<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+  /// The devices the engines on this thread share, by what they were asked for with.
+  static SHARED_DEVICES: std::cell::RefCell<Vec<SharedDevice>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WgpuDevice {
+  /// The device another engine on this thread draws with, asked for among `backends` with `features` and
+  /// `limits`, while one does.
+  fn shared(backends: WgpuBackends, features: wgpu::Features, limits: &wgpu::Limits) -> Option<Self> {
+    SHARED_DEVICES.with_borrow_mut(|shared| {
+      shared.retain(|device| device.made.strong_count() > 0);
+      let device = shared
+        .iter()
+        .find(|device| device.backends == backends && device.features == features && device.limits == *limits)?;
+      Some(Self {
+        made: device.made.upgrade()?,
+        back: device.back.upgrade()?,
+        backends,
+        features,
+        limits: limits.clone(),
+        backend: device.backend,
+      })
+    })
+  }
+
+  /// Offers this device to the engines made on this thread after it, while one draws with it.
+  fn share(&self) {
+    SHARED_DEVICES.with_borrow_mut(|shared| {
+      shared.push(SharedDevice {
+        backends: self.backends,
+        features: self.features,
+        limits: self.limits.clone(),
+        backend: self.backend,
+        made: std::sync::Arc::downgrade(&self.made),
+        back: std::sync::Arc::downgrade(&self.back),
+      })
+    });
+  }
+}
+
+/// Runs `call` on an extension as the app's: as the engine of the device numbered `number` (a view it gives a slot
+/// is of that device), and in error scopes of `device` where there is one that lives, whose errors the extension
+/// is told of after the call.
+fn run_extension(
+  entry: &mut WgpuFrameExtensionEntry,
+  device: Option<&wgpu::Device>,
+  untold: &app_errors::Untold,
+  number: u64,
+  call: impl FnOnce(&mut dyn WgpuFrameExtension),
+) {
+  let extension = &mut *entry.extension;
+  #[cfg(feature = "raster")]
+  let within = |run: &mut dyn FnMut()| crate::images::for_device(number, run);
+  #[cfg(not(feature = "raster"))]
+  let within = |run: &mut dyn FnMut()| {
+    let _ = number;
+    run()
+  };
+  let mut call = Some(call);
+  let mut run = || {
+    if let Some(call) = call.take() {
+      call(&mut *extension)
+    }
+  };
+  let errors = match device {
+    Some(device) => app_errors::caught(device, untold, || within(&mut run)).1,
+    None => {
+      app_errors::apps(|| within(&mut run));
+      Vec::new()
+    }
+  };
+  for error in &errors {
+    app_errors::apps(|| entry.extension.error(error));
   }
 }
 
@@ -454,6 +1102,20 @@ impl WgpuRenderEngine {
       canvas_asset_budget: Default::default(),
       instance: None,
       backends: default_backends(),
+      prepared: None,
+      own_device: false,
+      scale_factor: 1.0,
+      untold: app_errors::Untold::default(),
+      lost: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      device_wait: 0,
+      device_number: 0,
+      displaced: false,
+      made_while_held: false,
+      #[cfg(not(target_arch = "wasm32"))]
+      card_asked: None,
+      card_is_back: false,
+      #[cfg(feature = "raster")]
+      external_slots: Vec::new(),
       adapter: None,
       device: None,
       queue: None,
@@ -466,10 +1128,8 @@ impl WgpuRenderEngine {
       image_pipeline: None,
       #[cfg(feature = "raster")]
       nv12_image_pipeline: None,
-      #[cfg(feature = "svg")]
-      svg_pipeline: None,
-      #[cfg(feature = "svg")]
-      svg_bgl: None,
+      #[cfg(feature = "raster")]
+      i420_image_pipeline: None,
       surface: None,
       surface_config: None,
       surface_format: None,
@@ -480,17 +1140,24 @@ impl WgpuRenderEngine {
       #[cfg(feature = "raster")]
       nv12_image_bgl: None,
       #[cfg(feature = "raster")]
+      i420_image_bgl: None,
+      #[cfg(feature = "raster")]
       image_sampler: None,
       #[cfg(feature = "raster")]
       image_texture_cache: std::collections::HashMap::new(),
+      #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+      retired_card_frames: Vec::new(),
+      #[cfg(all(feature = "raster", windows))]
+      card_leases: card_frames::Leases::default(),
+      #[cfg(all(feature = "raster", windows))]
+      card_readers: card_copies::Readers::default(),
       #[cfg(feature = "raster")]
       image_clip_bind_groups: std::collections::HashMap::new(),
       globals_buffer: None,
       clip_globals: ClipGlobalsCache::default(),
       quad_clip_bind_groups: std::collections::HashMap::new(),
       glyph_clip_bind_groups: std::collections::HashMap::new(),
-      gradient_buffer: None,
-      gradient_buffer_capacity: 0,
+      gradients: None,
       last_globals_bytes: Vec::new(),
       last_gradient_bytes: Vec::new(),
       atlas_texture: None,
@@ -531,6 +1198,10 @@ impl WgpuRenderEngine {
       width: 800,
       height: 600,
       frame_extensions: Vec::new(),
+      surface_copies: true,
+      #[cfg(test)]
+      deny_surface_copies: false,
+      surface_proxy: None,
       #[cfg(feature = "screenshot")]
       pending_frame_capture: None,
     }
@@ -565,6 +1236,36 @@ impl WgpuRenderEngine {
   pub fn with_backends(mut self, backends: WgpuBackends) -> Self {
     assert!(self.instance.is_none(), "select WGPU backends before rendering");
     self.backends = backends;
+    self
+  }
+
+  /// Draws with a device made ahead ([`WgpuDevice::request`]) instead of
+  /// asking for one at the first frame: what a browser needs, where the
+  /// engine cannot wait for the device. The backends, optional features and
+  /// limits are then the device's, not this engine's.
+  /// Panics if this engine has already initialized a GPU instance.
+  pub fn with_device(mut self, device: WgpuDevice) -> Self {
+    assert!(self.instance.is_none(), "give the WGPU device before rendering");
+    self.prepared = Some(device);
+    self
+  }
+
+  /// Draws as on a surface whose texture cannot be copied from, as WebGL's: a frame that is read back is
+  /// painted beside the surface.
+  #[cfg(all(test, feature = "screenshot"))]
+  pub(crate) fn without_surface_copies(mut self) -> Self {
+    self.deny_surface_copies = true;
+    self
+  }
+
+  /// Draws with a device of this engine's own, where it would share the one the engines of the app's other windows
+  /// draw with. An engine made without [`with_device`](Self::with_device) takes the device of another engine on
+  /// its thread that was asked for among the same backends with the same optional features and limits, while one
+  /// draws with it, and asks for one otherwise: so a view of one device can be shown in every window of the app.
+  /// A device of its own is for a window that must not wait on the others' work, or that draws on another card.
+  /// In a browser there is one window and its device is given.
+  pub fn with_own_device(mut self) -> Self {
+    self.own_device = true;
     self
   }
 
@@ -612,6 +1313,7 @@ impl WgpuRenderEngine {
       device: self.device.clone()?,
       queue: self.queue.clone()?,
       surface_format: self.surface_format?,
+      number: self.device_number,
     })
   }
 
@@ -622,24 +1324,70 @@ impl WgpuRenderEngine {
     let Some(gpu) = self.shared_context() else {
       return;
     };
-    let frame = WgpuFrameInfo::new(list, self.width, self.height);
+    let frame = WgpuFrameInfo::new(list, self.width, self.height, self.scale_factor);
+    // What the app did wrong on the device outside the extensions' calls since the last frame.
+    let untold = self.untold.take();
     for entry in &mut self.frame_extensions {
       if !entry.initialized {
-        entry.extension.initialize(&gpu);
+        run_extension(
+          entry,
+          Some(&gpu.device),
+          &self.untold,
+          self.device_number,
+          |extension| extension.initialize(&gpu),
+        );
         entry.initialized = true;
       }
-      entry.extension.prepare(&gpu, frame);
+      for error in &untold {
+        app_errors::apps(|| entry.extension.error(error));
+      }
+      run_extension(
+        entry,
+        Some(&gpu.device),
+        &self.untold,
+        self.device_number,
+        |extension| extension.prepare(&gpu, frame),
+      );
+    }
+  }
+
+  /// Tells each extension that was initialized that its device is lost, once, and lets go of the views of
+  /// that device in the slots this drew: an extension that was told lets go of what it made, and what it
+  /// left in a slot is held by nothing of the app's.
+  fn tell_extensions_of_loss(&mut self) {
+    for entry in &mut self.frame_extensions {
+      if entry.initialized && !entry.told_lost {
+        entry.told_lost = true;
+        // Nothing is asked of a device that is lost: no scope is pushed on it.
+        run_extension(entry, None, &self.untold, self.device_number, |extension| {
+          extension.device_lost()
+        });
+      }
+    }
+    #[cfg(feature = "raster")]
+    for slot in self.external_slots.drain(..) {
+      if let Some(slot) = slot.upgrade() {
+        slot.forget_view_of(self.device_number);
+      }
     }
   }
 
   fn release_gpu_resources(&mut self) {
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::PollType::Poll);
+      device_loss::asked(device, Some(&self.lost), wgpu::PollType::Poll);
     }
 
+    // An engine whose device is lost is let go of before it draws again: its extensions are told here.
+    let lost = self.device_is_lost();
+    if lost {
+      self.tell_extensions_of_loss();
+    }
+    let device = self.device.clone().filter(|_| !lost);
     for entry in &mut self.frame_extensions {
       if entry.initialized {
-        entry.extension.shutdown();
+        run_extension(entry, device.as_ref(), &self.untold, self.device_number, |extension| {
+          extension.shutdown()
+        });
         entry.initialized = false;
       }
     }
@@ -661,13 +1409,10 @@ impl WgpuRenderEngine {
       self.image_sampler = None;
       self.image_bgl = None;
       self.nv12_image_bgl = None;
+      self.i420_image_bgl = None;
       self.image_pipeline = None;
       self.nv12_image_pipeline = None;
-    }
-    #[cfg(feature = "svg")]
-    {
-      self.svg_bgl = None;
-      self.svg_pipeline = None;
+      self.i420_image_pipeline = None;
     }
 
     self.vertex_buffer = None;
@@ -677,8 +1422,8 @@ impl WgpuRenderEngine {
     #[cfg(feature = "raster")]
     self.image_instance_buffer.clear();
     self.globals_buffer = None;
-    self.gradient_buffer = None;
-    self.gradient_buffer_capacity = 0;
+    self.gradients = None;
+    self.surface_proxy = None;
     self.last_globals_bytes.clear();
     self.last_gradient_bytes.clear();
     self.atlas_view = None;
@@ -705,6 +1450,15 @@ impl WgpuRenderEngine {
   }
 
   fn create_surface(&self, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> wgpu::Surface<'static> {
+    // The page's canvas has its surface since the device was asked for.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(surface) = self
+      .prepared
+      .as_ref()
+      .and_then(|prepared| prepared.surface.borrow_mut().take())
+    {
+      return surface;
+    }
     let handles = WindowDisplayPair { window, display };
     let surface_target = unsafe { wgpu::SurfaceTargetUnsafe::from_display_and_window(&handles, &handles) }.unwrap();
     unsafe { self.instance.as_ref().unwrap().create_surface_unsafe(surface_target) }.unwrap()
@@ -724,8 +1478,19 @@ impl WgpuRenderEngine {
       .unwrap_or(caps.formats[0]);
     let target_format = render_target_format(format);
 
+    // A backdrop blur and a capture copy the frame out of the surface's texture, where that can be copied
+    // from. WebGL's cannot: there a frame that is read is painted beside the surface; see `surface_proxy`.
+    self.surface_copies = caps.usages.contains(wgpu::TextureUsages::COPY_SRC);
+    #[cfg(test)]
+    if self.deny_surface_copies {
+      self.surface_copies = false;
+    }
     let config = wgpu::SurfaceConfiguration {
-      usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+      usage: if self.surface_copies {
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC
+      } else {
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+      },
       format,
       width: self.width.max(1),
       height: self.height.max(1),
@@ -769,25 +1534,78 @@ impl WgpuRenderEngine {
     }
   }
 
-  fn ensure_initialized(&mut self, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
-    if self.device.is_some() && self.surface.is_some() {
+  /// On another card than the one a device was lost on, asks that card from time to time whether it makes a
+  /// device again, less and less often. Once it does, this engine is to be replaced: the one that takes its
+  /// place draws on that card, where the frames of a decoder on it stay, and the window is drawn by the
+  /// card it was drawn by before the loss.
+  ///
+  /// And with a device made while something held the lost one still, which is not a whole one, sees whether
+  /// the lost one is gone: this engine is to be replaced then too, by one with a device made after it.
+  #[cfg(not(target_arch = "wasm32"))]
+  fn look_for_the_card(&mut self) {
+    if self.card_is_back {
       return;
     }
-
-    if self.instance.is_none() {
-      let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-      descriptor.backends = self.backends;
-      // lurq waits for the frame latency object itself; see `wait_for_frame_latency`.
-      descriptor.backend_options.dx12.latency_waitable_object = wgpu::Dx12UseFrameLatencyWaitableObject::DontWait;
-      self.instance = Some(wgpu::Instance::new(descriptor));
-    }
-    let surface = self.create_surface(window, display);
-
-    if let (Some(adapter), Some(device)) = (self.adapter.clone(), self.device.clone()) {
-      self.configure_surface(surface, &adapter, &device);
+    if self.made_while_held && !device_loss::a_lost_device_is_held() {
+      self.card_is_back = true;
+      if let Some(given) = &self.prepared {
+        given.back.store(true, std::sync::atomic::Ordering::Release);
+      }
       return;
     }
+    if !self.displaced {
+      return;
+    }
+    let Some((asked, every)) = self.card_asked else {
+      return;
+    };
+    if asked.elapsed() < every {
+      return;
+    }
+    self.card_asked = Some((std::time::Instant::now(), (every * 2).min(CARD_ASKED_AT_MOST)));
+    let Some(instance) = self.instance.clone() else {
+      return;
+    };
+    let (features, limits) = (self.optional_device_features, self.optional_device_limits.clone());
+    let describe = move |adapter: &wgpu::Adapter| device_descriptor(adapter, features, &limits);
+    if pollster::block_on(device_loss::the_card_gives(&instance, describe)) {
+      self.card_is_back = true;
+      // A device this was given is let go of for one of that card, for all that share it.
+      if let Some(given) = &self.prepared {
+        given.back.store(true, std::sync::atomic::Ordering::Release);
+      }
+    }
+  }
 
+  /// Whether the device this draws with is lost.
+  fn device_is_lost(&self) -> bool {
+    self
+      .device
+      .as_ref()
+      .is_some_and(|device| device_loss::is_lost(device, &self.lost))
+  }
+
+  /// Asks for the adapter that draws to `surface` and its device, and waits for them. `None` where a device
+  /// was lost in this program and the card gives none yet: it is asked for again some frames later.
+  #[cfg(not(target_arch = "wasm32"))]
+  fn request_device(&mut self, surface: &wgpu::Surface<'static>) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    // After a loss, the card the device was lost on is asked first, and waited for a little: asked for any
+    // card, the window would go to another one while something of the app holds the lost device still.
+    let (features, limits) = (self.optional_device_features, self.optional_device_limits.clone());
+    let describe = move |adapter: &wgpu::Adapter| device_descriptor(adapter, features, &limits);
+    let instance = self.instance.clone().unwrap();
+    match pollster::block_on(device_loss::the_card_again(&instance, Some(surface), describe)) {
+      device_loss::Again::Card(adapter, device, queue, held) => {
+        self.made_while_held = held;
+        return Some((adapter, device, queue));
+      }
+      device_loss::Again::Wait => return None,
+      device_loss::Again::Elsewhere(adapter, device, queue) => {
+        self.displaced = true;
+        return Some((adapter, device, queue));
+      }
+      device_loss::Again::Unasked => {}
+    }
     let adapter = pollster::block_on(
       self
         .instance
@@ -795,35 +1613,159 @@ impl WgpuRenderEngine {
         .unwrap()
         .request_adapter(&wgpu::RequestAdapterOptions {
           power_preference: wgpu::PowerPreference::default(),
-          compatible_surface: Some(&surface),
+          compatible_surface: Some(surface),
           force_fallback_adapter: false,
         }),
-    )
-    .expect("no suitable GPU adapter found");
-
-    #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
-    let mut required_features = adapter.features() & self.optional_device_features;
-    // Measures GPU time while a profiling session is active.
-    #[cfg(feature = "perf_profile")]
-    {
-      required_features |= gpu_timing::GpuTimer::requested_features(&adapter);
+    );
+    if adapter.is_err() && device_loss::happened() {
+      return None;
     }
-    let required_limits = self
-      .optional_device_limits
-      .clone()
-      .or_worse_values_from(&adapter.limits());
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-      label: Some("lurq"),
-      required_features,
-      required_limits,
-      ..Default::default()
-    }))
-    .expect("failed to create device");
+    let adapter = adapter.expect("no suitable GPU adapter found");
+    let made = pollster::block_on(adapter.request_device(&device_descriptor(
+      &adapter,
+      self.optional_device_features,
+      &self.optional_device_limits,
+    )));
+    if made.is_err() && device_loss::happened() {
+      return None;
+    }
+    let (device, queue) = made.expect("failed to create device");
+    Some((adapter, device, queue))
+  }
+
+  /// A browser answers through a promise, which a frame cannot wait for.
+  #[cfg(target_arch = "wasm32")]
+  fn request_device(
+    &mut self,
+    _surface: &wgpu::Surface<'static>,
+  ) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    panic!(
+      "in a browser the GPU device comes from a promise: await `WgpuDevice::request()` before the window starts and \
+       give the device with `WgpuRenderEngine::with_device`"
+    );
+  }
+
+  fn ensure_initialized(&mut self, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
+    if self.device.is_some() && self.surface.is_some() {
+      return;
+    }
+
+    // A device that was not given is not asked for in every frame.
+    if self.device_wait > 0 {
+      self.device_wait -= 1;
+      return;
+    }
+
+    // The device of the app's other windows, where one draws with a device asked for as this one would be.
+    #[cfg(not(target_arch = "wasm32"))]
+    let shared = self.prepared.is_none() && !self.own_device && self.device.is_none() && {
+      self.prepared = WgpuDevice::shared(
+        self.backends,
+        self.optional_device_features,
+        &self.optional_device_limits,
+      );
+      self.prepared.is_some()
+    };
+    // A device this was given, as it is now: another one where the first was lost.
+    let given = match &self.prepared {
+      Some(prepared) if self.device.is_none() => match prepared.current() {
+        Some(made) => Some(made),
+        None => {
+          self.device_wait = 15;
+          return;
+        }
+      },
+      _ => None,
+    };
+    if self.instance.is_none() {
+      self.instance = Some(match &given {
+        Some(made) => made.instance.clone(),
+        None => new_instance(self.backends),
+      });
+    }
+    let surface = self.create_surface(window, display);
+    // A device of another window whose card cannot draw to this one's: this window asks for one of its own.
+    #[cfg(not(target_arch = "wasm32"))]
+    if shared
+      && given
+        .as_ref()
+        .is_some_and(|made| !made.adapter.is_surface_supported(&surface))
+    {
+      drop(surface);
+      self.prepared = None;
+      self.instance = None;
+      self.own_device = true;
+      return self.ensure_initialized(window, display);
+    }
+
+    if let (Some(adapter), Some(device)) = (self.adapter.clone(), self.device.clone()) {
+      self.configure_surface(surface, &adapter, &device);
+      return;
+    }
+
+    let (adapter, device, queue) = match given {
+      Some(made) => {
+        // All that share the device lose it together, and are told of the app's errors on it together.
+        self.lost = made.lost;
+        self.untold = made.untold;
+        self.device_number = made.number;
+        self.displaced = made.displaced;
+        self.made_while_held = made.while_held;
+        (made.adapter, made.device, made.queue)
+      }
+      None => {
+        let Some(made) = self.request_device(&surface) else {
+          self.device_wait = 15;
+          return;
+        };
+        // The device is this engine's own: where it is lost, another engine takes this one's place.
+        device_loss::watch(&made.1, &self.lost, &made.0, &self.untold);
+        self.device_number = device_number();
+        // And the device of the engines of the app's other windows made after this one.
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.own_device {
+          let device = WgpuDevice::of_engine(
+            MadeDevice {
+              instance: self.instance.clone().expect("the instance the device was asked of"),
+              adapter: made.0.clone(),
+              device: made.1.clone(),
+              queue: made.2.clone(),
+              lost: self.lost.clone(),
+              number: self.device_number,
+              displaced: self.displaced,
+              while_held: self.made_while_held,
+              untold: self.untold.clone(),
+            },
+            self.backends,
+            self.optional_device_features,
+            self.optional_device_limits.clone(),
+          );
+          device.share();
+          self.prepared = Some(device);
+        }
+        made
+      }
+    };
+    // On another card than the one a device was lost on: that card is looked for from here.
+    #[cfg(not(target_arch = "wasm32"))]
+    if self.displaced {
+      self.card_asked = Some((std::time::Instant::now(), CARD_ASKED_FIRST));
+    }
+    // What decodes a video decodes on the card this draws on, and its frames stay there.
+    #[cfg(all(windows, feature = "raster"))]
+    if !card_frames::announce(&device) {
+      card_frames::announce_vulkan(&device, &adapter);
+    }
+    // On Metal the buffer the system's decoder gives is drawn where it is.
+    #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+    crate::images::set_cv_pixel_buffer_frames_drawn(unsafe { device.as_hal::<wgpu_hal::api::Metal>() }.is_some());
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
 
     // --- Quad pipeline ---
+    // The gradients are a storage buffer, or a texture where the device has no storage buffers.
+    let gradients_in_texture = gradients::in_texture(&device);
     let quad_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
       label: Some("lurq_quad_bgl"),
       entries: &[
@@ -837,22 +1779,13 @@ impl WgpuRenderEngine {
           },
           count: None,
         },
-        wgpu::BindGroupLayoutEntry {
-          binding: 1,
-          visibility: wgpu::ShaderStages::FRAGMENT,
-          ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-          },
-          count: None,
-        },
+        gradients::layout_entry(gradients_in_texture),
       ],
     });
 
     let quad_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
       label: Some("lurq_quad_shader"),
-      source: wgpu::ShaderSource::Wgsl(include_str!("shaders/quad.wgsl").into()),
+      source: wgpu::ShaderSource::Wgsl(gradients::quad_shader(gradients_in_texture)),
     });
 
     let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -965,7 +1898,15 @@ impl WgpuRenderEngine {
 
     // --- Image pipeline ---
     #[cfg(feature = "raster")]
-    let (image_pipeline, nv12_image_pipeline, image_bgl, nv12_image_bgl, image_sampler) = {
+    let (
+      image_pipeline,
+      nv12_image_pipeline,
+      image_bgl,
+      nv12_image_bgl,
+      image_sampler,
+      i420_image_pipeline,
+      i420_image_bgl,
+    ) = {
       use vertex::ImageInstance;
       let image_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("lurq_image_bgl"),
@@ -1045,7 +1986,14 @@ impl WgpuRenderEngine {
       });
       let nv12_image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("lurq_nv12_image_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/image_nv12.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(
+          // After the shader: its `diagnostic` directive is first in the module.
+          concat!(
+            include_str!("shaders/image_nv12.wgsl"),
+            include_str!("shaders/yuv.wgsl")
+          )
+          .into(),
+        ),
       });
       let image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("lurq_image_pl"),
@@ -1113,60 +2061,63 @@ impl WgpuRenderEngine {
         multiview_mask: None,
         cache: None,
       });
-      let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("lurq_image_sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        ..Default::default()
-      });
-      (
-        image_pipeline,
-        nv12_image_pipeline,
-        image_bgl,
-        nv12_image_bgl,
-        image_sampler,
-      )
-    };
-
-    // --- SVG pipeline ---
-    #[cfg(feature = "svg")]
-    let (svg_pipeline, svg_bgl) = {
-      use vertex::SvgVertexGpu;
-      let svg_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("lurq_svg_bgl"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-          binding: 0,
-          visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-          ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
+      // Three planes: the gray and the two of color apart, each a texture of one channel.
+      let i420_image_bgl = {
+        let plane = |binding| wgpu::BindGroupLayoutEntry {
+          binding,
+          visibility: wgpu::ShaderStages::FRAGMENT,
+          ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
           },
           count: None,
-        }],
+        };
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+          label: Some("lurq_i420_image_bgl"),
+          entries: &[
+            wgpu::BindGroupLayoutEntry {
+              binding: 0,
+              visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+              ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+              },
+              count: None,
+            },
+            plane(1),
+            plane(2),
+            plane(3),
+            wgpu::BindGroupLayoutEntry {
+              binding: 4,
+              visibility: wgpu::ShaderStages::FRAGMENT,
+              ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+              count: None,
+            },
+          ],
+        })
+      };
+      let i420_image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lurq_i420_image_shader"),
+        source: wgpu::ShaderSource::Wgsl(i420_shader_source().into()),
       });
-      let svg_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("lurq_svg_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/svg.wgsl").into()),
-      });
-      let svg_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("lurq_svg_pl"),
-        bind_group_layouts: &[Some(&svg_bgl)],
+      let i420_image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lurq_i420_image_pl"),
+        bind_group_layouts: &[Some(&i420_image_bgl)],
         immediate_size: 0,
       });
-      let svg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("lurq_svg_pipeline"),
-        layout: Some(&svg_pipeline_layout),
+      let i420_image_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lurq_i420_image_pipeline"),
+        layout: Some(&i420_image_pipeline_layout),
         vertex: wgpu::VertexState {
-          module: &svg_shader,
+          module: &i420_image_shader,
           entry_point: Some("vs_main"),
-          buffers: &[SvgVertexGpu::desc()],
+          buffers: &[QuadVertex::desc(), ImageInstance::desc()],
           compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
-          module: &svg_shader,
+          module: &i420_image_shader,
           entry_point: Some("fs_main"),
           targets: &[Some(wgpu::ColorTargetState {
             format,
@@ -1184,7 +2135,23 @@ impl WgpuRenderEngine {
         multiview_mask: None,
         cache: None,
       });
-      (svg_pipeline, svg_bgl)
+      let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("lurq_image_sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        ..Default::default()
+      });
+      (
+        image_pipeline,
+        nv12_image_pipeline,
+        image_bgl,
+        nv12_image_bgl,
+        image_sampler,
+        i420_image_pipeline,
+        i420_image_bgl,
+      )
     };
 
     // --- Persistent uniform/storage buffers ---
@@ -1194,13 +2161,8 @@ impl WgpuRenderEngine {
       usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    let gradient_data: [f32; 4] = [0.0; 4];
-    let gradient_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("lurq_gradients"),
-      contents: bytemuck::cast_slice(&gradient_data),
-      usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-    });
-    let gradient_buffer_capacity = std::mem::size_of_val(&gradient_data) as wgpu::BufferAddress;
+    let mut gradients = gradients::Gradients::new(&device);
+    gradients.write(&queue, &[[0.0; 4]]);
 
     let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
       label: Some("lurq_atlas_sampler"),
@@ -1219,7 +2181,7 @@ impl WgpuRenderEngine {
         },
         wgpu::BindGroupEntry {
           binding: 1,
-          resource: gradient_buffer.as_entire_binding(),
+          resource: gradients.binding(),
         },
       ],
     });
@@ -1248,11 +2210,7 @@ impl WgpuRenderEngine {
     {
       self.image_pipeline = Some(image_pipeline);
       self.nv12_image_pipeline = Some(nv12_image_pipeline);
-    }
-    #[cfg(feature = "svg")]
-    {
-      self.svg_pipeline = Some(svg_pipeline);
-      self.svg_bgl = Some(svg_bgl);
+      self.i420_image_pipeline = Some(i420_image_pipeline);
     }
     self.quad_bgl = Some(quad_bgl);
     self.glyph_bgl = Some(glyph_bgl);
@@ -1260,14 +2218,14 @@ impl WgpuRenderEngine {
     {
       self.image_bgl = Some(image_bgl);
       self.nv12_image_bgl = Some(nv12_image_bgl);
+      self.i420_image_bgl = Some(i420_image_bgl);
     }
     #[cfg(feature = "raster")]
     {
       self.image_sampler = Some(image_sampler);
     }
     self.globals_buffer = Some(globals_buffer);
-    self.gradient_buffer = Some(gradient_buffer);
-    self.gradient_buffer_capacity = gradient_buffer_capacity;
+    self.gradients = Some(gradients);
     self.atlas_sampler = Some(atlas_sampler);
     self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
@@ -1367,6 +2325,7 @@ impl raw_window_handle::HasDisplayHandle for WindowDisplayPair<'_> {
 
 impl Drop for WgpuRenderEngine {
   fn drop(&mut self) {
+    let _own = app_errors::OwnWork::begin();
     self.release_gpu_resources();
   }
 }
@@ -1388,6 +2347,83 @@ mod extension_tests {
   fn frame_extension_can_drive_host_redraws() {
     let renderer = WgpuRenderEngine::new().with_frame_extension(ContinuousExtension);
     assert!(renderer.wants_redraw());
+  }
+
+  /// Writes down what it is told, in the order it is told it.
+  struct Told(std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>);
+
+  impl WgpuFrameExtension for Told {
+    fn device_lost(&mut self) {
+      self.0.lock().unwrap().push("device lost");
+    }
+
+    fn shutdown(&mut self) {
+      self.0.lock().unwrap().push("shutdown");
+    }
+  }
+
+  /// An engine with a device and an extension that was initialized with it, and what the extension is told.
+  fn with_a_device() -> Option<(WgpuRenderEngine, std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>)> {
+    let instance = super::new_instance(super::default_backends());
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&super::device_descriptor(
+      &adapter,
+      wgpu::Features::empty(),
+      &wgpu::Limits::default(),
+    )))
+    .ok()?;
+    let told = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut engine = WgpuRenderEngine::new().with_frame_extension(Told(told.clone()));
+    (engine.device, engine.queue) = (Some(device), Some(queue));
+    engine.frame_extensions[0].initialized = true;
+    Some((engine, told))
+  }
+
+  #[test]
+  fn an_extension_is_told_once_that_its_device_is_lost_before_it_is_shut_down() {
+    let Some((mut engine, told)) = with_a_device() else {
+      eprintln!("skipped: no card to make a device on");
+      return;
+    };
+    // The loss is found, as its card or wgpu says it.
+    engine.lost.store(true, std::sync::atomic::Ordering::Release);
+    assert!(engine.lost());
+    engine.tell_extensions_of_loss();
+    engine.tell_extensions_of_loss();
+    assert_eq!(*told.lock().unwrap(), ["device lost"], "told once");
+    drop(engine);
+    assert_eq!(*told.lock().unwrap(), ["device lost", "shutdown"]);
+  }
+
+  #[test]
+  fn an_extension_is_told_of_the_loss_by_an_engine_let_go_of_before_it_draws_again() {
+    let Some((engine, told)) = with_a_device() else {
+      eprintln!("skipped: no card to make a device on");
+      return;
+    };
+    engine.lost.store(true, std::sync::atomic::Ordering::Release);
+    // The tree lets go of a lost engine in the pass that finds it, with no frame between.
+    drop(engine);
+    assert_eq!(*told.lock().unwrap(), ["device lost", "shutdown"]);
+  }
+
+  #[test]
+  fn an_extension_whose_device_lives_is_only_shut_down() {
+    let Some((engine, told)) = with_a_device() else {
+      eprintln!("skipped: no card to make a device on");
+      return;
+    };
+    drop(engine);
+    assert_eq!(*told.lock().unwrap(), ["shutdown"]);
+  }
+
+  #[test]
+  fn an_extension_that_was_never_initialized_is_told_nothing() {
+    let told = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let engine = WgpuRenderEngine::new().with_frame_extension(Told(told.clone()));
+    engine.lost.store(true, std::sync::atomic::Ordering::Release);
+    drop(engine);
+    assert!(told.lock().unwrap().is_empty());
   }
 }
 
@@ -1419,7 +2455,29 @@ impl RenderEngine for WgpuRenderEngine {
     // replays the ones queued during a modal sizing loop back to back), which stalled for seconds.
   }
 
+  fn set_scale_factor(&mut self, scale_factor: f32) {
+    self.scale_factor = scale_factor;
+  }
+
+  fn draws_tooling(&mut self) {
+    // The app's extensions are the app's windows': they are never initialized for this one.
+    self.frame_extensions.clear();
+  }
+
   fn render(&mut self, list: &RenderList, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> bool {
+    // An error of what is asked of wgpu from here is lurq's, but in the extensions' calls.
+    let _own = app_errors::OwnWork::begin();
+    // A device that is lost is asked nothing more: what it answers is errors.
+    if self.device_is_lost() {
+      self.tell_extensions_of_loss();
+      #[cfg(feature = "screenshot")]
+      if let Some(capture) = self.pending_frame_capture.take() {
+        capture.target.fail("the graphics device was lost");
+      }
+      return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    self.look_for_the_card();
     let _total_start = profile_scope!();
     let _init_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
@@ -1428,6 +2486,14 @@ impl RenderEngine for WgpuRenderEngine {
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderInit));
     self.ensure_initialized(window, display);
+    // After a loss the card may give no device yet: the frame is not drawn, and is asked for again.
+    if self.device.is_none() || self.surface.is_none() {
+      #[cfg(feature = "screenshot")]
+      if let Some(capture) = self.pending_frame_capture.take() {
+        capture.target.fail("the graphics device was lost");
+      }
+      return false;
+    }
     self.apply_pending_surface_size();
     let _init_dur = profile_elapsed!(_init_start);
     #[cfg(feature = "perf_profile")]
@@ -1438,6 +2504,9 @@ impl RenderEngine for WgpuRenderEngine {
       .gpu_timer
       .begin_frame(self.device.as_ref().unwrap(), self.profile_context.as_ref());
     self.prepare_frame_extensions(list);
+    // What the frame before this one no longer drew has been drawn by the card by now.
+    #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+    self.retired_card_frames.clear();
     #[cfg(feature = "perf_profile")]
     let mut _canvas_profile = crate::app::profile_types::CanvasProfile::default();
     #[cfg(feature = "canvas")]
@@ -1751,16 +2820,9 @@ impl RenderEngine for WgpuRenderEngine {
       self.scratch_gradient_data.push([0.0; 4]);
     }
     let gradient_bytes = bytemuck::cast_slice(&self.scratch_gradient_data);
-    let required_gradient_capacity = gradient_bytes.len() as wgpu::BufferAddress;
-    let mut gradient_recreated = false;
-    if self.gradient_buffer_capacity < required_gradient_capacity {
-      self.gradient_buffer_capacity = required_gradient_capacity.next_power_of_two().max(256);
-      let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("lurq_gradients"),
-        size: self.gradient_buffer_capacity,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-      });
+    let gradients = self.gradients.as_mut().unwrap();
+    let gradient_recreated = gradients.reserve(device, self.scratch_gradient_data.len());
+    if gradient_recreated {
       let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("lurq_quad_bg"),
         layout: self.quad_bgl.as_ref().unwrap(),
@@ -1771,22 +2833,20 @@ impl RenderEngine for WgpuRenderEngine {
           },
           wgpu::BindGroupEntry {
             binding: 1,
-            resource: gradient_buffer.as_entire_binding(),
+            resource: gradients.binding(),
           },
         ],
       });
-      self.gradient_buffer = Some(gradient_buffer);
       self.quad_bind_group = Some(quad_bind_group);
       self.quad_clip_bind_groups.clear();
-      gradient_recreated = true;
     }
-    let gradient_buf = self.gradient_buffer.as_ref().unwrap();
     let _gradient_upload_start = profile_scope!();
     if gradient_recreated || self.last_gradient_bytes.as_slice() != gradient_bytes {
-      queue.write_buffer(gradient_buf, 0, gradient_bytes);
+      gradients.write(queue, &self.scratch_gradient_data);
       self.last_gradient_bytes.clear();
       self.last_gradient_bytes.extend_from_slice(gradient_bytes);
     }
+    let gradients = self.gradients.as_ref().unwrap();
     _buffer_upload_dur += profile_elapsed!(_gradient_upload_start);
 
     self.scratch_glyph_instances.clear();
@@ -1817,22 +2877,90 @@ impl RenderEngine for WgpuRenderEngine {
 
     #[cfg(feature = "raster")]
     let _image_upload_start = profile_scope!();
+    // The frames that stay on the card: their surfaces are opened once, and the frame to draw is taken now, for
+    // the part of its texture an image is drawn from is the frame's to say. A frame of another card is sent
+    // from memory here, before anything is drawn.
+    #[cfg(all(feature = "raster", windows))]
+    if let (Some(image_bgl), Some(nv12_image_bgl), Some(image_sampler)) = (
+      self.image_bgl.as_ref(),
+      self.nv12_image_bgl.as_ref(),
+      self.image_sampler.as_ref(),
+    ) {
+      let bind = |first: &wgpu::TextureView, second: Option<&wgpu::TextureView>| {
+        let globals = wgpu::BindGroupEntry {
+          binding: 0,
+          resource: globals_buffer.as_entire_binding(),
+        };
+        let view = |binding, view| wgpu::BindGroupEntry {
+          binding,
+          resource: wgpu::BindingResource::TextureView(view),
+        };
+        let sampler = |binding| wgpu::BindGroupEntry {
+          binding,
+          resource: wgpu::BindingResource::Sampler(image_sampler),
+        };
+        match second {
+          Some(second) => device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lurq_card_frame_planes_bg"),
+            layout: nv12_image_bgl,
+            entries: &[globals, view(1, first), view(2, second), sampler(3)],
+          }),
+          None => device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lurq_card_frame_bg"),
+            layout: image_bgl,
+            entries: &[globals, view(1, first), sampler(2)],
+          }),
+        }
+      };
+      for img in &list.images {
+        let Some(frames) = card_frames::of(img) else {
+          continue;
+        };
+        let kept = self
+          .image_texture_cache
+          .get(&img.image_id)
+          .is_some_and(|cached| cached.is_compatible(img));
+        if !kept {
+          self.image_texture_cache.remove(&img.image_id);
+          self.image_clip_bind_groups.clear();
+          let size = (img.image_width, img.image_height);
+          // Kept though nothing opens them: they are not asked for again in each frame.
+          let opened =
+            card_frames::Opened::open(device, frames, size, &self.card_leases, &mut self.card_readers, &bind);
+          self
+            .image_texture_cache
+            .insert(img.image_id, CachedImageTexture::Card(opened));
+        }
+        if let Some(CachedImageTexture::Card(opened)) = self.image_texture_cache.get_mut(&img.image_id) {
+          opened.pick(queue);
+        }
+      }
+    }
+
     #[cfg(feature = "raster")]
     let image_instance_buf = {
       self.scratch_image_instances.clear();
       self.scratch_image_instances.reserve(list.images.len());
-      self
-        .scratch_image_instances
-        .extend(list.images.iter().map(|img| ImageInstance {
+      let cache = &self.image_texture_cache;
+      self.scratch_image_instances.extend(list.images.iter().map(|img| {
+        let (uv_min, uv_max) = drawn_part(cache, img);
+        let [matrix, full_range] = match cache.get(&img.image_id) {
+          Some(CachedImageTexture::Nv12 { color, .. }) => *color,
+          #[cfg(windows)]
+          Some(CachedImageTexture::Card(opened)) => opened.colors().shader(),
+          _ => [0.0, 0.0],
+        };
+        ImageInstance {
           pos: [img.x, img.y],
           size: [img.width, img.height],
-          opacity: [img.opacity, canvas_image_flag(&img.native), 0.0, 0.0],
+          opacity: [img.opacity, canvas_image_flag(&img.native), matrix, full_range],
           transform: img.transform,
           xf_origin: img.transform_origin,
-          uv_min: img.uv_min,
-          uv_max: img.uv_max,
+          uv_min,
+          uv_max,
           radii: img.radii,
-        }));
+        }
+      }));
       self
         .image_instance_buffer
         .write(device, queue, &self.scratch_image_instances)
@@ -1845,28 +2973,16 @@ impl RenderEngine for WgpuRenderEngine {
     // Draws in paint order, across the pipelines.
     self.scratch_ordered_draws.clear();
     self.scratch_ordered_draws.reserve(
-      list.rects.len()
-        + list.glyphs.len()
-        + {
-          #[cfg(feature = "raster")]
-          {
-            list.images.len()
-          }
-          #[cfg(not(feature = "raster"))]
-          {
-            0
-          }
+      list.rects.len() + list.glyphs.len() + {
+        #[cfg(feature = "raster")]
+        {
+          list.images.len()
         }
-        + {
-          #[cfg(feature = "svg")]
-          {
-            list.svgs.len()
-          }
-          #[cfg(not(feature = "svg"))]
-          {
-            0
-          }
-        },
+        #[cfg(not(feature = "raster"))]
+        {
+          0
+        }
+      },
     );
     for (index, rect) in list.rects.iter().enumerate() {
       self.scratch_ordered_draws.push((rect.order, OrderedDraw::Rect(index)));
@@ -1884,10 +3000,6 @@ impl RenderEngine for WgpuRenderEngine {
       self
         .scratch_ordered_draws
         .push((image.order, OrderedDraw::Image(index)));
-    }
-    #[cfg(feature = "svg")]
-    for (index, svg) in list.svgs.iter().enumerate() {
-      self.scratch_ordered_draws.push((svg.order, OrderedDraw::Svg(index)));
     }
     self.scratch_ordered_draws.sort_by_key(|(order, _)| *order);
     let ordered_draws = std::mem::take(&mut self.scratch_ordered_draws);
@@ -1950,6 +3062,45 @@ impl RenderEngine for WgpuRenderEngine {
       );
     }
 
+    // A frame that is read back, by a backdrop blur of the window or a capture, is painted beside a surface
+    // whose texture cannot be copied from, and put onto it in a last pass; see `surface_proxy`.
+    let mut frame_is_read = false;
+    if !self.surface_copies {
+      frame_is_read = layer_plan
+        .targets()
+        .iter()
+        .filter(|target| target.layer.is_none())
+        .flat_map(|target| layer_plan.steps(target))
+        .any(|step| {
+          matches!(step, LayerStep::Backdrop(index)
+            if self.scratch_backdrop_slots.get(*index).copied().flatten().is_some_and(|slots| slots.runs()))
+        });
+      #[cfg(feature = "screenshot")]
+      {
+        frame_is_read |= self.pending_frame_capture.is_some();
+      }
+    }
+    if frame_is_read {
+      let format = render_target_format(config.format);
+      if !self
+        .surface_proxy
+        .as_ref()
+        .is_some_and(|proxy| proxy.fits(format, config.width, config.height))
+      {
+        self.surface_proxy = Some(surface_proxy::SurfaceProxy::new(
+          device,
+          format,
+          config.width,
+          config.height,
+        ));
+      }
+    }
+    let surface_proxy = self.surface_proxy.as_ref().filter(|_| frame_is_read);
+    let (window_texture, window_view) = match surface_proxy {
+      Some(proxy) => (proxy.texture(), proxy.view()),
+      None => (output.texture(), &view),
+    };
+
     let mut encoder = device.create_command_encoder(&Default::default());
     #[cfg(feature = "perf_profile")]
     let target_count = layer_plan.targets().len();
@@ -1967,7 +3118,7 @@ impl RenderEngine for WgpuRenderEngine {
         ),
         _ => (
           TargetSpace::window(vw, vh),
-          view.clone(),
+          window_view.clone(),
           wgpu_clear_color(list.clear_color),
         ),
       };
@@ -2034,7 +3185,7 @@ impl RenderEngine for WgpuRenderEngine {
             if backdrop.runs() {
               let (target_texture, target_origin) = match (target.layer, layer_slot) {
                 (Some(layer), Some(slot)) => (compositor.texture(slot), list.layers[layer].painted().0),
-                _ => (output.texture(), [0, 0]),
+                _ => (window_texture, [0, 0]),
               };
               drop(pass);
               let _blur_passes = compositor.prepare_backdrop(
@@ -2141,7 +3292,7 @@ impl RenderEngine for WgpuRenderEngine {
                       },
                       wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: gradient_buf.as_entire_binding(),
+                        resource: gradients.binding(),
                       },
                     ],
                   })
@@ -2230,6 +3381,8 @@ impl RenderEngine for WgpuRenderEngine {
               let image_sampler = self.image_sampler.as_ref().unwrap().clone();
               let image_pipeline = self.image_pipeline.as_ref().unwrap().clone();
               let nv12_image_pipeline = self.nv12_image_pipeline.as_ref().unwrap().clone();
+              let i420_image_bgl = self.i420_image_bgl.as_ref().unwrap().clone();
+              let i420_image_pipeline = self.i420_image_pipeline.as_ref().unwrap().clone();
 
               let external_wgpu_image = img
                 .native
@@ -2255,27 +3408,32 @@ impl RenderEngine for WgpuRenderEngine {
                   |c| matches!(c,CachedImageTexture::ExternalRgba {version,..} if *version==snapshot.version),
                 );
                 if !current {
-                  self.image_texture_cache.insert(
-                    img.image_id,
-                    create_external_rgba_cached_image_texture(
-                      device,
-                      &image_bgl,
-                      &image_sampler,
-                      globals_buffer,
-                      snapshot,
-                    ),
-                  );
+                  let Some(made) = create_external_rgba_cached_image_texture(
+                    device,
+                    &image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    snapshot,
+                  ) else {
+                    continue;
+                  };
+                  self.image_texture_cache.insert(img.image_id, made);
                   self.image_clip_bind_groups.clear();
                 }
               }
               if let Some(native) = external_wgpu_image {
-                let Some(snapshot) = native
-                  .payload::<crate::images::WgpuExternalImageState>()
-                  .and_then(crate::images::WgpuExternalImageState::snapshot)
-                else {
+                let slot = native.payload::<crate::images::WgpuExternalImageState>();
+                let Some(snapshot) = slot.and_then(crate::images::WgpuExternalImageState::snapshot) else {
                   self.image_texture_cache.remove(&img.image_id);
                   continue;
                 };
+                // A view the app gave before a loss is of the lost device, and of the instance of wgpu that
+                // went with it: nothing is asked of wgpu with it, and nothing is drawn of it until the app
+                // gives one of this device.
+                if !snapshot.is_of(self.device_number) {
+                  self.image_texture_cache.remove(&img.image_id);
+                  continue;
+                }
                 let is_current = self.image_texture_cache.get(&img.image_id).is_some_and(|cached| {
                   matches!(
                     cached,
@@ -2288,17 +3446,27 @@ impl RenderEngine for WgpuRenderEngine {
                   )
                 });
                 if !is_current {
-                  self.image_texture_cache.insert(
-                    img.image_id,
-                    create_external_rgba_cached_image_texture(
-                      device,
-                      &image_bgl,
-                      &image_sampler,
-                      globals_buffer,
-                      snapshot,
-                    ),
-                  );
+                  // And one of another device all the same, given late by something of the app that was not
+                  // told of the loss, is refused by this device, which ends nothing.
+                  let Some(made) = create_external_rgba_cached_image_texture(
+                    device,
+                    &image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    snapshot,
+                  ) else {
+                    self.image_texture_cache.remove(&img.image_id);
+                    continue;
+                  };
+                  self.image_texture_cache.insert(img.image_id, made);
                   self.image_clip_bind_groups.clear();
+                  // Its view is this device's to let go of, should the device be lost.
+                  if let Some(slot) = slot {
+                    self.external_slots.retain(|known| known.upgrade().is_some());
+                    if !self.external_slots.iter().any(|known| known.is(slot)) {
+                      self.external_slots.push(slot.downgrade());
+                    }
+                  }
                 }
               } else if canvas_image.is_none()
                 && !self
@@ -2309,9 +3477,23 @@ impl RenderEngine for WgpuRenderEngine {
                 self.image_texture_cache.remove(&img.image_id);
                 self.image_clip_bind_groups.clear();
               }
+              // A frame of a video that stays on the card is another buffer with each frame: its textures are
+              // made anew of the one shown now. Those of the frame before are kept until the next frame is
+              // drawn, which the card may still be drawing them for.
+              #[cfg(any(target_os = "macos", target_os = "ios"))]
+              if self
+                .image_texture_cache
+                .get(&img.image_id)
+                .is_some_and(|cached| cached.is_another_frame_of_the_card(img))
+                && let Some(before) = self.image_texture_cache.remove(&img.image_id)
+              {
+                self.retired_card_frames.push(before);
+                self.image_clip_bind_groups.clear();
+              }
 
               if external_wgpu_image.is_none()
                 && canvas_image.is_none()
+                && !is_card_frames(img)
                 && !self.image_texture_cache.contains_key(&img.image_id)
               {
                 let _image_texture_upload_start = profile_scope!();
@@ -2324,10 +3506,19 @@ impl RenderEngine for WgpuRenderEngine {
                     globals_buffer,
                     img,
                   )),
+                  crate::images::ImagePixelFormat::I420 => create_i420_cached_image_texture(
+                    device,
+                    queue,
+                    &i420_image_bgl,
+                    &image_sampler,
+                    globals_buffer,
+                    img,
+                  ),
                   crate::images::ImagePixelFormat::Nv12 => create_nv12_cached_image_texture(
                     device,
                     queue,
                     &nv12_image_bgl,
+                    &image_bgl,
                     &image_sampler,
                     globals_buffer,
                     img,
@@ -2346,6 +3537,8 @@ impl RenderEngine for WgpuRenderEngine {
               };
               match cached {
                 CachedImageTexture::ExternalRgba { .. } => {}
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                CachedImageTexture::CvRgba { .. } => {}
                 CachedImageTexture::Rgba {
                   texture,
                   animation_frames,
@@ -2371,7 +3564,7 @@ impl RenderEngine for WgpuRenderEngine {
                   version,
                   ..
                 } => {
-                  if *frame_index != img.frame_index || *version != img.version {
+                  if img.native.is_none() && (*frame_index != img.frame_index || *version != img.version) {
                     let _image_texture_upload_start = profile_scope!();
                     if !write_nv12_image_textures(queue, y_texture, uv_texture, img) {
                       _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
@@ -2382,14 +3575,54 @@ impl RenderEngine for WgpuRenderEngine {
                     *version = img.version;
                   }
                 }
+                CachedImageTexture::I420 {
+                  textures,
+                  frame_index,
+                  version,
+                  ..
+                } => {
+                  if *frame_index != img.frame_index || *version != img.version {
+                    let _image_texture_upload_start = profile_scope!();
+                    if !write_i420_image_textures(queue, textures, img) {
+                      _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                      continue;
+                    }
+                    _image_texture_upload_dur += profile_elapsed!(_image_texture_upload_start);
+                    *frame_index = img.frame_index;
+                    *version = img.version;
+                  }
+                }
+                // Nothing is sent to the card for a frame that is there already.
+                #[cfg(windows)]
+                CachedImageTexture::Card(_) => {}
               }
 
               if !set_scissor(&mut pass, space.clip(img.clip), &space) {
                 continue;
               }
 
-              match cached {
-                CachedImageTexture::ExternalRgba { bind_group, view, .. } => {
+              // A card's frame of red, green and blue is drawn as a texture the app gave is: one view, bound.
+              #[cfg(windows)]
+              let card_rgba = match &*cached {
+                CachedImageTexture::Card(opened) if opened.is_rgba() => match opened.drawn() {
+                  Some((surface, slot)) => Some((&slot.bind_group, &slot.first, surface)),
+                  None => continue,
+                },
+                _ => None,
+              };
+              #[cfg(not(windows))]
+              let card_rgba: Option<(&wgpu::BindGroup, &wgpu::TextureView, usize)> = None;
+              let one_view = match (&*cached, card_rgba) {
+                (_, Some(found)) => Some(found),
+                (CachedImageTexture::ExternalRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                (CachedImageTexture::CvRgba { bind_group, view, .. }, None) => Some((bind_group, view, 0)),
+                _ => None,
+              };
+
+              match &*cached {
+                _ if one_view.is_some() => {
+                  let (bind_group, view, frame) = one_view.expect("just found");
                   if active_pipeline != Some(ActivePipeline::Image) {
                     pass.set_pipeline(&image_pipeline);
                     active_pipeline = Some(ActivePipeline::Image);
@@ -2398,7 +3631,7 @@ impl RenderEngine for WgpuRenderEngine {
                     let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
                     let bind_key = ImageClipBindGroupKey {
                       image_id: img.image_id,
-                      frame_index: 0,
+                      frame_index: frame,
                       clip: clip_key,
                       format: ImageClipFormat::Rgba,
                     };
@@ -2475,12 +3708,61 @@ impl RenderEngine for WgpuRenderEngine {
                     pass.set_bind_group(0, bind_group, &[]);
                   }
                 }
-                CachedImageTexture::Nv12 {
+                CachedImageTexture::I420 {
                   bind_group,
                   y_view,
-                  uv_view,
+                  u_view,
+                  v_view,
                   ..
                 } => {
+                  if active_pipeline != Some(ActivePipeline::I420Image) {
+                    pass.set_pipeline(&i420_image_pipeline);
+                    active_pipeline = Some(ActivePipeline::I420Image);
+                  }
+                  if needs_clip_globals(img.clip, &space) {
+                    let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
+                    let bind_key = ImageClipBindGroupKey {
+                      image_id: img.image_id,
+                      frame_index: img.frame_index,
+                      clip: clip_key,
+                      format: ImageClipFormat::I420,
+                    };
+                    let clip_bind_group = self.image_clip_bind_groups.entry(bind_key).or_insert_with(|| {
+                      i420_bind_group(
+                        device,
+                        &i420_image_bgl,
+                        clip_globals,
+                        [y_view, u_view, v_view],
+                        &image_sampler,
+                      )
+                    });
+                    pass.set_bind_group(0, &*clip_bind_group, &[]);
+                  } else {
+                    pass.set_bind_group(0, bind_group, &[]);
+                  }
+                }
+                nv12 => {
+                  // The two planes to draw, and which frame they are: of memory's one texture, or of the card's
+                  // texture that is shown now.
+                  let (bind_group, y_view, uv_view, frame) = match nv12 {
+                    CachedImageTexture::Nv12 {
+                      bind_group,
+                      y_view,
+                      uv_view,
+                      ..
+                    } => (&*bind_group, &*y_view, &*uv_view, img.frame_index),
+                    #[cfg(windows)]
+                    CachedImageTexture::Card(opened) => {
+                      let Some((surface, slot)) = opened.drawn() else {
+                        continue;
+                      };
+                      let Some(color) = slot.second.as_ref() else {
+                        continue;
+                      };
+                      (&slot.bind_group, &slot.first, color, surface)
+                    }
+                    _ => continue,
+                  };
                   if active_pipeline != Some(ActivePipeline::Nv12Image) {
                     pass.set_pipeline(&nv12_image_pipeline);
                     active_pipeline = Some(ActivePipeline::Nv12Image);
@@ -2489,7 +3771,7 @@ impl RenderEngine for WgpuRenderEngine {
                     let (clip_key, clip_globals) = self.clip_globals.get(device, img.clip, &space);
                     let bind_key = ImageClipBindGroupKey {
                       image_id: img.image_id,
-                      frame_index: img.frame_index,
+                      frame_index: frame,
                       clip: clip_key,
                       format: ImageClipFormat::Nv12,
                     };
@@ -2543,68 +3825,6 @@ impl RenderEngine for WgpuRenderEngine {
               pass.draw_indexed(0..6, 0, 0..1);
               profile_if! { _draw_calls += 1; }
             }
-            #[cfg(feature = "svg")]
-            OrderedDraw::Svg(index) => {
-              use vertex::SvgVertexGpu;
-
-              let svg_cmd = &list.svgs[*index];
-              if svg_cmd.mesh.vertices.is_empty() || svg_cmd.mesh.indices.is_empty() {
-                continue;
-              }
-
-              let svg_globals = globals_for_clip(space.clip(svg_cmd.clip), &space);
-              let svg_globals_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lurq_svg_globals"),
-                contents: bytemuck::bytes_of(&svg_globals),
-                usage: wgpu::BufferUsages::UNIFORM,
-              });
-
-              let svg_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("lurq_svg_bg"),
-                layout: self.svg_bgl.as_ref().unwrap(),
-                entries: &[wgpu::BindGroupEntry {
-                  binding: 0,
-                  resource: svg_globals_buf.as_entire_binding(),
-                }],
-              });
-
-              if !set_scissor(&mut pass, space.clip(svg_cmd.clip), &space) {
-                continue;
-              }
-
-              let gpu_verts: Vec<SvgVertexGpu> = svg_cmd
-                .mesh
-                .vertices
-                .iter()
-                .map(|v| SvgVertexGpu {
-                  position: [v.position[0] + svg_cmd.x, v.position[1] + svg_cmd.y],
-                  color: v.color,
-                })
-                .collect();
-
-              let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lurq_svg_vb"),
-                contents: bytemuck::cast_slice(&gpu_verts),
-                usage: wgpu::BufferUsages::VERTEX,
-              });
-              let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lurq_svg_ib"),
-                contents: bytemuck::cast_slice(&svg_cmd.mesh.indices),
-                usage: wgpu::BufferUsages::INDEX,
-              });
-
-              if active_pipeline != Some(ActivePipeline::Svg) {
-                pass.set_pipeline(self.svg_pipeline.as_ref().unwrap());
-                active_pipeline = Some(ActivePipeline::Svg);
-              }
-              pass.set_bind_group(0, &svg_bg, &[]);
-              pass.set_vertex_buffer(0, vb.slice(..));
-              active_vertex_buffer = Some(ActiveVertexBuffer::Svg);
-              pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-              active_index_buffer = Some(ActiveIndexBuffer::SvgU32);
-              pass.draw_indexed(0..svg_cmd.mesh.indices.len() as u32, 0, 0..1);
-              profile_if! { _draw_calls += 1; }
-            }
           }
         }
       }
@@ -2649,7 +3869,10 @@ impl RenderEngine for WgpuRenderEngine {
     let frame_capture = self
       .pending_frame_capture
       .take()
-      .and_then(|capture| encode_wgpu_frame_capture(device, &mut encoder, output.texture(), config.format, capture));
+      .and_then(|capture| encode_wgpu_frame_capture(device, &mut encoder, window_texture, config.format, capture));
+    if let Some(proxy) = surface_proxy {
+      proxy.put_onto(&mut encoder, &view);
+    }
 
     #[cfg(feature = "perf_profile")]
     self.gpu_timer.resolve(&mut encoder);
@@ -2661,6 +3884,9 @@ impl RenderEngine for WgpuRenderEngine {
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderSubmit));
     queue.submit(std::iter::once(encoder.finish()));
+    // The card's frames that were drawn before this one are let go of once the card has done this far.
+    #[cfg(all(feature = "raster", windows))]
+    self.card_leases.let_go_after(queue);
     // The textures the frame blurred backdrops into hold them from here on.
     if let Some(compositor) = self.layer_compositor.as_mut() {
       compositor.frame_submitted();
@@ -2673,7 +3899,7 @@ impl RenderEngine for WgpuRenderEngine {
 
     #[cfg(feature = "screenshot")]
     if let Some(frame_capture) = frame_capture {
-      frame_capture.start(device.clone());
+      frame_capture.start(device.clone(), self.lost.clone());
     }
 
     let _present_start = profile_scope!();
@@ -2682,6 +3908,14 @@ impl RenderEngine for WgpuRenderEngine {
       .profile_context
       .as_ref()
       .map(|context| context.phase(crate::app::profiler::Phase::RenderPresent));
+    // A device may be lost while its frame is drawn: what it was given to do tells. wgpu neither presents nor
+    // discards a frame of a lost device, and keeps it; let go of with that frame out, the surface ends the
+    // program under Vulkan (`Trying to destroy a SwapchainAcquireSemaphore that is still in use by a
+    // SurfaceTexture`), and the engine that is to take this one's place never comes. The frame's texture is
+    // destroyed first, which is what gives the frame back.
+    if self.device_is_lost() {
+      output.texture().destroy();
+    }
     output.present();
     let _present_dur = profile_elapsed!(_present_start);
     #[cfg(feature = "perf_profile")]
@@ -2731,9 +3965,22 @@ impl RenderEngine for WgpuRenderEngine {
     self.render(list, window, display)
   }
 
+  /// Also where the device is whole and of another card than the one a device was lost on, once that card
+  /// makes a device again: the engine that takes this one's place draws on it.
+  /// Every engine on another card says so once one of them found that: a window that is not drawn now asks
+  /// nothing, and goes back with the one that asked.
+  fn lost(&self) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    if self.displaced && device_loss::the_card_gave() {
+      return true;
+    }
+    self.device_is_lost() || self.card_is_back
+  }
+
   fn release_window_surface(&mut self) {
+    let _own = app_errors::OwnWork::begin();
     if let Some(device) = &self.device {
-      let _ = device.poll(wgpu::PollType::Poll);
+      device_loss::asked(device, Some(&self.lost), wgpu::PollType::Poll);
     }
     self.surface_config = None;
     self.surface = None;
@@ -2786,14 +4033,19 @@ struct WgpuFrameCaptureReadback {
 
 #[cfg(feature = "screenshot")]
 impl WgpuFrameCaptureReadback {
-  fn start(self, device: wgpu::Device) {
+  fn start(self, device: wgpu::Device, lost: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     std::thread::spawn(move || {
       let slice = self.buffer.slice(..);
       let (sender, receiver) = std::sync::mpsc::channel();
       slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = sender.send(result);
       });
-      let _ = device.poll(wgpu::PollType::wait_indefinitely());
+      // A device that is lost gives no pixels, and asking it would end this thread with nothing said to
+      // whoever waits for the screenshot.
+      if !device_loss::asked(&device, Some(&lost), wgpu::PollType::wait_indefinitely()) {
+        self.capture.target.fail("the graphics device was lost");
+        return;
+      }
       match receiver.recv() {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
@@ -2898,32 +4150,35 @@ fn create_external_rgba_cached_image_texture(
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   snapshot: crate::images::WgpuExternalImageSnapshot,
-) -> CachedImageTexture {
-  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-    label: Some("lurq_external_img_bg"),
-    layout: image_bgl,
-    entries: &[
-      wgpu::BindGroupEntry {
-        binding: 0,
-        resource: globals_buffer.as_entire_binding(),
-      },
-      wgpu::BindGroupEntry {
-        binding: 1,
-        resource: wgpu::BindingResource::TextureView(&snapshot.view),
-      },
-      wgpu::BindGroupEntry {
-        binding: 2,
-        resource: wgpu::BindingResource::Sampler(image_sampler),
-      },
-    ],
-  });
-  CachedImageTexture::ExternalRgba {
+) -> Option<CachedImageTexture> {
+  // The view may be of another device: one an app gave before a loss, which nothing of this device binds.
+  let bind_group = device_loss::taken(device, || {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: Some("lurq_external_img_bg"),
+      layout: image_bgl,
+      entries: &[
+        wgpu::BindGroupEntry {
+          binding: 0,
+          resource: globals_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+          binding: 1,
+          resource: wgpu::BindingResource::TextureView(&snapshot.view),
+        },
+        wgpu::BindGroupEntry {
+          binding: 2,
+          resource: wgpu::BindingResource::Sampler(image_sampler),
+        },
+      ],
+    })
+  })?;
+  Some(CachedImageTexture::ExternalRgba {
     bind_group,
     view: snapshot.view,
     width: snapshot.width,
     height: snapshot.height,
     version: snapshot.version,
-  }
+  })
 }
 
 #[cfg(feature = "raster")]
@@ -3034,23 +4289,36 @@ fn create_nv12_cached_image_texture(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
   nv12_image_bgl: &wgpu::BindGroupLayout,
+  #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(unused_variables))]
+  image_bgl: &wgpu::BindGroupLayout,
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
 ) -> Option<CachedImageTexture> {
-  if image.image_width == 0
-    || image.image_height == 0
-    || !image.image_width.is_multiple_of(2)
-    || !image.image_height.is_multiple_of(2)
-  {
+  if image.image_width == 0 || image.image_height == 0 {
     return None;
   }
-  #[cfg(target_os = "macos")]
+  // A pixel buffer's frame, of any size: its planes are opened as they are, or its one of red, green and blue.
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
   if matches!(
     image.native.as_ref().map(crate::images::NativeImageData::backend),
     Some(crate::images::NativeImageBackend::MacosCvPixelBufferNv12)
   ) {
-    return create_macos_native_nv12_cached_image_texture(device, nv12_image_bgl, image_sampler, globals_buffer, image);
+    return create_macos_native_nv12_cached_image_texture(
+      device,
+      nv12_image_bgl,
+      image_bgl,
+      image_sampler,
+      globals_buffer,
+      image,
+    );
+  }
+  if !image.image_width.is_multiple_of(2) || !image.image_height.is_multiple_of(2) {
+    return None;
+  }
+  // The frames of the card are opened before the images are drawn, and are not made here.
+  if is_card_frames(image) {
+    return None;
   }
 
   let y_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -3110,11 +4378,12 @@ fn create_nv12_cached_image_texture(
   });
   Some(CachedImageTexture::Nv12 {
     bind_group,
+    color: [0.0, 0.0],
     y_view,
     uv_view,
     y_texture,
     uv_texture,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     _macos_native: None,
     width: image.image_width,
     height: image.image_height,
@@ -3123,34 +4392,73 @@ fn create_nv12_cached_image_texture(
   })
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 fn create_macos_native_nv12_cached_image_texture(
   device: &wgpu::Device,
   nv12_image_bgl: &wgpu::BindGroupLayout,
+  image_bgl: &wgpu::BindGroupLayout,
   image_sampler: &wgpu::Sampler,
   globals_buffer: &wgpu::Buffer,
   image: &crate::images::ImageCmd,
 ) -> Option<CachedImageTexture> {
   let native = image.native.as_ref()?.clone();
-  let payload = native.payload::<crate::images::MacosCvPixelBufferNv12Image>()?;
+  // One buffer the app gave, or the frame of a video that is shown now: none before its first.
+  let buffer = match native.payload::<crate::images::CvPixelBufferFrames>() {
+    Some(frames) => frames.shown()?,
+    None => native
+      .payload::<crate::images::MacosCvPixelBufferNv12Image>()?
+      .pixel_buffer
+      .clone(),
+  };
+  // A frame of red, green and blue is a picture, of one view.
+  // SAFETY: the buffer is held for as long as this runs.
+  if unsafe { video_color::is_bgra(buffer.as_ptr()) } {
+    return create_macos_native_bgra_cached_image_texture(
+      device,
+      image_bgl,
+      image_sampler,
+      globals_buffer,
+      image,
+      native,
+      buffer,
+    );
+  }
+  // SAFETY: as above.
+  let color = unsafe { video_color::of(buffer.as_ptr()) }?;
+  // Ten bits are the high ones of sixteen, which a texture of 16-bit unorm reads as the same fraction of the range.
+  let ((y_metal, y_format), (uv_metal, uv_format)) = if color.ten_bit {
+    if !device.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+      return None;
+    }
+    (
+      (objc2_metal::MTLPixelFormat::R16Unorm, wgpu::TextureFormat::R16Unorm),
+      (objc2_metal::MTLPixelFormat::RG16Unorm, wgpu::TextureFormat::Rg16Unorm),
+    )
+  } else {
+    (
+      (objc2_metal::MTLPixelFormat::R8Unorm, wgpu::TextureFormat::R8Unorm),
+      (objc2_metal::MTLPixelFormat::RG8Unorm, wgpu::TextureFormat::Rg8Unorm),
+    )
+  };
   let (y_texture, y_cv_texture) = create_macos_native_plane_texture(
     device,
-    payload.pixel_buffer.as_ptr(),
+    buffer.as_ptr(),
     image.image_width,
     image.image_height,
     0,
-    objc2_metal::MTLPixelFormat::R8Unorm,
-    wgpu::TextureFormat::R8Unorm,
+    y_metal,
+    y_format,
     "lurq_macos_nv12_y",
   )?;
+  // A picture of an odd width or height has its last column or row of color too.
   let (uv_texture, uv_cv_texture) = create_macos_native_plane_texture(
     device,
-    payload.pixel_buffer.as_ptr(),
-    image.image_width / 2,
-    image.image_height / 2,
+    buffer.as_ptr(),
+    image.image_width.div_ceil(2),
+    image.image_height.div_ceil(2),
     1,
-    objc2_metal::MTLPixelFormat::RG8Unorm,
-    wgpu::TextureFormat::Rg8Unorm,
+    uv_metal,
+    uv_format,
     "lurq_macos_nv12_uv",
   )?;
   let y_view = y_texture.create_view(&Default::default());
@@ -3179,12 +4487,14 @@ fn create_macos_native_nv12_cached_image_texture(
   });
   Some(CachedImageTexture::Nv12 {
     bind_group,
+    color: color.shader(),
     y_view,
     uv_view,
     y_texture,
     uv_texture,
     _macos_native: Some(MacosNativeNv12Texture {
       _native: native,
+      _buffer: buffer,
       _y_cv_texture: y_cv_texture,
       _uv_cv_texture: uv_cv_texture,
     }),
@@ -3195,7 +4505,61 @@ fn create_macos_native_nv12_cached_image_texture(
   })
 }
 
-#[cfg(all(feature = "raster", target_os = "macos"))]
+/// The texture of a frame of red, green and blue in a pixel buffer, read as sRGB, as a picture's is.
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
+fn create_macos_native_bgra_cached_image_texture(
+  device: &wgpu::Device,
+  image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  image: &crate::images::ImageCmd,
+  native: crate::images::NativeImageData,
+  buffer: crate::images::MacosCvPixelBuffer,
+) -> Option<CachedImageTexture> {
+  let (texture, cv_texture) = create_macos_native_plane_texture(
+    device,
+    buffer.as_ptr(),
+    image.image_width,
+    image.image_height,
+    0,
+    objc2_metal::MTLPixelFormat::BGRA8Unorm_sRGB,
+    wgpu::TextureFormat::Bgra8UnormSrgb,
+    "lurq_macos_bgra",
+  )?;
+  let view = texture.create_view(&Default::default());
+  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_macos_bgra_img_bg"),
+    layout: image_bgl,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals_buffer.as_entire_binding(),
+      },
+      wgpu::BindGroupEntry {
+        binding: 1,
+        resource: wgpu::BindingResource::TextureView(&view),
+      },
+      wgpu::BindGroupEntry {
+        binding: 2,
+        resource: wgpu::BindingResource::Sampler(image_sampler),
+      },
+    ],
+  });
+  Some(CachedImageTexture::CvRgba {
+    bind_group,
+    view,
+    _held: MacosNativeRgbaTexture {
+      _native: native,
+      _buffer: buffer,
+      _cv_texture: cv_texture,
+    },
+    width: image.image_width,
+    height: image.image_height,
+    version: image.version,
+  })
+}
+
+#[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 fn create_macos_native_plane_texture(
   device: &wgpu::Device,
   pixel_buffer: CVPixelBufferRef,
@@ -3210,20 +4574,31 @@ fn create_macos_native_plane_texture(
   // Clone the retained device before releasing the guard; the CoreVideo cache
   // and textures must originate from the same Metal device as wgpu.
   let raw_device = unsafe { device.as_hal::<wgpu_hal::api::Metal>() }?.raw_device().clone();
-
-  let mut cache = std::ptr::null_mut();
-  let status = unsafe {
-    CVMetalTextureCacheCreate(
-      kCFAllocatorDefault,
-      std::ptr::null(),
-      Retained::as_ptr(&raw_device).cast_mut().cast(),
-      std::ptr::null(),
-      &mut cache,
-    )
-  };
-  if status != 0 || cache.is_null() {
-    return None;
-  }
+  // One cache of textures for a device, kept: a video asks it for two textures a frame.
+  let device_ptr = Retained::as_ptr(&raw_device) as usize;
+  let cache = CV_TEXTURE_CACHE.with(|kept| {
+    let mut kept = kept.borrow_mut();
+    if let Some((of, cache)) = kept.as_ref()
+      && *of == device_ptr
+    {
+      return Some(cache.ptr);
+    }
+    let mut cache = std::ptr::null_mut();
+    let status = unsafe {
+      CVMetalTextureCacheCreate(
+        kCFAllocatorDefault,
+        std::ptr::null(),
+        Retained::as_ptr(&raw_device).cast_mut().cast(),
+        std::ptr::null(),
+        &mut cache,
+      )
+    };
+    if status != 0 || cache.is_null() {
+      return None;
+    }
+    *kept = Some((device_ptr, CvMetalTextureCache { ptr: cache }));
+    Some(cache)
+  })?;
 
   let mut cv_texture = std::ptr::null_mut();
   let status = unsafe {
@@ -3239,9 +4614,6 @@ fn create_macos_native_plane_texture(
       &mut cv_texture,
     )
   };
-  unsafe {
-    CFRelease(cache.cast());
-  }
   if status != 0 || cv_texture.is_null() {
     return None;
   }
@@ -3319,6 +4691,161 @@ fn write_rgba_texture_data(queue: &wgpu::Queue, texture: &wgpu::Texture, width: 
       depth_or_array_layers: 1,
     },
   );
+}
+
+/// The shader of a picture of three planes: the NV12 one, with the two of color read from two textures.
+#[cfg(feature = "raster")]
+fn i420_shader_source() -> String {
+  let nv12 = concat!(
+    include_str!("shaders/image_nv12.wgsl"),
+    include_str!("shaders/yuv.wgsl")
+  );
+  let bindings = "@group(0) @binding(2) var uv_tex: texture_2d<f32>;\n@group(0) @binding(3) var img_sampler: sampler;";
+  let sample = "let uv = textureSample(uv_tex, img_sampler, in.uv).rg;";
+  assert!(
+    nv12.contains(bindings) && nv12.contains(sample),
+    "the NV12 shader reads its color as it did"
+  );
+  nv12
+    .replace(
+      bindings,
+      "@group(0) @binding(2) var u_tex: texture_2d<f32>;\n@group(0) @binding(3) var v_tex: texture_2d<f32>;\n\
+       @group(0) @binding(4) var img_sampler: sampler;",
+    )
+    .replace(
+      sample,
+      "let uv = vec2<f32>(textureSample(u_tex, img_sampler, in.uv).r, textureSample(v_tex, img_sampler, in.uv).r);",
+    )
+}
+
+/// The bind group of a picture of three planes, with the globals of its draw.
+#[cfg(feature = "raster")]
+fn i420_bind_group(
+  device: &wgpu::Device,
+  layout: &wgpu::BindGroupLayout,
+  globals: &wgpu::Buffer,
+  planes: [&wgpu::TextureView; 3],
+  sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+  let view = |binding, view| wgpu::BindGroupEntry {
+    binding,
+    resource: wgpu::BindingResource::TextureView(view),
+  };
+  device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("lurq_i420_image_bg"),
+    layout,
+    entries: &[
+      wgpu::BindGroupEntry {
+        binding: 0,
+        resource: globals.as_entire_binding(),
+      },
+      view(1, planes[0]),
+      view(2, planes[1]),
+      view(3, planes[2]),
+      wgpu::BindGroupEntry {
+        binding: 4,
+        resource: wgpu::BindingResource::Sampler(sampler),
+      },
+    ],
+  })
+}
+
+/// The textures of a picture of memory of three planes, with its first frame in them.
+#[cfg(feature = "raster")]
+fn create_i420_cached_image_texture(
+  device: &wgpu::Device,
+  queue: &wgpu::Queue,
+  i420_image_bgl: &wgpu::BindGroupLayout,
+  image_sampler: &wgpu::Sampler,
+  globals_buffer: &wgpu::Buffer,
+  image: &crate::images::ImageCmd,
+) -> Option<CachedImageTexture> {
+  let (width, height) = (image.image_width, image.image_height);
+  if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+    return None;
+  }
+  let plane = |label, width, height| {
+    device.create_texture(&wgpu::TextureDescriptor {
+      label: Some(label),
+      size: wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+      },
+      mip_level_count: 1,
+      sample_count: 1,
+      dimension: wgpu::TextureDimension::D2,
+      format: wgpu::TextureFormat::R8Unorm,
+      usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+      view_formats: &[],
+    })
+  };
+  let textures = [
+    plane("lurq_i420_y", width, height),
+    plane("lurq_i420_u", width / 2, height / 2),
+    plane("lurq_i420_v", width / 2, height / 2),
+  ];
+  if !write_i420_image_textures(queue, &textures, image) {
+    return None;
+  }
+  let [y_view, u_view, v_view] = textures
+    .each_ref()
+    .map(|texture| texture.create_view(&Default::default()));
+  let bind_group = i420_bind_group(
+    device,
+    i420_image_bgl,
+    globals_buffer,
+    [&y_view, &u_view, &v_view],
+    image_sampler,
+  );
+  Some(CachedImageTexture::I420 {
+    bind_group,
+    y_view,
+    u_view,
+    v_view,
+    textures,
+    width,
+    height,
+    frame_index: image.frame_index,
+    version: image.version,
+  })
+}
+
+/// Sends the three planes of `image` to its textures as they are laid out: no pass over them on the processor.
+#[cfg(feature = "raster")]
+fn write_i420_image_textures(
+  queue: &wgpu::Queue,
+  textures: &[wgpu::Texture; 3],
+  image: &crate::images::ImageCmd,
+) -> bool {
+  let (width, height) = (image.image_width, image.image_height);
+  let gray = width as usize * height as usize;
+  let color = gray / 4;
+  if image.data.len() < gray + 2 * color {
+    return false;
+  }
+  let planes = [
+    (&textures[0], 0, width, height),
+    (&textures[1], gray, width / 2, height / 2),
+    (&textures[2], gray + color, width / 2, height / 2),
+  ];
+  for (texture, start, plane_width, plane_height) in planes {
+    queue.write_texture(
+      texture.as_image_copy(),
+      &image.data[start..start + plane_width as usize * plane_height as usize],
+      wgpu::TexelCopyBufferLayout {
+        offset: 0,
+        bytes_per_row: Some(plane_width),
+        rows_per_image: Some(plane_height),
+      },
+      wgpu::Extent3d {
+        width: plane_width,
+        height: plane_height,
+        depth_or_array_layers: 1,
+      },
+    );
+  }
+  true
 }
 
 #[cfg(feature = "raster")]
@@ -3606,6 +5133,17 @@ fn canvas_image_flag(native: &Option<crate::images::NativeImageData>) -> f32 {
   if native
     .as_ref()
     .is_some_and(|n| n.backend() == crate::images::NativeImageBackend::Canvas)
+  {
+    return 1.;
+  }
+  // A card's frame of red, green and blue is in a texture whose format does not say that its bytes are encoded
+  // as a screen's are, which they are, as a canvas's: taken for bytes of linear light, the frame was drawn
+  // lighter than it is (a red of 255, 24, 0 as 255, 86, 0).
+  #[cfg(windows)]
+  if native
+    .as_ref()
+    .and_then(|n| n.payload::<crate::images::CardFrames>())
+    .is_some_and(crate::images::CardFrames::is_rgba)
   {
     return 1.;
   }

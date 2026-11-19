@@ -1,9 +1,7 @@
-use std::{
-  sync::{Arc, Mutex},
-  time::Instant,
-};
+use std::sync::{Arc, Mutex};
 
 use crate::{
+  animation::Easing,
   layout::{
     Alignment, Offset, Size, StackAlignment,
     scrollbar::{
@@ -11,6 +9,7 @@ use crate::{
     },
   },
   node::{dimension::Dimension, spacing_value::SpacingValue},
+  time::{Duration, Instant},
 };
 
 const DEFAULT_FLEX_GROW: f32 = 1.0;
@@ -19,6 +18,22 @@ const SCROLL_END_EPSILON: f32 = 2.0;
 /// Text taller than its box by less than this fits: rows of a fractional
 /// line height add up to a hair more than the box sized from them.
 const TEXT_OVERFLOW_EPSILON: f32 = 0.5;
+/// How long a mouse's wheel takes to scroll the content to where a notch sends it. Browsers and most apps on
+/// Windows spread a notch over a tenth of a second or a little more. This is the long end of that, and along
+/// [`WHEEL_SCROLL_EASING`] the content has gone nine tenths of the way in the first 80 ms, so a notch still
+/// feels like one.
+const WHEEL_SCROLL_DURATION: Duration = Duration::from_millis(150);
+/// The curve of a wheel's scroll: a cubic ease-out, `1 - (1 - t)^3` as a Bezier curve. The content starts at its
+/// fastest, three times its mean speed, so the frame after the notch already moves, a sixth of the way at
+/// 120 Hz, and it slows down into its place with no stop to see. A notch that comes on the way starts the curve
+/// again from where the content is with the rest of the way added, which only makes it faster: a wheel that
+/// is spun never comes to rest between two notches.
+const WHEEL_SCROLL_EASING: Easing = Easing::CubicBezier {
+  x1: 1.0 / 3.0,
+  y1: 1.0,
+  x2: 2.0 / 3.0,
+  y2: 1.0,
+};
 
 #[derive(Clone)]
 pub enum LayoutKind {
@@ -111,6 +126,85 @@ impl PendingScroll {
   fn is_request(self) -> bool {
     !matches!(self, Self::PreservePrependAnchor { .. } | Self::Anchor(_))
   }
+
+  /// The place kept, once the offset it was taken at has gone `by` further: a wheel's scroll went on between
+  /// the moment the place was taken and the layout that keeps it. A request is to a place of its own.
+  fn moved_by(self, by: f32) -> Self {
+    match self {
+      Self::Anchor(offset) => Self::Anchor(offset + by),
+      Self::PreservePrependAnchor {
+        previous_content,
+        previous_scroll,
+      } => Self::PreservePrependAnchor {
+        previous_content,
+        previous_scroll: previous_scroll + by,
+      },
+      request => request,
+    }
+  }
+}
+
+/// A wheel's scroll on its way along one axis; see [`ScrollState::wheel_by_with_overflow`].
+#[derive(Clone, Copy)]
+struct WheelScroll {
+  /// Where the offset is going.
+  target: f32,
+  /// How far from there the offset was when the wheel last turned, and when that was.
+  distance: f32,
+  turned: Instant,
+  /// The offset the last step left. A layout that has moved it since (content that came in above what is
+  /// shown, an offset held at the end of shorter content) moved where it is going as far.
+  stepped: f32,
+  /// It is going to the end of the content, and goes on to it if the content grows meanwhile: once there, the
+  /// offset stays at the end as any offset at the end does.
+  to_end: bool,
+}
+
+impl WheelScroll {
+  /// A scroll from `offset` to `target`, of content that can go as far as `max`, that starts at `now`.
+  fn to(target: f32, offset: f32, max: f32, now: Instant) -> Self {
+    Self {
+      target,
+      distance: target - offset,
+      turned: now,
+      stepped: offset,
+      to_end: max > 0.0 && max - target <= SCROLL_END_EPSILON,
+    }
+  }
+
+  /// The scroll a wheel that turns by `delta` at `now` leaves, for an offset at `offset` that can go as far as
+  /// `max`, and how much of the delta it takes. The delta adds to where the scroll was already going, and the
+  /// way there starts again from the offset.
+  fn turned(wheel: Option<Self>, offset: f32, max: f32, delta: f32, now: Instant) -> (Option<Self>, f32) {
+    if delta == 0.0 {
+      return (wheel, 0.0);
+    }
+    let from = wheel.map_or(offset, |wheel| wheel.target);
+    let target = (from + delta).clamp(0.0, max);
+    let wheel = (target != offset).then(|| Self::to(target, offset, max, now));
+    (wheel, target - from)
+  }
+
+  /// Where the offset is at `now`, for an offset drawn at `offset` that can go as far as `max`, and whether
+  /// that is where it was going.
+  fn step(&mut self, offset: f32, max: f32, now: Instant) -> (f32, bool) {
+    self.target += offset - self.stepped;
+    let target = if self.to_end { max } else { self.target.clamp(0.0, max) };
+    if target != self.target {
+      // The content is shorter than where the scroll was going, or its end has moved: the scroll goes there
+      // from where it is.
+      *self = Self::to(target, offset, max, now);
+    }
+    let progress = now.saturating_duration_since(self.turned).as_secs_f64() / WHEEL_SCROLL_DURATION.as_secs_f64();
+    let next = if progress >= 1.0 {
+      self.target
+    } else {
+      let left = self.distance * (1.0 - WHEEL_SCROLL_EASING.evaluate(progress) as f32);
+      self.target - left
+    };
+    self.stepped = next;
+    (next, next == self.target)
+  }
 }
 
 /// Scroll position and range when the current layout pass first measured
@@ -137,6 +231,9 @@ struct ScrollStateInner {
   paging: bool,
   pending_scroll_x: Option<PendingScroll>,
   pending_scroll_y: Option<PendingScroll>,
+  /// A wheel's scroll on its way along each axis.
+  wheel_x: Option<WheelScroll>,
+  wheel_y: Option<WheelScroll>,
   max_scroll_x: f32,
   max_scroll_y: f32,
   content_width: f32,
@@ -147,6 +244,19 @@ struct ScrollStateInner {
   viewport_height: f32,
   viewport_abs_x: f32,
   viewport_abs_y: f32,
+  /// How far in from the viewport's left and top edges the bars start: the reach of what sticks at those edges,
+  /// for a container whose bars keep clear of it (`scrollbars_clear_of_sticky`). Nothing for one that does not.
+  bar_clear_x: f32,
+  bar_clear_y: f32,
+  /// The same at the right and the bottom edges: what sticks there, which the bars end before.
+  bar_clear_end_x: f32,
+  bar_clear_end_y: f32,
+  /// Whether the bar across has a lane of its own under the content now (`reserve_bar_across`): the viewport
+  /// ends above it, so the bar down needs no room of the corner kept from it.
+  reserved_across: bool,
+  /// Which ways the container scrolls, told at each layout: where it scrolls both and both bars are there, each
+  /// track ends before the other's lane, so that the two keep out of the corner where they meet.
+  scrolls: (bool, bool),
   /// Viewport top in layout space (the space of `ElementRef` positions), set
   /// when element refs are updated after layout — unlike `viewport_abs_y`,
   /// which is set while painting and lags one frame behind layout.
@@ -156,6 +266,8 @@ struct ScrollStateInner {
   /// restart from it, so the final measurement decides the offset.
   pass_start: Option<ScrollPassStart>,
   thumb_hovered: bool,
+  /// The bar under the pointer, whose thumb is drawn hovered.
+  hovered_bar: Option<ScrollAxis>,
   /// Whether the pointer is over the scroll container, anywhere in it.
   pointer_over: bool,
   /// Whether a [`ScrollBarVisibility::OnHover`] bar is shown.
@@ -164,6 +276,8 @@ struct ScrollStateInner {
   /// content scrolled; `None` before the first frame.
   painted_scroll: Option<(f32, f32)>,
   dragging: bool,
+  /// The bar whose thumb is dragged, drawn pressed; `None` while the track is paged or nothing is held.
+  drag_axis: Option<ScrollAxis>,
   drag_start_x: f32,
   drag_start_y: f32,
   drag_start_scroll_x: f32,
@@ -179,11 +293,102 @@ struct ScrollStateInner {
   scroll_y_requests: u64,
 }
 
+impl ScrollStateInner {
+  /// Moves the offset to where a wheel's scroll on its way is at `now`. Tells whether it moved.
+  fn step_wheel(&mut self, now: Instant) -> bool {
+    let mut moved = false;
+    if let Some(mut wheel) = self.wheel_x.take() {
+      let (next, there) = wheel.step(self.scroll_x, self.max_scroll_x, now);
+      if next != self.scroll_x {
+        let by = next - self.scroll_x;
+        self.pending_scroll_x = self.pending_scroll_x.map(|pending| pending.moved_by(by));
+        self.scroll_x = next;
+        moved = true;
+      }
+      self.wheel_x = (!there).then_some(wheel);
+    }
+    if let Some(mut wheel) = self.wheel_y.take() {
+      let (next, there) = wheel.step(self.scroll_y, self.max_scroll_y, now);
+      if next != self.scroll_y {
+        let by = next - self.scroll_y;
+        self.pending_scroll_y = self.pending_scroll_y.map(|pending| pending.moved_by(by));
+        self.scroll_y = next;
+        moved = true;
+      }
+      self.wheel_y = (!there).then_some(wheel);
+    }
+    if moved {
+      self.scroll_dirty = true;
+      self.layout_subscribers.mark();
+    }
+    moved
+  }
+}
+
 impl ScrollState {
   /// Whether this is the state `other` is.
   pub(crate) fn same(&self, other: &Self) -> bool {
     Arc::ptr_eq(&self.inner, &other.inner)
   }
+}
+
+/// Where the track of `axis`'s bar starts in from the viewport's start, how long it is, and how long its thumb
+/// is: what painting, hit testing and a drag of the thumb all go by. The track keeps the style's end insets and,
+/// where the container asks, clear of what sticks at the start: it runs beside what scrolls, and its thumb is the
+/// share of that which shows. `None` where there is no track.
+fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle) -> Option<(f32, f32, f32)> {
+  let (viewport, content, clear, clear_end) = match axis {
+    ScrollAxis::Horizontal => (
+      inner.viewport_width,
+      inner.content_width,
+      inner.bar_clear_x,
+      inner.bar_clear_end_x,
+    ),
+    ScrollAxis::Vertical => (
+      inner.viewport_height,
+      inner.content_height,
+      inner.bar_clear_y,
+      inner.bar_clear_end_y,
+    ),
+  };
+  // What sticks never takes the whole viewport from the bar.
+  let (clear, clear_end) = if clear + clear_end < viewport {
+    (clear, clear_end)
+  } else {
+    (0.0, 0.0)
+  };
+  // Where the bar across is there too, the track ends before its lane: the corner is no bar's.
+  let (other_scrolls, other_content, other_viewport) = match axis {
+    ScrollAxis::Horizontal => (inner.scrolls.1, inner.content_height, inner.viewport_height),
+    ScrollAxis::Vertical => (inner.scrolls.0, inner.content_width, inner.viewport_width),
+  };
+  let other_shows = match style.visible {
+    ScrollBarVisibility::Never => false,
+    ScrollBarVisibility::Always => true,
+    _ => other_content > other_viewport,
+  };
+  // A bar across in a lane of its own is under the viewport already: the bar down ends where the viewport does.
+  let other_reserved = axis == ScrollAxis::Vertical && inner.reserved_across;
+  let corner = if other_scrolls && other_shows && !other_reserved {
+    style.width + style.resolved_edge_inset()
+  } else {
+    0.0
+  };
+  let start = clear + style.resolved_end_inset();
+  let track = viewport - clear - clear_end - style.resolved_end_inset() * 2.0 - corner;
+  if track <= 0.0 {
+    return None;
+  }
+  let ratio = (viewport - clear - clear_end) / (content - clear - clear_end).max(1.0);
+  let travel = thumb_travel(track, style);
+  let thumb = (travel * ratio).max(style.min_thumb_length).min(travel);
+  Some((start, track, thumb))
+}
+
+/// How far along a track of `track` its thumb may go: the track less the thumb's inset at each end. The thumb's
+/// place, its drag and what takes the pointer all measure by it.
+fn thumb_travel(track: f32, style: &ScrollBarStyle) -> f32 {
+  (track - style.thumb_inset * 2.0).max(0.0)
 }
 
 impl Default for ScrollState {
@@ -209,6 +414,8 @@ impl ScrollState {
         paging: false,
         pending_scroll_x: None,
         pending_scroll_y: None,
+        wheel_x: None,
+        wheel_y: None,
         max_scroll_x: 0.0,
         max_scroll_y: 0.0,
         content_width: 0.0,
@@ -219,13 +426,21 @@ impl ScrollState {
         viewport_height: 0.0,
         viewport_abs_x: 0.0,
         viewport_abs_y: 0.0,
+        bar_clear_x: 0.0,
+        scrolls: (false, false),
+        bar_clear_y: 0.0,
+        bar_clear_end_x: 0.0,
+        bar_clear_end_y: 0.0,
+        reserved_across: false,
         layout_viewport_y: 0.0,
         pass_start: None,
         thumb_hovered: false,
+        hovered_bar: None,
         pointer_over: false,
         reveal: ScrollBarReveal::default(),
         painted_scroll: None,
         dragging: false,
+        drag_axis: None,
         drag_start_x: 0.0,
         drag_start_y: 0.0,
         drag_start_scroll_x: 0.0,
@@ -342,8 +557,15 @@ impl ScrollState {
 
   /// Scrolls to `(x, y)`, clamped to the content as last laid out. The new offset is drawn in the next frame,
   /// wherever the call comes from: an event handler, a timer or code outside any event. An offset the content is
-  /// already at asks for no frame.
+  /// already at asks for no frame. A wheel's scroll on its way stops: the content stays where this puts it.
   pub fn set_scroll(&self, x: f32, y: f32) {
+    self.stop_wheel();
+    self.keep_scroll(x, y);
+  }
+
+  /// [`Self::set_scroll`] for an offset that keeps what is shown where it is, after the content above it
+  /// changed: a wheel's scroll on its way goes on from there.
+  pub(crate) fn keep_scroll(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
     let offset = (x.clamp(0.0, inner.max_scroll_x), y.clamp(0.0, inner.max_scroll_y));
     inner.scroll_y_requests = inner.scroll_y_requests.wrapping_add(1);
@@ -360,6 +582,7 @@ impl ScrollState {
   /// queued, asks for no layout or frame: it resolves in the next layout that comes.
   pub fn set_scroll_pending(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
+    (inner.wheel_x, inner.wheel_y) = (None, None);
     let offset = (x.max(0.0), y.max(0.0));
     let already_there = inner.pending_scroll_x.is_none()
       && inner.pending_scroll_y.is_none()
@@ -377,6 +600,7 @@ impl ScrollState {
   /// `start..end`, resolved after the next layout measurement.
   pub(crate) fn reveal_y_pending(&self, start: f32, end: f32) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_y = None;
     inner.pending_scroll_y = Some(PendingScroll::Reveal { start, end });
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -399,6 +623,7 @@ impl ScrollState {
   /// Queue a vertical scroll to the top after the next layout measurement.
   pub fn scroll_to_top_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_y = None;
     inner.pending_scroll_y = Some(PendingScroll::Start);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -407,6 +632,7 @@ impl ScrollState {
   /// Queue a vertical scroll to the bottom after the next layout measurement.
   pub fn scroll_to_bottom_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_y = None;
     inner.pending_scroll_y = Some(PendingScroll::End);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -454,7 +680,8 @@ impl ScrollState {
   pub(crate) fn next_layout_scroll_y(&self, content_height: f32) -> f32 {
     let inner = self.inner.lock().unwrap();
     let max_scroll = (content_height - inner.viewport_height).max(0.0);
-    let was_at_bottom = inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON;
+    let was_at_bottom =
+      inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON && inner.wheel_y.is_none();
     let target = match inner.pending_scroll_y {
       Some(pending) => resolve_pending_scroll(
         pending,
@@ -482,6 +709,7 @@ impl ScrollState {
   /// Queue a horizontal scroll to the left edge after the next layout measurement.
   pub fn scroll_to_left_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_x = None;
     inner.pending_scroll_x = Some(PendingScroll::Start);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -490,6 +718,7 @@ impl ScrollState {
   /// Queue a horizontal scroll to the right edge after the next layout measurement.
   pub fn scroll_to_right_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_x = None;
     inner.pending_scroll_x = Some(PendingScroll::End);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -499,6 +728,7 @@ impl ScrollState {
   pub fn stick_to_bottom_if_near_end(&self, threshold: f32) -> bool {
     let mut inner = self.inner.lock().unwrap();
     if inner.max_scroll_y - inner.scroll_y <= threshold.max(0.0) {
+      inner.wheel_y = None;
       inner.pending_scroll_y = Some(PendingScroll::End);
       inner.scroll_dirty = true;
       inner.layout_subscribers.mark();
@@ -512,6 +742,7 @@ impl ScrollState {
   pub fn stick_to_right_if_near_end(&self, threshold: f32) -> bool {
     let mut inner = self.inner.lock().unwrap();
     if inner.max_scroll_x - inner.scroll_x <= threshold.max(0.0) {
+      inner.wheel_x = None;
       inner.pending_scroll_x = Some(PendingScroll::End);
       inner.scroll_dirty = true;
       inner.layout_subscribers.mark();
@@ -543,17 +774,22 @@ impl ScrollState {
     inner.layout_subscribers.mark();
   }
 
+  /// Scrolls by `(dx, dy)` at once, as far as the content goes. A wheel's scroll on its way along an axis that
+  /// is scrolled stops: the content moves from where it is drawn.
   pub fn scroll_by(&self, dx: f32, dy: f32) {
     self.scroll_by_with_overflow(dx, dy);
   }
 
+  /// [`Self::scroll_by`], telling how much of each delta the content could not take.
   pub fn scroll_by_with_overflow(&self, dx: f32, dy: f32) -> (f32, f32) {
     let mut inner = self.inner.lock().unwrap();
     if dx != 0.0 {
       inner.pending_scroll_x = None;
+      inner.wheel_x = None;
     }
     if dy != 0.0 {
       inner.pending_scroll_y = None;
+      inner.wheel_y = None;
     }
 
     let old_x = inner.scroll_x;
@@ -569,6 +805,73 @@ impl ScrollState {
     }
 
     (dx - consumed_x, dy - consumed_y)
+  }
+
+  /// Where the offset is going: where a wheel's scroll on its way leaves it
+  /// ([`Tree::wheel`](crate::app::Tree::wheel)), and else where it is. [`Self::scroll_x`] and
+  /// [`Self::scroll_y`] are the offset drawn now.
+  pub fn scroll_target(&self) -> (f32, f32) {
+    let inner = self.inner.lock().unwrap();
+    (
+      inner.wheel_x.map_or(inner.scroll_x, |wheel| wheel.target),
+      inner.wheel_y.map_or(inner.scroll_y, |wheel| wheel.target),
+    )
+  }
+
+  /// A mouse's wheel turned by `(dx, dy)` at `now`: the offset goes there over [`WHEEL_SCROLL_DURATION`], a
+  /// step with every [`Self::step_wheel`], instead of at once. Tells how much of each delta the content could
+  /// not take, as [`Self::scroll_by_with_overflow`] does: that is decided on where the offset is going, so a
+  /// container on its way to its end takes no more.
+  ///
+  /// A delta adds to where the scroll was already going, and the way there starts again from where the offset
+  /// is at `now`: one the other way turns it round at once. A scroll someone asked for that waits for a layout
+  /// is dropped, as a scroll at once drops it; a place kept is still kept.
+  pub(crate) fn wheel_by_with_overflow(&self, dx: f32, dy: f32, now: Instant) -> (f32, f32) {
+    let mut inner = self.inner.lock().unwrap();
+    // The offset is where it is at `now` before the wheel turns it. The tree has stepped it there already and
+    // told its container (`Tree::wheel`).
+    inner.step_wheel(now);
+    if dx != 0.0 && inner.pending_scroll_x.is_some_and(PendingScroll::is_request) {
+      inner.pending_scroll_x = None;
+    }
+    if dy != 0.0 && inner.pending_scroll_y.is_some_and(PendingScroll::is_request) {
+      inner.pending_scroll_y = None;
+    }
+    let (wheel_x, taken_x) = WheelScroll::turned(inner.wheel_x, inner.scroll_x, inner.max_scroll_x, dx, now);
+    let (wheel_y, taken_y) = WheelScroll::turned(inner.wheel_y, inner.scroll_y, inner.max_scroll_y, dy, now);
+    (inner.wheel_x, inner.wheel_y) = (wheel_x, wheel_y);
+    (dx - taken_x, dy - taken_y)
+  }
+
+  /// Whether a wheel's scroll is on its way.
+  pub(crate) fn wheel_scrolling(&self) -> bool {
+    let inner = self.inner.lock().unwrap();
+    inner.wheel_x.is_some() || inner.wheel_y.is_some()
+  }
+
+  /// Moves the offset to where a wheel's scroll on its way is at `now`. Tells whether it moved.
+  pub(crate) fn step_wheel(&self, now: Instant) -> bool {
+    self.inner.lock().unwrap().step_wheel(now)
+  }
+
+  /// Ends a wheel's scroll on its way where it was going, at once. Tells whether the offset moved.
+  pub(crate) fn end_wheel(&self) -> bool {
+    let mut inner = self.inner.lock().unwrap();
+    let Some(turned) = [inner.wheel_x, inner.wheel_y]
+      .into_iter()
+      .flatten()
+      .map(|wheel| wheel.turned)
+      .max()
+    else {
+      return false;
+    };
+    inner.step_wheel(turned + WHEEL_SCROLL_DURATION)
+  }
+
+  /// Stops a wheel's scroll on its way where the offset is.
+  pub(crate) fn stop_wheel(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    (inner.wheel_x, inner.wheel_y) = (None, None);
   }
 
   pub fn content_width(&self) -> f32 {
@@ -608,8 +911,30 @@ impl ScrollState {
     self.inner.lock().unwrap().dragging
   }
 
+  /// The bar under the pointer, whose thumb is drawn in [`ScrollBarStyle::thumb_hovered_color`].
+  pub fn hovered_bar(&self) -> Option<ScrollAxis> {
+    self.inner.lock().unwrap().hovered_bar
+  }
+
+  /// The bar whose thumb is dragged, drawn in [`ScrollBarStyle::thumb_pressed_color`].
+  pub fn dragged_bar(&self) -> Option<ScrollAxis> {
+    let inner = self.inner.lock().unwrap();
+    inner.drag_axis.filter(|_| inner.dragging)
+  }
+
+  /// Sets the bar under the pointer, and with it [`Self::is_thumb_hovered`].
+  pub(crate) fn set_hovered_bar(&self, bar: Option<ScrollAxis>) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.hovered_bar = bar;
+    inner.thumb_hovered = bar.is_some();
+  }
+
   pub fn set_thumb_hovered(&self, hovered: bool) {
-    self.inner.lock().unwrap().thumb_hovered = hovered;
+    let mut inner = self.inner.lock().unwrap();
+    inner.thumb_hovered = hovered;
+    if !hovered {
+      inner.hovered_bar = None;
+    }
   }
 
   /// Records whether the pointer is over the scroll container, which holds
@@ -648,11 +973,13 @@ impl ScrollState {
 
   pub fn begin_drag_axis(&self, axis: ScrollAxis, mouse_x: f32, mouse_y: f32) {
     let mut inner = self.inner.lock().unwrap();
+    // The thumb takes the content from where it is drawn: a wheel's scroll on its way stops.
     match axis {
-      ScrollAxis::Horizontal => inner.pending_scroll_x = None,
-      ScrollAxis::Vertical => inner.pending_scroll_y = None,
+      ScrollAxis::Horizontal => (inner.pending_scroll_x, inner.wheel_x) = (None, None),
+      ScrollAxis::Vertical => (inner.pending_scroll_y, inner.wheel_y) = (None, None),
     }
     inner.dragging = true;
+    inner.drag_axis = Some(axis);
     inner.drag_start_x = mouse_x;
     inner.drag_start_y = mouse_y;
     inner.drag_start_scroll_x = inner.scroll_x;
@@ -660,7 +987,9 @@ impl ScrollState {
   }
 
   pub fn end_drag(&self) {
-    self.inner.lock().unwrap().dragging = false;
+    let mut inner = self.inner.lock().unwrap();
+    inner.dragging = false;
+    inner.drag_axis = None;
   }
 
   pub fn drag_to(&self, mouse_y: f32, style: &crate::layout::scrollbar::ScrollBarStyle) {
@@ -681,35 +1010,31 @@ impl ScrollState {
 
     match axis {
       ScrollAxis::Horizontal => {
-        let track_width = inner.viewport_width - style.resolved_end_inset() * 2.0;
-        if track_width <= 0.0 {
+        let Some((_, track_width, thumb_width)) = bar_track(&inner, ScrollAxis::Horizontal, style) else {
           return;
-        }
-        let ratio = inner.viewport_width / inner.content_width.max(1.0);
-        let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
-        let scrollable_track = track_width - thumb_width;
+        };
+        let scrollable_track = thumb_travel(track_width, style) - thumb_width;
         if scrollable_track <= 0.0 {
           return;
         }
 
         let delta_px = mouse_x - inner.drag_start_x;
         let scroll_delta = delta_px / scrollable_track * inner.max_scroll_x;
+        inner.wheel_x = None;
         inner.scroll_x = (inner.drag_start_scroll_x + scroll_delta).clamp(0.0, inner.max_scroll_x);
       }
       ScrollAxis::Vertical => {
-        let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
-        if track_height <= 0.0 {
+        let Some((_, track_height, thumb_height)) = bar_track(&inner, ScrollAxis::Vertical, style) else {
           return;
-        }
-        let ratio = inner.viewport_height / inner.content_height.max(1.0);
-        let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
-        let scrollable_track = track_height - thumb_height;
+        };
+        let scrollable_track = thumb_travel(track_height, style) - thumb_height;
         if scrollable_track <= 0.0 {
           return;
         }
 
         let delta_px = mouse_y - inner.drag_start_y;
         let scroll_delta = delta_px / scrollable_track * inner.max_scroll_y;
+        inner.wheel_y = None;
         inner.scroll_y = (inner.drag_start_scroll_y + scroll_delta).clamp(0.0, inner.max_scroll_y);
       }
     }
@@ -720,19 +1045,18 @@ impl ScrollState {
   pub fn thumb_rect(&self, style: &crate::layout::scrollbar::ScrollBarStyle) -> (f32, f32, f32, f32) {
     let inner = self.inner.lock().unwrap();
     let track_x = inner.viewport_abs_x + inner.viewport_width - style.width - style.resolved_edge_inset();
-    let track_y = inner.viewport_abs_y + style.resolved_end_inset();
-    let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
-
-    let ratio = inner.viewport_height / inner.content_height.max(1.0);
-    let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+    let (start, track_height, thumb_height) =
+      bar_track(&inner, ScrollAxis::Vertical, style).unwrap_or((style.resolved_end_inset(), 0.0, 0.0));
+    let track_y = inner.viewport_abs_y + start;
     let scroll_ratio = if inner.max_scroll_y > 0.0 {
       inner.scroll_y / inner.max_scroll_y
     } else {
       0.0
     };
-    let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
+    let inset = style.thumb_inset;
+    let thumb_y = track_y + inset + (thumb_travel(track_height, style) - thumb_height) * scroll_ratio;
 
-    (track_x, thumb_y, style.width, thumb_height)
+    (track_x + inset, thumb_y, style.width - inset * 2.0, thumb_height)
   }
 
   pub fn thumb_rect_for_axis(
@@ -769,24 +1093,23 @@ impl ScrollState {
 
     match axis {
       ScrollAxis::Horizontal => {
-        let track_x = inner.viewport_abs_x + style.resolved_end_inset();
+        let (start, track_width, thumb_width) = bar_track(&inner, ScrollAxis::Horizontal, style)?;
+        let track_x = inner.viewport_abs_x + start;
         let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.resolved_edge_inset();
-        let track_width = inner.viewport_width - style.resolved_end_inset() * 2.0;
         let track_height = style.width;
-        if track_width <= 0.0 || track_height <= 0.0 {
+        if track_height <= 0.0 {
           return None;
         }
-
-        let ratio = inner.viewport_width / inner.content_width.max(1.0);
-        let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
         let max_scroll = (inner.content_width - inner.viewport_width).max(0.0);
         let scroll_ratio = if max_scroll > 0.0 {
           inner.scroll_x / max_scroll
         } else {
           0.0
         };
-        let thumb_x = track_x + (track_width - thumb_width) * scroll_ratio;
-        let (thumb_x, thumb_width) = squeezed_thumb(thumb_x, thumb_width, inner.overscroll_x, style.width);
+        let inset = style.thumb_inset;
+        let thickness = track_height - inset * 2.0;
+        let thumb_x = track_x + inset + (thumb_travel(track_width, style) - thumb_width) * scroll_ratio;
+        let (thumb_x, thumb_width) = squeezed_thumb(thumb_x, thumb_width, inner.overscroll_x, thickness);
 
         Some(ScrollBarGeometry {
           track_x,
@@ -794,39 +1117,38 @@ impl ScrollState {
           track_width,
           track_height,
           thumb_x,
-          thumb_y: track_y,
+          thumb_y: track_y + inset,
           thumb_width,
-          thumb_height: track_height,
+          thumb_height: thickness,
         })
       }
       ScrollAxis::Vertical => {
+        let (start, track_height, thumb_height) = bar_track(&inner, ScrollAxis::Vertical, style)?;
         let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.resolved_edge_inset();
-        let track_y = inner.viewport_abs_y + style.resolved_end_inset();
+        let track_y = inner.viewport_abs_y + start;
         let track_width = style.width;
-        let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
-        if track_width <= 0.0 || track_height <= 0.0 {
+        if track_width <= 0.0 {
           return None;
         }
-
-        let ratio = inner.viewport_height / inner.content_height.max(1.0);
-        let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
         let max_scroll = (inner.content_height - inner.viewport_height).max(0.0);
         let scroll_ratio = if max_scroll > 0.0 {
           inner.scroll_y / max_scroll
         } else {
           0.0
         };
-        let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
-        let (thumb_y, thumb_height) = squeezed_thumb(thumb_y, thumb_height, inner.overscroll_y, style.width);
+        let inset = style.thumb_inset;
+        let thickness = track_width - inset * 2.0;
+        let thumb_y = track_y + inset + (thumb_travel(track_height, style) - thumb_height) * scroll_ratio;
+        let (thumb_y, thumb_height) = squeezed_thumb(thumb_y, thumb_height, inner.overscroll_y, thickness);
 
         Some(ScrollBarGeometry {
           track_x,
           track_y,
           track_width,
           track_height,
-          thumb_x: track_x,
+          thumb_x: track_x + inset,
           thumb_y,
-          thumb_width: track_width,
+          thumb_width: thickness,
           thumb_height,
         })
       }
@@ -886,6 +1208,27 @@ impl ScrollState {
     self.inner.lock().unwrap().scroll_dirty
   }
 
+  /// How far in from the viewport's left and top edges its bars start: the reach of what sticks at those
+  /// edges, measured at each layout of a container whose bars keep clear of it, and nothing for one whose bars
+  /// do not.
+  /// Tells the state whether its bar across has a lane of its own under the content now.
+  pub(crate) fn set_reserved_across(&self, reserved: bool) {
+    self.inner.lock().unwrap().reserved_across = reserved;
+  }
+
+  /// Tells the state which ways its container scrolls, across and down.
+  pub(crate) fn set_scrolls(&self, across: bool, down: bool) {
+    self.inner.lock().unwrap().scrolls = (across, down);
+  }
+
+  pub(crate) fn set_bar_clearance(&self, x: f32, y: f32, end_x: f32, end_y: f32) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.bar_clear_x = x.max(0.0);
+    inner.bar_clear_y = y.max(0.0);
+    inner.bar_clear_end_x = end_x.max(0.0);
+    inner.bar_clear_end_y = end_y.max(0.0);
+  }
+
   /// Record one measurement of the scroll container. A layout pass can
   /// measure a container more than once (a flex parent re-lays out a child it
   /// shrank or stretched); every measurement resolves the pending scroll and
@@ -909,8 +1252,12 @@ impl ScrollState {
       max_scroll_y: inner.max_scroll_y,
     });
     inner.pass_start = Some(start);
-    let was_at_right = start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON;
-    let was_at_bottom = start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON;
+    // An offset at the end stays at the end when the content grows. One a wheel's scroll is moving is the
+    // scroll's: near the end it is leaving it, or on its way to it (`WheelScroll::to_end`).
+    let was_at_right =
+      start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON && inner.wheel_x.is_none();
+    let was_at_bottom =
+      start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON && inner.wheel_y.is_none();
 
     inner.content_width = content_w;
     inner.content_height = content_h;
@@ -1066,10 +1413,21 @@ pub enum ShrinkLimit {
   /// `min_width`/`min_height`. The content minimum of a `Row` in a row (or
   /// a `Column` in a column) is its padding and spacing, the natural size of
   /// every child that does not shrink and the limit of every child that does.
-  /// Anything else (text, rect, stack, scroll container, wrapping line, line
-  /// on the other axis) keeps its natural size, like a flex item with CSS
+  /// The content minimum of a line on the other axis (a `Column` in a row)
+  /// is the widest of its children's: a child with an explicit
+  /// `min_width`/`min_height` counts at it, so a text that may wrap says
+  /// `min_width(0.0)`. Anything else (text, rect, stack, scroll container,
+  /// wrapping line) keeps its natural size, like a flex item with CSS
   /// `min-width: auto`.
   Content,
+  /// [`Content`](Self::Content) first, then [`MinSize`](Self::MinSize): the
+  /// child shrinks down to its content minimum while the children of its
+  /// order can take the overflow above their limits, and when they cannot,
+  /// it gives way below it down to its `min_width`/`min_height`, the last
+  /// such child of the order first. Its own line is then laid out as a
+  /// collapsed line: what in it has this limit gives way below its content
+  /// too. Steps whose descriptions wrap before any title is cut.
+  ContentFirst,
   /// Keep the natural size or drop out of the line: a dropped child is laid
   /// out at zero size, takes no spacing, and is neither drawn nor hit.
   /// Nothing inside it is a Tab stop or takes focus, focus inside it is
@@ -1080,7 +1438,8 @@ pub enum ShrinkLimit {
 }
 
 /// When and how far a shrinking flex child gives way: a node's
-/// `.shrink_order(...)`, `.shrink_limit(...)` and `.shrink_drop_below(...)`.
+/// `.shrink_order(...)`, `.shrink_limit(...)` and `.shrink_drop_below(...)`;
+/// and whether a child stands for what its line dropped (`.drop_marker(...)`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ShrinkRule {
   pub(crate) order: i32,
@@ -1088,6 +1447,95 @@ pub(crate) struct ShrinkRule {
   /// Shrink no further than this main size, then drop (see
   /// `.shrink_drop_below`).
   pub(crate) drop_below: Option<f32>,
+  /// Takes room only while another child of the line is dropped (see
+  /// `.drop_marker`).
+  pub(crate) marker: bool,
+}
+
+/// One end of a [`SizeBounds`] axis: the size it is at, and whether that size is itself within.
+type Bound = Option<(f32, bool)>;
+
+/// The sizes of a `Stack` at which a child of it is laid out: a child's `.drop_outside(...)`. With no bound
+/// said it holds at every size. A bound that is not a number never holds.
+///
+/// ```
+/// use lurq::layout::layout_kind::SizeBounds;
+///
+/// // From 240 wide up; under 240 and over 96; 96 and under.
+/// let large = SizeBounds::new().min_width(240.0);
+/// let medium = SizeBounds::new().above_width(96.0).below_width(240.0);
+/// let small = SizeBounds::new().max_width(96.0);
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SizeBounds {
+  width: (Bound, Bound),
+  height: (Bound, Bound),
+}
+
+impl SizeBounds {
+  pub const fn new() -> Self {
+    Self {
+      width: (None, None),
+      height: (None, None),
+    }
+  }
+
+  /// At `width` and wider.
+  pub const fn min_width(mut self, width: f32) -> Self {
+    self.width.0 = Some((width, true));
+    self
+  }
+
+  /// Wider than `width`.
+  pub const fn above_width(mut self, width: f32) -> Self {
+    self.width.0 = Some((width, false));
+    self
+  }
+
+  /// At `width` and narrower.
+  pub const fn max_width(mut self, width: f32) -> Self {
+    self.width.1 = Some((width, true));
+    self
+  }
+
+  /// Narrower than `width`.
+  pub const fn below_width(mut self, width: f32) -> Self {
+    self.width.1 = Some((width, false));
+    self
+  }
+
+  /// At `height` and higher.
+  pub const fn min_height(mut self, height: f32) -> Self {
+    self.height.0 = Some((height, true));
+    self
+  }
+
+  /// Higher than `height`.
+  pub const fn above_height(mut self, height: f32) -> Self {
+    self.height.0 = Some((height, false));
+    self
+  }
+
+  /// At `height` and lower.
+  pub const fn max_height(mut self, height: f32) -> Self {
+    self.height.1 = Some((height, true));
+    self
+  }
+
+  /// Lower than `height`.
+  pub const fn below_height(mut self, height: f32) -> Self {
+    self.height.1 = Some((height, false));
+    self
+  }
+
+  /// Whether a stack of `size` is within the bounds.
+  pub fn holds(&self, size: Size) -> bool {
+    let within = |value: f32, (min, max): (Bound, Bound)| {
+      min.is_none_or(|(bound, inclusive)| if inclusive { value >= bound } else { value > bound })
+        && max.is_none_or(|(bound, inclusive)| if inclusive { value <= bound } else { value < bound })
+    };
+    within(size.width, self.width) && within(size.height, self.height)
+  }
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -1137,6 +1585,9 @@ pub struct FrameConstraints {
   pub max_width: Option<Dimension>,
   pub min_height: Option<Dimension>,
   pub max_height: Option<Dimension>,
+  /// The box's width over its height, as CSS `aspect-ratio`: it gives the axis that is auto from the one that
+  /// is known. Set with `.aspect_ratio(...)`.
+  pub aspect_ratio: Option<f32>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -1281,6 +1732,10 @@ impl FrameConstraints {
   }
   pub fn with_max_height(mut self, value: Option<Dimension>) -> Self {
     self.max_height = value;
+    self
+  }
+  pub fn with_aspect_ratio(mut self, value: Option<f32>) -> Self {
+    self.aspect_ratio = value;
     self
   }
 }

@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::time::Duration;
 
 use lurq::{
   app::{
@@ -26,7 +26,12 @@ fn renders_caret_after_text_input_is_focused() {
   pointer_click(&mut runtime, x, y, MouseButton::Left);
   let snapshot = render_pass(&mut runtime);
 
-  assert!(snapshot.rects.iter().any(|rect| rect.width == 1.0 && rect.height > 0.0));
+  assert!(
+    snapshot
+      .rects
+      .iter()
+      .any(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
+  );
 }
 
 #[test]
@@ -35,6 +40,9 @@ fn focused_text_input_caret_blinks_and_resets_after_typing() {
   let value = Signal::new("A".to_owned());
   let mut runtime = Tree::new();
 
+  // The blink runs on the runtime's clock, which the test moves: a slow machine cannot make it blink early.
+  let start = lurq::time::Instant::now();
+  runtime.set_animation_clock(Some(start));
   runtime.set_root(lurq::components::TextInput::new(value).caret_color(caret_color));
   run_pass(&mut runtime);
   let rect = runtime.find_element(|_| true).unwrap().bounds();
@@ -44,7 +52,7 @@ fn focused_text_input_caret_blinks_and_resets_after_typing() {
   let visible = render_pass(&mut runtime);
   assert!(has_caret(&visible, caret_color));
 
-  thread::sleep(Duration::from_millis(600));
+  runtime.set_animation_clock(Some(start + Duration::from_millis(600)));
   let hidden = render_pass(&mut runtime);
   assert!(!has_caret(&hidden, caret_color));
 
@@ -73,6 +81,10 @@ fn caret_mode_uses_theme_and_text_input_override() {
       .caret_mode(CaretMode::Blinking),
   );
 
+  // Both blink on a clock the test moves, not on the machine's.
+  let start = lurq::time::Instant::now();
+  persistent_runtime.set_animation_clock(Some(start));
+  override_runtime.set_animation_clock(Some(start));
   focus_text_input(&mut persistent_runtime, &mut persistent_app);
   focus_text_input(&mut override_runtime, &mut override_app);
   assert!(has_caret_quad(
@@ -82,7 +94,8 @@ fn caret_mode_uses_theme_and_text_input_override() {
   ));
   assert!(has_caret_quad(&mut override_runtime, &mut override_app, override_color));
 
-  thread::sleep(Duration::from_millis(600));
+  persistent_runtime.set_animation_clock(Some(start + Duration::from_millis(600)));
+  override_runtime.set_animation_clock(Some(start + Duration::from_millis(600)));
 
   assert!(has_caret_quad(
     &mut persistent_runtime,
@@ -111,7 +124,7 @@ fn caret_uses_text_line_height_in_tall_text_input() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert!(
@@ -156,11 +169,13 @@ fn multiline_caret_uses_glyph_height_inside_relaxed_line_pitch() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.color == caret_color)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.color == caret_color)
     .expect("focused multiline input should render its caret");
 
-  assert!((caret.height - 10.0).abs() < 0.01);
-  assert!((caret.y - 7.5).abs() < 0.01);
+  // As high as the theme says for type of 10, centred in a line of 25.
+  let high = crate::support::caret_height(10.0);
+  assert!((caret.height - high).abs() < 0.01);
+  assert!((caret.y - (25.0 - high) * 0.5).abs() < 0.01);
 }
 
 #[test]
@@ -243,7 +258,7 @@ fn padded_scroll_overflow_keeps_end_caret_inside_content_clip() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert!(caret.clip.active, "overflowing text input caret should be clipped");
@@ -277,7 +292,7 @@ fn caret_color_sets_rendered_caret_color() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert_eq!(caret.color, expected);
@@ -308,7 +323,7 @@ fn text_style_caret_color_sets_rendered_caret_color() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret");
 
   assert_eq!(caret.color, expected);
@@ -343,7 +358,7 @@ fn caret_defaults_to_text_color_for_empty_input() {
   let caret = snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused empty text input should render a caret");
 
   assert_eq!(caret.color, expected);
@@ -399,12 +414,12 @@ fn caret_color_accepts_palette_color() {
   let value = Signal::new("A".to_owned());
   let mut app = App::new();
   let mut runtime = Tree::new();
-  app.theme().set_palette_color(PaletteColor::Accent, expected);
+  app.theme().set_palette_color(PaletteColor::Primary, expected);
 
   runtime.set_root(
     lurq::components::TextInput::new(value)
       .height(40.0)
-      .caret_color(PaletteColor::Accent),
+      .caret_color(PaletteColor::Primary),
   );
 
   assert_eq!(focused_caret_color(&mut runtime, &mut app), expected);
@@ -416,13 +431,13 @@ fn text_style_caret_color_accepts_palette_color() {
   let value = Signal::new("A".to_owned());
   let mut app = App::new();
   let mut runtime = Tree::new();
-  app.theme().set_palette_color(PaletteColor::Accent, expected);
+  app.theme().set_palette_color(PaletteColor::Primary, expected);
 
   runtime.set_root(
     lurq::components::TextInput::styled(
       value,
       TextStyle {
-        caret_color: Some(PaletteColor::Accent.into()),
+        caret_color: Some(PaletteColor::Primary.into()),
         ..TextStyle::default()
       },
     )
@@ -443,7 +458,9 @@ fn focused_caret_color(runtime: &mut Tree, app: &mut App) -> Color {
   quads
     .iter()
     .find_map(|quad| match quad.content {
-      QuadContent::Rect { color, .. } if quad.width == 1.0 && quad.height > 0.0 => Some(color),
+      QuadContent::Rect { color, .. } if quad.width == crate::support::caret_width() && quad.height > 0.0 => {
+        Some(color)
+      }
       _ => None,
     })
     .expect("focused text input should render a caret")
@@ -453,7 +470,7 @@ fn focused_caret_y(runtime: &mut Tree) -> f32 {
   render_pass(runtime)
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0)
     .expect("focused text input should render a caret")
     .y
 }
@@ -471,7 +488,9 @@ fn has_caret_quad(runtime: &mut Tree, app: &mut App, color: Color) -> bool {
     .resolve_quads(runtime.last_layout().unwrap())
     .iter()
     .any(|quad| match quad.content {
-      QuadContent::Rect { color: rect_color, .. } => quad.width == 1.0 && quad.height > 0.0 && rect_color == color,
+      QuadContent::Rect { color: rect_color, .. } => {
+        quad.width == crate::support::caret_width() && quad.height > 0.0 && rect_color == color
+      }
       _ => false,
     })
 }
@@ -480,5 +499,5 @@ fn has_caret(snapshot: &crate::support::RenderSnapshot, color: Color) -> bool {
   snapshot
     .rects
     .iter()
-    .any(|rect| rect.width == 1.0 && rect.height > 0.0 && rect.color == color)
+    .any(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0 && rect.color == color)
 }

@@ -37,4 +37,6 @@ pub enum CursorIcon {
   ZoomOut,
   DndAsk,
   AllResize,
+  /// No pointer is drawn while it is over the element: a video playing with its controls faded out.
+  None,
 }

@@ -127,6 +127,9 @@ fn a_double_click_selects_a_word_and_a_triple_click_its_line() {
   let mut page = page(Text::new(PARAGRAPHS).selectable(true), 1.0);
   let (from, to) = page.inks_of("longer", 0);
   let (x, y) = page.before(from + 1);
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  page.tree.set_press_clock(Some(std::time::Instant::now()));
   page.click(x, y);
   page.click(x, y);
   assert_eq!(page.selected().as_deref(), Some("longer"));
@@ -207,6 +210,104 @@ fn every_row_of_a_padded_text_copies_itself_and_is_highlighted_at_fractional_wid
   assert!(
     failures.is_empty(),
     "{} rows over {pages} pages copied or highlighted other glyphs than they draw:\n{}",
+    failures.len(),
+    failures.join("\n")
+  );
+}
+
+/// The height of `WRAPPED` laid out `width` wide, in logical pixels: how
+/// many lines the layout wraps it into, whatever the font.
+fn laid_out_height(width: f32) -> f32 {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(800, 600);
+  tree.set_root(
+    Column::new()
+      .width(width)
+      .child(Text::new(WRAPPED).width(width).id("measured")),
+  );
+  tree.pass(&mut app, &TestSurface);
+  tree
+    .get_element_by_id_mut("measured")
+    .expect("the text")
+    .bounds()
+    .expect("laid out")
+    .height
+}
+
+/// The paint wraps a text at its width rounded up to a device pixel, so a
+/// width a hair under where the layout fits the text on a line fewer paints
+/// it on that line fewer. A centered text there is drawn where the layout
+/// put its first line; its selection, highlight and copy meet those glyphs,
+/// whatever font the system lays it out in: the width is found from the
+/// layout, not chosen for one font.
+#[test]
+fn a_centered_text_painted_on_a_line_fewer_than_laid_out_copies_and_highlights_its_rows() {
+  // Where the layout's lines change, between two widths that wrap the text
+  // differently: the narrowest width that fits it on the fewer lines. Under
+  // it by less than the pixel it falls in, the layout wraps the text onto
+  // more lines than the paint does at the width rounded up past it.
+  let width = [(200.0_f32, 260.0_f32), (260.0, 330.0), (330.0, 420.0)]
+    .into_iter()
+    .filter_map(|(mut narrow, mut wide)| {
+      let fewer = laid_out_height(wide);
+      if laid_out_height(narrow) <= fewer {
+        return None;
+      }
+      while wide - narrow > 0.001 {
+        let middle = (narrow + wide) / 2.0;
+        if laid_out_height(middle) > fewer {
+          narrow = middle;
+        } else {
+          wide = middle;
+        }
+      }
+      // A break on a pixel boundary rounds up to itself: no width under it paints fewer lines.
+      (wide.fract() > 0.01).then_some(wide - 0.005)
+    })
+    .next()
+    .expect("a break between two lines off a pixel boundary");
+  assert!(
+    laid_out_height(width) > laid_out_height(width.ceil()),
+    "the paint wraps on a line fewer at {width}"
+  );
+  let mut failures = Vec::new();
+  for height in [0.0, 260.0] {
+    let text = Text::new(WRAPPED).selectable(true).width(width);
+    let text = if height > 0.0 { text.height(height) } else { text };
+    let mut page = page(Column::new().width(width + 20.0).child(text), 1.0);
+    let page_name = format!("centered width {width} height {height}");
+    failures.extend(rows_copying_other_text(&mut page, &page_name));
+    failures.extend(rows_highlighted_elsewhere(&mut page, &page_name));
+    // Half a line off, a row's highlight still holds the middle of its
+    // glyphs at its edge: each one sits around them.
+    let rows = page.inks.iter().map(|ink| ink.row).max().unwrap_or(0) + 1;
+    for row in 0..rows {
+      let first = page
+        .inks
+        .iter()
+        .position(|ink| ink.row == row)
+        .expect("a glyph on the row");
+      let last = page
+        .inks
+        .iter()
+        .rposition(|ink| ink.row == row)
+        .expect("a glyph on the row");
+      page.drag_inks(first, last);
+      let middle = page.inks[first].y;
+      for rect in page.highlights() {
+        let off = (rect.y + rect.height / 2.0 - middle).abs();
+        if off > rect.height / 4.0 {
+          failures.push(format!(
+            "{page_name} row {row}: its highlight's middle is {off} off its glyphs' middle at {middle}"
+          ));
+        }
+      }
+    }
+  }
+  assert!(
+    failures.is_empty(),
+    "{} rows copied or highlighted other glyphs than they draw:\n{}",
     failures.len(),
     failures.join("\n")
   );

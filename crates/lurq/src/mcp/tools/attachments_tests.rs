@@ -95,6 +95,61 @@ fn an_mcp_paste_carries_its_text_and_files_as_synthetic_input() {
 }
 
 #[test]
+fn an_mcp_paste_carries_the_pixels_of_an_image_file_as_a_screenshot_on_the_clipboard_would_be() {
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let mut tree = Tree::new();
+  tree.resize(200, 200);
+  let log = seen.clone();
+  tree.set_root(
+    Column::new()
+      .width(200.0)
+      .height(200.0)
+      .child(
+        TextInput::new(Signal::new(String::new()))
+          .id("input")
+          .on_paste(move |event: PasteEvent| {
+            let image = event
+              .image()
+              .map(|image| (image.width(), image.height(), image.rgba()[..4].to_vec()));
+            log.lock().unwrap().push((event.text().is_some(), image));
+          }),
+      ),
+  );
+  let mut app = App::new();
+  tree.pass(&mut app, &TestSurface);
+  let sender = hosted(&mut tree);
+  let (x, y) = tree.get_element_by_id_mut("input").unwrap().bounds().unwrap().center();
+  interact(&mut tree, &mut app, &sender, json!({"action": "click", "x": x, "y": y})).unwrap();
+  // A picture of three by two, all of one color, as a file.
+  let path = std::env::temp_dir().join(format!("lurq-mcp-paste-{}.png", std::process::id()));
+  image::RgbaImage::from_pixel(3, 2, image::Rgba([10, 20, 30, 255]))
+    .save(&path)
+    .unwrap();
+
+  let reply = interact(
+    &mut tree,
+    &mut app,
+    &sender,
+    json!({"action": "paste", "image": path.to_string_lossy()}),
+  );
+  let _ = std::fs::remove_file(&path);
+  let reply = reply.unwrap();
+
+  assert_eq!((&reply["image"], &reply["text"]), (&json!(true), &json!(false)));
+  assert_eq!(*seen.lock().unwrap(), [(false, Some((3, 2, vec![10, 20, 30, 255])))]);
+  // A path that is no picture is said, and nothing is pasted.
+  let error = interact(
+    &mut tree,
+    &mut app,
+    &sender,
+    json!({"action": "paste", "image": "no/such/picture.png"}),
+  )
+  .unwrap_err();
+  assert!(error.contains("no/such/picture.png"), "{error}");
+  assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn an_mcp_paste_without_content_is_refused_instead_of_reading_the_clipboard() {
   let mut tree = Tree::new();
   tree.resize(200, 200);

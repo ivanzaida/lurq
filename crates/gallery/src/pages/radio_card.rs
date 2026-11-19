@@ -1,0 +1,482 @@
+//! The page of the radio card: its playground, a group bound to a signal as the board draws it, plans side by side
+//! with their prices, and the states of one card.
+
+use std::sync::Arc;
+
+use lurq::{
+  app::{component::Component, ctx::Ctx},
+  components::{Column, Row},
+  core::Signal,
+  layout::Alignment,
+  node::Element,
+  ui::{Interaction, Orientation, RadioCard, RadioCardGroup, icons},
+};
+
+use crate::{
+  doc::{Frame, Header, Section},
+  kit::{FILL, props_table, quiet, segmented_fill},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
+};
+
+/// The choices of the playground, as the board draws the first.
+const DENSITIES: [(&str, &str); 3] = [
+  ("Comfortable", "Roomy rows, 36px controls."),
+  ("Compact", "Dense rows, 28px controls."),
+  ("Spacious", "Large rows, for touch."),
+];
+
+/// Something on a stage with what it is under it.
+fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  Column::new()
+    .max_width(FILL)
+    .spacing(9.0)
+    .overflow_visible()
+    .child(Row::new().max_width(FILL).overflow_visible().child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+/// A group of cards side by side with what it is under it. It is as wide as the stage: a row is as wide as
+/// what is in it, and the cards that do not fit beside the others would not go on to the next line.
+fn row_of_cards(shown: impl Into<Element>, caption: &str) -> Column {
+  Column::new()
+    .width(FILL)
+    .spacing(9.0)
+    .overflow_visible()
+    .child(shown)
+    .child(quiet(caption, 12.0))
+}
+
+/// What is on a stage, side by side; what does not fit goes on to the next line.
+fn items() -> Row {
+  Row::new()
+    .width(FILL)
+    .spacing(28.0)
+    .wrap()
+    .align_items(Alignment::Start)
+    .overflow_visible()
+}
+
+pub struct RadioCardPage {
+  frame: Frame,
+  playground: Playground,
+  selected: Signal<usize>,
+  orientation: Signal<Orientation>,
+  descriptions: Signal<bool>,
+  invalid: Signal<bool>,
+  disabled: Signal<bool>,
+  last_disabled: Signal<bool>,
+  density: Signal<usize>,
+  plan: Signal<&'static str>,
+}
+
+impl RadioCardPage {
+  /// The playground: the group as the panel's props make it.
+  fn play(&self, ctx: &mut Ctx) -> Element {
+    let selected = self.selected.get().min(DENSITIES.len() - 1);
+    let (orientation, descriptions) = (self.orientation.get(), self.descriptions.get());
+    let horizontal = orientation == Orientation::Horizontal;
+    let (invalid, disabled, last_disabled) = (self.invalid.get(), self.disabled.get(), self.last_disabled.get());
+    let cards = move || {
+      DENSITIES.iter().enumerate().map(move |(index, (title, description))| {
+        let mut card = RadioCard::new(title).disabled(last_disabled && index + 1 == DENSITIES.len());
+        if descriptions {
+          card = card.description(description);
+        }
+        (index, card)
+      })
+    };
+    let plain = move |on_change: Box<dyn Fn(&usize) + Send + Sync>| {
+      RadioCardGroup::controlled(Some(selected), cards(), on_change)
+        .orientation(orientation)
+        .invalid(invalid)
+        .disabled(disabled)
+    };
+    let (record, set) = (self.playground.recorder(), self.selected.clone());
+    let group = plain(Box::new(move |index| {
+      set.set(*index);
+      record(format!("on_change: {}", DENSITIES[*index].0));
+    }));
+
+    let mut code = vec!["RadioCardGroup::new(density, [".to_owned()];
+    for (index, (title, description)) in DENSITIES.iter().enumerate() {
+      let mut card = format!("RadioCard::new({title:?})");
+      if descriptions {
+        card.push_str(&format!(".description({description:?})"));
+      }
+      if last_disabled && index + 1 == DENSITIES.len() {
+        card.push_str(".disabled(true)");
+      }
+      code.push(format!("    (Density::{title}, {card}),"));
+    }
+    code.push("])".to_owned());
+    if horizontal {
+      code.push("    .orientation(Orientation::Horizontal)".to_owned());
+    }
+    if invalid {
+      code.push("    .invalid(true)".to_owned());
+    }
+    if disabled {
+      code.push("    .disabled(true)".to_owned());
+    }
+
+    let mut tree = vec![format!(
+      "root          {}   {}",
+      self.playground.measured(),
+      if horizontal {
+        "side by side, 12 apart"
+      } else {
+        "12 apart"
+      }
+    )];
+    for (index, (title, _)) in DENSITIES.iter().enumerate() {
+      let last = index + 1 == DENSITIES.len();
+      let (branch, under) = if last { ("└─", " ") } else { ("├─", "│") };
+      tree.push(format!(
+        "{branch} card       {title:?}{}",
+        if index == selected { "   selected, edge 2" } else { "" }
+      ));
+      tree.push(format!(
+        "{under}  ├─ text    title{}",
+        if descriptions { " · description" } else { "" }
+      ));
+      tree.push(format!(
+        "{under}  └─ mark    16 × 16 px, the radio's{}",
+        if index == selected { ", the dot in it" } else { "" }
+      ));
+    }
+
+    let (to_selected, to_orientation, flags, to_descriptions) = (
+      self.selected.clone(),
+      self.orientation.clone(),
+      [self.invalid.clone(), self.disabled.clone(), self.last_disabled.clone()],
+      self.descriptions.clone(),
+    );
+    self.playground.card(
+      ctx,
+      Spec {
+        title: "Radio Card",
+        make: Arc::new(move || plain(Box::new(|_| {})).into()),
+        shown: Shown::of(self.playground.styled(group)),
+        fill: false,
+        forceable: false,
+        facts: format!("selected: {}", DENSITIES[selected].0),
+        event: "on_change",
+        code,
+        tree,
+        controls: vec![
+          prop(
+            "orientation",
+            "Orientation",
+            segmented_fill(
+              &[
+                ("Vertical", Orientation::Vertical),
+                ("Horizontal", Orientation::Horizontal),
+              ],
+              &orientation,
+              {
+                let set = self.orientation.clone();
+                move |orientation| set.set(orientation)
+              },
+            ),
+          ),
+          flag("description", &self.descriptions),
+          flag("invalid", &self.invalid),
+          flag("disabled", &self.disabled),
+          divider(),
+          flag("Spacious disabled", &self.last_disabled),
+        ],
+        changed: [
+          selected != 0,
+          horizontal,
+          !descriptions,
+          invalid,
+          disabled,
+          last_disabled,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
+        reset: Arc::new(move || {
+          to_selected.set(0);
+          to_orientation.set(Orientation::Vertical);
+          to_descriptions.set(true);
+          for flag in &flags {
+            flag.set(false);
+          }
+        }),
+      },
+    )
+  }
+}
+
+impl Component for RadioCardPage {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      frame: Frame::new(ctx),
+      playground: Playground::new(ctx, 0),
+      selected: ctx.signal(0),
+      orientation: ctx.signal(Orientation::Vertical),
+      descriptions: ctx.signal(true),
+      invalid: ctx.signal(false),
+      disabled: ctx.signal(false),
+      last_disabled: ctx.signal(false),
+      density: ctx.signal(0),
+      plan: ctx.signal("team"),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let bound = row_of_cards(
+      RadioCardGroup::new(
+        self.density.clone(),
+        [
+          (
+            0usize,
+            RadioCard::new("Comfortable").description("Roomy rows, 36px controls."),
+          ),
+          (1, RadioCard::new("Compact").description("Dense rows, 28px controls.")),
+        ],
+      )
+      .orientation(Orientation::Horizontal),
+      &format!("the signal has: {}", self.density.get()),
+    );
+    let plans = row_of_cards(
+      RadioCardGroup::new(
+        self.plan.clone(),
+        [
+          (
+            "free",
+            RadioCard::new("Free")
+              .description("One person, three projects.")
+              .icon(icons::USERS)
+              .price("$0"),
+          ),
+          (
+            "team",
+            RadioCard::new("Team")
+              .description("Up to ten people.")
+              .icon(icons::USERS)
+              .price("$12"),
+          ),
+          (
+            "enterprise",
+            RadioCard::new("Enterprise")
+              .description("Talk to us first.")
+              .icon(icons::SHIELD)
+              .price("$40")
+              .disabled(true),
+          ),
+        ],
+      )
+      .orientation(Orientation::Horizontal),
+      &format!("the signal has: {:?}", self.plan.get()),
+    );
+    let card = |title: &str| RadioCard::new(title).description("Roomy rows, 36px controls.");
+    let states = items()
+      .child(item(card("Not selected"), "not selected"))
+      .child(item(card("Selected").selected(true), "selected"))
+      .child(item(card("Hovered").force(Some(Interaction::Hovered)), "hovered"))
+      .child(item(
+        card("Focused").force(Some(Interaction::FocusVisible)),
+        "focus-visible",
+      ))
+      .child(item(card("Invalid").invalid(true), "invalid"))
+      .child(item(card("Disabled").disabled(true), "disabled"))
+      .child(item(
+        card("Disabled, selected").selected(true).disabled(true),
+        "disabled, selected",
+      ));
+    let card_rows = [
+      (
+        "title",
+        "&str",
+        "",
+        "What the choice is: the card's name to what reads the tree.",
+      ),
+      (
+        "description",
+        "&str",
+        "",
+        "More of it, under the title in the muted color: what the card is described by.",
+      ),
+      ("icon", "impl Into<Name>", "", "An icon of 20 before the text."),
+      ("price", "&str", "", "What the choice costs, at the end of the title."),
+      (
+        "selected",
+        "bool",
+        "false",
+        "Whether it is the one selected: the dot in the mark and the edge of 2 in the primary color.",
+      ),
+      (
+        "on_change",
+        "impl Fn(bool)",
+        "",
+        "Called with true on a press while the card is not selected. A press of the one selected does nothing.",
+      ),
+      (
+        "invalid",
+        "bool",
+        "false",
+        "The edge and the mark in the destructive color.",
+      ),
+      (
+        "disabled",
+        "bool",
+        "false",
+        "Half the opacity; it takes no input and the arrow keys pass it by.",
+      ),
+      (
+        "full_width",
+        "bool",
+        "false",
+        "As wide as what holds it, in place of 220.",
+      ),
+    ];
+    let group_rows = [
+      (
+        "selected",
+        "Signal<T> or Signal<Option<T>>",
+        "",
+        "RadioCardGroup::new: the card whose value the signal has is selected, none while an Option is None, and \
+         a press of another sets it.",
+      ),
+      (
+        "cards",
+        "(T, RadioCard)",
+        "",
+        "A card for each value, with its own title, description, icon, price and disabled.",
+      ),
+      (
+        "controlled",
+        "Option<T>, impl Fn(&T)",
+        "",
+        "In place of a signal: the app holds the choice, none while it is None, and is told each other value \
+         pressed.",
+      ),
+      (
+        "on_change",
+        "impl Fn(&T)",
+        "",
+        "Called with the value of a card pressed that was not the one selected, after the signal is set.",
+      ),
+      (
+        "orientation",
+        "Orientation",
+        "Vertical",
+        "Horizontal: side by side, 12 apart and as high as the highest, going on to the next line where there is \
+         no room.",
+      ),
+      (
+        "label",
+        "&str",
+        "",
+        "What the group is called to tooling. It draws nothing: a field or a fieldset gives it its label.",
+      ),
+      (
+        "invalid",
+        "bool",
+        "false",
+        "Every card's edge in the destructive color.",
+      ),
+      (
+        "disabled",
+        "bool",
+        "false",
+        "Every card dimmed; the group takes no input.",
+      ),
+    ];
+    let playground = self.play(ctx);
+    self.frame.page(
+      ctx,
+      Header {
+        breadcrumb: &["Components", "Inputs", "Radio Card"],
+        title: "Radio Card",
+        description: "A radio whose whole card is pressed, with a title, a description and an icon or a price: the \
+                      plan of an account, the density of a list.",
+        import: Some("use lurq::ui::{Orientation, RadioCard, RadioCardGroup};"),
+        status: Some("Stable"),
+        since: Some("0.62"),
+        source: file!(),
+      },
+      vec![
+        Section::new(
+          "Playground",
+          "Every prop of RadioCardGroup is a control on the right. The group on the stage is live: a press of a card \
+           selects it, and a press of the one selected does nothing.",
+          playground,
+        ),
+        Section::new(
+          "Radio card group",
+          "The page holds the choice in a signal. Tab stops in the group once, at the selected card; the arrow keys \
+           move the focus to the next card and select it, as in a group of radios.",
+          self.frame.demo(
+            0,
+            bound,
+            "RadioCardGroup::new(density, [(0, RadioCard::new(\"Comfortable\")), ..])",
+            &[
+              "// density: Signal<usize>",
+              "RadioCardGroup::new(density, [",
+              "    (0, RadioCard::new(\"Comfortable\").description(\"Roomy rows, 36px controls.\")),",
+              "    (1, RadioCard::new(\"Compact\").description(\"Dense rows, 28px controls.\")),",
+              "])",
+              ".orientation(Orientation::Horizontal)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Plans with a price",
+          "An icon before the text and a price at the end of the title. A plan that cannot be chosen is drawn, \
+           dimmed, and the arrow keys pass it by.",
+          self.frame.demo(
+            1,
+            plans,
+            "RadioCard::new(\"Team\").icon(icons::USERS).price(\"$12\")",
+            &[
+              "// plan: Signal<&'static str>",
+              "RadioCardGroup::new(plan, [",
+              "    (\"free\", RadioCard::new(\"Free\").description(\"One person, three projects.\")",
+              "        .icon(icons::USERS).price(\"$0\")),",
+              "    (\"team\", RadioCard::new(\"Team\").description(\"Up to ten people.\")",
+              "        .icon(icons::USERS).price(\"$12\")),",
+              "    (\"enterprise\", RadioCard::new(\"Enterprise\").description(\"Talk to us first.\")",
+              "        .icon(icons::SHIELD).price(\"$40\").disabled(true)),",
+              "])",
+              ".orientation(Orientation::Horizontal)",
+            ],
+          ),
+        ),
+        Section::new(
+          "States",
+          "One card, alone. Its edge is an input's until it is selected, then 2 of the primary color with the dot \
+           in the radio's mark. Under the pointer the edge takes the ring's color; the ring of the focus is the card's.",
+          self.frame.demo(
+            2,
+            states,
+            ".selected(true)",
+            &[
+              "RadioCard::new(\"Selected\").description(\"Roomy rows, 36px controls.\").selected(true)",
+              "",
+              "// Drawn as under the pointer or focused, with nothing pointing at it: for a gallery, a test.",
+              "RadioCard::new(\"Focused\").force(Some(Interaction::FocusVisible))",
+              "",
+              "RadioCard::new(\"Invalid\").invalid(true)",
+              "RadioCard::new(\"Disabled\").disabled(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "RadioCardGroup props",
+          "What a group is given.",
+          props_table(&group_rows, &["selected", "cards"], self.frame.room()),
+        ),
+        Section::new(
+          "RadioCard props",
+          "What one card is given, where it is not in a group.",
+          props_table(&card_rows, &["title"], self.frame.room()),
+        ),
+      ],
+    )
+  }
+}

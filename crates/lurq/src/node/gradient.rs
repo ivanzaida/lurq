@@ -5,6 +5,8 @@ pub enum GradientKind {
   Linear,
   Radial,
   Conic,
+  /// The blend of four colors, one at each corner of the box: see [`Gradient::corners`].
+  Corners,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -78,6 +80,31 @@ impl Gradient {
       center: (0.5, 0.5),
       radial_ellipse: true,
       stops: stops.into_iter().map(Into::into).collect(),
+    }
+  }
+
+  /// A fill that blends four colors, one at each corner of the box: `top_left`, `top_right`, `bottom_right` and
+  /// `bottom_left`. A point is the mix of the top two across, and of the bottom two, mixed down: bilinear, in the
+  /// sRGB-encoded values a picture's colors are written in, as CSS mixes the stops of its gradients. The area of a
+  /// color picker is one: white, the hue, black and black. One box with one antialiased edge, where boxes stacked
+  /// under one rounded clip would let those under show at its edge.
+  pub fn corners(
+    top_left: impl Into<BackgroundColor>,
+    top_right: impl Into<BackgroundColor>,
+    bottom_right: impl Into<BackgroundColor>,
+    bottom_left: impl Into<BackgroundColor>,
+  ) -> Self {
+    Self {
+      kind: GradientKind::Corners,
+      angle_deg: 0.0,
+      center: (0.5, 0.5),
+      radial_ellipse: true,
+      stops: vec![
+        GradientStop::at(top_left, 0.0),
+        GradientStop::at(top_right, 1.0 / 3.0),
+        GradientStop::at(bottom_right, 2.0 / 3.0),
+        GradientStop::at(bottom_left, 1.0),
+      ],
     }
   }
 

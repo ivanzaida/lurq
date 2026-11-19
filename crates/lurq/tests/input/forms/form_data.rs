@@ -90,3 +90,32 @@ fn mounted_form_component_submits_form_data() {
   let values = submitted.lock().unwrap().clone().expect("form should submit data");
   assert_eq!(values.get_string("user"), Some("Ada"));
 }
+
+#[test]
+fn an_element_that_is_no_control_gives_its_form_value_under_its_name() {
+  use lurq::components::Row;
+  let submitted = Arc::new(Mutex::new(None::<FormValues>));
+  let mut runtime = lurq::app::Tree::new();
+  runtime.set_root(Form::element(
+    FormProps::new(FormHandle::new(FormOptions::new()).on_submit({
+      let submitted = submitted.clone();
+      move |values| {
+        *submitted.lock().unwrap() = Some(values);
+      }
+    })),
+    Column::new()
+      .child(TextInput::new(Signal::new("Ada".to_owned())).name("user"))
+      .child(Row::new().name("shortcut").form_value(Some("Ctrl+Shift+P".into())))
+      .child(Row::new().name("none").form_value(None)),
+  ));
+  run_pass(&mut runtime);
+  runtime.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+  runtime.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  let values = submitted.lock().unwrap().clone().expect("form should submit data");
+  assert_eq!(values.get_string("shortcut"), Some("Ctrl+Shift+P"));
+  assert_eq!(
+    values.get("none"),
+    None,
+    "an element that says it holds nothing gives nothing"
+  );
+}

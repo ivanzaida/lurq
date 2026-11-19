@@ -87,7 +87,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | Tool | Scope | Does |
 | --- | --- | --- |
 | `lurq_screenshot` | observe | PNG of a window, a region, or one element (by ref); sensitive text is covered by a grey bar. |
-| `lurq_inspect` | observe | Structured semantic tree, or matches for `query`/`role`, with roles, names, state, bounds, and `ref_N` handles. |
+| `lurq_inspect` | observe | Structured semantic tree (12 deep unless told), or matches for `query`/`role` at any depth, with roles, names, state, bounds, and `ref_N` handles. |
 | `lurq_read_tree` | observe | Element outline with `ref_N` handles, bounds, text, form values, `#id`/`.class` markers, and `.describe` attributes. |
 | `lurq_find` | observe | Substring search over the refs from the last `read_tree` (answered without touching the app). |
 | `lurq_find_by_id` | observe | Live lookup of the element with an `.id("...")`, or else the [canvas item](#canvas-content) with that id, returning a fresh actionable ref. |
@@ -96,11 +96,47 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_menu` | observe | Inspect the native-menu model, command IDs, enabled state, and platform support. |
 | `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
-| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; [pastes and file drags](#pastes-and-file-drags): `paste`, `drag_files`, `drop_files`, `file_drag_leave`; also `request_close` and `menu_activate`. |
+| `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; [pastes and file drags](#pastes-and-file-drags): `paste`, `drag_files`, `drop_files`, `file_drag_leave`; also `request_close`, `menu_activate`, and `history_back`/`history_forward` ([going back](../styling-events/#going-back-and-forward) as a person does, from the focus or from a `ref` or `x`/`y`; `taken` says whether something did). `button` `back` and `forward` are the mouse's side buttons. |
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
-| `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
+| `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. A range slider takes `[low, high]` and sets both; one number moves its nearer thumb. |
 | `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
+| `lurq_touch` | interact | Play a gesture of fingers through the touch path: `tap` (`fingers`, `count`), `double_tap`, `long_press`, `pan`, `swipe`, `edge_pan`, `pinch`, `rotate`, `zoom`, `three_finger_swipe`, `three_finger_pinch`. See [touch gestures](#touch-gestures). |
+| `lurq_pointer` | interact | Read or set what the person points with, `fine` or `coarse` ([a finger or a mouse](../styling-events/#a-finger-or-a-mouse)): under `coarse` the components with a touch form take it. Set, it is pinned unless `pin` is false, so the agent's own mouse moves leave it; `follow` turns following input on or off. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
+
+### Touch gestures
+
+`lurq_touch` plays a gesture of fingers on a window through the path a touch screen's fingers take
+([`Tree::finger`](../app-runtime/#a-phone-on-a-desktop)): the fingers' own events, the pointer the first one stands
+for (a tap clicks, a drag scrolls with momentum), and the gestures, so an agent tries what a person does with a
+phone. The app's pointer becomes `coarse`, as under a finger. The gesture is played at once on a clock of its own
+that ends as the call does, at the speed it says; what it leaves moving (momentum, a list springing back) goes on in
+real time, so `lurq_wait` before a screenshot.
+
+| `gesture` | Arguments | Makes |
+| --- | --- | --- |
+| `tap` | `fingers` 1–5, `count` 1–3 | `on_tap`; one finger's tap clicks; three fingers' tap opens the menu of editing commands |
+| `double_tap` | | `on_tap` twice and `on_double_tap`; in text, a word selected |
+| `long_press` | `duration_ms` (700) | `on_long_press`; in text, the caret with the loupe |
+| `pan` | `dx`/`dy`, or `direction` and `distance` (200); `speed` (400); `fingers` | `on_pan`, a drag or a scroll; rests before it lifts, so no momentum |
+| `swipe` | `direction`, `distance` (200), `speed` (1200 px/s), `fingers` | `on_pan` and `on_swipe`; a scroll with momentum |
+| `edge_pan` | `edge` (left, right, top, bottom), `distance`, `speed` | `on_edge_pan`; from the left far enough, back |
+| `pinch` | `scale` (2), `distance` (the starting radius, 60), `angle` | `on_pinch` (and `on_rotate` with an `angle`) |
+| `rotate` | `angle` (45, degrees clockwise) | `on_rotate` |
+| `zoom` | `scale` (2) | one finger: a tap, then held and dragged, `on_pinch` |
+| `three_finger_swipe` | `direction` | left undoes, right redoes, on the focus |
+| `three_finger_pinch` | `scale` | below 1 copies, above 1 pastes |
+
+`lift: false` leaves the fingers down where the gesture ends, to take a screenshot of what is under way (the loupe of
+a long press in text, a pinch half way); the gesture `lift` lifts them. Coordinates are a `ref` or `x`/`y` in
+screenshot pixels, the gesture's middle; distances and speeds are logical
+pixels. An edge pan starts at its edge, across from `x`/`y` or at the edge's middle. As with `lurq_interact`, nothing
+MCP does reads the person's clipboard: a three-finger pinch out is refused as a synthetic Ctrl+V is. A pinch in
+copies what is selected to the clipboard, as Ctrl+C would.
+
+`lurq_inspect` with a `query` or a `role` searches every node at any depth (its `max_nodes` caps the matches), so an
+element deep in a page is found by its name or id; an outline with neither goes 12 deep unless `max_depth` says, and
+says `truncated` when it stopped.
 
 ### Coordinates and refs
 
@@ -120,7 +156,7 @@ lurq_act {"ref":"ref_17","action":"invoke"}
 → {"dispatched":true,"action":"invoke","ref":"ref_17","window":"main"}
 ```
 
-Without `query` or `role`, `lurq_inspect` returns a nested `tree`. It derives button names from child text; `a11y_name` and `a11y_role` annotations set with `.describe(...)` override the derived values. Pending reactive changes are refreshed before inspection. `bounds` is `null` before the first layout pass or while a refreshed tree awaits layout. `lurq_act` requires live layout, checks that the ref's role and name have not changed and that its center is hittable, then dispatches a normal synthetic click (`invoke`) or pointer move (`hover`, which opens hover tooltips). Each node lists the actions it accepts in `actions`: `invoke` for clickable elements and form controls, `hover` for elements with mouse-move or mouse-enter handlers. `dispatched` means the input was sent; inspect again to verify the resulting app state. When several controls match, the tool returns all of them with their ancestor paths so the agent can choose deliberately. This server inspects only the Lurq app that embeds it, not other desktop windows.
+Without `query` or `role`, `lurq_inspect` returns a nested `tree`. It derives button names from child text; `a11y_name` and `a11y_role` annotations set with `.describe(...)` override the derived values. A node described with `a11y_description` (or `aria-description`), such as a control in a field with a description or an error, or an element with a tooltip, reports it as `description`; one with `a11y_checked`, such as the design system's checkbox, radio or switch, reports `state.checked` as `true`, `false` or `"mixed"`, as the engine's checkbox does; one with `a11y_selected`, such as a tab of the design system, reports `state.selected`, and one with `a11y_pressed`, such as a chip, `state.pressed`. Pending reactive changes are refreshed before inspection. `bounds` is `null` before the first layout pass or while a refreshed tree awaits layout. `lurq_act` requires live layout, checks that the ref's role and name have not changed and that its center is hittable, then dispatches a normal synthetic click (`invoke`) or pointer move (`hover`, which opens hover tooltips). Each node lists the actions it accepts in `actions`: `invoke` for clickable elements and form controls, `hover` for elements with mouse-move or mouse-enter handlers. `dispatched` means the input was sent; inspect again to verify the resulting app state. When several controls match, the tool returns all of them with their ancestor paths so the agent can choose deliberately. This server inspects only the Lurq app that embeds it, not other desktop windows.
 
 `lurq_read_tree` remains useful for a compact text outline. It hands out `ref_N` handles for interactive elements, labeled elements (`.describe`, `.id`, `.class`), and form controls:
 
@@ -151,6 +187,8 @@ lurq_inspect { query: "Open modal", role: "button" }
 | `move` | `ref` or `x`/`y` | In a window that holds a button or key, a held move: the tree treats it as a real move with the button down, so drags, sliders, scrollbars and text selection follow it and keep the pointer outside their bounds. |
 | `release` | `button`; optionally `ref` or `x`/`y` | Releases the button where the pointer is, moving to the target first if one is given. A left press released in place is a click. |
 | `key_down` / `key_up` | `key`, `modifiers` | Holds and releases a key, with the key names of `key` (`" "` is the space bar). |
+
+`wheel` is a notch of a mouse's wheel, which the window [animates](../styling-events/#the-mouse-wheel): the content is where the wheel sent it about 150 ms later, not when the call returns. Call `lurq_wait` before a screenshot or an inspection that reads where it ended; a screenshot taken at once shows it on its way.
 
 Held modifier keys apply to every action in their window, as real keys that are down do, together with the action's own `modifiers`. A held `Shift`, `Control` or `Alt` sets `shift`, `ctrl` or `alt`, and a held `Meta` or `Super` sets `meta`, on every later pointer event (moves, presses, releases, clicks) and key event (`key`, `type`, `key_down`, `key_up`). Scroll events carry no modifiers, so `wheel` passes them only to its pointer move.
 
@@ -190,7 +228,14 @@ lurq_interact {"action":"paste","text":"from an agent","files":["C:/shots/a.png"
 → {"ok":true,"action":"paste","window":"main","text":true,"files":true,"note":"..."}
 ```
 
-`text` and/or `files` are required; an image cannot be pasted this way. The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
+`text`, `files` and/or `image` are required. `image` is the path of an image file: its pixels are what the paste
+holds, as a screenshot on the clipboard would be (`PasteEvent::image`), and the reply has `"image":true`:
+
+```text
+lurq_interact {"action":"paste","image":"C:/shots/a.png"}
+```
+
+The content reaches the focused text input's `on_paste` handlers and its ancestors' as synthetic input, and the text is inserted unless a handler prevents it.
 
 Files from the OS are dragged with `drag_files` (enters the window at the point, or moves a drag in progress there, with `paths` of files or folders), ended without a drop with `file_drag_leave`, and dropped with `drop_files` (enters first when no drag is in progress). The reply reports `paths` and `folders`; `drag_files` adds whether the elements under the point `accepted` the drag, `drop_files` whether an element there `handled` the drop:
 
@@ -271,7 +316,31 @@ Row::new()
   .describe("role", "commits the form") // free-form key=value shown on the element
 ```
 
+A value that changes without a render, as where a dragged divider stands, is said through the element's ref: `ElementRefMut::describe(name, value)` takes the place of what `.describe(name, ..)` said when the element was built, and `lurq_inspect`, `lurq_read_tree`, `lurq_find`, DevTools and `ElementHandle::description(name)` read it at once; saying it again replaces it. A splitter's divider tells its `a11y_valuenow` so as it moves. Like `describe`, it is read only with the `mcp` or `devtools` feature.
+
+```rust
+use lurq::{app::events::DragEvent, components::Row, core::ElementRefMut};
+
+let divider = ElementRefMut::new();
+
+Row::new()
+  .width(1.0)
+  .ref_element(divider.clone())
+  .describe("a11y_role", "separator")
+  .describe("a11y_valuenow", "240")
+  .on_drag_move({
+    let divider = divider.clone();
+    move |event: DragEvent| {
+      let width = 240.0 + event.total_delta_x;
+      // lurq_inspect reads the new value at once; nothing renders again.
+      divider.describe("a11y_valuenow", format!("{}", width.round()));
+    }
+  });
+```
+
 `id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref. Attribute values, item labels and element text are cut at 80 characters and names in lookup lines at 60, ending in `…`.
+
+An element described `a11y_hidden` `true` is nothing to tooling, with all it holds: `lurq_read_tree` leaves it out (but with `filter: "all"`), `lurq_inspect` does not walk into it, and the name of a control is not made of its text. A watermark's marks and a chart's axis, drawn beside what says the same, are.
 
 ### Canvas content
 

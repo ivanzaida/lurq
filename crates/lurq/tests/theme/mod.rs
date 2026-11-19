@@ -1,9 +1,20 @@
+mod definition {
+  mod apply;
+}
+
 mod lens {
   mod read_set_update;
 }
 
+mod parity {
+  mod design_variables;
+  mod icon_names;
+}
+
 mod palette {
   mod background_palette_resolves;
+  mod design_default;
+  mod light_fills;
 }
 
 mod subscription {
@@ -11,6 +22,7 @@ mod subscription {
 }
 
 mod text {
+  mod document_scale;
   mod variant_resolves;
 }
 
@@ -21,4 +33,8 @@ mod extras {
 
 mod system {
   mod follows;
+}
+
+mod scope {
+  mod mounted_root;
 }

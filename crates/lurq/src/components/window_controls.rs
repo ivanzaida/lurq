@@ -1,10 +1,14 @@
 use std::sync::Arc;
 
 use crate::{
-  app::{events::MouseEvent, theme::TypographyStyle, window::WindowHandle},
+  app::{
+    events::MouseEvent,
+    theme::{PaletteColor, TypographyStyle},
+    window::WindowHandle,
+  },
   components::{Row, Text},
   layout::{Alignment, layout_kind::Justify},
-  node::{BackgroundColor, CursorIcon, Element, Style, TextColor, color::Color, dimension::Dimension},
+  node::{BackgroundColor, CursorIcon, Element, Style, TextColor, WindowControl, color::Color, dimension::Dimension},
 };
 
 const WINDOWS_CONTROL_WIDTH: f32 = 46.0;
@@ -59,7 +63,8 @@ pub enum WindowControlContent {
 }
 
 /// Colors of one Windows-style control. Hover and active are background colors applied through the
-/// node's hovered/active state styles; the foreground stays constant across states.
+/// node's hovered/active state styles; the foreground is the same in every state unless
+/// [`WindowControls::hover_foreground`] gives the control another under the pointer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowControlColors {
   pub foreground: TextColor,
@@ -71,7 +76,8 @@ pub struct WindowControlColors {
 /// Traffic-light fills for macOS-style controls. Hover keeps the fill; active uses the `*_active` color.
 ///
 /// Defaults are the macOS 11+ (Big Sur and later) values sampled from the system controls:
-/// close `#FF5F57`, minimize `#FEBC2E`, zoom `#28C840`. Apple does not publish these values.
+/// close `#FF5F57`, minimize `#FEBC2E`, zoom `#28C840`. Apple does not publish these values. They are the
+/// platform's own colors, the same in every theme and appearance, and so are literals and not roles of the theme.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrafficLightColors {
   pub close: BackgroundColor,
@@ -86,6 +92,8 @@ pub struct TrafficLightColors {
 struct WindowControlButton {
   content: WindowControlContent,
   colors: WindowControlColors,
+  /// The foreground under the pointer and while pressed, when it is not the one at rest.
+  hover_foreground: Option<TextColor>,
 }
 
 impl Default for WindowControls {
@@ -100,6 +108,7 @@ impl WindowControls {
     let button = |glyph: &str, colors: &WindowControlColors| WindowControlButton {
       content: WindowControlContent::glyph(glyph, TypographyStyle::Caption),
       colors: colors.clone(),
+      hover_foreground: None,
     };
     Self {
       style: WindowControlStyle::Platform,
@@ -109,7 +118,11 @@ impl WindowControls {
       minimize: button("-", &default_colors),
       maximize: button("□", &default_colors),
       restore: button("▢", &default_colors),
-      close: button("x", &WindowControlColors::close()),
+      close: WindowControlButton {
+        // Its cross is white on its red.
+        hover_foreground: Some(PaletteColor::DestructiveForeground.into()),
+        ..button("x", &WindowControlColors::close())
+      },
       traffic_lights: TrafficLightColors::default(),
     }
   }
@@ -164,6 +177,16 @@ impl WindowControls {
   pub fn foreground(mut self, color: impl Into<TextColor>) -> Self {
     let color = color.into();
     self.update_colors(|colors| colors.foreground = color.clone());
+    self
+  }
+
+  /// Sets the foreground one Windows-style control has under the pointer and
+  /// while pressed: a close control that turns white on its red. A glyph
+  /// follows it, and so does content of [`WindowControlContent::element`]
+  /// that names no color of its own; content drawn in the color its supplier
+  /// was given keeps that color.
+  pub fn hover_foreground(mut self, kind: WindowControlKind, color: impl Into<TextColor>) -> Self {
+    self.button_mut(kind).hover_foreground = Some(color.into());
     self
   }
 
@@ -233,33 +256,40 @@ impl WindowControls {
     let width = self.button_width;
     let button_height = self.button_height.unwrap_or(height);
     let middle = if maximized { self.restore } else { self.maximize };
-
+    // Each control says which of the window's it is: the shell tells the system (Windows 11 opens its snap layouts
+    // over the maximize one).
     Row::new()
       .height(height)
       .align_items(Alignment::Center)
       .child(
-        control_button(self.minimize, width, button_height).on_click(move |event: MouseEvent| {
-          minimize_window.set_minimized(true);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        control_button(self.minimize, width, button_height)
+          .window_control(WindowControl::Minimize)
+          .on_click(move |event: MouseEvent| {
+            minimize_window.set_minimized(true);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          }),
       )
       .child(
-        control_button(middle, width, button_height).on_click(move |event: MouseEvent| {
-          maximize_window.set_maximized(!maximized);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        control_button(middle, width, button_height)
+          .window_control(WindowControl::Maximize)
+          .on_click(move |event: MouseEvent| {
+            maximize_window.set_maximized(!maximized);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          }),
       )
       .child(
-        control_button(self.close, width, button_height).on_click(move |event: MouseEvent| {
-          if let Some(on_close) = &on_close {
-            on_close();
-          }
-          close_window.close();
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        control_button(self.close, width, button_height)
+          .window_control(WindowControl::Close)
+          .on_click(move |event: MouseEvent| {
+            if let Some(on_close) = &on_close {
+              on_close();
+            }
+            close_window.close();
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          }),
       )
       .into()
   }
@@ -278,28 +308,34 @@ impl WindowControls {
       .spacing(0.0)
       .padding_left(8.0)
       .child(
-        macos_control_button(lights.close, lights.close_active).on_click(move |event: MouseEvent| {
-          if let Some(on_close) = &on_close {
-            on_close();
-          }
-          close_window.close();
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        macos_control_button(lights.close, lights.close_active, WindowControl::Close).on_click(
+          move |event: MouseEvent| {
+            if let Some(on_close) = &on_close {
+              on_close();
+            }
+            close_window.close();
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          },
+        ),
       )
       .child(
-        macos_control_button(lights.minimize, lights.minimize_active).on_click(move |event: MouseEvent| {
-          minimize_window.set_minimized(true);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        macos_control_button(lights.minimize, lights.minimize_active, WindowControl::Minimize).on_click(
+          move |event: MouseEvent| {
+            minimize_window.set_minimized(true);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          },
+        ),
       )
       .child(
-        macos_control_button(lights.zoom, lights.zoom_active).on_click(move |event: MouseEvent| {
-          maximize_window.set_maximized(!maximized);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        macos_control_button(lights.zoom, lights.zoom_active, WindowControl::Maximize).on_click(
+          move |event: MouseEvent| {
+            maximize_window.set_maximized(!maximized);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          },
+        ),
       )
       .into()
   }
@@ -307,6 +343,18 @@ impl WindowControls {
 
 impl WindowControlKind {
   pub const ALL: [Self; 4] = [Self::Minimize, Self::Maximize, Self::Restore, Self::Close];
+}
+
+/// Which of the window's controls a Windows-style control is to the window: `Maximize` and `Restore` are the one
+/// in the middle, which the system knows as the maximize button.
+impl From<WindowControlKind> for WindowControl {
+  fn from(kind: WindowControlKind) -> Self {
+    match kind {
+      WindowControlKind::Minimize => Self::Minimize,
+      WindowControlKind::Maximize | WindowControlKind::Restore => Self::Maximize,
+      WindowControlKind::Close => Self::Close,
+    }
+  }
 }
 
 impl WindowControlContent {
@@ -323,20 +371,22 @@ impl WindowControlContent {
 
   fn render(&self, foreground: TextColor) -> Element {
     match self {
-      Self::Glyph { glyph, typography } => Text::new(glyph).variant(*typography).color(foreground).into(),
+      // A glyph names no color: it is drawn in the foreground of its control, which a state changes.
+      Self::Glyph { glyph, typography } => Text::new(glyph).variant(*typography).into(),
       Self::Element(supplier) => supplier(foreground),
     }
   }
 }
 
 impl Default for WindowControlColors {
-  /// The minimize and maximize/restore defaults.
+  /// The minimize and maximize/restore defaults: the theme's `Foreground` on nothing, on `SecondaryHover` under
+  /// the pointer and held down, as the design system's window controls are.
   fn default() -> Self {
     Self {
-      foreground: TextColor::Color(Color::from_hex("#d9dee7")),
+      foreground: PaletteColor::Foreground.into(),
       background: BackgroundColor::Color(Color::new(0, 0, 0, 0)),
-      hover_background: BackgroundColor::Color(Color::from_hex("#232934")),
-      active_background: BackgroundColor::Color(Color::from_hex("#2d3440")),
+      hover_background: PaletteColor::SecondaryHover.into(),
+      active_background: PaletteColor::SecondaryHover.into(),
     }
   }
 }
@@ -355,11 +405,11 @@ impl WindowControlColors {
     }
   }
 
-  /// The close-control default: red hover and press backgrounds.
+  /// The close-control default: the theme's `Destructive` under the pointer and `DestructiveHover` held down.
   pub fn close() -> Self {
     Self {
-      hover_background: BackgroundColor::Color(Color::from_hex("#c0392b")),
-      active_background: BackgroundColor::Color(Color::from_hex("#922b21")),
+      hover_background: PaletteColor::Destructive.into(),
+      active_background: PaletteColor::DestructiveHover.into(),
       ..Self::default()
     }
   }
@@ -385,15 +435,23 @@ impl Default for TrafficLightColors {
 
 fn control_button(button: WindowControlButton, width: f32, height: f32) -> Row {
   let colors = button.colors;
+  let state = |background: BackgroundColor| {
+    let style = Style::new().background(background);
+    match &button.hover_foreground {
+      Some(foreground) => style.foreground(foreground.clone()),
+      None => style,
+    }
+  };
   Row::new()
     .width(width)
     .height(height)
     .align_items(Alignment::Center)
     .justify(Justify::Center)
     .background(colors.background)
+    .foreground(colors.foreground.clone())
     .cursor(CursorIcon::Pointer)
-    .hovered_style(Style::new().background(colors.hover_background))
-    .active_style(Style::new().background(colors.active_background))
+    .hovered_style(state(colors.hover_background))
+    .active_style(state(colors.active_background))
     .on_mouse_down(|event: MouseEvent| {
       event.prevent_default();
       event.stop_immediate_propagation();
@@ -401,8 +459,9 @@ fn control_button(button: WindowControlButton, width: f32, height: f32) -> Row {
     .child(button.content.render(colors.foreground))
 }
 
-fn macos_control_button(color: BackgroundColor, active_color: BackgroundColor) -> Row {
+fn macos_control_button(color: BackgroundColor, active_color: BackgroundColor, control: WindowControl) -> Row {
   Row::new()
+    .window_control(control)
     .width(20.0)
     .height(Dimension::Pct(100.0))
     .align_items(Alignment::Center)

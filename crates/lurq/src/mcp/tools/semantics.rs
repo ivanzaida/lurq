@@ -37,7 +37,6 @@ pub(super) fn semantic_role(node: &Node) -> String {
     NodeKind::Slider { .. } => "slider".into(),
     NodeKind::Select { .. } => "combobox".into(),
     NodeKind::Text { .. } => "text".into(),
-    #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "text".into(),
     #[cfg(feature = "markdown")]
     NodeKind::InlineLink { .. } => "link".into(),
@@ -52,13 +51,24 @@ pub(super) fn semantic_role(node: &Node) -> String {
 pub(super) fn is_text_node(node: &Node) -> bool {
   match node.node_kind() {
     NodeKind::Text { .. } => true,
-    #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => true,
     _ => false,
   }
 }
 
+/// Whether the node and all it holds are nothing to tooling: `a11y_hidden` is `true` (a watermark's marks, a
+/// chart's axis drawn beside what it says).
+pub(super) fn hidden_from_tooling(node: &Node) -> bool {
+  node
+    .debug_attrs()
+    .iter()
+    .any(|(key, value)| key.as_ref() == "a11y_hidden" && value.as_ref() == "true")
+}
+
 pub(super) fn descendant_label(node: &Node, parts: &mut Vec<String>) {
+  if hidden_from_tooling(node) {
+    return;
+  }
   if is_text_node(node)
     && let Some(text) = node.inspection_text().filter(|text| !text.trim().is_empty())
   {
@@ -96,6 +106,15 @@ pub(super) fn semantic_name(node: &Node) -> Option<String> {
     }
   }
   None
+}
+
+/// What the app says the node is for, besides its name: a field's description or error, a tooltip's text.
+pub(super) fn semantic_description(node: &Node) -> Option<String> {
+  node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| matches!(key.as_ref(), "a11y_description" | "aria-description"))
+    .map(|(_, description)| description.to_string())
 }
 
 /// Pointer-move consumers: hovering opens their tooltips or highlights.
@@ -165,6 +184,33 @@ pub(super) fn inspection_attrs(node: &Node) -> Vec<(String, String)> {
     attrs.push(("sensitive".to_owned(), "true".to_owned()));
   }
   attrs.extend(canvas_items::canvas_attrs(node));
+  attrs.extend(scrollbar_attrs(node));
+  attrs
+}
+
+/// The bars of a scroll container whose content overflows, each a `scrollbar` with its value as an ARIA
+/// scrollbar has it: how far the content is scrolled along that way, from 0 at its start to 100 at its end.
+/// `scrollbar_vertical=25` for a container a quarter of the way down. A container whose content fits has none.
+pub(super) fn scrollbar_attrs(node: &Node) -> Vec<(String, String)> {
+  use crate::layout::layout_kind::ScrollDirection;
+  let Some((state, direction)) = node.scroll_container() else {
+    return Vec::new();
+  };
+  let percent = |offset: f32, content: f32, viewport: f32| {
+    let max = content - viewport;
+    (max > 0.5).then(|| format!("{}", ((offset / max).clamp(0.0, 1.0) * 100.0).round()))
+  };
+  let mut attrs = Vec::new();
+  if matches!(direction, ScrollDirection::Vertical | ScrollDirection::Both)
+    && let Some(value) = percent(state.scroll_y(), state.content_height(), state.viewport_height())
+  {
+    attrs.push(("scrollbar_vertical".to_owned(), value));
+  }
+  if matches!(direction, ScrollDirection::Horizontal | ScrollDirection::Both)
+    && let Some(value) = percent(state.scroll_x(), state.content_width(), state.viewport_width())
+  {
+    attrs.push(("scrollbar_horizontal".to_owned(), value));
+  }
   attrs
 }
 

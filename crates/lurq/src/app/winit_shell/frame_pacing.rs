@@ -2,11 +2,12 @@
 //! perf overlay's samples and continuous images. A frame is due when the timeline next draws something else, at
 //! most one per display refresh, and never while the window cannot be seen.
 
-use std::time::{Duration, Instant};
-
 use winit::{event::WindowEvent, window::Window};
 
-use crate::app::Tree;
+use crate::{
+  app::Tree,
+  time::{Duration, Instant},
+};
 
 /// A refresh at 60 Hz, for a window whose display reports no rate.
 const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_nanos(16_666_667);
@@ -53,11 +54,10 @@ impl FramePacing {
   /// A minimized or occluded window gets none, and the frames it had scheduled are dropped (an animation's next
   /// step, a caret's blink, an image's next frame); the perf overlay takes no samples. Its animations keep their
   /// clock: the window asks for a frame when it shows again, which draws them where they are by then and schedules
-  /// what follows.
+  /// what follows. The app's frame callbacks (`Ctx::on_frame`) are paused meanwhile, and start again from the frame
+  /// the window shows with.
   pub(super) fn request_frame(&mut self, tree: &mut Tree, refresh: impl FnOnce() -> Duration, now: Instant) {
-    let hidden = self.occluded || tree.window().info().is_minimized;
-    let shown = self.hidden && !hidden;
-    self.hidden = hidden;
+    let (hidden, shown) = self.see_window(tree);
     if hidden {
       tree.drop_scheduled_redraws();
       return;
@@ -67,7 +67,11 @@ impl FramePacing {
       return;
     }
     tree.tick_perf_overlay();
-    let changes_at = if tree.perf_overlay_enabled() || tree.has_continuous_redraw_image() || tree.autoscroll_moving() {
+    let changes_at = if tree.perf_overlay_enabled()
+      || tree.has_continuous_redraw_image()
+      || tree.autoscroll_moving()
+      || tree.has_moving_canvas()
+    {
       Some(now)
     } else {
       tree.next_timeline_change()
@@ -82,6 +86,18 @@ impl FramePacing {
     } else {
       tree.request_redraw_at(next_frame_at);
     }
+  }
+
+  /// Reads whether the window can be seen and tells the tree, which pauses the app's frame callbacks while it
+  /// cannot. Returns whether it is hidden, and whether it was at the last call and no longer is. For a turn of the
+  /// loop that asks for no paced frame (a video's frames are presented at the display's pace by themselves), in
+  /// place of [`Self::request_frame`].
+  pub(super) fn see_window(&mut self, tree: &mut Tree) -> (bool, bool) {
+    let hidden = self.occluded || tree.window().info().is_minimized;
+    let shown = self.hidden && !hidden;
+    self.hidden = hidden;
+    tree.set_frames_hidden(hidden);
+    (hidden, shown)
   }
 
   /// The display's refresh interval, read with `refresh` at most once a second.

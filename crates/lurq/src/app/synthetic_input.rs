@@ -19,12 +19,19 @@ use crate::app::{
 
 /// Modifier state to apply to a synthetic event, matching what the shell would
 /// have read from `ModifiersChanged`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SyntheticModifiers {
   pub shift: bool,
   pub ctrl: bool,
   pub alt: bool,
   pub meta: bool,
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SyntheticModifiers {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
 }
 
 impl SyntheticModifiers {
@@ -268,10 +275,23 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
     }
     SyntheticInputKind::Wheel { x, y, delta_x, delta_y } => {
       // A wheel notch is a complete gesture: scroll containers latch on Start
-      // and release on End, so omitting either leaves one latched.
+      // and release on End, so omitting either leaves one latched. It is a
+      // mouse's wheel, so the scroll is animated as a real notch is
+      // (`Tree::wheel`): the content is where it was sent once the tree has
+      // no animation left.
       tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::Start);
-      tree.scroll(*x, *y, *delta_x, *delta_y, ScrollPhase::Scroll);
+      tree.wheel_with_meta(
+        *x,
+        *y,
+        *delta_x,
+        *delta_y,
+        ScrollPhase::Scroll,
+        m.shift,
+        m.ctrl,
+        m.alt,
+        m.meta,
+      );
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::End);
     }
     SyntheticInputKind::KeyDown { key, code } => {

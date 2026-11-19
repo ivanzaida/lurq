@@ -48,6 +48,21 @@ pub fn email(message: impl Into<Arc<str>>) -> impl Fn(&str, &FormValues) -> Vali
   }
 }
 
+/// For [`FormOptions::validate_range`](super::FormOptions::validate_range): both values of a range slider
+/// between `min` and `max`, and at least `span` apart.
+pub fn range_span(
+  min: f64,
+  max: f64,
+  span: f64,
+  message: impl Into<Arc<str>>,
+) -> impl Fn(Option<(f64, f64)>, &FormValues) -> ValidationResult {
+  let message = message.into();
+  move |value, _| match value {
+    Some((low, high)) if low >= min && high <= max && high - low >= span => ValidationResult::valid(),
+    _ => ValidationResult::invalid(message.clone()),
+  }
+}
+
 pub fn range(
   min: f64,
   max: f64,

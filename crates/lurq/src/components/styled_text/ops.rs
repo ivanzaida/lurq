@@ -98,7 +98,7 @@ pub(crate) fn slice(spans: &[StyledSpan], range: Range<usize>) -> Vec<StyledSpan
 
 /// Which marks cover the non-empty `range` of a text `len` bytes long.
 pub(crate) fn summarize(spans: &[StyledSpan], len: usize, range: Range<usize>) -> SelectionStyle {
-  let mut counts = [0usize; 4];
+  let mut counts = [0usize; 5];
   let mut total = 0;
   let mut links = Vec::new();
   for (run, style) in runs(spans, len) {
@@ -126,6 +126,7 @@ pub(crate) fn summarize(spans: &[StyledSpan], len: usize, range: Range<usize>) -
     italic: presence(counts[1]),
     code: presence(counts[2]),
     strikethrough: presence(counts[3]),
+    underline: presence(counts[4]),
     has_link: links.iter().any(Option::is_some),
     link: common,
   }

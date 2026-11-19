@@ -160,6 +160,34 @@ lurq::components::Column::new().with_children(
 )
 ```
 
+### Declared Components
+
+`Element::component::<C>(props)` is the element of a component with no `Ctx` at hand: what a builder, or a function
+that is given no `Ctx`, puts in a tree. The component whose `render` returns the element mounts it once the render has
+returned, as `ctx.mount::<C>(props)` would have, and keeps its slot: `C` is created once, keeps its signals between
+renders, and is unmounted when a render no longer returns it.
+
+```rust
+fn avatar(user: &User) -> Element {
+  Element::component::<Avatar>(AvatarProps { user: user.id })
+}
+
+fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+  lurq::components::Row::new().with_children(self.users.get().iter().map(avatar))
+}
+```
+
+- It is told from its siblings as an unkeyed mount is: by its order among what the component mounts, the declared ones
+  after those mounted with `ctx`, in the order of the tree. In a list that changes give it a key:
+  `Element::component_keyed::<C>(key, props)`, or `.key(..)` on the element.
+- `.id(..)`, `.key(..)` and `.class(..)` on the element go to the component's root, as on an element `ctx.mount`
+  returned.
+- The props are cloned for the mount, so they are `Clone`.
+- An element handed down to another component (slot children, an element in its props) is mounted by the component
+  whose render returns it.
+- A tree no component renders, `Tree::set_root` with an element, has nothing to mount it in: it shows nothing there, and
+  a warning says so. Give the window a root component.
+
 ### Slot Children
 
 Use `mount_with` or `mount_keyed_with` when a component needs children supplied by its parent.
@@ -201,18 +229,29 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 `WindowControls::on_close` is a cleanup callback before unconditional close. For a confirmation dialog, use a custom button calling `window.request_close()` as shown in [Window lifecycle](../window-lifecycle-menus/#closing-a-window).
 
 Apps provide title-bar slots and content. They should not manually call `window.start_drag()` or render resize handles for
-normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, resize edge and corner hit zones,
-control-button event propagation, and platform drag/resize fallbacks in the active shell.
+normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, the system's menu of the window on a
+right press (`WindowHandle::show_system_menu`, which only Windows has: Restore, Move, Size, Minimize, Maximize, Close),
+resize edge and corner hit zones, control-button event propagation, and platform drag/resize fallbacks in the active
+shell. The system knows the three controls too: `WindowControls` marks each with `.window_control(..)`, so on Windows
+11 the system's snap layouts open over the maximize control as the pointer rests on it, as over a title bar the system
+draws. A title bar the app draws in its own way marks its controls the same way; see
+[The Window's Controls In A Title Bar Of Your Own](#the-windows-controls-in-a-title-bar-of-your-own).
+
+`ChromeTitleBar::draw(|window, height| ..)` draws the whole bar from the app's own element in place of its leading,
+title, center, trailing and controls, given the window (to read whether it is maximized or in front, and to minimize,
+maximize and close it) and the bar's height; the bar still drags the window wherever nothing in it takes the press.
+`ui::WindowChrome` draws its bar so, on the design system's recipe, as Windows, macOS, GNOME and KDE draw theirs: see
+[Window Chrome](../design-system/#window-chrome).
 
 Use `WindowChrome::overlay(...)` for fullscreen modals or app-level overlay layers that should cover content but stay
 below chrome resize hit zones. `WindowChrome` renders content first, then overlays, then chrome borders and resize
 handles, so modal layers do not make an undecorated window impossible to resize.
 
-`ChromeBorderPolicy` decides the frame outline. `PlatformDefault` paints a 1px `#252a32` line on Windows and none
-elsewhere; `Visible { size, color }` paints the given line; `Hidden` paints none. Custom chrome also sets
+`ChromeBorderPolicy` decides the frame outline. `PlatformDefault` paints a 1px line in the theme's `Border` on Windows
+and none elsewhere; `Visible { size, color }` paints the given line; `Hidden` paints none. Custom chrome also sets
 `WindowBorderColor::None` on the window, because Windows 11 DWM otherwise draws its own 1px border around undecorated
-windows, which would show even with `Hidden`. The title bar's bottom line is separate: `ChromeTitleBar::new()` draws a
-1px `#252a32` bottom border, and `border_bottom(None)` removes it.
+windows, which would show even with `Hidden`. The title bar is the theme's `Muted`, and its bottom line is separate:
+`ChromeTitleBar::new()` draws a 1px `Border` bottom border, and `border_bottom(None)` removes it.
 
 Use `WindowChromeProps` for policy-level changes:
 
@@ -244,9 +283,76 @@ when a component needs to reason about the custom chrome content area. Metrics i
 the title-bar height, resize handle size and placement, and border size. `content_x`, `content_width`, and
 `content_height` subtract the resize gutter only with `ResizeHandlePlacement::Inset`.
 
+### The Window's Controls In A Title Bar Of Your Own
+
+A window with no system decorations (`with_decorations(false)`) whose title bar the app draws has controls the system
+knows nothing of: to Windows they are client area like the rest, and Windows 11 opens its snap layouts only over what
+the window says is its maximize button. An element says which of the window's controls it is with
+`.window_control(..)`, which every element has:
+
+```rust
+use lurq::{
+  app::events::{MouseButton, MouseEvent},
+  components::{Row, Text},
+  node::{CursorIcon, Style, WindowControl, color::Color},
+};
+
+let window = ctx.window();
+let maximized = window.is_maximized;
+let control = |glyph: &str, control: WindowControl| {
+  Row::new()
+    .width(46.0)
+    .height(36.0)
+    .cursor(CursorIcon::Pointer)
+    .hovered_style(Style::new().background(Color::from_hex("#232934")))
+    // The minimize, the maximize or the close control of the window.
+    .window_control(control)
+    // A press of a control is the control's: it does not drag the window.
+    .on_mouse_down(|event: MouseEvent| event.stop_propagation())
+    .child(Text::new(glyph))
+};
+
+let (drag, minimize, maximize, close) = (window.clone(), window.clone(), window.clone(), window);
+Row::new()
+  .height(36.0)
+  .on_mouse_down(move |event: MouseEvent| {
+    if event.button == MouseButton::Left {
+      drag.start_drag();
+    }
+  })
+  .child(Row::new().flex(1.0).child(Text::new("My App")))
+  .child(control("-", WindowControl::Minimize).on_click(move |_| minimize.set_minimized(true)))
+  .child(control("□", WindowControl::Maximize).on_click(move |_| maximize.set_maximized(!maximized)))
+  .child(control("x", WindowControl::Close).on_click(move |_| close.request_close()))
+```
+
+`WindowControl` is `Minimize`, `Maximize` (the control that maximizes the window and restores it) or `Close`.
+
+- The mark tells the system, and does nothing else. The element is under the pointer, held down, clicked, focused and
+  given its cursor as any other element is, and it is its own `on_click` that acts on the window: an element marked
+  `Close` that closes nothing closes nothing.
+- With the winit shell on Windows, the window answers the system's hit test (`WM_NCHITTEST`) with `HTMINBUTTON`,
+  `HTMAXBUTTON` or `HTCLOSE` where a marked element is. Windows 11 then opens its snap layouts over the maximize
+  control as the pointer rests on it, and a press on it still reaches the element. The pointer over a control is, to
+  the system, out of the client area; the shell gives the element what the system sends there, so nothing changes for
+  the app.
+- The answer is given where the element takes the pointer: over its box as it is laid out, cut by what clips it, and
+  not where something over it takes the pointer in its place (a zone along the window's edge that resizes it, the
+  backdrop of a dialog). It follows a layout, a scroll and the display's scale. A disabled element, or one that takes
+  no pointer (`HitTestBehavior::None`), is no control. Like an element ref's bounds, the box is the layout's: a
+  transform is not followed.
+- On macOS and Linux the mark does nothing, and costs nothing.
+- A shell that drives a `Tree` itself asks `tree.window_control_at(x, y)`, with the point in physical pixels as the
+  pointer's are, and gets the `WindowControl` there or `None`: what to answer its own window's hit test with.
+
+`WindowControls` and the design system's `ui::WindowChrome` mark their controls, so an app that uses them has this
+with no change.
+
 ### Styling Window Controls
 
-By default, Windows-style controls are 46 px wide text glyphs with a red close hover. Each control's content and colors
+By default, Windows-style controls are 46 px wide text glyphs in the theme's `Foreground`, on `SecondaryHover` under
+the pointer, and the close one on `Destructive` (`DestructiveHover` held down) with its glyph in
+`DestructiveForeground`. Each control's content and colors
 can be replaced. Colors accept `Color`, hex strings, and `PaletteColor` roles, including `PaletteColor::Extra`:
 
 ```rust
@@ -265,7 +371,7 @@ let controls = WindowControls::new()
   .content(WindowControlKind::Maximize, icon(ICON_MAXIMIZE))
   .content(WindowControlKind::Restore, icon(ICON_RESTORE))
   .content(WindowControlKind::Close, icon(ICON_CLOSE))
-  .foreground(PaletteColor::TextSecondary)
+  .foreground(PaletteColor::MutedForeground)
   .hover_background(PaletteColor::extra("chrome_hover"))
   .active_background(PaletteColor::extra("chrome_active"));
 ```
@@ -273,7 +379,10 @@ let controls = WindowControls::new()
 `hover_background` and `active_background` apply to every control, close included. To style one control, for example
 to keep a red close hover, use `control_colors(kind, WindowControlColors { .. })`.
 `WindowControlContent::element(|foreground| ...)` builds any other content, such as an SVG icon, and receives the
-configured foreground color. Hover and active change the background only; the foreground stays the same. `Maximize`
+configured foreground color. Hover and active change the background; `hover_foreground(kind, color)` gives one control
+another foreground under the pointer and while pressed, for a close control that turns white on its red. A glyph
+follows it, and so does content of `WindowControlContent::element` that names no color of its own, which is drawn in
+the foreground of its control; content drawn in the color the supplier was given keeps that color. `Maximize`
 content is shown while the window is restored and `Restore` content while it is maximized.
 
 macOS traffic lights use `TrafficLightColors`. The defaults are the macOS 11+ colors sampled from the system controls,

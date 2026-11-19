@@ -13,7 +13,10 @@ use crate::support::{RenderSnapshot, render_pass_with_app};
 
 mod clipboard;
 mod editing;
+mod objects;
 mod paint;
+mod paragraphs;
+mod rich_clipboard;
 
 pub(super) const ID: &str = "editor";
 

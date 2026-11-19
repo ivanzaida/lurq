@@ -1,7 +1,7 @@
 //! Styled spans of a [`super::TextInput`]'s text: the inline marks (bold,
-//! italic, inline code, strikethrough, links) a rich editor keeps over a plain
-//! string. The text stays the input's `Signal<String>`; the spans live in a
-//! second signal bound with [`super::TextInput::spans`], as UTF-8 byte ranges
+//! italic, underline, inline code, strikethrough, links) a rich editor keeps
+//! over a plain string, and what each of its paragraphs is ([`ParagraphKind`]). The text stays the input's
+//! `Signal<String>`; the spans live in a second signal bound with [`super::TextInput::spans`], as UTF-8 byte ranges
 //! into that text. How each mark looks comes from the theme's
 //! [`ThemeTextMarks`](crate::app::theme::ThemeTextMarks).
 use std::{ops::Range, sync::Arc};
@@ -11,8 +11,16 @@ use crate::{
   core::Signal,
 };
 
+mod objects;
 mod ops;
+mod paragraphs;
+mod rich_text;
+pub use objects::{InlineObject, OBJECT_CHARACTER};
+pub(crate) use objects::{normalize_objects, place_objects, slice_objects, splice_objects, text_with_labels};
 pub(crate) use ops::{insertion_style, normalize, restyle, slice, splice, style_at, summarize};
+pub use paragraphs::{ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles};
+pub(crate) use paragraphs::{normalize_kinds, paragraph_of, paragraph_ranges, place_kinds, splice_kinds};
+pub use rich_text::RichText;
 
 /// The marks of one run of text. The default is plain text.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -22,6 +30,7 @@ pub struct SpanStyle {
   /// Inline code: the theme's monospace face over a background.
   pub code: bool,
   pub strikethrough: bool,
+  pub underline: bool,
   /// A link and the target the app gave it (a URL, a task key, a path): the
   /// input draws it as a link and reports it when it is clicked
   /// ([`super::TextInput::on_link_click`]); it never opens it itself.
@@ -53,6 +62,11 @@ impl SpanStyle {
     self
   }
 
+  pub fn underline(mut self) -> Self {
+    self.underline = true;
+    self
+  }
+
   pub fn link(mut self, target: impl Into<Arc<str>>) -> Self {
     self.link = Some(target.into());
     self
@@ -65,6 +79,7 @@ impl SpanStyle {
       TextMark::Italic => self.italic,
       TextMark::Code => self.code,
       TextMark::Strikethrough => self.strikethrough,
+      TextMark::Underline => self.underline,
     }
   }
 
@@ -75,6 +90,7 @@ impl SpanStyle {
       TextMark::Italic => self.italic = on,
       TextMark::Code => self.code = on,
       TextMark::Strikethrough => self.strikethrough = on,
+      TextMark::Underline => self.underline = on,
     }
     self
   }
@@ -92,10 +108,17 @@ pub enum TextMark {
   Italic,
   Code,
   Strikethrough,
+  Underline,
 }
 
 impl TextMark {
-  pub const ALL: [Self; 4] = [Self::Bold, Self::Italic, Self::Code, Self::Strikethrough];
+  pub const ALL: [Self; 5] = [
+    Self::Bold,
+    Self::Italic,
+    Self::Code,
+    Self::Strikethrough,
+    Self::Underline,
+  ];
 }
 
 /// A styled run of text: `range` is UTF-8 byte offsets into the input's text.
@@ -175,6 +198,8 @@ impl DevtoolsInspectable for StyledText {
 pub struct StyledChange {
   pub(crate) value: Signal<String>,
   pub(crate) spans: Arc<Vec<StyledSpan>>,
+  pub(crate) paragraphs: Option<Arc<Vec<ParagraphKind>>>,
+  pub(crate) objects: Option<Arc<Vec<InlineObject>>>,
   pub(crate) edit: StyledEdit,
 }
 
@@ -200,6 +225,30 @@ impl StyledChange {
 
   pub fn edit(&self) -> &StyledEdit {
     &self.edit
+  }
+
+  /// What each paragraph of the text is now, one for each; empty for an
+  /// input without kinds of paragraphs
+  /// ([`TextInput::paragraphs`](super::TextInput::paragraphs)).
+  pub fn paragraphs(&self) -> &[ParagraphKind] {
+    self.paragraphs.as_deref().map_or(&[], Vec::as_slice)
+  }
+
+  /// The objects the text holds now, in its order; empty for an input
+  /// without objects ([`TextInput::objects`](super::TextInput::objects)).
+  pub fn objects(&self) -> &[InlineObject] {
+    self.objects.as_deref().map_or(&[], Vec::as_slice)
+  }
+
+  /// The text, its spans, the kinds of its paragraphs and its objects as an
+  /// owned [`RichText`] (copies them).
+  pub fn to_rich_text(&self) -> RichText {
+    RichText::new(
+      self.value.get_untracked(),
+      self.spans.to_vec(),
+      self.paragraphs().to_vec(),
+    )
+    .with_objects(self.objects().to_vec())
   }
 
   /// The text and spans as an owned [`StyledText`] (copies them).
@@ -228,6 +277,8 @@ pub enum StyledEdit {
   Text { replaced: Range<usize>, inserted: usize },
   /// The marks over `range` changed; the text did not.
   Style { range: Range<usize> },
+  /// The kinds of the paragraphs `range` (their indices) changed; the text did not.
+  Paragraphs { range: Range<usize> },
   /// Undo or redo put back a whole earlier state.
   Replaced,
 }
@@ -249,6 +300,7 @@ pub struct SelectionStyle {
   pub italic: MarkPresence,
   pub code: MarkPresence,
   pub strikethrough: MarkPresence,
+  pub underline: MarkPresence,
   /// The link target when all of the selection is one link.
   pub link: Option<Arc<str>>,
   /// Whether any of the selection is a link.
@@ -268,6 +320,7 @@ impl SelectionStyle {
       TextMark::Italic => self.italic,
       TextMark::Code => self.code,
       TextMark::Strikethrough => self.strikethrough,
+      TextMark::Underline => self.underline,
     }
   }
 
@@ -278,6 +331,7 @@ impl SelectionStyle {
       italic: presence(style.italic),
       code: presence(style.code),
       strikethrough: presence(style.strikethrough),
+      underline: presence(style.underline),
       link: style.link.clone(),
       has_link: style.link.is_some(),
     }

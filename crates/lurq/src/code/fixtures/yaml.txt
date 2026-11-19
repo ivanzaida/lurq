@@ -1,0 +1,17 @@
+# A workflow.
+---
+name: CI
+on:
+  push:
+    branches: [master, "feat/*"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout: 30
+    enabled: true
+    url: http://example.com/a
+    script: |
+      cargo test --workspace
+      echo done
+    note: 'it''s fine'
+  - item # listed

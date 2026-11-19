@@ -11,9 +11,9 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{
-      DragEvent, DropEvent, EdgePanEvent, FileDragEvent, FileDropEvent, HistorySwipeEvent, KeyboardEvent,
-      LongPressEvent, MouseButton, MouseButtonMask, MouseEvent, PanEvent, PasteEvent, PinchEvent, RotateEvent,
-      ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
+      CopyEvent, DragEvent, DropEvent, EdgePanEvent, EditEvent, FileDragEvent, FileDropEvent, HistoryEvent,
+      HistoryMover, HistorySwipeEvent, KeyboardEvent, LongPressEvent, MouseButton, MouseButtonMask, MouseEvent,
+      PanEvent, PasteEvent, PinchEvent, RotateEvent, ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
     },
     theme::{CaretMode, TypographyStyle},
   },
@@ -42,7 +42,7 @@ use crate::{
     },
     padding::Padding,
     radius_value::RadiusValue,
-    slider_style::SliderPartStyle,
+    slider_style::{SliderOrientation, SliderPartStyle},
     spacing_value::SpacingValue,
     style::{StateStyles, Style},
     transform::Transform2D,
@@ -194,6 +194,25 @@ where
   F: Fn(FileDropEvent) + Send + Sync + 'static,
 {
   fn into_event_handler(self) -> EventHandler<FileDropEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoHistoryEventHandler {
+  fn into_event_handler(self) -> EventHandler<HistoryEvent>;
+}
+
+impl IntoHistoryEventHandler for EventHandler<HistoryEvent> {
+  fn into_event_handler(self) -> EventHandler<HistoryEvent> {
+    self
+  }
+}
+
+impl<F> IntoHistoryEventHandler for F
+where
+  F: Fn(HistoryEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<HistoryEvent> {
     EventHandler::from_event(self)
   }
 }
@@ -373,6 +392,44 @@ pub trait IntoPasteEventHandler {
   fn into_event_handler(self) -> EventHandler<PasteEvent>;
 }
 
+pub trait IntoEditEventHandler {
+  fn into_event_handler(self) -> EventHandler<EditEvent>;
+}
+
+impl IntoEditEventHandler for EventHandler<EditEvent> {
+  fn into_event_handler(self) -> EventHandler<EditEvent> {
+    self
+  }
+}
+
+impl<F> IntoEditEventHandler for F
+where
+  F: Fn(EditEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<EditEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
+pub trait IntoCopyEventHandler {
+  fn into_event_handler(self) -> EventHandler<CopyEvent>;
+}
+
+impl IntoCopyEventHandler for EventHandler<CopyEvent> {
+  fn into_event_handler(self) -> EventHandler<CopyEvent> {
+    self
+  }
+}
+
+impl<F> IntoCopyEventHandler for F
+where
+  F: Fn(CopyEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<CopyEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
 impl IntoPasteEventHandler for EventHandler<PasteEvent> {
   fn into_event_handler(self) -> EventHandler<PasteEvent> {
     self
@@ -496,6 +553,8 @@ pub(crate) trait NodeUpdate {
   /// Attach a semantic annotation surfaced to tooling (the devtools tree and
   /// the MCP `lurq_read_tree`). A no-op unless a tooling feature is enabled.
   fn describe(&mut self, name: Arc<str>, value: Arc<str>);
+  /// Takes back what the node said of itself to tooling under `name`. A no-op unless a tooling feature is enabled.
+  fn undescribe(&mut self, name: &str);
   fn child(&mut self, child: Node);
   fn id(&mut self, id: impl Into<Arc<str>>);
   fn class(&mut self, class: impl Into<Arc<str>>);
@@ -509,6 +568,7 @@ pub(crate) trait NodeUpdate {
   fn width(&mut self, width: impl Into<Dimension>);
   fn height(&mut self, height: impl Into<Dimension>);
   fn min_width(&mut self, width: impl Into<Dimension>);
+  fn aspect_ratio(&mut self, ratio: f32);
   fn max_width(&mut self, width: impl Into<Dimension>);
   fn min_height(&mut self, height: impl Into<Dimension>);
   fn max_height(&mut self, height: impl Into<Dimension>);
@@ -524,10 +584,21 @@ pub(crate) trait NodeUpdate {
   fn padding_custom(&mut self, padding: Padding);
   fn frame(&mut self, frame: FrameConstraints);
   fn offset(&mut self, x: f32, y: f32);
+  fn offset_by_size(&mut self, x: f32, y: f32);
   fn relative(&mut self, x: f32, y: f32);
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
+  fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds);
+  fn image_anchor(&mut self, x: f32, y: f32);
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn fills_viewport_width(&mut self, fills: bool);
+  fn fits_viewport_width(&mut self, fits: bool);
+  fn scrollbars_clear_of_sticky(&mut self, clear: bool);
+  fn reserve_bar_across(&mut self, reserve: bool);
+  fn wheel_across(&mut self, across: bool);
+  fn track_span(&mut self, span: usize);
   fn align(&mut self, alignment: Alignment);
   fn flex(&mut self, factor: f32);
   fn grid_cell(&mut self, update: impl FnOnce(&mut crate::layout::grid::GridCell));
@@ -536,6 +607,7 @@ pub(crate) trait NodeUpdate {
   fn shrink_order(&mut self, order: i32);
   fn shrink_limit(&mut self, limit: ShrinkLimit);
   fn shrink_drop_below(&mut self, size: f32);
+  fn drop_marker(&mut self, marker: bool);
   fn background(&mut self, color: impl Into<BackgroundColor>);
   fn background_gradient(&mut self, gradient: impl Into<Gradient>);
   fn foreground(&mut self, color: impl Into<TextColor>);
@@ -580,8 +652,42 @@ pub(crate) trait NodeUpdate {
   fn focus_visible(&mut self, f: impl FnOnce(Style) -> Style);
   fn drag_over(&mut self, f: impl FnOnce(Style) -> Style);
   fn disabled(&mut self, disabled: bool);
+  /// Takes the node and everything in it out of the focus and the pointer: Tab and a focus group's keys pass it by,
+  /// no focus request reaches it, no pointer hits it, and the focus in it leaves when it becomes inert. It is painted
+  /// as before. A splitter's closed pane is inert.
+  fn inert(&mut self, inert: bool);
+  /// While the node is in the tree it takes every key of the window before anything else does: its own
+  /// `on_key_down` and `on_key_up` handlers alone are told of a key, and nothing the window does with a key is done
+  /// (Tab, Enter, Escape, the arrows of a focus group, a menu's Alt, typing in an input, the handlers of every other
+  /// node, the accelerators of the app's menu). A shortcut recorder while it records.
+  fn captures_keys(&mut self, captures: bool);
+  /// What the node gives a form under its `name` where its kind gives nothing of its own (a text input gives its
+  /// text, a checkbox `on`): a control of the design system that is no engine control, as a shortcut recorder's
+  /// `Ctrl+Shift+P`.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  fn form_value(&mut self, value: Option<Arc<str>>);
+  /// What a selection over the node copies where it stands in a line of rich text, as an object of it.
+  fn copy_text(&mut self, text: Option<Arc<str>>);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
+  fn within_style(&mut self, style: Style);
+  fn within_hovered_style(&mut self, style: Style);
+  fn within_pressed_style(&mut self, style: Style);
+  fn interaction_group(&mut self, group: bool);
+  /// Draws the boxes of the node and of everything in it on whole device pixels: each edge of a fill or a border
+  /// is moved to the device pixel nearest it when the frame is painted, so that at a scale that is no whole number
+  /// (150%) an edge is crisp and not a column of half covered pixels. Two boxes that meet still meet. What is laid
+  /// out, and what a pointer hits, is as before; a text, an image and a box that is turned are drawn where they are.
+  fn snap_to_pixels(&mut self, snap: bool);
+  /// Paints what the node holds again and again across its box; see [`crate::layout::Repeat`].
+  fn repeat(&mut self, repeat: Option<crate::layout::Repeat>);
+  /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
+  /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system so, which on
+  /// Windows answers the system's hit test with the minimize, the maximize or the close button where the element
+  /// is laid out and nothing covers it, so that Windows 11 opens its snap layouts over the maximize control. The
+  /// element is otherwise as before: its states, its `on_click`, its cursor and its keys are its own. On other
+  /// platforms this does nothing.
+  fn window_control(&mut self, control: WindowControl);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
@@ -595,6 +701,8 @@ pub(crate) trait NodeUpdate {
   fn on_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn off_mouse_move(&mut self, f: impl IntoMouseEventHandler);
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask);
+  fn finger_drags(&mut self, drags: bool);
+  fn drag_autoscroll(&mut self, enabled: bool);
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn off_drag_start(&mut self, f: impl IntoDragEventHandler);
   fn on_drag_move(&mut self, f: impl IntoDragEventHandler);
@@ -613,6 +721,14 @@ pub(crate) trait NodeUpdate {
   fn off_file_drop(&mut self, f: impl IntoFileDropEventHandler);
   fn on_paste(&mut self, f: impl IntoPasteEventHandler);
   fn off_paste(&mut self, f: impl IntoPasteEventHandler);
+  fn on_copy(&mut self, f: impl IntoCopyEventHandler);
+  fn off_copy(&mut self, f: impl IntoCopyEventHandler);
+  fn on_undo(&mut self, f: impl IntoEditEventHandler);
+  fn off_undo(&mut self, f: impl IntoEditEventHandler);
+  fn on_redo(&mut self, f: impl IntoEditEventHandler);
+  fn off_redo(&mut self, f: impl IntoEditEventHandler);
+  fn on_select_all(&mut self, f: impl IntoEditEventHandler);
+  fn off_select_all(&mut self, f: impl IntoEditEventHandler);
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn off_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn on_mouse_leave(&mut self, f: impl IntoVoidEventHandler);
@@ -627,6 +743,8 @@ pub(crate) trait NodeUpdate {
   fn off_blur(&mut self, f: impl IntoVoidEventHandler);
   fn on_scroll(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll(&mut self, f: impl IntoScrollEventHandler);
+  fn on_wheel(&mut self, f: impl IntoScrollEventHandler);
+  fn off_wheel(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll_start(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_end(&mut self, f: impl IntoScrollEventHandler);
@@ -637,6 +755,10 @@ pub(crate) trait NodeUpdate {
   fn off_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler);
   fn on_history_swipe(&mut self, f: impl IntoHistorySwipeEventHandler);
   fn off_history_swipe(&mut self, f: impl IntoHistorySwipeEventHandler);
+  fn on_history_back(&mut self, f: impl IntoHistoryEventHandler);
+  fn off_history_back(&mut self, f: impl IntoHistoryEventHandler);
+  fn on_history_forward(&mut self, f: impl IntoHistoryEventHandler);
+  fn off_history_forward(&mut self, f: impl IntoHistoryEventHandler);
   fn on_touch_start(&mut self, f: impl IntoTouchEventHandler);
   fn off_touch_start(&mut self, f: impl IntoTouchEventHandler);
   fn on_touch_move(&mut self, f: impl IntoTouchEventHandler);
@@ -653,6 +775,8 @@ pub(crate) trait NodeUpdate {
   fn off_rotate(&mut self, f: impl IntoRotateEventHandler);
   fn on_tap(&mut self, f: impl IntoTapEventHandler);
   fn off_tap(&mut self, f: impl IntoTapEventHandler);
+  fn on_double_tap(&mut self, f: impl IntoTapEventHandler);
+  fn off_double_tap(&mut self, f: impl IntoTapEventHandler);
   fn on_swipe(&mut self, f: impl IntoSwipeEventHandler);
   fn off_swipe(&mut self, f: impl IntoSwipeEventHandler);
   fn on_pan(&mut self, f: impl IntoPanEventHandler);
@@ -677,6 +801,16 @@ pub(crate) trait NodeUpdate {
   fn interactive(&mut self, state: InteractionState);
   fn focusable(&mut self, focusable: bool);
   fn tab_index(&mut self, tab_index: i32);
+  fn focus_group(&mut self, group: crate::node::FocusGroup);
+  fn focus_entry(&mut self, entry: bool);
+  fn stops_inside(&mut self, stops: bool);
+  fn autofocus(&mut self, autofocus: bool);
+  fn focus_label(&mut self, label: Arc<str>);
+  fn focus_level(&mut self, level: u32);
+  fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>);
+  fn focus_row(&mut self, row: usize);
+  fn focus_column(&mut self, column: usize);
+  fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>);
@@ -712,6 +846,7 @@ pub(crate) trait NodeUpdate {
   fn range(&mut self, min: i32, max: i32);
   fn range_f32(&mut self, min: f32, max: f32);
   fn slider_step(&mut self, step: f32);
+  fn slider_orientation(&mut self, orientation: SliderOrientation);
   fn slider_track_style(&mut self, style: SliderPartStyle);
   fn slider_track_hovered_style(&mut self, style: SliderPartStyle);
   fn slider_fill_style(&mut self, style: SliderPartStyle);
@@ -789,10 +924,16 @@ pub enum ButtonKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum BackgroundSize {
+  /// Stretched to the box, whatever its own ratio.
   #[default]
   Stretch,
+  /// As small as fills the box, at its own ratio: what does not fit is cut.
   Cover,
+  /// As large as fits the box whole, at its own ratio: the box shows beside it.
   Contain,
+  /// At its own size, one pixel of it to one of the box's: what does not fit is cut, and the box shows beside
+  /// what is smaller. CSS `object-fit: none`.
+  Natural,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -801,6 +942,25 @@ pub enum HitTestBehavior {
   Auto,
   None,
   ContentOnly,
+}
+
+/// One of the window's controls: what an element of a title bar the app draws itself is to the window. See
+/// `.window_control(..)` on an element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowControl {
+  /// The control that minimizes the window.
+  Minimize,
+  /// The control that maximizes the window, or restores it while it is maximized.
+  Maximize,
+  /// The control that closes the window.
+  Close,
+}
+
+/// Whether any node of the process was ever one of a window's controls. Until one is, no tree has any to find.
+static WINDOW_CONTROLS_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn window_controls_in_use() -> bool {
+  WINDOW_CONTROLS_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -823,6 +983,9 @@ pub(crate) enum SyntheticNodeRole {
   /// A closed layer the overlay host keeps while its exit animations play
   /// (`node/presence.rs`): painted, and nothing else.
   LeavingLayer,
+  /// Stands, in the output of a render, for a component that is unchanged and whose nodes are in the live
+  /// tree: the tree puts those nodes in its place (`node/component_output.rs`). Never in the live tree.
+  HeldComponent,
 }
 
 #[derive(Default, Clone)]
@@ -834,6 +997,11 @@ pub struct EventHandlers {
   pub on_mouse_up: Vec<Callback<MouseEvent>>,
   pub on_mouse_move: Vec<Callback<MouseEvent>>,
   pub start_drag_buttons: MouseButtonMask,
+  /// A finger that lands on the node drags it at once, and scrolls nothing; see `Node::finger_drags`.
+  pub finger_drags: bool,
+  /// A drag of the node scrolls the scroll container around it while the pointer is at the container's edge; see
+  /// `Node::drag_autoscroll`.
+  pub drag_autoscroll: bool,
   pub on_drag_start: Vec<Callback<DragEvent>>,
   pub on_drag_move: Vec<Callback<DragEvent>>,
   pub on_drag_end: Vec<Callback<DragEvent>>,
@@ -843,6 +1011,13 @@ pub struct EventHandlers {
   pub on_file_drag_leave: Vec<VoidCallback>,
   pub on_file_drop: Vec<Callback<FileDropEvent>>,
   pub on_paste: Vec<Callback<PasteEvent>>,
+  pub on_copy: Vec<Callback<CopyEvent>>,
+  /// Undo on the focused element or one in it: see `Node::on_undo`.
+  pub on_undo: Vec<Callback<EditEvent>>,
+  /// Redo on the focused element or one in it: see `Node::on_redo`.
+  pub on_redo: Vec<Callback<EditEvent>>,
+  /// Select all on the focused element or one in it: see `Node::on_select_all`.
+  pub on_select_all: Vec<Callback<EditEvent>>,
   pub on_mouse_enter: Vec<VoidCallback>,
   pub on_mouse_leave: Vec<VoidCallback>,
   pub on_key_down: Vec<Callback<KeyboardEvent>>,
@@ -852,11 +1027,20 @@ pub struct EventHandlers {
   #[cfg(feature = "form")]
   pub on_submit: Option<FormSubmitCallback>,
   pub on_scroll: Vec<Callback<ScrollEvent>>,
+  /// A wheel or a trackpad turned over the element, before anything is scrolled by it and whether or not
+  /// anything can be: see `Node::on_wheel`.
+  pub on_wheel: Vec<Callback<ScrollEvent>>,
   pub on_scroll_start: Vec<Callback<ScrollEvent>>,
   pub on_scroll_end: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_bottom: Vec<Callback<ScrollEvent>>,
   pub on_history_swipe: Vec<Callback<HistorySwipeEvent>>,
+  /// Going back on the focused element or one in it, or under the pointer: see `Node::on_history_back`.
+  pub on_history_back: Vec<Callback<HistoryEvent>>,
+  /// Going forward: see `Node::on_history_forward`.
+  pub on_history_forward: Vec<Callback<HistoryEvent>>,
+  /// The router mounted in the node, which goes back or forward where its handlers did not.
+  pub(crate) history_mover: Option<HistoryMover>,
   pub on_touch_start: Vec<Callback<TouchEvent>>,
   pub on_touch_move: Vec<Callback<TouchEvent>>,
   pub on_touch_end: Vec<Callback<TouchEvent>>,
@@ -865,9 +1049,18 @@ pub struct EventHandlers {
   pub on_pinch: Vec<Callback<PinchEvent>>,
   pub on_rotate: Vec<Callback<RotateEvent>>,
   pub on_tap: Vec<Callback<TapEvent>>,
+  pub on_double_tap: Vec<Callback<TapEvent>>,
   pub on_swipe: Vec<Callback<SwipeEvent>>,
   pub on_pan: Vec<Callback<PanEvent>>,
   pub on_edge_pan: Vec<Callback<EdgePanEvent>>,
+  /// What a click of the node focuses: the first node that takes the focus under the element the ref is on, as
+  /// [`Ctx::focus`](crate::app::ctx::Ctx::focus) finds it. What a label does for its control.
+  pub focuses: Option<CoreElementRef>,
+  /// A press of the primary button runs the node's `on_click` handlers at once, and again while the button is held
+  /// over it; its release clicks nothing more. See `app/runtime/press_repeat.rs`.
+  pub press_repeats: bool,
+  /// Run as a press that repeats is let go, wherever the pointer is, or taken by the OS: the end of the gesture.
+  pub on_press_end: Vec<VoidCallback>,
 }
 
 /// The styles few nodes set, behind one guard: a guard holds a watch handle
@@ -884,21 +1077,86 @@ pub(crate) struct RareStyle {
   pub(crate) outline: Option<crate::node::outline::Outline>,
   /// The node and its subtree take no input; see [`Node::disabled`].
   pub(crate) disabled: bool,
+  /// The node and its subtree are out of the focus and the pointer; see `NodeUpdate::inert`.
+  pub(crate) inert: bool,
+  /// The node takes every key of the window while it is in the tree; see `NodeUpdate::captures_keys`.
+  pub(crate) captures_keys: bool,
+  /// What the node gives a form under its name, where its kind gives nothing of its own; see
+  /// `NodeUpdate::form_value`.
+  pub(crate) form_value: Option<Arc<str>>,
+  /// What a selection over the node copies where it stands in a line of rich text; see `NodeUpdate::copy_text`.
+  pub(crate) copy_text: Option<Arc<str>>,
   /// A child removed from the node stays until its exit animation ends; see `node/presence.rs`.
   pub(crate) presence: bool,
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
   /// node holds a `Position` and few stick.
   pub(crate) sticky: Option<crate::layout::layout_kind::Sticky>,
+  /// The tracks the node lays its children out in, one to a track: a row of a table. See
+  /// `layout/column_tracks.rs`.
+  pub(crate) column_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// The tracks whose cells the node measures in the rows it holds: what holds the rows of a table.
+  pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
+  pub(crate) fills_viewport_width: bool,
+  /// A scroll container that scrolls sideways lays content wider than its viewport out in the viewport's width
+  /// first, and is scrolled only to what still has no room there.
+  pub(crate) fits_viewport_width: bool,
+  /// A scroll container whose bars run beside what scrolls, clear of what sticks at its start.
+  pub(crate) scrollbars_clear_of_sticky: bool,
+  /// A scroll container whose bar across has a lane of its own under the content while it is wider than the view.
+  pub(crate) reserves_bar_across: bool,
+  /// A scroll container that scrolls sideways is scrolled sideways by a wheel turned up and down.
+  pub(crate) wheels_across: bool,
+  /// How many tracks of the row it is in the node takes (`.track_span(n)`): one where it says nothing.
+  pub(crate) track_span: Option<u16>,
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
+  /// The sizes of the `Stack` the node is a child of at which it is laid out; see `NodeUpdate::drop_outside`.
+  pub(crate) drop_outside: Option<crate::layout::layout_kind::SizeBounds>,
+  /// Where the image the node draws is held in its box, as shares of the room left over or cut; see
+  /// `NodeUpdate::image_anchor`.
+  pub(crate) image_anchor: Option<(f32, f32)>,
+  /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
+  /// see [`NodeUpdate::interaction_group`].
+  pub(crate) interaction_group: bool,
+  /// The boxes of the node and its subtree are drawn on whole device pixels; see [`NodeUpdate::snap_to_pixels`].
+  pub(crate) snaps_to_pixels: bool,
+  /// What the node holds is painted again and again across its box; see [`NodeUpdate::repeat`].
+  pub(crate) repeat: Option<crate::layout::Repeat>,
+  /// Which of the window's controls the node is, if it is one; see [`NodeUpdate::window_control`].
+  pub(crate) window_control: Option<WindowControl>,
+}
+
+/// What few nodes have that is not a style, behind one pointer that is allocated on the first write: every node
+/// is built and moved by value in a render, and its size is budgeted (`size_budget.rs`, lurq#25). Nothing here is
+/// tracked by layout, unlike [`RareStyle`].
+#[derive(Clone, Default)]
+pub(crate) struct RareNode {
+  /// The resource the node's background image is loaded from; the runtime sets `background_image` once it is.
+  #[cfg(all(feature = "image", feature = "http"))]
+  pub(crate) background_resource_image: Option<Arc<str>>,
+  /// The scrollbar style while the pointer is over the node; see `NodeUpdate::scrollbar_hovered`.
+  pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
+  /// What a drag that starts on the node carries to where it is dropped; see `Node::drag_payload`.
+  pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
+  /// The name the node's value has in a form.
+  #[cfg(feature = "form")]
+  pub(crate) form_name: Option<Arc<str>>,
 }
 
 /// Whether any node of the process was ever disabled. Until one is, no tree
 /// has a disabled state to keep.
 static DISABLED_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn disabled_in_use() -> bool {
+/// Whether any node of the process was ever built to take every key: until one is, no window looks for one.
+static KEY_CAPTURE_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn key_capture_in_use() -> bool {
+  KEY_CAPTURE_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn disabled_in_use() -> bool {
   DISABLED_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -907,8 +1165,33 @@ pub(crate) type AnimationOverrides = Vec<(crate::animation::AnimatableProperty, 
 empty_default!(EventHandlers);
 empty_default!(StateStyles);
 empty_default!(RareStyle);
+empty_default!(RareNode);
 empty_default!(AnimationOverrides);
 empty_default!(Vec<Transition>);
+
+/// What DevTools and MCP show of a node: the component it is the root of, and what it says of itself.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[derive(Clone, Default)]
+pub(crate) struct NodeDebug {
+  #[cfg(feature = "devtools")]
+  pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_memos_debug: Vec<ComponentMemoDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
+  #[cfg(feature = "devtools")]
+  pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  /// How the component whose root this is has rendered: how many times, and how long the last took. `None` on
+  /// a node no component rendered.
+  #[cfg(feature = "devtools")]
+  pub(crate) component_render_debug: Option<crate::app::ctx::ComponentRenderDebug>,
+  pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+empty_default!(NodeDebug);
 
 pub(crate) struct Node {
   pub(crate) node_id: NodeId,
@@ -930,23 +1213,20 @@ pub(crate) struct Node {
   pub(crate) modal_declaration: Option<Box<crate::app::ctx::ModalSpec>>,
   pub(crate) layout_neutral: bool,
   pub(crate) synthetic_role: Option<SyntheticNodeRole>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_props_debug: Option<DevtoolsInspectableDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_signals_debug: Vec<ComponentSignalDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_memos_debug: Vec<ComponentMemoDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
-  #[cfg(feature = "devtools")]
-  pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  /// What DevTools and MCP show of the node: boxed, as an app built with neither has none and one built with them
+  /// has it on few of its nodes.
   #[cfg(any(feature = "devtools", feature = "mcp"))]
-  pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
+  pub(crate) debug: LazyBox<NodeDebug>,
+  /// The theme the element and what is in it are laid out and painted with, in place of the window's
+  /// (`Ctx::in_theme`). Boxed: almost no node has one.
+  pub(crate) theme_scope: Option<Box<crate::app::theme::Theme>>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) frame: FrameConstraints,
   pub(crate) padding: Padding,
   pub(crate) position: Position,
   pub(crate) offset: Option<Offset>,
+  /// How far the node is moved by shares of its own width and height, on top of `offset`.
+  pub(crate) offset_by_size: Option<(f32, f32)>,
   pub(crate) align_self: Option<Alignment>,
   pub(crate) flex: Option<FlexParams>,
   pub(crate) shrink_rule: ShrinkRule,
@@ -970,21 +1250,30 @@ pub(crate) struct Node {
   pub(crate) background_image: Guard<Option<Box<crate::images::ImageData>>>,
   #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
-  #[cfg(all(feature = "image", feature = "resources"))]
-  pub(crate) background_resource_image: Option<Arc<str>>,
   /// Boxed: most nodes do not scroll, and `Node` size is budgeted (lurq#25).
   pub(crate) scrollbar_style: Guard<Option<Box<ScrollBarStyle>>>,
-  pub(crate) scrollbar_hovered_style: Option<ScrollbarStyleCallback>,
   pub(crate) element_ref: Option<CoreElementRef>,
-  pub(crate) drag_payload: Option<crate::app::events::DragPayload>,
   pub(crate) interaction: Option<InteractionState>,
   /// `None` follows the node kind (buttons and form controls are focusable)
   /// and `tab_index`; `Some` overrides both.
   pub(crate) focusable: Option<bool>,
   pub(crate) tab_index: Option<i32>,
+  /// The arrow keys move the focus between what is in this node; see [`crate::node::FocusGroup`].
+  pub(crate) focus_group: Option<crate::node::FocusGroup>,
+  /// Where Tab enters the one-stop focus group this node is in.
+  pub(crate) focus_entry: bool,
+  /// Whether Tab also stops at what takes the focus inside this button, after the button itself.
+  pub(crate) stops_inside: bool,
+  /// Whether the focus goes to this node as the modal or the overlay it is in opens, in place of the first stop.
+  pub(crate) autofocus: bool,
+  /// What typing in a focus group with typeahead matches this node by. An `Arc<String>` and not an `Arc<str>`:
+  /// it is one pointer, and few nodes have one.
+  pub(crate) focus_label: Option<Arc<String>>,
+  /// Where this node stands in a nested focus group: its level, and whether it opens. Few nodes have one.
+  pub(crate) focus_branch: Option<Arc<crate::node::FocusBranch>>,
   pub(crate) button_kind: Option<ButtonKind>,
-  #[cfg(feature = "form")]
-  pub(crate) form_name: Option<Arc<str>>,
+  /// What few nodes have that is not a style: boxed, and `Node` size is budgeted (lurq#25).
+  pub(crate) rare: LazyBox<RareNode>,
   pub(crate) style_state: InteractionState,
   pub(crate) state_styles: LazyBox<StateStyles>,
   pub(crate) opacity: f32,
@@ -1013,11 +1302,46 @@ impl Default for Node {
 }
 
 impl NodeUpdate for Node {
+  fn inert(&mut self, inert: bool) {
+    // Writing through the lazy box would allocate it for a node that is not, and stays not, inert.
+    if self.rare_style.inert != inert {
+      self.rare_style.inert = inert;
+    }
+  }
+
+  fn captures_keys(&mut self, captures: bool) {
+    if self.rare_style.captures_keys != captures {
+      self.rare_style.captures_keys = captures;
+    }
+    if captures {
+      KEY_CAPTURE_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+  }
+
+  fn form_value(&mut self, value: Option<Arc<str>>) {
+    if self.rare_style.form_value != value {
+      self.rare_style.form_value = value;
+    }
+  }
+
+  fn copy_text(&mut self, text: Option<Arc<str>>) {
+    if self.rare_style.copy_text != text {
+      self.rare_style.copy_text = text;
+    }
+  }
+
   fn describe(&mut self, name: Arc<str>, value: Arc<str>) {
     #[cfg(any(feature = "devtools", feature = "mcp"))]
-    self.debug_attrs.push((name, value));
+    self.debug.debug_attrs.push((name, value));
     #[cfg(not(any(feature = "devtools", feature = "mcp")))]
     let _ = (name, value);
+  }
+
+  fn undescribe(&mut self, name: &str) {
+    #[cfg(any(feature = "devtools", feature = "mcp"))]
+    self.debug.debug_attrs.retain(|(said, _)| &**said != name);
+    #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+    let _ = name;
   }
 
   fn child(&mut self, child: Node) {
@@ -1112,6 +1436,16 @@ impl NodeUpdate for Node {
       self,
       FrameConstraints {
         min_width: Some(width.into()),
+        ..Default::default()
+      },
+    );
+  }
+
+  fn aspect_ratio(&mut self, ratio: f32) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        aspect_ratio: Some(ratio),
         ..Default::default()
       },
     );
@@ -1213,6 +1547,11 @@ impl NodeUpdate for Node {
     self.layout_cache.invalidate();
   }
 
+  fn offset_by_size(&mut self, x: f32, y: f32) {
+    self.offset_by_size = Some((x, y));
+    self.layout_cache.invalidate();
+  }
+
   fn relative(&mut self, x: f32, y: f32) {
     NodeUpdate::offset(self, x, y);
   }
@@ -1239,6 +1578,68 @@ impl NodeUpdate for Node {
 
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky) {
     self.rare_style.sticky = Some(sticky);
+  }
+
+  fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds) {
+    if self.rare_style.drop_outside != Some(bounds) {
+      self.rare_style.drop_outside = Some(bounds);
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn image_anchor(&mut self, x: f32, y: f32) {
+    let share = |value: f32| if value.is_nan() { 0.5 } else { value.clamp(0.0, 1.0) };
+    self.rare_style.image_anchor = Some((share(x), share(y)));
+  }
+
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.column_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.measured_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn fills_viewport_width(&mut self, fills: bool) {
+    if self.rare_style.fills_viewport_width != fills {
+      self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn fits_viewport_width(&mut self, fits: bool) {
+    if self.rare_style.fits_viewport_width != fits {
+      self.rare_style.fits_viewport_width = fits;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn scrollbars_clear_of_sticky(&mut self, clear: bool) {
+    if self.rare_style.scrollbars_clear_of_sticky != clear {
+      self.rare_style.scrollbars_clear_of_sticky = clear;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn reserve_bar_across(&mut self, reserve: bool) {
+    if self.rare_style.reserves_bar_across != reserve {
+      self.rare_style.reserves_bar_across = reserve;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn wheel_across(&mut self, across: bool) {
+    self.rare_style.wheels_across = across;
+  }
+
+  fn track_span(&mut self, span: usize) {
+    let span = Some(span.clamp(1, u16::MAX as usize) as u16);
+    if self.rare_style.track_span != span {
+      self.rare_style.track_span = span;
+      self.layout_cache.invalidate();
+    }
   }
 
   fn align(&mut self, alignment: Alignment) {
@@ -1285,6 +1686,11 @@ impl NodeUpdate for Node {
     // rebuild; a negative size means the same as 0.
     let size = if size.is_nan() { 0.0 } else { size.max(0.0) };
     self.shrink_rule.drop_below = Some(size);
+    self.layout_cache.invalidate();
+  }
+
+  fn drop_marker(&mut self, marker: bool) {
+    self.shrink_rule.marker = marker;
     self.layout_cache.invalidate();
   }
 
@@ -1417,8 +1823,8 @@ impl NodeUpdate for Node {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => self.background_image.set(Some(Box::new(data))),
       crate::images::ImageKind::Native(data) => self.background_image.set(Some(Box::new(data.image_data()))),
-      #[cfg(all(feature = "image", feature = "resources"))]
-      crate::images::ImageKind::Resource(path) => self.background_resource_image = Some(path),
+      #[cfg(all(feature = "image", feature = "http"))]
+      crate::images::ImageKind::Resource(path) => self.rare.background_resource_image = Some(path),
     }
   }
 
@@ -1482,6 +1888,41 @@ impl NodeUpdate for Node {
 
   fn disabled_style(&mut self, style: Style) {
     self.state_styles.disabled = Some(style);
+  }
+
+  fn within_style(&mut self, style: Style) {
+    self.state_styles.within = Some(style);
+  }
+
+  fn within_hovered_style(&mut self, style: Style) {
+    self.state_styles.within_hovered = Some(style);
+  }
+
+  fn within_pressed_style(&mut self, style: Style) {
+    self.state_styles.within_pressed = Some(style);
+  }
+
+  fn interaction_group(&mut self, group: bool) {
+    self.rare_style.interaction_group = group;
+  }
+
+  fn repeat(&mut self, repeat: Option<crate::layout::Repeat>) {
+    // Writing through the lazy box would allocate it for a node that repeats nothing.
+    if self.rare_style.repeat != repeat {
+      self.rare_style.repeat = repeat;
+    }
+  }
+
+  fn snap_to_pixels(&mut self, snap: bool) {
+    // Writing through the lazy box would allocate it for a node that does not snap.
+    if self.rare_style.snaps_to_pixels != snap {
+      self.rare_style.snaps_to_pixels = snap;
+    }
+  }
+
+  fn window_control(&mut self, control: WindowControl) {
+    self.rare_style.window_control = Some(control);
+    WINDOW_CONTROLS_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
   }
 
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style) {
@@ -1571,6 +2012,14 @@ impl NodeUpdate for Node {
 
   fn start_drag_buttons(&mut self, buttons: MouseButtonMask) {
     self.events.start_drag_buttons = buttons;
+  }
+
+  fn finger_drags(&mut self, drags: bool) {
+    self.events.finger_drags = drags;
+  }
+
+  fn drag_autoscroll(&mut self, enabled: bool) {
+    self.events.drag_autoscroll = enabled;
   }
 
   fn on_drag_start(&mut self, f: impl IntoDragEventHandler) {
@@ -1675,6 +2124,45 @@ impl NodeUpdate for Node {
     self.events.on_paste.retain(|existing| !existing.same_handler(&handler));
   }
 
+  fn on_copy(&mut self, f: impl IntoCopyEventHandler) {
+    self.events.on_copy.push(f.into_event_handler());
+  }
+
+  fn off_copy(&mut self, f: impl IntoCopyEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_copy.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_undo(&mut self, f: impl IntoEditEventHandler) {
+    self.events.on_undo.push(f.into_event_handler());
+  }
+
+  fn off_undo(&mut self, f: impl IntoEditEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_undo.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_redo(&mut self, f: impl IntoEditEventHandler) {
+    self.events.on_redo.push(f.into_event_handler());
+  }
+
+  fn off_redo(&mut self, f: impl IntoEditEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_redo.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_select_all(&mut self, f: impl IntoEditEventHandler) {
+    self.events.on_select_all.push(f.into_event_handler());
+  }
+
+  fn off_select_all(&mut self, f: impl IntoEditEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_select_all
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler) {
     self.events.on_mouse_enter.push(f.into_void_event_handler());
   }
@@ -1745,6 +2233,15 @@ impl NodeUpdate for Node {
     self.events.on_scroll.push(f.into_event_handler());
   }
 
+  fn on_wheel(&mut self, f: impl IntoScrollEventHandler) {
+    self.events.on_wheel.push(f.into_event_handler());
+  }
+
+  fn off_wheel(&mut self, f: impl IntoScrollEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_wheel.retain(|existing| !existing.same_handler(&handler));
+  }
+
   fn off_scroll(&mut self, f: impl IntoScrollEventHandler) {
     let handler = f.into_event_handler();
     self
@@ -1810,6 +2307,30 @@ impl NodeUpdate for Node {
     self
       .events
       .on_history_swipe
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_history_back(&mut self, f: impl IntoHistoryEventHandler) {
+    self.events.on_history_back.push(f.into_event_handler());
+  }
+
+  fn off_history_back(&mut self, f: impl IntoHistoryEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_history_back
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_history_forward(&mut self, f: impl IntoHistoryEventHandler) {
+    self.events.on_history_forward.push(f.into_event_handler());
+  }
+
+  fn off_history_forward(&mut self, f: impl IntoHistoryEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_history_forward
       .retain(|existing| !existing.same_handler(&handler));
   }
 
@@ -1903,6 +2424,18 @@ impl NodeUpdate for Node {
     self.events.on_tap.retain(|existing| !existing.same_handler(&handler));
   }
 
+  fn on_double_tap(&mut self, f: impl IntoTapEventHandler) {
+    self.events.on_double_tap.push(f.into_event_handler());
+  }
+
+  fn off_double_tap(&mut self, f: impl IntoTapEventHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_double_tap
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
   fn on_swipe(&mut self, f: impl IntoSwipeEventHandler) {
     self.events.on_swipe.push(f.into_event_handler());
   }
@@ -1970,7 +2503,7 @@ impl NodeUpdate for Node {
   }
 
   fn scrollbar_hovered(&mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) {
-    self.scrollbar_hovered_style = Some(Arc::new(f));
+    self.rare.scrollbar_hovered_style = Some(Arc::new(f));
   }
 
   fn culling(&mut self, enabled: bool) {
@@ -2014,13 +2547,56 @@ impl NodeUpdate for Node {
     self.tab_index = Some(tab_index);
   }
 
+  fn focus_group(&mut self, group: crate::node::FocusGroup) {
+    self.focus_group = Some(group);
+  }
+
+  fn focus_entry(&mut self, entry: bool) {
+    self.focus_entry = entry;
+  }
+
+  fn stops_inside(&mut self, stops: bool) {
+    self.stops_inside = stops;
+  }
+
+  fn autofocus(&mut self, autofocus: bool) {
+    self.autofocus = autofocus;
+  }
+
+  fn focus_label(&mut self, label: Arc<str>) {
+    self.focus_label = Some(Arc::new(label.to_string()));
+  }
+
+  fn focus_level(&mut self, level: u32) {
+    let branch = self.focus_branch.get_or_insert_with(Default::default);
+    Arc::make_mut(branch).level = Some(level);
+  }
+
+  fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>) {
+    let branch = Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default));
+    branch.expanded = Some(open);
+    branch.toggle = Some(toggle);
+  }
+
+  fn focus_row(&mut self, row: usize) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).row = Some(row);
+  }
+
+  fn focus_column(&mut self, column: usize) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).column = Some(column);
+  }
+
+  fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).rows = Some(rows);
+  }
+
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
   }
 
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>) {
-    self.form_name = Some(name.into());
+    self.rare.form_name = Some(name.into());
   }
 
   fn text_wrap(&mut self, wrap: bool) {
@@ -2036,7 +2612,6 @@ impl NodeUpdate for Node {
   fn selectable(&mut self, selectable: bool) {
     match &self.node_kind {
       NodeKind::Text { state, .. } => state.set_selectable(selectable),
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, .. } => state.set_selectable(selectable),
       _ => {}
     }
@@ -2199,6 +2774,12 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn slider_orientation(&mut self, orientation: SliderOrientation) {
+    if let Some(state) = self.slider_state() {
+      state.set_orientation(orientation);
+    }
+  }
+
   fn slider_track_style(&mut self, style: SliderPartStyle) {
     if let Some(state) = self.slider_state() {
       state.set_track_style(style);
@@ -2299,6 +2880,7 @@ impl Node {
       padding: Padding::default(),
       position: Position::Static,
       offset: None,
+      offset_by_size: None,
       align_self: None,
       flex: None,
       shrink_rule: ShrinkRule::default(),
@@ -2319,18 +2901,9 @@ impl Node {
       modal_declaration: None,
       layout_neutral: false,
       synthetic_role: None,
-      #[cfg(feature = "devtools")]
-      component_props_debug: None,
-      #[cfg(feature = "devtools")]
-      component_signals_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
-      component_memos_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
-      component_effects_debug: Vec::new(),
-      #[cfg(feature = "devtools")]
-      component_contexts_debug: Vec::new(),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
-      debug_attrs: Vec::new(),
+      debug: LazyBox::new(),
+      theme_scope: None,
       text_content: Guard::new(None),
       text_wrap: DEFAULT_TEXT_WRAP,
       text_overflow: TextOverflow::default(),
@@ -2346,18 +2919,19 @@ impl Node {
       background_image: Guard::new(None),
       #[cfg(feature = "raster")]
       background_size: BackgroundSize::default(),
-      #[cfg(all(feature = "image", feature = "resources"))]
-      background_resource_image: None,
       scrollbar_style: Guard::new(None),
-      scrollbar_hovered_style: None,
       element_ref: None,
-      drag_payload: None,
       interaction: None,
       focusable: None,
       tab_index: None,
+      focus_group: None,
+      focus_entry: false,
+      stops_inside: false,
+      autofocus: false,
+      focus_label: None,
+      focus_branch: None,
       button_kind: None,
-      #[cfg(feature = "form")]
-      form_name: None,
+      rare: LazyBox::new(),
       style_state: InteractionState::new(),
       state_styles: LazyBox::new(),
       opacity: DEFAULT_OPACITY,
@@ -2457,9 +3031,21 @@ impl Node {
     node.with_text_content(content)
   }
 
-  #[cfg(feature = "markdown")]
+  /// A paragraph of runs of their own style: the words of a mark in another
+  /// weight. It is laid out, drawn, selected and highlighted as one text.
   pub(crate) fn rich_text(spans: Vec<crate::layout::quad::RichTextSpan>) -> Self {
-    Self::rich_text_with_links(spans, vec![], vec![])
+    let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::RichText {
+        state: TextState::new(),
+        spans,
+        transform_mode: TextTransformMode::default(),
+        generated: std::sync::Arc::from([]),
+      },
+      vec![],
+    )
+    .with_text_content(&text)
   }
 
   /// Rich text with the links in it: [`Self::inline_link`] nodes, which the
@@ -2577,6 +3163,28 @@ impl Node {
     )
   }
 
+  /// A slider of two thumbs bound to a low value and a high one.
+  pub fn range_slider(values: Signal<(i32, i32)>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Slider {
+        state: SliderState::new_range(values),
+      },
+      vec![],
+    )
+  }
+
+  /// A slider of two thumbs bound to a low fraction and a high one.
+  pub fn range_slider_f32(values: Signal<(f32, f32)>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Slider {
+        state: SliderState::new_range_f32(values),
+      },
+      vec![],
+    )
+  }
+
   pub fn select() -> Self {
     let state = SelectState::new();
     let toggle = state.clone();
@@ -2587,10 +3195,21 @@ impl Node {
       .on_mouse_down
       .push(EventHandler::new(move |event: &MouseEvent| {
         if event.button == MouseButton::Left {
-          toggle.toggle_open();
+          // A press opens a combobox and leaves it open: it is pressed to type in, and closes when an option is
+          // chosen, with Escape, or with a press outside it.
+          if toggle.is_combobox() {
+            toggle.set_open(true);
+          } else {
+            toggle.toggle_open();
+          }
         }
       }));
     node
+  }
+
+  /// The state of a select node, to hold beside it.
+  pub(crate) fn clone_select_state(&self) -> Option<SelectState> {
+    self.select_state().cloned()
   }
 
   fn select_state(&self) -> Option<&SelectState> {
@@ -2611,6 +3230,18 @@ impl Node {
     if let Some(state) = self.select_state() {
       state.set_details(details);
       state.set_disabled(disabled);
+    }
+    self
+  }
+
+  /// The hint of each option and the label of the group each option starts, if it does.
+  pub(crate) fn select_option_extras(
+    self,
+    hints: Vec<Option<std::sync::Arc<str>>>,
+    groups: Vec<Option<std::sync::Arc<str>>>,
+  ) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_extras(hints, groups);
     }
     self
   }
@@ -2680,6 +3311,14 @@ impl Node {
     self
   }
 
+  /// Makes the select read only: its value is shown, its list does not open, and nothing is committed.
+  pub(crate) fn select_read_only(self, read_only: bool) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_read_only(read_only);
+    }
+    self
+  }
+
   pub fn select_on_change(self, on_change: SelectChangeCallback) -> Self {
     if let Some(state) = self.select_state() {
       state.set_on_change(on_change);
@@ -2723,6 +3362,7 @@ impl Node {
       LayoutKind::Leaf,
       NodeKind::Canvas {
         canvas: crate::canvas::CanvasHandle::new(),
+        painter: None,
       },
       vec![],
     );
@@ -2733,8 +3373,25 @@ impl Node {
   #[cfg(feature = "canvas")]
   pub(crate) fn canvas_handle(&self) -> Option<crate::canvas::CanvasHandle> {
     match &self.node_kind {
-      NodeKind::Canvas { canvas } => Some(canvas.clone()),
+      NodeKind::Canvas { canvas, .. } => Some(canvas.clone()),
       _ => None,
+    }
+  }
+
+  /// What draws a canvas node, where it has one.
+  #[cfg(feature = "canvas")]
+  pub(crate) fn canvas_painter(&self) -> Option<&crate::canvas::CanvasPainter> {
+    match &self.node_kind {
+      NodeKind::Canvas { painter, .. } => painter.as_ref(),
+      _ => None,
+    }
+  }
+
+  /// Gives a canvas node what draws it.
+  #[cfg(feature = "canvas")]
+  pub(crate) fn set_canvas_painter(&mut self, next: crate::canvas::CanvasPainter) {
+    if let NodeKind::Canvas { painter, .. } = &mut self.node_kind {
+      *painter = Some(next);
     }
   }
 
@@ -2777,6 +3434,8 @@ impl Node {
       NodeKind::Image { fit, .. } => *fit = next_fit,
       #[cfg(feature = "image")]
       NodeKind::LoadingImage { request } => request.fit = next_fit,
+      #[cfg(feature = "image")]
+      NodeKind::ResourceImage { fit, .. } => *fit = next_fit,
       _ => {}
     }
   }
@@ -2812,17 +3471,24 @@ impl Node {
 
   #[cfg(feature = "image")]
   pub fn resource_image(path: &str) -> Self {
-    Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceImage { path: path.into() }, vec![])
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::ResourceImage {
+        path: path.into(),
+        fit: BackgroundSize::Stretch,
+      },
+      vec![],
+    )
   }
 
-  #[cfg(feature = "svg")]
+  #[cfg(feature = "canvas")]
   pub fn svg(data: crate::svg::SvgData) -> Self {
     let mut node = Self::from_parts(LayoutKind::Leaf, NodeKind::Svg { data: data.clone() }, vec![]);
     node.intrinsic_size = Some(Size::new(data.viewbox_width(), data.viewbox_height()));
     node
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   pub fn resource_svg(path: &str) -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
   }
@@ -2904,6 +3570,14 @@ impl Node {
     self
   }
 
+  /// Moves the node by shares of its own width and height, once it is laid out, on top of
+  /// [`offset`](Self::offset): `offset_by_size(-0.5, -0.5)` puts its middle where its top left corner was.
+  pub fn offset_by_size(mut self, x: f32, y: f32) -> Self {
+    self.offset_by_size = Some((x, y));
+    self.layout_cache.invalidate();
+    self
+  }
+
   /// The node in flow again, at the size its content gives it.
   pub(crate) fn statically_positioned(mut self) -> Self {
     self.position = Position::Static;
@@ -2925,6 +3599,47 @@ impl Node {
 
   pub(crate) fn is_sticky(&self) -> bool {
     self.rare_style.sticky.is_some()
+  }
+
+  /// The tracks the node lays its children out in, if it is a row of a table.
+  pub(crate) fn column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.column_tracks.as_ref()
+  }
+
+  /// The tracks whose cells the node measures in the rows it holds.
+  pub(crate) fn measured_column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.measured_tracks.as_ref()
+  }
+
+  /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
+  pub(crate) fn fills_viewport_width(&self) -> bool {
+    self.rare_style.fills_viewport_width
+  }
+
+  /// Whether the node, a scroll container, lays content wider than its viewport out in the viewport's width
+  /// first.
+  pub(crate) fn fits_viewport_width(&self) -> bool {
+    self.rare_style.fits_viewport_width
+  }
+
+  /// Whether the node, a scroll container, keeps its bars clear of what sticks at its start.
+  pub(crate) fn scrollbars_clear_of_sticky(&self) -> bool {
+    self.rare_style.scrollbars_clear_of_sticky
+  }
+
+  /// Whether the node, a scroll container, gives its bar across a lane of its own while its content is wider.
+  pub(crate) fn reserves_bar_across(&self) -> bool {
+    self.rare_style.reserves_bar_across
+  }
+
+  /// Whether the node, a scroll container, is scrolled sideways by a wheel turned up and down.
+  pub(crate) fn wheels_across(&self) -> bool {
+    self.rare_style.wheels_across
+  }
+
+  /// How many tracks of the row it is in the node takes: one unless it spans more.
+  pub(crate) fn track_span(&self) -> usize {
+    self.rare_style.track_span.map_or(1, usize::from)
   }
 
   pub fn align(mut self, alignment: Alignment) -> Self {
@@ -3130,9 +3845,9 @@ impl Node {
       crate::images::ImageKind::Native(data) => {
         self.background_image.set(Some(Box::new(data.image_data())));
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
-        self.background_resource_image = Some(path);
+        self.rare.background_resource_image = Some(path);
       }
     }
     self
@@ -3327,6 +4042,28 @@ impl Node {
     self
   }
 
+  /// Whether a finger that lands on this node drags it at once, off by default: a control that is dragged (a
+  /// dial, an area of colors, a pad that is drawn on) inside content that scrolls. A finger that lands over
+  /// content that scrolls may be about to scroll it, so it presses nothing until it has rested, and one that
+  /// moves first scrolls; on such a node it is a pointer with its button down from where it lands, as it is on
+  /// a slider and where nothing scrolls, and the content under it stays where it is.
+  pub fn finger_drags(mut self, drags: bool) -> Self {
+    self.events.finger_drags = drags;
+    self
+  }
+
+  /// Whether a drag that starts on this node scrolls the scroll container around it while the pointer is at the
+  /// container's edge or past it, off by default: the nearest container the node is in that has content beyond
+  /// its viewport scrolls toward the pointer, on the axes it scrolls, faster the farther the pointer is past the
+  /// edge, a step each frame while the pointer is held there, until the drag ends. After each step the drag's
+  /// `on_drag_move` handlers are called with the pointer where it is, so that what follows the drag (a rectangle
+  /// dragged over a list, a row carried along it) reckons with what scrolled under it. For a node with drag
+  /// handlers; it does nothing on any other.
+  pub fn drag_autoscroll(mut self, enabled: bool) -> Self {
+    self.events.drag_autoscroll = enabled;
+    self
+  }
+
   pub fn on_drag_start(mut self, f: impl IntoDragEventHandler) -> Self {
     self.events.on_drag_start.push(f.into_event_handler());
     self
@@ -3405,7 +4142,34 @@ impl Node {
     self
   }
 
-  /// A trackpad swipe between pages ended over this element; see [`HistorySwipeEvent`].
+  pub fn on_copy(mut self, f: impl IntoCopyEventHandler) -> Self {
+    NodeUpdate::on_copy(&mut self, f);
+    self
+  }
+
+  /// Undo (Ctrl+Z, Cmd+Z on a Mac, or `Ctx::edit`) on this element focused, or on one in it; see
+  /// [`EditEvent`].
+  pub fn on_undo(mut self, f: impl IntoEditEventHandler) -> Self {
+    NodeUpdate::on_undo(&mut self, f);
+    self
+  }
+
+  /// Redo (Ctrl+Shift+Z or Ctrl+Y, Cmd+Shift+Z on a Mac, or `Ctx::edit`) on this element focused, or on one in
+  /// it; see [`EditEvent`].
+  pub fn on_redo(mut self, f: impl IntoEditEventHandler) -> Self {
+    NodeUpdate::on_redo(&mut self, f);
+    self
+  }
+
+  /// Select all (Ctrl+A, Cmd+A on a Mac, or `Ctx::edit`) on this element focused, or on one in it; see
+  /// [`EditEvent`].
+  pub fn on_select_all(mut self, f: impl IntoEditEventHandler) -> Self {
+    NodeUpdate::on_select_all(&mut self, f);
+    self
+  }
+
+  /// A swipe between pages ended over this element: a trackpad's, or a finger's from the edge; see
+  /// [`HistorySwipeEvent`]. Its default is going back or forward, as `on_history_back` hears it.
   pub fn on_history_swipe(mut self, f: impl IntoHistorySwipeEventHandler) -> Self {
     NodeUpdate::on_history_swipe(&mut self, f);
     self
@@ -3413,6 +4177,39 @@ impl Node {
 
   pub fn off_history_swipe(mut self, f: impl IntoHistorySwipeEventHandler) -> Self {
     NodeUpdate::off_history_swipe(&mut self, f);
+    self
+  }
+
+  /// Going back on this element focused, or on one in it, or under the pointer: Alt+← (Cmd+[ on a Mac), the mouse's
+  /// back button, a swipe, Android's back, a browser's back, `Ctx::history_back`. The handler goes back from what is
+  /// its own (a dialog closes); one with nothing to do calls `event.pass_on()`, and the command goes on out to the
+  /// elements around and the router; see [`HistoryEvent`].
+  pub fn on_history_back(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::on_history_back(&mut self, f);
+    self
+  }
+
+  pub fn off_history_back(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::off_history_back(&mut self, f);
+    self
+  }
+
+  /// Going forward, as [`on_history_back`](Self::on_history_back) goes back: Alt+→ (Cmd+] on a Mac), the mouse's
+  /// forward button, a swipe, a browser's forward, `Ctx::history_forward`.
+  pub fn on_history_forward(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::on_history_forward(&mut self, f);
+    self
+  }
+
+  pub fn off_history_forward(mut self, f: impl IntoHistoryEventHandler) -> Self {
+    NodeUpdate::off_history_forward(&mut self, f);
+    self
+  }
+
+  /// Mounts the router `mover` in this node: it goes back or forward where the node's handlers did not.
+  #[cfg_attr(not(feature = "router"), allow(dead_code))]
+  pub(crate) fn history_mover(mut self, mover: HistoryMover) -> Self {
+    self.events.history_mover = Some(mover);
     self
   }
 
@@ -3502,6 +4299,18 @@ impl Node {
 
   pub fn off_tap(mut self, f: impl IntoTapEventHandler) -> Self {
     NodeUpdate::off_tap(&mut self, f);
+    self
+  }
+
+  /// Two taps in a row on this element; see [`TapEvent`]. While it listens, a tap's click is held back for the
+  /// time of a double tap.
+  pub fn on_double_tap(mut self, f: impl IntoTapEventHandler) -> Self {
+    NodeUpdate::on_double_tap(&mut self, f);
+    self
+  }
+
+  pub fn off_double_tap(mut self, f: impl IntoTapEventHandler) -> Self {
+    NodeUpdate::off_double_tap(&mut self, f);
     self
   }
 
@@ -3621,6 +4430,16 @@ impl Node {
     self
   }
 
+  /// A wheel or a trackpad turned over the element: called before anything is scrolled by it, and whether or
+  /// not anything under the pointer can scroll. `on_scroll` is for what a scroll does to a list, and is not
+  /// called over a list that is at its end; this is for an element the wheel is for something else to, which
+  /// takes it with `prevent_default` (a picture it brings closer, a value it turns). Then nothing is
+  /// scrolled. A finger's scroll is not a wheel, and does not come here.
+  pub fn on_wheel(mut self, f: impl IntoScrollEventHandler) -> Self {
+    NodeUpdate::on_wheel(&mut self, f);
+    self
+  }
+
   pub fn off_scroll(mut self, f: impl IntoScrollEventHandler) -> Self {
     let handler = f.into_event_handler();
     self
@@ -3725,7 +4544,7 @@ impl Node {
   }
 
   pub fn scrollbar_hovered(mut self, f: impl Fn(ScrollBarStyle) -> ScrollBarStyle + Send + Sync + 'static) -> Self {
-    self.scrollbar_hovered_style = Some(Arc::new(f));
+    self.rare.scrollbar_hovered_style = Some(Arc::new(f));
     self
   }
 
@@ -3783,7 +4602,7 @@ impl Node {
   /// Attach data to drags starting on this node; the drop target's handler
   /// receives it through `DropEvent::payload`.
   pub fn drag_payload(mut self, payload: crate::app::events::DragPayload) -> Self {
-    self.drag_payload = Some(payload);
+    self.rare.drag_payload = Some(payload);
     self
   }
 
@@ -3832,7 +4651,7 @@ impl Node {
 
   #[cfg(feature = "form")]
   pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
-    self.form_name = Some(name.into());
+    self.rare.form_name = Some(name.into());
     self
   }
 
@@ -3867,13 +4686,11 @@ impl Node {
   ) {
     match &self.node_kind {
       NodeKind::Text { state, .. } => state.set_highlights(highlights.into()),
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, .. } => state.set_highlights(highlights.into()),
       _ => {}
     }
   }
 
-  #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_value(&self) -> Option<String> {
     let NodeKind::RichText { spans, .. } = self.node_kind() else {
       return None;
@@ -3882,14 +4699,38 @@ impl Node {
   }
 
   /// The bytes `range` of a rich text's `text`, without the spans it draws
-  /// as presentation (a link's isolate marks and trailing runs); `text`
-  /// itself for any other node.
-  #[cfg(feature = "markdown")]
+  /// as presentation (a link's isolate marks and trailing runs), and with what
+  /// each of its objects copies in place of its character (`copy_text`, or
+  /// nothing); `text` itself for any other node.
   pub(crate) fn rich_text_content(&self, text: &str, range: std::ops::Range<usize>) -> String {
     let NodeKind::RichText { spans, generated, .. } = self.node_kind() else {
       return text.get(range).unwrap_or_default().to_owned();
     };
-    crate::node::inline_link::content_without_generated(spans, generated, text, range)
+    let objects = crate::layout::layout_engine::text_objects::object_slots(self, spans);
+    if objects.is_empty() {
+      #[cfg(feature = "markdown")]
+      return crate::node::inline_link::content_without_generated(spans, generated, text, range);
+    }
+    let mut content = String::with_capacity(range.len());
+    let mut offset = 0;
+    for (index, span) in spans.iter().enumerate() {
+      let bytes = offset..offset + span.text.len();
+      offset = bytes.end;
+      let (start, end) = (bytes.start.max(range.start), bytes.end.min(range.end));
+      if start >= end || generated.iter().any(|generated| generated.contains(&index)) {
+        continue;
+      }
+      if let Some((_, child)) = objects.iter().find(|(span, _)| *span == index) {
+        if let Some(copied) = self.children().get(*child).and_then(Node::copy_text_within) {
+          content.push_str(&copied);
+        }
+        continue;
+      }
+      if let Some(part) = text.get(start..end) {
+        content.push_str(part);
+      }
+    }
+    content
   }
 
   #[cfg(any(feature = "mcp", feature = "devtools"))]
@@ -3917,6 +4758,32 @@ impl Node {
     self.tab_index
   }
 
+  pub(crate) fn focus_group_value(&self) -> Option<crate::node::FocusGroup> {
+    self.focus_group
+  }
+
+  pub(crate) fn is_focus_entry(&self) -> bool {
+    self.focus_entry
+  }
+
+  pub(crate) fn has_stops_inside(&self) -> bool {
+    self.stops_inside
+  }
+
+  pub(crate) fn is_autofocus(&self) -> bool {
+    self.autofocus
+  }
+
+  /// What typing in a focus group with typeahead matches this node by, if it has its own.
+  pub(crate) fn focus_label(&self) -> Option<&str> {
+    self.focus_label.as_deref().map(String::as_str)
+  }
+
+  /// Where this node stands in a nested focus group, if it says.
+  pub(crate) fn focus_branch(&self) -> Option<&crate::node::FocusBranch> {
+    self.focus_branch.as_deref()
+  }
+
   pub(crate) fn button_kind_value(&self) -> Option<ButtonKind> {
     self.button_kind
   }
@@ -3928,13 +4795,12 @@ impl Node {
 
   #[cfg(feature = "form")]
   pub(crate) fn form_name_value(&self) -> Option<&str> {
-    self.form_name.as_deref()
+    self.rare.form_name.as_deref()
   }
 
   pub fn selectable(self, selectable: bool) -> Self {
     match &self.node_kind {
       NodeKind::Text { state, .. } => state.set_selectable(selectable),
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, .. } => state.set_selectable(selectable),
       _ => {}
     }
@@ -3942,8 +4808,13 @@ impl Node {
   }
 
   #[cfg(feature = "markdown")]
+  /// Makes every text in the node selectable, or not, but for a glyph (an
+  /// icon, whose text is a character of a font's private use): a selection
+  /// across the node copies words, not the glyphs of its controls.
   pub(crate) fn selectable_recursive(&mut self, selectable: bool) {
+    let glyph = self.text_content.as_deref().is_some_and(is_glyph);
     match &self.node_kind {
+      NodeKind::Text { .. } if glyph => {}
       NodeKind::Text { state, .. } => state.set_selectable(selectable),
       NodeKind::RichText { state, .. } => state.set_selectable(selectable),
       _ => {}
@@ -4164,6 +5035,13 @@ impl Node {
     self
   }
 
+  pub fn slider_orientation(self, orientation: SliderOrientation) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_orientation(orientation);
+    }
+    self
+  }
+
   pub fn slider_track_style(self, style: SliderPartStyle) -> Self {
     if let Some(state) = self.slider_state() {
       state.set_track_style(style);
@@ -4231,6 +5109,13 @@ impl Node {
     self
   }
 
+  /// Lays the element and what is in it out, and paints them, with `theme` in place of the window's.
+  pub(crate) fn set_theme_scope(&mut self, theme: &crate::app::theme::Theme) {
+    self.theme_scope = Some(Box::new(theme.clone()));
+    // On a component's root the scope is put from outside, and goes to the root its own renders make.
+    self.record_outer_theme(theme);
+  }
+
   pub fn overflow_visible(mut self) -> Self {
     self.set_overflow_through_logical(Overflow::Visible);
     self
@@ -4261,7 +5146,7 @@ impl Node {
     }
   }
 
-  fn assign_ids_and_disabled(&mut self, id_gen: &IdGenerator, inherited: bool) {
+  pub(crate) fn assign_ids_and_disabled(&mut self, id_gen: &IdGenerator, inherited: bool) {
     if !self.node_id.is_assigned() {
       self.node_id = id_gen.next();
     }
@@ -4417,6 +5302,15 @@ impl Node {
     NodeUpdate::child(self, child.into_node());
   }
 
+  /// Takes away the children built so far: what builds them again puts its own in their place.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn clear_child_elements(&mut self) {
+    if !self.children.is_empty() {
+      self.children.clear();
+      self.layout_cache.invalidate();
+    }
+  }
+
   /// The children of a `with_children`, grown as `Vec::extend` grows them, so
   /// a build allocates as before.
   pub(crate) fn extend_child_elements(&mut self, mut children: impl Iterator<Item = crate::node::Element>) {
@@ -4437,70 +5331,132 @@ impl Node {
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_props_debug(&mut self, props: Option<DevtoolsInspectableDebug>) {
-    self.component_props_debug = props;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if props.is_none() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_props_debug = props;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_signals_debug(&mut self, signals: Vec<ComponentSignalDebug>) {
-    self.component_signals_debug = signals;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if signals.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_signals_debug = signals;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_memos_debug(&mut self, memos: Vec<ComponentMemoDebug>) {
-    self.component_memos_debug = memos;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if memos.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_memos_debug = memos;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_effects_debug(&mut self, effects: Vec<ComponentEffectDebug>) {
-    self.component_effects_debug = effects;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if effects.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_effects_debug = effects;
   }
 
   #[cfg(feature = "devtools")]
   pub(crate) fn set_component_contexts_debug(&mut self, contexts: Vec<ComponentContextDebug>) {
-    self.component_contexts_debug = contexts;
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if contexts.is_empty() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_contexts_debug = contexts;
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_component_render_debug(&mut self, render: Option<crate::app::ctx::ComponentRenderDebug>) {
+    // A root no component rendered (`set_root` of an element) has a context that rendered nothing.
+    let render = render.filter(|render| render.count > 0);
+    // Nothing to say of a node with nothing said of it yet: its box stays unmade.
+    if render.is_none() && self.debug.get().is_none() {
+      return;
+    }
+    self.debug.component_render_debug = render;
+  }
+
+  /// How the component whose root this is has rendered: `None` on a node no component rendered.
+  #[cfg(feature = "devtools")]
+  pub fn component_render_debug(&self) -> Option<crate::app::ctx::ComponentRenderDebug> {
+    self.debug.component_render_debug
   }
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[cfg_attr(not(feature = "router"), allow(dead_code))]
   pub(crate) fn debug_attr(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
-    self.debug_attrs.push((name.into(), value.into()));
+    self.debug.debug_attrs.push((name.into(), value.into()));
     self
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_props_debug(&self) -> Option<&DevtoolsInspectableDebug> {
-    self.component_props_debug.as_ref()
+    self.debug.component_props_debug.as_ref()
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_signals_debug(&self) -> &[ComponentSignalDebug] {
-    &self.component_signals_debug
+    &self.debug.component_signals_debug
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_memos_debug(&self) -> &[ComponentMemoDebug] {
-    &self.component_memos_debug
+    &self.debug.component_memos_debug
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_effects_debug(&self) -> &[ComponentEffectDebug] {
-    &self.component_effects_debug
+    &self.debug.component_effects_debug
   }
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
   pub fn component_contexts_debug(&self) -> &[ComponentContextDebug] {
-    &self.component_contexts_debug
+    &self.debug.component_contexts_debug
   }
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[allow(dead_code)]
-  pub fn debug_attrs(&self) -> &[(Arc<str>, Arc<str>)] {
-    &self.debug_attrs
+  pub fn debug_attrs(&self) -> std::borrow::Cow<'_, [(Arc<str>, Arc<str>)]> {
+    // What the node's ref says of it since it was built (`ElementRefMut::describe`) stands for what it was built
+    // with under the same name.
+    let described = self
+      .element_ref
+      .as_ref()
+      .map(CoreElementRef::descriptions)
+      .unwrap_or_default();
+    if described.is_empty() {
+      return std::borrow::Cow::Borrowed(&self.debug.debug_attrs);
+    }
+    let mut attrs: Vec<(Arc<str>, Arc<str>)> = self
+      .debug
+      .debug_attrs
+      .iter()
+      .filter(|(name, _)| !described.iter().any(|(said, _)| said == name))
+      .cloned()
+      .collect();
+    attrs.extend(described);
+    std::borrow::Cow::Owned(attrs)
+  }
+
+  /// What the node says of itself to tooling: nothing without a tooling feature, which keeps none of it.
+  #[cfg(not(any(feature = "devtools", feature = "mcp")))]
+  #[allow(dead_code)]
+  pub fn debug_attrs(&self) -> std::borrow::Cow<'_, [(Arc<str>, Arc<str>)]> {
+    std::borrow::Cow::Borrowed(&[])
   }
 
   pub(crate) fn node_kind(&self) -> &NodeKind {
@@ -4524,7 +5480,7 @@ impl Node {
   /// The node's scrollbar style at rest or hovered, wherever the pointer is.
   pub(crate) fn scrollbar_style_when(&self, default_style: ScrollBarStyle, hovered: bool) -> ScrollBarStyle {
     let style = self.scrollbar_style.as_deref().cloned().unwrap_or(default_style);
-    match &self.scrollbar_hovered_style {
+    match &self.rare.scrollbar_hovered_style {
       Some(hovered_style) if hovered => hovered_style(style),
       _ => style,
     }
@@ -4589,6 +5545,21 @@ impl Node {
     {
       return Some(value);
     }
+    if let Some(value) = states.within_pressed.as_ref().and_then(&pick)
+      && state.is_within_pressed()
+    {
+      return Some(value);
+    }
+    if let Some(value) = states.within_hovered.as_ref().and_then(&pick)
+      && state.is_within_hovered()
+    {
+      return Some(value);
+    }
+    if let Some(value) = states.within.as_ref().and_then(&pick)
+      && state.is_within()
+    {
+      return Some(value);
+    }
     None
   }
 
@@ -4596,6 +5567,32 @@ impl Node {
   /// see [`InteractionState::is_disabled`](crate::node::interaction_state::InteractionState::is_disabled).
   pub(crate) fn is_disabled(&self) -> bool {
     self.rare_style.disabled
+  }
+
+  /// What a selection over the node copies, where the node stands in a line of rich text: the first node of its
+  /// subtree that says, depth first. See `NodeUpdate::copy_text`.
+  pub(crate) fn copy_text_within(&self) -> Option<Arc<str>> {
+    if let Some(text) = &self.rare_style.copy_text {
+      return Some(text.clone());
+    }
+    self.children().iter().find_map(Node::copy_text_within)
+  }
+
+  /// What the node gives a form under its name where its kind gives nothing: see `NodeUpdate::form_value`.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  pub(crate) fn form_value(&self) -> Option<&Arc<str>> {
+    self.rare_style.form_value.as_ref()
+  }
+
+  /// Whether the node takes every key of the window: see `NodeUpdate::captures_keys`.
+  pub(crate) fn captures_keys(&self) -> bool {
+    self.rare_style.captures_keys
+  }
+
+  /// The node was built inert, or its ref made it so (`ElementRefMut::set_inert`). An element it is in may make it
+  /// inert too: see `tab_navigation::path_is_inert`.
+  pub(crate) fn is_inert(&self) -> bool {
+    self.rare_style.inert || self.element_ref.as_ref().is_some_and(CoreElementRef::is_inert)
   }
 
   /// Records in this node and in every node under it whether it is disabled,
@@ -4668,6 +5665,23 @@ impl Node {
       .and_then(|color| color.resolve(palette))
   }
 
+  /// The fill the node is painted with, in the `foreground` it inherits where it is painted: what
+  /// [`Self::resolved_color`] gives, and the foreground for a fill that is [`BackgroundColor::CurrentForeground`].
+  pub(crate) fn painted_color(
+    &self,
+    palette: &crate::app::theme::ThemePalette,
+    foreground: Option<Color>,
+  ) -> Option<Color> {
+    if let Some(c) = self.animation_override_color() {
+      return Some(c);
+    }
+    self
+      .state_style()
+      .color
+      .or_else(|| <Option<BackgroundColor> as Clone>::clone(&self.color))
+      .and_then(|color| color.resolve_in(palette, foreground))
+  }
+
   /// The box shadow in effect: the innermost matching state style (active,
   /// then hovered, then focus-visible, then focused) over the node's own.
   pub(crate) fn effective_box_shadow(&self) -> Option<&BoxShadowValue> {
@@ -4680,6 +5694,9 @@ impl Node {
       .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
       .or_else(|| state_shadow(self.style_state.is_focus_visible(), &states.focus_visible))
       .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
+      .or_else(|| state_shadow(self.style_state.is_within_pressed(), &states.within_pressed))
+      .or_else(|| state_shadow(self.style_state.is_within_hovered(), &states.within_hovered))
+      .or_else(|| state_shadow(self.style_state.is_within(), &states.within))
       .or(self.rare_style.box_shadow.as_ref())
   }
 
@@ -4738,6 +5755,20 @@ impl Node {
           (crate::animation::AnimatableProperty::BorderWidthLeft, crate::animation::AnimatableValue::Float(v)) => {
             if let Some(border) = &mut borders.left {
               border.width = BorderSizeValue::Px(*v);
+            }
+          }
+          (crate::animation::AnimatableProperty::BorderDash, crate::animation::AnimatableValue::Dash { dash, gap }) => {
+            let lengths = crate::node::border::BorderDash::Lengths { dash: *dash, gap: *gap };
+            for border in [
+              &mut borders.top,
+              &mut borders.right,
+              &mut borders.bottom,
+              &mut borders.left,
+            ]
+            .into_iter()
+            .flatten()
+            {
+              border.dash = Some(lengths);
             }
           }
           _ => {}
@@ -4841,6 +5872,21 @@ impl Node {
 
   pub fn children(&self) -> &[Node] {
     &self.children
+  }
+
+  /// The width and the height the node's ref gives it in place of those it was built with
+  /// (`ElementRefMut::set_size`).
+  pub(crate) fn size_override(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self
+      .element_ref
+      .as_ref()
+      .map_or((None, None), CoreElementRef::size_override)
+  }
+
+  /// The width and the height the node is fixed at: those its ref gives it, or those it was built with.
+  pub(crate) fn fixed_frame_size(&self) -> (Option<Dimension>, Option<Dimension>) {
+    let (width, height) = self.size_override();
+    (width.or(self.frame.width), height.or(self.frame.height))
   }
 
   pub(crate) fn element_override_rect(&self) -> Option<crate::core::ElementRect> {
@@ -4964,6 +6010,42 @@ impl Node {
     layout_dirty
   }
 
+  /// Lights or puts out what the interaction group around the node lights in it (its `within` styles), with
+  /// whether the group is under the pointer and held down. Returns the node's state, whose handle the tree keeps
+  /// to put it out again, and whether it changed.
+  pub(crate) fn set_style_within(&self, within: bool, hovered: bool, pressed: bool) -> (InteractionState, bool) {
+    let state = self.bound_style_state();
+    let changed = state.set_within(within, hovered, pressed);
+    (state.clone(), changed)
+  }
+
+  /// Whether the node is an interaction group: see [`NodeUpdate::interaction_group`].
+  pub(crate) fn is_interaction_group(&self) -> bool {
+    self.rare_style.interaction_group
+  }
+
+  /// Whether the boxes of the node and its subtree are drawn on whole device pixels: see
+  /// [`NodeUpdate::snap_to_pixels`].
+  pub(crate) fn snaps_to_pixels(&self) -> bool {
+    self.rare_style.snaps_to_pixels
+  }
+
+  /// How what the node holds is painted again and again across its box: see [`NodeUpdate::repeat`].
+  pub(crate) fn repeat_spec(&self) -> Option<crate::layout::Repeat> {
+    self.rare_style.repeat
+  }
+
+  /// Which of the window's controls the node is: see [`NodeUpdate::window_control`].
+  pub(crate) fn window_control(&self) -> Option<WindowControl> {
+    self.rare_style.window_control
+  }
+
+  /// Whether the node has a style for while its interaction group is lit.
+  pub(crate) fn has_within_style(&self) -> bool {
+    let states = &*self.state_styles;
+    states.within.is_some() || states.within_hovered.is_some() || states.within_pressed.is_some()
+  }
+
   pub(crate) fn set_style_focused(&self, focused: bool) -> bool {
     let changed = self.style_state.is_focused() != focused;
     if changed {
@@ -4994,20 +6076,51 @@ impl Node {
       .state_styles
       .layout_frame(&self.style_state)
       .map_or(base, |frame| merge_frame(base, frame));
+    // A size its ref was given stands for the one it was built with (`ElementRefMut::set_size`).
+    let (width, height) = self.size_override();
+    if width.is_some() {
+      result.width = width;
+    }
+    if height.is_some() {
+      result.height = height;
+    }
     for (prop, val) in self.animation_overrides.iter() {
-      if let crate::animation::AnimatableValue::Float(v) = val {
-        match prop {
-          crate::animation::AnimatableProperty::Width => {
-            result.width = Some(Dimension::Px(*v));
-          }
-          crate::animation::AnimatableProperty::Height => {
-            result.height = Some(Dimension::Px(*v));
-          }
-          _ => {}
+      match (prop, val) {
+        (crate::animation::AnimatableProperty::Width, crate::animation::AnimatableValue::Float(v)) => {
+          result.width = Some(Dimension::Px(*v));
         }
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Float(v)) => {
+          result.height = Some(Dimension::Px(*v));
+        }
+        (crate::animation::AnimatableProperty::Width, crate::animation::AnimatableValue::Percent(share)) => {
+          result.width = Some(Dimension::Pct(*share));
+        }
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Percent(share)) => {
+          result.height = Some(Dimension::Pct(*share));
+        }
+        // Part of the height is the content's: the node is laid out as high as its content and then given the
+        // mix (`Self::fit_height`).
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Fit { .. }) => {
+          result.height = None;
+        }
+        _ => {}
       }
     }
     result
+  }
+
+  /// The height a transition between a height in pixels and the content's gives the node this tick, as its
+  /// pixels and its share of the content's height: see [`crate::animation::AnimatableValue::Fit`].
+  pub(crate) fn fit_height(&self) -> Option<(f32, f32)> {
+    self
+      .animation_overrides
+      .iter()
+      .find_map(|(prop, val)| match (prop, val) {
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Fit { px, content }) => {
+          Some((*px, *content))
+        }
+        _ => None,
+      })
   }
 
   pub(crate) fn state_frame(&self) -> Option<FrameConstraints> {
@@ -5030,6 +6143,24 @@ impl Node {
         LayoutKind::LogicalModifier => self.children.first().and_then(|child| child.state_flex()),
         _ => None,
       })
+  }
+
+  /// The sizes of the `Stack` this node is a child of at which it is laid out (`.drop_outside(...)`). A logical
+  /// wrapper without bounds of its own passes its child's on, as [`Self::shrink_rule`] does.
+  pub(crate) fn drop_outside_bounds(&self) -> Option<crate::layout::layout_kind::SizeBounds> {
+    if let Some(bounds) = self.rare_style.drop_outside {
+      return Some(bounds);
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self.children.first().and_then(Node::drop_outside_bounds),
+      _ => None,
+    }
+  }
+
+  /// Where the image the node draws is held in its box: the middle unless `.image_anchor(...)` says.
+  #[cfg(feature = "raster")]
+  pub(crate) fn image_anchor(&self) -> (f32, f32) {
+    self.rare_style.image_anchor.unwrap_or((0.5, 0.5))
   }
 
   /// The give-way order and limit of this node as a shrinking flex child.
@@ -5058,6 +6189,32 @@ impl Node {
 
   /// The node's relative offset as drawn: the offset it was built with, with a running transition or animation of
   /// either axis applied.
+  /// How far a node of `size` is moved from where its parent laid it out: its `offset`, and the shares of
+  /// its own size it is moved by.
+  ///
+  /// A keyframe or a transition that runs an offset in percent moves the node by that share of its own size: a
+  /// panel that slides in from beyond the window's edge, whatever its size.
+  pub(crate) fn offset_for_size(&self, size: crate::layout::Size) -> Option<Offset> {
+    let offset = self.offset_position();
+    let share = |prop| match self.animation_override(prop) {
+      Some(crate::animation::AnimatableValue::Percent(share)) => Some(share / 100.0),
+      _ => None,
+    };
+    let (moved_x, moved_y) = (
+      share(crate::animation::AnimatableProperty::OffsetX),
+      share(crate::animation::AnimatableProperty::OffsetY),
+    );
+    if self.offset_by_size.is_none() && moved_x.is_none() && moved_y.is_none() {
+      return offset;
+    }
+    let (x, y) = self.offset_by_size.unwrap_or_default();
+    let offset = offset.unwrap_or_default();
+    Some(Offset::new(
+      offset.x + (x + moved_x.unwrap_or_default()) * size.width,
+      offset.y + (y + moved_y.unwrap_or_default()) * size.height,
+    ))
+  }
+
   pub(crate) fn offset_position(&self) -> Option<Offset> {
     let mut offset = self.offset;
     if let Some(x) = self.animation_override_float(crate::animation::AnimatableProperty::OffsetX) {
@@ -5067,6 +6224,24 @@ impl Node {
       offset.get_or_insert_default().y = y;
     }
     offset
+  }
+
+  /// The `min_width`/`min_height` the node was given, through logical
+  /// wrappers: `None` where it was given none.
+  pub(crate) fn explicit_min_main_size(&self, vertical: bool) -> Option<f32> {
+    if let Some(frame) = self.state_frame() {
+      let size = if vertical { frame.min_height } else { frame.min_width };
+      if let Some(size) = size {
+        return Some(size.to_px());
+      }
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self
+        .children
+        .first()
+        .and_then(|child| child.explicit_min_main_size(vertical)),
+      _ => None,
+    }
   }
 
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
@@ -5143,11 +6318,16 @@ impl Node {
     if old.is_component_slot_placeholder() {
       return true;
     }
+    // The live nodes of an unchanged component take this node's place: where `old` is that component, nothing
+    // of it changed, its layout included.
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     self.layout_cache.adopt_watch_from(&old.layout_cache);
     self.layout_cache.mark_watch();
     #[cfg(feature = "canvas")]
     if self.can_preserve_runtime_state_from(old)
-      && let (NodeKind::Canvas { canvas }, NodeKind::Canvas { canvas: old_canvas }) =
+      && let (NodeKind::Canvas { canvas, .. }, NodeKind::Canvas { canvas: old_canvas, .. }) =
         (&mut self.node_kind, &old.node_kind)
     {
       *canvas = old_canvas.clone();
@@ -5164,7 +6344,6 @@ impl Node {
           own_layout_signature_matches,
         );
       }
-      #[cfg(feature = "markdown")]
       (NodeKind::RichText { state, .. }, NodeKind::RichText { state: old_state, .. }) => {
         state.copy_runtime_state_from(
           old_state,
@@ -5210,14 +6389,19 @@ impl Node {
         None => &old.children[index],
       }
     };
-    let matched_len = self.children.len().min(old_len);
-    let positional =
-      (0..matched_len).all(|index| self.children[index].can_preserve_runtime_state_from(old_child(index)));
+    let places = Places::between(&self.children, old_len, old_child);
+    let positional = (0..self.children.len()).all(|index| {
+      places
+        .of(index)
+        .is_none_or(|place| self.children[index].can_preserve_runtime_state_from(old_child(place)))
+    });
     let mut child_layout_signatures_match = without_leaving.is_none();
     if positional {
-      for index in 0..matched_len {
-        child_layout_signatures_match &=
-          self.children[index].preserve_runtime_state_and_layout_signature_from(old_child(index));
+      for index in 0..self.children.len() {
+        if let Some(place) = places.of(index) {
+          child_layout_signatures_match &=
+            self.children[index].preserve_runtime_state_and_layout_signature_from(old_child(place));
+        }
       }
     } else {
       // Reordered children preserve state by identity, but cache signatures
@@ -5226,8 +6410,9 @@ impl Node {
       let mut claimed = vec![false; old_len];
       for index in 0..self.children.len() {
         let child = &self.children[index];
-        let matched = (index < old_len && !claimed[index] && child.can_preserve_runtime_state_from(old_child(index)))
-          .then_some(index)
+        let matched = places
+          .of(index)
+          .filter(|place| !claimed[*place] && child.can_preserve_runtime_state_from(old_child(*place)))
           .or_else(|| (0..old_len).find(|offset| !claimed[*offset] && child.identity_matches(old_child(*offset))));
         if let Some(offset) = matched {
           claimed[offset] = true;
@@ -5247,7 +6432,7 @@ impl Node {
   }
 
   fn can_preserve_runtime_state_from(&self, old: &Node) -> bool {
-    if old.is_component_slot_placeholder() {
+    if old.is_component_slot_placeholder() || self.is_held_component() {
       return self.component_slot_id == old.component_slot_id;
     }
     // A canvas can keep its backing surface when its lookup id or ref binding
@@ -5308,6 +6493,7 @@ impl Node {
       && self.padding == old.padding
       && self.position == old.position
       && self.offset == old.offset
+      && self.offset_by_size == old.offset_by_size
       && self.align_self == old.align_self
       && self.flex == old.flex
       && self.shrink_rule == old.shrink_rule
@@ -5317,6 +6503,17 @@ impl Node {
       && self.text_overflow == old.text_overflow
       && self.overflow == old.overflow
       && self.intrinsic_size == old.intrinsic_size
+      && self.rare_style.column_tracks == old.rare_style.column_tracks
+      && self.rare_style.measured_tracks == old.rare_style.measured_tracks
+      && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      && self.rare_style.fits_viewport_width == old.rare_style.fits_viewport_width
+      && self.rare_style.scrollbars_clear_of_sticky == old.rare_style.scrollbars_clear_of_sticky
+      && self.rare_style.track_span == old.rare_style.track_span
+      && self.rare_style.reserves_bar_across == old.rare_style.reserves_bar_across
+      && self.rare_style.wheels_across == old.rare_style.wheels_across
+      // A node that sticks is placed again by the scroll container above it, which its layout says.
+      && self.rare_style.sticky == old.rare_style.sticky
+      && self.rare_style.drop_outside == old.rare_style.drop_outside
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }
@@ -5405,7 +6602,6 @@ impl Node {
           && state.is_sensitive() == old_state.is_sensitive()
           && transform_mode == old_transform_mode
       }
-      #[cfg(feature = "markdown")]
       (
         NodeKind::RichText {
           state,
@@ -5473,16 +6669,27 @@ impl Node {
         },
       ) => data.id() == old_data.id() && fit == old_fit,
       #[cfg(feature = "image")]
-      (NodeKind::ResourceImage { path }, NodeKind::ResourceImage { path: old_path }) => path == old_path,
-      #[cfg(feature = "svg")]
+      (
+        NodeKind::ResourceImage { path, fit },
+        NodeKind::ResourceImage {
+          path: old_path,
+          fit: old_fit,
+        },
+      ) => path == old_path && fit == old_fit,
+      #[cfg(feature = "canvas")]
       (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "canvas", feature = "http"))]
       (NodeKind::ResourceSvg { path }, NodeKind::ResourceSvg { path: old_path }) => path == old_path,
       _ => false,
     }
   }
 
   pub(crate) fn preserve_ids_from(&mut self, old: &mut Node) {
+    // What stands for an unchanged component takes nothing from `old`: `old` itself, ids and all, is put in
+    // its place once the rest is matched (`Node::take_held_components_from`).
+    if self.is_held_component() {
+      return;
+    }
     // The element `old` was goes on as this node, or this node only stands where it stood.
     let continues = self.can_reuse_id_from(old);
     if continues && old.node_id.is_assigned() {
@@ -5510,20 +6717,21 @@ impl Node {
         .iter()
         .zip(&old.children)
         .all(|(child, old_child)| child.can_reuse_id_from(old_child));
+    let places = Places::between(&self.children, old.children.len(), |index| &old.children[index]);
     if positional {
-      for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
-        child.preserve_ids_from(old_child);
+      for (index, child) in self.children.iter_mut().enumerate() {
+        if let Some(place) = places.of(index) {
+          child.preserve_ids_from(&mut old.children[place]);
+        }
       }
       return;
     }
 
     let mut claimed = vec![false; old.children.len()];
     for (index, child) in self.children.iter_mut().enumerate() {
-      let matched = old
-        .children
-        .get(index)
-        .filter(|old_child| !claimed[index] && child.can_reuse_id_from(old_child))
-        .map(|_| index)
+      let matched = places
+        .of(index)
+        .filter(|place| !claimed[*place] && child.can_reuse_id_from(&old.children[*place]))
         .or_else(|| {
           old
             .children
@@ -5538,7 +6746,36 @@ impl Node {
     }
   }
 
+  /// Whether this node and `old` are the same thing to someone looking at the tree: the same kinds of node in
+  /// the same shape, with the same names and the same text. Not how they are styled, which a state changes.
+  fn looks_like(&self, old: &Node) -> bool {
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
+    if self.component_slot_id != old.component_slot_id
+      || self.component_key != old.component_key
+      || self.element_id != old.element_id
+      || self.tag_name != old.tag_name
+      || std::mem::discriminant(&self.node_kind) != std::mem::discriminant(&old.node_kind)
+      || std::mem::discriminant(&self.layout_kind) != std::mem::discriminant(&old.layout_kind)
+      || self.text_content.as_ref() != old.text_content.as_ref()
+      || self.children.len() != old.children.len()
+    {
+      return false;
+    }
+    for (child, old_child) in self.children.iter().zip(&old.children) {
+      if !child.looks_like(old_child) {
+        return false;
+      }
+    }
+    true
+  }
+
   fn can_reuse_id_from(&self, old: &Node) -> bool {
+    // What stands for an unchanged component is that component: it is matched with it, and takes its place.
+    if self.is_held_component() {
+      return self.component_slot_id == old.component_slot_id;
+    }
     self.component_slot_id == old.component_slot_id
       && self.component_key == old.component_key
       && self.element_id == old.element_id
@@ -5622,32 +6859,25 @@ impl Node {
       modal_declaration,
       layout_neutral: self.layout_neutral,
       synthetic_role: self.synthetic_role,
-      #[cfg(feature = "devtools")]
-      component_props_debug: self.component_props_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_signals_debug: self.component_signals_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_memos_debug: self.component_memos_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_effects_debug: self.component_effects_debug.clone(),
-      #[cfg(feature = "devtools")]
-      component_contexts_debug: self.component_contexts_debug.clone(),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
-      debug_attrs: self.debug_attrs.clone(),
+      debug: self.debug.clone(),
+      theme_scope: self.theme_scope.clone(),
       layout_kind: self.layout_kind.clone(),
       frame: self.frame,
       padding: self.padding,
       position: self.position,
       offset: self.offset,
+      offset_by_size: self.offset_by_size,
       align_self: self.align_self,
       flex: self.flex,
       shrink_rule: self.shrink_rule,
       grid_cell: self.grid_cell,
       node_kind: {
         #[cfg(feature = "canvas")]
-        if let NodeKind::Canvas { canvas } = &self.node_kind {
+        if let NodeKind::Canvas { canvas, painter } = &self.node_kind {
           NodeKind::Canvas {
             canvas: canvas.clone_empty(),
+            painter: painter.clone(),
           }
         } else {
           self.node_kind.clone()
@@ -5672,18 +6902,19 @@ impl Node {
       background_image: self.background_image.clone(),
       #[cfg(feature = "raster")]
       background_size: self.background_size,
-      #[cfg(all(feature = "image", feature = "resources"))]
-      background_resource_image: self.background_resource_image.clone(),
       scrollbar_style: self.scrollbar_style.clone(),
-      scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),
       element_ref: self.element_ref.clone(),
-      drag_payload: self.drag_payload.clone(),
       interaction: self.interaction.clone(),
       focusable: self.focusable,
       tab_index: self.tab_index,
+      focus_group: self.focus_group,
+      focus_entry: self.focus_entry,
+      stops_inside: self.stops_inside,
+      autofocus: self.autofocus,
+      focus_label: self.focus_label.clone(),
+      focus_branch: self.focus_branch.clone(),
       button_kind: self.button_kind,
-      #[cfg(feature = "form")]
-      form_name: self.form_name.clone(),
+      rare: self.rare.clone(),
       style_state: self.bound_style_state().clone(),
       state_styles: self.state_styles.clone(),
       opacity: self.opacity,
@@ -5737,6 +6968,7 @@ impl Node {
   #[cfg(feature = "devtools")]
   fn estimated_debug_memory_bytes(&self) -> usize {
     self
+      .debug
       .component_props_debug
       .as_ref()
       .map(|props| {
@@ -5750,27 +6982,31 @@ impl Node {
       })
       .unwrap_or(0)
       + self
+        .debug
         .component_signals_debug
         .iter()
         .map(|signal| signal.type_name.len() + signal.estimated_memory_bytes())
         .sum::<usize>()
       + self
+        .debug
         .component_memos_debug
         .iter()
         .map(|memo| memo.type_name.len() + memo.estimated_memory_bytes())
         .sum::<usize>()
-      + self.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
+      + self.debug.component_effects_debug.capacity() * std::mem::size_of::<ComponentEffectDebug>()
       + self
+        .debug
         .component_contexts_debug
         .iter()
         .map(|context| context.type_name.len())
         .sum::<usize>()
       + self
+        .debug
         .debug_attrs
         .iter()
         .map(|(name, value)| name.len() + value.len())
         .sum::<usize>()
-      + self.debug_attrs.capacity() * std::mem::size_of::<(Arc<str>, Arc<str>)>()
+      + self.debug.debug_attrs.capacity() * std::mem::size_of::<(Arc<str>, Arc<str>)>()
   }
 
   #[cfg(not(feature = "devtools"))]
@@ -5804,6 +7040,21 @@ impl Node {
 
   pub(crate) fn state_style(&self) -> Style {
     let mut style = Style::new();
+    if let Some(within) = &self.state_styles.within
+      && self.style_state.is_within()
+    {
+      style.merge_from(within);
+    }
+    if let Some(within) = &self.state_styles.within_hovered
+      && self.style_state.is_within_hovered()
+    {
+      style.merge_from(within);
+    }
+    if let Some(within) = &self.state_styles.within_pressed
+      && self.style_state.is_within_pressed()
+    {
+      style.merge_from(within);
+    }
     if self.style_state.is_focused()
       && let Some(focused) = &self.state_styles.focused
     {
@@ -5857,11 +7108,67 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
   if overlay.max_height.is_some() {
     base.max_height = overlay.max_height;
   }
+  if overlay.aspect_ratio.is_some() {
+    base.aspect_ratio = overlay.aspect_ratio;
+  }
   base
 }
 
 /// Two retained refs name the same element only when they are one handle; a
 /// missing ref on either side does not tell the elements apart.
+/// Which child of the node a render replaces each child of the new node stands for, before anything names
+/// them: the child at the same place, unless the two lists differ in length and end alike. Then a child was
+/// put in or taken out before that end, and the children of the end are the ones that were there, each moved
+/// by the difference: a button that gets a sibling before it stays the element it was, with its hover, its
+/// focus and its transitions, and the sibling is a new one.
+///
+/// The children at the start that look alike are matched first, so a list of things that cannot be told
+/// apart loses and gains its last, as it always did. One look at the last pair settles every list that only
+/// grew or shrank at its end.
+struct Places {
+  /// The place the end starts at among the new children.
+  end_from: usize,
+  /// How far the end moved: the old length less the new one.
+  moved: isize,
+  /// How many of the old children are before the end.
+  old_before_end: usize,
+}
+
+impl Places {
+  fn between<'a>(new: &[Node], old_len: usize, old_child: impl Fn(usize) -> &'a Node) -> Self {
+    let end = Self::alike_end(new, old_len, &old_child);
+    Self {
+      end_from: new.len() - end,
+      moved: old_len as isize - new.len() as isize,
+      old_before_end: old_len - end,
+    }
+  }
+
+  /// How many children the two lists have alike at their ends, past the ones alike at their starts.
+  fn alike_end<'a>(new: &[Node], old_len: usize, old_child: &impl Fn(usize) -> &'a Node) -> usize {
+    let len = new.len();
+    let shorter = len.min(old_len);
+    if len == old_len || shorter == 0 || !new[len - 1].looks_like(old_child(old_len - 1)) {
+      return 0;
+    }
+    let start = (0..shorter)
+      .take_while(|index| new[*index].looks_like(old_child(*index)))
+      .count();
+    (1..=shorter - start)
+      .take_while(|back| new[len - back].looks_like(old_child(old_len - back)))
+      .count()
+  }
+
+  /// The place among the old children of what the new child at `index` stands for, if any.
+  fn of(&self, index: usize) -> Option<usize> {
+    if index >= self.end_from {
+      Some((index as isize + self.moved) as usize)
+    } else {
+      (index < self.old_before_end).then_some(index)
+    }
+  }
+}
+
 fn refs_compatible(current: Option<&CoreElementRef>, previous: Option<&CoreElementRef>) -> bool {
   match (current, previous) {
     (Some(current), Some(previous)) => current.same_handle(previous),
@@ -5949,6 +7256,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           },
         );
       }
@@ -6206,6 +7514,7 @@ mod tests {
               holds: SubtreeHolds::UNKNOWN,
               generation: 0,
               sticky_shifts: None,
+              reach: crate::layout::layout_result::Reach::UNKNOWN,
             }
             .into(),
           },
@@ -6219,6 +7528,7 @@ mod tests {
               holds: SubtreeHolds::UNKNOWN,
               generation: 0,
               sticky_shifts: None,
+              reach: crate::layout::layout_result::Reach::UNKNOWN,
             }
             .into(),
           },
@@ -6228,6 +7538,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
     let mut new = Node::row(
@@ -6267,6 +7578,7 @@ mod tests {
                 holds: SubtreeHolds::UNKNOWN,
                 generation: 0,
                 sticky_shifts: None,
+                reach: crate::layout::layout_result::Reach::UNKNOWN,
               }
               .into(),
             }],
@@ -6275,6 +7587,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           }
           .into(),
         }],
@@ -6283,6 +7596,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
 
@@ -6318,6 +7632,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           }
           .into(),
         }],
@@ -6326,6 +7641,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
 
@@ -6395,4 +7711,106 @@ mod tests {
     let unique: std::collections::HashSet<u64> = ids.iter().map(|id| id.value()).collect();
     assert_eq!(unique.len(), ids.len());
   }
+
+  /// A row of buttons with nothing naming them, as a component's actions are.
+  fn buttons(labels: &[&str]) -> Node {
+    Node::row(
+      0.0,
+      Alignment::Start,
+      labels
+        .iter()
+        .map(|label| Node::row(0.0, Alignment::Start, vec![Node::text(label)]))
+        .collect(),
+    )
+  }
+
+  fn ids_of(row: &Node) -> Vec<crate::core::NodeId> {
+    row.children.iter().map(Node::node_id).collect()
+  }
+
+  #[test]
+  fn a_child_put_before_another_does_not_take_its_id() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Deploy"]);
+    old.assign_ids(&id_gen);
+    let deploy = ids_of(&old)[0];
+
+    let mut new = buttons(&["View log", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    // Deploy is the element it was; View log, which stands where it stood, is a new one.
+    assert_eq!(ids_of(&new)[1], deploy);
+    assert_ne!(ids_of(&new)[0], deploy);
+  }
+
+  #[test]
+  fn a_child_taken_from_before_another_leaves_the_other_its_id() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Back", "View log", "Deploy"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut new = buttons(&["Back", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new), vec![before[0], before[2]]);
+  }
+
+  #[test]
+  fn children_of_lists_as_long_as_each_other_are_matched_by_their_place() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Save", "Deploy"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    // A text that changed is the same element saying something else.
+    let mut new = buttons(&["Saving", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new), before);
+  }
+
+  #[test]
+  fn children_that_cannot_be_told_apart_lose_and_gain_the_last() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Row", "Row", "Row"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut shorter = buttons(&["Row", "Row"]);
+    shorter.preserve_ids_from(&mut old);
+    shorter.assign_ids(&id_gen);
+    assert_eq!(ids_of(&shorter), before[..2]);
+
+    let mut longer = buttons(&["Row", "Row", "Row"]);
+    longer.preserve_ids_from(&mut shorter);
+    longer.assign_ids(&id_gen);
+    assert_eq!(ids_of(&longer)[..2], before[..2]);
+  }
+
+  #[test]
+  fn a_list_that_grew_at_its_end_keeps_every_child_it_had() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["a", "b"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut new = buttons(&["a", "b", "c"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new)[..2], before[..]);
+  }
+}
+
+/// Whether `text` is a glyph: characters of the private use areas alone, where icon fonts put theirs.
+#[cfg(feature = "markdown")]
+fn is_glyph(text: &str) -> bool {
+  !text.is_empty()
+    && text
+      .chars()
+      .all(|ch| matches!(ch, '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{ffffd}' | '\u{100000}'..='\u{10fffd}'))
 }

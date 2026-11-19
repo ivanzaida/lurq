@@ -32,15 +32,21 @@ pub(super) struct PreparedRow {
   public_justified: bool,
 }
 
+/// `object_band` is the ascent and the descent a box is given in place of its character's: see
+/// [`Paragraph::new`].
 pub(super) fn paragraph(
   rows: &mut Vec<PreparedRow>,
   original: &ShapeLine,
   offset: usize,
   bytes: usize,
   config: &InputConfig,
+  object_band: Option<(f32, f32)>,
 ) {
-  let padded = config.styles.iter().any(|style| style.padding != 0.0);
-  let paragraph = Paragraph::new(original, config, padded);
+  let padded = config
+    .styles
+    .iter()
+    .any(|style| style.padding != 0.0 || style.padding_end() != 0.0);
+  let paragraph = Paragraph::new(original, config, padded, object_band);
   let context = Arc::new(RowContext {
     styles: paragraph.styles.clone(),
     metrics: paragraph.metrics.clone(),
@@ -352,7 +358,11 @@ fn row_end(paragraph: &Paragraph, first: usize, config: &InputConfig) -> usize {
 fn fragment_delta(order: &BTreeMap<usize, Option<usize>>, cluster: &Cluster, config: &InputConfig) -> f32 {
   let previous = order.range(..cluster.rank).next_back().map(|(_, token)| *token);
   let next = order.range(cluster.rank..).next().map(|(_, token)| *token);
-  let cost = |token: Option<usize>| token.map_or(0.0, |index| config.styles[index].padding * 2.0);
+  let cost = |token: Option<usize>| {
+    token.map_or(0.0, |index| {
+      config.styles[index].padding + config.styles[index].padding_end()
+    })
+  };
   let same = |a: Option<Option<usize>>, b: Option<Option<usize>>| a.is_some() && a == b && a.flatten().is_some();
   let mut delta = cost(cluster.token);
   if same(previous, next) {

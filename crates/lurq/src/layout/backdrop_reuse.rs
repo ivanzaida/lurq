@@ -51,8 +51,6 @@ pub(crate) enum PaintedDraw {
   },
   #[cfg(feature = "raster")]
   Image(usize),
-  #[cfg(feature = "svg")]
-  Svg(usize),
 }
 
 /// The regions of a frame's backdrop blurs (`regions`, by their index in
@@ -342,8 +340,6 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
           }
           notes.image(image);
         }
-        #[cfg(feature = "svg")]
-        PaintedDraw::Svg(index) => notes.svg(&self.list.svgs[index]),
       }
     }
     true
@@ -362,8 +358,6 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
         .map_or_else(ClipRect::default, |glyph| glyph.clip),
       #[cfg(feature = "raster")]
       PaintedDraw::Image(index) => self.list.images[index].clip,
-      #[cfg(feature = "svg")]
-      PaintedDraw::Svg(index) => self.list.svgs[index].clip,
     };
     // A pixel more than the clip on every side, which saves rounding it.
     let around = [
@@ -396,8 +390,6 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
       }
       #[cfg(feature = "raster")]
       PaintedDraw::Image(index) => crate::layout::opacity_layer::image_extent(&self.list.images[index]),
-      #[cfg(feature = "svg")]
-      PaintedDraw::Svg(index) => crate::layout::opacity_layer::svg_extent(&self.list.svgs[index]),
     };
     known.set(Some(extent));
     extent
@@ -705,6 +697,7 @@ impl Notes {
     self.tag(match image_format {
       crate::images::ImagePixelFormat::Rgba8 => 0,
       crate::images::ImagePixelFormat::Nv12 => 1,
+      crate::images::ImagePixelFormat::I420 => 2,
     });
     self.u64(animation_frames.as_ref().map_or(u64::MAX, |frames| frames.len() as u64));
     self.f32s(uv_min);
@@ -714,31 +707,6 @@ impl Notes {
     self.f32s(transform_origin);
     self.clip(clip);
     self.f32(*opacity);
-  }
-
-  #[cfg(feature = "svg")]
-  fn svg(&mut self, svg: &crate::svg::SvgCmd) {
-    let crate::svg::SvgCmd {
-      order: _,
-      x,
-      y,
-      width,
-      height,
-      svg_id,
-      mesh,
-      clip,
-    } = svg;
-    let crate::svg::tessellate::TessellatedSvg { vertices, indices } = &**mesh;
-    self.tag(b's');
-    self.f32s(&[*x, *y, *width, *height]);
-    self.u64(*svg_id);
-    self.clip(clip);
-    self.u32s(&[vertices.len() as u32, indices.len() as u32]);
-    for crate::svg::tessellate::SvgVertex { position, color } in vertices {
-      self.f32s(position);
-      self.f32s(color);
-    }
-    self.u32s(indices);
   }
 
   /// A layer as it is composited.

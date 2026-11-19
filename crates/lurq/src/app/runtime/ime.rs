@@ -72,6 +72,10 @@ pub struct TextInputSnapshot {
   pub caret: Option<ImeCursorArea>,
   /// Where the input and its text were last painted; `None` before its first frame.
   pub geometry: Option<TextInputGeometry>,
+  /// Whether it has an edit to take back, and one taken back to make again: what a platform's undo asks before it
+  /// offers one.
+  pub can_undo: bool,
+  pub can_redo: bool,
 }
 
 /// Where a text input's characters are on the screen, in logical pixels from the window's top-left corner.
@@ -112,7 +116,10 @@ impl Tree {
         anchor.min(caret)..anchor.max(caret)
       }
     };
+    let (undos, redos) = state.history_depths();
     Some(TextInputSnapshot {
+      can_undo: undos > 0,
+      can_redo: redos > 0,
       text,
       selection,
       composition,
@@ -193,6 +200,10 @@ impl Tree {
   pub fn keyboard_traits(&self) -> Option<KeyboardTraits> {
     let state = self.focused_text_input_state()?;
     let (kind, return_key) = state.keyboard();
+    // An input that asks for none has nothing for a keyboard on the screen to be.
+    if kind == crate::node::node_kind::KeyboardKind::None {
+      return None;
+    }
     Some(KeyboardTraits {
       secure: state.is_masked(),
       kind,
@@ -218,6 +229,14 @@ impl Tree {
         self.ime(ImeEvent::Commit(line.to_owned()));
       }
     }
+  }
+
+  /// An editing command a platform's own text input asks for (iOS's undo of three fingers, its bar of editing
+  /// commands), run as its key is on what has the focus. Whether something took it.
+  pub fn keyboard_edit(&mut self, command: crate::app::events::EditCommand) -> bool {
+    let taken = self.dispatch_edit(command, None, false);
+    self.apply_reactive_updates_after_event();
+    taken
   }
 
   /// The on-screen keyboard's delete key: Backspace.
@@ -254,6 +273,7 @@ impl Tree {
     let Some(state) = self.focused_text_input_state() else {
       return;
     };
+    state.set_typing_pause(self.typing_undo_pause());
     let changed = match event {
       // A new input method session: a composition left from an earlier one
       // (whose end the platform never reported) is stale.
@@ -262,7 +282,7 @@ impl Tree {
       ImeEvent::Disabled => state.clear_composition(),
       ImeEvent::Commit(text) => {
         let cleared = state.clear_composition();
-        let inserted = !text.is_empty() && state.insert(&text, &self.commit_keyboard_event(&text));
+        let inserted = !text.is_empty() && state.type_text(&text, &self.commit_keyboard_event(&text));
         cleared || inserted
       }
     };
@@ -351,15 +371,6 @@ impl Tree {
   /// Whether a text input has the focus.
   pub(crate) fn focused_text_input(&self) -> bool {
     self.focused_text_input_state().is_some()
-  }
-
-  /// Whether the node is a text input.
-  pub(crate) fn is_text_input(&self, id: NodeId) -> bool {
-    self
-      .root
-      .as_ref()
-      .and_then(|root| find_node_by_id(root, id))
-      .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }))
   }
 
   /// The other text inputs the platform may fill in together with the focused one, when that one is for a

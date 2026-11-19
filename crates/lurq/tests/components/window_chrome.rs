@@ -14,6 +14,7 @@ use lurq::{
     ChromeBorderPolicy, ChromeTitleBar, Column, Rect, ResizeHandlePlacement, WindowChrome, WindowChromeMode,
     WindowControlContent, WindowControlKind, WindowControlStyle, WindowControls,
   },
+  layout::quad::QuadContent,
   node::{CursorIcon, Element, TextColor, color::Color, dimension::Dimension},
 };
 
@@ -46,6 +47,7 @@ fn active() -> Color {
 enum Controls {
   Default,
   Styled,
+  Tinted,
 }
 
 #[derive(Clone)]
@@ -85,6 +87,7 @@ impl Component for ChromeHost {
     let controls = match props.controls {
       Controls::Default => WindowControls::new().style(WindowControlStyle::Windows),
       Controls::Styled => styled_controls(),
+      Controls::Tinted => tinted_controls(),
     };
     let content = Column::new()
       .id("content")
@@ -131,6 +134,25 @@ fn styled_controls() -> WindowControls {
     controls = controls.content(kind, icon());
   }
   controls
+}
+
+// Glyph controls in one foreground, with a close control that turns white under the pointer.
+fn tinted_controls() -> WindowControls {
+  WindowControls::new()
+    .style(WindowControlStyle::Windows)
+    .foreground(foreground())
+    .hover_foreground(WindowControlKind::Close, Color::from_hex("#ffffff"))
+}
+
+fn glyph_color(tree: &Tree, glyph: &str) -> Color {
+  tree
+    .resolve_quads(tree.last_layout().expect("a layout"))
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, style, .. } if text == glyph => Some(style.color),
+      _ => None,
+    })
+    .unwrap_or_else(|| panic!("no glyph {glyph:?} was painted"))
 }
 
 fn mount(controls: Controls, placement: ResizeHandlePlacement) -> (App, Tree, Arc<AtomicUsize>) {
@@ -236,8 +258,9 @@ fn styled_controls_share_hover_and_active_backgrounds() {
 #[test]
 fn default_controls_keep_the_red_close_hover() {
   let (mut app, mut tree, _) = mount(Controls::Default, ResizeHandlePlacement::Overlay);
-  let default_hover = Color::from_hex("#232934");
-  let close_hover = Color::from_hex("#c0392b");
+  let palette = lurq::app::theme::ThemePalette::light();
+  let default_hover = palette.get(PaletteColor::SecondaryHover);
+  let close_hover = palette.get(PaletteColor::Destructive);
   let default_height = TITLE_HEIGHT;
   let color_at = |snapshot: &RenderSnapshot, slot: usize| {
     snapshot
@@ -343,7 +366,8 @@ fn borderless_chrome_paints_no_outline() {
 fn default_title_bar_paints_its_bottom_border() {
   let (mut app, mut tree, _) = mount(Controls::Default, ResizeHandlePlacement::Overlay);
   let snapshot = render_pass_with_app(&mut tree, &mut app);
-  let title_border = (0.0, TITLE_HEIGHT - 1.0, WIDTH, 1.0, Color::from_hex("#252a32"));
+  let border = lurq::app::theme::ThemePalette::light().get(PaletteColor::Border);
+  let title_border = (0.0, TITLE_HEIGHT - 1.0, WIDTH, 1.0, border);
 
   assert!(thin_lines(&snapshot).contains(&title_border));
 }
@@ -423,4 +447,73 @@ fn themed_chrome_edges_are_covered_by_background_colors_only() {
       assert_eq!(edge, edge.round(), "edge rects sit on whole physical pixels: {rect:?}");
     }
   }
+}
+
+#[test]
+fn a_control_under_the_pointer_takes_its_hover_foreground() {
+  let (mut app, mut tree, _) = mount(Controls::Tinted, ResizeHandlePlacement::Overlay);
+  assert_eq!(
+    glyph_color(&tree, "x"),
+    foreground(),
+    "at rest: the foreground of the controls"
+  );
+  assert_eq!(glyph_color(&tree, "-"), foreground());
+
+  let (x, y) = button_center(2);
+  tree.mouse_move(x, y);
+  render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(
+    glyph_color(&tree, "x"),
+    Color::from_hex("#ffffff"),
+    "the close control under the pointer"
+  );
+  assert_eq!(
+    glyph_color(&tree, "-"),
+    foreground(),
+    "a control that names no hover foreground keeps its own"
+  );
+
+  let (x, y) = button_center(0);
+  tree.mouse_move(x, y);
+  render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(
+    glyph_color(&tree, "x"),
+    foreground(),
+    "and has it back when the pointer leaves"
+  );
+}
+
+// The three controls say which of the window's they are, so a shell can tell the system (Windows answers its hit
+// test with the minimize, maximize and close buttons there). The zones that resize the window take the pointer
+// along its edges, over the controls.
+#[test]
+fn the_controls_are_the_windows_to_a_shell_that_asks() {
+  use lurq::node::WindowControl;
+
+  let (_app, tree, _) = mount(Controls::Default, ResizeHandlePlacement::Overlay);
+  for (slot, control) in [
+    (0, WindowControl::Minimize),
+    (1, WindowControl::Maximize),
+    (2, WindowControl::Close),
+  ] {
+    let (x, y) = button_center(slot);
+    assert_eq!(tree.window_control_at(x, y), Some(control), "slot {slot}");
+  }
+  let middle = TITLE_HEIGHT / 2.0;
+  assert_eq!(tree.window_control_at(100.0, middle), None, "the bar's own room");
+  assert_eq!(
+    tree.window_control_at(button_center(1).0, 1.0),
+    None,
+    "the top edge resizes"
+  );
+  assert_eq!(
+    tree.window_control_at(WIDTH - 1.0, middle),
+    None,
+    "the right edge resizes"
+  );
+  assert_eq!(
+    tree.window_control_at(button_center(1).0, TITLE_HEIGHT + 4.0),
+    None,
+    "the content"
+  );
 }

@@ -10,7 +10,7 @@ Persistent storage is an app-level key/value store for small values that should 
 Enable it with the `persistent_storage` feature:
 
 ```toml
-lurq = { version = "0.62.0", features = ["persistent_storage"] }
+lurq = { version = "0.63.0", features = ["persistent_storage"] }
 ```
 
 The feature uses `redb` as the file-backed store. Values are stored as typed bytes, not JSON.
@@ -132,6 +132,8 @@ Supported values include:
 If a key exists but was stored with a different type, reads return `None`.
 
 ## Custom Types
+
+A [dock layout](../design-system/#dock-layout)'s `DockState` is a value of the storage as it is (with this feature): it is stored as its text form, `state.to_text()`, and read back with `DockState::parse`. So are a [data grid](../design-system/#data-grid)'s values: its `ColumnLayout` (read back with `ColumnLayout::parse`, then `valid(ids)` for the columns the app has), its sort, a `Vec<TableSort>` (its columns in turn, none stored as no text; a `TableSort` and an `Option<TableSort>` are too), its filters, a `TableFilters`, and its groups open, a `Vec<GroupKey>`.
 
 User-defined structs can derive `PersistentValue` when every field also supports persistent storage:
 

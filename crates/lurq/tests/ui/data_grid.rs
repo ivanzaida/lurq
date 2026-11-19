@@ -1,0 +1,2699 @@
+//! A data grid: the board's Data Grid (its header, its rows, its checkboxes, a sorted column, a selected row, a
+//! number, the footer), the focus on a cell and its keys, editing a cell in place (a text, a number, a choice, a
+//! box ticked), an edit the app refuses, a grid that is read only, ten thousand rows of fifty columns built in
+//! view only, the density, and what tooling reads.
+
+use std::sync::{Arc, Mutex};
+
+use lurq::{
+  app::theme::{Density, PaletteColor, ThemePalette},
+  components::{Column, ScrollVertical},
+  core::Signal,
+  layout::{
+    Constraints, Size,
+    quad::{Quad, QuadContent},
+  },
+  node::color::Color,
+  ui::{CellEditor, CellRange, CellValue, ColumnLayout, DataGrid, GroupKey, TableColumn, TableSort},
+};
+
+use super::stage::Stage;
+
+const ARROW_UP: &str = "\u{E007}";
+
+fn light(role: PaletteColor) -> Color {
+  ThemePalette::light().get(role)
+}
+
+#[derive(Clone, Debug, PartialEq, lurq::DevtoolsInspectable)]
+struct File {
+  name: String,
+  status: usize,
+  size: f64,
+  shared: bool,
+}
+
+const STATUSES: [&str; 3] = ["Building", "Passing", "Failed"];
+
+/// The board's files.
+fn files() -> Vec<File> {
+  [
+    ("blur.rs", 0, 12.0, true),
+    ("canvas.rs", 1, 48.0, false),
+    ("theme.rs", 1, 9.0, false),
+  ]
+  .into_iter()
+  .map(|(name, status, size, shared)| File {
+    name: name.to_owned(),
+    status,
+    size,
+    shared,
+  })
+  .collect()
+}
+
+fn columns() -> Vec<TableColumn<File>> {
+  vec![
+    TableColumn::new("name", "Name")
+      .text(|row: &File| row.name.clone())
+      .mono(true)
+      .sortable(true)
+      .editor(CellEditor::text(|row: &File| row.name.clone())),
+    TableColumn::new("status", "Status")
+      .width(110.0)
+      .text(|row: &File| STATUSES[row.status].to_owned())
+      .editor(CellEditor::choice(STATUSES, |row: &File| row.status)),
+    TableColumn::new("size", "Size")
+      .width(70.0)
+      .numeric()
+      .text(|row: &File| format!("{} KB", row.size))
+      .editor(CellEditor::number(|row: &File| row.size)),
+    TableColumn::new("shared", "Shared")
+      .width(70.0)
+      .editor(CellEditor::checkbox(|row: &File| row.shared)),
+  ]
+}
+
+/// What the grid was told: each edit, as the app took it or not.
+type Edits = Arc<Mutex<Vec<(String, String, CellValue)>>>;
+
+/// A grid of `files` the app keeps, 640 wide and as high as its rows, that takes every edit but an empty name.
+fn grid(rows: Signal<Vec<File>>, edits: Edits, read_only: bool) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let (store, told) = (rows.clone(), edits.clone());
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(columns(), rows.get())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .label("Files")
+          .read_only(read_only)
+          .on_edit(move |edit| {
+            told
+              .lock()
+              .unwrap()
+              .push((edit.row.clone(), edit.column.to_owned(), edit.value.clone()));
+            let mut files = store.get();
+            let Some(file) = files.iter_mut().find(|file| &file.name == edit.row) else {
+              return false;
+            };
+            match (edit.column, &edit.value) {
+              ("name", CellValue::Text(name)) if name.is_empty() => return false,
+              ("name", CellValue::Text(name)) => file.name = name.clone(),
+              ("status", CellValue::Choice(status)) => file.status = *status,
+              ("size", CellValue::Number(size)) => file.size = *size,
+              ("shared", CellValue::Checked(shared)) => file.shared = *shared,
+              _ => return false,
+            }
+            store.set(files);
+            true
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+fn key(stage: &mut Stage, key: &str) {
+  modified(stage, key, false, false);
+}
+
+fn modified(stage: &mut Stage, key: &str, shift: bool, ctrl: bool) {
+  stage.tree.key_down(key.to_owned(), key.to_owned(), shift, ctrl, false);
+  stage.tree.key_up(key.to_owned(), key.to_owned(), shift, ctrl, false);
+  stage.pass();
+  stage.pass();
+}
+
+/// Tab into the grid's cells: past its header, a stop of its own before the rows.
+fn into_cells(stage: &mut Stage) {
+  key(stage, "Tab");
+  if focused(stage).is_some_and(|id| id.starts_with("g-header")) {
+    key(stage, "Tab");
+  }
+}
+
+fn texts(stage: &Stage, content: &str) -> Vec<Quad> {
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == content))
+    .collect()
+}
+
+#[test]
+fn a_grid_is_the_boards_data_grid_with_its_checkboxes_a_sorted_column_a_selected_row_and_its_footer() {
+  let selected = Signal::new(vec!["blur.rs".to_owned()]);
+  let scene_selected = selected.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .selected(scene_selected.clone())
+          .sort_controlled(vec![TableSort::ascending("name")], |_| {})
+          .total(24)
+          .count(true)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let (x, y, width, _) = stage.bounds("g");
+  assert_eq!(width, 640.0);
+  for index in 0..3 {
+    let (_, row_y, _, height) = stage.bounds(&format!("g-row-{index}"));
+    assert_eq!(height, 44.0, "rows of 44");
+    assert!(
+      (row_y - (y + 40.0 + 44.0 * index as f32)).abs() < 1.01,
+      "under a header of 40"
+    );
+  }
+  // The selected row on the highlight, the board's `$accent`; a sorted header in the foreground with its arrow.
+  assert_eq!(stage.fill_color("g-row-0"), Some(light(PaletteColor::Highlight)));
+  assert_eq!(stage.text("Name").0, light(PaletteColor::Foreground));
+  assert!(!texts(&stage, ARROW_UP).is_empty(), "the arrow of the sort");
+  assert_eq!(stage.text("Status").0, light(PaletteColor::MutedForeground));
+  // The name in the mono type, the size a number of 12 in the muted foreground at its column's end.
+  assert_eq!(stage.text("12 KB"), (light(PaletteColor::MutedForeground), 12.0));
+  // The checkbox column: 16 at the start, 12 to the name.
+  let name = texts(&stage, "blur.rs").pop().unwrap();
+  assert!(
+    (name.x - (x + 1.0 + 16.0 + 16.0 + 12.0)).abs() < 1.51,
+    "the name at 44: {}",
+    name.x - x
+  );
+  assert!(stage.paints("1 of 24 rows selected"), "the footer counts the rows");
+}
+
+#[test]
+fn the_focus_is_on_a_cell_and_the_arrows_home_end_and_ctrl_move_it_by_cell() {
+  let mut stage = grid(Signal::new(files()), Edits::default(), false);
+  key(&mut stage, "Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-header-name"),
+    "the header is a stop before the rows"
+  );
+  key(&mut stage, "Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-0-0"),
+    "Tab enters the rows at the first cell"
+  );
+  key(&mut stage, "ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-1"));
+  key(&mut stage, "ArrowDown");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-1-1"),
+    "the same column of the next row"
+  );
+  key(&mut stage, "End");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-1-3"), "End is the row's last");
+  key(&mut stage, "Home");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-1-0"));
+  modified(&mut stage, "End", false, true);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-2-3"),
+    "Ctrl+End, the last cell"
+  );
+  modified(&mut stage, "Home", false, true);
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-0"), "Ctrl+Home, the first");
+  key(&mut stage, "ArrowUp");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-0-0"),
+    "nothing above the first row"
+  );
+}
+
+#[test]
+fn tab_goes_on_through_the_cells_of_a_row_and_out_of_the_grid_from_its_last() {
+  let mut stage = grid(Signal::new(files()), Edits::default(), false);
+  into_cells(&mut stage);
+  key(&mut stage, "Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-1"));
+  modified(&mut stage, "Tab", true, false);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-0-0"),
+    "Shift+Tab, the cell before"
+  );
+  for _ in 0..3 {
+    key(&mut stage, "Tab");
+  }
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-3"));
+  key(&mut stage, "Tab");
+  let after = focused(&stage);
+  assert!(
+    after.as_deref().is_none_or(|id| !id.starts_with("g-cell")),
+    "out of the grid: {after:?}"
+  );
+}
+
+#[test]
+fn enter_edits_a_cell_in_place_and_enter_commits_it_tells_the_app_and_goes_to_the_cell_under_it() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let mut stage = grid(rows.clone(), edits.clone(), false);
+  into_cells(&mut stage);
+  key(&mut stage, "Enter");
+  assert_eq!(focused(&stage).as_deref(), Some("g-editor"), "the editor has the focus");
+  assert!(stage.paints("blur.rs"), "it starts from the cell's text");
+  stage.tree.text_input_replace(0..7, "glow.rs");
+  stage.pass();
+  key(&mut stage, "Enter");
+  assert_eq!(
+    *edits.lock().unwrap(),
+    [(
+      "blur.rs".to_owned(),
+      "name".to_owned(),
+      CellValue::Text("glow.rs".to_owned())
+    )]
+  );
+  assert_eq!(rows.get()[0].name, "glow.rs", "the app took it");
+  assert!(stage.paints("glow.rs"), "the grid shows the app's rows");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-1-0"), "the cell under it");
+}
+
+#[test]
+fn escape_puts_a_cell_back_and_tells_nothing() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let mut stage = grid(rows.clone(), edits.clone(), false);
+  into_cells(&mut stage);
+  key(&mut stage, "F2");
+  assert_eq!(focused(&stage).as_deref(), Some("g-editor"));
+  stage.tree.text_input_replace(0..7, "x");
+  stage.pass();
+  key(&mut stage, "Escape");
+  assert!(edits.lock().unwrap().is_empty());
+  assert_eq!(rows.get(), files());
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-0"), "back on its cell");
+  assert!(stage.paints("blur.rs"));
+}
+
+#[test]
+fn a_letter_typed_on_a_cell_starts_its_edit_and_tab_commits_it_and_goes_on() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let mut stage = grid(rows.clone(), edits.clone(), false);
+  into_cells(&mut stage);
+  key(&mut stage, "ArrowRight");
+  key(&mut stage, "ArrowRight");
+  key(&mut stage, "7");
+  assert_eq!(focused(&stage).as_deref(), Some("g-editor"), "the size is edited");
+  key(&mut stage, "Tab");
+  assert_eq!(
+    edits.lock().unwrap().last().map(|edit| edit.2.clone()),
+    Some(CellValue::Number(7.0)),
+    "the edit starts from what was typed"
+  );
+  assert_eq!(rows.get()[0].size, 7.0);
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-3"), "Tab goes on");
+}
+
+#[test]
+fn an_edit_the_app_refuses_leaves_the_editor_open() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let mut stage = grid(rows.clone(), edits.clone(), false);
+  into_cells(&mut stage);
+  key(&mut stage, "Enter");
+  stage.tree.text_input_replace(0..7, "");
+  stage.pass();
+  key(&mut stage, "Enter");
+  assert_eq!(edits.lock().unwrap().len(), 1, "the app was told");
+  assert_eq!(rows.get(), files(), "and refused it");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-editor"),
+    "the editor stays, with the focus"
+  );
+  key(&mut stage, "Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-0"));
+  assert!(stage.paints("blur.rs"));
+}
+
+#[test]
+fn space_ticks_a_box_in_its_cell_and_a_choice_commits_as_it_is_chosen() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let mut stage = grid(rows.clone(), edits.clone(), false);
+  into_cells(&mut stage);
+  key(&mut stage, "End");
+  key(&mut stage, " ");
+  assert_eq!(
+    *edits.lock().unwrap(),
+    [("blur.rs".to_owned(), "shared".to_owned(), CellValue::Checked(false))]
+  );
+  assert!(!rows.get()[0].shared);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-0-3"),
+    "the box turns in its cell"
+  );
+
+  // The status: Enter opens its select; a choice commits.
+  key(&mut stage, "Home");
+  key(&mut stage, "ArrowRight");
+  key(&mut stage, "Enter");
+  assert_eq!(focused(&stage).as_deref(), Some("g-editor"));
+  key(&mut stage, "Enter");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "Enter");
+  assert_eq!(
+    edits.lock().unwrap().last().cloned(),
+    Some(("blur.rs".to_owned(), "status".to_owned(), CellValue::Choice(2)))
+  );
+  assert_eq!(rows.get()[0].status, 2);
+  assert!(stage.paints("Failed"));
+}
+
+#[test]
+fn a_read_only_grid_moves_the_focus_and_edits_nothing() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let mut stage = grid(rows.clone(), edits.clone(), true);
+  into_cells(&mut stage);
+  key(&mut stage, "Enter");
+  key(&mut stage, "x");
+  key(&mut stage, "End");
+  key(&mut stage, " ");
+  assert!(edits.lock().unwrap().is_empty());
+  assert_ne!(focused(&stage).as_deref(), Some("g-editor"));
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-3"));
+}
+
+#[test]
+fn a_double_press_of_a_cell_edits_it() {
+  let mut stage = grid(Signal::new(files()), Edits::default(), false);
+  let (x, y) = {
+    let quad = texts(&stage, "canvas.rs").pop().unwrap();
+    (quad.x + 4.0, quad.y + quad.height / 2.0)
+  };
+  // The two presses at one time: a double press however slow the machine.
+  stage.presses_at(std::time::Duration::ZERO);
+  for _ in 0..2 {
+    stage.tree.mouse_move(x, y);
+    stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+    stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+    stage.pass();
+  }
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("g-editor"));
+}
+
+#[test]
+fn ten_thousand_rows_of_fifty_columns_build_those_in_view_and_page_down_keeps_the_column() {
+  let rows: Arc<Vec<File>> = Arc::new(
+    (0..10_000)
+      .map(|index| File {
+        name: format!("file {index}"),
+        status: index % 3,
+        size: index as f64,
+        shared: false,
+      })
+      .collect(),
+  );
+  let mut stage = Stage::new(move |ctx| {
+    let mut columns = vec![
+      TableColumn::new("name", "Name")
+        .width(140.0)
+        .text(|row: &File| row.name.clone()),
+    ];
+    columns.extend((1..50).map(|index| {
+      TableColumn::new(&format!("c{index}"), &format!("C{index}"))
+        .width(100.0)
+        .text(move |row: &File| format!("{}.{index}", row.size))
+    }));
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new_shared(columns, rows.clone())
+          .id("g")
+          .height(300.0)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  let cells = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.contains('.')))
+    .count();
+  assert!(cells < 200, "about a screen of cells, not 500 000: {cells}");
+  into_cells(&mut stage);
+  key(&mut stage, "ArrowRight");
+  key(&mut stage, "ArrowRight");
+  key(&mut stage, "PageDown");
+  let at = focused(&stage).unwrap();
+  assert!(at.starts_with("g-cell-") && at.ends_with("-2"), "the same column: {at}");
+  modified(&mut stage, "End", false, true);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-9999-49"),
+    "the last cell of the last row"
+  );
+  assert!(stage.paints("9999.49"));
+}
+
+#[test]
+fn a_compact_grid_has_rows_of_36() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .id("g")
+          .density(Density::Compact)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  assert_eq!(stage.bounds("g-row-0").3, 36.0);
+}
+
+#[test]
+fn a_name_longer_than_its_column_is_cut_with_an_ellipsis_in_its_header() {
+  let mut stage = Stage::new(|ctx| {
+    let columns = vec![
+      TableColumn::new("name", "A title much longer than the column it is the header of")
+        .width(120.0)
+        .text(|row: &File| row.name.clone()),
+      TableColumn::new("size", "Size").text(|row: &File| format!("{} KB", row.size)),
+    ];
+    Column::new()
+      .size(640.0, 300.0)
+      .child(DataGrid::new(columns, files()).id("g").mount(ctx))
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let size = texts(&stage, "Size").pop().unwrap();
+  let (x, ..) = stage.bounds("g");
+  assert!(
+    (size.x - (x + 1.0 + 16.0 + 120.0 + 16.0)).abs() < 1.5,
+    "the next header where its track is"
+  );
+  let cut = stage.cut_text_quad("A title much longer than the column it is the header of");
+
+  assert!(
+    cut.is_some_and(|quad| quad.x + quad.width <= size.x),
+    "cut before the next column"
+  );
+}
+
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn tooling_reads_a_grid_of_rows_of_gridcells_with_their_places_and_whether_they_are_read_only() {
+  let mut stage = grid(Signal::new(files()), Edits::default(), false);
+  let mut said = |id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said("g", "a11y_role").as_deref(), Some("grid"));
+  assert_eq!(said("g", "a11y_name").as_deref(), Some("Files"));
+  assert_eq!(said("g-row-0", "a11y_role").as_deref(), Some("row"));
+  assert_eq!(said("g-row-0", "a11y_rowindex").as_deref(), Some("2"));
+  assert_eq!(said("g-cell-0-1", "a11y_role").as_deref(), Some("gridcell"));
+  assert_eq!(said("g-cell-0-1", "a11y_colindex").as_deref(), Some("2"));
+  assert_eq!(said("g-cell-0-1", "a11y_readonly").as_deref(), Some("false"));
+  let mut stage = grid(Signal::new(files()), Edits::default(), true);
+  let said = stage
+    .tree
+    .get_element_by_id_mut("g-cell-0-0")
+    .and_then(|element| element.description("a11y_readonly"));
+  assert_eq!(said.as_deref(), Some("true"));
+}
+
+/// What the grid wrote to the clipboard, and what a paste reads, in place of the OS's.
+#[derive(Default)]
+struct Clipboard {
+  written: Mutex<Vec<String>>,
+  held: Mutex<String>,
+}
+
+impl lurq::app::ClipboardWriter for Clipboard {
+  fn write_text(&self, text: &str) -> bool {
+    self.written.lock().unwrap().push(text.to_owned());
+    true
+  }
+}
+
+impl lurq::app::ClipboardReader for Clipboard {
+  fn read_text(&self) -> Option<String> {
+    Some(self.held.lock().unwrap().clone())
+  }
+
+  fn read(&self) -> Option<lurq::app::events::ClipboardContent> {
+    Some(lurq::app::events::ClipboardContent::text(
+      self.held.lock().unwrap().clone(),
+    ))
+  }
+}
+
+type Range = Signal<Option<CellRange<String>>>;
+
+/// The grid of [`grid`], its range of cells bound to a signal, with the test's clipboard.
+fn ranged(rows: Signal<Vec<File>>, edits: Edits) -> (Stage, Range, Arc<Clipboard>) {
+  let range: Range = Signal::new(None);
+  let bound = range.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let (store, told) = (rows.clone(), edits.clone());
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(columns(), rows.get())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .cell_selection(bound.clone())
+          .on_edit(move |edit| {
+            told
+              .lock()
+              .unwrap()
+              .push((edit.row.clone(), edit.column.to_owned(), edit.value.clone()));
+            let mut files = store.get();
+            let Some(file) = files.iter_mut().find(|file| &file.name == edit.row) else {
+              return false;
+            };
+            match (edit.column, &edit.value) {
+              // A name is never empty, and a size never cleared.
+              ("name", CellValue::Text(name)) if name.is_empty() => return false,
+              ("name", CellValue::Text(name)) => file.name = name.clone(),
+              ("status", CellValue::Choice(status)) => file.status = *status,
+              ("size", CellValue::Number(size)) => file.size = *size,
+              ("shared", CellValue::Checked(shared)) => file.shared = *shared,
+              _ => return false,
+            }
+            store.set(files);
+            true
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  let clipboard = Arc::new(Clipboard::default());
+  stage.tree.set_clipboard_writer(Some(clipboard.clone()));
+  stage.tree.set_clipboard_reader(Some(clipboard.clone()));
+  stage.pass();
+  (stage, range, clipboard)
+}
+
+/// The rows' keys and the columns' ids the range spans.
+fn spanned(range: &Range) -> (Vec<String>, Vec<String>) {
+  range.get().map_or_else(Default::default, |range| {
+    (
+      range.rows.to_vec(),
+      range.columns.iter().map(|id| id.to_string()).collect(),
+    )
+  })
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+  names.iter().map(|name| (*name).to_owned()).collect()
+}
+
+#[test]
+fn shift_and_the_arrows_select_a_range_of_cells_drawn_as_one_area_with_the_focused_cell_inside_it() {
+  let (mut stage, range, _) = ranged(Signal::new(files()), Edits::default());
+  into_cells(&mut stage);
+  modified(&mut stage, "ArrowRight", true, false);
+  modified(&mut stage, "ArrowRight", true, false);
+  modified(&mut stage, "ArrowDown", true, false);
+  modified(&mut stage, "ArrowDown", true, false);
+  assert_eq!(
+    spanned(&range),
+    (
+      names(&["blur.rs", "canvas.rs", "theme.rs"]),
+      names(&["name", "status", "size"])
+    ),
+    "told by the rows' keys and the columns' ids"
+  );
+  let range_now = range.get().unwrap();
+  assert_eq!(range_now.anchor.column.as_ref(), "name");
+  assert_eq!(range_now.extent.row, "theme.rs");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-0-0"),
+    "the focus stays where the range started"
+  );
+  let selection = light(PaletteColor::Selection);
+  assert_eq!(stage.fill_color("g-cell-1-1"), Some(selection), "the range's fill");
+  assert_eq!(stage.fill_color("g-cell-2-2"), Some(selection));
+  assert_ne!(
+    stage.fill_color("g-cell-0-0"),
+    Some(selection),
+    "the focused cell keeps its row's"
+  );
+  assert_ne!(stage.fill_color("g-cell-0-3"), Some(selection), "outside the range");
+  assert!(
+    stage.border("g-cell-0-2").is_some(),
+    "an edge at the range's top and end"
+  );
+  assert!(stage.border("g-cell-1-1").is_none(), "none inside it");
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  {
+    let said = stage
+      .tree
+      .get_element_by_id_mut("g-cell-1-1")
+      .and_then(|element| element.description("a11y_selected"));
+    assert_eq!(said.as_deref(), Some("true"));
+  }
+
+  // A move of the focus without Shift starts again from the cell it goes to.
+  key(&mut stage, "ArrowRight");
+  assert_eq!(range.get(), None);
+  assert_ne!(stage.fill_color("g-cell-1-1"), Some(selection));
+}
+
+#[test]
+fn a_drag_from_a_cell_and_shift_with_a_press_select_the_cells_between() {
+  use lurq::app::events::MouseButton::Left;
+  let (mut stage, range, _) = ranged(Signal::new(files()), Edits::default());
+  let (from_x, from_y) = stage.center("g-cell-0-0");
+  let (to_x, to_y) = stage.center("g-cell-1-2");
+  stage.tree.mouse_move(from_x, from_y);
+  stage.tree.mouse_down(from_x, from_y, Left);
+  for step in 1..=6 {
+    let t = step as f32 / 6.0;
+    stage
+      .tree
+      .mouse_move(from_x + (to_x - from_x) * t, from_y + (to_y - from_y) * t);
+    stage.pass();
+  }
+  stage.tree.mouse_up(to_x, to_y, Left);
+  stage.pass();
+  assert_eq!(
+    spanned(&range),
+    (names(&["blur.rs", "canvas.rs"]), names(&["name", "status", "size"])),
+    "the drag's cells"
+  );
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-0-0"),
+    "the drag leaves the focus where it started"
+  );
+
+  // Shift with a press takes the range's corner to the cell pressed, from where it started.
+  let (x, y) = stage.center("g-cell-2-3");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down_with_modifiers(x, y, Left, true, false, false);
+  stage.tree.mouse_up_with_modifiers(x, y, Left, true, false, false);
+  stage.pass();
+  assert_eq!(
+    spanned(&range),
+    (
+      names(&["blur.rs", "canvas.rs", "theme.rs"]),
+      names(&["name", "status", "size", "shared"])
+    )
+  );
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-0"), "the focus stays");
+
+  // A press without Shift starts again; Ctrl+A is every cell, Escape none.
+  stage.click("g-cell-1-1");
+  stage.pass();
+  assert_eq!(range.get(), None);
+  stage.shortcut("a");
+  stage.pass();
+  let (rows, columns) = spanned(&range);
+  assert_eq!((rows.len(), columns.len()), (3, 4));
+  key(&mut stage, "Escape");
+  assert_eq!(range.get(), None);
+}
+
+#[test]
+fn a_press_of_a_cell_does_not_select_its_row() {
+  let selected = Signal::new(Vec::<String>::new());
+  let scene_selected = selected.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .selected(scene_selected.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.click("g-cell-1-0");
+  stage.pass();
+  assert!(selected.get().is_empty(), "the range of cells is apart from the rows'");
+  key(&mut stage, " ");
+  assert_eq!(selected.get(), ["canvas.rs"], "Space selects the row");
+}
+
+#[test]
+fn ctrl_c_copies_the_range_as_tab_separated_text_and_ctrl_v_pastes_it_cell_by_cell() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let (mut stage, _, clipboard) = ranged(rows.clone(), edits.clone());
+  into_cells(&mut stage);
+  modified(&mut stage, "ArrowRight", true, false);
+  modified(&mut stage, "ArrowRight", true, false);
+  modified(&mut stage, "ArrowDown", true, false);
+  stage.shortcut("c");
+  stage.pass();
+  assert_eq!(
+    clipboard.written.lock().unwrap().last().map(String::as_str),
+    Some("blur.rs\tBuilding\t12\ncanvas.rs\tPassing\t48"),
+    "what each cell edits, a tab between cells and a line for each row"
+  );
+
+  // A block pasted from the focused cell: each cell that would change is told, and the app may refuse one.
+  key(&mut stage, "Escape");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowRight");
+  *clipboard.held.lock().unwrap() = "Failed\t7\r\nPassing\tlots\r\n".to_owned();
+  stage.shortcut("v");
+  stage.pass();
+  let told: Vec<(String, String, CellValue)> = edits.lock().unwrap().clone();
+  assert_eq!(
+    told,
+    [
+      ("canvas.rs".to_owned(), "status".to_owned(), CellValue::Choice(2)),
+      ("canvas.rs".to_owned(), "size".to_owned(), CellValue::Number(7.0)),
+    ],
+    "a choice by its name, a number; theme.rs is Passing already and \"lots\" is no number"
+  );
+  assert_eq!(rows.get()[1].status, 2);
+
+  // Delete clears what is edited: a text to nothing (which the app refuses here), a choice told Empty.
+  edits.lock().unwrap().clear();
+  key(&mut stage, "Escape");
+  modified(&mut stage, "ArrowLeft", true, false);
+  key(&mut stage, "Delete");
+  let told: Vec<(String, String, CellValue)> = edits.lock().unwrap().clone();
+  assert_eq!(
+    told,
+    [
+      (
+        "canvas.rs".to_owned(),
+        "name".to_owned(),
+        CellValue::Text(String::new())
+      ),
+      ("canvas.rs".to_owned(), "status".to_owned(), CellValue::Empty),
+    ]
+  );
+  assert_eq!(rows.get()[1].name, "canvas.rs", "refused");
+}
+
+#[test]
+fn a_range_names_its_cells_by_key_so_a_sort_keeps_them() {
+  let (rows, edits) = (Signal::new(files()), Edits::default());
+  let (mut stage, range, _) = ranged(rows.clone(), edits);
+  into_cells(&mut stage);
+  key(&mut stage, "ArrowDown");
+  modified(&mut stage, "ArrowDown", true, false);
+  assert_eq!(spanned(&range).0, ["canvas.rs", "theme.rs"]);
+  // The app gives the rows in another order: the range's corners are the same rows, wherever they are now.
+  let mut sorted = rows.get();
+  sorted.reverse();
+  rows.set(sorted);
+  stage.pass();
+  stage.pass();
+  let selection = light(PaletteColor::Selection);
+  // theme.rs is first now: its cell of the range (the corner the range reaches) has the fill.
+  assert_eq!(stage.fill_color("g-cell-0-0"), Some(selection));
+  assert_ne!(stage.fill_color("g-cell-2-0"), Some(selection), "blur.rs is not in it");
+}
+
+#[test]
+fn ten_thousand_rows_of_fifty_columns_select_copy_and_reach_their_last_cell_built_in_view_only() {
+  let rows: Arc<Vec<File>> = Arc::new(
+    (0..10_000)
+      .map(|index| File {
+        name: format!("file {index}"),
+        status: index % 3,
+        size: index as f64,
+        shared: false,
+      })
+      .collect(),
+  );
+  let range: Signal<Option<CellRange<usize>>> = Signal::new(None);
+  let bound = range.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let mut columns = vec![
+      TableColumn::new("name", "Name")
+        .width(140.0)
+        .text(|row: &File| row.name.clone()),
+    ];
+    columns.extend((1..50).map(|index| {
+      TableColumn::new(&format!("c{index}"), &format!("C{index}"))
+        .width(100.0)
+        .text(move |row: &File| format!("{}.{index}", row.size))
+    }));
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new_shared(columns, rows.clone())
+          .id("g")
+          .height(300.0)
+          .cell_selection(bound.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  let clipboard = Arc::new(Clipboard::default());
+  stage.tree.set_clipboard_writer(Some(clipboard.clone()));
+  stage.pass();
+  stage.pass();
+  into_cells(&mut stage);
+  // Shift with Ctrl+End takes the range to the last cell, which is scrolled to and built; the focus stays.
+  stage.tree.key_down("End".into(), "End".into(), true, true, false);
+  stage.tree.key_up("End".into(), "End".into(), true, true, false);
+  for _ in 0..3 {
+    stage.pass();
+  }
+  assert_eq!(
+    range
+      .get()
+      .map(|range| (range.extent.row, range.extent.column.to_string())),
+    Some((9999, "c49".to_owned()))
+  );
+  assert!(stage.paints("9999.49"), "the corner scrolled into view");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-0-0"));
+  let cells = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.contains('.')))
+    .count();
+  assert!(cells < 200, "a screen of cells: {cells}");
+  // Ctrl+C copies all of them, built or not.
+  stage.shortcut("c");
+  stage.pass();
+  let copied = clipboard.written.lock().unwrap().last().cloned().unwrap_or_default();
+  assert_eq!(copied.lines().count(), 10_000);
+  assert_eq!(copied.lines().last().map(|line| line.split('\t').count()), Some(50));
+  assert!(copied.ends_with("9999.49"));
+}
+
+const MORE: &str = "\u{E053}";
+
+/// The grid of [`grid`] with its arrangement of columns and its sort bound to signals.
+fn arranged(layout: Signal<ColumnLayout>, sort: Signal<Vec<TableSort>>) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .sort(sort.clone())
+          .column_layout(layout.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+/// The ids of the columns shown, in their order, and those hidden.
+fn order(layout: &Signal<ColumnLayout>) -> (Vec<String>, Vec<String>) {
+  let layout = layout.get();
+  (
+    layout
+      .columns
+      .iter()
+      .filter(|place| !place.hidden)
+      .map(|place| place.id.to_string())
+      .collect(),
+    layout.hidden().map(str::to_owned).collect(),
+  )
+}
+
+/// A press of the menu item that says `label`.
+fn choose(stage: &mut Stage, label: &str) {
+  let quad = stage
+    .text_quad(label)
+    .unwrap_or_else(|| panic!("the menu shows {label:?}"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.pass();
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  stage.pass();
+}
+
+fn more_shown(stage: &Stage) -> bool {
+  texts(stage, MORE).iter().any(|quad| quad.opacity > 0.5)
+}
+
+#[test]
+fn a_headers_menu_trigger_shows_under_the_pointer_and_its_menu_sorts_pins_hides_and_shows_the_columns() {
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(Vec::new()));
+  let mut stage = arranged(layout.clone(), sort.clone());
+  assert!(!more_shown(&stage), "no trigger at rest");
+  stage.hover("g-header-name");
+  stage.pass_after(std::time::Duration::from_millis(500));
+  assert!(more_shown(&stage), "the trigger under the pointer");
+
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(stage.paints("Sort descending"), "the menu is open");
+  choose(&mut stage, "Sort descending");
+  assert_eq!(sort.get(), [TableSort::descending("name")]);
+  assert!(!stage.paints("Sort descending"), "a choice closes it");
+
+  // Pinned at the end: the name goes after the others, and stays there.
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Pin to end");
+  assert_eq!(
+    layout.get().place("name").map(|place| place.pin),
+    Some(lurq::ui::ColumnPin::End)
+  );
+  let (name_x, ..) = stage.bounds("g-header-name");
+  let (status_x, ..) = stage.bounds("g-header-status");
+  assert!(name_x > status_x, "the name is at the end now");
+
+  // Hidden, and shown again from another column's menu.
+  stage.hover("g-header-status");
+  stage.click("g-header-status-menu");
+  stage.pass();
+  choose(&mut stage, "Hide column");
+  assert_eq!(order(&layout).1, ["status"]);
+  assert!(!stage.paints("Status"), "its header is gone");
+  stage.hover("g-header-size");
+  stage.click("g-header-size-menu");
+  stage.pass();
+  choose(&mut stage, "Columns");
+  choose(&mut stage, "Show all columns");
+  assert!(order(&layout).1.is_empty());
+  assert!(stage.paints("Status"));
+}
+
+#[test]
+fn alt_down_on_a_header_opens_its_menu_and_ctrl_shift_page_down_moves_its_column() {
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(Vec::new()));
+  let mut stage = arranged(layout.clone(), sort);
+  key(&mut stage, "Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("g-header-name"));
+  stage
+    .tree
+    .key_down("ArrowDown".into(), "ArrowDown".into(), false, false, true);
+  stage
+    .tree
+    .key_up("ArrowDown".into(), "ArrowDown".into(), false, false, true);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("Pin to start"), "Alt+Down opens the menu");
+  assert!(more_shown(&stage), "its trigger shows while it is open");
+  key(&mut stage, "Escape");
+  assert!(!stage.paints("Pin to start"));
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-header-name"),
+    "the focus back on the header"
+  );
+  modified(&mut stage, "PageDown", true, true);
+  assert_eq!(order(&layout).0, ["status", "name", "size", "shared"], "one place on");
+  modified(&mut stage, "PageUp", true, true);
+  assert_eq!(order(&layout).0, ["name", "status", "size", "shared"], "and back");
+}
+
+#[test]
+fn a_header_dragged_to_another_place_moves_its_column() {
+  use lurq::app::events::MouseButton::Left;
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(Vec::new()));
+  let mut stage = arranged(layout.clone(), sort);
+  let (x, y) = stage.center("g-header-name");
+  // The size's cell: its column, as wide as the header's.
+  let (size_x, _, size_width, _) = stage.bounds("g-cell-0-2");
+  let to = size_x + size_width * 0.75;
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, Left);
+  for step in 1..=8 {
+    stage.tree.mouse_move(x + (to - x) * step as f32 / 8.0, y);
+    stage.pass();
+  }
+  stage.tree.mouse_up(to, y, Left);
+  stage.pass();
+  assert_eq!(
+    order(&layout).0,
+    ["status", "size", "name", "shared"],
+    "after the size, before the shared box"
+  );
+}
+
+#[test]
+fn a_layout_the_app_gives_orders_hides_widens_and_pins_the_columns_and_a_resize_and_size_to_fit_are_kept_in_it() {
+  use lurq::ui::{ColumnPin, ColumnPlace};
+  let place = |id: &str, hidden: bool, width: Option<f32>, pin: ColumnPin| ColumnPlace {
+    id: id.into(),
+    hidden,
+    width,
+    fit: false,
+    pin,
+  };
+  let layout = Signal::new(ColumnLayout {
+    columns: vec![
+      place("size", false, Some(150.0), ColumnPin::None),
+      place("name", false, None, ColumnPin::None),
+      place("status", true, None, ColumnPin::None),
+      place("shared", false, None, ColumnPin::Start),
+    ],
+  });
+  let mut stage = arranged(layout.clone(), Signal::new(Vec::new()));
+  let (shared_x, ..) = stage.bounds("g-header-shared");
+  let (size_x, ..) = stage.bounds("g-header-size");
+  let (name_x, ..) = stage.bounds("g-header-name");
+  let size_width = stage.bounds("g-cell-0-1").2;
+  assert!(
+    shared_x < size_x && size_x < name_x,
+    "pinned first, then in the layout's order"
+  );
+  assert!(!stage.paints("Status"), "hidden");
+  assert!(size_width >= 150.0, "its width: {size_width}");
+
+  // Ctrl+Right on the size's header makes it wider: the width is kept in the layout.
+  key(&mut stage, "Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-header-shared"),
+    "the first header, pinned"
+  );
+  key(&mut stage, "ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("g-header-size"));
+  modified(&mut stage, "ArrowRight", false, true);
+  assert_eq!(layout.get().place("size").and_then(|place| place.width), Some(160.0));
+
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Size to fit");
+  assert!(
+    layout
+      .get()
+      .place("name")
+      .is_some_and(|place| place.fit && place.width.is_none())
+  );
+}
+
+#[test]
+fn a_grid_without_a_layout_keeps_its_own_and_a_menu_can_be_turned_off() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(DataGrid::new(columns(), files()).id("g").mount(ctx))
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.hover("g-header-status");
+  stage.click("g-header-status-menu");
+  stage.pass();
+  choose(&mut stage, "Hide column");
+  assert!(!stage.paints("Status"), "kept by the grid");
+
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(DataGrid::new(columns(), files()).id("g").column_menu(false).mount(ctx))
+      .into()
+  });
+  stage.pass();
+  assert!(texts(&stage, MORE).is_empty(), "no trigger");
+}
+
+/// The board's files and three more, grouped by `by`, the groups open bound to `open`.
+fn grouped(
+  by: &'static [&'static str],
+  open: Signal<Vec<GroupKey>>,
+  told: Arc<Mutex<Vec<(Vec<String>, bool)>>>,
+) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let mut rows = files();
+    rows.extend(
+      [
+        ("mesh.rs", 2, 5.0, true),
+        ("path.rs", 1, 3.0, true),
+        ("text.rs", 0, 8.0, false),
+      ]
+      .map(|(name, status, size, shared)| File {
+        name: name.to_owned(),
+        status,
+        size,
+        shared,
+      }),
+    );
+    let told = told.clone();
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns(), rows)
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .group_by(by.iter().copied())
+          .open(open.clone())
+          .on_open_change(move |key, open| told.lock().unwrap().push((key.values.clone(), open)))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+#[test]
+fn rows_grouped_by_a_column_show_a_row_for_each_group_with_its_value_and_count_and_a_closed_group_builds_none() {
+  let (open, told) = (Signal::new(vec![GroupKey::new(["Passing"])]), Arc::default());
+  let mut stage = grouped(&["status"], open.clone(), told);
+  // Building (blur.rs, text.rs) closed, Passing (canvas.rs, theme.rs, path.rs) open, Failed (mesh.rs) closed.
+  assert!(stage.paints("Building") && stage.paints("Failed"));
+  assert!(
+    stage.paints("canvas.rs") && stage.paints("path.rs"),
+    "the open group's rows"
+  );
+  assert!(
+    !stage.paints("blur.rs") && !stage.paints("mesh.rs"),
+    "a closed group's are not built"
+  );
+  assert!(stage.paints("3"), "the count of Passing");
+  let (_, building_y, ..) = stage.bounds("g-group-0");
+  let (_, passing_y, ..) = stage.bounds("g-group-1");
+  let (_, first_y, ..) = stage.bounds("g-row-1");
+  assert!(
+    building_y < passing_y && passing_y < first_y,
+    "the group's row, then its rows"
+  );
+  assert_eq!(stage.bounds("g-group-0").3, 44.0, "as high as a row");
+}
+
+#[test]
+fn a_press_enter_right_and_left_open_and_close_a_group_and_the_app_is_told() {
+  let (open, told): (_, Arc<Mutex<Vec<(Vec<String>, bool)>>>) = (Signal::new(Vec::new()), Arc::default());
+  let mut stage = grouped(&["status"], open.clone(), told.clone());
+  stage.click("g-group-0");
+  stage.pass();
+  assert_eq!(open.get(), [GroupKey::new(["Building"])]);
+  assert!(stage.paints("blur.rs"), "its rows are built");
+  stage.click("g-group-0");
+  stage.pass();
+  assert!(open.get().is_empty());
+
+  // From the keyboard: the group's rows are the stops of the rows, Right opens, Left closes, Enter turns.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("g-group-0"));
+  key(&mut stage, "ArrowRight");
+  assert_eq!(open.get(), [GroupKey::new(["Building"])]);
+  key(&mut stage, "ArrowLeft");
+  assert!(open.get().is_empty());
+  key(&mut stage, "ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("g-group-1"), "the next group");
+  key(&mut stage, "Enter");
+  assert_eq!(open.get(), [GroupKey::new(["Passing"])]);
+  key(&mut stage, "ArrowDown");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-1-0"),
+    "into the group's first row"
+  );
+  assert_eq!(
+    *told.lock().unwrap(),
+    [
+      (vec!["Building".to_owned()], true),
+      (vec!["Building".to_owned()], false),
+      (vec!["Building".to_owned()], true),
+      (vec!["Building".to_owned()], false),
+      (vec!["Passing".to_owned()], true),
+    ]
+  );
+}
+
+#[test]
+fn grouping_by_two_columns_nests_the_second_in_the_first() {
+  let open = Signal::new(vec![GroupKey::new(["Passing"]), GroupKey::new(["Passing", "true"])]);
+  let mut stage = grouped(&["status", "shared"], open, Arc::default());
+  // Building, Passing ⟶ false (canvas.rs, theme.rs) closed, true (path.rs) open, Failed.
+  assert!(stage.paints("path.rs"));
+  assert!(!stage.paints("canvas.rs"));
+  let (passing_x, ..) = stage.bounds("g-group-1");
+  let nested = texts(&stage, "true").pop().expect("the nested group's value");
+  // The group's value, not the status of a row in it, which is further on.
+  let passing = texts(&stage, "Passing")
+    .into_iter()
+    .min_by(|a, b| a.x.total_cmp(&b.x))
+    .expect("the group's value");
+  assert!(nested.x > passing.x, "the nested group is indented");
+  assert!(passing.x > passing_x);
+}
+
+#[test]
+fn ten_thousand_rows_grouped_build_the_groups_and_the_rows_in_view_only() {
+  let rows: Arc<Vec<File>> = Arc::new(
+    (0..10_000)
+      .map(|index| File {
+        name: format!("file {index}"),
+        status: index % 3,
+        size: index as f64,
+        shared: false,
+      })
+      .collect(),
+  );
+  let open = Signal::new(vec![GroupKey::new(["Passing"])]);
+  let bound = open.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new_shared(columns(), rows.clone())
+          .id("g")
+          .height(300.0)
+          .group_by(["status"])
+          .open(bound.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  let rows = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("file ")))
+    .count();
+  assert!(rows < 40, "a screen of rows: {rows}");
+  assert!(stage.paints("3334"), "Passing's count");
+  // Ctrl+End goes to the last row of the open group, which is scrolled to and built.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowDown");
+  assert!(
+    focused(&stage).is_some_and(|id| id.starts_with("g-cell-")),
+    "a cell of Passing's first row"
+  );
+  modified(&mut stage, "End", false, true);
+  stage.pass();
+  assert!(stage.paints("file 9997"), "Passing's last row");
+}
+
+/// The columns of [`columns`], the name counted, the size summed, the status said by the app.
+fn summed(kind: lurq::ui::SummaryKind) -> Vec<TableColumn<File>> {
+  let mut columns = columns();
+  columns[0] = columns[0].clone().summary(lurq::ui::SummaryKind::Count);
+  columns[1] = columns[1]
+    .clone()
+    .summary_text(|rows: &[&File]| format!("{} failed", rows.iter().filter(|row| row.status == 2).count()));
+  columns[2] = columns[2].clone().summary(kind);
+  columns
+}
+
+fn many_files(count: usize) -> Vec<File> {
+  (0..count)
+    .map(|index| File {
+      name: format!("file {index}"),
+      status: index % 3,
+      size: (index + 1) as f64,
+      shared: false,
+    })
+    .collect()
+}
+
+fn summary_stage(rows: Vec<File>, kind: lurq::ui::SummaryKind, open: Option<Signal<Vec<GroupKey>>>) -> Stage {
+  let height = if open.is_some() { 520.0 } else { 300.0 };
+  let mut stage = Stage::new(move |ctx| {
+    let mut grid = DataGrid::new(summed(kind), rows.clone())
+      .row_key(|row: &File| row.name.clone())
+      .id("g")
+      .height(height);
+    if let Some(open) = &open {
+      grid = grid.group_by(["status"]).open(open.clone());
+    }
+    Column::new().size(700.0, 560.0).child(grid.mount(ctx)).into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_summary_row_stays_at_the_bottom_of_the_grid_with_what_each_column_says_of_every_row() {
+  let mut stage = summary_stage(many_files(30), lurq::ui::SummaryKind::Sum, None);
+  // 1 + 2 + .. + 30, thirty rows, ten failed.
+  assert!(stage.paints("Sum") && stage.paints("465"), "the size's sum");
+  assert!(stage.paints("Count") && stage.paints("30"), "the name's count");
+  assert!(stage.paints("10 failed"), "the app's text");
+  let (_, y, _, height) = stage.bounds("g");
+  let (_, summary_y, _, summary_height) = stage.bounds("g-summary");
+  assert_eq!(summary_height, 44.0);
+  assert!(
+    (summary_y + summary_height - (y + height)).abs() < 0.5,
+    "at the bottom: {summary_y} + {summary_height} of {y} + {height}"
+  );
+  stage
+    .tree
+    .scroll(350.0, y + 150.0, 0.0, -200.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  assert_eq!(stage.bounds("g-summary").1, summary_y, "it stays while the rows scroll");
+  let (_, row_y, _, row_height) = stage.bounds("g-row-5");
+  assert!(
+    row_y + row_height <= summary_y + 0.5 || row_y >= summary_y + summary_height,
+    "drawn over the rows under it"
+  );
+}
+
+#[test]
+fn the_grid_computes_the_average_the_least_and_the_most_of_a_column_of_numbers() {
+  for (kind, label, value) in [
+    (lurq::ui::SummaryKind::Average, "Average", "2"),
+    (lurq::ui::SummaryKind::Min, "Min", "1"),
+    (lurq::ui::SummaryKind::Max, "Max", "3"),
+  ] {
+    let stage = summary_stage(many_files(3), kind, None);
+    assert!(stage.paints(label) && stage.paints(value), "{label} {value}");
+  }
+}
+
+#[test]
+fn each_group_open_ends_in_the_summary_of_its_rows_which_the_keys_pass_by() {
+  let open = Signal::new(vec![GroupKey::new(["Building"]), GroupKey::new(["Passing"])]);
+  let mut stage = summary_stage(many_files(6), lurq::ui::SummaryKind::Sum, Some(open));
+  // Building: rows 0 and 3 (sizes 1 and 4), Passing: rows 1 and 4 (2 and 5), Failed closed.
+  // Lines: Building, 2 rows, its summary, Passing, 2 rows, its summary, Failed.
+  assert!(stage.paints("5"), "Building's sum");
+  assert!(stage.paints("7"), "Passing's sum");
+  assert!(stage.paints("21"), "the grid's sum of every row");
+  let (_, summary_y, ..) = stage.bounds("g-summary-3");
+  let (_, passing_y, ..) = stage.bounds("g-group-4");
+  assert!(summary_y < passing_y, "the group's summary before the next group");
+  // From Building's last row, Down passes its summary by.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-3-0"), "Building's last row");
+  key(&mut stage, "ArrowDown");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-group-4"),
+    "the next group, past the summary"
+  );
+}
+
+/// A grid of `rows` with its rows' numbers, selected into `selected`, 400 wide so that its columns scroll sideways.
+fn numbered(rows: Vec<File>, selected: Signal<Vec<String>>) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let mut columns = columns();
+    columns[0] = columns[0].clone().width(220.0);
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        DataGrid::new(columns, rows.clone())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .height(300.0)
+          .selected(selected.clone())
+          .row_numbers(true)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_column_of_the_rows_numbers_stays_at_the_start_before_the_checkboxes() {
+  let mut stage = numbered(files(), Signal::new(Vec::new()));
+  let (x, ..) = stage.bounds("g");
+  let one = stage.text_quad("1").expect("the first row's number");
+  let (number_x, _, number_width, _) = stage.bounds("g-row-0-number");
+  assert!((number_x - x).abs() < 1.5, "at the grid's start: {}", number_x - x);
+  assert!(one.x + one.width <= number_x + number_width, "in its cell");
+  let (box_x, ..) = stage.bounds("g-select-all");
+  assert!(box_x > number_x + number_width - 1.0, "the checkboxes after it");
+  assert!(stage.paints("2") && stage.paints("3"));
+
+  // The columns scroll sideways under it: the number stays.
+  let (_, y, ..) = stage.bounds("g-row-1");
+  stage
+    .tree
+    .scroll(200.0, y, -300.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  assert_eq!(stage.bounds("g-row-0-number").0, number_x, "it stays");
+  assert!(
+    stage.bounds("g-cell-0-0").0 < number_x,
+    "the name scrolled away under it"
+  );
+}
+
+#[test]
+fn a_rows_number_is_pressed_to_select_it_and_the_numbers_header_selects_every_row() {
+  let selected = Signal::new(Vec::<String>::new());
+  let mut stage = numbered(files(), selected.clone());
+  stage.click("g-row-1-number");
+  stage.pass();
+  assert_eq!(selected.get(), ["canvas.rs"], "that row alone");
+  let (x, y) = stage.center("g-row-2-number");
+  stage.tree.mouse_move(x, y);
+  stage
+    .tree
+    .mouse_down_with_modifiers(x, y, lurq::app::events::MouseButton::Left, false, true, false);
+  stage
+    .tree
+    .mouse_up_with_modifiers(x, y, lurq::app::events::MouseButton::Left, false, true, false);
+  stage.pass();
+  assert_eq!(selected.get(), ["canvas.rs", "theme.rs"], "with Ctrl, added");
+  stage.click("g-numbers");
+  stage.pass();
+  assert_eq!(selected.get().len(), 3, "the header selects every row");
+  stage.click("g-numbers");
+  stage.pass();
+  assert!(selected.get().is_empty(), "and none where all are");
+}
+
+#[test]
+fn ten_thousand_rows_are_numbered_to_their_last() {
+  let rows: Vec<File> = (0..10_000)
+    .map(|index| File {
+      name: format!("file {index}"),
+      status: index % 3,
+      size: index as f64,
+      shared: false,
+    })
+    .collect();
+  let mut stage = numbered(rows, Signal::new(Vec::new()));
+  // The header's stop is its checkbox here; the cells are the next.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  modified(&mut stage, "End", false, true);
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-9999-3"));
+  assert!(stage.paints("10000"), "the last row's number");
+  let quad = stage.text_quad("10000").unwrap();
+  let (_, _, width, _) = stage.bounds("g-row-9999-number");
+  assert!(quad.width < width, "its column is as wide as the widest number");
+}
+
+#[test]
+fn the_words_of_the_menu_the_groups_the_summary_and_the_numbers_are_said_otherwise() {
+  use lurq::ui::{ColumnMenuLabels, SummaryKind, SummaryLabels};
+  let open = Signal::new(vec![GroupKey::new(["Passing"])]);
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(summed(SummaryKind::Sum), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .height(460.0)
+          .group_by(["status"])
+          .open(open.clone())
+          .row_numbers(true)
+          .row_numbers_label("№")
+          .column_menu_labels(ColumnMenuLabels {
+            hide: "Сховати".into(),
+            ..ColumnMenuLabels::default()
+          })
+          .menu_trigger_label(|title| format!("Меню {title}"))
+          .group_label(|title, value, count| format!("{title} {value} ({count})"))
+          .summary_labels(SummaryLabels {
+            sum: "Разом".into(),
+            ..SummaryLabels::default()
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("№"), "the numbers' mark");
+  assert!(stage.paints("Разом") && !stage.paints("Sum"), "the summary's word");
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(
+    stage.paints("Сховати") && stage.paints("Pin to start"),
+    "the menu's, the rest English"
+  );
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  {
+    let mut said = |id: &str| {
+      stage
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.description("a11y_name"))
+    };
+    assert_eq!(said("g-header-name-menu").as_deref(), Some("Меню Name"));
+    assert_eq!(said("g-group-1").as_deref(), Some("Status Passing (2)"));
+  }
+}
+
+#[test]
+fn a_summary_is_computed_when_what_it_is_computed_from_changes_not_at_each_render() {
+  use lurq::app::events::ScrollPhase;
+  let computed = Arc::new(Mutex::new(0_usize));
+  let rows = Signal::new(many_files(60));
+  let open = Signal::new(vec![GroupKey::new(["Building"]), GroupKey::new(["Passing"])]);
+  let (counted, given) = (computed.clone(), rows.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let counted = counted.clone();
+    let mut columns = columns();
+    columns[0] = columns[0].clone().summary_text(move |rows: &[&File]| {
+      *counted.lock().unwrap() += 1;
+      format!("{} files", rows.len())
+    });
+    columns[2] = columns[2].clone().summary(lurq::ui::SummaryKind::Sum);
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns, given.get())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .height(400.0)
+          .group_by(["status"])
+          .open(open.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  let first = *computed.lock().unwrap();
+  assert!(first >= 2, "the grid's summary and a group's: {first}");
+
+  // A scroll, the pointer over a row and the focus moving render the grid again and compute nothing.
+  let (_, y, ..) = stage.bounds("g");
+  stage.tree.scroll(300.0, y + 200.0, 0.0, -300.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  stage.tree.mouse_move(300.0, y + 150.0);
+  stage.pass();
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowDown");
+  assert_eq!(*computed.lock().unwrap(), first, "nothing computed again");
+
+  // A row the app changes: the summaries in view are computed again, once each.
+  let mut changed = rows.get();
+  changed[0].size = 1000.0;
+  rows.set(changed);
+  stage.pass();
+  stage.pass();
+  let after = *computed.lock().unwrap();
+  assert_eq!(after, first * 2, "each summary computed again for the change, once");
+  stage.pass();
+  stage.pass();
+  assert_eq!(*computed.lock().unwrap(), after, "and once");
+}
+
+/// The ids of the elements of the tree that start with `prefix`.
+fn ids_with(stage: &Stage, prefix: &str) -> Vec<String> {
+  fn walk(element: lurq::node::ElementRef<'_>, prefix: &str, out: &mut Vec<String>) {
+    if let Some(id) = element.id().filter(|id| id.starts_with(prefix)) {
+      out.push(id.to_owned());
+    }
+    for child in element.children() {
+      walk(child, prefix, out);
+    }
+  }
+  let mut out = Vec::new();
+  if let Some(root) = stage.tree.root() {
+    walk(root, prefix, &mut out);
+  }
+  out
+}
+
+/// The places of the rows built.
+fn rows_built(stage: &Stage) -> Vec<usize> {
+  let mut rows: Vec<usize> = ids_with(stage, "g-row-")
+    .iter()
+    .filter_map(|id| id.strip_prefix("g-row-")?.parse().ok())
+    .collect();
+  rows.sort_unstable();
+  rows
+}
+
+#[test]
+fn a_grid_of_a_million_rows_by_two_hundred_columns_builds_what_is_in_view_wherever_it_is() {
+  #[derive(Clone)]
+  struct Cell(u32);
+  let rows: Arc<Vec<Cell>> = Arc::new((0..1_000_000).map(Cell).collect());
+  let columns: Vec<TableColumn<Cell>> = (0..200)
+    .map(|column| {
+      TableColumn::new(&format!("c{column}"), &format!("Column {column}"))
+        .width(120.0)
+        .text(move |row: &Cell| format!("{}·{column}", row.0))
+    })
+    .collect();
+  let selected = Signal::new(Vec::<usize>::new());
+  let held = selected.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(
+        DataGrid::new_shared(columns.clone(), rows.clone())
+          .id("g")
+          .label("Big")
+          .height(560.0)
+          .checkboxes(true)
+          .selected(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // The view holds 12 rows of 44 under the header, and some columns of 120: those are built, and a few around.
+  let cells = |stage: &Stage| ids_with(stage, "g-cell-").len();
+  let built = rows_built(&stage);
+  assert!(built.len() <= 30, "rows built at the top: {built:?}");
+  assert!(cells(&stage) <= 30 * 12, "cells built: {}", cells(&stage));
+
+  // The bar's thumb dragged to the middle lands among the rows there, and those are what is built.
+  let (x, y, width, height) = stage.bounds("g");
+  let bar_x = x + width - 4.0;
+  stage.tree.mouse_move(bar_x, y + 48.0);
+  stage
+    .tree
+    .mouse_down(bar_x, y + 48.0, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_move(bar_x, y + 48.0 + (height - 48.0) / 2.0);
+  stage.tree.mouse_up(
+    bar_x,
+    y + 48.0 + (height - 48.0) / 2.0,
+    lurq::app::events::MouseButton::Left,
+  );
+  stage.pass();
+  let built = rows_built(&stage);
+  assert!(built.len() <= 40, "rows built in the middle: {}", built.len());
+  let first = built[0];
+  assert!(
+    (400_000..600_000).contains(&first),
+    "the thumb at the middle of the bar shows the rows at the middle: {first}"
+  );
+  assert!(cells(&stage) <= 40 * 12);
+
+  // The header's box selects every row without building one more, and a range by Shift spans the rows between
+  // without building them.
+  stage.click("g-select-all");
+  assert_eq!(selected.get().len(), 1_000_000);
+  assert!(rows_built(&stage).len() <= 40);
+  stage.click("g-select-all");
+  assert!(selected.get().is_empty());
+
+  // PageDown held: the keys come faster than the frames, and each goes a page on from where the last went.
+  stage.click(&format!("g-cell-{}-0", first + 10));
+  let from = first + 10;
+  for press in 0..30 {
+    stage
+      .tree
+      .key_down("PageDown".into(), "PageDown".into(), false, false, false);
+    if press % 3 == 2 {
+      stage.pass();
+    }
+  }
+  stage
+    .tree
+    .key_up("PageDown".into(), "PageDown".into(), false, false, false);
+  stage.pass();
+  stage.pass();
+  let row: usize = focused(&stage)
+    .and_then(|id| id.strip_prefix("g-cell-")?.split('-').next()?.parse().ok())
+    .unwrap();
+  assert!(row >= from + 30 * 9, "thirty pages on from {from}: {row}");
+  assert!(rows_built(&stage).len() <= 40);
+
+  // The keys reach the last row.
+  modified(&mut stage, "End", false, true);
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-999999-199"));
+  let built = rows_built(&stage);
+  assert!(built.len() <= 40 && built.contains(&999_999), "{built:?}");
+  assert!(cells(&stage) <= 40 * 12);
+}
+
+#[test]
+fn rows_that_wrap_grow_and_the_view_stays_still_as_their_heights_become_known() {
+  #[derive(Clone)]
+  struct Note(usize);
+  let text = |row: &Note| {
+    if row.0 % 5 == 0 {
+      format!(
+        "Note {}: a long note that wraps onto more than one line in a column this narrow",
+        row.0
+      )
+    } else {
+      format!("Note {}", row.0)
+    }
+  };
+  let rows: Arc<Vec<Note>> = Arc::new((0..10_000).map(Note).collect());
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        DataGrid::new_shared(
+          vec![
+            TableColumn::new("n", "#")
+              .width(80.0)
+              .text(|row: &Note| row.0.to_string()),
+            TableColumn::new("note", "Note").width(200.0).wrap(true).text(text),
+          ],
+          rows.clone(),
+        )
+        .id("g")
+        .label("Notes")
+        .row_numbers(true)
+        .count(true)
+        .height(360.0)
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let (_, _, _, short) = stage.bounds("g-row-1");
+  let (_, _, _, long) = stage.bounds("g-row-0");
+  assert_eq!(short, 44.0, "a row whose text fits is a row's height");
+  assert!(long > 44.0, "a row whose text wraps grows: {long}");
+
+  // Far down by the wheel, then back up a little at a time over rows not measured yet: what is in view moves by
+  // what the wheel moves it, and no more.
+  for _ in 0..40 {
+    stage
+      .tree
+      .scroll(300.0, 200.0, 0.0, -2000.0, lurq::app::events::ScrollPhase::Scroll);
+    stage.pass();
+  }
+  for _ in 0..30 {
+    let built = rows_built(&stage);
+    let anchor = built[built.len() / 2];
+    let (_, before, ..) = stage.bounds(&format!("g-row-{anchor}"));
+    stage
+      .tree
+      .scroll(300.0, 200.0, 0.0, 30.0, lurq::app::events::ScrollPhase::Scroll);
+    stage.pass();
+    let (_, after, ..) = stage.bounds(&format!("g-row-{anchor}"));
+    assert!(
+      (after - before - 30.0).abs() < 0.6,
+      "row {anchor} moved by {} for a scroll of 30",
+      after - before
+    );
+  }
+}
+
+#[test]
+fn grouped_rows_with_summaries_numbers_and_pins_are_laid_out_once_and_built_in_view() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  #[derive(Clone)]
+  struct Job(u32);
+  const KINDS: [&str; 4] = ["build", "test", "lint", "docs"];
+  let grouped_texts = Arc::new(AtomicUsize::new(0));
+  let rows: Arc<Vec<Job>> = Arc::new((0..100_000).map(Job).collect());
+  let selected = Signal::new(Vec::<usize>::new());
+  let (counted, held) = (grouped_texts.clone(), selected.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let counted = counted.clone();
+    let mut columns: Vec<TableColumn<Job>> = vec![
+      TableColumn::new("id", "Id")
+        .width(90.0)
+        .pin(lurq::ui::ColumnPin::Start)
+        .text(|job: &Job| job.0.to_string()),
+      TableColumn::new("kind", "Kind").width(100.0).text(move |job: &Job| {
+        counted.fetch_add(1, Ordering::Relaxed);
+        KINDS[job.0 as usize % 4].to_owned()
+      }),
+      TableColumn::new("ms", "Time")
+        .width(100.0)
+        .numeric()
+        .text(|job: &Job| format!("{} ms", job.0 % 97))
+        .editor(CellEditor::number(|job: &Job| (job.0 % 97) as f64))
+        .summary(lurq::ui::SummaryKind::Sum),
+    ];
+    columns.extend((0..20).map(|column| {
+      TableColumn::new(&format!("x{column}"), &format!("X {column}"))
+        .width(100.0)
+        .text(move |job: &Job| format!("{}·{column}", job.0))
+    }));
+    Column::new()
+      .size(800.0, 600.0)
+      .child(
+        DataGrid::new_shared(columns, rows.clone())
+          .id("g")
+          .label("Jobs")
+          .height(560.0)
+          .group_by(["kind"])
+          .open(Signal::new(vec![GroupKey::new(["test"])]))
+          .row_numbers(true)
+          .checkboxes(true)
+          .selected(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let laid_out = grouped_texts.load(Ordering::Relaxed);
+  assert!(laid_out >= 100_000, "the rows are grouped by their kind: {laid_out}");
+
+  // A render that changes nothing the groups are made of takes them as they were.
+  selected.set(vec![1]);
+  stage.pass();
+  let again = grouped_texts.load(Ordering::Relaxed) - laid_out;
+  assert!(
+    again < 1_000,
+    "a selection lays out no group again: {again} texts asked"
+  );
+
+  // Down to the end of the open group: the rows there are built, its summary and the pinned and numbered cells
+  // with them, and no more than a view's worth.
+  stage.click("g-cell-1-1");
+  modified(&mut stage, "End", false, true);
+  let built = rows_built(&stage);
+  assert!(built.len() <= 40, "rows built: {}", built.len());
+  assert!(
+    built.contains(&99_997),
+    "the last row of the open group, the 25,000th test: {built:?}"
+  );
+  assert!(!ids_with(&stage, "g-summary-").is_empty(), "its summary row is built");
+  assert!(
+    ids_with(&stage, "g-cell-").iter().any(|id| id.ends_with("-0")),
+    "the pinned column's cells are built with the rows, wherever the columns are scrolled"
+  );
+  let numbers = ids_with(&stage, "g-row-99997-number");
+  assert_eq!(numbers.len(), 1, "the row's number is built with it");
+}
+
+/// A grid of the files whose columns filter, its filters bound to `filters`.
+fn filtering(filters: Signal<lurq::ui::TableFilters>, filter_row: bool) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .text(|row: &File| row.name.clone())
+        .filter_text(true),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .text(|row: &File| STATUSES[row.status].to_owned())
+        .filter_set(true),
+      TableColumn::new("size", "Size")
+        .width(90.0)
+        .numeric()
+        .text(|row: &File| format!("{} KB", row.size))
+        .filter_number(|row: &File| row.size)
+        .summary(lurq::ui::SummaryKind::Sum),
+      TableColumn::new("shared", "Shared")
+        .width(90.0)
+        .text(|row: &File| if row.shared { "yes" } else { "no" }.to_owned())
+        .filter_bool(|row: &File| row.shared),
+    ];
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns, files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .label("Files")
+          .read_only(true)
+          .count(true)
+          .filters(filters.clone())
+          .filter_row(filter_row)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+#[test]
+fn filters_show_the_rows_they_let_through_and_the_count_and_summary_are_of_those() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new());
+  let mut stage = filtering(filters.clone(), false);
+  assert_eq!(rows_built(&stage), [0, 1, 2]);
+  assert!(stage.paints("3 rows"));
+
+  filters.set(TableFilters::new().with("size", ColumnFilter::at_least(10.0)));
+  stage.pass();
+  assert_eq!(rows_built(&stage), [0, 1], "blur.rs of 12 and canvas.rs of 48");
+  assert!(stage.paints("2 of 3 rows"), "the count says how many of all are shown");
+  assert!(
+    stage.paints("60 KB") || stage.paints("60"),
+    "the summary is of the rows shown"
+  );
+
+  filters.set(
+    TableFilters::new()
+      .with("size", ColumnFilter::at_least(10.0))
+      .with("name", ColumnFilter::contains("CANVAS")),
+  );
+  stage.pass();
+  assert_eq!(rows_built(&stage), [1], "every filter, whatever the case");
+  filters.set(TableFilters::new().with("status", ColumnFilter::one_of(["Passing"])));
+  stage.pass();
+  assert_eq!(rows_built(&stage), [1, 2]);
+  filters.set(TableFilters::new().with("shared", ColumnFilter::is(true)));
+  stage.pass();
+  assert_eq!(rows_built(&stage), [0]);
+}
+
+#[test]
+fn a_columns_menu_opens_its_filter_and_clears_it() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new());
+  let mut stage = filtering(filters.clone(), false);
+  stage.hover("g-header-size");
+  stage.click("g-header-size-menu");
+  click_text(&mut stage, "Filter…");
+  assert!(
+    stage.paints("At least"),
+    "the panel of a number's filter, its editors under their words"
+  );
+  assert!(stage.paints("At most"));
+  stage.bounds("g-header-size-filter-panel");
+  key(&mut stage, "Escape");
+  filters.set(TableFilters::new().with("size", ColumnFilter::at_most(10.0)));
+  stage.pass();
+  stage.hover("g-header-size");
+  stage.click("g-header-size-menu");
+  click_text(&mut stage, "Clear all filters");
+  assert!(filters.get().is_empty());
+}
+
+#[test]
+fn the_filter_row_reads_a_text_a_range_and_a_choice() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new());
+  let mut stage = filtering(filters.clone(), true);
+  // A box under each header that filters: typed into, the filter is set as it is typed.
+  let (_, _, width, _) = stage.bounds("g-filter-size");
+  assert!(width <= 90.0, "a filter takes the room of its column: {width}");
+  stage.click("g-filter-size");
+  stage.tree.text_input_replace(0..0, ">=12");
+  stage.pass();
+  assert_eq!(filters.get().get("size"), Some(&ColumnFilter::at_least(12.0)));
+  assert_eq!(rows_built(&stage), [0, 1]);
+}
+
+/// Presses the text `content` where it is painted.
+fn click_text(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} should be painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn filtered_rows_are_grouped_and_a_groups_count_is_of_those_let_through() {
+  use lurq::ui::{ColumnFilter, TableFilters};
+  let filters = Signal::new(TableFilters::new().with("size", ColumnFilter::at_least(10.0)));
+  let held = filters.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let columns = vec![
+      TableColumn::new("name", "Name").text(|row: &File| row.name.clone()),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .text(|row: &File| STATUSES[row.status].to_owned()),
+      TableColumn::new("size", "Size")
+        .width(90.0)
+        .text(|row: &File| format!("{} KB", row.size))
+        .filter_number(|row: &File| row.size),
+    ];
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns, files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .group_by(["status"])
+          .open(Signal::new(vec![GroupKey::new(["Passing"])]))
+          .filters(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // theme.rs of 9 is filtered out: Passing holds canvas.rs alone, and Building blur.rs.
+  assert_eq!(rows_built(&stage), [1], "the open group's rows the filter lets through");
+  assert_eq!(ids_with(&stage, "g-group-").len(), 2, "a group for each status left");
+  filters.set(TableFilters::new());
+  stage.pass();
+  assert_eq!(rows_built(&stage), [1, 2]);
+}
+
+#[test]
+fn a_search_marks_its_matches_and_f3_goes_through_them_across_rows_not_built() {
+  use lurq::ui::SearchMatches;
+  #[derive(Clone)]
+  struct Number(u32);
+  let rows: Arc<Vec<Number>> = Arc::new((0..100_000).map(Number).collect());
+  let query = Signal::new(String::new());
+  let told: Arc<Mutex<Vec<SearchMatches>>> = Arc::default();
+  let (searched, heard) = (query.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        DataGrid::new_shared(
+          vec![
+            TableColumn::new("n", "Number")
+              .width(120.0)
+              .text(|row: &Number| row.0.to_string()),
+            TableColumn::new("half", "Half")
+              .width(120.0)
+              .text(|row: &Number| (row.0 / 2).to_string()),
+          ],
+          rows.clone(),
+        )
+        .id("g")
+        .label("Numbers")
+        .read_only(true)
+        .height(360.0)
+        .search(searched.clone())
+        .find_bar(true)
+        .on_matches_change(move |matches| heard.lock().unwrap().push(matches))
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+
+  // 99998 is in one cell only: the number of row 99,998 (no half under 50,000 has it).
+  query.set("99998".to_owned());
+  stage.pass();
+  let last = *told.lock().unwrap().last().unwrap();
+  assert_eq!(
+    last,
+    SearchMatches {
+      count: 1,
+      current: Some(0)
+    },
+    "one match, the current one"
+  );
+  assert!(
+    !rows_built(&stage).contains(&99_998),
+    "a match far down is not built until it is gone to"
+  );
+
+  // F3 goes to it, and it is built and in view.
+  into_cells(&mut stage);
+  key(&mut stage, "F3");
+  assert!(
+    rows_built(&stage).contains(&99_998),
+    "the current match is brought into view"
+  );
+
+  // Two columns: 4,000 is in the first column of its row and the second of row 8,000.
+  query.set("4000".to_owned());
+  stage.pass();
+  let matches = *told.lock().unwrap().last().unwrap();
+  assert!(matches.count >= 2, "{matches:?}");
+  key(&mut stage, "F3");
+  assert_eq!(
+    told.lock().unwrap().last().unwrap().current,
+    Some(1),
+    "F3 goes to the next"
+  );
+  assert!(
+    stage.quads().iter().any(
+      |quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::WarningMuted))
+    ),
+    "a match in a cell is marked as a find marks it"
+  );
+  modified(&mut stage, "F3", true, false);
+  assert_eq!(
+    told.lock().unwrap().last().unwrap().current,
+    Some(0),
+    "Shift+F3 to the one before"
+  );
+
+  // Ctrl+F opens the find bar over the grid, its count the matches.
+  modified(&mut stage, "f", false, true);
+  assert!(
+    stage.paints(&format!("1 of {}", matches.count)) || stage.paints(&format!("1/{}", matches.count)),
+    "the find bar says which match of how many"
+  );
+}
+
+#[test]
+fn rows_the_app_gives_on_demand_come_as_they_are_asked_for_and_a_failed_range_is_retried() {
+  use lurq::ui::{GridPage, GridQuery, GridRequest, SourceRow, TableSort};
+  #[derive(Clone)]
+  struct Item(usize);
+  let asked: Arc<Mutex<Vec<GridRequest>>> = Arc::default();
+  let failing = Arc::new(Mutex::new(true));
+  let sort = Signal::new(Vec::<TableSort>::new());
+  let queries: Arc<Mutex<Vec<GridQuery>>> = Arc::default();
+  let (log, fail, held, heard) = (asked.clone(), failing.clone(), sort.clone(), queries.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let (log, fail, heard) = (log.clone(), fail.clone(), heard.clone());
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        lurq::ui::DataGrid::<SourceRow<Item>, usize>::on_demand(
+          vec![
+            TableColumn::new("name", "Name")
+              .text(|row: &Item| format!("item {}", row.0))
+              .sortable(true),
+          ],
+          10_000,
+          move |request: GridRequest| {
+            log.lock().unwrap().push(request.clone());
+            let failed = request.range.start == 9_900 && *fail.lock().unwrap();
+            async move {
+              if failed {
+                return Err("down".to_owned());
+              }
+              Ok(GridPage {
+                rows: request.range.clone().map(Item).collect(),
+                total: 10_000,
+              })
+            }
+          },
+        )
+        .id("g")
+        .label("Items")
+        .height(360.0)
+        .count(true)
+        .sort(held.clone())
+        .on_query_change(move |query| heard.lock().unwrap().push(query.clone()))
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  settle(&mut stage);
+  assert_eq!(asked.lock().unwrap()[0].range, 0..100, "the first range is asked for");
+  assert!(stage.paints("item 0"), "and its rows come");
+  assert!(stage.paints("10000 rows"));
+
+  // The last rows: their range fails, and says so with a retry.
+  stage.click("g-cell-0-0");
+  modified(&mut stage, "End", false, true);
+  settle(&mut stage);
+  assert!(stage.paints("These rows could not be loaded"));
+  *failing.lock().unwrap() = false;
+  // Each row of the range says it: the last one, in view, is pressed.
+  let retry = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Retry"))
+    .max_by(|a, b| a.y.total_cmp(&b.y))
+    .unwrap();
+  let (x, y) = (retry.x + retry.width / 2.0, retry.y + retry.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  settle(&mut stage);
+  assert!(stage.paints("item 9999"), "retried, the range comes");
+
+  // A sort is the app's: every range is asked for again with it, and the app is told.
+  let before = asked.lock().unwrap().len();
+  sort.set(vec![TableSort::descending("name")]);
+  settle(&mut stage);
+  let requests = asked.lock().unwrap();
+  assert!(requests.len() > before);
+  assert_eq!(requests.last().unwrap().query.sort, [TableSort::descending("name")]);
+  assert_eq!(
+    queries.lock().unwrap().last().map(|query| query.sort.clone()),
+    Some(vec![TableSort::descending("name")])
+  );
+}
+
+/// Runs the futures on their way and renders what they gave, a few times over.
+fn settle(stage: &mut Stage) {
+  for _ in 0..4 {
+    stage.tree.tick_futures();
+    stage.pass();
+  }
+}
+
+#[test]
+fn a_button_in_a_cell_is_pressed_by_one_press() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  let pressed = Arc::new(AtomicUsize::new(0));
+  let counted = pressed.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let counted = counted.clone();
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new(
+          vec![
+            TableColumn::new("name", "Name").text(|row: &File| row.name.clone()),
+            TableColumn::new("open", "Open")
+              .width(120.0)
+              .controls(true)
+              .cell(move |_: &File| {
+                let counted = counted.clone();
+                lurq::ui::Button::new("Open")
+                  .on_click(move |_| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                  })
+                  .into()
+              }),
+          ],
+          files(),
+        )
+        .id("g")
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  click_text(&mut stage, "Open");
+  assert_eq!(pressed.load(Ordering::SeqCst), 1, "one press presses it");
+}
+
+#[test]
+fn rows_whose_range_has_not_come_are_skeletons() {
+  use lurq::ui::{GridPage, GridRequest, SourceRow};
+  #[derive(Clone)]
+  struct Item(usize);
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 400.0)
+      .child(
+        lurq::ui::DataGrid::<SourceRow<Item>, usize>::on_demand(
+          vec![TableColumn::new("name", "Name").text(|row: &Item| format!("item {}", row.0))],
+          10_000,
+          move |request: GridRequest| async move {
+            // The first range comes; the others are on their way for good.
+            if request.range.start > 0 {
+              std::future::pending::<()>().await;
+            }
+            Ok(GridPage {
+              rows: request.range.clone().map(Item).collect(),
+              total: 10_000,
+            })
+          },
+        )
+        .id("g")
+        .label("Items")
+        .height(360.0)
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  settle(&mut stage);
+  assert!(stage.paints("item 0"));
+  stage.click("g-cell-0-0");
+  modified(&mut stage, "End", false, true);
+  settle(&mut stage);
+  assert!(rows_built(&stage).contains(&9_999), "the last rows are built");
+  assert!(!stage.paints("item 9999"), "with nothing in them yet");
+  assert!(
+    !stage.paints("These rows could not be loaded"),
+    "and nothing said of them: they are on their way"
+  );
+}
+
+#[test]
+fn what_sticks_stays_still_in_every_frame_of_a_scroll_over_rows_measured_as_they_come() {
+  #[derive(Clone)]
+  struct Note(usize);
+  // Every fourth note wraps onto three lines: a row higher than it is taken to be until it is measured.
+  let text = |row: &Note| {
+    if row.0 % 4 == 0 {
+      format!(
+        "Note {}: a long note that wraps onto three lines in a column as narrow as this one is",
+        row.0
+      )
+    } else {
+      format!("Note {}", row.0)
+    }
+  };
+  let rows: Arc<Vec<Note>> = Arc::new((0..5_000).map(Note).collect());
+  // A grid in a page that scrolls, as the gallery's is.
+  let mut stage = Stage::new(move |ctx| {
+    ScrollVertical::new(
+      Column::new()
+        .width(640.0)
+        .child(lurq::components::Rect::new(600.0, 300.0))
+        .child(
+          DataGrid::new_shared(
+            vec![
+              TableColumn::new("n", "Number")
+                .width(90.0)
+                .pin(lurq::ui::ColumnPin::Start)
+                .text(|row: &Note| row.0.to_string()),
+              TableColumn::new("note", "Note").width(180.0).wrap(true).text(text),
+              TableColumn::new("more", "More")
+                .width(400.0)
+                .text(|row: &Note| format!("more {}", row.0)),
+            ],
+            rows.clone(),
+          )
+          .id("g")
+          .label("Notes")
+          .row_numbers(true)
+          .height(400.0)
+          .mount(ctx),
+        )
+        .child(lurq::components::Rect::new(600.0, 900.0)),
+    )
+    .size(640.0, 420.0)
+    .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  // The page scrolled until the grid is near its top, and the grid sideways a little, so that the pinned column
+  // stays while what is beside it moves.
+  stage
+    .tree
+    .scroll(300.0, 100.0, 0.0, -260.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  stage
+    .tree
+    .scroll(300.0, 200.0, -60.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.frame();
+  // At a scale of 150%, as a window on a screen of that scale is.
+  stage.tree.set_scale_factor(1.5);
+  stage.frame();
+  // Where a text is painted.
+  let painted = |stage: &Stage, content: &str| {
+    stage
+      .text_quad(content)
+      .map(|quad| (quad.x, quad.y))
+      .unwrap_or_else(|| panic!("{content:?} painted"))
+  };
+  let (header, pinned) = (painted(&stage, "Note"), painted(&stage, "Number"));
+  let grid_top = stage.bounds("g").1;
+  // A wheel's notches, each scrolling over the frames that follow, as a wheel does, down and back up.
+  stage.app.theme().set_smooth_scroll(true);
+  let mut frame = 0;
+  for delta in std::iter::repeat_n(-120.0, 30).chain(std::iter::repeat_n(120.0, 30)) {
+    stage
+      .tree
+      .wheel(300.0, 200.0, 0.0, delta, lurq::app::events::ScrollPhase::Scroll);
+    for _ in 0..4 {
+      stage.frame();
+      frame += 1;
+      assert_eq!(painted(&stage, "Note"), header, "the header moved in frame {frame}");
+      assert_eq!(
+        painted(&stage, "Number"),
+        pinned,
+        "the pinned column's header moved in frame {frame}"
+      );
+      assert_eq!(stage.bounds("g").1, grid_top, "the grid moved in frame {frame}");
+      // The rows' words are cut at the grid's edge: none is drawn over what is above it.
+      for quad in stage.quads() {
+        if let QuadContent::Text { text, .. } = &quad.content {
+          let top = if quad.clip.active {
+            quad.y.max(quad.clip.y)
+          } else {
+            quad.y
+          };
+          assert!(top >= grid_top, "{text:?} drawn above the grid in frame {frame}");
+        }
+      }
+      // The pinned column's cells stay at its place.
+      for quad in stage.quads() {
+        if let QuadContent::Text { text, .. } = &quad.content
+          && text.parse::<usize>().is_ok()
+          && quad.x > pinned.0 - 1.0
+          && quad.x < pinned.0 + 60.0
+        {
+          assert_eq!(
+            quad.x, pinned.0,
+            "the pinned column's cell {text:?} moved sideways in frame {frame}"
+          );
+        }
+      }
+    }
+  }
+}
+
+#[test]
+fn the_menu_writes_the_rows_shown_or_selected_out_as_csv_or_tab_separated_text() {
+  let told: Arc<Mutex<Vec<lurq::ui::GridExport>>> = Arc::default();
+  let selected: Signal<Vec<String>> = Signal::new(Vec::new());
+  let layout: Signal<ColumnLayout> = Signal::new(ColumnLayout::default());
+  // The app's rows, sorted as the app sorts them: by name, from the last.
+  let mut rows = files();
+  rows.reverse();
+  let (heard, chosen, arranged) = (told.clone(), selected.clone(), layout.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), rows.clone())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .selected(chosen.clone())
+          .column_layout(arranged.clone())
+          .on_export(move |export| heard.lock().unwrap().push(export.clone()))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let export = |stage: &mut Stage, item: &str| {
+    stage.hover("g-header-name");
+    stage.click("g-header-name-menu");
+    stage.pass();
+    choose(stage, "Export");
+    choose(stage, item);
+    let last = told.lock().unwrap().last().cloned();
+    last.unwrap_or_else(|| panic!("{item:?} told the app"))
+  };
+
+  // Every row shown, in the order shown, and the columns shown: a cell says its text as it is
+  // shown, a box its value.
+  let shown = export(&mut stage, "Shown rows as CSV");
+  assert_eq!(
+    (shown.format, shown.scope, shown.rows),
+    (lurq::ui::ExportFormat::Csv, lurq::ui::ExportScope::Shown, 3)
+  );
+  assert_eq!(
+    shown.text,
+    "Name,Status,Size,Shared\r\ntheme.rs,Passing,9 KB,false\r\ncanvas.rs,Passing,48 KB,false\r\nblur.rs,Building,12 KB,true\r\n"
+  );
+
+  // A hidden column is not written; nothing selected, there is nothing to write of the selection.
+  layout.set(ColumnLayout::parse(r#"column("status" hidden)"#).expect("an arrangement"));
+  stage.pass();
+  let shown = export(&mut stage, "Shown rows as tab-separated");
+  assert_eq!(
+    shown.text,
+    "Name\tSize\tShared\ntheme.rs\t9 KB\tfalse\ncanvas.rs\t48 KB\tfalse\nblur.rs\t12 KB\ttrue\n"
+  );
+
+  // The rows selected, in the order shown.
+  selected.set(vec!["canvas.rs".to_owned(), "theme.rs".to_owned()]);
+  stage.pass();
+  let picked = export(&mut stage, "Selected as CSV");
+  assert_eq!(picked.rows, 2);
+  assert_eq!(
+    picked.text,
+    "Name,Size,Shared\r\ntheme.rs,9 KB,false\r\ncanvas.rs,48 KB,false\r\n"
+  );
+}
+
+#[test]
+fn an_export_with_no_one_told_goes_on_the_clipboard() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  let clipboard = Arc::new(Clipboard::default());
+  stage.tree.set_clipboard_writer(Some(clipboard.clone()));
+  stage.pass();
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Export");
+  choose(&mut stage, "Shown rows as tab-separated");
+  stage.pass();
+  let written = clipboard.written.lock().unwrap().last().cloned();
+  assert_eq!(
+    written.as_deref(),
+    Some(
+      "Name\tStatus\tSize\tShared\nblur.rs\tBuilding\t12 KB\ttrue\ncanvas.rs\tPassing\t48 KB\tfalse\ntheme.rs\tPassing\t9 KB\tfalse\n"
+    )
+  );
+}
+
+#[test]
+fn a_grid_told_not_to_export_has_no_export_in_its_menu() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .export(false)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(stage.paints("Size to fit"), "the menu is open");
+  assert!(!stage.paints("Export"));
+}
+
+#[test]
+fn a_cell_narrower_than_its_text_ends_it_in_an_ellipsis_and_tooling_reads_all_of_it() {
+  let mut stage = Stage::new(|ctx| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(56.0)
+        .text(|row: &File| format!("{} of the renderer", row.name)),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .text(|row: &File| format!("{:?}", row.name.len())),
+    ];
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        DataGrid::new(columns, files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .mount(ctx),
+      )
+      .into()
+  });
+  let whole = format!("{} of the renderer", files()[0].name);
+  let (x, _, width, _) = stage.bounds("g-cell-0-0");
+  let cut = stage.cut_text_quad(&whole).expect("the name is drawn, whole or cut");
+  let lurq::layout::quad::QuadContent::Text { text, .. } = &cut.content else {
+    unreachable!()
+  };
+  assert!(
+    text.ends_with('…'),
+    "a name wider than its cell ends in an ellipsis: {text:?}"
+  );
+  assert!(
+    cut.x >= x - 0.5 && cut.x + cut.width <= x + width + 0.5,
+    "it is in its cell, {x} to {}: {} to {}",
+    x + width,
+    cut.x,
+    cut.x + cut.width
+  );
+  // What reads the tree has the whole name, not the cut one.
+  fn texts(element: lurq::node::ElementRef<'_>, into: &mut Vec<String>) {
+    if let Some(text) = element.text_content() {
+      into.push(text.to_owned());
+    }
+    for child in element.children() {
+      texts(child, into);
+    }
+  }
+  let mut read = Vec::new();
+  texts(stage.tree.get_element_by_id("g-cell-0-0").expect("the cell"), &mut read);
+  assert!(
+    read.contains(&whole),
+    "the cell says all of its text to tooling: {read:?}"
+  );
+}

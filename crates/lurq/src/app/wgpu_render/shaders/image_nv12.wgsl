@@ -1,3 +1,7 @@
+// A branch on a value of the instance (a stroke, a mode) is the same for every fragment of a quad, which the
+// browser's compiler cannot tell: it takes the derivatives under such a branch for an error. naga does not check.
+diagnostic(off, derivative_uniformity);
+
 struct Globals {
     viewport:     vec4<f32>,
     clip_rect:    vec4<f32>,
@@ -68,6 +72,8 @@ struct VsOut {
     @location(2) local_px: vec2<f32>,
     @location(3) size: vec2<f32>,
     @location(4) radii: vec4<f32>,
+    // The matrix and the range of the frame's samples (`yuv_to_rgb`), the instance's `opacity.zw`.
+    @location(5) @interpolate(flat) color: vec2<f32>,
 }
 
 @vertex
@@ -93,6 +99,7 @@ fn vs_main(in: VsIn) -> VsOut {
     let uv_size = max(in.size, vec2<f32>(1e-6, 1e-6));
     out.uv = in.uv_min + (local_px / uv_size) * (in.uv_max - in.uv_min);
     out.opacity = in.opacity.x;
+    out.color = in.opacity.zw;
     out.local_px = local_px;
     out.size = in.size;
     out.radii = in.radii;
@@ -146,14 +153,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     let y = textureSample(y_tex, img_sampler, in.uv).r;
     let uv = textureSample(uv_tex, img_sampler, in.uv).rg;
-    let c = max(y - 16.0 / 255.0, 0.0);
-    let u = uv.x - 0.5;
-    let v = uv.y - 0.5;
-    let rgb = vec3<f32>(
-        1.164383 * c + 1.792741 * v,
-        1.164383 * c - 0.213249 * u - 0.532909 * v,
-        1.164383 * c + 2.112402 * u,
-    );
+    let rgb = yuv_to_rgb(y, uv.x, uv.y, in.color.x, in.color.y);
     let color = vec4<f32>(srgb_to_linear(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0))), 1.0);
     return encode_srgb(vec4<f32>(color.rgb, color.a * in.opacity * shape_alpha * clip_alpha));
 }

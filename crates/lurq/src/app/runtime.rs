@@ -7,7 +7,7 @@ use std::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
-  time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+  time::Duration,
 };
 
 use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
@@ -54,15 +54,19 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{
-    Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SyntheticNodeRole, TextTransformMode,
-    VoidEventHandler,
+    Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SliderOrientation, SyntheticNodeRole,
+    TextTransformMode, VoidEventHandler,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
-    node_kind::{CheckboxState, NodeKind, SelectState, SliderState, TextInputOverflow, TextInputState, TextState},
+    node_kind::{
+      CheckboxState, NodeKind, SelectState, SliderAxis, SliderState, SliderThumb, TextInputOverflow, TextInputState,
+      TextState,
+    },
     transform::Transform2D,
   },
+  time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(all(test, feature = "screenshot", feature = "raster"))]
@@ -79,25 +83,48 @@ mod hover;
 #[cfg(all(test, feature = "devtools"))]
 mod hover_devtools_tests;
 mod ime;
+#[cfg(all(test, feature = "screenshot", feature = "raster"))]
+mod lost_engine_tests;
+mod navigation;
 pub use ime::{AutofillPeer, KeyboardTraits, TextInputGeometry, TextInputSnapshot};
+mod edit;
+pub(crate) mod finger;
+#[cfg(test)]
+mod finger_tests;
+#[cfg(test)]
+mod gestures_tests;
 #[cfg(all(test, feature = "markdown"))]
 mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
 mod inline_link_keys;
 mod input_token_paint;
+mod interaction_groups;
+pub(crate) mod key_capture;
+mod key_scroll;
+mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
+#[cfg(test)]
+mod text_object_copy_tests;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
+mod menu_row;
+mod modal_focus;
+mod nested_focus;
 mod outside_press;
 mod overlay_layers;
+mod page_focus;
 mod paste;
+mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
 mod profiler_screenshot_tests;
-pub use paste::ClipboardReader;
+#[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+pub(crate) use paste::copied_rich;
+pub use paste::{ClipboardReader, ClipboardWriter};
 pub use touch::TouchMomentum;
 pub use touch_pointer::TouchRoute;
+pub(crate) mod mouse_fingers;
 #[cfg(test)]
 mod refresh_layout_tests;
 #[cfg(all(test, feature = "devtools"))]
@@ -116,6 +143,11 @@ mod touch_pointer;
 mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
+mod touch_text;
+mod trackpad;
+mod typeahead;
+mod wheel_scroll;
+mod window_controls;
 
 use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
@@ -136,8 +168,8 @@ impl HasDisplayHandle for HeadlessSurface {
   }
 }
 
-const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
-const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+pub(crate) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 /// How long a vertical wheel delta tells the slant of the horizontal deltas
 /// that follow it at the same pointer (see [`Tree::wheel_gesture_vertical`]).
 const WHEEL_AXIS_LOCK_WINDOW: Duration = Duration::from_millis(150);
@@ -161,25 +193,31 @@ const VIDEO_TIMELINE_SAMPLE_INTERVAL_MS: u64 = 1_000;
 const SLOW_FRAME_PASS_TIMELINE_THRESHOLD: Duration = Duration::from_millis(16);
 const PASS_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
-const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 
 /// The frame clear colour: the app root's background, with palette roles
 /// resolved through the theme. The synthetic overlay host that wraps the root
-/// while modals or overlays are mounted is skipped. Only a root without a
-/// resolvable background falls back to white. Root rect edges are anti-aliased
-/// against this colour, so clearing a dark app to white could show a light seam
-/// at the window edge.
+/// while modals or overlays are mounted is skipped. A root without a
+/// resolvable background is cleared to the theme's `Background`: white in the
+/// light palette, so an app that paints no background of its own is dark when
+/// the theme is, under text that takes the theme's foreground. Root rect edges
+/// are anti-aliased against this colour, so clearing a dark app to white could
+/// show a light seam at the window edge.
 fn root_clear_color(root: Option<&Node>, app: &App) -> Color {
   let base = match root {
     Some(host) if host.has_synthetic_role(SyntheticNodeRole::OverlayHost) => host.children.first(),
     root => root,
   };
+  let palette = app.theme().palette();
   base
     .and_then(Node::background_color)
-    .and_then(|color| color.resolve(&app.theme().palette()))
-    .unwrap_or(DEFAULT_CLEAR_COLOR)
+    .and_then(|color| color.resolve(&palette))
+    .unwrap_or(palette.background)
 }
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
+/// How many times a frame is laid out again before it is painted for what the observers of a rect before paint
+/// change (`ElementRef::observe_rect_before_paint`): one for each level of what is measured within what is measured
+/// (a splitter in a splitter's pane), and an end to what would never settle.
+const BEFORE_PAINT_PASSES: usize = 4;
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
@@ -444,12 +482,12 @@ fn log_render_list_cache_hit_timeline(
 }
 
 #[cfg(feature = "clipboard")]
-fn write_clipboard_text(text: &str) -> bool {
+fn write_os_clipboard_text(text: &str) -> bool {
   crate::clipboard::copy_to_clipboard(text)
 }
 
 #[cfg(not(feature = "clipboard"))]
-fn write_clipboard_text(_text: &str) -> bool {
+fn write_os_clipboard_text(_text: &str) -> bool {
   false
 }
 
@@ -459,6 +497,7 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
   node.set_component_signals_debug(ctx.signals_debug());
   node.set_component_effects_debug(ctx.effects_debug());
   node.set_component_contexts_debug(ctx.contexts_debug());
+  node.set_component_render_debug(Some(ctx.render_debug()));
 }
 
 trait AnyRootComponent: Send + Sync {
@@ -475,7 +514,10 @@ struct RootComponentWrapper<C: Component> {
 
 impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn render(&self, ctx: &mut Ctx) -> Element {
-    self.component.render(ctx).into()
+    let mut element: Element = self.component.render(ctx).into();
+    // The components its output declares (`Element::component`) are mounted now that `ctx` is free again.
+    element.node.mount_declared_components(ctx);
+    with_edit_menu(ctx, element)
   }
 
   fn after_layout(&self) {
@@ -493,6 +535,40 @@ impl<C: Component> AnyRootComponent for RootComponentWrapper<C> {
   fn tag_name(&self) -> Arc<str> {
     component_tag_name::<C>()
   }
+}
+
+/// The app's root with the menu of editing commands a finger opened declared in it, while one is open: a layer of
+/// the window lurq shows by itself, hung from the root. A root that holds no children has none.
+fn with_edit_menu(ctx: &Ctx, mut element: Element) -> Element {
+  let Some(window) = ctx.window_untracked().cloned() else {
+    return element;
+  };
+  if window.edit_menu().is_none() || !holds_children(&element.node) {
+    return element;
+  }
+  let anchor = match &element.node.element_ref {
+    Some(anchor) => anchor.clone(),
+    None => {
+      let anchor = crate::core::ElementRef::new();
+      NodeUpdate::ref_element(&mut *element.node, anchor.clone());
+      anchor
+    }
+  };
+  if let Some(menu) = crate::ui::edit_menu::edit_menu_layer(&window, anchor) {
+    element.node.children.push(*menu.node);
+  }
+  element
+}
+
+/// Whether a node lays out children: where a layer declared among them is found.
+fn holds_children(node: &Node) -> bool {
+  matches!(
+    node.layout_kind(),
+    crate::layout::layout_kind::LayoutKind::Row { .. }
+      | crate::layout::layout_kind::LayoutKind::Column { .. }
+      | crate::layout::layout_kind::LayoutKind::Stack { .. }
+      | crate::layout::layout_kind::LayoutKind::Grid(_)
+  )
 }
 
 /// A frame capture waiting for the next rendered frame.
@@ -679,6 +755,8 @@ fn log_pass_breakdown(
 struct FocusMemory {
   blur: Vec<VoidEventHandler>,
   refs: Vec<OwnedElementRef>,
+  /// The element refs of the focused node and of the nodes it is in: what is focus-visible within.
+  within: Vec<OwnedElementRef>,
   interactions: Vec<crate::node::interaction_state::InteractionState>,
   input: Option<TextInputState>,
 }
@@ -707,6 +785,9 @@ impl FocusMemory {
     for reference in self.refs {
       reference.set_focused(false);
     }
+    for reference in self.within {
+      reference.set_focus_visible_within(false);
+    }
     for state in self.interactions {
       state.set_focused(false);
     }
@@ -725,6 +806,10 @@ pub struct Tree {
   layout_engine: LayoutEngine,
   render_engine: Option<Box<dyn RenderEngine>>,
   render_engine_factory: Option<RenderEngineFactory>,
+  /// When an engine was last made in the place of one that was lost.
+  render_engine_replaced: Option<Instant>,
+  /// Whether the window is lurq's own tooling (DevTools): its engines run none of the app's extensions.
+  draws_tooling: bool,
   root: Option<Node>,
   root_component: Option<Box<dyn AnyRootComponent>>,
   root_ctx: Option<Ctx>,
@@ -744,16 +829,31 @@ pub struct Tree {
   /// there; `None` once it left the window. The hover is hit-tested again
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
+  /// Whether a shell asked for where the window's controls are, after each layout: see `window_controls`.
+  publishes_window_controls: bool,
   hover_path: Vec<NodeId>,
+  /// The row a group of rows stepped to that its list had not built: focused once it is (`nested_focus`).
+  pending_row_focus: Option<nested_focus::PendingRowFocus>,
+  /// The states of the nodes an interaction group around them lights: see `interaction_groups`.
+  within_states: Vec<crate::node::interaction_state::InteractionState>,
+  /// The disabled element the pointer is on: not hovered, but it heard the pointer come (`hover::enter_disabled`).
+  disabled_hover: Option<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
   /// The middle-button autoscroll under way (`middle_button_autoscroll`).
   autoscroll: Option<autoscroll::Autoscroll>,
+  /// The scroll containers a mouse's wheel left on their way ([`Tree::wheel`]).
+  wheel_scrolls: Vec<wheel_scroll::WheelScroll>,
+  /// Whether a notch of the wheel is animated, as the theme said at the last pass: it is not with motion
+  /// reduced or the theme's `smooth_scroll` off.
+  wheel_motion: bool,
   dragging_slider: Option<SliderDrag>,
   dragging_text_selection: Option<TextSelectionDrag>,
   /// Where the selection in the selectable texts started, which a Shift
   /// press extends from.
   selectable_text_anchor: Option<SelectableTextAnchor>,
+  /// The text input whose tokens the pointer was last over, which is told when it leaves.
+  token_hover: Option<TextInputState>,
   active_drag: Option<ActiveDrag>,
   /// Files from the OS dragged over the window; see `file_drag`.
   file_drag: Option<file_drag::FileDragSession>,
@@ -763,12 +863,20 @@ pub struct Tree {
   /// The waker the decoded-image cache calls for this tree's window, made once.
   #[cfg(feature = "image")]
   loading_image_waker: Option<crate::app::window::WindowWaker>,
+  /// The window's loop, noted for the medias this thread listens to: what wakes it when one of them changed.
+  #[cfg(feature = "media")]
+  media_loop: Option<crate::media::LoopNoted>,
   /// The loading-image nodes built when the tree last walked for them.
   #[cfg(feature = "image")]
   loading_images_built_seen: u64,
   /// What paste shortcuts read instead of the OS clipboard; see `paste`.
   clipboard_reader: Option<Arc<dyn paste::ClipboardReader>>,
+  /// What copies write instead of the OS clipboard; see `paste`.
+  clipboard_writer: Option<Arc<dyn paste::ClipboardWriter>>,
   focus_memory: FocusMemory,
+  /// The focus group the focused element is in, and which of the group's stops it is: where the focus goes
+  /// when the element leaves the tree and the group stays.
+  focus_group_place: Option<(NodeId, usize)>,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
@@ -786,9 +894,14 @@ pub struct Tree {
   /// How long after a press the next one is still a double click, when a shell set it.
   double_click_interval: Option<Duration>,
   click_press: Option<ClickPress>,
+  /// A press held on an element that repeats it (`repeat_press`).
+  press_repeat: Option<press_repeat::PressRepeat>,
   /// A left press that only closed popups (`OutsidePress::Consume`); its
   /// release is swallowed too.
   swallowed_press: Option<MouseButton>,
+  /// What a press's handler asked the focus to go to ([`MouseEvent::focus_key`]): the focus group around the focus
+  /// as it was pressed, and the key. Carried out once the render the press causes is done.
+  pressed_focus_key: Option<(NodeId, Arc<str>)>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   tree_rebuilt_since_layout: bool,
@@ -816,12 +929,24 @@ pub struct Tree {
   touch_scroll: touch::TouchScroll,
   touch_momentum: TouchMomentum,
   touch_pointer: touch_pointer::TouchPointerState,
+  /// A trackpad's pinch and rotation under way; see [`trackpad`].
+  trackpad: trackpad::TrackpadGestures,
+  /// The finger that is the pointer, as a touch screen's shell gives it; see [`finger`].
+  finger: finger::TouchPointer,
+  /// Text by touch: the caret's loupe and the selection's handles; see [`touch_text`].
+  touch_text: touch_text::TouchText,
+  /// Dots drawn where fingers the mouse stands for are; see [`Tree::set_touch_marks`].
+  touch_marks: Vec<(f32, f32)>,
   /// Where the sensitive text of the last full render list was painted, for
   /// captures made for inspection (`app::capture_redaction`).
   #[cfg(feature = "screenshot")]
   capture_redactions: Vec<crate::app::capture_redaction::RedactedArea>,
   #[cfg(feature = "screenshot")]
   sensitive_quads: Vec<usize>,
+  /// What draws the parts of the window the system draws over the app's frame, laid over a screenshot
+  /// (`app::capture_overlay`).
+  #[cfg(feature = "screenshot")]
+  system_pictures: Option<crate::app::capture_overlay::SystemPictures>,
   #[cfg(feature = "devtools")]
   pub(crate) devtools: Option<DevToolsWindow>,
   #[cfg(feature = "devtools")]
@@ -839,28 +964,79 @@ pub struct Tree {
   animation_engine: AnimationEngine,
   /// The time animations and transitions tick at instead of each pass's: see [`Tree::set_animation_clock`].
   animation_clock: Option<Instant>,
+  /// The shell says the window cannot be seen (minimized or covered): the app's frame callbacks are paused.
+  frames_hidden: bool,
+  /// A frame callback was paused since it last ran: its next frame has a delta of zero.
+  frames_missed: bool,
+  /// When the app's frame callbacks last ran, on the runtime's clock.
+  frames_ran_at: Option<Instant>,
+  /// The time presses are given at instead of the wall clock's: see [`Tree::set_press_clock`].
+  press_clock: Option<Instant>,
   last_theme_version: u64,
   quad_scratch: Vec<Quad>,
   render_rects: Vec<RectCmd>,
   render_glyphs: Vec<GlyphCmd>,
   #[cfg(feature = "raster")]
   render_images: Vec<crate::images::ImageCmd>,
-  #[cfg(feature = "svg")]
-  render_svgs: Vec<crate::svg::SvgCmd>,
   render_layers: Vec<crate::layout::opacity_layer::LayerCmd>,
   render_backdrops: Vec<crate::layout::backdrop::BackdropCmd>,
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
   cached_render_list: Option<CachedRenderList>,
   #[cfg(feature = "canvas")]
   canvas_registry: Vec<crate::canvas::CanvasHandle>,
+  /// Whether every canvas laid out is drawn on the CPU: [`Tree::set_software_canvases`].
+  #[cfg(feature = "canvas")]
+  software_canvases: bool,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
   /// The anchor of each overlay host layer after the page, in host order;
   /// `None` for a select menu or a modal over the page.
   overlay_layer_anchors: Vec<Option<OwnedElementRef>>,
+  /// For each layer of `overlay_layer_anchors` whose overlay takes the focus, the layer its anchor is in (counted
+  /// from 1, as the host's children after the page are), where that is a layer: a submenu's is its menu's.
+  overlay_layer_parents: Vec<Option<usize>>,
+  /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
+  /// overlay that opens or closes from one that stays open.
+  overlay_focus_movers: Vec<OwnedElementRef>,
+  /// The anchors of the open overlays that hold Tab while the focus is in them (`Overlay::traps_tab`).
+  overlay_tab_traps: Vec<OwnedElementRef>,
+  /// The element the focus goes to in an overlay that takes it and has just opened, once the pass has put
+  /// the interaction state back.
+  overlay_focus_entry: Option<NodeId>,
+  /// What had the focus in a layer taken back while it left: it has it again (`leaving_layers`).
+  overlay_focus_back: Option<FocusTarget>,
+  /// What had the focus as each open overlay that takes it opened, by its anchor: where the focus goes back to
+  /// as it closes.
+  overlay_focus_returns: Vec<(OwnedElementRef, Option<FocusTarget>)>,
   /// The node that declares each overlay host layer after the page, in host
   /// order, where it has an id: what tells a layer from another between
   /// passes. `None` for a layer that is leaving.
   overlay_layer_origins: Vec<Option<NodeId>>,
+  /// The open modals that take the focus, by the node that declares each, the first opened first, with what
+  /// had the focus before each opened: see [`modal_focus`].
+  modal_focus: Vec<(NodeId, Option<FocusTarget>, Option<tab_navigation::FocusStart>)>,
+  /// Where Tab goes on from while nothing has the focus, a browser's sequential focus navigation starting point:
+  /// the node that last had the focus and its path then, or the one a press that took no focus was on. See
+  /// [`tab_navigation::FocusStart`].
+  focus_start: Option<tab_navigation::FocusStart>,
+  /// The modals that take the focus among the layers the last pass built.
+  built_focus_modals: Vec<NodeId>,
+  /// The open modals (dialogs, not the window's chrome), by the node that declares each, in the order they opened:
+  /// the one opened last is stacked over the others whatever their order in the tree. See [`modal_focus`].
+  modal_open_order: Vec<NodeId>,
+  /// The open modals met by the pass being built, to forget those that closed.
+  modals_met: Vec<NodeId>,
+  /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
+  /// hover stays away, under a pointer that holds still, until the pointer moves.
+  hover_held_by_keys: bool,
+  /// What has been typed into the typeahead of a focus group, and when: see [`typeahead`].
+  typeahead: Option<typeahead::Typeahead>,
+  /// Alt is down and nothing else was pressed since: its release puts the focus on a row of menus. See
+  /// [`menu_row`].
+  alt_alone: bool,
+  /// Whether an element of the tree takes every key: see [`key_capture`].
+  keys_captured: bool,
+  /// What had the focus before Alt alone put it on a row of menus, which Alt alone again gives it back to.
+  menu_row_return: Option<FocusTarget>,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -899,6 +1075,8 @@ struct OverlayDismissEntry {
   dismiss_on_outside_click: bool,
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  /// What runs after a press outside it or Escape closed it.
+  on_dismiss: Option<crate::app::ctx::OverlayDismiss>,
   /// The overlay's index among the overlay host's children (the page is 0).
   /// A press on a layer above it, such as a select menu or a popup opened
   /// from inside it, is not outside it.
@@ -921,6 +1099,8 @@ pub(crate) struct SecondaryWindow {
   height: u32,
   /// Whether the OS window is created with native decorations.
   decorations: bool,
+  /// Whether the OS window is kept over the other windows of the desktop.
+  always_on_top: bool,
   tree: Tree,
   open: bool,
   metadata: SecondaryWindowMetadata,
@@ -954,6 +1134,7 @@ impl SecondaryWindow {
       width,
       height,
       decorations: true,
+      always_on_top: false,
       tree,
       open: true,
       metadata: SecondaryWindowMetadata::default(),
@@ -977,6 +1158,11 @@ impl SecondaryWindow {
 
   fn with_decorations(mut self, decorations: bool) -> Self {
     self.decorations = decorations;
+    self
+  }
+
+  fn with_always_on_top(mut self, always_on_top: bool) -> Self {
+    self.always_on_top = always_on_top;
     self
   }
 
@@ -1021,6 +1207,11 @@ impl SecondaryWindow {
 
   pub(crate) fn decorations(&self) -> bool {
     self.decorations
+  }
+
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn always_on_top(&self) -> bool {
+    self.always_on_top
   }
 
   pub(crate) fn tree(&self) -> &Tree {
@@ -1158,6 +1349,8 @@ impl Tree {
       layout_engine: LayoutEngine::new(),
       render_engine: None,
       render_engine_factory: None,
+      render_engine_replaced: None,
+      draws_tooling: false,
       root: None,
       root_component: None,
       root_ctx: None,
@@ -1169,23 +1362,34 @@ impl Tree {
       scale_factor: 1.0,
       window: crate::app::window::Window::new(),
       pointer: None,
+      publishes_window_controls: false,
       hover_path: Vec::new(),
+      pending_row_focus: None,
+      within_states: Vec::new(),
+      disabled_hover: None,
       active_path: Vec::new(),
       dragging_scroll: None,
       autoscroll: None,
+      wheel_scrolls: Vec::new(),
+      wheel_motion: true,
       dragging_slider: None,
       dragging_text_selection: None,
       selectable_text_anchor: None,
+      token_hover: None,
       active_drag: None,
       file_drag: None,
       #[cfg(feature = "image")]
       pending_images: Vec::new(),
       #[cfg(feature = "image")]
       loading_image_waker: None,
+      #[cfg(feature = "media")]
+      media_loop: None,
       #[cfg(feature = "image")]
       loading_images_built_seen: 0,
       clipboard_reader: None,
+      clipboard_writer: None,
       focus_memory: FocusMemory::default(),
+      focus_group_place: None,
       focused_node: None,
       focused_event_node: None,
       focused_path: None,
@@ -1199,7 +1403,9 @@ impl Tree {
       double_click_distance: None,
       double_click_interval: None,
       click_press: None,
+      press_repeat: None,
       swallowed_press: None,
+      pressed_focus_key: None,
       suppressed_click: None,
       needs_redraw: true,
       tree_rebuilt_since_layout: false,
@@ -1222,10 +1428,16 @@ impl Tree {
       touch_scroll: touch::TouchScroll::default(),
       touch_momentum: TouchMomentum::default(),
       touch_pointer: touch_pointer::TouchPointerState::default(),
+      trackpad: trackpad::TrackpadGestures::default(),
+      finger: finger::TouchPointer::default(),
+      touch_text: touch_text::TouchText::default(),
+      touch_marks: Vec::new(),
       #[cfg(feature = "screenshot")]
       capture_redactions: Vec::new(),
       #[cfg(feature = "screenshot")]
       sensitive_quads: Vec::new(),
+      #[cfg(feature = "screenshot")]
+      system_pictures: None,
       #[cfg(feature = "devtools")]
       devtools: None,
       #[cfg(feature = "devtools")]
@@ -1242,23 +1454,43 @@ impl Tree {
       transition_engine: TransitionEngine::new(),
       animation_engine: AnimationEngine::new(),
       animation_clock: None,
+      frames_hidden: false,
+      frames_missed: false,
+      frames_ran_at: None,
+      press_clock: None,
       last_theme_version: u64::MAX,
       quad_scratch: Vec::new(),
       render_rects: Vec::new(),
       render_glyphs: Vec::new(),
       #[cfg(feature = "raster")]
       render_images: Vec::new(),
-      #[cfg(feature = "svg")]
-      render_svgs: Vec::new(),
       render_layers: Vec::new(),
       render_backdrops: Vec::new(),
       opacity_groups: Vec::new(),
       cached_render_list: None,
       #[cfg(feature = "canvas")]
       canvas_registry: Vec::new(),
+      #[cfg(feature = "canvas")]
+      software_canvases: false,
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
+      overlay_layer_parents: Vec::new(),
+      overlay_focus_movers: Vec::new(),
+      overlay_focus_entry: None,
+      overlay_focus_back: None,
+      overlay_focus_returns: Vec::new(),
+      overlay_tab_traps: Vec::new(),
       overlay_layer_origins: Vec::new(),
+      modal_focus: Vec::new(),
+      focus_start: None,
+      built_focus_modals: Vec::new(),
+      modal_open_order: Vec::new(),
+      modals_met: Vec::new(),
+      hover_held_by_keys: false,
+      typeahead: None,
+      alt_alone: false,
+      keys_captured: false,
+      menu_row_return: None,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -1532,7 +1764,12 @@ impl Tree {
     #[cfg(feature = "image")]
     self.notice_decoded_images();
     let before = self.timer_marks();
-    let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now));
+    if self.tick_press_repeat(now) {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
+    }
+    let told = self.tell_media();
+    let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now)) || told;
     // A pass presents a frame, and on a FIFO swapchain that present can wait for its vblank, holding back the
     // input and timers that come meanwhile: a timer asks for one only when its callback left something to draw.
     if fired && self.timer_marks().changed_since(before) {
@@ -1612,8 +1849,10 @@ impl Tree {
       || self.autoscroll_moving()
       || self.has_active_timeline()
       || self.has_continuous_redraw_image()
+      || self.has_moving_canvas()
       || self.click_tracker.has_pending()
       || self.has_focused_blinking_text_input(CaretMode::Blinking)
+      || self.press_repeat.is_some()
       || self
         .root_ctx
         .as_ref()
@@ -1636,10 +1875,13 @@ impl Tree {
   /// [`Tree::next_scheduled_redraw`].
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn next_timer_at(&self) -> Option<Instant> {
-    self.root_ctx.as_ref().and_then(Ctx::next_timer_fire)
+    let timers = self.root_ctx.as_ref().and_then(Ctx::next_timer_fire);
+    timers.into_iter().chain(self.next_press_repeat()).min()
   }
 
-  /// Whether any animation or transition is currently running. While true the
+  /// Whether any animation or transition is currently running, a mouse
+  /// wheel's scroll on its way among them ([`Tree::wheel`]), or a callback of
+  /// the app's frames ([`Ctx::on_frame`], [`Tree::has_frame_callbacks`]). While true the
   /// shell asks for a frame at each [`Tree::next_timeline_change`] and the
   /// runtime recomputes layout on each of them, so this staying `true` on an
   /// idle screen is a bug (stale runs for unmounted nodes are pruned at the end
@@ -1647,9 +1889,13 @@ impl Tree {
   pub fn has_active_timeline(&self) -> bool {
     // A layer or a child on its way out is dropped by a pass, so passes go on until it is.
     self.transition_engine.has_active
+      // The app's own frames are a timeline that changes at every frame.
+      || self.has_frame_callbacks()
       || self.animation_engine.has_active
       || !self.leaving_layers.is_empty()
       || !self.leaving_children.is_empty()
+      // A wheel's scroll on its way is an animation of the offset.
+      || self.wheel_scrolling()
   }
 
   /// When the running animations and transitions next draw something else, as of the last pass: the end of a
@@ -1674,7 +1920,113 @@ impl Tree {
       .chain(&self.leaving_children)
       .map(|layer| layer.until)
       .min();
-    transition.into_iter().chain(animation).chain(layer_dropped).min()
+    // A frame callback wants the next frame at once, as a span that changes continuously does.
+    let frame_callback = self
+      .has_frame_callbacks()
+      .then(|| self.frames_ran_at.unwrap_or_else(|| self.now()));
+    transition
+      .into_iter()
+      .chain(animation)
+      .chain(layer_dropped)
+      .chain(self.next_wheel_scroll_step())
+      .chain(frame_callback)
+      .min()
+  }
+
+  /// Whether a callback of the app's frames runs for the next frame: a component's ([`Ctx::on_frame`]) or the
+  /// window's ([`WindowHandle::on_frame`](crate::app::window::WindowHandle::on_frame)). While one does, the window
+  /// draws a frame each refresh of its display ([`Tree::next_timeline_change`]), and each pass that draws one lays the
+  /// window out and paints it. Paused callbacks of a hidden window count: they want frames once it shows.
+  pub fn has_frame_callbacks(&self) -> bool {
+    self.window.frames().any_active() || self.root_ctx.as_ref().is_some_and(Ctx::has_active_frame_callbacks)
+  }
+
+  /// The shell says whether the window can be seen: while it is minimized or covered the app's frame callbacks are
+  /// paused, and the first frame they run for when it shows again has a delta of zero. A minimized window
+  /// ([`Window::set_minimized`](crate::app::window::Window::set_minimized)) pauses them by itself.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn set_frames_hidden(&mut self, hidden: bool) {
+    self.frames_hidden = hidden;
+    self.frames_missed |= hidden;
+  }
+
+  /// Runs the app's frame callbacks for the frame this pass draws, at its time on the runtime's clock: the window's
+  /// first, then the components', parents before children. At the start of the pass, so that what they set is
+  /// rendered and laid out in this frame.
+  /// Tells the handlers of the medias this thread listens to what changed since they were last told
+  /// ([`Media::on_load`](crate::media::Media::on_load) and the rest): whether anything was told.
+  fn tell_media(&mut self) -> bool {
+    #[cfg(feature = "media")]
+    {
+      if self.media_loop.is_none() {
+        self.media_loop = Some(crate::media::note_loop(self.window.loop_waker()));
+      }
+      crate::media::tell_news()
+    }
+    #[cfg(not(feature = "media"))]
+    false
+  }
+
+  fn run_frame_callbacks(&mut self) {
+    if !self.has_frame_callbacks() {
+      return;
+    }
+    if self.frames_hidden || self.window.info().is_minimized {
+      self.frames_missed = true;
+      return;
+    }
+    // What is dirty is rendered first: a component this frame no longer has runs no callback for it.
+    if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      self.apply_reactive_updates_after_event();
+      if !self.has_frame_callbacks() {
+        return;
+      }
+    }
+    let window_frames = self.window.frames().clone();
+    if std::mem::take(&mut self.frames_missed) {
+      window_frames.forget_last();
+      if let Some(ctx) = &self.root_ctx {
+        ctx.forget_last_frames();
+      }
+    }
+    let now = self.now();
+    let mut ran = window_frames.run(now);
+    ran |= self.root_ctx.as_ref().is_some_and(|ctx| ctx.run_frame_callbacks(now));
+    if !ran {
+      return;
+    }
+    self.frames_ran_at = Some(now);
+    // As after a timer: what the callbacks dirtied is rendered before the pass lays the window out.
+    if self
+      .root_ctx
+      .as_ref()
+      .is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request())
+    {
+      self.apply_reactive_updates_after_event();
+    }
+  }
+
+  /// Whether a canvas's drawing is on its way somewhere (`Canvas::paint_moving`): the shell asks for a frame at
+  /// once, at the display's pace, until it is there. A moving canvas is drawn again on its own at the start of each
+  /// pass and asks for no layout.
+  pub fn has_moving_canvas(&self) -> bool {
+    #[cfg(feature = "canvas")]
+    {
+      self.canvas_registry.iter().any(crate::canvas::CanvasHandle::moving)
+    }
+    #[cfg(not(feature = "canvas"))]
+    {
+      false
+    }
+  }
+
+  /// Draws each moving canvas where it is by now, on the runtime's clock.
+  #[cfg(feature = "canvas")]
+  fn advance_canvas_motion(&mut self) {
+    let now = self.now();
+    for canvas in &self.canvas_registry {
+      canvas.advance_motion(now);
+    }
   }
 
   pub(crate) fn has_continuous_redraw_image(&self) -> bool {
@@ -1728,7 +2080,7 @@ impl Tree {
     F: Fn() -> Box<dyn RenderEngine> + 'static,
   {
     let factory: RenderEngineFactory = Arc::new(factory);
-    self.render_engine = Some((factory)());
+    self.render_engine = Some(self.engine_of(&factory));
     self.render_engine_factory = Some(factory);
     self.apply_render_engine_factory_to_secondaries();
   }
@@ -1797,13 +2149,24 @@ impl Tree {
     }
   }
 
+  /// An engine from `factory` for this tree's window. One of lurq's own tooling runs none of the app's
+  /// extensions.
+  fn engine_of(&self, factory: &RenderEngineFactory) -> Box<dyn RenderEngine> {
+    let mut engine = factory();
+    if self.draws_tooling {
+      engine.draws_tooling();
+    }
+    engine
+  }
+
   #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
   fn apply_render_engine_factory_to_secondary(&self, window: &mut SecondaryWindow) {
     if window.open
       && window.tree.render_engine.is_none()
       && let Some(factory) = &self.render_engine_factory
     {
-      window.tree.render_engine = Some((factory)());
+      window.tree.render_engine = Some(window.tree.engine_of(factory));
+      window.tree.render_engine_factory = Some(factory.clone());
     }
   }
 
@@ -1813,7 +2176,8 @@ impl Tree {
     };
     for window in &mut self.secondary_windows {
       if window.open {
-        window.tree.render_engine = Some((factory)());
+        window.tree.render_engine = Some(window.tree.engine_of(&factory));
+        window.tree.render_engine_factory = Some(factory.clone());
       }
     }
   }
@@ -1827,7 +2191,8 @@ impl Tree {
       return;
     };
     if window.open && window.tree.render_engine.is_none() {
-      window.tree.render_engine = Some((factory)());
+      window.tree.render_engine = Some(window.tree.engine_of(&factory));
+      window.tree.render_engine_factory = Some(factory.clone());
     }
   }
 
@@ -1894,6 +2259,7 @@ impl Tree {
       self.push_secondary_window(
         SecondaryWindow::new(request.title, request.width, request.height, tree)
           .with_decorations(request.decorations)
+          .with_always_on_top(request.always_on_top)
           .with_name(request.name),
       );
       changed = true;
@@ -1930,6 +2296,7 @@ impl Tree {
   #[cfg(feature = "devtools")]
   pub fn mount_devtools(&mut self, app: &mut App) {
     let mut devtools = Tree::new();
+    devtools.draws_tooling = true;
     let selected_path = self.devtools_state.selected_path.lock().unwrap().clone();
     devtools.mount_root::<DevTools>(
       app,
@@ -2144,6 +2511,7 @@ impl Tree {
       persistent_storage_revision: self.devtools_persistent_storage_revision(),
       picked_path: self.devtools_state.picked_path.clone(),
       picked_revision: self.devtools_state.picked_revision,
+      system: self.window().info().system,
       on_debug_overlay_path: Some(devtools_debug_overlay_callback(
         self.devtools_state.debug_overlay_path.clone(),
       )),
@@ -2191,7 +2559,6 @@ impl Tree {
       .with_theme(app.theme().clone())
       .with_window(self.window.clone())
       .with_breakpoint();
-    #[cfg(feature = "i18n")]
     {
       ctx = ctx.with_i18n(app.i18n().clone());
     }
@@ -2218,7 +2585,50 @@ impl Tree {
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
-    self.apply_focus_request();
+    self.focus_start = None;
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
+  }
+
+  /// Input of a kind came: the app's pointer follows it, unless the app pinned it or it does not follow.
+  pub(crate) fn pointer_input(&self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.input(pointer);
+    }
+  }
+
+  /// Sets what the person points with, as if the platform said so, with no input: for a test, a preview or a tool.
+  /// It applies at once, to an open lightbox too, and does not pin it: the next input of the other kind moves it
+  /// again, as [`App::follow_pointer`](crate::app::App::follow_pointer) says.
+  pub fn set_pointer(&mut self, pointer: crate::app::Pointer) {
+    if let Some(app) = self.root_ctx.as_ref().and_then(Ctx::app_if_set) {
+      app.shared.pointer.tell(pointer, false);
+    }
+    self.apply_reactive_updates_after_event();
+  }
+
+  /// How long a pause in typing ends a step of undo: the app's ([`App::set_typing_undo_pause`]).
+  ///
+  /// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+  pub(crate) fn typing_undo_pause(&self) -> Option<std::time::Duration> {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE, |app| {
+        *app.shared.typing_undo_pause.lock()
+      })
+  }
+
+  /// What the person points with, as the app's pointer says.
+  pub fn pointer(&self) -> crate::app::Pointer {
+    self
+      .root_ctx
+      .as_ref()
+      .and_then(Ctx::app_if_set)
+      .map_or_else(crate::app::Pointer::platform_default, |app| app.shared.pointer.now())
   }
 
   pub(crate) fn set_app_ref(&mut self, app: &mut App) {
@@ -2265,9 +2675,19 @@ impl Tree {
       node.set_tag_name(component.tag_name());
       #[cfg(feature = "devtools")]
       set_component_debug_metadata(&mut node, ctx);
-      if let Some(parts) = old_parts.as_mut() {
-        node.preserve_runtime_state_from(&parts.base);
-        node.preserve_ids_from(&mut parts.base);
+      // The unchanged components the render held back: their live nodes are moved over from the old tree
+      // once the rest is matched with it, and the ones it has not are made from their slots.
+      let cached = |slot: u64| ctx.cached_output_of(slot);
+      match old_parts.as_mut() {
+        Some(parts) => {
+          let moved = node.settle_held_components(&parts.base, &cached);
+          node.preserve_runtime_state_from(&parts.base);
+          node.preserve_ids_from(&mut parts.base);
+          node.take_held_components_from(&mut parts.base, moved);
+        }
+        None => {
+          node.settle_held_components(&Node::new(), &cached);
+        }
       }
       self.root = Some(match old_parts {
         Some(parts) => root_with_preserved_overlay_parts(*node, parts, &self.id_gen),
@@ -2278,12 +2698,18 @@ impl Tree {
         detach_canvases_not_carried(old_canvases, Some(root));
         root.assign_tree_ids(&self.id_gen);
       }
-      self.begin_leaving_children();
+      {
+        crate::app::profile_support::frame_section!("ul:begin_leaving");
+        self.begin_leaving_children();
+      }
       self.tree_rebuilt_since_layout = true;
       self.cached_render_list = None;
       self.refresh_interaction_state();
     }
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
   }
 
   pub fn set_root(&mut self, element: impl Into<Element>) {
@@ -2300,6 +2726,8 @@ impl Tree {
     }
     self.clear_animation_runtime_state();
     let mut node = element.into().into_node();
+    // No component renders this tree: what it declares has no `Ctx` to be mounted in.
+    node.warn_of_declared_components();
     let old_parts = old_root.map(overlay_host_parts);
     if let Some(mut parts) = old_parts {
       node.preserve_runtime_state_from(&parts.base);
@@ -2310,7 +2738,10 @@ impl Tree {
     detach_canvases_not_carried(old_canvases, Some(&node));
     node.assign_tree_ids(&self.id_gen);
     self.root = Some(node);
-    self.begin_leaving_children();
+    {
+      crate::app::profile_support::frame_section!("ul:begin_leaving");
+      self.begin_leaving_children();
+    }
     self.root_component = None;
     self.root_ctx = None;
     self.last_layout = None;
@@ -2319,6 +2750,7 @@ impl Tree {
     self.active_path.clear();
     self.active_drag = None;
     self.clear_focus();
+    self.focus_start = None;
   }
 
   pub fn root(&self) -> Option<ElementRef<'_>> {
@@ -2424,7 +2856,68 @@ impl Tree {
     self.pass(app, &HeadlessSurface)
   }
 
+  /// An engine whose graphics device is lost (`RenderEngine::lost`) draws nothing again: another is made in
+  /// its place by what made it, as large as the window, and the window is drawn anew. Not more often than
+  /// once a second: an engine that is lost as soon as it is made is not made in every frame.
+  ///
+  /// The engines of this tree's other windows go with it, whichever of them found the loss: the shell asks
+  /// this of the main window's tree before it draws any of them.
+  pub(crate) fn replace_lost_render_engine(&mut self) {
+    let lost = |engine: &Option<Box<dyn RenderEngine>>| engine.as_ref().is_some_and(|engine| engine.lost());
+    if !lost(&self.render_engine)
+      && !self
+        .secondary_windows
+        .iter()
+        .any(|window| lost(&window.tree.render_engine))
+    {
+      return;
+    }
+    let Some(factory) = self.render_engine_factory.clone() else {
+      return;
+    };
+    if self
+      .render_engine_replaced
+      .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(1))
+    {
+      return;
+    }
+    self.render_engine_replaced = Some(Instant::now());
+    // The lost one first: it holds the window's surface, which the next one takes. And those of this tree's
+    // other windows with it, though nothing draws them now: they lost the same device, and Direct3D says a
+    // card gives no other to a program in which anything holds the lost one. An engine asks for its device
+    // when it first draws. This window's goes too where another window's found the loss, for the same
+    // reason: left holding the lost device, it kept the other window from the card (that one drew on another
+    // card from then on, and on a machine with one card on nothing).
+    self.render_engine = None;
+    for window in &mut self.secondary_windows {
+      window.tree.replace_lost_render_engine();
+    }
+    let mut engine = self.engine_of(&factory);
+    engine.resize(
+      self.viewport_physical.width as u32,
+      self.viewport_physical.height as u32,
+    );
+    self.render_engine = Some(engine);
+    // What the canvases held was on the lost device: each is drawn again, by its painter in this pass, which
+    // goes over them as after a resize, and by who observes it.
+    #[cfg(feature = "canvas")]
+    {
+      for canvas in &self.canvas_registry {
+        canvas.content_lost();
+      }
+      self.invalidate_viewport_layout();
+    }
+    self.request_redraw();
+    self.window.wake();
+    // The app hears of it once lurq has let go of what was made with the lost device and has an engine in its
+    // place: what it makes again from here is made with the new device.
+    self
+      .window
+      .dispatch_app_event(&crate::app::window::AppEvent::GraphicsDeviceLost);
+  }
+
   pub fn pass(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
+    self.replace_lost_render_engine();
     #[cfg(feature = "perf_profile")]
     let (_profile_start, _profile_phase) = self.profiling.begin_pass(self.frame_count + 1);
     #[cfg(feature = "perf_profile")]
@@ -2437,7 +2930,10 @@ impl Tree {
     if let Some(engine) = &mut self.render_engine {
       engine.set_profile_context(self.profiling.context.clone());
     }
-    let report = self.pass_inner(app, surface);
+    let report = {
+      crate::app::profile_support::frame_section!("pass");
+      self.pass_inner(app, surface)
+    };
     #[cfg(feature = "mcp")]
     {
       #[cfg(feature = "perf_profile")]
@@ -2473,6 +2969,15 @@ impl Tree {
           .unwrap_or("none"),
         report.rendered.then_some(&self.last_profile),
       );
+      // Drawn frames only: a pass that draws nothing tells nothing of what a frame costs.
+      if report.rendered {
+        crate::app::profile_support::log_frame_sections(|| {
+          fn count(node: &Node) -> usize {
+            1 + node.children().iter().map(count).sum::<usize>()
+          }
+          self.root.as_ref().map_or(0, count)
+        });
+      }
     }
     report
   }
@@ -2488,6 +2993,7 @@ impl Tree {
       || self.perf_overlay_enabled
       || self.autoscroll_moving()
       || self.has_continuous_redraw_image()
+      || self.has_moving_canvas()
       || self.next_timeline_change().is_some_and(|at| at <= Instant::now())
   }
 
@@ -2527,9 +3033,34 @@ impl Tree {
 
   fn pass_inner(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
     self.set_app_ref(app);
+    self.write_requested_copies();
+    self.run_requested_edits();
+    self.run_requested_navigations();
     let pass_started_at = Instant::now();
-    self.tick_scheduled_redraw(Instant::now());
-    self.tick_scrollbar_change();
+    {
+      crate::app::profile_support::frame_section!("setup:scheduled_redraw");
+      self.tick_scheduled_redraw(Instant::now());
+    }
+    {
+      crate::app::profile_support::frame_section!("setup:scrollbar_change");
+      self.tick_scrollbar_change();
+    }
+    {
+      crate::app::profile_support::frame_section!("setup:frame_callbacks");
+      self.run_frame_callbacks();
+    }
+    // As after a timer: what the handlers of a media's events dirtied is rendered in this pass.
+    if self.tell_media()
+      && self
+        .root_ctx
+        .as_ref()
+        .is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request())
+    {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
+    }
+    #[cfg(feature = "canvas")]
+    self.advance_canvas_motion();
     let theme_version = self
       .root_ctx
       .as_ref()
@@ -2541,10 +3072,19 @@ impl Tree {
       .map(|ctx| ctx.theme().caret_mode())
       .unwrap_or_else(|| app.theme().caret_mode());
     let mut reasons = self.pending_pass_reasons;
-    reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
-    let needs_redraw = self.needs_redraw();
-    let has_active_tick_sources = self.has_active_tick_sources();
-    let theme_changed = self.last_theme_version != theme_version;
+    {
+      crate::app::profile_support::frame_section!("setup:pass_reasons");
+      reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
+    }
+    let needs_redraw = {
+      crate::app::profile_support::frame_section!("setup:needs_redraw");
+      self.needs_redraw()
+    };
+    let has_active_tick_sources = {
+      crate::app::profile_support::frame_section!("setup:tick_sources");
+      self.has_active_tick_sources()
+    };
+    let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
     let required = needs_redraw || has_active_tick_sources || theme_changed;
     let mut report = PassReport {
       required,
@@ -2588,7 +3128,14 @@ impl Tree {
     self.update_perf_overlay_stats();
 
     let now = Instant::now();
-    self.flush_due_pending_click(now);
+    {
+      crate::app::profile_support::frame_section!("setup:pending_click");
+      self.flush_due_pending_click(self.press_clock.unwrap_or(now));
+    }
+    {
+      crate::app::profile_support::frame_section!("interaction_groups");
+      self.refresh_interaction_groups();
+    }
 
     let initial_cache_start = Instant::now();
     let initial_cache_result = if self.root.is_some()
@@ -2641,7 +3188,27 @@ impl Tree {
     let _layout_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _layout_phase = self.profiling.context.phase(crate::app::profiler::Phase::LayoutUpdate);
-    let mut layout_updated = self.update_layout(app);
+    {
+      crate::app::profile_support::frame_section!("wheel_scrolls");
+      self.tick_wheel_scrolls(app.theme());
+    }
+    crate::core::element_ref::take_observed_before_paint();
+    let mut layout_updated = {
+      crate::app::profile_support::frame_section!("update_layout");
+      self.update_layout(app)
+    };
+    // An element's size changed what a component that watches it before paint renders (a timeline that folds its
+    // sides to one in a narrow room), or the sizes it gives its parts through their refs (a splitter that keeps a
+    // pane at its least size): render and lay out again, so this frame already shows the form that fits. What is
+    // laid out again may be measured anew (a splitter in a pane that changed), so this goes on until nothing it
+    // watches changes, a few times at most.
+    for _ in 0..BEFORE_PAINT_PASSES {
+      if !(crate::core::element_ref::take_observed_before_paint() && self.changed_before_paint()) {
+        break;
+      }
+      layout_updated |= self.update_layout(app);
+    }
+    crate::core::element_ref::take_observed_before_paint();
     // A scroll-into-view request moved a container: lay out again so this
     // frame already shows the element where it was revealed.
     if self.resolve_pending_scroll_into_view() {
@@ -2653,7 +3220,17 @@ impl Tree {
     if layout_updated && self.refresh_hover_at_pointer() {
       self.update_layout(app);
     }
-    self.update_text_input_caret_blink(now, caret_mode);
+    // The tree may have been built again, and the pointer may be on something else now.
+    {
+      crate::app::profile_support::frame_section!("interaction_groups");
+      self.refresh_interaction_groups();
+    }
+    {
+      crate::app::profile_support::frame_section!("caret_blink");
+      // On the runtime's clock, as the blink was started on it: a test that drives time sets it.
+      let blink_now = self.now();
+      self.update_text_input_caret_blink(blink_now, caret_mode);
+    }
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
     #[cfg(feature = "perf_profile")]
@@ -2745,9 +3322,12 @@ impl Tree {
     let mut quads = std::mem::take(&mut self.quad_scratch);
     quads.clear();
     self.layout_engine.begin_scrollbar_frame(self.now());
-    self
-      .layout_engine
-      .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
+    {
+      crate::app::profile_support::frame_section!("paint:resolve_quads");
+      self
+        .layout_engine
+        .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
+    }
     let scrollbar_change_at = self.layout_engine.take_scrollbar_change();
     let mut opacity_groups = std::mem::take(&mut self.opacity_groups);
     self.layout_engine.take_opacity_groups(&mut opacity_groups);
@@ -2771,6 +3351,7 @@ impl Tree {
 
     let mut glyph_engine = app.shared.glyph_engine.lock();
     let glyph_wall_start = Instant::now();
+    crate::app::profile_support::frame_section!("paint:glyphs_and_render");
     let _glyph_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _glyph_phase = self
@@ -2790,23 +3371,11 @@ impl Tree {
       images
     };
     #[cfg(feature = "raster")]
-    let image_frame_time = std::time::Instant::now();
+    let image_frame_time = crate::time::Instant::now();
     #[cfg(feature = "raster")]
     let mut image_sources = Vec::new();
     #[cfg(feature = "raster")]
     let mut video_sources = Vec::new();
-    #[cfg(all(feature = "svg", feature = "raster"))]
-    let svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
-    #[cfg(all(feature = "svg", not(feature = "raster")))]
-    let mut svgs = {
-      let mut svgs = std::mem::take(&mut self.render_svgs);
-      svgs.clear();
-      svgs
-    };
 
     // `LURQ_GLYPH_DEBUG` — collect the marked text runs' bboxes+orders so the
     // end of the build can report which rects paint over them.
@@ -2934,29 +3503,49 @@ impl Tree {
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           if quad.transform.is_identity() {
             // Where the text sits in its box and its glyphs, with their
-            // order and clip: one lookup for a text painted before.
+            // order and clip: one lookup for a text painted before. A text
+            // that wraps into fewer lines painted than laid out (near a
+            // break, the scaled type fits a word more) starts where the
+            // layout put its first line, not lower by half a line.
+            let (align, box_y) = match glyph_engine.painted_wrap_offset(
+              text,
+              style,
+              &scaled_style,
+              quad.width,
+              quad.height,
+              max_width,
+              *wrap,
+              *vertical_align,
+              scale,
+            ) {
+              Some(offset) => (crate::layout::text_style::VerticalAlign::LineBox, scaled_y + offset),
+              None => (*vertical_align, scaled_y),
+            };
             glyph_engine.paint_text_into(
               text,
               &scaled_style,
               max_width,
               *wrap,
-              *vertical_align,
+              align,
               scaled_height,
               quad.x * scale,
-              scaled_y,
+              box_y,
               glyph_clip,
               order,
               &mut glyphs,
             );
           } else {
             let text_y = scaled_y
-              + glyph_engine.text_vertical_align_offset(
+              + glyph_engine.painted_text_offset(
                 text,
+                style,
                 &scaled_style,
+                quad.width,
+                quad.height,
                 max_width,
                 *wrap,
                 *vertical_align,
-                scaled_height,
+                scale,
               );
             if *transform_mode == TextTransformMode::Rasterized {
               glyph_engine.rasterize_text_with_baked_transform_into(
@@ -3242,7 +3831,7 @@ impl Tree {
           image_sources.push(Some(data.clone()));
           video_sources.push(is_video.then(|| data.clone()));
         }
-        #[cfg(all(feature = "svg", feature = "raster"))]
+        #[cfg(feature = "canvas")]
         QuadContent::Svg { data } => {
           let w = quad.width * scale;
           let h = quad.height * scale;
@@ -3279,32 +3868,6 @@ impl Tree {
           });
           image_sources.push(None);
           video_sources.push(None);
-        }
-        #[cfg(all(feature = "svg", not(feature = "raster")))]
-        QuadContent::Svg { data } => {
-          let w = quad.width * scale;
-          let h = quad.height * scale;
-          // SvgCmd carries no opacity, so the quad's fade folds into the
-          // data's own override before tessellation (it participates in the
-          // mesh identity, so faded and opaque copies never share vertices).
-          let data = if quad.opacity < 1.0 {
-            data
-              .clone()
-              .with_opacity(data.opacity_override().unwrap_or(1.0) * quad.opacity)
-          } else {
-            data.clone()
-          };
-          let mesh = crate::svg::tessellate::tessellate(&data, w, h);
-          svgs.push(crate::svg::SvgCmd {
-            order,
-            x: quad.x * scale,
-            y: quad.y * scale,
-            width: w,
-            height: h,
-            svg_id: data.id(),
-            mesh: std::sync::Arc::new(mesh),
-            clip: scaled_clip,
-          });
         }
         QuadContent::BoxShadow(shadow) => {
           rects.push(crate::layout::box_shadow::shadow_rect_cmd(
@@ -3357,8 +3920,6 @@ impl Tree {
       &glyphs,
       #[cfg(feature = "raster")]
       &images,
-      #[cfg(feature = "svg")]
-      &svgs,
       &mut layers,
     );
     self.opacity_groups = opacity_groups;
@@ -3417,6 +3978,8 @@ impl Tree {
     };
     #[cfg(not(feature = "screenshot"))]
     let perf_overlay = self.perf_overlay_enabled.then_some(self.perf_overlay_stats);
+    self.push_touch_text_marks(&mut rects, &mut glyphs, quad_count + 21_000, scale);
+    self.push_touch_marks(&mut rects, quad_count * 2 + 30_000, scale);
     self.push_autoscroll_mark(&mut rects, quad_count + 19_000, scale);
     push_perf_meter(
       &mut rects,
@@ -3468,8 +4031,6 @@ impl Tree {
       glyphs,
       #[cfg(feature = "raster")]
       images,
-      #[cfg(feature = "svg")]
-      svgs,
       layers,
       backdrops,
       atlas: glyph_engine.atlas(),
@@ -3486,9 +4047,11 @@ impl Tree {
     let _gpu_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _render_phase = self.profiling.context.phase(crate::app::profiler::Phase::Render);
+    let scale_factor = self.scale_factor();
     let Some(render_engine) = &mut self.render_engine else {
       return report;
     };
+    render_engine.set_scale_factor(scale_factor);
     #[cfg(feature = "canvas")]
     {
       let _canvas_start = profile_scope!();
@@ -3619,8 +4182,6 @@ impl Tree {
       mut glyphs,
       #[cfg(feature = "raster")]
       mut images,
-      #[cfg(feature = "svg")]
-      mut svgs,
       mut layers,
       mut backdrops,
       atlas: _,
@@ -3637,11 +4198,6 @@ impl Tree {
     {
       images.clear();
       self.render_images = images;
-    }
-    #[cfg(feature = "svg")]
-    {
-      svgs.clear();
-      self.render_svgs = svgs;
     }
     self.scheduled_redraw_due = false;
     self.frame_count += 1;
@@ -3663,6 +4219,10 @@ impl Tree {
   pub fn mouse_move_with_meta(&mut self, x: f32, y: f32, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A mouse or a trackpad that moves makes the pointer fine; what a finger or a pen moves as the pointer does not.
+    if !self.touch_pointer.down && !self.touch_pointer.mouse_pen {
+      self.pointer_input(crate::app::Pointer::Fine);
+    }
     self.track_pointer(x, y);
     let active_scrollbar_drag = self.dragging_scroll.is_some();
     self.dispatch_mouse(
@@ -3683,6 +4243,9 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
     self.pointer = None;
+    if let Some(left) = self.token_hover.take() {
+      left.hover_token_at_point(None);
+    }
     if self.end_autoscroll() {
       // The release that follows, if it comes, belongs to the autoscroll.
       self.swallowed_press = Some(MouseButton::Middle);
@@ -3739,6 +4302,8 @@ impl Tree {
   ) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A press is where the keys go on from: a row a group of rows waited for is no longer awaited.
+    self.pending_row_focus = None;
     self.dispatch_mouse_down(x, y, button, MouseModifiers { shift, ctrl, alt, meta });
     #[cfg(feature = "perf_profile")]
     self.end_profiled_input(input);
@@ -3748,6 +4313,8 @@ impl Tree {
     self.track_pointer(x, y);
     self.lay_out_rebuilt_for_input();
     self.set_input_modality(focus_visible::InputModality::Pointer);
+    // A press between Alt and its release makes the release no Alt alone.
+    self.alt_alone = false;
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
       self.swallowed_press = None;
@@ -3769,7 +4336,7 @@ impl Tree {
     });
 
     if button == MouseButton::Left {
-      let now = Instant::now();
+      let now = self.press_now();
       if let Some(click_target_id) = self.click_tracker.pending_match_for_targets(
         now,
         position,
@@ -3781,21 +4348,27 @@ impl Tree {
         self.click_press = None;
         self.click_tracker.take_pending();
         // The second press is a press as well: every `on_mouse_up` has its `on_mouse_down`, and what is pressed
-        // shows so. Its release clicks nothing, the two presses being the double click.
+        // shows so. Its release clicks nothing, the two presses being the double click; a finger's two being a
+        // double tap, told as `on_double_tap`, and no double click.
         self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
-        self.dispatch_mouse_with_click_target(
-          x,
-          y,
-          button,
-          MouseEventKind::DoubleClick,
-          modifiers,
-          Some(click_target_id),
-        );
+        if !self.touch_pointer.down {
+          self.dispatch_mouse_with_click_target(
+            x,
+            y,
+            button,
+            MouseEventKind::DoubleClick,
+            modifiers,
+            Some(click_target_id),
+          );
+        }
         self.apply_reactive_updates_after_event();
         return;
       }
     }
 
+    let repeat = (button == MouseButton::Left)
+      .then(|| self.press_repeat_target(&target_ids))
+      .flatten();
     self.click_press = Some(ClickPress {
       position,
       button,
@@ -3803,6 +4376,11 @@ impl Tree {
       transient_root,
     });
     self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
+    // A press that repeats is its own click: its release clicks nothing.
+    if let Some(target) = repeat {
+      self.click_press = None;
+      self.start_press_repeat(target, x, y);
+    }
     self.apply_reactive_updates_after_event();
   }
 
@@ -3836,6 +4414,9 @@ impl Tree {
   fn dispatch_mouse_up(&mut self, x: f32, y: f32, button: MouseButton, modifiers: MouseModifiers) {
     self.track_pointer(x, y);
     self.lay_out_rebuilt_for_input();
+    if button == MouseButton::Left {
+      self.end_press_repeat();
+    }
     if self.swallowed_press == Some(button) {
       self.swallowed_press = None;
       // The pointer now hovers whatever the closed popup exposed.
@@ -3866,6 +4447,19 @@ impl Tree {
     }
     self.dispatch_mouse(x, y, button, MouseEventKind::Up, modifiers);
     self.synthesize_click(x, y, button, modifiers);
+    // The mouse's side buttons go back and forward on their release, from what is under the pointer. In a browser
+    // they are the browser's, and its move comes back as the command through the router that follows the address.
+    if let Some(command) = crate::app::events::NavigationCommand::of_button(button)
+      && !cfg!(target_arch = "wasm32")
+    {
+      let scale = self.scale_factor();
+      self.dispatch_navigation(
+        command,
+        crate::app::events::NavigationSource::Mouse,
+        &crate::app::window::NavigationOrigin::Point(x / scale, y / scale),
+      );
+      self.apply_reactive_updates_after_event();
+    }
   }
 
   /// Ends a press the OS took over, for example to run a native window move or resize loop.
@@ -3885,6 +4479,9 @@ impl Tree {
       || self.dragging_scroll.is_some()
       || self.dragging_slider.is_some()
       || self.dragging_text_selection.is_some();
+    if button == MouseButton::Left {
+      self.end_press_repeat();
+    }
     if !pressed {
       return;
     }
@@ -3893,7 +4490,7 @@ impl Tree {
     if self.active_drag.as_ref().is_some_and(|drag| drag.button == button) {
       let drag = self.active_drag.take().unwrap();
       let scale = self.scale_factor();
-      let event = drag.event(x / scale, y / scale, Some(DropResult::Missed));
+      let event = drag.event(x / scale, y / scale, Some(DropResult::Missed), self.viewport_logical());
       for handler in drag.on_end {
         handler.call(&event);
       }
@@ -3909,6 +4506,8 @@ impl Tree {
 
   fn synthesize_click(&mut self, x: f32, y: f32, button: MouseButton, modifiers: MouseModifiers) {
     let now = Instant::now();
+    // A click held back for a double click, and its second, are timed as the presses are: on the press clock.
+    let press_now = self.press_now();
     let position = (x, y);
 
     // Drag handlers record suppression after dispatch converts pointer coordinates to logical units.
@@ -3926,10 +4525,13 @@ impl Tree {
       return;
     };
 
+    // A finger's or a pen's click: held back only where a double tap is listened for, and its second no double
+    // click (on a phone a double tap zooms).
+    let touch = self.touch_pointer.down;
     if button == MouseButton::Left
       && let ClickDispatchTarget::Node(click_target_id) = click_target
       && self.click_tracker.pending_matches(
-        now,
+        press_now,
         position,
         button,
         click_target_id,
@@ -3938,14 +4540,17 @@ impl Tree {
       )
     {
       self.click_tracker.take_pending();
-      self.dispatch_mouse_with_click_target(
-        x,
-        y,
-        button,
-        MouseEventKind::DoubleClick,
-        modifiers,
-        Some(click_target_id),
-      );
+      // The second of a finger's two taps was told as `on_double_tap`: neither tap clicks.
+      if !touch {
+        self.dispatch_mouse_with_click_target(
+          x,
+          y,
+          button,
+          MouseEventKind::DoubleClick,
+          modifiers,
+          Some(click_target_id),
+        );
+      }
       self.apply_reactive_updates_after_event();
       return;
     }
@@ -3954,11 +4559,21 @@ impl Tree {
 
     match click_target {
       ClickDispatchTarget::Node(click_target_id)
-        if button == MouseButton::Left && self.click_target_has_dblclick_handler(click_target_id) =>
+        if button == MouseButton::Left
+          && if touch {
+            self.click_target_has_double_tap_handler(click_target_id)
+          } else {
+            self.click_target_has_dblclick_handler(click_target_id)
+          } =>
       {
-        self
-          .click_tracker
-          .set_pending(now, position, button, modifiers, click_target_id);
+        self.click_tracker.set_pending(
+          press_now,
+          position,
+          button,
+          modifiers,
+          click_target_id,
+          self.pointer_kind_now(),
+        );
         self.needs_redraw = true;
       }
       ClickDispatchTarget::Node(click_target_id) => {
@@ -3972,7 +4587,39 @@ impl Tree {
     }
   }
 
+  /// A wheel or swipe event at a point, in physical pixels, with a delta in logical pixels: of a touchpad, a
+  /// precise wheel or a finger. The scroll containers under the point move by it at once. A mouse's notches
+  /// go to [`wheel`](Self::wheel), which animates them; a scroll it left on its way in a container this
+  /// scrolls stops, and the content moves from where it is drawn.
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    self.scroll_with_meta(x, y, delta_x, delta_y, phase, false, false, false, false);
+  }
+
+  /// [`scroll`](Self::scroll) with the keys held as it came, which its [`ScrollEvent`] tells: a touchpad's
+  /// pinch on Windows is its travel with Ctrl held.
+  #[allow(clippy::too_many_arguments)]
+  pub fn scroll_with_meta(
+    &mut self,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    meta: bool,
+  ) {
+    let input = ScrollInput {
+      animated: false,
+      notched: false,
+      modifiers: MouseModifiers { shift, ctrl, alt, meta },
+    };
+    self.scroll_event(x, y, delta_x, delta_y, phase, input);
+  }
+
+  /// [`scroll`](Self::scroll), or with `how.animated` [`wheel`](Self::wheel).
+  fn scroll_event(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase, how: ScrollInput) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Scroll);
     // A wheel turns under a pointer, which is then there. A finger's scroll comes from where the finger
@@ -3981,7 +4628,7 @@ impl Tree {
       self.track_pointer(x, y);
     }
     self.lay_out_rebuilt_for_input();
-    let horizontal_taken = self.dispatch_scroll(x, y, delta_x, delta_y, phase);
+    let horizontal_taken = self.dispatch_scroll(x, y, delta_x, delta_y, phase, how);
     let scale = self.scale_factor();
     self.recognize_history_swipe(
       (x / scale, y / scale),
@@ -4007,7 +4654,13 @@ impl Tree {
   }
 
   fn dispatch_key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
+    if self.dispatch_captured_key(true, &key, &code, shift, ctrl, alt, meta) {
+      return;
+    }
     if (key == "Escape" || code == "Escape") && self.end_autoscroll() {
       // Esc ends the autoscroll and does nothing else; the release that
       // follows clicks nothing.
@@ -4016,8 +4669,12 @@ impl Tree {
       return;
     }
     self.note_key_press_modality(&key, ctrl, alt, meta);
+    self.note_alt_press(&key, ctrl, meta);
     // Keys never reach a node that was dropped since it took focus.
-    self.blur_focus_in_dropped_child();
+    {
+      crate::app::profile_support::frame_section!("ul:blur_dropped");
+      self.blur_focus_in_dropped_child();
+    }
     // The input method takes the keys it reports as `Process` (on Windows,
     // the Enter that confirms a composition included): no handler or default
     // sees them. Other presses arrive as usual, marked while composing.
@@ -4036,11 +4693,17 @@ impl Tree {
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
       composing: self.is_composing(),
+      focus_within: false,
       control,
     };
     if let Some(root) = &self.root {
-      fire_keyboard_recursive(root, &mut evt);
+      fire_keyboard_recursive(root, &mut evt, self.focused_path.as_deref());
     }
+    // A handler that asked for an element of its group by its key has it focused after the render the key causes.
+    let keyed_focus = evt
+      .control
+      .take_focus_key()
+      .and_then(|key| Some((self.focus_group_around_focus()?, key)));
     // An Enter the input method passes on during a composition reaches
     // handlers marked `composing`, but no default acts on it (form submit,
     // button or select activation, newline, blur): it belongs to the
@@ -4055,10 +4718,35 @@ impl Tree {
         ctrl,
         meta,
       };
-      let handled = if self.dispatch_select_key(select_key) {
+      // A command of editing first (undo, redo, cut, copy, paste, select all), on the focused element and out from
+      // it (`runtime/edit.rs`): a key that is one is no other key, whether or not something took it.
+      let edit = evt.edit_command();
+      // Then going back or forward (`runtime/navigation.rs`), from the focused element: Alt+← in a text input too,
+      // which moves by a word with Ctrl. A key that is one is no other key either.
+      let navigation = edit.is_none().then(|| evt.navigation_command()).flatten();
+      let handled = if let Some(command) = edit {
+        self.dispatch_edit(command, Some(&evt), false)
+      } else if let Some(command) = navigation {
+        self.dispatch_navigation(
+          command,
+          crate::app::events::NavigationSource::Key,
+          &crate::app::window::NavigationOrigin::Focus,
+        );
+        true
+      } else if self.dispatch_select_key(select_key) {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
         self.focus_tab(shift)
+      } else if (!ctrl || matches!(key.as_str(), "Home" | "End"))
+        && !alt
+        && !meta
+        && (self.focus_group_key(&key, click_modifiers) || (!ctrl && self.focus_group_typeahead(&key)))
+      {
+        true
+      } else if !ctrl && !meta && self.menu_row_key(&key, alt, click_modifiers) {
+        true
+      } else if !ctrl && !alt && !meta && self.scroll_focused_container(&key, &code, shift) {
+        true
       } else if matches!(
         (key.as_str(), code.as_str()),
         ("Enter" | " ", _) | (_, "Enter" | "Space")
@@ -4082,17 +4770,18 @@ impl Tree {
 
       if handled || self.dismiss_top_overlay_on_escape(&key, &code) {
         self.needs_redraw = true;
-      } else {
+      } else if edit.is_none() && navigation.is_none() {
         let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
         let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
         if blurred_text_input || cleared_text_selection || self.dispatch_text_input(&evt) {
           self.needs_redraw = true;
-        } else {
-          self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
         }
       }
     }
     self.apply_reactive_updates_after_event();
+    if let Some((group, key)) = keyed_focus {
+      self.focus_keyed_in_group(group, &key, true);
+    }
   }
 
   pub fn key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
@@ -4108,7 +4797,13 @@ impl Tree {
   }
 
   fn dispatch_key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
+    if self.dispatch_captured_key(false, &key, &code, shift, ctrl, alt, meta) {
+      return;
+    }
     let composing = self.is_composition_key_up(&key, &code);
     let mut evt = KeyboardEvent {
       key,
@@ -4120,13 +4815,18 @@ impl Tree {
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
       composing,
+      focus_within: false,
       control: EventControl::new(),
     };
     let root = match &self.root {
       Some(r) => r,
       None => return,
     };
-    fire_keyboard_up_recursive(root, &mut evt);
+    fire_keyboard_up_recursive(root, &mut evt, self.focused_path.as_deref());
+    // Alt let go with nothing pressed while it was down goes to a row of menus, unless a handler took it.
+    if evt.key == "Alt" && std::mem::take(&mut self.alt_alone) && !evt.default_prevented() && self.menu_row_alt() {
+      self.needs_redraw = true;
+    }
     self.apply_reactive_updates_after_event();
   }
 
@@ -4145,6 +4845,9 @@ impl Tree {
     };
 
     entry.open.set(false);
+    if let Some(on_dismiss) = entry.on_dismiss.clone() {
+      on_dismiss();
+    }
     true
   }
 
@@ -4162,20 +4865,184 @@ impl Tree {
 
   /// Tab / Shift+Tab: moves focus to the next stop in the current Tab scope
   /// (see [`tab_navigation`]) and scrolls it into view.
+  /// An arrow key, Home or End while the focus is on something in a focus group
+  /// ([`crate::node::FocusGroup`]): the focus moves to the next thing in the group, and that is pressed if
+  /// the group's choice follows its focus. `false` when the key is not the group's, the focus is in no
+  /// group, or it is on a control that takes the arrow keys itself.
+  fn focus_group_key(&mut self, key: &str, modifiers: MouseModifiers) -> bool {
+    // While a group of rows waits for the row it stepped to, the keys go on from that row: see `nested_focus`.
+    if let Some(handled) = self.pending_rows_key(key, modifiers) {
+      return handled;
+    }
+    let (Some(focused), Some(path)) = (self.focused_node, self.focused_path.clone()) else {
+      return false;
+    };
+    let Some(root) = &self.root else {
+      return false;
+    };
+    // The innermost group around the focused node that takes this key. What is in a group of no keys is in
+    // no group around that one either.
+    let mut found = None;
+    // Ctrl+Home and Ctrl+End are a group of rows' own, where one is around a stop of a row of several stops: the
+    // first stop of the first row and the last of the last, past the group of the row's own stops.
+    let ends = modifiers.ctrl && matches!(key, "Home" | "End");
+    let mut rows_found = None;
+    let mut node = root;
+    for &index in &path {
+      if node.focus_group_value().is_some_and(|group| group.is_none()) {
+        found = None;
+        rows_found = None;
+      }
+      if let Some((group, step)) = node
+        .focus_group_value()
+        .and_then(|group| Some((group, group.step(key)?)))
+        // PageUp and PageDown are a group's only where it pages or steps over rows of its own.
+        .filter(|(group, step)| {
+          !step.is_page() || group.pages || node.focus_branch().is_some_and(|branch| branch.rows.is_some())
+        })
+      {
+        found = Some((node, group, step));
+        if ends && node.focus_branch().is_some_and(|branch| branch.rows.is_some()) {
+          rows_found = found;
+        }
+      }
+      let Some(child) = node.children().get(index) else {
+        return false;
+      };
+      node = child;
+    }
+    // A text input moves its caret with these keys, a slider its value, a select its choice.
+    if matches!(
+      node.node_kind(),
+      NodeKind::TextInput { .. } | NodeKind::Slider { .. } | NodeKind::Select { .. }
+    ) {
+      return false;
+    }
+    let column = node.focus_branch().and_then(|branch| branch.column);
+    // Ctrl+Home and Ctrl+End are a grid's alone: elsewhere they are left to what else takes them.
+    if modifiers.ctrl && column.is_none() {
+      return false;
+    }
+    let found = match rows_found {
+      Some(rows) if column.is_some() => Some(rows),
+      _ => found,
+    };
+    let Some((group_node, group, step)) = found else {
+      return false;
+    };
+    // A group of rows a list builds only in part steps over its rows: see `nested_focus`.
+    if let Some(rows) = group_node.focus_branch().and_then(|branch| branch.rows.clone())
+      && let Some(row) = node.focus_branch().and_then(|branch| branch.row)
+    {
+      let group_id = group_node.node_id();
+      let aim = match (column, step) {
+        (Some(_), crate::node::FocusStep::First) if ends => nested_focus::ColumnAim::First,
+        (Some(_), crate::node::FocusStep::Last) if ends => nested_focus::ColumnAim::Last,
+        (Some(column), _) => nested_focus::ColumnAim::Same(column),
+        (None, _) => nested_focus::ColumnAim::First,
+      };
+      return self.focus_rows_key(group_id, rows, group, row, step, modifiers, aim);
+    }
+    // Right, Left and `*` in a nested group open, close and climb: see `nested_focus`.
+    if step.is_nested() {
+      let group_id = group_node.node_id();
+      return self.focus_group_branch_key(group_id, focused, step);
+    }
+    let stops = tab_navigation::group_stops(group_node, &self.dropped_nodes);
+    let Some(current) = stops.iter().position(|stop| stop.input_id == focused) else {
+      return false;
+    };
+    let last = stops.len() - 1;
+    let next = match step {
+      crate::node::FocusStep::First => 0,
+      crate::node::FocusStep::Last => last,
+      crate::node::FocusStep::Back if current > 0 => current - 1,
+      crate::node::FocusStep::Back if group.wrap => last,
+      crate::node::FocusStep::On if current < last => current + 1,
+      crate::node::FocusStep::On if group.wrap => 0,
+      // A page back or on: see `page_focus`.
+      crate::node::FocusStep::PageBack => self.focus_group_page(&stops, current, false),
+      crate::node::FocusStep::PageOn => self.focus_group_page(&stops, current, true),
+      crate::node::FocusStep::Back
+      | crate::node::FocusStep::On
+      | crate::node::FocusStep::Open
+      | crate::node::FocusStep::Close
+      | crate::node::FocusStep::OpenSiblings => current,
+    };
+    // The key is the group's even where it moves nothing: at an end of a group that does not wrap.
+    if next != current {
+      let target = stops[next];
+      self.set_input_modality(focus_visible::InputModality::Keyboard);
+      self.focus_node(target);
+      self.scroll_focused_into_view();
+      // A move with Shift in a group that extends with it presses what it moved to with Shift: a range.
+      if group.activate || (group.shift_extends && modifiers.shift) {
+        self.activate_focused_button(modifiers);
+      }
+      // In a group the focus follows the pointer in, what the keys moved to is the one item that is lit: the
+      // element under a pointer that holds still is not hovered until the pointer moves.
+      if group.follow_pointer {
+        self.clear_hover_path();
+        self.hover_held_by_keys = true;
+      }
+    }
+    true
+  }
+
   fn focus_tab(&mut self, reverse: bool) -> bool {
+    // Tab is where the keys go on from: a row a group of rows waited for is no longer awaited.
+    self.pending_row_focus = None;
     self.set_input_modality(focus_visible::InputModality::Keyboard);
+    // A range's thumbs are a stop of Tab each: Tab goes from its low thumb to its high one before it leaves.
+    if let Some(state) = self.focused_node.and_then(|id| self.current_slider_state(id))
+      && state.tab_within(reverse)
+    {
+      return true;
+    }
     let Some(root) = &self.root else {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
-    match tab_navigation::tab_move(root, &self.dropped_nodes, focused, reverse) {
+    let start = self
+      .focus_start
+      .as_ref()
+      .filter(|_| focused.is_none())
+      .map(|start| start.point(root, &self.dropped_nodes));
+    let moved = self.focus_moving_layers();
+    let trap = self.tab_trap();
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, trap, focused, start, reverse) {
       tab_navigation::TabMove::Focus(target) => {
+        if let Some(state) = self.current_slider_state(target.input_id) {
+          state.enter_by_tab(reverse);
+        }
         self.focus_node(target);
         self.scroll_focused_into_view();
         true
       }
       tab_navigation::TabMove::Stay => true,
       tab_navigation::TabMove::Unhandled => false,
+    }
+  }
+
+  /// Moves the focus on to the next stop of Tab after where it is or was, or to the one before where nothing
+  /// follows: what `FocusHandle::focus_onward` asks.
+  fn focus_onward(&mut self) {
+    let target = {
+      let Some(root) = &self.root else {
+        return;
+      };
+      let focused = self.focused_node.zip(self.focused_path.as_deref());
+      let start = self
+        .focus_start
+        .as_ref()
+        .filter(|_| focused.is_none())
+        .map(|start| start.point(root, &self.dropped_nodes));
+      let moved = self.focus_moving_layers();
+      tab_navigation::onward_stop(root, &self.dropped_nodes, &moved, focused, start)
+    };
+    if let Some(target) = target {
+      self.focus_node(target);
+      self.scroll_focused_into_view();
     }
   }
 
@@ -4211,10 +5078,52 @@ impl Tree {
     let (Some(root), Some(path)) = (&self.root, &self.focused_path) else {
       return;
     };
-    // Nor does a disabled element keep the focus it had.
-    if tab_navigation::path_is_dropped(root, &self.dropped_nodes, path) || tab_navigation::path_is_disabled(root, path)
-    {
+    if tab_navigation::path_is_dropped(root, &self.dropped_nodes, path) {
       self.blur_focus();
+      return;
+    }
+    // Nor does a disabled element keep the focus it had. In a focus group the focus stays in the group: on
+    // the element before the one that was disabled, or the one after it. Next pressed onto the last page
+    // disables itself, and the keyboard is still in the pagination.
+    // Nor does an inert one: its focus goes where that of an element taken out of the tree goes, to the stop of its
+    // group that takes its place, or to nothing.
+    let inert = tab_navigation::path_is_inert(root, path);
+    if !inert && !tab_navigation::path_is_disabled(root, path) {
+      return;
+    }
+    let mut group = None;
+    let mut node = root;
+    // A group inside an inert element is inert with it.
+    let mut in_inert = false;
+    for &index in path {
+      in_inert |= node.is_inert();
+      match node.focus_group_value() {
+        Some(held) if held.is_none() => group = None,
+        Some(_) if !node.is_disabled() && !in_inert => group = Some(node),
+        _ => {}
+      }
+      let Some(child) = node.children().get(index) else {
+        break;
+      };
+      node = child;
+    }
+    let near = group.and_then(|group| {
+      let (stops, before) = tab_navigation::group_stops_around(group, &self.dropped_nodes, self.focused_node);
+      let before = before?;
+      if inert {
+        return stops.get(before).or(stops.last()).copied();
+      }
+      before
+        .checked_sub(1)
+        .and_then(|index| stops.get(index))
+        .or_else(|| stops.get(before))
+        .copied()
+    });
+    match near {
+      Some(target) => self.focus_node(target),
+      None => {
+        self.blur_focus();
+      }
     }
   }
 
@@ -4263,7 +5172,7 @@ impl Tree {
     let Some(focused) = self.focused_node else {
       return false;
     };
-    let (_kind, click) = {
+    let (_kind, click, focuses) = {
       let Some(root) = &self.root else {
         return false;
       };
@@ -4278,12 +5187,18 @@ impl Tree {
       let Some(kind) = node.button_kind_value() else {
         return false;
       };
-      (kind, node.events.on_click.clone())
+      (kind, node.events.on_click.clone(), node.events.focuses.clone())
     };
 
     let event = modifiers.keyboard_click(focused);
     for handler in click {
       handler.call(&event);
+    }
+    // A button that names another element (`focuses`) gives the focus on when the keyboard presses it, as a click does.
+    if let Some(target) = focuses
+      && let Some(ctx) = &self.root_ctx
+    {
+      ctx.focus(&target);
     }
 
     #[cfg(feature = "form")]
@@ -4329,6 +5244,7 @@ impl Tree {
 
   pub fn needs_redraw(&self) -> bool {
     self.needs_redraw
+      || self.window.has_requests()
       || !self.pending_scroll_into_view.is_empty()
       || self.has_dirty_canvas()
       || self.click_tracker.has_pending()
@@ -4357,7 +5273,7 @@ impl Tree {
       pending_click: self.click_tracker.has_pending(),
       input_interaction: self.has_active_input_interaction(),
       text_input_caret: self.has_focused_blinking_text_input(caret_mode),
-      theme_changed: self.last_theme_version != theme_version,
+      theme_changed: self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed(),
       component_dirty: root_ctx.is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request()),
       element_ref_dirty: root.is_some_and(has_dirty_element_ref_recursive),
       layout_dirty: root.is_some_and(has_pending_layout_dirty_recursive),
@@ -4365,8 +5281,14 @@ impl Tree {
     }
   }
 
+  /// The cursor the window shows: that of what is under the pointer, or, while an `on_drag_*` session holds
+  /// the pointer, the one it had where the drag began, over whatever the pointer crosses and outside the
+  /// window too.
   pub fn cursor(&self) -> CursorIcon {
-    self.cursor
+    match &self.active_drag {
+      Some(drag) => drag.cursor,
+      None => self.cursor,
+    }
   }
 
   pub fn clear_needs_redraw(&mut self) {
@@ -4393,6 +5315,7 @@ impl Tree {
     // A pass or the next click runs it, outside the delivery of its input:
     // its handlers see the source of that input, so an MCP click stays
     // synthetic input.
+    self.touch_pointer.replaying = Some(click.kind);
     with_input_source(click.source, || {
       self.dispatch_mouse_with_click_target(
         click.position.0,
@@ -4411,10 +5334,28 @@ impl Tree {
       }
       self.apply_reactive_updates_after_event();
     });
+    self.touch_pointer.replaying = None;
+  }
+
+  /// Whether the element a finger clicks, or one it is in, listens for a double tap: its click waits for one.
+  fn click_target_has_double_tap_handler(&mut self, target_id: NodeId) -> bool {
+    self.rebuild_if_dirty();
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let Some(path) = find_path_by_id(root, target_id) else {
+      return false;
+    };
+    (0..=path.len())
+      .rev()
+      .any(|depth| find_node_by_path(root, &path[..depth]).is_some_and(|node| !node.events.on_double_tap.is_empty()))
   }
 
   fn click_target_has_dblclick_handler(&mut self, target_id: NodeId) -> bool {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     let Some(root) = self.root.as_ref() else {
       return false;
     };
@@ -4474,7 +5415,10 @@ impl Tree {
     let lx = x / scale;
     let ly = y / scale;
 
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
 
     let root = match &self.root {
       Some(r) => r,
@@ -4527,6 +5471,28 @@ impl Tree {
     modifiers: MouseModifiers,
     click_target: Option<NodeId>,
   ) {
+    let control = EventControl::new();
+    self.dispatch_mouse_with_control(x, y, button, kind, modifiers, click_target, control.clone());
+    // A handler asked for an element of the focus group around the focus by its key: found once the render the
+    // press causes is done, in the group the focus was in as it was pressed.
+    if let Some(key) = control.take_focus_key()
+      && let Some(group) = self.focus_group_around_focus()
+    {
+      self.pressed_focus_key = Some((group, key));
+    }
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn dispatch_mouse_with_control(
+    &mut self,
+    x: f32,
+    y: f32,
+    button: MouseButton,
+    kind: MouseEventKind,
+    modifiers: MouseModifiers,
+    click_target: Option<NodeId>,
+    control: EventControl,
+  ) {
     let mut evt = MouseEvent {
       x,
       y,
@@ -4537,13 +5503,10 @@ impl Tree {
       alt: modifiers.alt,
       meta: modifiers.meta,
       from_keyboard: false,
-      pointer: if self.touch_pointer.down {
-        crate::app::events::PointerKind::Touch
-      } else {
-        crate::app::events::PointerKind::Mouse
-      },
+      pointer_kind: self.pointer_kind_now(),
       target_id: NodeId::UNASSIGNED,
-      control: EventControl::new(),
+      time: self.press_now(),
+      control,
     };
     let scale = self.scale_factor();
     let text_click_interval = self.double_click_interval.unwrap_or(DOUBLE_CLICK_INTERVAL);
@@ -4601,12 +5564,15 @@ impl Tree {
       }
     }
 
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
 
     if let Some(mut drag) = self.dragging_slider.clone() {
       if let Some(state) = self.current_slider_state(drag.target_id) {
         drag.state = state;
-      } else if let Some(rebound) = self.current_slider_drag_by_binding(drag.binding_id) {
+      } else if let Some(rebound) = self.current_slider_drag_by_binding(drag.binding_id, drag.thumb) {
         drag = rebound;
       } else {
         self.dragging_slider = None;
@@ -4617,13 +5583,13 @@ impl Tree {
       self.dragging_slider = Some(drag.clone());
       match evt.kind {
         MouseEventKind::Move => {
-          drag.update(lx);
+          drag.update(lx, ly);
           self.needs_redraw = true;
           self.apply_reactive_updates_after_event();
           return;
         }
         MouseEventKind::Up => {
-          drag.update(lx);
+          drag.update(lx, ly);
           drag.finish();
           self.dragging_slider = None;
           self.clear_active_path();
@@ -4654,6 +5620,7 @@ impl Tree {
             drag.update(lx, ly);
           }
           let has_selection = drag.has_selection(self.root.as_ref());
+          drag.finish(self.root.as_ref());
           self.dragging_text_selection = None;
           self.clear_active_path();
           if has_selection {
@@ -4670,8 +5637,9 @@ impl Tree {
       match evt.kind {
         MouseEventKind::Move => {
           let (event, handlers) = {
+            let window = self.viewport_logical();
             let drag = self.active_drag.as_mut().unwrap();
-            let event = drag.event(lx, ly, None);
+            let event = drag.event(lx, ly, None, window);
             drag.last_x = lx;
             drag.last_y = ly;
             (event, drag.on_move.clone())
@@ -4693,7 +5661,7 @@ impl Tree {
             .as_ref()
             .map(|(target_id, _)| DropResult::Accepted { target_id: *target_id })
             .unwrap_or(DropResult::Missed);
-          let drag_event = drag.event(lx, ly, Some(drop_result));
+          let drag_event = drag.event(lx, ly, Some(drop_result), self.viewport_logical());
           if let Some((target_id, handlers)) = drop_target {
             let drop_event = DropEvent {
               x: lx,
@@ -4759,6 +5727,30 @@ impl Tree {
       Vec::new()
     };
     trim_hits_to_scrollbar(&mut hits, lx, ly);
+    if matches!(evt.kind, MouseEventKind::Move) {
+      // The token of a text input under the pointer takes the look its style has for that.
+      let over = hits.iter().find_map(|(node, rect)| match node.node_kind() {
+        NodeKind::TextInput { state, .. } => {
+          let padding = self
+            .layout_engine
+            .resolved_padding_for_size(node, Size::new(rect.width, rect.height));
+          let content_height = (rect.height - padding.top - padding.bottom).max(0.0);
+          let top = padding.top + text_input_vertical_offset(state, content_height);
+          state.hover_token_at_point(Some((
+            rect.local_x - rect.x - padding.left,
+            rect.local_y - rect.y - top,
+          )));
+          Some(state.clone())
+        }
+        _ => None,
+      });
+      if let Some(left) = self.token_hover.take()
+        && over.as_ref().is_none_or(|over| !over.same_state(&left))
+      {
+        left.hover_token_at_point(None);
+      }
+      self.token_hover = over;
+    }
     let blocked = disabled_hit.is_some() && !matches!(evt.kind, MouseEventKind::Move);
     // What stays hovered while the press itself has no target.
     let hovered_hits = blocked.then(|| std::mem::take(&mut hits));
@@ -4795,11 +5787,12 @@ impl Tree {
         alt: evt.alt,
         meta: evt.meta,
         from_keyboard: false,
-        pointer: evt.pointer,
+        pointer_kind: evt.pointer_kind,
         target_id: hits
           .first()
           .map(|(node, _)| node.node_id())
           .unwrap_or(NodeId::UNASSIGNED),
+        time: evt.time,
         control: EventControl::new(),
       };
       let callbacks = self
@@ -4884,15 +5877,22 @@ impl Tree {
     }
 
     if !evt.default_prevented() && is_left_down {
-      // Focus the select trigger on press so keyboard navigation works.
+      // Focus the select trigger on press so keyboard navigation works: a combobox's text input, which a press on
+      // the input itself focuses after this.
       if let Some((node, _)) = hits
         .iter()
         .find(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }))
       {
-        pending_focus = Some(FocusTarget {
-          input_id: node.node_id(),
-          event_id: node.node_id(),
-        });
+        let target = match node.node_kind() {
+          NodeKind::Select { state } if state.is_combobox() => combobox_input_id(node),
+          _ => Some(node.node_id()),
+        };
+        if let Some(target) = target {
+          pending_focus = Some(FocusTarget {
+            input_id: target,
+            event_id: target,
+          });
+        }
         builtin_needs_redraw = true;
       }
 
@@ -5023,7 +6023,7 @@ impl Tree {
             .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
           && let NodeKind::Slider { state } = node.node_kind()
         {
-          let (track_rect, thumb_rect) = state.part_rects(
+          let parts = state.part_rects(
             rect.x,
             rect.y,
             rect.width,
@@ -5031,28 +6031,24 @@ impl Tree {
             true,
             DEFAULT_SLIDER_THUMB_MIN_SIZE,
           );
-          let travel_width = track_rect.width - thumb_rect.width;
-          let (drag_x, drag_width) = if travel_width > 0.0 {
-            (track_rect.x + thumb_rect.width * 0.5, travel_width)
-          } else {
-            (track_rect.x, track_rect.width)
-          };
+          let mut axis = parts.axis();
+          // Of a range, the thumb nearer the press is the one dragged, to the end of the drag.
+          let thumb = state.nearer_thumb(axis.ratio(lx, ly));
+          state.set_active_thumb(thumb);
           // A mouse's press brings the thumb under the pointer. A finger's does not, as a slider of the platform's:
           // the thumb goes with the finger from where it is, wherever on the slider the finger landed.
-          let drag_x = if self.touch_pointer.down {
-            drag_x + lx - (thumb_rect.x + thumb_rect.width * 0.5)
-          } else {
-            drag_x
-          };
+          if self.touch_pointer.down {
+            axis.hold_from(lx, ly, parts.thumb(thumb));
+          }
           let drag = SliderDrag {
             target_id: node.node_id(),
             binding_id: state.value_id(),
             state: state.clone(),
-            x: drag_x,
-            width: drag_width,
+            thumb,
+            axis,
             on_finish: node.events.on_blur.clone(),
           };
-          drag.update(lx);
+          drag.update(lx, ly);
           pending_slider_drag = Some(drag);
           pending_focus = Some(FocusTarget {
             input_id: node.node_id(),
@@ -5066,7 +6062,7 @@ impl Tree {
       {
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
           let text_click_count = self.text_click_tracker.record(
-            Instant::now(),
+            self.press_now(),
             (evt.x, evt.y),
             button,
             node.node_id(),
@@ -5097,7 +6093,7 @@ impl Tree {
         && let Some((state, value)) = selectable_text_state_and_value(node)
       {
         let text_click_count = self.text_click_tracker.record(
-          Instant::now(),
+          self.press_now(),
           (evt.x, evt.y),
           button,
           node.node_id(),
@@ -5120,16 +6116,28 @@ impl Tree {
         }
         builtin_needs_redraw = true;
       }
-      if let Some(target) = dispatch_builtin_pointer(&hits, lx, is_left_click) {
+      if let Some(target) = dispatch_builtin_pointer(&hits, lx, ly, is_left_click) {
         pending_focus = Some(target);
         builtin_needs_redraw = true;
       }
+      // A click of a label focuses what it names (`focuses`), unless something under the pointer takes the focus
+      // itself and names nothing: a request, as `Ctx::focus` makes, which is applied once the click is handled. A
+      // node that takes the focus and names another (a link of an error summary to its field) gives it on.
+      if is_left_click
+        && let Some(target) = hits
+          .iter()
+          .find(|(node, _)| node.is_focusable() || node.events.focuses.is_some())
+          .and_then(|(node, _)| node.events.focuses.as_ref())
+        && let Some(ctx) = &self.root_ctx
+      {
+        ctx.focus(target);
+      }
       if hits.is_empty()
         && is_left_click
-        && let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly)
+        && let Some((node, rect)) = find_slider_in_lane_recursive(root, result, 0.0, 0.0, lx, ly)
         && let NodeKind::Slider { state } = node.node_kind()
       {
-        let (track_rect, thumb_rect) = state.part_rects(
+        let parts = state.part_rects(
           rect.x,
           rect.y,
           rect.width,
@@ -5137,9 +6145,7 @@ impl Tree {
           node.is_style_hovered(),
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
-        let ratio = state.pointer_ratio(lx, track_rect, thumb_rect);
-        state.set_from_ratio(ratio);
-        state.clear_drag_ratio();
+        state.press_at_ratio(parts.axis().ratio(lx, ly));
         pending_focus = Some(FocusTarget {
           input_id: node.node_id(),
           event_id: node.node_id(),
@@ -5157,8 +6163,9 @@ impl Tree {
           continue;
         };
         let hit = scrollbar_hit_at(node, lx, ly);
-        if hit.is_some() != state.is_thumb_hovered() {
-          state.set_thumb_hovered(hit.is_some());
+        let bar = hit.map(|(axis, _)| axis);
+        if bar != state.hovered_bar() {
+          state.set_hovered_bar(bar);
           self.needs_redraw = true;
         }
         if is_left_down && let Some((axis, part)) = hit {
@@ -5197,15 +6204,23 @@ impl Tree {
       && pending_slider_drag.is_none()
       && pending_text_selection_drag.is_none()
     {
+      let now = self.now();
       hits
         .iter()
-        .find(|(node, _)| {
+        .position(|(node, _)| {
           node.events.start_drag_buttons.contains_button(button)
             && (!node.events.on_drag_start.is_empty()
               || !node.events.on_drag_move.is_empty()
               || !node.events.on_drag_end.is_empty())
         })
-        .map(|(node, _)| {
+        .map(|at| {
+          let (node, _) = &hits[at];
+          // What the node is in comes after it: the nearest scroll container that can scroll is the drag's.
+          let scrolls = node
+            .events
+            .drag_autoscroll
+            .then(|| autoscroll::drag_scroll_target(&hits[at + 1..], now))
+            .flatten();
           let event = DragEvent {
             x: lx,
             y: ly,
@@ -5218,6 +6233,7 @@ impl Tree {
             button,
             target_id: node.node_id(),
             drop_result: None,
+            outside_window: false,
           };
           (
             event,
@@ -5231,13 +6247,26 @@ impl Tree {
               button,
               on_move: node.events.on_drag_move.clone(),
               on_end: node.events.on_drag_end.clone(),
-              payload: node.drag_payload.clone(),
+              payload: node.rare.drag_payload.clone(),
+              cursor: CursorIcon::Default,
+              autoscroll: scrolls,
             },
           )
         })
     } else {
       None
     };
+    // A press that begins a drag gives no click, so what the dragged element `focuses` is focused at the press, as a
+    // press that repeats focuses it: a pad signed on, a dial turned, takes its keys from the stroke on. It is found in
+    // the tree pressed, and not asked for after the render: the drag's first move may render the element anew, with
+    // a ref of that render.
+    let drag_focus = pending_drag.as_ref().and_then(|(event, ..)| {
+      let target = hits
+        .iter()
+        .find(|(node, _)| node.node_id() == event.target_id)
+        .and_then(|(node, _)| node.events.focuses.clone())?;
+      focus_target_of_ref(root, &target)
+    });
 
     #[cfg(feature = "form")]
     if !evt.default_prevented()
@@ -5247,8 +6276,11 @@ impl Tree {
       self.needs_redraw = true;
     }
     if !evt.default_prevented() {
-      for open in overlay_dismiss_signals {
+      for (open, on_dismiss) in overlay_dismiss_signals {
         open.set(false);
+        if let Some(on_dismiss) = on_dismiss {
+          on_dismiss();
+        }
         self.needs_redraw = true;
       }
     }
@@ -5263,7 +6295,16 @@ impl Tree {
     let hover_hits = hovered_hits.as_ref().unwrap_or(&hits);
     let current_ids: Vec<NodeId> = hover_hits.iter().map(|(n, _)| n.node_id()).collect();
 
-    let moved = hover::move_hover(root, &self.hover_path, hover_hits);
+    let mut moved = hover::leave_disabled(root, self.disabled_hover, disabled_hit);
+    moved |= hover::move_hover(root, &self.hover_path, hover_hits);
+    moved |= hover::enter_disabled(self.disabled_hover, disabled_hit);
+    self.disabled_hover = disabled_hit.map(Node::node_id);
+    // A move onto an element of a focus group that follows the pointer takes the focus there.
+    let pointer_focus = if matches!(evt.kind, MouseEventKind::Move) {
+      hover::pointer_focus(root, &self.hover_path, self.focused_path.as_deref(), hover_hits)
+    } else {
+      None
+    };
     if self.draws_hover(moved) {
       self.cached_render_list = None;
       self.needs_redraw = true;
@@ -5295,15 +6336,21 @@ impl Tree {
     if builtin_needs_redraw {
       self.needs_redraw = true;
     }
+    let pressed = hits.first().map(|(node, _)| node.node_id());
     drop(hits);
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
     }
-    // A finger that lands outside the text input being typed into leaves it the focus, and so the keyboard
-    // up, as a phone's apps do: only another text input takes the focus from it.
-    let keeps_keyboard = self.touch_pointer.down && self.focused_text_input();
-    if blur_on_press && !keeps_keyboard {
+    // A finger's tap outside the text input being typed into lets it go, as a mouse's press does, and the
+    // keyboard goes down with it (`design/mobile-decisions.md`). A finger that scrolls presses nothing.
+    if blur_on_press {
       self.blur_focus();
+      // Tab goes on from what was pressed, as a browser's does from a press on text: from the top of the window
+      // where the press was on nothing.
+      self.focus_start = pressed.and_then(|id| {
+        let root = self.root.as_ref()?;
+        Some(tab_navigation::FocusStart::new(root, id, find_path_by_id(root, id)?))
+      });
     }
     if clear_active_after_dispatch {
       self.clear_active_path();
@@ -5314,18 +6361,22 @@ impl Tree {
     if let Some(drag) = pending_text_selection_drag {
       self.dragging_text_selection = Some(drag);
     }
-    if let Some((event, handler, drag)) = pending_drag {
+    if let Some(target) = drag_focus {
+      self.focus_node(target);
+    }
+    if let Some((event, handler, mut drag)) = pending_drag {
       for handler in handler {
         handler.call(&event);
       }
+      // The cursor of the press is the drag's until the release, wherever the pointer goes.
+      drag.cursor = self.cursor;
       self.active_drag = Some(drag);
       self.needs_redraw = true;
     }
-    if let Some(target) = pending_focus
-      && (!keeps_keyboard || self.is_text_input(target.input_id))
-    {
+    if let Some(target) = pending_focus {
       self.focus_node(target);
     }
+    self.follow_pointer_focus(pointer_focus);
   }
 
   fn current_slider_state(&self, node_id: NodeId) -> Option<SliderState> {
@@ -5416,14 +6467,16 @@ impl Tree {
     rebound
   }
 
-  fn current_slider_drag_by_binding(&self, binding_id: usize) -> Option<SliderDrag> {
+  /// The slider a drag holds, found again by the value it is bound to after the node it began on was replaced;
+  /// the drag keeps the thumb it holds.
+  fn current_slider_drag_by_binding(&self, binding_id: usize, thumb: SliderThumb) -> Option<SliderDrag> {
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let (node, rect) = find_slider_by_binding_recursive(root, result, 0.0, 0.0, binding_id)?;
     let NodeKind::Slider { state } = node.node_kind() else {
       return None;
     };
-    let (track_rect, thumb_rect) = state.part_rects(
+    let parts = state.part_rects(
       rect.x,
       rect.y,
       rect.width,
@@ -5431,18 +6484,12 @@ impl Tree {
       true,
       DEFAULT_SLIDER_THUMB_MIN_SIZE,
     );
-    let travel_width = track_rect.width - thumb_rect.width;
-    let (drag_x, drag_width) = if travel_width > 0.0 {
-      (track_rect.x + thumb_rect.width * 0.5, travel_width)
-    } else {
-      (track_rect.x, track_rect.width)
-    };
     Some(SliderDrag {
       target_id: node.node_id(),
       binding_id: state.value_id(),
       state: state.clone(),
-      x: drag_x,
-      width: drag_width,
+      thumb,
+      axis: parts.axis(),
       on_finish: node.events.on_blur.clone(),
     })
   }
@@ -5515,69 +6562,13 @@ impl Tree {
 
     let command = code;
     let logical = key;
-    let shortcut = Self::platform_shortcut_modifier(ctrl, meta);
     let word_navigation = Self::platform_word_navigation_modifier(ctrl, alt);
 
     let node_kind = node.node_kind().clone();
     match node_kind {
       NodeKind::TextInput { state, .. } => {
+        state.set_typing_pause(self.typing_undo_pause());
         match (logical, command) {
-          ("a" | "A", _) | (_, "KeyA") if shortcut => state.select_all(),
-          ("c" | "C", _) | (_, "KeyC") if shortcut => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            return write_clipboard_text(&selected);
-          }
-          ("x" | "X", _) | (_, "KeyX") if shortcut => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            if !write_clipboard_text(&selected) {
-              return false;
-            }
-            let _ = state.cut_selection(evt);
-          }
-          ("v" | "V", _) | (_, "KeyV") if shortcut => {
-            if !self.paste_from_clipboard_shortcut(evt) {
-              return false;
-            }
-          }
-          ("Insert", _) | (_, "Insert") if ctrl => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            return write_clipboard_text(&selected);
-          }
-          ("Insert", _) | (_, "Insert") if shift => {
-            if !self.paste_from_clipboard_shortcut(evt) {
-              return false;
-            }
-          }
-          ("Delete", _) | (_, "Delete") if shift => {
-            let Some(selected) = state.clipboard_selection() else {
-              return false;
-            };
-            if !write_clipboard_text(&selected) {
-              return false;
-            }
-            let _ = state.cut_selection(evt);
-          }
-          ("z" | "Z", _) | (_, "KeyZ") if shortcut && shift => {
-            if !state.redo(evt) {
-              return false;
-            }
-          }
-          ("z" | "Z", _) | (_, "KeyZ") if shortcut => {
-            if !state.undo(evt) {
-              return false;
-            }
-          }
-          ("y" | "Y", _) | (_, "KeyY") if shortcut => {
-            if !state.redo(evt) {
-              return false;
-            }
-          }
           ("Enter", _) | (_, "Enter") => {
             if !state.insert_newline(evt) {
               return false;
@@ -5602,7 +6593,7 @@ impl Tree {
           ("Home", _) | (_, "Home") => state.move_home(shift),
           ("End", _) | (_, "End") => state.move_end(shift),
           _ if !ctrl && !meta && key.chars().count() == 1 => {
-            if !state.insert(key, evt) {
+            if !state.type_text(key, evt) {
               return false;
             }
           }
@@ -5617,38 +6608,16 @@ impl Tree {
       NodeKind::Slider { state } => match (logical, command) {
         ("ArrowRight" | "ArrowUp", _) | (_, "ArrowRight" | "ArrowUp") => state.nudge(1),
         ("ArrowLeft" | "ArrowDown", _) | (_, "ArrowLeft" | "ArrowDown") => state.nudge(-1),
+        ("PageUp", _) | (_, "PageUp") => state.page(1),
+        ("PageDown", _) | (_, "PageDown") => state.page(-1),
+        ("Home", _) | (_, "Home") => state.to_end(false),
+        ("End", _) | (_, "End") => state.to_end(true),
         _ => return false,
       },
       _ => return false,
     }
 
     true
-  }
-
-  fn dispatch_selectable_text_clipboard(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, meta: bool) -> bool {
-    let command = code;
-    let logical = key;
-    let shortcut = Self::platform_shortcut_modifier(ctrl, meta);
-    if !matches!(
-      (logical, command),
-      ("c" | "C", _) | (_, "KeyC") if shortcut
-    ) && !matches!(
-      (logical, command),
-      ("Insert", _) | (_, "Insert") if ctrl && !shift
-    ) {
-      return false;
-    }
-
-    let Some(root) = &self.root else {
-      return false;
-    };
-    let Some(layout) = &self.last_layout else {
-      return false;
-    };
-    let Some(selected) = selected_selectable_text(root, layout) else {
-      return false;
-    };
-    write_clipboard_text(&selected)
   }
 
   /// The key held for a shortcut, and the one for moving by words: Command and Option on Apple's platforms,
@@ -5691,34 +6660,38 @@ impl Tree {
     if self.root_ctx.as_ref().is_some_and(Ctx::take_scroll_to_top_request) {
       self.touch_scroll_to_top(Instant::now());
     }
+    for state in self
+      .root_ctx
+      .as_ref()
+      .map(Ctx::take_scroll_states_to_top)
+      .unwrap_or_default()
+    {
+      self.scroll_state_to_top(&state);
+    }
+    for (state, x, y) in self
+      .root_ctx
+      .as_ref()
+      .map(Ctx::take_scroll_states_to)
+      .unwrap_or_default()
+    {
+      self.scroll_state_to(&state, x, y);
+    }
+    if self.root_ctx.as_ref().is_some_and(Ctx::take_focus_onward_request) {
+      self.focus_onward();
+    }
     let Some(reference) = self.root_ctx.as_ref().and_then(Ctx::focus_request) else {
       return;
     };
-    fn find(root: &Node, reference: &OwnedElementRef) -> Option<FocusTarget> {
-      if root
-        .element_ref
-        .as_ref()
-        .is_some_and(|current| current.same_handle(reference))
-      {
-        fn control(node: &Node) -> Option<NodeId> {
-          if node.is_focusable() {
-            Some(node.node_id())
-          } else {
-            node.children().iter().find_map(control)
-          }
-        }
-        return control(root).map(|input_id| FocusTarget {
-          input_id,
-          event_id: root.node_id(),
-        });
-      }
-      root.children().iter().find_map(|child| find(child, reference))
-    }
-    let target = self.root.as_ref().and_then(|root| find(root, &reference));
+    let target = self
+      .root
+      .as_ref()
+      .and_then(|root| focus_target_of_ref(root, &reference));
     if target.is_some() || discard_missing {
       self.root_ctx.as_ref().unwrap().take_focus_request();
     }
     if let Some(target) = target {
+      // The app's focus is where the keys go on from: a row a group of rows waited for is no longer awaited.
+      self.pending_row_focus = None;
       self.focus_node(target);
       if self.focused_node == Some(target.input_id) {
         self.request_scroll_into_view(target.input_id);
@@ -5744,6 +6717,10 @@ impl Tree {
     if tab_navigation::path_is_dropped(root, &self.dropped_nodes, &input_path) {
       return;
     }
+    // Nor does anything in an inert element.
+    if tab_navigation::path_is_inert(root, &input_path) {
+      return;
+    }
     let event_path = find_path_by_id(root, target.event_id).unwrap_or_else(|| input_path.clone());
     if self.focused_node == Some(target.input_id) && self.focused_event_node == Some(target.event_id) {
       return;
@@ -5753,6 +6730,7 @@ impl Tree {
       .map(|node| node.events.on_focus.clone())
       .unwrap_or_default();
     self.clear_focus();
+    self.focus_start = None;
     self.focused_node = Some(target.input_id);
     self.focused_event_node = Some(target.event_id);
     self.focused_path = Some(input_path);
@@ -5766,15 +6744,30 @@ impl Tree {
     self.reset_text_input_caret_blink();
   }
 
-  /// Delivers a wheel or swipe event and scrolls the containers under the pointer. `true` when its horizontal part was
-  /// taken: a handler prevented its default, or a scroll container moved sideways with it.
-  fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) -> bool {
+  /// Delivers a wheel or swipe event and scrolls the containers under the pointer: at once, or with `animated`
+  /// over the frames that follow ([`Tree::wheel`]). `true` when its horizontal part was taken: a handler
+  /// prevented its default, or a scroll container moved sideways with it.
+  fn dispatch_scroll(
+    &mut self,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+    input: ScrollInput,
+  ) -> bool {
+    let animated = input.animated;
     let mut evt = ScrollEvent {
       x,
       y,
       delta_x,
       delta_y,
       phase,
+      shift: input.modifiers.shift,
+      ctrl: input.modifiers.ctrl,
+      alt: input.modifiers.alt,
+      meta: input.modifiers.meta,
+      notched: input.notched,
       target_id: NodeId::UNASSIGNED,
       control: EventControl::new(),
     };
@@ -5789,6 +6782,7 @@ impl Tree {
     evt.y = ly;
 
     let gesture_dy = self.wheel_gesture_vertical(lx, ly, evt.delta_y);
+    let now = self.now();
     let root = match &self.root {
       Some(r) => r,
       None => return false,
@@ -5816,8 +6810,32 @@ impl Tree {
     } else {
       hits = scroll_hits(root, result, lx, ly, &self.layout_engine.radii());
     }
+    // A wheel or a trackpad is first the element's that listens for it (`on_wheel`), whatever is there to
+    // scroll and whether it can: one that takes it is what the wheel was for, and nothing is scrolled.
+    if !self.touch_scroll_latched && matches!(evt.phase, ScrollPhase::Scroll) {
+      for (node, _) in &hits {
+        if node.events.on_wheel.is_empty() {
+          continue;
+        }
+        evt.target_id = node.node_id();
+        for handler in &node.events.on_wheel {
+          handler.call(&evt);
+          if evt.immediate_propagation_stopped() {
+            break;
+          }
+        }
+        if evt.immediate_propagation_stopped() || evt.propagation_stopped() {
+          break;
+        }
+      }
+      if evt.default_prevented() {
+        return true;
+      }
+      // What it stopped was the wheel's way, not the scroll's.
+      evt.control = EventControl::new();
+    }
     let scroll_delta_can_be_consumed =
-      scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy);
+      scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy, animated);
     // When the delta targets a scroll container that cannot move (edge-clamped
     // or non-overflowing), suppress scroll events entirely; handlers on hits
     // without a matching scroll container still receive wheel events.
@@ -5879,6 +6897,9 @@ impl Tree {
     //
     // A finger's scroll has its own targets, the gesture's taker and what is inside it
     // (`touch_scroll_begin`), and what one of them could not take goes on to the next.
+    //
+    // A mouse's notch, animated, says where its container is going, and what a container takes is decided
+    // on that: one on its way to its end is at its end.
     let one_container_per_axis = !self.touch_scroll_latched;
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
@@ -5886,14 +6907,22 @@ impl Tree {
     let mut horizontal_taken = false;
     for (node, _) in &hits {
       if let Some((state, direction)) = node.scroll_container() {
-        let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
+        let (dx, dy) = node_scroll_deltas(node, direction, remaining_dx, remaining_dy, gesture_dy);
+        // A wheel turned up and down that this container takes across.
+        let across = node.wheels_across() && dx != 0.0 && remaining_dx == 0.0;
         if dx == 0.0 && dy == 0.0 {
           continue;
         }
 
         let previous_scroll_y = state.scroll_y();
         let previous_max_scroll_y = (state.content_height() - state.viewport_height()).max(0.0);
-        let (overflow_dx, overflow_dy) = state.scroll_by_with_overflow(dx, dy);
+        let (overflow_dx, overflow_dy) = if animated {
+          let overflow = state.wheel_by_with_overflow(dx, dy, now);
+          Self::wheel_turned(&mut self.wheel_scrolls, node.node_id(), &state, (evt.x, evt.y), now);
+          overflow
+        } else {
+          state.scroll_by_with_overflow(dx, dy)
+        };
         if overflow_dx != dx || overflow_dy != dy {
           node.layout_cache.mark_local_dirty();
           for (hit_node, _) in &hits {
@@ -5911,7 +6940,15 @@ impl Tree {
           previous_scroll_y,
           previous_max_scroll_y,
         ));
-        if dx != 0.0 {
+        if across {
+          // The turn was the vertical one: what is left of it is left vertical, and nothing is left where it moved.
+          let moved = overflow_dx != dx;
+          remaining_dy = if one_container_per_axis && moved {
+            0.0
+          } else {
+            overflow_dx
+          };
+        } else if dx != 0.0 {
           let moved = overflow_dx != dx;
           horizontal_taken |= moved;
           remaining_dx = if one_container_per_axis && moved {
@@ -5969,6 +7006,11 @@ impl Tree {
       delta_x,
       delta_y,
       phase,
+      shift: false,
+      ctrl: false,
+      alt: false,
+      meta: false,
+      notched: false,
       target_id,
       control: EventControl::new(),
     };
@@ -6039,6 +7081,11 @@ impl Tree {
       delta_x,
       delta_y,
       phase,
+      shift: false,
+      ctrl: false,
+      alt: false,
+      meta: false,
+      notched: false,
       target_id,
       control: EventControl::new(),
     };
@@ -6118,6 +7165,15 @@ impl Tree {
       self.viewport_physical.height / scale,
     );
     self.resolve_quads_with_viewport(result, viewport)
+  }
+
+  /// Whether every canvas the tree lays out from now on is drawn on the CPU, as
+  /// [`Canvas::software`](crate::components::Canvas::software) draws one: what a test that reads a canvas's pixels
+  /// ([`CanvasHandle::snapshot`](crate::canvas::CanvasHandle::snapshot)) wants of a canvas it does not build itself,
+  /// a chart's plot. Set it before the canvas is first laid out: its surface is made with its size.
+  #[cfg(feature = "canvas")]
+  pub fn set_software_canvases(&mut self, software: bool) {
+    self.software_canvases = software;
   }
 
   #[doc(hidden)]
@@ -6200,7 +7256,17 @@ impl Tree {
     {
       return false;
     }
-    if self.perf_overlay_enabled || self.autoscroll.is_some() {
+    // A wheel's scroll on its way moves the content with the pass, its last step included.
+    if self.perf_overlay_enabled || self.autoscroll.is_some() || !self.wheel_scrolls.is_empty() {
+      return false;
+    }
+    // An animation or a transition that draws something else by now is stepped by the layout, which a kept list
+    // skips. A pass asked for by the timeline comes with a redraw request, but one asked for by something else
+    // does not: a playing video's frame (the shell draws those at the display's pace and asks for no timeline
+    // frame meanwhile) or an image's next frame. Kept, the list would draw a sidebar's collapse where it was when
+    // something last laid the window out, and the transition would move only then. A timeline waiting out a delay
+    // or a step changes nothing yet, and the list is still the frame.
+    if self.next_timeline_change().is_some_and(|at| at <= self.now()) {
       return false;
     }
     #[cfg(feature = "devtools")]
@@ -6255,10 +7321,12 @@ impl Tree {
 
     let gpu_wall_start = Instant::now();
     let _gpu_start = profile_scope!();
+    let scale_factor = self.scale_factor();
     let Some(render_engine) = &mut self.render_engine else {
       self.cached_render_list = Some(cached);
       return Some(false);
     };
+    render_engine.set_scale_factor(scale_factor);
     #[cfg(feature = "perf_profile")]
     let _render_phase = self.profiling.context.phase(crate::app::profiler::Phase::Render);
     #[cfg(feature = "canvas")]
@@ -6376,7 +7444,10 @@ impl Tree {
   #[cfg(feature = "devtools")]
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn debug_overlay_node_at(&mut self, x: f32, y: f32) -> Option<Vec<usize>> {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let scale = self.scale_factor();
@@ -6407,6 +7478,14 @@ impl Tree {
   }
 
   fn rebuild_if_dirty(&mut self) {
+    if self.flush_dirty() {
+      // What was built may take every key now, or no longer.
+      self.note_key_capture();
+    }
+  }
+
+  /// Builds again what is dirty, until nothing is or the passes run out. Returns whether anything was built.
+  fn flush_dirty(&mut self) -> bool {
     const MAX_REACTIVE_FLUSH_PASSES: usize = 8;
 
     for pass in 0..MAX_REACTIVE_FLUSH_PASSES {
@@ -6420,9 +7499,9 @@ impl Tree {
           "[lurq:reactivity] dirty flush settled passes={}",
           pass
         );
-        return;
+        return true;
       } else {
-        return;
+        return false;
       }
     }
 
@@ -6434,6 +7513,7 @@ impl Tree {
       );
       self.needs_redraw = true;
     }
+    true
   }
 
   /// Lays out what was rebuilt since the last layout, before a press, a
@@ -6444,7 +7524,10 @@ impl Tree {
   /// has no layout yet. The layout is the one the next frame would run (with
   /// a reveal and the hover it moves), which then has nothing left to lay out.
   fn lay_out_rebuilt_for_input(&mut self) {
-    self.rebuild_if_dirty();
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
     if !self.tree_rebuilt_since_layout || self.root.is_none() || self.last_layout.is_none() {
       return;
     }
@@ -6461,15 +7544,49 @@ impl Tree {
   }
 
   fn apply_reactive_updates_after_event(&mut self) {
+    self.write_requested_copies();
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       self.needs_redraw = true;
-      self.rebuild_if_dirty();
+      {
+        crate::app::profile_support::frame_section!("ul:rebuild");
+        self.rebuild_if_dirty();
+      }
     }
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
+    // A command an Edit menu's item or a tool asked for runs on what has the focus once the event is done and the
+    // focus it moved is where it goes (a menu that closed gave it back), and what it changed is rendered.
+    if self.run_requested_edits() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+      self.apply_focus_request();
+    }
+    // Going back or forward, asked for without input (a menu's item, a stack's back button), as an edit is.
+    if self.run_requested_navigations() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+      self.apply_focus_request();
+    }
+    if let Some((group, key)) = self.pressed_focus_key.take() {
+      self.focus_keyed_in_group(group, &key, false);
+    }
+    {
+      crate::app::profile_support::frame_section!("interaction_groups");
+      self.refresh_interaction_groups();
+    }
+  }
+
+  /// Writes what the app asked to be put on the clipboard (`WindowHandle::copy_to_clipboard`), in order.
+  fn write_requested_copies(&mut self) {
+    for text in self.window.take_copies() {
+      self.write_clipboard_text(&text);
+    }
   }
 
   fn reset_text_input_caret_blink(&mut self) {
-    self.text_input_caret_blink_started_at = Instant::now();
+    self.text_input_caret_blink_started_at = self.now();
     self.set_text_input_caret_visible(true);
   }
 
@@ -6602,7 +7719,10 @@ impl Tree {
       .update(crate::app::profiler::UiUpdateKind::SubtreeRefresh);
     let (replacements, dirty_after_refresh) = match &mut self.root_ctx {
       Some(ctx) => {
-        let replacements = ctx.refresh_dirty_subtrees();
+        let replacements = {
+          crate::app::profile_support::frame_section!("refresh:components");
+          ctx.refresh_dirty_subtrees()
+        };
         let dirty_after_refresh = ctx.any_dirty();
         (replacements, dirty_after_refresh)
       }
@@ -6631,20 +7751,29 @@ impl Tree {
     }
 
     if let Some(root) = &mut self.root {
+      let ctx = self.root_ctx.as_ref();
+      let cached = |slot: u64| ctx.and_then(|ctx| ctx.cached_output_of(slot));
+      crate::app::profile_support::frame_section!("refresh:replace_slots");
       for (slot_id, replacement) in replacements {
-        replace_live_component_slot_everywhere(root, slot_id, replacement, &self.id_gen);
+        replace_live_component_slot_everywhere(root, slot_id, replacement, &self.id_gen, &cached);
       }
     }
 
-    if let Some(root) = &mut self.root {
-      root.assign_tree_ids(&self.id_gen);
+    {
+      crate::app::profile_support::frame_section!("ul:begin_leaving");
+      self.begin_leaving_children();
     }
-    self.begin_leaving_children();
     self.tree_rebuilt_since_layout = true;
     self.cached_render_list = None;
     self.needs_redraw = true;
-    self.reapply_interaction_state();
-    self.apply_focus_request();
+    {
+      crate::app::profile_support::frame_section!("refresh:interaction");
+      self.reapply_interaction_state();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
     true
   }
 
@@ -6664,11 +7793,40 @@ impl Tree {
   }
 
   /// Ticks animations and transitions at `now` in every pass instead of at the moment the pass runs, and reads
-  /// the wheel's axis lock ([`WHEEL_AXIS_LOCK_WINDOW`]) at `now` too, until set back to `None`. For tests that
-  /// drive time explicitly; a shell paces its frames on the wall clock.
+  /// the wheel's axis lock ([`WHEEL_AXIS_LOCK_WINDOW`]) at `now` too, until set back to `None`. A mouse wheel's
+  /// scroll ([`Tree::wheel`]) starts at `now` and is stepped at it. For tests that drive time explicitly; a
+  /// shell paces its frames on the wall clock.
   #[doc(hidden)]
   pub fn set_animation_clock(&mut self, now: Option<Instant>) {
     self.animation_clock = now;
+  }
+
+  /// Sets the time presses are given at, in place of the wall clock, until set back to `None`: what a double
+  /// press, a double or triple click in text and a click held back for a double click are measured by, and the
+  /// time a pointer's events carry. For tests that tell a second press from a first on a clock of their own; a
+  /// shell leaves it alone.
+  #[doc(hidden)]
+  pub fn set_press_clock(&mut self, now: Option<Instant>) {
+    self.press_clock = now;
+  }
+
+  /// The clock of presses [`set_press_clock`](Self::set_press_clock) set, if one is.
+  pub fn press_clock(&self) -> Option<Instant> {
+    self.press_clock
+  }
+
+  /// The clock of presses: the one [`Self::set_press_clock`] set, or the wall clock.
+  fn press_now(&self) -> Instant {
+    self.press_clock.unwrap_or_else(Instant::now)
+  }
+
+  /// Has every `Timeout` and `Interval` started or restarted on this thread from now on count its delay from
+  /// `now`, until set back to `None`. With [`Self::tick_timers_at`] a test then fires timers at moments counted
+  /// from its own clock: which of two timers has run out does not depend on how long the machine took between
+  /// starting them and the tick. For tests that drive time explicitly; a shell's timers run on the wall clock.
+  #[doc(hidden)]
+  pub fn set_timer_clock(&mut self, now: Option<Instant>) {
+    crate::app::ctx::set_timer_clock(now);
   }
 
   /// The runtime's clock: the one [`Self::set_animation_clock`] set, or the wall clock.
@@ -6707,25 +7865,53 @@ impl Tree {
     }
   }
 
+  /// Whether what an observer of a rect before paint did asks for the frame to be laid out again: a component it
+  /// made dirty, or an element whose ref it gave another size.
+  fn changed_before_paint(&self) -> bool {
+    self.root_ctx.as_ref().is_some_and(Ctx::any_dirty)
+      || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
+  }
+
   fn update_layout(&mut self, app: &mut App) -> bool {
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();
     self.animation_engine.begin_frame();
-    self.step_autoscroll();
-    self.rebuild_if_dirty();
-    self.apply_focus_request();
-    self.rebuild_if_dirty();
-    self.drop_leaving_children(self.now());
-    self.sync_dynamic_content();
-    #[cfg(all(feature = "image", feature = "resources"))]
+    {
+      crate::app::profile_support::frame_section!("ul:autoscroll");
+      self.step_autoscroll();
+      self.step_drag_autoscroll();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:focus_request");
+      self.apply_focus_request();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:rebuild");
+      self.rebuild_if_dirty();
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:leaving");
+      self.drop_leaving_children(self.now());
+    }
+    {
+      crate::app::profile_support::frame_section!("ul:dynamic_content");
+      self.sync_dynamic_content();
+    }
+    #[cfg(all(feature = "image", feature = "http"))]
     let image_resources_changed = self.resolve_resource_images(app);
-    #[cfg(not(all(feature = "image", feature = "resources")))]
+    #[cfg(not(all(feature = "image", feature = "http")))]
     let image_resources_changed = false;
     #[cfg(feature = "image")]
     let image_resources_changed = self.resolve_loading_images() || image_resources_changed;
-    #[cfg(all(feature = "svg", feature = "resources"))]
+    // What nobody waits for any more is let go: the loads of components that are gone.
+    app.shared.loader.sweep();
+    #[cfg(all(feature = "canvas", feature = "http"))]
     let svg_resources_changed = self.resolve_resource_svgs(app);
-    #[cfg(not(all(feature = "svg", feature = "resources")))]
+    #[cfg(not(all(feature = "canvas", feature = "http")))]
     let svg_resources_changed = false;
 
     let now = self.animation_clock.unwrap_or_else(Instant::now);
@@ -6748,8 +7934,14 @@ impl Tree {
         animation_layout_changed |= self.animation_engine.tick(base, now);
       }
     } else if !had_overlay_host && let Some(root) = self.root.as_mut() {
-      animation_layout_changed |= self.transition_engine.tick(root, now);
-      animation_layout_changed |= self.animation_engine.tick(root, now);
+      {
+        crate::app::profile_support::frame_section!("ul:transition_tick");
+        animation_layout_changed |= self.transition_engine.tick(root, now);
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:animation_tick");
+        animation_layout_changed |= self.animation_engine.tick(root, now);
+      }
     }
 
     if let Some(root) = self.root.as_ref() {
@@ -6761,15 +7953,33 @@ impl Tree {
         .as_ref()
         .map(|ctx| ctx.theme().version())
         .unwrap_or_else(|| app.theme().version());
-      let theme_changed = self.last_theme_version != theme_version;
+      let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
       let has_active_overlays = root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && root.children.len() > 1;
-      root.prepare_layout_tracking();
-      let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
-      let has_pending_layout_dirty = has_pending_layout_dirty_recursive(root);
-      let has_runtime_layout_state = has_runtime_layout_state_recursive(root);
-      let has_active_timeline = self.has_active_timeline();
+      {
+        crate::app::profile_support::frame_section!("ul:layout_tracking");
+        root.prepare_layout_tracking();
+      }
+      let has_dirty_element_ref = {
+        crate::app::profile_support::frame_section!("ul:dirty_element_ref_walk");
+        has_dirty_element_ref_recursive(root)
+      };
+      let has_pending_layout_dirty = {
+        crate::app::profile_support::frame_section!("ul:pending_layout_dirty_walk");
+        has_pending_layout_dirty_recursive(root)
+      };
+      let has_runtime_layout_state = {
+        crate::app::profile_support::frame_section!("ul:runtime_layout_state_walk");
+        has_runtime_layout_state_recursive(root)
+      };
+      let has_active_timeline = {
+        crate::app::profile_support::frame_section!("ul:active_timeline");
+        self.has_active_timeline()
+      };
       let tree_rebuilt_since_layout = self.tree_rebuilt_since_layout;
-      let has_render_dirty_timeline_target = self.cached_render_list.is_none() && has_timeline_target_recursive(root);
+      let has_render_dirty_timeline_target = {
+        crate::app::profile_support::frame_section!("ul:timeline_target_walk");
+        self.cached_render_list.is_none() && has_timeline_target_recursive(root)
+      };
       let has_last_layout = self.last_layout.is_some();
       let root_cache_contains = root.layout_cache.contains(constraints);
       let root_render_dirty = root.has_render_dirty();
@@ -6790,6 +8000,7 @@ impl Tree {
         && !self.leaving_layer_due(now)
       {
         self.last_theme_version = theme_version;
+        self.layout_engine.settle_theme_scopes();
         #[cfg(feature = "canvas")]
         if let Some(layout) = self.last_layout.as_ref()
           && root.prepare_layout_tracking().canvas
@@ -6804,7 +8015,10 @@ impl Tree {
             crate::node::transform::Transform2D::IDENTITY,
           );
         }
-        self.apply_focus_request_inner(true);
+        {
+          crate::app::profile_support::frame_section!("ul:focus_request_inner");
+          self.apply_focus_request_inner(true);
+        }
         return false;
       }
       if self.has_active_timeline() || component_dirty || has_pending_layout_dirty {
@@ -6826,7 +8040,10 @@ impl Tree {
       }
     }
 
-    let overlay_parts = self.detach_overlay_host();
+    let overlay_parts = {
+      crate::app::profile_support::frame_section!("ul:detach_overlay_host");
+      self.detach_overlay_host()
+    };
 
     if had_overlay_host && let Some(root) = self.root.as_mut() {
       self.transition_engine.tick(root, now);
@@ -6847,7 +8064,14 @@ impl Tree {
       app.shared.glyph_engine.lock().set_bold_text(bold_text);
       #[cfg(feature = "canvas")]
       let canvas_font = crate::canvas::CanvasFont::from_style(theme.typography().default_style());
-      let theme_changed = self.last_theme_version != theme_version;
+      // The theme of the window, or the theme some element of the tree carries, is another one: every
+      // node is laid out again.
+      let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
+      if theme_changed {
+        // Every node is laid out again, and an element that carries a theme says so as it is: a theme
+        // no element carries any more is not watched.
+        self.layout_engine.forget_theme_scopes();
+      }
       let (mut layout, base_overlay_index) = crate::app::profiler::producer::layout_compute(
         #[cfg(feature = "perf_profile")]
         &mut self.profiling,
@@ -6868,8 +8092,14 @@ impl Tree {
         theme_changed,
         now,
       );
-      self.begin_leaving_children();
-      self.release_input_in_leaving_layers();
+      {
+        crate::app::profile_support::frame_section!("ul:begin_leaving");
+        self.begin_leaving_children();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:release_leaving");
+        self.release_input_in_leaving_layers();
+      }
       // Focus/blur callbacks may mutate App services; the glyph lock used to
       // construct the overlay host must be released before dispatching them.
       if had_overlay_host
@@ -6883,8 +8113,27 @@ impl Tree {
       if let Some(anchor) = focus_return {
         self.return_focus_to_anchor(&anchor);
       }
-      self.apply_focus_request_inner(true);
-      self.tick_overlay_subtrees(now);
+      if let Some(entry) = self.overlay_focus_entry.take() {
+        self.focus_node(FocusTarget {
+          input_id: entry,
+          event_id: entry,
+        });
+      }
+      if let Some(target) = self.overlay_focus_back.take() {
+        self.focus_node(target);
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:modal_focus");
+        self.sync_modal_focus();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:focus_request_inner");
+        self.apply_focus_request_inner(true);
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:overlay_subtrees");
+        self.tick_overlay_subtrees(now);
+      }
       if let Some(root) = self.root.as_ref()
         && root.has_synthetic_role(SyntheticNodeRole::OverlayHost)
       {
@@ -6905,6 +8154,15 @@ impl Tree {
       if let Some(root) = self.root.as_ref() {
         let offset = root.offset_position().unwrap_or_default();
         let canvas_text = app.shared.glyph_engine.lock().canvas_text_engine();
+        let canvas_motion = CanvasMotionClock {
+          now: self.now(),
+          still: self
+            .root_ctx
+            .as_ref()
+            .map(Ctx::theme)
+            .unwrap_or_else(|| app.theme())
+            .reduced_motion(),
+        };
         let _canvas_start = profile_scope!();
         #[cfg(feature = "perf_profile")]
         let _canvas_phase = self
@@ -6922,14 +8180,22 @@ impl Tree {
           &self.window,
           &canvas_font,
           &canvas_text,
+          canvas_motion,
           &mut self.canvas_registry,
+          self.software_canvases,
         );
         #[cfg(feature = "perf_profile")]
         self.profiling.canvas_recording(profile_elapsed!(_canvas_start));
       }
       if let Some(root) = self.root.as_mut() {
-        update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
-        verify_scroll_offsets(root, &layout);
+        {
+          crate::app::profile_support::frame_section!("ul:element_refs_walk");
+          update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
+        }
+        {
+          crate::app::profile_support::frame_section!("ul:verify_scroll_walk");
+          verify_scroll_offsets(root, &layout);
+        }
       }
       if let (Some(component), Some(ctx)) = (&self.root_component, &self.root_ctx) {
         let _after_layout_start = profile_scope!();
@@ -6962,17 +8228,34 @@ impl Tree {
         }
       }
       if let Some(root) = &self.root {
-        self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
+        {
+          crate::app::profile_support::frame_section!("ul:dropped_nodes_walk");
+          self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
+        }
       }
       self.last_layout = Some(layout);
-      self.blur_focus_in_dropped_child();
+      self.leave_window_controls();
+      {
+        crate::app::profile_support::frame_section!("ul:blur_dropped");
+        self.blur_focus_in_dropped_child();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:row_focus");
+        self.apply_pending_row_focus();
+      }
       self.tree_rebuilt_since_layout = false;
       // All tick walks for this frame ran (base tree + overlay subtrees), so
       // the engines can now drop runs whose nodes left the tree; otherwise an
       // unmounted spinner keeps the timeline "active" and forces this full
       // layout pass every frame forever.
-      self.transition_engine.finish_frame();
-      self.animation_engine.finish_frame();
+      {
+        crate::app::profile_support::frame_section!("ul:transition_finish");
+        self.transition_engine.finish_frame();
+      }
+      {
+        crate::app::profile_support::frame_section!("ul:animation_finish");
+        self.animation_engine.finish_frame();
+      }
       return true;
     }
     false
@@ -7033,17 +8316,29 @@ impl Tree {
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
+      self.overlay_focus_movers.clear();
+      self.overlay_focus_entry = None;
       self.overlay_layer_origins.clear();
+      self.built_focus_modals.clear();
+      self.modal_open_order.clear();
+      self.overlay_focus_returns.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
       return None;
     };
 
     let viewport = self.viewport_logical();
+    // A modal over the whole window is under the title bar the app draws, as the window's content is. What
+    // the chrome itself lays over the window, its title bar and its overlays, has all of the window.
+    let title_bar = self.window.handle().title_bar_inset().min(viewport.height);
     let mut layers = OverlayLayers::default();
+    self.modals_met.clear();
+    self.stack_modals_in_open_order(&mut base_overlay_index.overlays);
     let mut overlays = build_overlays_from_layout_index(
       &base_overlay_index,
       viewport,
+      title_bar,
       glyph_engine,
       &self.layout_engine,
       constraints,
@@ -7055,7 +8350,8 @@ impl Tree {
 
     let old_origins = std::mem::take(&mut self.overlay_layer_origins);
     let mut dropdown_anchors = std::mem::take(&mut base_overlay_index.dropdown_anchors);
-    old_parts.claim(&mut overlays, &layers.origins, 0, &old_origins);
+    let leaving_origins = self.leaving_origins();
+    let mut came_back = old_parts.claim(&mut overlays, &layers.origins, 0, &old_origins, &leaving_origins);
     self.place_again_with_leaving_children(
       &mut overlays,
       &layers.placings,
@@ -7071,13 +8367,16 @@ impl Tree {
         Vec::new()
       } else {
         let overlay = &overlays[overlay_index];
+        // Laid out at the size the host gives it, as it is drawn: a menu's items are as wide as the menu, and a
+        // submenu hung from one is placed by the item as it is drawn.
+        let layer_constraints = LayoutEngine::absolute_child_constraints(overlay, constraints);
         let (_overlay_layout, mut overlay_layout_index) = crate::app::profiler::producer::layout_compute(
           #[cfg(feature = "perf_profile")]
           &mut self.profiling,
           || {
             self
               .layout_engine
-              .compute_with_overlay_index(glyph_engine, overlay, constraints, theme_changed)
+              .compute_with_overlay_index(glyph_engine, overlay, layer_constraints, theme_changed)
           },
         );
         let (origin_x, origin_y) = match overlay.position() {
@@ -7086,10 +8385,16 @@ impl Tree {
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
         dropdown_anchors.append(&mut overlay_layout_index.dropdown_anchors);
+        self.stack_modals_in_open_order(&mut overlay_layout_index.overlays);
         let nested_entries_start = layers.dismiss_entries.len();
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
           viewport,
+          if overlay.has_synthetic_role(SyntheticNodeRole::WindowChromeLayer) {
+            0.0
+          } else {
+            title_bar
+          },
           glyph_engine,
           &self.layout_engine,
           constraints,
@@ -7106,7 +8411,13 @@ impl Tree {
       };
 
       let first = overlays.len();
-      old_parts.claim(&mut nested_overlays, &layers.origins[first..], first, &old_origins);
+      came_back.extend(old_parts.claim(
+        &mut nested_overlays,
+        &layers.origins[first..],
+        first,
+        &old_origins,
+        &leaving_origins,
+      ));
       self.place_again_with_leaving_children(
         &mut nested_overlays,
         &layers.placings[first..],
@@ -7119,9 +8430,32 @@ impl Tree {
       overlay_index += 1;
     }
 
-    let leaving = self.leaving_layers(&mut old_parts, &layers, now);
+    self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
+    self.forget_closed_modals();
+    // A layer that came back while it left goes on entering from where its exit had got to, and what had the focus
+    // in it has it again.
+    self.animation_engine.turn_round(&came_back, now);
+    if let Some(target) = self
+      .leaving_layers
+      .iter()
+      .filter(|layer| came_back.contains(&layer.root))
+      .find_map(|layer| layer.focus)
+    {
+      self.overlay_focus_back = Some(target);
+    }
+    let leaving = self.leaving_layers(&mut old_parts, &layers, &old_origins, now);
+    // What declared the old layers, for what follows to tell an overlay that went to another anchor from one that
+    // closed.
+    self.overlay_layer_origins = old_origins;
     if overlays.is_empty() && leaving.is_empty() {
-      let focus_return = self.focused_overlay_hidden(old_parts.old_host.is_some(), &layers);
+      let had_host = old_parts.old_host.is_some();
+      let focus_return = self
+        .focused_overlay_hidden(had_host, &layers)
+        .or_else(|| self.focused_overlay_closed(had_host, &layers));
+      self.note_focus_returns(&layers, focus_return.as_ref());
+      self.overlay_focus_movers = layers.focus_movers;
+      self.overlay_tab_traps = layers.tab_traps;
+      self.overlay_focus_entry = None;
       #[cfg(feature = "canvas")]
       detach_canvases_not_carried(old_parts.unused_canvas_bindings(), Some(&base));
       old_parts.free_ids(&self.id_gen);
@@ -7129,6 +8463,8 @@ impl Tree {
       // Overlays hidden with their anchor are still dismissed.
       self.overlay_dismiss_entries = layers.dismiss_entries;
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_origins.clear();
+      self.overlay_layer_parents.clear();
       self.dropdown_anchors.clear();
       return focus_return;
     }
@@ -7152,9 +8488,16 @@ impl Tree {
     old_parts.free_ids(&self.id_gen);
     host.assign_tree_ids(&self.id_gen);
     self.root = Some(host);
-    let focus_return = self.focused_overlay_hidden(old_parts_had_host, &layers);
+    let focus_return = self
+      .focused_overlay_hidden(old_parts_had_host, &layers)
+      .or_else(|| self.focused_overlay_closed(old_parts_had_host, &layers));
+    self.overlay_focus_entry = self.opened_overlay_focus(&layers);
+    self.note_focus_returns(&layers, focus_return.as_ref());
+    self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
+    self.overlay_tab_traps = std::mem::take(&mut layers.tab_traps);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
+    self.overlay_layer_parents = self.focus_layer_parents();
     self.overlay_layer_origins = layers.origins;
     self.dropdown_anchors = dropdown_anchors;
     focus_return
@@ -7199,7 +8542,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   fn resolve_resource_images(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
       let changed = Self::resolve_resource_images_recursive(
@@ -7216,7 +8559,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   fn resolve_resource_images_recursive(
     node: &mut Node,
     loader: &crate::resources::ResourceLoader,
@@ -7231,19 +8574,16 @@ impl Tree {
     // complete independently of mutations to the nodes.
     let mut layout_dirty = false;
 
-    if let NodeKind::ResourceImage { path } = node.node_kind() {
-      let key: std::sync::Arc<str> = path.clone();
+    if let NodeKind::ResourceImage { path, fit } = node.node_kind() {
+      let (key, fit): (std::sync::Arc<str>, _) = (path.clone(), *fit);
       if let Some(img) = Self::resolve_image_resource(&key, loader, image_cache) {
         node.intrinsic_size = Some(Size::new(img.width() as f32, img.height() as f32));
-        node.node_kind = NodeKind::Image {
-          data: img,
-          fit: crate::node::BackgroundSize::Stretch,
-        };
+        node.node_kind = NodeKind::Image { data: img, fit };
         layout_dirty = true;
       }
     }
 
-    if let Some(key) = node.background_resource_image.clone()
+    if let Some(key) = node.rare.background_resource_image.clone()
       && let Some(img) = Self::resolve_image_resource(&key, loader, image_cache)
     {
       let current_id = node.background_image.as_deref().map(crate::images::ImageData::id);
@@ -7280,7 +8620,7 @@ impl Tree {
     layout_dirty
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   fn resolve_image_resource(
     key: &Arc<str>,
     loader: &crate::resources::ResourceLoader,
@@ -7299,7 +8639,7 @@ impl Tree {
     Some(img)
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_resource_svgs(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
       let changed = Self::resolve_resource_svgs_recursive(
@@ -7316,7 +8656,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_resource_svgs_recursive(
     node: &mut Node,
     loader: &crate::resources::ResourceLoader,
@@ -7351,7 +8691,7 @@ impl Tree {
     layout_dirty
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   fn resolve_svg_resource(
     key: &Arc<str>,
     loader: &crate::resources::ResourceLoader,
@@ -7396,11 +8736,18 @@ impl Tree {
   fn clear_hover_path(&mut self) -> bool {
     let hover_path = std::mem::take(&mut self.hover_path);
     self.cursor = CursorIcon::Default;
+    let mut moved = match (self.root.as_ref(), self.disabled_hover.take()) {
+      (Some(root), Some(disabled)) => hover::leave_disabled(root, Some(disabled), None),
+      _ => hover::HoverMove::default(),
+    };
     if hover_path.is_empty() {
+      if self.draws_hover(moved) {
+        self.cached_render_list = None;
+        self.needs_redraw = true;
+      }
       return false;
     }
 
-    let mut moved = hover::HoverMove::default();
     if let Some(root) = self.root.as_ref() {
       for node_id in hover_path {
         if let Some(node) = find_node_by_id(root, node_id) {
@@ -7468,10 +8815,31 @@ impl Tree {
     );
     self.refresh_focus_ids();
     self.refresh_file_drag_state();
+    // What a render made inert lets the focus in it go at once, as one removed does.
+    if let (Some(root), Some(path)) = (&self.root, &self.focused_path)
+      && tab_navigation::path_is_inert(root, path)
+    {
+      {
+        crate::app::profile_support::frame_section!("ul:blur_dropped");
+        self.blur_focus_in_dropped_child();
+      }
+    }
   }
 
   fn clear_focus(&mut self) {
     let had_focus = self.focused_node.is_some() || self.focused_event_node.is_some();
+    // A render that builds the focused input anew under another id carries its state, its focus with it, into the
+    // node now where it stood: that one leaves the focus too, or it would go on painting a caret.
+    if let (Some(root), Some(path)) = (&self.root, self.focused_path.as_ref())
+      && let Some(node) = find_node_by_path(root, path)
+      && let NodeKind::TextInput { state, .. } = node.node_kind()
+    {
+      state.set_focused(false);
+    }
+    // However the focus goes, Tab goes on from where it was.
+    if let (Some(root), Some(id), Some(path)) = (&self.root, self.focused_node, self.focused_path.as_ref()) {
+      self.focus_start = Some(tab_navigation::FocusStart::new(root, id, path.clone()));
+    }
     if let Some(root) = &self.root {
       for id in [self.focused_node, self.focused_event_node].into_iter().flatten() {
         if let Some(node) = find_node_by_id(root, id) {
@@ -7483,6 +8851,7 @@ impl Tree {
     self.focused_event_node = None;
     self.focused_path = None;
     self.focused_event_path = None;
+    self.focus_group_place = None;
     if had_focus {
       self.cached_render_list = None;
     }
@@ -7504,29 +8873,66 @@ impl Tree {
       return;
     };
 
-    let Some(focused_node) = self.focused_node else {
+    let Some(mut focused_node) = self.focused_node else {
       self.clear_focus();
       return;
     };
+    // An element moved under another parent is a new node to the tree, with a new id: the focus follows it where it
+    // is found again by its ref or by the value its text input edits.
+    if find_path_by_id(root, focused_node).is_none()
+      && let Some(found) = refocused(root, &self.focus_memory)
+    {
+      focused_node = found;
+      self.focused_node = Some(found);
+      self.focused_event_node = None;
+    }
     let Some(input_path) = find_path_by_id(root, focused_node) else {
+      // What had the focus has left the tree. In a focus group that is still there the focus goes to what
+      // took its place, the next of the group's stops or the last: a tag taken away with the keyboard leaves
+      // the focus on the next tag, and not on nothing.
+      let place = self.focus_group_place.take();
       self.clear_focus();
+      let next = place.and_then(|(group, index)| {
+        let root = self.root.as_ref()?;
+        let path = find_path_by_id(root, group)?;
+        if tab_navigation::path_is_disabled(root, &path) {
+          return None;
+        }
+        let group = find_node_by_path(root, &path)?;
+        group.focus_group_value()?;
+        let stops = tab_navigation::group_stops(group, &self.dropped_nodes);
+        stops.get(index).or(stops.last()).copied()
+      });
+      if let Some(target) = next {
+        self.focus_node(target);
+      }
       return;
     };
+    self.focus_group_place = focus_group_place(root, &input_path, focused_node, &self.dropped_nodes);
     let event_id = self.focused_event_node.unwrap_or(focused_node);
     let event_path = find_path_by_id(root, event_id).unwrap_or_else(|| input_path.clone());
 
-    let memory = FocusMemory::capture(root, focused_node, event_id);
+    let mut memory = FocusMemory::capture(root, focused_node, event_id);
     for old in &self.focus_memory.refs {
       if !memory.refs.iter().any(|current| old.same_handle(current)) {
         old.set_focused(false);
       }
     }
+    let input = find_node_by_path(root, &input_path);
+    let visible = input.is_some_and(|node| focus_visible::shows_focus_ring(self.input_modality, node));
+    memory.within = element_refs_along_path(root, &event_path);
+    for old in &self.focus_memory.within {
+      if !memory.within.iter().any(|current| old.same_handle(current)) {
+        old.set_focus_visible_within(false);
+      }
+    }
+    for reference in &memory.within {
+      reference.set_focus_visible_within(visible);
+    }
     self.focus_memory = memory;
     self.focused_path = Some(input_path.clone());
     self.focused_event_path = Some(event_path.clone());
 
-    let input = find_node_by_path(root, &input_path);
-    let visible = input.is_some_and(|node| focus_visible::shows_focus_ring(self.input_modality, node));
     if let Some(node) = input {
       set_node_focused(node, true);
       focus_visible::set_node_focus_visible(node, visible);
@@ -7541,6 +8947,25 @@ impl Tree {
       self.cached_render_list = None;
     }
   }
+}
+
+/// The innermost focus group around the node at `path`, and which of the group's stops the node is.
+fn focus_group_place(root: &Node, path: &[usize], focused: NodeId, dropped: &[NodeId]) -> Option<(NodeId, usize)> {
+  let mut group = None;
+  let mut node = root;
+  for &index in path {
+    match node.focus_group_value() {
+      Some(held) if held.is_none() => group = None,
+      Some(_) => group = Some(node),
+      None => {}
+    }
+    node = node.children().get(index)?;
+  }
+  let group = group?;
+  let index = tab_navigation::group_stops(group, dropped)
+    .iter()
+    .position(|stop| stop.input_id == focused)?;
+  Some((group.node_id(), index))
 }
 
 struct OverlayHostParts {
@@ -7615,15 +9040,35 @@ impl OverlayHostReuse {
   /// and `old_origins` are the nodes that declared the old host's layers.
   ///
   /// A layer continues the old layer of its key, or else the old layer the
-  /// same node declared. Only then do the layers left take the old layer at
-  /// their own place, so that a layer never takes the one a later layer
-  /// continues.
-  fn claim(&mut self, overlays: &mut [Node], origins: &[Option<NodeId>], first: usize, old_origins: &[Option<NodeId>]) {
+  /// same node declared. One that continues none takes back the layer of its
+  /// key, or else the one the same node declared, that is leaving
+  /// (`leaving_origins`, each leaving layer's root and the node that declared
+  /// it): there is one of it, not one entering over one leaving. Only then do
+  /// the layers left take the old layer at their own place, so that a layer
+  /// never takes the one a later layer continues. Returns the ids of what
+  /// layers took back, for what they enter with to go on from where their
+  /// exits had got to.
+  fn claim(
+    &mut self,
+    overlays: &mut [Node],
+    origins: &[Option<NodeId>],
+    first: usize,
+    old_origins: &[Option<NodeId>],
+    leaving_origins: &[(NodeId, Option<NodeId>)],
+  ) -> Vec<NodeId> {
     let mut claimed = vec![false; overlays.len()];
     for (offset, overlay) in overlays.iter_mut().enumerate() {
       let origin = origins.get(offset).copied().flatten();
       if let Some(index) = self.same_layer(overlay, origin, old_origins) {
         preserve_overlay_reuse_at(overlay, self, index);
+        claimed[offset] = true;
+      }
+    }
+    let mut came_back = Vec::new();
+    for (offset, overlay) in overlays.iter_mut().enumerate() {
+      let origin = origins.get(offset).copied().flatten();
+      if !claimed[offset] && self.take_back_leaving(overlay, origin, leaving_origins) {
+        overlay.subtree_ids(&mut came_back);
         claimed[offset] = true;
       }
     }
@@ -7633,6 +9078,45 @@ impl OverlayHostReuse {
         preserve_overlay_reuse_at(overlay, self, first + offset);
       }
     }
+    came_back
+  }
+
+  /// Takes back into `overlay` the leaving layer it is: the one of its key, or else, where either has none, the
+  /// one `origin` declared. The leaving layer ends its leaving and `overlay` continues it, its state and its ids;
+  /// what is left of it goes with the pass. Whether there was one.
+  fn take_back_leaving(
+    &mut self,
+    overlay: &mut Node,
+    origin: Option<NodeId>,
+    leaving_origins: &[(NodeId, Option<NodeId>)],
+  ) -> bool {
+    let key = overlay.component_key().map(str::to_owned);
+    let declared_by = |root: NodeId| {
+      leaving_origins
+        .iter()
+        .find(|(leaving, _)| *leaving == root)
+        .and_then(|(_, origin)| *origin)
+    };
+    let found = self.leaving.iter().position(|(_, layer)| {
+      let Some(forgotten) = layer.left_as() else {
+        return false;
+      };
+      let (left_key, _) = forgotten.known_as();
+      match (key.as_deref(), left_key.as_deref()) {
+        (Some(key), Some(left)) => key == left,
+        _ => origin.is_some() && declared_by(layer.node_id()) == origin,
+      }
+    });
+    let Some(found) = found else {
+      return false;
+    };
+    let (_, mut layer) = self.leaving.remove(found);
+    layer.end_leaving();
+    reset_element_ref_flags_recursive(&layer);
+    overlay.preserve_runtime_state_from(&layer);
+    overlay.preserve_ids_from(&mut layer);
+    self.dropped.push(layer);
+    true
   }
 
   /// The free old layer `overlay` is known to continue: the one of its key,
@@ -7748,6 +9232,7 @@ fn preserve_overlay_reuse_at(overlay: &mut Node, old_parts: &mut OverlayHostReus
 fn build_overlays_from_layout_index(
   index: &OverlayLayoutIndex,
   viewport: Size,
+  title_bar: f32,
   glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
   layout_engine: &LayoutEngine,
   constraints: Constraints,
@@ -7765,6 +9250,7 @@ fn build_overlays_from_layout_index(
         state,
         bounds,
         visible,
+        theme,
       } => {
         // A select scrolled out of view does not draw its menu over what
         // covers it; the menu comes back with the select.
@@ -7793,9 +9279,14 @@ fn build_overlays_from_layout_index(
           )
         };
         let mut menu = select_menu::build_select_menu(&state, bounds, viewport, &mut measure);
+        // The menu of a select in a subtree with a theme of its own is laid out and painted with it.
+        if let Some(theme) = theme.as_deref() {
+          menu.set_theme_scope(theme);
+        }
         set_overlay_reuse_key(&mut menu, reuse_key.as_deref());
         overlays.push(menu);
         layers.anchors.push(None);
+        layers.takes_focus.push(false);
         layers.origins.push(origin);
         layers.placings.push(None);
       }
@@ -7807,6 +9298,18 @@ fn build_overlays_from_layout_index(
         let Some(anchor) = find_element_record(index, &spec.anchor) else {
           continue;
         };
+        // Hidden or drawn, it is open: it moves the focus when it opens, not when its anchor comes back. One
+        // that Tab reaches after its anchor is walked and gives the focus back as one that takes it, and moves
+        // nothing as it opens.
+        if spec.takes_focus || spec.tab_after_anchor || spec.traps_tab {
+          layers.focus_movers.push(spec.anchor.clone());
+        }
+        if spec.traps_tab {
+          layers.tab_traps.push(spec.anchor.clone());
+        }
+        if spec.takes_focus {
+          layers.focus_takers.push(spec.anchor.clone());
+        }
         // An anchor scrolled or clipped out of view takes its overlay with
         // it: left in place, the overlay would float over whatever now covers
         // the anchor, such as the header above a scrolled list.
@@ -7815,6 +9318,7 @@ fn build_overlays_from_layout_index(
             open: spec.open_signal.clone(),
             on_outside_click: spec.dismiss_on_outside_click,
             on_escape: spec.dismiss_on_escape,
+            on_dismiss: spec.on_dismiss.clone(),
           };
           layers.hide(&spec.anchor, dismiss, overlays.len() + 1);
           continue;
@@ -7829,6 +9333,8 @@ fn build_overlays_from_layout_index(
         let dismiss_on_outside_click = spec.dismiss_on_outside_click;
         let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
+        let on_dismiss = spec.on_dismiss.clone();
+        let takes_focus = spec.takes_focus;
         let (mut overlay, bounds, placing) = build_overlay_node(
           spec,
           anchor,
@@ -7851,12 +9357,14 @@ fn build_overlays_from_layout_index(
             dismiss_on_outside_click,
             outside_press,
             dismiss_on_escape,
+            on_dismiss,
             layer: overlays.len() + 1,
             shown: true,
           });
         }
         overlays.push(overlay);
         layers.anchors.push(Some(layer_anchor));
+        layers.takes_focus.push(takes_focus);
         layers.origins.push(origin);
         layers.placings.push(Some(placing));
       }
@@ -7875,6 +9383,7 @@ fn build_overlays_from_layout_index(
             open: spec.open_signal.clone(),
             on_outside_click: false,
             on_escape: spec.dismiss_on_escape,
+            on_dismiss: spec.on_dismiss.clone(),
           };
           layers.hide(target, dismiss, overlays.len() + 1);
           continue;
@@ -7883,12 +9392,18 @@ fn build_overlays_from_layout_index(
           ModalTarget::Element(target) => Some(target.clone()),
           _ => None,
         };
-        let target = match modal_target_rect_from_index(&spec, parent, viewport, index) {
+        let target = match modal_target_rect_from_index(&spec, parent, viewport, title_bar, index) {
           Some(target) if target.width > 0.0 && target.height > 0.0 => target,
           _ => continue,
         };
         let dismiss_signal = spec.open_signal.clone();
         let dismiss_on_escape = spec.dismiss_on_escape;
+        let on_dismiss = spec.on_dismiss.clone();
+        if spec.takes_focus
+          && let Some(origin) = origin
+        {
+          layers.focus_modals.push(origin);
+        }
         let mut modal = build_modal_node(spec, target);
         set_overlay_reuse_key(&mut modal, reuse_key.as_deref());
         if let Some(open) = dismiss_signal
@@ -7901,12 +9416,14 @@ fn build_overlays_from_layout_index(
             dismiss_on_outside_click: false,
             outside_press: OutsidePress::default(),
             dismiss_on_escape,
+            on_dismiss,
             layer: overlays.len() + 1,
             shown: true,
           });
         }
         overlays.push(modal);
         layers.anchors.push(owner);
+        layers.takes_focus.push(false);
         layers.origins.push(origin);
         layers.placings.push(None);
       }
@@ -7933,17 +9450,20 @@ fn modal_target_rect_from_index(
   spec: &ModalSpec,
   parent: ElementRect,
   viewport: Size,
+  title_bar: f32,
   index: &OverlayLayoutIndex,
 ) -> Option<ElementRect> {
   match &spec.target {
     ModalTarget::Parent => Some(parent),
+    // The window under its title bar: a modal of the app is not laid out under the bar the chrome draws
+    // over it, where its top would not be seen.
     ModalTarget::Root => Some(ElementRect {
       x: 0.0,
-      y: 0.0,
+      y: title_bar,
       relative_x: 0.0,
-      relative_y: 0.0,
+      relative_y: title_bar,
       width: viewport.width,
-      height: viewport.height,
+      height: viewport.height - title_bar,
     }),
     ModalTarget::Element(target) => find_element_record(index, target).map(|record| record.rect),
   }
@@ -7998,6 +9518,9 @@ fn build_overlay_node(
     offset_x: spec.offset_x,
     offset_y: spec.offset_y,
     collision: spec.collision,
+    at: spec.at,
+    at_placement: spec.at_placement,
+    clear: spec.clear,
   };
   let (node, bounds) = place_overlay(
     node,
@@ -8021,6 +9544,12 @@ pub(super) struct OverlayPlacing {
   offset_x: f32,
   offset_y: f32,
   collision: CollisionStrategy,
+  /// The point of the window it stands at in place of its anchor (`Overlay::at`).
+  at: Option<(f32, f32)>,
+  /// Where it stands by that point (`Overlay::at_placed`).
+  at_placement: Option<Placement>,
+  /// What of the window's edges it keeps clear of (`Overlay::keep_clear`).
+  clear: [f32; 4],
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -8042,6 +9571,9 @@ fn place_overlay(
     offset_x,
     offset_y,
     collision,
+    at,
+    at_placement,
+    clear,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -8059,10 +9591,43 @@ fn place_overlay(
     invalidate_layout_cache_recursive(&node);
   }
   let overlay_size = measured.size;
-  let placement = resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
-  let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
+  let (x, y) = match (at, at_placement) {
+    // By the point as by an anchor of no size there, flipped where the window less what it keeps clear of has no
+    // room that way.
+    (Some(point), Some(placement)) => {
+      let [top, right, bottom, left] = clear;
+      let (px, py) = (point.0 - left, point.1 - top);
+      let anchor = ElementRect {
+        x: px,
+        y: py,
+        relative_x: px,
+        relative_y: py,
+        width: 0.0,
+        height: 0.0,
+      };
+      let room = Size::new(
+        (viewport.width - left - right).max(0.0),
+        (viewport.height - top - bottom).max(0.0),
+      );
+      let placement = resolve_overlay_collision(placement, anchor, overlay_size, room, offset_x, offset_y, collision);
+      let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
+      (x + left, y + top)
+    }
+    (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
+    (None, _) => {
+      let placement =
+        resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
+      overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
+    }
+  };
   let (x, y) = if matches!(collision, CollisionStrategy::Clamp | CollisionStrategy::FlipThenClamp) {
-    clamp_overlay_position(x, y, overlay_size, viewport)
+    let [top, right, bottom, left] = clear;
+    let room = Size::new(
+      (viewport.width - left - right).max(overlay_size.width.min(viewport.width)),
+      (viewport.height - top - bottom).max(overlay_size.height.min(viewport.height)),
+    );
+    let (x, y) = clamp_overlay_position(x - left, y - top, overlay_size, room);
+    clamp_overlay_position(x + left, y + top, overlay_size, viewport)
   } else {
     (x, y)
   };
@@ -8179,10 +9744,45 @@ fn overlay_position(
   }
 }
 
+/// Where an overlay that stands at `point` of the window is: down and toward the end from the point, `offset_x` and
+/// `offset_y` away from it, and on the other side of the point along an axis where the window has no room that way
+/// and the other side has, as a context menu opens. Kept inside the window by the clamp that follows.
+fn point_position(
+  point: (f32, f32),
+  overlay: Size,
+  viewport: Size,
+  offset_x: f32,
+  offset_y: f32,
+  collision: CollisionStrategy,
+) -> (f32, f32) {
+  let flips = matches!(collision, CollisionStrategy::Flip | CollisionStrategy::FlipThenClamp);
+  let along = |at: f32, offset: f32, size: f32, room: f32| {
+    let after = at + offset;
+    let before = at - offset - size;
+    if flips && after + size > room && before >= 0.0 {
+      before
+    } else {
+      after
+    }
+  };
+  (
+    along(point.0, offset_x, overlay.width, viewport.width),
+    along(point.1, offset_y, overlay.height, viewport.height),
+  )
+}
+
 fn clamp_overlay_position(x: f32, y: f32, overlay: Size, viewport: Size) -> (f32, f32) {
   let max_x = (viewport.width - overlay.width).max(0.0);
   let max_y = (viewport.height - overlay.height).max(0.0);
   (x.clamp(0.0, max_x), y.clamp(0.0, max_y))
+}
+
+/// The text input in a combobox, which takes the focus a press on the combobox gives.
+fn combobox_input_id(node: &Node) -> Option<NodeId> {
+  if matches!(node.node_kind(), NodeKind::TextInput { .. }) {
+    return Some(node.node_id());
+  }
+  node.children().iter().find_map(combobox_input_id)
 }
 
 /// Close every open select; returns whether any were open.
@@ -8218,6 +9818,7 @@ fn scroll_delta_can_be_consumed_by_hits(
   delta_x: f32,
   delta_y: f32,
   gesture_dy: f32,
+  animated: bool,
 ) -> bool {
   let remaining_dx = -delta_x;
   let remaining_dy = -delta_y;
@@ -8230,9 +9831,9 @@ fn scroll_delta_can_be_consumed_by_hits(
     let Some((state, direction)) = node.scroll_container() else {
       continue;
     };
-    let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
-    if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx)
-      || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy)
+    let (dx, dy) = node_scroll_deltas(node, direction, remaining_dx, remaining_dy, gesture_dy);
+    if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx, animated)
+      || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy, animated)
     {
       return true;
     }
@@ -8251,8 +9852,24 @@ fn scroll_delta_targets_scroll_container(
     let Some((_, direction)) = node.scroll_container() else {
       return false;
     };
-    scroll_container_deltas(direction, -delta_x, -delta_y, gesture_dy) != (0.0, 0.0)
+    node_scroll_deltas(node, direction, -delta_x, -delta_y, gesture_dy) != (0.0, 0.0)
   })
+}
+
+/// The part of a wheel or swipe delta the scroll container `node` takes, as [`scroll_container_deltas`] says,
+/// but for a container that is scrolled sideways by a wheel turned up and down (`wheel_across`): a delta with no
+/// sideways part is taken across.
+fn node_scroll_deltas(
+  node: &Node,
+  direction: ScrollDirection,
+  delta_x: f32,
+  delta_y: f32,
+  gesture_dy: f32,
+) -> (f32, f32) {
+  if node.wheels_across() && delta_x == 0.0 && delta_y != 0.0 && direction != ScrollDirection::Vertical {
+    return (delta_y, 0.0);
+  }
+  scroll_container_deltas(direction, delta_x, delta_y, gesture_dy)
 }
 
 /// The part of a wheel or swipe delta a scroll container takes: the axes it
@@ -8285,25 +9902,32 @@ fn scroll_handlers_present_for_phase(hits: &[(&Node, HitRect)], phase: ScrollPha
   })
 }
 
-fn scroll_axis_delta_can_be_consumed(state: &ScrollState, axis: ScrollAxis, delta: f32) -> bool {
+/// Whether `state` can scroll by `delta` along `axis`: from where it is drawn, or for a delta that is
+/// `animated` from where it is going ([`ScrollState::scroll_target`]).
+fn scroll_axis_delta_can_be_consumed(state: &ScrollState, axis: ScrollAxis, delta: f32, animated: bool) -> bool {
   if delta == 0.0 {
     return false;
   }
 
+  let (scroll_x, scroll_y) = if animated {
+    state.scroll_target()
+  } else {
+    (state.scroll_x(), state.scroll_y())
+  };
   match axis {
     ScrollAxis::Horizontal => {
       let overflow = state.content_width() - state.viewport_width();
       let max_scroll_x = overflow.max(0.0);
       (overflow == 0.0 && delta > 0.0 && state.equal_overflow_scroll_probe_enabled())
-        || (overflow > 0.0 && delta > 0.0 && state.scroll_x() < max_scroll_x)
-        || (delta < 0.0 && state.scroll_x() > 0.0)
+        || (overflow > 0.0 && delta > 0.0 && scroll_x < max_scroll_x)
+        || (delta < 0.0 && scroll_x > 0.0)
     }
     ScrollAxis::Vertical => {
       let overflow = state.content_height() - state.viewport_height();
       let max_scroll_y = overflow.max(0.0);
       (overflow == 0.0 && delta > 0.0 && state.equal_overflow_scroll_probe_enabled())
-        || (overflow > 0.0 && delta > 0.0 && state.scroll_y() < max_scroll_y)
-        || (delta < 0.0 && state.scroll_y() > 0.0)
+        || (overflow > 0.0 && delta > 0.0 && scroll_y < max_scroll_y)
+        || (delta < 0.0 && scroll_y > 0.0)
     }
   }
 }
@@ -8323,24 +9947,23 @@ struct SliderDrag {
   target_id: NodeId,
   binding_id: usize,
   state: SliderState,
-  x: f32,
-  width: f32,
+  /// The thumb the drag began on: of a range, the one it moves however near the other it goes.
+  thumb: SliderThumb,
+  axis: SliderAxis,
   on_finish: Vec<VoidEventHandler>,
 }
 
 impl SliderDrag {
-  fn update(&self, x: f32) -> bool {
-    let ratio = if self.width > 0.0 {
-      (x - self.x) / self.width
-    } else {
-      0.0
-    };
+  fn update(&self, x: f32, y: f32) -> bool {
+    let ratio = self.axis.ratio(x, y);
+    self.state.set_active_thumb(self.thumb);
     self.state.set_drag_ratio(ratio);
-    self.state.set_from_ratio(ratio)
+    self.state.set_from_ratio_of(self.thumb, ratio)
   }
 
   fn finish(&self) {
     self.state.clear_drag_ratio();
+    self.state.change_ended();
     for on_finish in &self.on_finish {
       on_finish.call();
     }
@@ -8398,6 +10021,16 @@ enum TextSelectionDragKind {
 }
 
 impl TextSelectionDrag {
+  /// Ends the drag: what it did besides selecting, the resize of an object of a text input, is done.
+  fn finish(&self, root: Option<&Node>) {
+    if let TextSelectionDragKind::Input { state, .. } = &self.kind {
+      root
+        .and_then(|root| self.current_input_state(root))
+        .unwrap_or(state)
+        .end_object_resize();
+    }
+  }
+
   fn update(&self, x: f32, y: f32) {
     let (local_x, local_y) = self.local_point(x, y);
     match &self.kind {
@@ -8509,10 +10142,15 @@ struct ActiveDrag {
   on_move: Vec<DragCallback>,
   on_end: Vec<DragCallback>,
   payload: Option<crate::app::events::DragPayload>,
+  /// The cursor under the pointer where the drag began, which the window shows until the release.
+  cursor: CursorIcon,
+  /// The scroll container the drag scrolls while its pointer is at the container's edge (`drag_autoscroll`).
+  autoscroll: Option<autoscroll::DragScroll>,
 }
 
 impl ActiveDrag {
-  fn event(&self, x: f32, y: f32, drop_result: Option<DropResult>) -> DragEvent {
+  /// The drag's event at `x`, `y` in a window `window` large, both logical.
+  fn event(&self, x: f32, y: f32, drop_result: Option<DropResult>, window: Size) -> DragEvent {
     DragEvent {
       x,
       y,
@@ -8525,6 +10163,7 @@ impl ActiveDrag {
       button: self.button,
       target_id: self.target_id,
       drop_result,
+      outside_window: x < 0.0 || y < 0.0 || x >= window.width || y >= window.height,
     }
   }
 }
@@ -8585,7 +10224,7 @@ impl ClickTracker {
       .is_some_and(|pending| now.duration_since(pending.time) > interval)
   }
 
-  /// Holds back a click of the input being delivered now, with its source.
+  /// Holds back a click of the input being delivered now, with its source and what pressed.
   fn set_pending(
     &mut self,
     now: Instant,
@@ -8593,6 +10232,7 @@ impl ClickTracker {
     button: MouseButton,
     modifiers: MouseModifiers,
     target_id: NodeId,
+    kind: crate::app::events::PointerKind,
   ) {
     self.pending_click = Some(PendingClick {
       time: now,
@@ -8601,6 +10241,7 @@ impl ClickTracker {
       modifiers,
       target_id,
       source: input_source(),
+      kind,
     });
   }
 
@@ -8618,6 +10259,8 @@ struct PendingClick {
   target_id: NodeId,
   /// Where the input that made the click came from.
   source: InputSource,
+  /// What pressed: a click held back for a finger's double tap is still a finger's when it is told.
+  kind: crate::app::events::PointerKind,
 }
 
 struct ClickPress {
@@ -8631,6 +10274,15 @@ struct ClickPress {
 enum ClickDispatchTarget {
   Node(NodeId),
   CurrentHit,
+}
+
+/// How a scroll came: animated, as a mouse's notches are where motion is not reduced ([`Tree::wheel`]); a
+/// mouse's notches, animated or not; and the keys held.
+#[derive(Clone, Copy, Default)]
+struct ScrollInput {
+  animated: bool,
+  notched: bool,
+  modifiers: MouseModifiers,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -8655,8 +10307,9 @@ impl MouseModifiers {
       alt: self.alt,
       meta: self.meta,
       from_keyboard: true,
-      pointer: crate::app::events::PointerKind::Mouse,
+      pointer_kind: crate::app::events::PointerKind::Mouse,
       target_id,
+      time: Instant::now(),
       control: EventControl::new(),
     }
   }
@@ -8724,6 +10377,7 @@ fn distance_squared(a: (f32, f32), b: (f32, f32)) -> f32 {
 
 impl Drop for Tree {
   fn drop(&mut self) {
+    self.set_key_capture(false);
     self.clear_focus();
     #[cfg(feature = "canvas")]
     if let Some(root) = &self.root {
@@ -8876,6 +10530,12 @@ pub struct ElementHandle<'t> {
 }
 
 impl<'t> ElementHandle<'t> {
+  /// The canvas the element is, where it is one: what it draws and the items it says it holds.
+  #[cfg(feature = "canvas")]
+  pub fn canvas(&self) -> Option<crate::canvas::CanvasHandle> {
+    self.node().and_then(Node::canvas_handle)
+  }
+
   fn node(&self) -> Option<&Node> {
     self
       .tree
@@ -8911,6 +10571,19 @@ impl<'t> ElementHandle<'t> {
 
   pub fn text_content(&self) -> Option<&str> {
     self.node()?.text_content()
+  }
+
+  /// What the element is said to be under `name` to tooling: what its `describe(name, ..)` said when it was built,
+  /// or what its ref said since (`ElementRefMut::describe`), as `lurq_inspect` reads it. Kept only with the `mcp` or
+  /// `devtools` feature.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  pub fn description(&self, name: &str) -> Option<String> {
+    self
+      .node()?
+      .debug_attrs()
+      .iter()
+      .find(|(said, _)| said.as_ref() == name)
+      .map(|(_, value)| value.to_string())
   }
 
   pub fn has_class(&self, class: &str) -> bool {
@@ -9099,8 +10772,9 @@ impl<'t> ElementHandle<'t> {
       alt: false,
       meta: false,
       from_keyboard: false,
-      pointer: crate::app::events::PointerKind::Mouse,
+      pointer_kind: crate::app::events::PointerKind::Mouse,
       target_id: self.node_id,
+      time: Instant::now(),
       control: EventControl::new(),
     };
     for handler in handlers {
@@ -9293,20 +10967,29 @@ impl SliderHandle<'_> {
     }
   }
 
+  /// The value; of a range, its low value.
   pub fn value(&self) -> f32 {
     self.state().map(SliderState::value_f32).unwrap_or_default()
   }
 
+  /// The low value and the high one; of a slider of one value, that value
+  /// twice.
+  pub fn values(&self) -> (f32, f32) {
+    self.state().map(SliderState::values_f32).unwrap_or_default()
+  }
+
   /// Sets the value from a 0..=1 ratio along the track, snapping to the
-  /// slider's step.
+  /// slider's step, as a press there does: of a range, the nearer thumb
+  /// moves.
   pub fn set_from_ratio(&mut self, ratio: f32) {
     if let Some(state) = self.state() {
-      state.set_from_ratio(ratio);
+      state.press_at_ratio(ratio);
     }
     self.inner.invalidate_render();
   }
 
-  /// Steps the value by `delta` slider steps (keyboard-arrow semantics).
+  /// Steps the value by `delta` slider steps (keyboard-arrow semantics); of
+  /// a range, the value of the thumb last pressed or reached by Tab.
   pub fn nudge(&mut self, delta: i32) {
     if let Some(state) = self.state() {
       state.nudge(delta);
@@ -9427,8 +11110,11 @@ fn verify_scroll_offsets(node: &Node, result: &crate::layout::layout_result::Lay
       node.layout_cache.has_cached_result(),
     );
   }
+  // What it checks is in scroll containers: a virtualized list's spacer, an offset kept stale.
   for (child_layout, child) in result.children.iter().zip(node.children()) {
-    verify_scroll_offsets(child, &child_layout.result);
+    if child.layout_cache.subtree().scroll {
+      verify_scroll_offsets(child, &child_layout.result);
+    }
   }
 }
 
@@ -9479,6 +11165,46 @@ fn find_node_by_id(node: &Node, id: NodeId) -> Option<&Node> {
   None
 }
 
+/// The element refs of the node at `path` and of every node it is in.
+fn element_refs_along_path(root: &Node, path: &[usize]) -> Vec<OwnedElementRef> {
+  let mut current = root;
+  let mut refs: Vec<OwnedElementRef> = current.element_ref.iter().cloned().collect();
+  for &index in path {
+    let Some(child) = current.children().get(index) else {
+      break;
+    };
+    current = child;
+    refs.extend(current.element_ref.iter().cloned());
+  }
+  refs
+}
+
+/// The element of `reference` in the tree under `root` as the focus takes it: the first node in it, or itself, that
+/// takes the focus, and the element whose handlers hear of it.
+fn focus_target_of_ref(root: &Node, reference: &OwnedElementRef) -> Option<FocusTarget> {
+  if root
+    .element_ref
+    .as_ref()
+    .is_some_and(|current| current.same_handle(reference))
+  {
+    fn control(node: &Node) -> Option<NodeId> {
+      if node.is_focusable() {
+        Some(node.node_id())
+      } else {
+        node.children().iter().find_map(control)
+      }
+    }
+    return control(root).map(|input_id| FocusTarget {
+      input_id,
+      event_id: root.node_id(),
+    });
+  }
+  root
+    .children()
+    .iter()
+    .find_map(|child| focus_target_of_ref(child, reference))
+}
+
 fn find_node_by_path<'a>(node: &'a Node, path: &[usize]) -> Option<&'a Node> {
   let mut current = node;
   for &index in path {
@@ -9513,7 +11239,7 @@ impl Tree {
         y: 0,
         width: self.viewport_physical.width.round().max(1.0) as u32,
         height: self.viewport_physical.height.round().max(1.0) as u32,
-        target: self.inspection_target(target, redact_sensitive, (0, 0)),
+        target: self.system_drawn_over(self.inspection_target(target, redact_sensitive, (0, 0)), (0, 0)),
         window_clip: self.screenshot_window_clip(),
       });
     };
@@ -9534,9 +11260,29 @@ impl Tree {
       y,
       width,
       height,
-      target: self.inspection_target(target, redact_sensitive, (x, y)),
+      target: self.system_drawn_over(self.inspection_target(target, redact_sensitive, (x, y)), (x, y)),
       window_clip: None,
     })
+  }
+
+  /// Has the system's parts of the window be drawn as a screenshot of it is taken: see
+  /// [`app::capture_overlay`](crate::app::capture_overlay).
+  #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+  pub(crate) fn set_system_pictures(&mut self, pictures: crate::app::capture_overlay::SystemPictures) {
+    self.system_pictures = Some(pictures);
+  }
+
+  /// `target`, with the parts of the window the system draws laid over what the renderer drew. `origin` is the
+  /// capture's top-left window pixel.
+  fn system_drawn_over(
+    &self,
+    target: crate::app::render_engine::RenderCaptureTarget,
+    origin: (u32, u32),
+  ) -> crate::app::render_engine::RenderCaptureTarget {
+    match &self.system_pictures {
+      Some(pictures) => crate::app::capture_overlay::laying_over(target, origin, pictures()),
+      None => target,
+    }
   }
 
   /// `target`, painting over the last render list's sensitive text when the
@@ -10427,6 +12173,26 @@ fn screenshot_rect_fill_color(rect: &RectCmd, fallback: [u8; 4], world_x: f32, w
 
 #[cfg(feature = "devtools")]
 fn screenshot_sample_gradient(gradient: &RenderGradient, local: [f32; 2], half: [f32; 2]) -> [u8; 4] {
+  if gradient.kind == 3 && gradient.stops.len() == 4 {
+    // The four corners mixed across and then down, in sRGB-encoded values.
+    let u = ((local[0] + half[0]) / (2.0 * half[0]).max(1e-5)).clamp(0.0, 1.0);
+    let v = ((local[1] + half[1]) / (2.0 * half[1]).max(1e-5)).clamp(0.0, 1.0);
+    let encoded = |stop: usize, channel: usize| {
+      let value = gradient.stops[stop].color[channel];
+      if channel == 3 {
+        value
+      } else {
+        f32::from(screenshot_linear_to_srgb_u8(value)) / 255.0
+      }
+    };
+    let mut out = [0_u8; 4];
+    for (channel, slot) in out.iter_mut().enumerate() {
+      let top = encoded(0, channel) + (encoded(1, channel) - encoded(0, channel)) * u;
+      let bottom = encoded(3, channel) + (encoded(2, channel) - encoded(3, channel)) * u;
+      *slot = ((top + (bottom - top) * v).clamp(0.0, 1.0) * 255.0).round() as u8;
+    }
+    return out;
+  }
   let mut t = match gradient.kind {
     0 => {
       let dir = gradient.dir;
@@ -10768,6 +12534,29 @@ fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source:
   pixels[index + 3] = (out_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
 }
 
+/// The node that is the element the focus was on, where it is no longer found by its id: the one with the ref it had,
+/// or the text input that edits the value it edited.
+fn refocused(root: &Node, memory: &FocusMemory) -> Option<NodeId> {
+  if memory.refs.is_empty() && memory.input.is_none() {
+    return None;
+  }
+  fn visit(node: &Node, memory: &FocusMemory) -> Option<NodeId> {
+    let by_ref = node
+      .element_ref
+      .as_ref()
+      .is_some_and(|reference| memory.refs.iter().any(|kept| kept.same_handle(reference)));
+    let by_input = match (node.node_kind(), &memory.input) {
+      (NodeKind::TextInput { state, .. }, Some(input)) => state.same_value(input),
+      _ => false,
+    };
+    if by_ref || by_input {
+      return Some(node.node_id());
+    }
+    node.children().iter().find_map(|child| visit(child, memory))
+  }
+  visit(root, memory)
+}
+
 fn find_path_by_id(node: &Node, id: NodeId) -> Option<Vec<usize>> {
   fn visit(node: &Node, id: NodeId, path: &mut Vec<usize>) -> bool {
     if node.node_id() == id {
@@ -10877,6 +12666,18 @@ fn hovered_cursor<'a>(mut nodes: impl Iterator<Item = &'a Node>) -> CursorIcon {
         .is_some_and(|(state, _)| state.is_thumb_hovered())
       {
         Some(CursorIcon::Default)
+      } else if let NodeKind::TextInput { state, .. } = node.node_kind()
+        && state.token_icon_hovered()
+        && !node.is_disabled()
+      {
+        // The cross that takes a token away is pressed, as a button is.
+        Some(CursorIcon::Pointer)
+      } else if let NodeKind::TextInput { state, .. } = node.node_kind()
+        && state.object_handle_hovered()
+        && !node.is_disabled()
+      {
+        // The handle on the corner of a selected object is dragged along the diagonal.
+        Some(CursorIcon::NwseResize)
       } else {
         node.cursor_icon()
       }
@@ -10961,13 +12762,25 @@ fn reset_element_ref_flags_recursive(node: &Node) {
 fn replace_live_component_slot_everywhere(
   root: &mut Node,
   slot_id: u64,
-  replacement: Box<Node>,
+  mut replacement: Box<Node>,
   id_gen: &IdGenerator,
+  cached: &dyn Fn(u64) -> Option<Box<Node>>,
 ) -> bool {
   let mut places = Vec::new();
-  find_live_component_slot(root, slot_id, &mut Vec::new(), &mut places);
-  let mut replacement = Some(replacement);
+  // Only down the subtrees that hold a component's output: its way from the root, not the tree. Where that finds
+  // nothing, the whole tree is looked through: what a subtree knows of itself holds where its tracking is fresh,
+  // and this is the check of it.
+  find_live_component_slot(root, slot_id, true, &mut Vec::new(), &mut places);
+  if places.is_empty() {
+    find_live_component_slot(root, slot_id, false, &mut Vec::new(), &mut places);
+  }
   let count = places.len();
+  // An output that goes to several places is copied for each: the components it held back are made from their
+  // slots, since their live nodes can go to one place only.
+  if count != 1 {
+    replacement.settle_held_components(&Node::new(), cached);
+  }
+  let mut replacement = Some(replacement);
   for (index, path) in places.iter().enumerate() {
     let fresh = if index + 1 == count {
       replacement.take().expect("the output moves into its last place only")
@@ -10977,9 +12790,31 @@ fn replace_live_component_slot_everywhere(
         .expect("the output is kept for its last place")
         .clone_boxed()
     };
-    replace_live_component_root(live_node_at(root, path), fresh, id_gen);
+    replace_live_component_root(live_node_at(root, path), fresh, id_gen, cached);
+    // Numbered as it came in; disabled as what it is in is. The rest of the tree did not change: it is not
+    // numbered or synced again.
+    if crate::node::node::disabled_in_use()
+      && let Some(inherited) = disabled_above(root, path)
+    {
+      live_node_at(root, path).assign_ids_and_disabled(id_gen, inherited);
+    }
   }
   count > 0
+}
+
+/// Whether a node at `path` from `root` is in a disabled element: one of the nodes above it is. None where the way
+/// goes into a layer's node, which takes nothing from the node that declares it.
+fn disabled_above(root: &Node, path: &[LiveStep]) -> Option<bool> {
+  let mut node = root;
+  let mut disabled = false;
+  for step in path {
+    disabled |= node.is_disabled();
+    match step {
+      LiveStep::Child(index) => node = &node.children[*index],
+      LiveStep::Modal | LiveStep::Overlay => return None,
+    }
+  }
+  Some(disabled)
 }
 
 /// A step from a live node towards a component's root: into a child, or
@@ -10991,25 +12826,35 @@ enum LiveStep {
   Overlay,
 }
 
-/// The paths of the roots of component `slot_id` in the live tree.
-fn find_live_component_slot(node: &Node, slot_id: u64, path: &mut Vec<LiveStep>, places: &mut Vec<Vec<LiveStep>>) {
+/// The paths of the roots of component `slot_id` in the live tree. `pruned` passes by a subtree that holds no
+/// component's output (see [`Node::holds_no_component`]).
+fn find_live_component_slot(
+  node: &Node,
+  slot_id: u64,
+  pruned: bool,
+  path: &mut Vec<LiveStep>,
+  places: &mut Vec<Vec<LiveStep>>,
+) {
   if node.component_slot_id() == Some(slot_id) {
     places.push(path.clone());
     return;
   }
   for (index, child) in node.children.iter().enumerate() {
+    if pruned && child.holds_no_component() {
+      continue;
+    }
     path.push(LiveStep::Child(index));
-    find_live_component_slot(child, slot_id, path, places);
+    find_live_component_slot(child, slot_id, pruned, path, places);
     path.pop();
   }
   if let Some(spec) = node.modal_declaration.as_ref() {
     path.push(LiveStep::Modal);
-    find_live_component_slot(&spec.node, slot_id, path, places);
+    find_live_component_slot(&spec.node, slot_id, pruned, path, places);
     path.pop();
   }
   if let Some(spec) = node.overlay_declaration.as_ref() {
     path.push(LiveStep::Overlay);
-    find_live_component_slot(&spec.node, slot_id, path, places);
+    find_live_component_slot(&spec.node, slot_id, pruned, path, places);
     path.pop();
   }
 }
@@ -11030,14 +12875,23 @@ fn live_node_at<'a>(mut node: &'a mut Node, path: &[LiveStep]) -> &'a mut Node {
 
 /// Replaces a component's root with its fresh output. The flags of the
 /// interaction paths are cleared on both, for `Tree::reapply_interaction_state`.
-fn replace_live_component_root(node: &mut Node, mut replacement: Box<Node>, id_gen: &IdGenerator) {
+fn replace_live_component_root(
+  node: &mut Node,
+  mut replacement: Box<Node>,
+  id_gen: &IdGenerator,
+  cached: &dyn Fn(u64) -> Option<Box<Node>>,
+) {
   replacement.adopt_outer_decoration(node);
   reset_element_ref_flags_recursive(node);
+  // The unchanged components the render held back: the ones `node` has are moved over once the rest is
+  // matched, the others are made from their slots first.
+  let moved = replacement.settle_held_components(node, cached);
   replacement.preserve_runtime_state_from(node);
   #[cfg(feature = "canvas")]
   let old_canvases = canvas_bindings(node);
   // The children that are leaving go over to the replacement here, their canvases with them.
   replacement.preserve_ids_from(node);
+  replacement.take_held_components_from(node, moved);
   #[cfg(feature = "canvas")]
   detach_canvases_not_carried(old_canvases, Some(&replacement));
   node.free_ids(id_gen);
@@ -11112,7 +12966,7 @@ mod layout_tracking_tests {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "canvas", feature = "http"))]
   #[test]
   fn resource_completion_only_visits_resource_branches() {
     let mut app = App::new();
@@ -11164,6 +13018,7 @@ mod layout_tracking_tests {
 
   #[cfg(feature = "image")]
   #[test]
+  #[allow(deprecated)]
   fn another_trees_loading_image_does_not_walk_a_clean_tree() {
     let mut app = App::new();
     let mut tree = Tree::new();
@@ -11407,6 +13262,14 @@ fn update_canvas_placement_recursive(
   }
 }
 
+/// The time a pass draws its canvases at, and whether their motion is off (reduced).
+#[cfg(feature = "canvas")]
+#[derive(Clone, Copy)]
+struct CanvasMotionClock {
+  now: Instant,
+  still: bool,
+}
+
 #[cfg(feature = "canvas")]
 #[allow(clippy::too_many_arguments)]
 fn bind_canvas_layout_recursive(
@@ -11420,7 +13283,9 @@ fn bind_canvas_layout_recursive(
   window: &crate::app::window::Window,
   font: &crate::canvas::CanvasFont,
   text: &Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>,
+  motion: CanvasMotionClock,
   registry: &mut Vec<crate::canvas::CanvasHandle>,
+  software: bool,
 ) {
   use crate::node::transform::Transform2D;
   let local = node
@@ -11428,6 +13293,9 @@ fn bind_canvas_layout_recursive(
     .around_origin([abs_x + layout.size.width * 0.5, abs_y + layout.size.height * 0.5]);
   let composed = inherited.then(&local);
   if let Some(canvas) = node.canvas_handle() {
+    if software {
+      canvas.software();
+    }
     registry.push(canvas.clone());
     let padding = engine.resolved_padding_for_size(node, layout.size);
     let size = Size::new(
@@ -11439,10 +13307,16 @@ fn bind_canvas_layout_recursive(
     if let Some(reference) = &node.element_ref {
       reference.bind_canvas(&canvas);
     }
+    let metrics_changed = notification.is_some();
     if let Some((metrics, observers)) = notification {
       for observer in observers {
         observer(metrics);
       }
+    }
+    // A canvas drawn from what it is given is drawn again only when that, or its size or scale, changes; one on
+    // its way somewhere is drawn at each pass's start besides, until it is there.
+    if let Some(painter) = node.canvas_painter() {
+      canvas.paint_with(painter, metrics_changed, motion.now, motion.still);
     }
   }
   for (child_layout, child) in layout.children.iter().zip(node.children()) {
@@ -11457,7 +13331,9 @@ fn bind_canvas_layout_recursive(
       window,
       font,
       text,
+      motion,
       registry,
+      software,
     );
   }
 }
@@ -11491,6 +13367,11 @@ fn update_element_refs_recursive(
   }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
+    // A subtree with no ref and no scroll container has nothing to be told.
+    let subtree = child_node.layout_cache.subtree();
+    if !subtree.refs && !subtree.scroll {
+      continue;
+    }
     update_element_refs_recursive(
       child_node,
       &child_layout.result,
@@ -11549,13 +13430,23 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
           data.append(name, "on");
         }
       }
-      NodeKind::Slider { state } => data.append(name, state.value_string()),
+      // A range slider submits its low value and its high one, in that order, under its name.
+      NodeKind::Slider { state } => {
+        for value in state.value_strings() {
+          data.append(name, value);
+        }
+      }
       NodeKind::Select { state } => {
         for label in state.selected_labels() {
           data.append(name, label.to_string());
         }
       }
-      _ => {}
+      // An element that is no engine control gives what it says it holds.
+      _ => {
+        if let Some(value) = node.form_value() {
+          data.append(name, value.to_string());
+        }
+      }
     }
   }
 
@@ -11575,6 +13466,7 @@ fn press_blurs_focus(hits: &[(&Node, crate::app::hit_test::HitRect)]) -> bool {
 fn dispatch_builtin_pointer(
   hits: &[(&Node, crate::app::hit_test::HitRect)],
   x: f32,
+  y: f32,
   click: bool,
 ) -> Option<FocusTarget> {
   if !click {
@@ -11604,7 +13496,7 @@ fn dispatch_builtin_pointer(
         });
       }
       NodeKind::Slider { state } => {
-        let (track_rect, thumb_rect) = state.part_rects(
+        let parts = state.part_rects(
           rect.x,
           rect.y,
           rect.width,
@@ -11612,9 +13504,7 @@ fn dispatch_builtin_pointer(
           node.is_style_hovered(),
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
-        let ratio = state.pointer_ratio(x, track_rect, thumb_rect);
-        state.set_from_ratio(ratio);
-        state.clear_drag_ratio();
+        state.press_at_ratio(parts.axis().ratio(x, y));
         return Some(FocusTarget {
           input_id: node.node_id(),
           event_id: event_id.unwrap_or_else(|| node.node_id()),
@@ -11901,7 +13791,6 @@ fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
     NodeKind::Text { state, .. } if state.selectable() => {
       Some((state.clone(), node.text_content().unwrap_or_default().to_owned()))
     }
-    #[cfg(feature = "markdown")]
     NodeKind::RichText { state, .. } if state.selectable() => Some((state.clone(), node.rich_text_value()?)),
     _ => None,
   }
@@ -11910,13 +13799,10 @@ fn selectable_text_state_and_value(node: &Node) -> Option<(TextState, String)> {
 /// The selected text of a selectable text node, without what a rich text
 /// draws as presentation (a link's isolate marks and trailing runs).
 fn selected_content(node: &Node, state: &TextState, value: &str) -> Option<String> {
-  #[cfg(feature = "markdown")]
   if let NodeKind::RichText { .. } = node.node_kind() {
     let range = state.selected_range(value)?;
     return Some(node.rich_text_content(value, range)).filter(|text| !text.is_empty());
   }
-  #[cfg(not(feature = "markdown"))]
-  let _ = node;
   state.selected_text(value)
 }
 
@@ -11924,19 +13810,23 @@ fn is_selectable_text_node(node: &Node) -> bool {
   selectable_text_state_and_value(node).is_some()
 }
 
-fn find_slider_by_y_recursive<'a>(
+/// The slider in whose lane `(x, y)` is: a horizontal one whose rows it is in, a vertical one whose columns. A
+/// press there and on nothing else is a press on the slider.
+fn find_slider_in_lane_recursive<'a>(
   node: &'a Node,
   layout: &'a LayoutResult,
   abs_x: f32,
   abs_y: f32,
+  x: f32,
   y: f32,
 ) -> Option<(&'a Node, ElementRect)> {
   for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
-    if let Some(found) = find_slider_by_y_recursive(
+    if let Some(found) = find_slider_in_lane_recursive(
       child_node,
       &child_layout.result,
       abs_x + child_layout.offset.x,
       abs_y + child_layout.offset.y,
+      x,
       y,
     ) {
       return Some(found);
@@ -11952,8 +13842,17 @@ fn find_slider_by_y_recursive<'a>(
     height: layout.size.height,
   };
 
-  if matches!(node.node_kind(), NodeKind::Slider { .. }) && y >= rect.y && y <= rect.y + rect.height {
-    return Some((node, rect));
+  // A disabled slider is not under the pointer for a press, and is not found by its lane either.
+  if let NodeKind::Slider { state } = node.node_kind()
+    && !node.is_disabled()
+  {
+    let in_lane = match state.orientation() {
+      SliderOrientation::Horizontal => y >= rect.y && y <= rect.y + rect.height,
+      SliderOrientation::Vertical => x >= rect.x && x <= rect.x + rect.width,
+    };
+    if in_lane {
+      return Some((node, rect));
+    }
   }
 
   None
@@ -12002,8 +13901,19 @@ fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {
   x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
-fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
+/// The rest of the path to the focused node from the child at `index` of a
+/// node on it: `None` where the child is not on the way to the focus.
+fn focus_path_through(focus_path: Option<&[usize]>, index: usize) -> Option<&[usize]> {
+  let (first, rest) = focus_path?.split_first()?;
+  (*first == index).then_some(rest)
+}
+
+/// Calls the `on_key_down` handlers of `node` and of everything in it.
+/// `focus_path` is the path from `node` to the focused node, while `node` is
+/// on the way to it.
+fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent, focus_path: Option<&[usize]>) -> bool {
   evt.target_id = node.node_id();
+  evt.focus_within = focus_path.is_some();
   for handler in &node.events.on_key_down {
     handler.call(evt);
     if evt.immediate_propagation_stopped() {
@@ -12013,16 +13923,17 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   if evt.propagation_stopped() {
     return true;
   }
-  for child in node.children() {
-    if fire_keyboard_recursive(child, evt) {
+  for (index, child) in node.children().iter().enumerate() {
+    if fire_keyboard_recursive(child, evt, focus_path_through(focus_path, index)) {
       return true;
     }
   }
   false
 }
 
-fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
+fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent, focus_path: Option<&[usize]>) -> bool {
   evt.target_id = node.node_id();
+  evt.focus_within = focus_path.is_some();
   for handler in &node.events.on_key_up {
     handler.call(evt);
     if evt.immediate_propagation_stopped() {
@@ -12032,8 +13943,8 @@ fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   if evt.propagation_stopped() {
     return true;
   }
-  for child in node.children() {
-    if fire_keyboard_up_recursive(child, evt) {
+  for (index, child) in node.children().iter().enumerate() {
+    if fire_keyboard_up_recursive(child, evt, focus_path_through(focus_path, index)) {
       return true;
     }
   }
@@ -12691,6 +14602,13 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
 /// past the box. Where that pixel falls follows the text's place, so a page
 /// scrolled by fractions of a pixel showed it on some frames and not others.
 ///
+/// Where the clip cuts the text, it cuts on whole pixels inside its edge. An
+/// edge at a fraction of a pixel (a grid's rows under its header, at 150%)
+/// falls inside a row of pixels that the scissor, rounding out, draws whole:
+/// the rows' words showed in that row of the header's top edge, in and out as
+/// they scrolled under it, though the header painted over them covered the
+/// rest of it.
+///
 /// A glyph drawn through a transform is not its rect: a run with one keeps
 /// the clip let out on every side.
 fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> ClipRect {
@@ -12710,13 +14628,34 @@ fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> C
     right = right.max(glyph.x + glyph.width - inset);
     bottom = bottom.max(glyph.y + glyph.height - inset);
   }
+  let cut = [
+    left < clip.x - RASTERIZATION_SLOP_PX,
+    top < clip.y - RASTERIZATION_SLOP_PX,
+    right > clip.x + clip.width + RASTERIZATION_SLOP_PX,
+    bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX,
+  ];
   let slop = |cut: bool| if cut { 0.0 } else { RASTERIZATION_SLOP_PX };
-  clip.outset(
-    slop(left < clip.x - RASTERIZATION_SLOP_PX),
-    slop(top < clip.y - RASTERIZATION_SLOP_PX),
-    slop(right > clip.x + clip.width + RASTERIZATION_SLOP_PX),
-    slop(bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX),
-  )
+  let mut clip = clip.outset(slop(cut[0]), slop(cut[1]), slop(cut[2]), slop(cut[3]));
+  // A side that cuts goes in to the next whole pixel; its rounded clips stay where they are, cutting in the shaders.
+  let (mut x0, mut y0) = (clip.x, clip.y);
+  let (mut x1, mut y1) = (clip.x + clip.width, clip.y + clip.height);
+  if cut[0] {
+    x0 = x0.ceil();
+  }
+  if cut[1] {
+    y0 = y0.ceil();
+  }
+  if cut[2] {
+    x1 = x1.floor();
+  }
+  if cut[3] {
+    y1 = y1.floor();
+  }
+  clip.x = x0;
+  clip.y = y0;
+  clip.width = (x1 - x0).max(0.0);
+  clip.height = (y1 - y0).max(0.0);
+  clip
 }
 
 /// Draws the glyphs of one text under [`text_glyph_clip`].
@@ -12823,6 +14762,19 @@ mod tests {
       "cut where the text goes on"
     );
     assert_eq!((clip.x, clip.y + clip.height), (9.0, 61.0), "let out where it does not");
+  }
+
+  #[test]
+  fn a_text_the_clip_cuts_at_a_fraction_of_a_pixel_is_cut_on_the_whole_pixel_inside() {
+    // A row's words scrolled under the top edge of a grid's rows at 271.25: the row of pixels from 271 is the
+    // header's top edge, its border's and its fill's, and holds none of them. The words run past the right edge at
+    // 110.75 too, and end at 110. The sides the words do not reach past are let out.
+    let edge = ClipRect::rect(10.5, 271.25, 100.25, 40.0);
+    let glyphs = [glyph(12.0, 264.0), glyph(104.0, 280.0)];
+
+    let clip = text_glyph_clip(edge, [20.0, 262.0, 60.0, 290.0], &glyphs);
+
+    assert_eq!(edges(clip), (9.5, 272.0, 110.0, 312.25));
   }
 
   #[test]

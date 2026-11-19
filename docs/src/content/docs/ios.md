@@ -8,6 +8,9 @@ tree on a phone as on a desktop; this page says what an app has to set up and wh
 is listed in `docs/ios-gaps.md` in the repository. The iPad and several windows are not supported.
 
 `crates/mobile_demo` is a complete example: a screen for each thing below, and the Xcode project that wraps it.
+The gallery has one too, `crates/gallery/ios/Gallery.xcodeproj`, to look at every component on a phone or a
+tablet; it is built and run as below, with `BUNDLE_ID_PREFIX=<yours>` (its bundle is `<yours>.lurq.gallery`) and,
+for a feature such as `mcp`, `CARGO_FEATURES=mcp`.
 
 ## Setting up
 
@@ -91,6 +94,9 @@ content padded by the safe area ends above it. The focused text input is scrolle
 
 ## Touch
 
+What follows holds wherever winit tells touches, not on iOS alone: Android, a Windows or Linux touch screen and the
+browser too (see [A Finger Or A Mouse](../styling-events/#a-finger-or-a-mouse)).
+
 One finger is the pointer. `on_click`, `on_mouse_down` and the rest fire as for a mouse, with these differences,
 which are the platform's:
 
@@ -98,39 +104,58 @@ which are the platform's:
   moves more than 10 points scrolls, and there is no click. A quick tap still clicks at once.
 - **Nothing is hovered.** Hover styles are not applied under a finger.
 - **A tap shows as pressed** for a moment even when the finger was down for less than a frame.
-- `MouseEvent::pointer` is `PointerKind::Touch` for these events, for an element that must tell.
+- `MouseEvent::pointer_kind` is `PointerKind::Touch` for these events (`Pen` for a pen's), for an element that must tell.
 
 A finger's own events are separate, and bubble like the mouse's:
 
 | Handler | Event | When |
 | --- | --- | --- |
 | `on_touch_start`, `on_touch_move`, `on_touch_end`, `on_touch_cancel` | `TouchEvent` | each finger, by its `id` |
-| `on_tap` | `TapEvent` | a tap, with how many `fingers` |
+| `on_tap` | `TapEvent` | a tap, with how many `fingers` and which of a row it is (`count`: 1, 2, 3) |
+| `on_double_tap` | `TapEvent` | the second of two taps in a row |
 | `on_long_press` | `LongPressEvent` | a finger held for half a second |
 | `on_swipe` | `SwipeEvent` | a quick move, with its `direction` and `velocity` |
 | `on_pan` | `PanEvent` | a drag, from start to end |
 | `on_pinch` | `PinchEvent` | two fingers moving apart or together: `scale` |
 | `on_rotate` | `RotateEvent` | two fingers turning: `rotation`, in radians |
 | `on_edge_pan` | `EdgePanEvent` | a finger in from a screen edge |
-| `on_history_swipe` | `HistorySwipeEvent` | the same from the left edge (back) or the right (forward) |
+| `on_history_swipe` | `HistorySwipeEvent` | the same from the left edge (back) or the right (forward); then [going back](../styling-events/#going-back-and-forward) |
+
+A double tap held and dragged zooms with one finger (`on_pinch`), three fingers swiped, pinched or tapped are the
+editing commands and their menu, and a pen's hover hovers: [every gesture](../styling-events/#every-gesture) has
+the table, with how each is made on a phone, in the emulator on a desktop and through MCP. In text, iOS draws its
+own caret, loupe and handles; elsewhere lurq draws them.
+
+A finger from the left edge goes back by itself: the router mounted in the window takes the command, after anything
+on the way that handles `on_history_back` (a sheet that closes on it).
 
 ```rust
-let navigator = ctx.navigator();
 Column::new()
     .on_tap(move |event: TapEvent| fingers.set(event.fingers))
-    .on_history_swipe(move |event: HistorySwipeEvent| {
-        if let Some(navigator) = &navigator {
-            match event.direction {
-                HistoryDirection::Back => navigator.back(),
-                HistoryDirection::Forward => navigator.forward(),
-            };
+    .on_history_back(move |event: HistoryEvent| {
+        if sheet_open.get_untracked() {
+            sheet_open.set(false);
+        } else {
+            event.pass_on();
         }
-        event.stop_propagation();
     })
 ```
 
 A handler of `on_touch_start` that calls `prevent_default` takes the finger: it is not the pointer, so it
 neither clicks nor scrolls. Two fingers that pinch or rotate are not the pointer either.
+
+**An action is `on_click`; a gesture is `on_tap`, `on_double_tap`, `on_swipe`, `on_pinch`, `on_long_press`.** A
+mouse, a finger, a pen, Enter and Space all reach `on_click`, so an app with one code base for a phone and a desktop
+writes its actions there once. The gestures are a finger's (and a pen's) only:
+
+- `on_tap` comes first and `on_click` after it, and an element with both runs each once. A tap a handler takes
+  (`prevent_default`) clicks nothing, as a long press that is taken does not.
+- A tap of two fingers or more never clicks: it is `on_tap` with its `fingers`. A click is always one finger's.
+- A click never waits for a second tap, except on an element that listens for one with `on_double_tap`: there the
+  single click is held back for the time of a double click (`Tree::set_double_click_interval`, timed on the clock
+  of presses), and two taps are the double tap alone, with no click. A double tap is not `on_dblclick`: on a phone
+  it zooms, and a finger never makes a double click.
+- A pen's tap is a click and a tap, as a finger's; `MouseEvent::pointer_kind` says `Pen`.
 
 ### Haptics
 
@@ -194,7 +219,16 @@ ZoomScroll::mount(
 - The list fills what it is put in. `range` is the smallest and the largest scale, 1 and 4 unless set;
   content shown smaller than the list lies in its middle.
 - `zoom(signal)` is the scale, to read and to set; `scroll(state)` is the list's `ScrollState`.
-  `double_tap(None)` leaves a double tap to the content.
+  `double_tap(None)` leaves a double tap to the content. A scale set from outside, by a button or a key, keeps the
+  middle of the view where it is.
+- With a mouse: `wheel_zoom(step)` makes the wheel bring the content closer and further about the pointer, by
+  `step` at a notch, in place of scrolling it: away from the hand closer, toward it further. `drag_pan(true)` lets
+  a press held and moved carry the content as a finger does. Neither is on unless asked for: without them the
+  wheel scrolls the content as in any list.
+- Ctrl and the wheel zoom about the pointer either way, by `step` (1.5 without `wheel_zoom`) at a notch. A
+  touchpad's two fingers scroll the content as in any list; their pinch zooms, as far as they go: on Windows it
+  is the wheel with Ctrl held, as a browser tells it, and a Mac trackpad's pinch is a pinch about the pointer
+  (`Tree::trackpad_pinch`), its smart zoom, a double tap of two fingers, a double tap.
 - The content is laid out once, at its own size, and drawn scaled: text in it is not laid out anew for the
   size it is shown at.
 - A pinch stops at the smallest and the largest scale, where the platform's gives and springs back, and a
@@ -217,10 +251,10 @@ PullToRefresh::mount(
 - Around a stack screen's list the state is `StackOutlet::screen_scroll(ctx)`, and `.top(StackOutlet::bar_inset(ctx))`
   puts the spinner under the navigation bar.
 - `PullToRefreshStyle`: `threshold` (100), how far the list is pulled before it asks; `hold` (60), how far
-  down it stays meanwhile; `spinner_size`, `spinner_color`, `duration` and `haptic`. `dark()` has the dark
-  spinner.
-- `ActivityIndicator` is the spinner by itself: `ActivityIndicator::mount(ctx, ActivityIndicatorProps::new())`.
-  It draws frames only while it goes round.
+  down it stays meanwhile; `spinner_size`, `spinner_color`, `duration` and `haptic`. The spinner's color is the
+  theme's `MutedForeground`, light or dark as the theme is (see [Colors from the theme](#colors-from-the-theme)).
+- A spinner by itself is `lurq::ui::Spinner`. The platform's spokes, `ActivityIndicator`, are deprecated for an
+  app since 0.63; the pull to refresh still draws them.
 
 ### Swipe actions
 
@@ -249,6 +283,34 @@ SwipeRow::mount_keyed(
 - `SwipeRowProps::open(signal)` says which side is open (-1 trailing, 0, 1 leading), for a list that closes
   the other rows when one opens.
 - The content paints its own background: the actions are behind it.
+- An action is in the theme's colors: `SwipeAction::new` on `MutedForeground` with the `Background`'s ink,
+  `SwipeAction::destructive` in `Destructive` and `DestructiveForeground`. `background` and `color` set others.
+
+### Colors from the theme
+
+The sheet, the tab bar, the navigation bar, the pull to refresh and the swipe row take their colors from the
+theme, where their styles are made: `SheetStyle::new()`, `TabBar::new()`, `NavigationBar::new()`,
+`PullToRefreshStyle::new()` and `SwipeAction::new(..)` read the recipe the theme keeps for each (`phone_sheet`,
+`phone_tab_bar`, `phone_navigation_bar`, `phone_pull_to_refresh`, `phone_swipe_row`), which names the design's
+roles. Built in a dark theme they are dark: there is no `dark()` to choose any more (it is deprecated, with the
+colors of 0.62). `ThemeDefinition::legacy()` gives them the colors they had in 0.62. A field set on a style is
+that color whatever the theme; a theme restyles every one of them with a patch:
+
+```rust
+use lurq::{
+  app::theme::{PaletteColor, ThemeDefinition},
+  components::{TabBar, TabBarPart},
+};
+
+let mut theme = ThemeDefinition::neutral();
+// The active tab in the brand's color, in every tab bar of the app.
+theme.ui.patch::<TabBar>(|rules| rules.base(TabBarPart::SelectedItem, |s| s.foreground(PaletteColor::Primary)));
+```
+
+The parts are `SheetNode` (`Panel`, `Grabber`, `Backdrop`, whose opacity is the sheet's `dim`), `SheetHostPart`,
+`TabBarPart`, `NavigationBarPart`, `PullToRefreshPart` and `SwipeRowPart`. The board draws design-system
+components for a phone (a tab bar, an app bar, a bottom sheet, a swipe row, a pull to refresh) that `lurq::ui`
+does not have yet; these are the engine's, in the board's roles.
 
 ## Text inputs
 
@@ -320,6 +382,7 @@ ctx.window().on_app_event(move |event| match event {
 | `OpenUrl(url)` | The app was opened with a link: a scheme of its own (`CFBundleURLTypes` in `Info.plist`) |
 | `Shortcut(kind)` | The app was opened by one of its home screen shortcuts |
 | `Rotated(orientation)` | The way the content is turned: at the start, and whenever it changes |
+| `GraphicsDeviceLost` | The window's graphics device was lost, and lurq draws it with another: on every system ([A Lost Device](../gpu-viewport/#a-lost-device)) |
 
 ### More than one window
 

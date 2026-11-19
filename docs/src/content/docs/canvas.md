@@ -8,10 +8,12 @@ description: Persistent drawing through existing element refs, with paths, gradi
 Enable `canvas` alongside your window and renderer features:
 
 ```toml
-lurq = { version = "0.62.0", features = ["canvas", "winit", "wgpu"] }
+lurq = { version = "0.63.0", features = ["canvas", "winit", "wgpu"] }
 ```
 
 Canvas is available starting in **lurq 0.19.0**. DX12 supports the same drawing API. `canvas` enables raw image transport, path geometry, tessellation, and the CPU reference renderer; add `image` for PNG/JPEG/WebP/GIF/BMP/TIFF decoding and `resources` for resource loading.
+
+To draw with your own wgpu pipelines and shaders instead of a 2D context, see [Drawing With Your Own GPU Code](../gpu-viewport/).
 
 ## Use the existing ref
 
@@ -83,6 +85,50 @@ impl Component for Chart {
 ```
 
 An observer runs immediately with current metrics, then after committed logical-size or backing-scale changes. It runs outside canvas locks. Dropping `CanvasObserver` unsubscribes; the surface keeps a weak callback, so a callback may capture its context without creating a surface ownership cycle. The example intentionally redraws its scene on both kinds of change.
+
+### A drawing that follows from a key
+
+A canvas whose drawing follows from what it is given (a chart's data and the theme it is in) needs no component of its own: `Canvas::new().paint(key, |canvas| ..)` draws it when it is first laid out, when its size or its scale changes, and when `key` changes, and at no other render. The key is the app's hash of what the drawing is made from; the closure draws the whole of it, from a cleared surface. A builder that has no `Ctx`, and so no `after_layout`, draws this way.
+
+```rust
+use lurq::components::Canvas;
+
+let key: u64 = 7; // a hash of what the drawing is made from
+Canvas::new()
+  .width(480.0)
+  .height(240.0)
+  .paint(key, move |canvas| {
+    let draw = canvas.context_2d();
+    draw.reset();
+    draw.set_fill_style("#60a5fa");
+    draw.fill_rect(12.0, 12.0, canvas.size().width - 24.0, 40.0);
+  })
+```
+
+A drawing that moves to what it is given next is painted with `paint_moving`: as it is first shown, and when the value it is drawn from changes (told by its hash), its painter is given a `CanvasMove`, what it is drawn from now (`to`), what it was drawn from before (`from`, none as it enters) and how far along the way it is (`progress`, eased, from 0 to 1), and the canvas is drawn again at each frame until it is there, and not after. Where motion is reduced (`Theme::reduced_motion`) it is drawn where it goes at once, and a resize ends a motion on its way. `CanvasMotion` says how long it takes and how it is eased: 300 ms, easing out, unless told. The key is still the hash of all the drawing follows from: a change of it that is not one of the value (the point under the pointer, say) draws it again where it is, and does not start it over.
+
+```rust
+use std::{sync::Arc, time::Duration};
+use lurq::{canvas::{CanvasMotion, CanvasMove}, components::Canvas};
+
+let level: f32 = 0.7;
+let key = level.to_bits() as u64;
+Canvas::new()
+  .width(240.0)
+  .height(24.0)
+  .paint_moving(key, CanvasMotion::new(Duration::from_millis(240)), key, Arc::new(level), |canvas, at: CanvasMove<'_, f32>| {
+    let from = at.from.copied().unwrap_or(0.0);
+    let level = from + (*at.to - from) * at.progress;
+    let draw = canvas.context_2d();
+    draw.reset();
+    draw.set_fill_style("#60a5fa");
+    draw.fill_rect(0.0, 0.0, canvas.size().width * level, 24.0);
+  })
+```
+
+`Tree::has_moving_canvas()` says whether a drawing is on its way: a shell asks for frames at once while it is, at the display's pace, and a moving canvas is drawn again at the start of each pass without a layout.
+
+A test reaches a canvas by its element: `tree.get_element_by_id_mut("plot").and_then(|element| element.canvas())` is its `CanvasHandle`, its items and its status included.
 
 `Canvas::new()` has a 300 by 150 logical-pixel intrinsic size, subject to normal layout constraints. Width and height size the node. Padding reduces the drawable content rectangle. Bitmap dimensions are `ceil(content_size * display_scale)` on each axis. Drawing does not change layout size.
 
@@ -370,6 +416,26 @@ if let Some(result) = readback.try_take() {
 ```
 
 A worker can use `wait_timeout(Duration)` while the UI continues rendering. Never wait for a queued GPU readback on the rendering thread. Readbacks are bounded to two outstanding requests per canvas and eight process-wide, including in-flight GPU copies. Dropping a queued request, detaching, resizing, or losing the renderer completes its ticket with an error. A full `clear()` preserves prior snapshot requests. Submitted pixels are never reapplied following a failed window presentation.
+
+### A picture drawn off the screen
+
+A picture made of a drawing, to save or to send (a signature, a chart), needs no node and no window: `CanvasHandle::offscreen(width, height, scale_factor)` is a canvas of that many logical pixels drawn on the CPU, in no tree. What is drawn on its `context_2d()` is in its pixels when the call returns, `snapshot()` is ready at once, and `to_image_data()` gives them as an `ImageData` of straight RGBA, `width × scale_factor` by `height × scale_factor`. It draws no text, since it has no window's fonts. It is `None` for a size that is not a number, is nothing, or is past the limits below.
+
+```rust
+use lurq::canvas::CanvasHandle;
+
+let canvas = CanvasHandle::offscreen(280.0, 124.0, 2.0).expect("a size a canvas can be");
+let draw = canvas.context_2d();
+draw.set_stroke_style("#0a0a0a");
+draw.set_line_width(2.0);
+draw.begin_path();
+draw.move_to(20.0, 60.0);
+draw.line_to(200.0, 40.0);
+draw.stroke();
+let image = canvas.to_image_data().expect("its pixels"); // 560 × 248
+```
+
+`to_image_data()` of a canvas in a tree that is drawn on the CPU (`Canvas::new().software()`) is what it shows; of one drawn on the GPU it is `None`, and `snapshot()` reads it.
 
 ### Lifetime and resource limits
 

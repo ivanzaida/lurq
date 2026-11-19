@@ -411,7 +411,8 @@ fn assert_tail_change_keeps_the_first_row(opened: Vec<RowData>, items: Vec<RowDa
     run_pass(&mut list.tree);
     let now = list.first_shown();
     assert!(
-      now.0 == shown.0 && (now.1 - shown.1).abs() < 0.5,
+      // Drawn on a whole device pixel: up to half a pixel from where the offset says.
+      now.0 == shown.0 && (now.1 - shown.1).abs() <= 0.5,
       "pass {pass}: row {} at {} is at the top, was row {} at {}",
       now.0,
       now.1,

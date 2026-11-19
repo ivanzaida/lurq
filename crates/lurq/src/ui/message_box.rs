@@ -1,0 +1,1015 @@
+//! A message box: a dialog that asks one question or says one thing, and waits for an answer.
+
+use std::sync::Arc;
+
+use super::{
+  button::{Button, ButtonPart, ButtonSize, ButtonVariant},
+  checkbox::{Checkbox, CheckboxPart},
+  collapsible::opening,
+  dialog::{Dialog, DialogPart},
+  icons, names,
+  part_style::{Length, PartStyle},
+  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::{IconChoice, glyph, pressable},
+  theme::{Themed, current_theme},
+};
+use crate::{
+  app::{
+    events::KeyboardEvent,
+    theme::{PaletteColor, RadiusSize, Theme, TypographyStyle},
+  },
+  components::{Column, Row},
+  core::Signal,
+  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  node::{Element, NodeUpdate, dimension::Dimension, node::Node},
+};
+
+/// What a message box says it is about, by the icon it shows and its color:
+/// the variant of its recipe.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MessageBoxVariant {
+  /// It says something: an operation is done, a version is installed.
+  #[default]
+  Info,
+  /// It asks something that has no wrong answer: open the file in a new window?
+  Question,
+  /// What is about to happen may lose something: replace an existing file?
+  Warning,
+  /// Something failed: the file could not be saved.
+  Destructive,
+}
+
+names!(MessageBoxVariant {
+  Info => "info",
+  Question => "question",
+  Warning => "warning",
+  Destructive => "destructive",
+});
+
+/// What an answer of a message box is: which button it is, and where it stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MessageBoxRole {
+  /// The answer Enter gives: the filled button at the end.
+  Default,
+  /// The answer that changes nothing, which Escape and a press of the veil
+  /// give too: the outlined button before the others at the end.
+  Cancel,
+  /// An answer that removes something or cannot be undone: a button in the
+  /// destructive color. Where it is the confirming answer (there is no
+  /// default one) the focus goes to the cancel answer and not to it.
+  Destructive,
+  /// Another answer: an outlined button at the start of the row ("Don't Save").
+  #[default]
+  Plain,
+}
+
+/// The parts of a message box a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MessageBoxPart {
+  /// What covers the window behind the panel, laid over the dialog's veil.
+  Veil,
+  /// The panel, laid over the dialog's: its width and its padding.
+  Panel,
+  /// What the panel holds: the header over the footer.
+  Content,
+  /// The row at the top: the mark beside the text.
+  Header,
+  /// The round field the icon is in, in the variant's muted color.
+  Mark,
+  /// The icon of the variant, in the variant's color.
+  Icon,
+  /// The title over the description, and the detail under them.
+  Text,
+  /// What the message box asks or says, in a line.
+  Title,
+  /// More of it, under the title.
+  Description,
+  /// What opens the detail: a chevron and its label.
+  DetailTrigger,
+  /// The chevron of the trigger, which points down while the detail is open.
+  DetailChevron,
+  /// The label of the trigger: "Details".
+  DetailLabel,
+  /// What opens and closes with the detail.
+  DetailPanel,
+  /// The detail itself: the text a person opens to see more.
+  Detail,
+  /// The row at the bottom: the checkbox and the plain answers at its start, the others at its end.
+  Footer,
+  /// The checkbox and the plain answers, at the start of the footer.
+  Option,
+  /// The checkbox, laid over the checkbox's root.
+  Checkbox,
+  /// The checkbox's label, laid over the checkbox's.
+  CheckboxLabel,
+  /// The answers at the end of the footer.
+  Actions,
+  /// The default answer, laid over the button's root.
+  DefaultButton,
+  /// The label of the default answer, laid over the button's.
+  DefaultLabel,
+  /// The cancel answer, laid over the button's root.
+  CancelButton,
+  /// The label of the cancel answer, laid over the button's.
+  CancelLabel,
+  /// A destructive answer, laid over the button's root.
+  DestructiveButton,
+  /// The label of a destructive answer, laid over the button's.
+  DestructiveLabel,
+  /// A plain answer, laid over the button's root.
+  PlainButton,
+  /// The label of a plain answer, laid over the button's.
+  PlainLabel,
+}
+
+names!(MessageBoxPart {
+  Veil => "veil",
+  Panel => "panel",
+  Content => "content",
+  Header => "header",
+  Mark => "mark",
+  Icon => "icon",
+  Text => "text",
+  Title => "title",
+  Description => "description",
+  DetailTrigger => "detail_trigger",
+  DetailChevron => "detail_chevron",
+  DetailLabel => "detail_label",
+  DetailPanel => "detail_panel",
+  Detail => "detail",
+  Footer => "footer",
+  Option => "option",
+  Checkbox => "checkbox",
+  CheckboxLabel => "checkbox_label",
+  Actions => "actions",
+  DefaultButton => "default_button",
+  DefaultLabel => "default_label",
+  CancelButton => "cancel_button",
+  CancelLabel => "cancel_label",
+  DestructiveButton => "destructive_button",
+  DestructiveLabel => "destructive_label",
+  PlainButton => "plain_button",
+  PlainLabel => "plain_label",
+});
+
+/// The states of a message box a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MessageBoxState {
+  /// One of its answers is destructive: its icon is in the destructive colors, whatever its variant.
+  Destructive,
+  /// Its detail is open.
+  DetailOpen,
+}
+
+names!(MessageBoxState {
+  Destructive => "destructive",
+  DetailOpen => "detail_open",
+});
+
+/// What builds a message box's nodes: a theme's in place of the default one.
+pub type MessageBoxRenderer = Arc<dyn Fn(MessageBoxView) -> Element + Send + Sync>;
+
+/// What an answer does when it is given.
+type Handler = Arc<dyn Fn() + Send + Sync>;
+
+/// One answer of a message box: its label, its role and what it does.
+#[derive(Clone)]
+pub struct MessageBoxAnswer {
+  pub label: Arc<str>,
+  pub role: MessageBoxRole,
+  handler: Handler,
+}
+
+/// A message box: a dialog that asks one question or says one thing and
+/// waits for the answer. Replace a file, save the changes, delete projects.
+///
+/// ```
+/// use lurq::{
+///   core::Signal,
+///   ui::{MessageBox, MessageBoxRole, MessageBoxVariant},
+/// };
+///
+/// let (open, again) = (Signal::new(false), Signal::new(false));
+/// let replace = MessageBox::new(open)
+///   .variant(MessageBoxVariant::Warning)
+///   .title("Replace existing file?")
+///   .description("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
+///   .checkbox("Don't ask again", again)
+///   .answer("Cancel", MessageBoxRole::Cancel, || {})
+///   .answer("Replace", MessageBoxRole::Default, || println!("replaced"));
+/// ```
+///
+/// A message box does not keep whether it is open: the app's signal does, and
+/// any answer sets it to `false` before what the answer does runs. It is a
+/// [`Dialog`]: the veil, the focus going in as it opens and back as it
+/// closes, and Tab staying inside are the dialog's. Enter gives the default
+/// answer wherever the focus is, unless it is on another button; Escape and a
+/// press of the veil give the cancel answer where there is one (unless
+/// [`MessageBox::dismiss_on_escape`] or [`MessageBox::dismiss_on_veil`] say
+/// otherwise), and do nothing where there is none. As it opens the focus goes
+/// to the confirming answer (the default one, or else a destructive one)
+/// unless that answer is destructive, and then to the cancel answer, so that
+/// Enter or Space does not confirm what cannot be undone. To tooling that
+/// reads the tree it is an `alertdialog`, called by its title and described
+/// by its description.
+///
+/// Its answers are [`Button`]s styled by the message box's recipe:
+/// [`MessageBoxPart::DefaultButton`] is laid over the root of the default
+/// one, [`MessageBoxPart::DefaultLabel`] over its label, and so for each
+/// role, so that a theme gives the buttons of a message box a fill or a font
+/// of their own without touching buttons elsewhere.
+pub struct MessageBox {
+  open: Signal<bool>,
+  variant: Name,
+  icon: Option<IconChoice>,
+  title: Option<Arc<str>>,
+  description: Option<Arc<str>>,
+  label: Option<Arc<str>>,
+  detail: Option<(Arc<str>, Signal<bool>)>,
+  detail_label: Arc<str>,
+  checkbox: Option<(Arc<str>, Signal<bool>)>,
+  answers: Vec<MessageBoxAnswer>,
+  dismiss_on_escape: bool,
+  dismiss_on_veil: bool,
+  inline: bool,
+  states: Vec<Name>,
+  rules: Recipe,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl MessageBox {
+  /// A message box shown while `open` holds `true`.
+  pub fn new(open: Signal<bool>) -> Self {
+    Self {
+      open,
+      variant: MessageBoxVariant::default().into(),
+      icon: None,
+      title: None,
+      description: None,
+      label: None,
+      detail: None,
+      detail_label: super::current_locale().common.details.clone(),
+      checkbox: None,
+      answers: Vec::new(),
+      dismiss_on_escape: true,
+      dismiss_on_veil: true,
+      inline: false,
+      states: Vec::new(),
+      rules: Recipe::new(),
+      id: None,
+      key: None,
+    }
+  }
+
+  /// A [`MessageBoxVariant`], or a variant the theme's recipe names: the icon and its colors.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
+    self
+  }
+
+  /// An icon of the theme's set in place of the variant's: `trash` for a
+  /// question that deletes. `None` for no icon, and no mark it stands in.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = Some(icon.into());
+    self
+  }
+
+  /// What the message box asks or says: "Replace existing file?". It is also
+  /// what the message box is called to tooling that reads the tree.
+  pub fn title(mut self, title: &str) -> Self {
+    self.title = Some(Arc::from(title));
+    self
+  }
+
+  /// More of it, under the title, in the muted color.
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// What the message box is called to tooling that reads the tree, over its
+  /// title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// A text a person opens to see more, under the description: what failed and
+  /// where. It is open while `open` holds `true`, and its trigger turns it.
+  pub fn detail(mut self, detail: &str, open: Signal<bool>) -> Self {
+    self.detail = Some((Arc::from(detail), open));
+    self
+  }
+
+  /// The label of what opens the detail: "Details" when not given.
+  pub fn detail_label(mut self, label: &str) -> Self {
+    self.detail_label = Arc::from(label);
+    self
+  }
+
+  /// A checkbox at the start of the footer, checked while `checked` holds
+  /// `true`: "Don't ask again".
+  pub fn checkbox(mut self, label: &str, checked: Signal<bool>) -> Self {
+    self.checkbox = Some((Arc::from(label), checked));
+    self
+  }
+
+  /// An answer: a button with `label`, which closes the message box and then
+  /// runs `handler`. The plain answers stand at the start of the footer in
+  /// the order they are given; at its end the cancel answer stands first and
+  /// the others after it in their order.
+  pub fn answer(mut self, label: &str, role: MessageBoxRole, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.answers.push(MessageBoxAnswer {
+      label: Arc::from(label),
+      role,
+      handler: Arc::new(handler),
+    });
+    self
+  }
+
+  /// A width of its own over the board's 400: logical pixels, or any [`Length`].
+  pub fn width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.rules = self.rules.base(MessageBoxPart::Panel, |s| s.width(width));
+    self
+  }
+
+  /// Whether Escape gives the cancel answer. On by default; a message box
+  /// with no cancel answer is not closed by Escape either way.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press of the veil gives the cancel answer. On by default; a
+  /// message box with no cancel answer is not closed by the veil either way.
+  pub fn dismiss_on_veil(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_veil = dismiss;
+    self
+  }
+
+  /// Draws the panel where the message box is declared, whether or not it is
+  /// open, without the veil: for a gallery, a screenshot, a test.
+  pub fn inline(mut self, inline: bool) -> Self {
+    self.inline = inline;
+    self
+  }
+
+  /// Puts the message box in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Styles one part of this message box over what the theme gives it.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.rules = self.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this message box.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// The id of the panel.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// The key of what the message box lays over the window.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
+
+  /// Builds the message box in `theme`. Converting a message box into an
+  /// element does this in the theme of what is being rendered.
+  pub fn build(self, theme: &Theme) -> Element {
+    let destructive = self
+      .answers
+      .iter()
+      .any(|answer| answer.role == MessageBoxRole::Destructive);
+    let detail_open = self.detail.as_ref().is_some_and(|(_, open)| open.get());
+    let case = Case {
+      variant: Some(self.variant),
+      size: None,
+      density: None,
+      breakpoint: super::current_breakpoint(),
+      states: self.states,
+    }
+    .state(MessageBoxState::Destructive, destructive)
+    .state(MessageBoxState::DetailOpen, detail_open);
+    let view = MessageBoxView {
+      variant: self.variant,
+      icon: match self.icon {
+        Some(IconChoice(icon)) => icon,
+        None => Some(variant_icon(self.variant)),
+      },
+      title: self.title,
+      description: self.description,
+      label: self.label,
+      detail: self.detail.as_ref().map(|(detail, _)| detail.clone()),
+      detail_label: self.detail_label,
+      detail_open,
+      checkbox_label: self.checkbox.as_ref().map(|(label, _)| label.clone()),
+      checked: self.checkbox.as_ref().is_some_and(|(_, checked)| checked.get()),
+      answers: self.answers,
+      dismiss_on_escape: self.dismiss_on_escape,
+      dismiss_on_veil: self.dismiss_on_veil,
+      inline: self.inline,
+      recipe: theme.resolve::<MessageBox>(&case, Some(&self.rules)),
+      open: self.open,
+      detail_signal: self.detail.map(|(_, open)| open),
+      checkbox_signal: self.checkbox.map(|(_, checked)| checked),
+      id: self.id,
+      key: self.key,
+    };
+    match theme.renderer::<MessageBox>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+}
+
+impl From<MessageBox> for Element {
+  fn from(message_box: MessageBox) -> Self {
+    message_box.build(&current_theme())
+  }
+}
+
+/// The icon of a variant: an information sign for one the theme names.
+fn variant_icon(variant: Name) -> Name {
+  if variant == Name::from(MessageBoxVariant::Warning) {
+    icons::WARNING.into()
+  } else if variant == Name::from(MessageBoxVariant::Destructive) {
+    icons::ALERT_CIRCLE.into()
+  } else if variant == Name::from(MessageBoxVariant::Question) {
+    icons::HELP_CIRCLE.into()
+  } else {
+    icons::INFO.into()
+  }
+}
+
+/// A message box as a renderer sees it: what it was given, the style of its
+/// parts, and its behavior ready to be dressed.
+pub struct MessageBoxView {
+  pub variant: Name,
+  /// The icon it shows: the variant's, or the one it was given; `None` for none.
+  pub icon: Option<Name>,
+  pub title: Option<Arc<str>>,
+  pub description: Option<Arc<str>>,
+  /// What it is called to tooling, over its title.
+  pub label: Option<Arc<str>>,
+  pub detail: Option<Arc<str>>,
+  pub detail_label: Arc<str>,
+  pub detail_open: bool,
+  /// The label of the checkbox, if it has one.
+  pub checkbox_label: Option<Arc<str>>,
+  pub checked: bool,
+  /// Its answers, in the order they were given.
+  pub answers: Vec<MessageBoxAnswer>,
+  pub dismiss_on_escape: bool,
+  pub dismiss_on_veil: bool,
+  pub inline: bool,
+  /// The style of each part of this message box.
+  pub recipe: ResolvedRecipe,
+  open: Signal<bool>,
+  detail_signal: Option<Signal<bool>>,
+  checkbox_signal: Option<Signal<bool>>,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl MessageBoxView {
+  /// The style of a part, as this message box is to be drawn.
+  pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
+    self.recipe.part(part)
+  }
+
+  pub fn theme(&self) -> &Theme {
+    self.recipe.theme()
+  }
+
+  /// What giving the answer at `index` does: the message box closes, and
+  /// then the answer's handler runs.
+  pub fn press(&self, index: usize) -> impl Fn() + Send + Sync + Clone + 'static {
+    let open = self.open.clone();
+    let handler = self.answers.get(index).map(|answer| answer.handler.clone());
+    move || {
+      open.set(false);
+      if let Some(handler) = &handler {
+        handler();
+      }
+    }
+  }
+
+  /// The index of the first answer of `role`.
+  pub fn find(&self, role: MessageBoxRole) -> Option<usize> {
+    self.answers.iter().position(|answer| answer.role == role)
+  }
+
+  /// The answer the focus goes to as the message box opens: the confirming
+  /// one (the default one, or else a destructive one) unless it is
+  /// destructive, and then the cancel one, the least destructive answer.
+  /// The rule of every question the design system asks.
+  pub fn focused_first(&self) -> Option<usize> {
+    match self.find(MessageBoxRole::Default) {
+      Some(default) => Some(default),
+      None if self.find(MessageBoxRole::Destructive).is_some() => self.find(MessageBoxRole::Cancel),
+      None => None,
+    }
+  }
+
+  /// The parts of the button and of its label for an answer of `role`.
+  pub fn button_parts(role: MessageBoxRole) -> (MessageBoxPart, MessageBoxPart) {
+    match role {
+      MessageBoxRole::Default => (MessageBoxPart::DefaultButton, MessageBoxPart::DefaultLabel),
+      MessageBoxRole::Cancel => (MessageBoxPart::CancelButton, MessageBoxPart::CancelLabel),
+      MessageBoxRole::Destructive => (MessageBoxPart::DestructiveButton, MessageBoxPart::DestructiveLabel),
+      MessageBoxRole::Plain => (MessageBoxPart::PlainButton, MessageBoxPart::PlainLabel),
+    }
+  }
+
+  /// The button of the answer at `index`: a [`Button`] of the role's variant,
+  /// with the message box's rules for the role laid over the theme's for a
+  /// button. The focus goes to it as the message box opens where it is
+  /// [`MessageBoxView::focused_first`].
+  pub fn button(&self, index: usize) -> Element {
+    let answer = &self.answers[index];
+    let variant = match answer.role {
+      MessageBoxRole::Default => ButtonVariant::Primary,
+      MessageBoxRole::Destructive => ButtonVariant::Destructive,
+      MessageBoxRole::Cancel | MessageBoxRole::Plain => ButtonVariant::Outline,
+    };
+    let (root, label) = Self::button_parts(answer.role);
+    let rules = self
+      .recipe
+      .rules_for(root, ButtonPart::Root)
+      .extend(&self.recipe.rules_for(label, ButtonPart::Label));
+    let press = self.press(index);
+    let button = Button::new(&answer.label)
+      .variant(variant)
+      .size(ButtonSize::Sm)
+      .rules(&rules)
+      .on_click(move |_| press())
+      .build(self.theme());
+    if self.focused_first() == Some(index) {
+      autofocus(button)
+    } else {
+      button
+    }
+  }
+
+  /// The round field with the variant's icon in it: `None` for a message box
+  /// with no icon.
+  pub fn mark(&self) -> Option<Row> {
+    let icon = self.icon?;
+    Some(
+      Row::new()
+        .justify(Justify::Center)
+        .align_items(Alignment::Center)
+        .flex_shrink(0.0)
+        .part(&self.part(MessageBoxPart::Mark))
+        .child(glyph(&self.part(MessageBoxPart::Icon), icon, false)),
+    )
+  }
+
+  /// The title in the style of its part, where there is one.
+  pub fn title(&self) -> Option<Element> {
+    let title = self.title.as_ref()?;
+    Some(wrapping(&self.part(MessageBoxPart::Title), title).into())
+  }
+
+  /// The description in the style of its part, where there is one.
+  pub fn description(&self) -> Option<Element> {
+    let description = self.description.as_ref()?;
+    Some(wrapping(&self.part(MessageBoxPart::Description), description).into())
+  }
+
+  /// What opens the detail, with what opens and closes under it: `None` for a message box with no detail.
+  pub fn detail(&self) -> Option<Element> {
+    let (detail, open) = (self.detail.as_ref()?, self.detail_signal.as_ref()?);
+    let (trigger, panel) = disclosure(
+      &self.recipe,
+      DisclosureParts {
+        trigger: MessageBoxPart::DetailTrigger.into(),
+        icon: MessageBoxPart::DetailChevron.into(),
+        label: MessageBoxPart::DetailLabel.into(),
+        panel: MessageBoxPart::DetailPanel.into(),
+        content: MessageBoxPart::Detail.into(),
+      },
+      &self.detail_label,
+      detail,
+      open,
+    );
+    Some(
+      Column::new()
+        .width(Dimension::Pct(100.0))
+        .align_items(Alignment::Start)
+        .overflow_visible()
+        .child(trigger)
+        .child(panel)
+        .into(),
+    )
+  }
+
+  /// The title, the description and the detail, one over another.
+  pub fn text(&self) -> Column {
+    let mut text = Column::new()
+      .flex(1.0)
+      .align_items(Alignment::Stretch)
+      .overflow_visible()
+      .part(&self.part(MessageBoxPart::Text));
+    for element in [self.title(), self.description(), self.detail()].into_iter().flatten() {
+      text = text.child(element);
+    }
+    text
+  }
+
+  /// The row at the top: the mark beside the text.
+  pub fn header(&self) -> Row {
+    let mut header = Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Start)
+      .overflow_visible()
+      .part(&self.part(MessageBoxPart::Header));
+    if let Some(mark) = self.mark() {
+      header = header.child(mark);
+    }
+    header.child(self.text())
+  }
+
+  /// The checkbox, where there is one: Enter on it gives the default answer and does not turn it.
+  pub fn checkbox(&self) -> Option<Element> {
+    let (label, checked) = (self.checkbox_label.as_ref()?, self.checkbox_signal.clone()?);
+    let rules = self
+      .recipe
+      .rules_for(MessageBoxPart::Checkbox, CheckboxPart::Root)
+      .extend(
+        &self
+          .recipe
+          .rules_for(MessageBoxPart::CheckboxLabel, CheckboxPart::Label),
+      );
+    let checkbox = Checkbox::new(label)
+      .checked(self.checked)
+      .rules(&rules)
+      .on_change(move |on| checked.set(on))
+      .build(self.theme());
+    let mut row = Row::new().overflow_visible().child(checkbox);
+    if let Some(default) = self.find(MessageBoxRole::Default) {
+      let press = self.press(default);
+      row = row.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && enter(&event) {
+          event.prevent_default();
+          press();
+        }
+      });
+    }
+    Some(row.into())
+  }
+
+  /// The checkbox and the plain answers, at the start of the footer: `None` where there are neither.
+  pub fn option(&self) -> Option<Row> {
+    let plain: Vec<usize> = (0..self.answers.len())
+      .filter(|index| self.answers[*index].role == MessageBoxRole::Plain)
+      .collect();
+    let checkbox = self.checkbox();
+    if checkbox.is_none() && plain.is_empty() {
+      return None;
+    }
+    let mut option = Row::new()
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .part(&self.part(MessageBoxPart::Option));
+    if let Some(checkbox) = checkbox {
+      option = option.child(checkbox);
+    }
+    for index in plain {
+      option = option.child(self.button(index));
+    }
+    Some(option)
+  }
+
+  /// The answers at the end of the footer: the cancel one, and after it the others but the plain ones.
+  pub fn actions(&self) -> Row {
+    let cancel = self.find(MessageBoxRole::Cancel);
+    let order = cancel.into_iter().chain(
+      (0..self.answers.len())
+        .filter(|index| Some(*index) != cancel && self.answers[*index].role != MessageBoxRole::Plain),
+    );
+    let mut actions = Row::new()
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .part(&self.part(MessageBoxPart::Actions));
+    for index in order {
+      actions = actions.child(self.button(index));
+    }
+    actions
+  }
+
+  /// The footer: the checkbox and the plain answers at its start, the others at its end.
+  pub fn footer(&self) -> Row {
+    // In a box too narrow for the option and the answers on one line, the answers go under the option.
+    let mut footer = Row::new()
+      .width(Dimension::Pct(100.0))
+      .wrap()
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .part(&self.part(MessageBoxPart::Footer));
+    match self.option() {
+      Some(option) => {
+        footer = footer.justify(Justify::SpaceBetween).child(option);
+      }
+      None => footer = footer.justify(Justify::End),
+    }
+    footer.child(self.actions())
+  }
+
+  /// What the panel holds, with nothing in it yet: Enter gives the default
+  /// answer while the focus is nowhere in it, as Escape gives the cancel one
+  /// (the dialog's, with what [`Dialog::on_dismiss`] runs).
+  pub fn content(&self) -> Column {
+    let mut content = Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .overflow_visible()
+      .part(&self.part(MessageBoxPart::Content));
+    // Drawn where it is declared, it is no dialog over the window, and the Enter of the page is not its own.
+    if !self.inline
+      && let Some(default) = self.find(MessageBoxRole::Default)
+    {
+      let press = self.press(default);
+      content = content.on_key_down(move |event: KeyboardEvent| {
+        if !event.focus_within && enter(&event) {
+          event.prevent_default();
+          press();
+        }
+      });
+    }
+    content
+  }
+
+  /// `content` in a [`Dialog`]: its panel and its veil in the message box's
+  /// rules over the dialog's, its Escape and a press of its veil giving the
+  /// cancel answer where there is one, and it an `alertdialog` called by the
+  /// label or the title and described by the description.
+  pub fn dialog(&self, content: impl Into<Element>) -> Element {
+    let rules = self
+      .recipe
+      .rules_for(MessageBoxPart::Panel, DialogPart::Panel)
+      .extend(&self.recipe.rules_for(MessageBoxPart::Veil, DialogPart::Veil));
+    let cancel = self.find(MessageBoxRole::Cancel);
+    let mut dialog = Dialog::new(self.open.clone())
+      .alert(true)
+      .rules(&rules)
+      .inline(self.inline)
+      .dismiss_on_escape(cancel.is_some() && self.dismiss_on_escape)
+      .dismiss_on_veil(cancel.is_some() && self.dismiss_on_veil)
+      .child(content);
+    if let Some(cancel) = cancel
+      && let Some(answer) = self.answers.get(cancel)
+    {
+      let handler = answer.handler.clone();
+      dialog = dialog.on_dismiss(move || handler());
+    }
+    if let Some(label) = self.label.as_ref().or(self.title.as_ref()) {
+      dialog = dialog.label(label);
+    }
+    if let Some(description) = &self.description {
+      dialog = dialog.described(description);
+    }
+    if let Some(id) = &self.id {
+      dialog = dialog.id(id.clone());
+    }
+    if let Some(key) = &self.key {
+      dialog = dialog.key(key.clone());
+    }
+    dialog.build(self.theme())
+  }
+
+  /// How the default renderer builds a message box: the header over the
+  /// footer, in a dialog.
+  pub fn render(self) -> Element {
+    let content = self.content().child(self.header()).child(self.footer());
+    self.dialog(content)
+  }
+}
+
+/// A text in the style of `part`, as wide as the room it has: a longer one goes on to the next line. A row would
+/// lay it out as wide as it is and cut it.
+pub(crate) fn wrapping(part: &ResolvedPart, content: &str) -> Column {
+  let fill = Dimension::Pct(100.0);
+  Column::new()
+    .width(fill)
+    .part(part)
+    .child(part.text(content).width(fill))
+}
+
+/// Whether a key event is a plain Enter that nothing took yet.
+pub(crate) fn enter(event: &KeyboardEvent) -> bool {
+  event.key == "Enter" && !event.composing && !event.default_prevented() && !(event.ctrl || event.alt || event.meta)
+}
+
+/// `element` with the first node in it that takes the focus marked to take it as its dialog opens.
+pub(crate) fn autofocus(element: Element) -> Element {
+  fn mark(node: &mut Node) -> bool {
+    if node.is_focusable() {
+      NodeUpdate::autofocus(node, true);
+      return true;
+    }
+    node.children.iter_mut().any(mark)
+  }
+  // A decoration, so that an element that is a component is searched where it has its nodes: on the root it
+  // renders, whenever it renders.
+  element.decorate_root(|mut node| {
+    mark(&mut node);
+    node
+  })
+}
+
+/// The parts of a component that draw what opens a detail and the detail.
+pub(crate) struct DisclosureParts {
+  pub trigger: Name,
+  pub icon: Name,
+  pub label: Name,
+  pub panel: Name,
+  pub content: Name,
+}
+
+/// What opens a text and what opens and closes with the text, open while
+/// `open` holds `true`: the board's "Details", an arrow and its label, the
+/// arrow pointing down while it is open. The trigger is a button to what
+/// reads the tree, and says whether it is open; the panel is as wide as what
+/// it is put in.
+pub(crate) fn disclosure(
+  recipe: &ResolvedRecipe,
+  parts: DisclosureParts,
+  label: &str,
+  text: &str,
+  open: &Signal<bool>,
+) -> (crate::components::Button, Column) {
+  let is_open = open.get();
+  let turn = open.clone();
+  let label_part = recipe.part(parts.label);
+  let trigger = pressable(&recipe.part(parts.trigger), false)
+    .justify(Justify::Start)
+    .align_items(Alignment::Center)
+    .describe("a11y_role", "button")
+    .describe("a11y_name", label)
+    .describe("a11y_expanded", if is_open { "true" } else { "false" })
+    .on_click(move |_| turn.update(|open| *open = !*open))
+    .child(glyph(
+      &recipe.part(parts.icon),
+      if is_open {
+        icons::CHEVRON_DOWN
+      } else {
+        icons::CHEVRON_RIGHT
+      }
+      .into(),
+      false,
+    ))
+    .child(Row::new().part(&label_part).child(label_part.text(label)));
+  let mut panel = Column::new()
+    .align_items(Alignment::Stretch)
+    .clip()
+    .presence()
+    .part(&recipe.part(parts.panel));
+  if is_open {
+    let part = recipe.part(parts.content);
+    // Keyed, so that what the panel held is kept as it closes over it.
+    panel = panel.child(wrapping(&part, text).key("detail"));
+  }
+  (trigger, panel.width(Dimension::Pct(100.0)))
+}
+
+/// The style of what opens a detail and of the detail, in the board's
+/// "Details" of a progress dialog: a chevron of 14 in the muted color, 4
+/// before its label of 13, and the detail 8 under it in the mono type of 11
+/// on the muted fill. It opens with its height over the theme's base duration.
+pub(crate) fn disclosure_recipe(recipe: Recipe, parts: &DisclosureParts, open: Name) -> Recipe {
+  use PaletteColor::*;
+  let recipe = recipe
+    .base(parts.trigger, |s| {
+      super::shared::fading(s.gap(4.0).radius(RadiusSize::Sm).cursor(crate::node::CursorIcon::Pointer))
+    })
+    .focus_visible(parts.trigger, |s| s.focus_ring())
+    .base(parts.icon, |s| s.square(14.0).foreground(MutedForeground))
+    .base(parts.label, |s| {
+      s.typography(TypographyStyle::Body).font_size(13.0).foreground(Foreground)
+    })
+    .base(parts.content, |s| {
+      s.typography(TypographyStyle::Mono)
+        .font_size(11.0)
+        .line_height(1.5)
+        .foreground(MutedForeground)
+        .background(Muted)
+        .radius(RadiusSize::Md)
+        .padding_x(10.0)
+        .padding_y(8.0)
+    })
+    // The 8 between the trigger and the detail is the panel's, so that nothing of it is left while it is closed.
+    .state(open, parts.panel, |s| s.padding_top(8.0));
+  opening(recipe, open, parts.panel, parts.content)
+}
+
+impl crate::ui::Styled for MessageBox {
+  type Component = Self;
+
+  fn rules(self, rules: &crate::ui::Recipe) -> Self {
+    Self::rules(self, rules)
+  }
+
+  fn state(self, state: impl Into<crate::ui::Name>, on: bool) -> Self {
+    Self::state(self, state, on)
+  }
+}
+
+impl Themed for MessageBox {
+  const NAME: &'static str = "message_box";
+  type Renderer = MessageBoxRenderer;
+
+  fn parts() -> crate::ui::Declared {
+    MessageBoxPart::declared()
+  }
+
+  fn states() -> crate::ui::Declared {
+    MessageBoxState::declared()
+  }
+
+  /// The design's message box (`pencil/lurq-design-system.pen`, Message Box
+  /// and Desktop Dialogs): a dialog's panel 400 wide, padded 20 with 16
+  /// between its header and its footer. The header is a round mark of 36 in
+  /// the variant's muted color with its icon of 18 in the variant's color, 14
+  /// before the title of 15/600 over the description of 13 in the muted
+  /// color, 4 apart. The
+  /// footer has the checkbox, its label of 13, at its start and the buttons
+  /// of 32 padded 14 at its end, 8 apart. A destructive question has its icon
+  /// in the destructive colors.
+  fn recipe() -> Recipe {
+    use MessageBoxPart::*;
+    use PaletteColor::{
+      Destructive as Danger, DestructiveMuted, Foreground, Info, InfoMuted, MutedForeground, Secondary,
+      Warning as Caution, WarningMuted,
+    };
+    let variant = |recipe: Recipe, variant: MessageBoxVariant, well: PaletteColor, ink: PaletteColor| {
+      recipe
+        .variant(variant, Mark, |s| s.background(well))
+        .variant(variant, Icon, |s| s.foreground(ink))
+    };
+    // Of the 20 the panel is padded, 4 are the dialog's body's, which is room for the ring of a focused button.
+    let recipe = Recipe::new()
+      .base(Panel, |s| {
+        s.width(400.0).max_width(Length::Fill).padding_x(16.0).padding_y(16.0)
+      })
+      .base(Content, |s| s.gap(16.0))
+      .base(Header, |s| s.gap(14.0))
+      .base(Mark, |s| s.square(36.0).radius(RadiusSize::Full).background(InfoMuted))
+      .base(Icon, |s| s.square(18.0).foreground(Info))
+      .base(Text, |s| s.gap(4.0))
+      .base(Title, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(15.0)
+          .weight(FontWeight::SemiBold)
+          .foreground(Foreground)
+      })
+      .base(Description, |s| {
+        s.typography(TypographyStyle::Description)
+          .font_size(13.0)
+          .line_height(1.5)
+          .foreground(MutedForeground)
+      })
+      .base(Footer, |s| s.gap(8.0))
+      .base(Option, |s| s.gap(8.0))
+      .base(CheckboxLabel, |s| s.font_size(13.0))
+      .base(Actions, |s| s.gap(8.0))
+      .base(DefaultButton, |s| s.padding_x(14.0))
+      .base(CancelButton, |s| s.padding_x(14.0))
+      .base(DestructiveButton, |s| s.padding_x(14.0))
+      .base(PlainButton, |s| s.padding_x(14.0));
+    let recipe = variant(recipe, MessageBoxVariant::Question, Secondary, Foreground);
+    let recipe = variant(recipe, MessageBoxVariant::Warning, WarningMuted, Caution);
+    let recipe = variant(recipe, MessageBoxVariant::Destructive, DestructiveMuted, Danger);
+    let recipe = recipe
+      .state(MessageBoxState::Destructive, Mark, |s| s.background(DestructiveMuted))
+      .state(MessageBoxState::Destructive, Icon, |s| s.foreground(Danger));
+    disclosure_recipe(
+      recipe,
+      &DisclosureParts {
+        trigger: DetailTrigger.into(),
+        icon: DetailChevron.into(),
+        label: DetailLabel.into(),
+        panel: DetailPanel.into(),
+        content: Detail.into(),
+      },
+      MessageBoxState::DetailOpen.into(),
+    )
+  }
+}

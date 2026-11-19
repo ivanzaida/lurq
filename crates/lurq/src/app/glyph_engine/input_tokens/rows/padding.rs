@@ -16,14 +16,14 @@ pub(super) fn apply(shape: &mut ShapeLine, row: &LayoutLine, paragraph: &Paragra
     let Some(token) = cluster.token else {
       continue;
     };
-    let pad = config.styles[token].padding;
+    let style = &config.styles[token];
     let left = if index == 0 || clusters[index - 1].token != Some(token) {
-      pad
+      style.padding
     } else {
       0.0
     };
     let right = if index + 1 == clusters.len() || clusters[index + 1].token != Some(token) {
-      pad
+      style.padding_end()
     } else {
       0.0
     };

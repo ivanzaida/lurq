@@ -39,7 +39,7 @@ fn caret_x(snapshot: &RenderSnapshot, color: Color) -> f32 {
   snapshot
     .rects
     .iter()
-    .find(|rect| rect.width == 1.0 && rect.height > 0.0 && rect.color == color)
+    .find(|rect| rect.width == crate::support::caret_width() && rect.height > 0.0 && rect.color == color)
     .expect("focused input should draw its caret")
     .x
 }

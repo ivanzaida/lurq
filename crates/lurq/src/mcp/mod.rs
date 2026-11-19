@@ -43,6 +43,7 @@ mod sessions;
 mod shared;
 mod tools;
 
+pub(crate) use file_dialogs::ServingBroker;
 pub use file_dialogs::{
   FileDialogBroker, FileDialogError, FileDialogFuture, FileDialogOperation, FileDialogRequest, FileDialogSelection,
 };
@@ -476,6 +477,8 @@ impl Tree {
       .store(config.include_devtools, std::sync::atomic::Ordering::Relaxed);
     if let Some(broker) = config.file_dialogs {
       broker.attach(&shared);
+      // The window asks this broker from now on; the tree's other windows are told as they are reconciled.
+      self.window().serve_file_dialogs(&broker.serving());
       *shared.file_dialogs.lock().unwrap() = Some(broker);
     }
     #[cfg(feature = "router")]
@@ -607,7 +610,7 @@ impl Tree {
       return;
     }
     let rendered = report.rendered;
-    let idle = !self.needs_redraw() && !self.has_active_timeline();
+    let idle = !self.needs_redraw() && !self.has_active_timeline() && !self.has_moving_canvas();
     let mut keep_producing_frames = false;
     self.mcp_wait_entries.retain_mut(|entry| {
       let Some(reply) = entry.reply.take() else {

@@ -71,8 +71,6 @@ fn list(rects: Vec<RectCmd>, layers: Vec<LayerCmd>, backdrops: Vec<BackdropCmd>)
     glyphs: Vec::new(),
     #[cfg(feature = "raster")]
     images: Vec::new(),
-    #[cfg(feature = "svg")]
-    svgs: Vec::new(),
     layers,
     backdrops,
     atlas: GlyphAtlas {
@@ -444,6 +442,17 @@ fn assert_backdrop_blur<E: RenderEngine>(new_engine: fn() -> E, backend: &str) {
 #[ignore = "requires a Windows desktop and a GPU adapter; creates a hidden window"]
 fn wgpu_backdrop_blur_is_a_gaussian_of_what_is_behind() {
   assert_backdrop_blur(crate::app::wgpu_render::WgpuRenderEngine::new, "wgpu");
+}
+
+/// WebGL's surface cannot be copied from: a frame with a backdrop blur of the window is painted beside it.
+#[cfg(feature = "wgpu")]
+#[test]
+#[ignore = "requires a Windows desktop and a GPU adapter; creates a hidden window"]
+fn wgpu_backdrop_blur_is_the_same_beside_a_surface_that_cannot_be_copied_from() {
+  assert_backdrop_blur(
+    || crate::app::wgpu_render::WgpuRenderEngine::new().without_surface_copies(),
+    "wgpu beside its surface",
+  );
 }
 
 #[cfg(feature = "dx12")]

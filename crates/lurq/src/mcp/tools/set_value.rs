@@ -45,12 +45,31 @@ pub(super) fn set_value_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
       }
       None => Err("Checkbox takes a boolean value".to_owned()),
     },
-    NodeKind::Slider { state } => match value.as_f64() {
-      Some(number) => {
+    // One number sets a slider, or the thumb of a range slider nearer it; two numbers set a range slider's low
+    // value and its high one.
+    NodeKind::Slider { state } => match (value.as_f64(), value.as_array()) {
+      (Some(number), _) => {
         state.set_value_external(number as f32);
         Ok(serde_json::json!({ "ok": true, "kind": "Slider", "value": state.value_string() }))
       }
-      None => Err("Slider takes a numeric value".to_owned()),
+      (None, Some(pair)) if state.is_range() => match pair.as_slice() {
+        [low, high] => match (low.as_f64(), high.as_f64()) {
+          (Some(low), Some(high)) => {
+            state.set_values_external(low as f32, high as f32);
+            Ok(serde_json::json!({ "ok": true, "kind": "Slider", "value": state.value_string() }))
+          }
+          _ => Err("a range slider takes two numbers: [low, high]".to_owned()),
+        },
+        _ => Err(format!(
+          "a range slider takes two numbers, [low, high]; got {} values",
+          pair.len()
+        )),
+      },
+      (None, Some(_)) => Err("this Slider has one value: it takes a number, not an array".to_owned()),
+      (None, None) if state.is_range() => {
+        Err("a range slider takes a number (the nearer thumb) or two numbers, [low, high]".to_owned())
+      }
+      (None, None) => Err("Slider takes a numeric value".to_owned()),
     },
     NodeKind::Select { state } => {
       let labels = state.labels();

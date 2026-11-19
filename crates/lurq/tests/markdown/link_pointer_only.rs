@@ -70,7 +70,7 @@ fn document(text: &str) -> (MarkdownProps, Arc<Mutex<Vec<String>>>) {
         shown
       }
     })
-    .on_link_click(move |link: &MarkdownLink| record.lock().unwrap().push(link.destination().to_owned()))
+    .on_link_select(move |link: &MarkdownLink| record.lock().unwrap().push(link.destination().to_owned()))
     .width(500.0);
   (props, followed)
 }

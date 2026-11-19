@@ -26,6 +26,7 @@ fn push_inline_spans(
       MarkdownInline::Html(text) => push_span(spans, markdown_html_text(text), base_style.clone()),
       MarkdownInline::FootnoteReference(text) => push_span(spans, format!("[^{text}]"), theme.link.apply(base_style)),
       MarkdownInline::Code(text) => push_span(spans, text, theme.inline_code.apply(base_style)),
+      MarkdownInline::Kbd(text) => push_span(spans, text, theme.kbd.apply(base_style)),
       MarkdownInline::Math(text) => push_span(spans, format!("${text}$"), theme.inline_code.apply(base_style)),
       MarkdownInline::Emphasis(children) => {
         let style = theme.emphasis.apply(base_style);

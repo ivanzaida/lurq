@@ -9,7 +9,7 @@ use super::{
 use crate::{
   app::{
     App, Tree,
-    events::{ClipboardContent, DraggedPaths, MouseButton},
+    events::{ClipboardContent, ClipboardImage, DraggedPaths, MouseButton},
     synthetic_input::{self, SyntheticInput, SyntheticModifiers},
   },
   core::NodeId,
@@ -42,6 +42,8 @@ pub(super) fn parse_button(args: &serde_json::Value) -> MouseButton {
   match args.get("button").and_then(|value| value.as_str()) {
     Some("right") => MouseButton::Right,
     Some("middle") => MouseButton::Middle,
+    Some("back") => MouseButton::Back,
+    Some("forward") => MouseButton::Forward,
     _ => MouseButton::Left,
   }
 }
@@ -121,7 +123,7 @@ pub(super) fn interact_tool(
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("menu_activate needs `id`")?;
-      let activated = app.shared.menu.dispatch(id, tree.window());
+      let activated = app.shared.menu.dispatch(id, tree.window(), tree.window());
       tree.request_redraw();
       Ok(McpToolOutput::Json(
         serde_json::json!({ "id": id, "activated": activated }),
@@ -221,15 +223,45 @@ pub(super) fn interact_tool(
         serde_json::json!({ "ok": true, "action": "type", "window": window }),
       ))
     }
+    "history_back" | "history_forward" => {
+      use crate::app::{
+        events::{NavigationCommand, NavigationSource},
+        window::NavigationOrigin,
+      };
+      let command = if action == "history_back" {
+        NavigationCommand::Back
+      } else {
+        NavigationCommand::Forward
+      };
+      let (window, point) = resolve_point(tree, state, args, "ref", "x", "y")?;
+      let target = window_tree_mut(tree, &window, state.include_devtools)?;
+      let scale = target.scale_factor();
+      // From a point as the mouse's side buttons go, otherwise from the focus as a key goes.
+      let origin = match point {
+        Some((x, y)) => NavigationOrigin::Point(x / scale, y / scale),
+        None => NavigationOrigin::Focus,
+      };
+      let taken = target.navigate_from_input(command, NavigationSource::App, origin);
+      target.request_redraw();
+      Ok(McpToolOutput::Json(serde_json::json!({
+        "ok": true, "action": action, "window": window, "taken": taken,
+      })))
+    }
     "paste" => {
       let text = args.get("text").and_then(|value| value.as_str());
       let files = path_list(args, "files")?;
-      if text.is_none() && files.is_empty() {
-        return Err("paste needs `text` and/or `files`; the OS clipboard is never read for a synthetic paste".into());
+      let image = args.get("image").map(pasted_image).transpose()?;
+      if text.is_none() && files.is_empty() && image.is_none() {
+        return Err(
+          "paste needs `text`, `files` and/or `image`; the OS clipboard is never read for a synthetic paste".into(),
+        );
       }
       let mut content = ClipboardContent::files(files);
       if let Some(text) = text {
         content = content.with_text(text);
+      }
+      if let Some(image) = image {
+        content = content.with_image(image);
       }
       let window = requested_window(args);
       let target = window_tree_mut(tree, &window, state.include_devtools)?;
@@ -237,7 +269,7 @@ pub(super) fn interact_tool(
       apply_all(target, vec![SyntheticInput::paste(content)]);
       Ok(McpToolOutput::Json(serde_json::json!({
         "ok": true, "action": "paste", "window": window,
-        "text": kinds.text, "files": kinds.files,
+        "text": kinds.text, "files": kinds.files, "image": kinds.image,
         "note": "delivered to the focused text input and its ancestors' on_paste handlers; nothing without a focused input"
       })))
     }
@@ -300,6 +332,17 @@ pub(super) fn interact_tool(
 }
 
 /// The string array `name` as paths; empty when absent.
+/// The picture a paste holds as pixels: the image file at the path `value` says, decoded, as a program that
+/// copied a picture (a screenshot) puts its pixels on the clipboard.
+fn pasted_image(value: &serde_json::Value) -> Result<ClipboardImage, String> {
+  let path = value.as_str().ok_or("`image` must be the path of an image file")?;
+  let decoded = image::open(path)
+    .map_err(|error| format!("`image` {path}: {error}"))?
+    .to_rgba8();
+  let (width, height) = decoded.dimensions();
+  ClipboardImage::from_rgba(width, height, decoded.into_raw()).map_err(|error| format!("`image` {path}: {error}"))
+}
+
 fn path_list(args: &serde_json::Value, name: &str) -> Result<Vec<std::path::PathBuf>, String> {
   let Some(list) = args.get(name) else {
     return Ok(Vec::new());

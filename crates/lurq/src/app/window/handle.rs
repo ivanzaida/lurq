@@ -11,8 +11,37 @@ impl WindowHandle {
   pub(crate) fn dialog_window(&self) -> DialogWindow {
     DialogWindow(Arc::downgrade(&self.window.inner))
   }
+  /// The file dialog broker of the window's tree, while it lives.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn file_dialog_broker(&self) -> Option<crate::mcp::FileDialogBroker> {
+    self.window.file_dialog_broker()
+  }
+
+  /// The system's handles of the window, where the shell recorded them: the parent of a dialog of the system.
+  pub(crate) fn parent(&self) -> Option<super::parent::ParentWindow> {
+    self.window.parent()
+  }
+
   pub fn info(&self) -> WindowInfo {
     self.info
+  }
+
+  /// Runs `callback` once in each frame this window draws, in step with its display, for as long as it returns
+  /// `true`, as [`Ctx::on_frame`](crate::app::ctx::Ctx::on_frame) does for a component: for code that is not a
+  /// component's, such as a game loop the app keeps beside its tree. The window keeps it until it stops (it returns
+  /// `false`, or is cancelled); [`FrameCallback::start`](crate::app::ctx::FrameCallback::start) gives it back to the
+  /// window. Window callbacks run before the components' in each frame.
+  pub fn on_frame(
+    &self,
+    callback: impl FnMut(crate::app::ctx::Frame) -> bool + Send + 'static,
+  ) -> crate::app::ctx::FrameCallback {
+    let callback = self
+      .window
+      .frames()
+      .add(Box::new(callback), Some(self.window.loop_waker()));
+    // A callback added from outside a turn of the loop is run from its next one.
+    (self.window.loop_waker())();
+    callback
   }
 
   /// Replace this window's OS/app close handler. Runs on the event-loop thread.
@@ -101,6 +130,21 @@ impl WindowHandle {
     self.set_title_bar_color(None);
   }
 
+  /// How much of the window's top the app draws its own title bar over: the height of the title bar of a
+  /// [`WindowChrome`](crate::components::WindowChrome), and `0.0` with no chrome or one that is off. The
+  /// window's content is laid out under the bar, and so is a modal over the whole window
+  /// (`Modal::target(ModalTarget::Root)`): it covers the window from the bar down.
+  pub fn title_bar_inset(&self) -> f32 {
+    self.window.inner.read().unwrap().title_bar_inset
+  }
+
+  /// Says how much of the window's top the app's own title bar is drawn over, so that a modal over the whole
+  /// window starts under it. A `WindowChrome` says it for its title bar; an app that draws a title bar
+  /// another way says it itself.
+  pub fn set_title_bar_inset(&self, inset: f32) {
+    self.window.set_title_bar_inset(inset.max(0.0));
+  }
+
   /// The compositor border last applied by the shell.
   pub fn border_color(&self) -> WindowBorderColor {
     self.window.inner.read().unwrap().border_color
@@ -115,8 +159,65 @@ impl WindowHandle {
   /// the small icon (title bar) and the big one (taskbar button, Alt+Tab). On
   /// macOS this does nothing: the Dock and the app switcher show the
   /// application bundle's icon.
+  ///
+  /// A title bar the app draws itself shows it too: `ui::WindowChrome` draws it as its icon unless told another.
   pub fn set_icon(&self, icon: impl Into<Option<WindowIcon>>) {
-    self.window.push_command(WindowCommand::SetIcon(icon.into()));
+    let icon = icon.into();
+    self.window.set_icon(icon.clone());
+    self.window.push_command(WindowCommand::SetIcon(icon));
+  }
+
+  /// Puts `text` on the clipboard, as a copy shortcut puts the selected text there: what a copy button does. It is
+  /// written once the handler that asked returns (or at the next pass, asked from elsewhere), where Ctrl+C writes:
+  /// the OS clipboard with the `clipboard` feature, or what a test installs with
+  /// [`Tree::set_clipboard_writer`](crate::app::Tree::set_clipboard_writer).
+  pub fn copy_to_clipboard(&self, text: impl Into<String>) {
+    self.window.request_copy(text.into());
+  }
+
+  /// Runs a command of editing on what has the focus, as its key does
+  /// ([`EditCommand`](crate::app::events::EditCommand)): what an Edit menu's item runs, a native one's too, whose
+  /// handler has no `Ctx` (on macOS a native item's key equivalent, Cmd+Z, takes the key before the window sees it).
+  /// It is run once the handler that asked returns (or at the next pass, asked from elsewhere); see
+  /// [`Ctx::edit`](crate::app::ctx::Ctx::edit), which is the same from a component.
+  pub fn edit(&self, command: crate::app::events::EditCommand) {
+    self.window.request_edit(command);
+  }
+
+  /// Goes back, as Alt+← and the mouse's back button do: on the focused element and out from it
+  /// (`on_history_back`), then the router ([`NavigationCommand`](crate::app::events::NavigationCommand)). What a
+  /// native menu's item runs, whose handler has no `Ctx`. It is run once the handler that asked returns (or at the
+  /// next pass, asked from elsewhere); see [`Ctx::history_back`](crate::app::ctx::Ctx::history_back), which is the
+  /// same from a component.
+  pub fn history_back(&self) {
+    self.run_navigation(crate::app::events::NavigationCommand::Back);
+  }
+
+  /// Goes forward, as Alt+→ and the mouse's forward button do; see [`history_back`](Self::history_back).
+  pub fn history_forward(&self) {
+    self.run_navigation(crate::app::events::NavigationCommand::Forward);
+  }
+
+  /// Goes back or forward by `command`; see [`history_back`](Self::history_back).
+  pub fn run_navigation(&self, command: crate::app::events::NavigationCommand) {
+    self.window.request_navigation(crate::app::window::NavigationRequest {
+      command,
+      source: crate::app::events::NavigationSource::App,
+      origin: crate::app::window::NavigationOrigin::Focus,
+      done: None,
+    });
+  }
+
+  /// The window's state this handle reads and writes.
+  pub(crate) fn state(&self) -> Window {
+    self.window.clone()
+  }
+
+  /// The window's icon, as the app set it (`set_icon`, or the shell's `with_icon`), or `None`. Reading it in a
+  /// render renders again as it changes.
+  pub fn icon(&self) -> Option<WindowIcon> {
+    self.window.track_access();
+    self.window.icon()
   }
 
   pub fn clear_icon(&self) {
@@ -171,6 +272,13 @@ impl WindowHandle {
 
   pub fn stop_drag(&self) {
     self.window.push_command(WindowCommand::StopDrag);
+  }
+
+  /// Shows the system's menu of the window where the pointer is: Restore, Move, Size, Minimize, Maximize and
+  /// Close, as a right press on a title bar the system draws does. For a title bar of the app's own. Only Windows
+  /// has such a menu; on macOS and Linux this does nothing.
+  pub fn show_system_menu(&self) {
+    self.window.push_command(WindowCommand::ShowSystemMenu);
   }
 
   /// Queue one synthetic input event, delivered inside the shell's event loop

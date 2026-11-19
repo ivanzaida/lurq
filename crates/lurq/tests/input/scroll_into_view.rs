@@ -230,3 +230,180 @@ fn clicking_a_partly_visible_element_focuses_it_without_scrolling() {
   assert_eq!(focused.as_deref(), Some("item-2"));
   assert_eq!(bounds(&mut tree, "item-0").y, 0.0);
 }
+
+#[test]
+fn what_sticks_beside_an_element_takes_no_room_from_it_and_what_sticks_over_it_does() {
+  use lurq::layout::layout_kind::Sticky;
+  // A page of items, and beside them a list that sticks to the top, taller than the view's top half.
+  let page = |over: bool| {
+    let mut column = Column::new().width(120.0);
+    for index in 0..20 {
+      column = column.child(button(index).width(120.0));
+    }
+    let stuck = Rect::new(if over { 120.0 } else { 80.0 }, 70.0).sticky(Sticky::top(0.0));
+    if over {
+      // Over the items: the same column, its first child sticking.
+      ScrollVertical::new(Column::new().child(stuck).child(column)).height(VIEW)
+    } else {
+      ScrollVertical::new(
+        Row::new()
+          .align_items(lurq::layout::Alignment::Start)
+          .child(column)
+          .child(stuck),
+      )
+      .height(VIEW)
+    }
+  };
+
+  // Beside: scrolled by 80, item 3 is at 40, in view under the band the list covers at its side, and stays.
+  let mut tree = headless(page(false));
+  tree.scroll(10.0, 10.0, 0.0, -80.0, lurq::app::events::ScrollPhase::Scroll);
+  tree.pass_headless(&mut App::new());
+  assert_eq!(bounds(&mut tree, "item-3").y, 40.0);
+  tree.get_element_by_id_mut("item-3").expect("item-3").scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  assert_eq!(
+    bounds(&mut tree, "item-3").y,
+    40.0,
+    "an item beside the list is not moved for it"
+  );
+
+  // Over: the band sticks across the items, and an item under it is brought out from under it.
+  let mut tree = headless(page(true));
+  tree.get_element_by_id_mut("item-0").expect("item-0").scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  let rect = bounds(&mut tree, "item-0");
+  assert!(
+    rect.y >= 70.0 - 0.5,
+    "an item under what sticks over it is shown clear of it: {}",
+    rect.y
+  );
+}
+
+/// A page that asks for one of its items at the start of the view, once `ask` is set.
+struct StartPage;
+
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct StartProps {
+  #[devtools_ignore]
+  target: ElementRef,
+  #[devtools_ignore]
+  ask: Signal<Option<usize>>,
+}
+
+impl PartialEq for StartProps {
+  fn eq(&self, _: &Self) -> bool {
+    true
+  }
+}
+
+impl Component for StartPage {
+  type Props = StartProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<StartProps>().clone();
+    let asked = props.ask.get();
+    if asked.is_some() {
+      ctx.scroll_into_view_start(&props.target);
+    }
+    let mut column = Column::new();
+    for index in 0..10 {
+      let mut item = button(index);
+      if Some(index) == asked {
+        item = item.ref_element(props.target.clone());
+      }
+      column = column.child(item);
+    }
+    ScrollVertical::new(column).height(VIEW)
+  }
+}
+
+#[test]
+fn ctx_scroll_into_view_start_brings_the_top_of_an_element_to_the_top_of_the_view() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  let ask = Signal::new(None);
+  tree.mount_root::<StartPage>(
+    &mut app,
+    StartProps {
+      target: ElementRef::new(),
+      ask: ask.clone(),
+    },
+  );
+  tree.pass_headless(&mut app);
+
+  // An element below the view: its top comes to the top, where nearest would bring its end to the bottom.
+  ask.set(Some(4));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  assert!(
+    (bounds(&mut tree, "item-4").y).abs() < 0.5,
+    "item-4 top = {}",
+    bounds(&mut tree, "item-4").y
+  );
+
+  // An element already in view moves to the top too.
+  ask.set(Some(5));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  assert!(
+    (bounds(&mut tree, "item-5").y).abs() < 0.5,
+    "item-5 top = {}",
+    bounds(&mut tree, "item-5").y
+  );
+
+  // Near the end of what scrolls it goes as far as the content lets it: the last item ends at the view's end.
+  ask.set(Some(9));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  let last = bounds(&mut tree, "item-9");
+  assert!(
+    (last.y + last.height - VIEW).abs() < 0.5,
+    "item-9 end = {}",
+    last.y + last.height
+  );
+
+  // And back up, above the view.
+  ask.set(Some(1));
+  tree.pass_headless(&mut app);
+  tree.pass_headless(&mut app);
+  assert!(
+    (bounds(&mut tree, "item-1").y).abs() < 0.5,
+    "item-1 top = {}",
+    bounds(&mut tree, "item-1").y
+  );
+}
+
+#[test]
+fn what_the_on_screen_keyboard_covers_is_not_in_view() {
+  // A page as high as the window (600), its list going on under where the keyboard comes up and past the window.
+  let mut column = Column::new();
+  for index in 0..40 {
+    column = column.child(button(index));
+  }
+  let mut tree = headless(ScrollVertical::new(column).height(600.0));
+  // Item 13 ([520..560]) is in view with no keyboard: a request leaves it where it is.
+  tree
+    .get_element_by_id_mut("item-13")
+    .expect("item-13")
+    .scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  assert_within(bounds(&mut tree, "item-13"), 520.0, 560.0, "no keyboard");
+
+  // A keyboard of 300 over a bottom safe area of 34: the item rises over its top, at 300.
+  tree.window().set_safe_area(lurq::app::window::SafeAreaInsets {
+    bottom: 300.0,
+    keyboard: 266.0,
+    ..Default::default()
+  });
+  tree
+    .get_element_by_id_mut("item-13")
+    .expect("item-13")
+    .scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  assert_within(bounds(&mut tree, "item-13"), 260.0, 300.0, "over the keyboard");
+}

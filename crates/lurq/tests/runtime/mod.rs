@@ -1,8 +1,10 @@
 mod app_lifetime;
 mod click;
 mod cursor;
+mod declared_component;
 mod double_click;
 mod drag;
+mod drag_autoscroll;
 mod dropdown_switch;
 mod dropdown_trigger;
 mod element_lookup {
@@ -35,9 +37,13 @@ mod futures {
 mod headless_pass;
 mod hidden_overlay;
 mod hover_after_scroll;
+mod hover_drawn_after_wheel;
 mod hover_frames;
 mod input_after_rebuild;
 mod input_source;
+mod one_component_rebuilt;
+mod repair_beside_rewritten_text;
+mod skipped_subtrees;
 // `Tree::set_canvas_waker` stands in for the shell's event-loop waker.
 #[cfg(feature = "canvas")]
 mod loop_wake {
@@ -51,19 +57,23 @@ mod history_swipe;
 mod middle_autoscroll;
 mod modal_resize;
 mod mouse_leave;
+mod navigation;
 mod nested_wheel_scroll;
 mod outside_press;
 mod overlay;
 mod pass_report;
 mod perf_overlay;
+mod rect_observers;
 #[cfg(feature = "image")]
 mod render_order;
+mod room_before_paint;
 mod rounded_clip_hits;
 mod scroll_axis_dominance;
 mod scroll_handler_redraw;
 mod scroll_state;
 mod scrollbar_hits;
 mod scrollbar_on_hover;
+mod smooth_wheel_scroll;
 mod stack_depth;
 mod text_reflow;
 mod text_scale_wrap;
@@ -76,3 +86,5 @@ mod timers {
   mod timeout_fires_once;
   mod timeout_restart_replaces_pending_fire;
 }
+mod wheel_handler;
+mod window_controls;

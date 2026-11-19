@@ -18,6 +18,8 @@ pub(crate) use controller_access::WeakTextInputState;
 mod source_tests;
 mod token_affinity;
 mod tokens;
+#[cfg(test)]
+mod undo_tests;
 use composition::Composition;
 use token_affinity::TokenAffinity;
 
@@ -33,10 +35,64 @@ pub(crate) struct TextInputState {
   layout_subscribers: Arc<crate::core::layout_dirty::LayoutSubscribers>,
 }
 
+/// What gives an input's tokens for each value it holds: see `TextInput::tokens_with`.
+pub(crate) type TokenSource = Arc<dyn Fn(&str) -> crate::components::InputTokens + Send + Sync>;
+
+/// How the platform's own text fields group what is typed into steps of undo
+/// (`design/decisions.md`, "Undo takes back what was typed as the platform's own fields do", and "On Windows a
+/// run of typing is one step of undo, as on a Mac").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UndoGrouping {
+  /// A run of typing is one step until the caret moves or typing turns to deleting: `NSTextView` and
+  /// `UITextView`, and Windows' RichEdit, which Notepad, WordPad and WinUI's `TextBox` type into.
+  Runs,
+  /// As `Runs`, and each word typed, with the spaces after it, is a step, as Word groups it. No platform's own
+  /// field does: it was taken for Windows' before Windows was asked.
+  #[cfg_attr(not(test), allow(dead_code))]
+  Words,
+}
+
+impl UndoGrouping {
+  pub(crate) const PLATFORM: Self = Self::Runs;
+}
+
+/// What a run of typing did last, and where it left the caret.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TypingKind {
+  Insert,
+  Backspace,
+  Delete,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TypingRun {
+  kind: TypingKind,
+  /// Where the caret was left, and how long the text was: the next edit joins only where nothing else moved them.
+  caret: usize,
+  len: usize,
+  /// Whether the last character typed was a space, after which a word begins a step on Windows.
+  after_space: bool,
+  /// When it was typed: what comes after a pause longer than the app's is a step of its own.
+  at: crate::time::Instant,
+}
+
+/// How long a pause in typing ends a step of undo, until the app says another: [`App::set_typing_undo_pause`].
+///
+/// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+pub(crate) const TYPING_UNDO_PAUSE: Option<std::time::Duration> = Some(std::time::Duration::from_secs(1));
+
 struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
+  /// What gives the tokens of a value the tokens above are not of.
+  token_source: Option<TokenSource>,
   token_layout: Option<Arc<crate::layout::layout_engine::input_token_layout::TokenLayout>>,
   token_affinity: Option<TokenAffinity>,
+  /// The token the pointer is on, where its style has a look for it.
+  hovered_token: Option<usize>,
+  /// Whether the pointer is on the icon of a token that a click takes away.
+  token_icon_hovered: bool,
+  /// An element the layout puts where a byte of the value stands: what a list hangs from.
+  byte_anchor: Option<(crate::core::ElementRef, usize)>,
   placeholder: Option<String>,
   last_value: String,
   caret: usize,
@@ -63,6 +119,10 @@ struct TextInputInner {
   vertical_goal: Option<(usize, f32)>,
   unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
+  /// Whether a multiline input's lines wrap at its width; one that does not is as wide as its longest line.
+  line_wrap: bool,
+  /// The numbers and the bands drawn beside a multiline input's lines: see [`crate::components::LineGutter`].
+  gutter: Option<Arc<crate::components::LineGutter>>,
   min_rows: Option<usize>,
   max_rows: Option<usize>,
   mask: Option<char>,
@@ -70,10 +130,25 @@ struct TextInputInner {
   return_key: ReturnKey,
   content: ContentKind,
   focused: bool,
+  /// While focused, the input keeps what it shows when a render binds it to another signal: see
+  /// [`TextInputState::copy_runtime_state_from`].
+  keeps_text_while_focused: bool,
+  /// Whether all its text is selected as it takes the focus: see [`crate::components::TextInput::select_on_focus`].
+  select_on_focus: bool,
+  /// Wavy lines under ranges of the text: see [`crate::components::InputSquiggles`].
+  squiggles: Option<crate::components::InputSquiggles>,
+  /// What is drawn after the end of the text while the caret is there: see [`crate::components::InputGhost`].
+  ghost: Option<crate::components::InputGhost>,
   /// An input method composition in progress, shown at the caret.
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
   redo_stack: Vec<TextInputSnapshot>,
+  /// The run of typing the last step of undo holds, which what is typed next joins: see [`UndoGrouping`].
+  typing: Option<TypingRun>,
+  /// How typing is grouped into steps of undo here.
+  undo_grouping: UndoGrouping,
+  /// How long a pause in typing ends a step: the app's, given before each key ([`TextInputState::set_typing_pause`]).
+  typing_pause: Option<std::time::Duration>,
   /// The spans of a styled input and its hooks; empty for a plain one.
   styled: styled::StyledState,
 }
@@ -85,6 +160,10 @@ struct TextInputSnapshot {
   selection_anchor: Option<usize>,
   /// A styled input's spans, so undo restores styles with the text.
   spans: Option<styled::SnapshotSpans>,
+  /// The kinds of a styled input's paragraphs, where it has them.
+  paragraphs: Option<styled::SnapshotParagraphs>,
+  /// The objects of a styled input's text, where it has them: undo brings a deleted one back as it was.
+  objects: Option<styled::SnapshotObjects>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -93,6 +172,7 @@ pub(crate) struct TextInputLayoutSignature {
   placeholder: Option<String>,
   unfocused_overflow_anchor: TextInputOverflowAnchor,
   overflow: TextInputOverflow,
+  line_wrap: bool,
   min_rows: Option<usize>,
   max_rows: Option<usize>,
   mask: Option<char>,
@@ -116,8 +196,12 @@ impl TextInputState {
       value,
       inner: Arc::new(Mutex::new(TextInputInner {
         tokens: None,
+        token_source: None,
         token_layout: None,
         token_affinity: None,
+        hovered_token: None,
+        token_icon_hovered: false,
+        byte_anchor: None,
         placeholder: None,
         last_value: initial_value,
         caret,
@@ -138,6 +222,8 @@ impl TextInputState {
         vertical_goal: None,
         unfocused_overflow_anchor: TextInputOverflowAnchor::default(),
         overflow: TextInputOverflow::default(),
+        line_wrap: true,
+        gutter: None,
         min_rows: None,
         max_rows: None,
         mask: None,
@@ -145,15 +231,27 @@ impl TextInputState {
         return_key: ReturnKey::default(),
         content: ContentKind::default(),
         focused: false,
+        keeps_text_while_focused: false,
+        select_on_focus: false,
+        squiggles: None,
+        ghost: None,
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        typing: None,
+        undo_grouping: UndoGrouping::PLATFORM,
+        typing_pause: TYPING_UNDO_PAUSE,
         styled: Default::default(),
       })),
       on_input: Arc::new(Mutex::new(Vec::new())),
       layout_dirty: Arc::new(AtomicBool::new(false)),
       layout_subscribers: Arc::default(),
     }
+  }
+
+  /// The signal it is bound to.
+  pub(crate) fn value_signal(&self) -> Signal<String> {
+    self.value.clone()
   }
 
   pub(crate) fn value(&self) -> String {
@@ -313,6 +411,14 @@ impl TextInputState {
     self.mark_layout_dirty_keeping_scroll();
   }
 
+  pub(crate) fn set_keeps_text_while_focused(&self, keeps: bool) {
+    self.inner.lock().keeps_text_while_focused = keeps;
+  }
+
+  pub(crate) fn set_select_on_focus(&self, selects: bool) {
+    self.inner.lock().select_on_focus = selects;
+  }
+
   pub(crate) fn set_keyboard(&self, keyboard: KeyboardKind) {
     self.inner.lock().keyboard = keyboard;
   }
@@ -401,6 +507,7 @@ impl TextInputState {
       placeholder: inner.placeholder.clone(),
       unfocused_overflow_anchor: inner.unfocused_overflow_anchor,
       overflow: inner.overflow,
+      line_wrap: inner.line_wrap,
       min_rows: inner.min_rows,
       max_rows: inner.max_rows,
       mask: inner.mask,
@@ -473,6 +580,12 @@ impl TextInputState {
     }
   }
 
+  /// How many edits there are to undo, and how many to redo.
+  pub(crate) fn history_depths(&self) -> (usize, usize) {
+    let inner = self.inner.lock();
+    (inner.undo_stack.len(), inner.redo_stack.len())
+  }
+
   pub(crate) fn has_selection(&self) -> bool {
     let value = self.value();
     let inner = self.inner.lock();
@@ -482,12 +595,16 @@ impl TextInputState {
   fn snapshot(&self) -> TextInputSnapshot {
     let value = self.value();
     let spans = self.current_spans();
+    let paragraphs = self.current_paragraphs();
+    let objects = self.current_objects();
     let inner = self.inner.lock();
     TextInputSnapshot {
       value,
       caret: inner.caret,
       selection_anchor: inner.selection_anchor,
       spans,
+      paragraphs,
+      objects,
     }
   }
 
@@ -496,6 +613,70 @@ impl TextInputState {
     let mut inner = self.inner.lock();
     push_limited(&mut inner.undo_stack, snapshot);
     inner.redo_stack.clear();
+    inner.typing = None;
+  }
+
+  /// Before typing `text` (or deleting, as `kind` says): a step of undo of its own, or none where it goes on the run
+  /// of typing the last step holds, as the platform's fields group it ([`UndoGrouping`]).
+  fn begin_typing(&self, kind: TypingKind, text: &str) {
+    let len = self.value().len();
+    let joins = {
+      let inner = self.inner.lock();
+      inner.typing.is_some_and(|run| {
+        run.kind == kind
+          && inner.typing_pause.is_none_or(|pause| run.at.elapsed() <= pause)
+          && run.caret == inner.caret
+          && run.len == len
+          && inner.selection_anchor.is_none_or(|anchor| anchor == inner.caret)
+          && !(inner.undo_grouping == UndoGrouping::Words
+            && kind == TypingKind::Insert
+            && run.after_space
+            && text.chars().next().is_some_and(|first| !first.is_whitespace()))
+      })
+    };
+    if joins {
+      self.inner.lock().redo_stack.clear();
+    } else {
+      self.push_undo_snapshot();
+    }
+  }
+
+  /// After typing `text` (or deleting): what is typed next may join the step.
+  fn end_typing(&self, kind: TypingKind, text: &str) {
+    let len = self.value().len();
+    let mut inner = self.inner.lock();
+    let after_space = match text.chars().last() {
+      Some(last) => last.is_whitespace(),
+      None => inner.typing.is_some_and(|run| run.after_space),
+    };
+    inner.typing = Some(TypingRun {
+      kind,
+      caret: inner.caret,
+      len,
+      after_space,
+      at: crate::time::Instant::now(),
+    });
+  }
+
+  /// How long a pause in typing ends a step of undo, the app's ([`App::set_typing_undo_pause`]); `None` where
+  /// none does.
+  ///
+  /// [`App::set_typing_undo_pause`]: crate::app::App::set_typing_undo_pause
+  pub(crate) fn set_typing_pause(&self, pause: Option<std::time::Duration>) {
+    self.inner.lock().typing_pause = pause;
+  }
+
+  /// The caret or the selection moved, or the text was put back: what is typed next is a step of its own.
+  pub(crate) fn break_typing(&self) {
+    self.inner.lock().typing = None;
+  }
+
+  /// How typing is grouped into steps of undo, where a test asks for another platform's.
+  #[cfg(test)]
+  pub(crate) fn set_undo_grouping(&self, grouping: UndoGrouping) {
+    let mut inner = self.inner.lock();
+    inner.undo_grouping = grouping;
+    inner.typing = None;
   }
 
   fn push_undo_snapshot_value(&self, snapshot: TextInputSnapshot) {
@@ -509,6 +690,7 @@ impl TextInputState {
   }
 
   fn restore_snapshot(&self, snapshot: TextInputSnapshot) {
+    self.break_typing();
     let value = snapshot.value;
     let len = value.len();
     let caret = clamp_to_char_boundary(&value, snapshot.caret.min(len));
@@ -522,6 +704,12 @@ impl TextInputState {
     inner.caret = caret;
     inner.selection_anchor = selection_anchor;
     drop(inner);
+    if let Some(paragraphs) = snapshot.paragraphs {
+      self.restore_paragraphs(paragraphs);
+    }
+    if let Some(objects) = snapshot.objects {
+      self.restore_objects(objects);
+    }
     if let Some(spans) = snapshot.spans {
       self.restore_spans(spans);
     }

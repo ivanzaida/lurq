@@ -142,6 +142,28 @@ fn app_snapshot_shows_derived_persistent_value_struct_fields() {
     prefs.value,
     "UserPrefs { name: \"Ada\", launch_count: 12, compact: true }"
   );
+  // The same fields apart, each with its value as it is written: what DevTools shows a row for.
+  let fields = prefs
+    .fields
+    .iter()
+    .map(|(name, value)| (name.as_str(), value.as_str()))
+    .collect::<Vec<_>>();
+  assert_eq!(
+    fields,
+    [("name", "\"Ada\""), ("launch_count", "12"), ("compact", "true")]
+  );
+}
+
+#[test]
+fn a_snapshot_of_a_plain_value_has_no_fields() {
+  let app = App::new();
+  app.set_persistent_value("count", 42_u32).unwrap();
+
+  let snapshot = app.persistent_storage().snapshot().unwrap();
+
+  assert_eq!(snapshot.len(), 1);
+  assert_eq!(snapshot[0].value, "42");
+  assert!(snapshot[0].fields.is_empty());
 }
 
 #[test]
@@ -226,4 +248,121 @@ fn ctx_persistent_value_reads_and_writes_app_storage() {
   assert_eq!(app.persistent_value::<u64>("visits"), Some(3));
   assert_eq!(app.persistent_value::<u64>("opens"), Some(5));
   assert_eq!(app.persistent_value::<String>("label"), Some("ready".to_owned()));
+}
+
+#[test]
+fn dock_state_roundtrips_through_storage() {
+  use lurq::{
+    persistent_storage::PersistentStorage,
+    ui::{DockNode, DockPlace, DockSide, DockState},
+  };
+
+  let mut state = DockState::new(
+    DockNode::row([
+      DockNode::group(["explorer"]),
+      DockNode::column([
+        DockNode::documents(DockNode::group(["blur.rs", "theme.rs"])),
+        DockNode::group(["terminal", "problems", "output"]),
+      ])
+      .shares([0.7, 0.3]),
+    ])
+    .shares([0.25, 0.75]),
+  );
+  assert!(state.show("problems", DockPlace::Hidden(DockSide::Bottom)));
+  assert!(state.show(
+    "outline",
+    DockPlace::Float {
+      position: (10.0, 20.0),
+      size: Some((300.0, 200.0)),
+    }
+  ));
+  assert!(state.show("say \"hi\"", DockPlace::Tab { of: "explorer".into() }));
+  assert!(state.select("theme.rs"));
+  assert!(state.maximize("terminal"));
+
+  let storage = PersistentStorage::memory();
+  storage.set_value("dock", state.clone()).unwrap();
+
+  assert_eq!(storage.value::<DockState>("dock"), Some(state));
+  assert_eq!(storage.value::<DockState>("missing"), None);
+}
+
+#[test]
+fn a_data_grids_arrangement_sort_and_groups_open_roundtrip_through_storage() {
+  use lurq::{
+    persistent_storage::PersistentStorage,
+    ui::{ColumnLayout, ColumnPin, ColumnPlace, GroupKey, TableSort},
+  };
+
+  let place = |id: &str, hidden: bool, width: Option<f32>, fit: bool, pin: ColumnPin| ColumnPlace {
+    id: id.into(),
+    hidden,
+    width,
+    fit,
+    pin,
+  };
+  let layout = ColumnLayout {
+    columns: vec![
+      place("size", false, Some(150.5), false, ColumnPin::None),
+      place("na\"me", false, None, true, ColumnPin::Start),
+      place("status", true, None, false, ColumnPin::End),
+    ],
+  };
+  let sort = Some(TableSort::descending("size"));
+  let open = vec![
+    GroupKey::new(["Passing"]),
+    GroupKey::new(["Passing", r"Ada \ Lovelace"]),
+  ];
+
+  let storage = PersistentStorage::memory();
+  storage.set_value("columns", layout.clone()).unwrap();
+  storage.set_value("sort", sort.clone()).unwrap();
+  storage.set_value("unsorted", None::<TableSort>).unwrap();
+  let several = vec![TableSort::ascending("status"), TableSort::descending("size")];
+  storage.set_value("several", several.clone()).unwrap();
+  storage.set_value("none", Vec::<TableSort>::new()).unwrap();
+  storage.set_value("open", open.clone()).unwrap();
+
+  assert_eq!(storage.value::<ColumnLayout>("columns"), Some(layout.clone()));
+  assert_eq!(storage.value::<Option<TableSort>>("sort"), Some(sort));
+  assert_eq!(storage.value::<Option<TableSort>>("unsorted"), Some(None));
+  assert_eq!(storage.value::<Vec<TableSort>>("several"), Some(several.clone()));
+  assert_eq!(storage.value::<Vec<TableSort>>("none"), Some(Vec::new()));
+  let filters = lurq::ui::TableFilters::new()
+    .with("name", lurq::ui::ColumnFilter::starts_with("crates/"))
+    .with("size", lurq::ui::ColumnFilter::between(1.5, 20.0))
+    .with(
+      "updated",
+      lurq::ui::ColumnFilter::dates(
+        lurq::core::Date::new(2026, 1, 1).unwrap(),
+        lurq::core::Date::new(2026, 2, 1).unwrap(),
+      ),
+    )
+    .with("status", lurq::ui::ColumnFilter::one_of(["Passing", "Fa\"iled"]))
+    .with("shared", lurq::ui::ColumnFilter::is(false));
+  storage.set_value("filters", filters.clone()).unwrap();
+  assert_eq!(
+    storage.value::<lurq::ui::TableFilters>("filters"),
+    Some(filters.clone())
+  );
+  let query = lurq::ui::GridQuery {
+    sort: vec![TableSort::ascending("status"), TableSort::descending("size")],
+    filters,
+    search: "a \"quoted\" word".to_owned(),
+  };
+  storage.set_value("query", query.clone()).unwrap();
+  assert_eq!(storage.value::<lurq::ui::GridQuery>("query"), Some(query));
+  assert_eq!(TableSort::parse_list(&TableSort::list_to_text(&several)), Some(several));
+  assert_eq!(storage.value::<Vec<GroupKey>>("open"), Some(open));
+  assert_eq!(layout.to_string().parse::<ColumnLayout>(), Ok(layout.clone()));
+
+  // Read back for the columns the app has now: one it dropped is left out, a new one takes its place.
+  let valid = layout.valid(["na\"me", "kind", "size"]);
+  let ids: Vec<&str> = valid.columns.iter().map(|place| &*place.id).collect();
+  assert_eq!(
+    ids,
+    ["size", "na\"me", "kind"],
+    "kind after the column before it among the app's"
+  );
+  assert_eq!(valid.place("size").and_then(|place| place.width), Some(150.5));
 }

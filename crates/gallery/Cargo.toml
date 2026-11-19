@@ -1,0 +1,67 @@
+[package]
+name = "gallery"
+default-run = "gallery"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+# Lets the running app be driven and captured over lurq's MCP server.
+mcp = ["lurq/mcp"]
+devtools = ["lurq/devtools"]
+# What a frame costs, written for each frame to the file `--profile-log` names: the Glyph Atlas page's probe.
+perf_profile = ["lurq/perf_profile"]
+
+[dependencies]
+# What every build of the gallery takes beyond lurq's default: the pages of the find bar, Markdown and the players.
+lurq = { path = "../lurq", default-features = false, features = ["regex", "markdown", "media"] }
+# The tokenizer of another crate the Code Block page plugs into lurq, as an app would (`src/syntect_code.rs`): the
+# gallery's alone, never lurq's. Its grammars are read by its own regular expressions, which build for the browser.
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
+
+# A desktop takes lurq's default, the desktop set, and addresses on the network, for the sound the Audio Player
+# page plays from one, and the store on the disk the Persistent Storage page writes to. Not in a browser: the
+# client is not built for one, the loader loads no address there yet, and the store is a file.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lurq = { path = "../lurq", features = ["http", "persistent_storage"] }
+
+# The decoder of the Video Player page that stands for an app's own: a Direct3D 11 device that writes
+# textures lurq draws (`src/card_demo.rs`). And DirectX 12, which `--renderer dx12` draws the gallery with.
+[target.'cfg(windows)'.dependencies]
+lurq = { path = "../lurq", features = ["dx12"] }
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Security",
+] }
+
+# The decoders of the Video Player page that stand for an app's own on macOS and iOS (`src/cv_demo.rs`): a buffer
+# of the system's made with what it says of its colors, and a shared event of Metal that says a frame is written.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+core-foundation-sys = "0.8"
+objc2 = "0.6"
+core-video-sys = { version = "0.1", default-features = false }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLEvent"] }
+
+# The gallery as a page: `scripts/gallery-web.py`. What it asks the browser for is in `src/web.rs`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# A page names lurq's features itself, as a browser app does: the desktop set, with WebGL2 for a browser without
+# WebGPU.
+lurq = { path = "../lurq", default-features = false, features = ["webgl", "winit", "clipboard", "file_dialog", "image", "canvas", "form", "router", "query", "persistent_storage"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Location",
+    "Node",
+    "Response",
+    "Window",
+    "console",
+] }

@@ -6,21 +6,23 @@ use std::{
     Arc, OnceLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use core_foundation_sys::base::{CFRelease, CFRetain};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
 #[cfg(feature = "image")]
 use image::{AnimationDecoder, ImageFormat, codecs};
 use parking_lot::{Mutex, RwLock};
 
+use crate::time::Instant;
+
 pub enum ImageKind {
   Bytes(ImageData),
   Native(NativeImageData),
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   Resource(Arc<str>),
 }
 
@@ -28,23 +30,27 @@ pub enum ImageKind {
 pub enum ImagePixelFormat {
   Rgba8,
   Nv12,
+  /// Three planes, as a decoder of software gives them: gray, `width` by `height`, then blue-difference and
+  /// red-difference apart, each half as wide and half as high. The `wgpu` renderer draws them as they are; the
+  /// `dx12` renderer draws none yet.
+  I420,
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 impl From<&str> for ImageKind {
   fn from(value: &str) -> Self {
     Self::Resource(Arc::from(value))
   }
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 impl From<String> for ImageKind {
   fn from(value: String) -> Self {
     Self::Resource(Arc::from(value))
   }
 }
 
-#[cfg(all(feature = "image", feature = "resources"))]
+#[cfg(all(feature = "image", feature = "http"))]
 impl From<Arc<str>> for ImageKind {
   fn from(value: Arc<str>) -> Self {
     Self::Resource(value)
@@ -77,10 +83,15 @@ fn animation_epoch() -> Instant {
 pub enum NativeImageBackend {
   #[cfg(feature = "canvas")]
   Canvas,
-  Dx12Nv12,
+  /// An image of a test, which no renderer draws: one that every build has.
+  #[cfg(test)]
+  Test,
+  /// Frames in textures of the graphics card, shared by handle: [`CardFrames`](super::CardFrames).
+  #[cfg(windows)]
+  CardFrames,
   #[cfg(feature = "wgpu")]
   WgpuExternalRgba,
-  #[cfg(target_os = "macos")]
+  #[cfg(any(target_os = "macos", target_os = "ios"))]
   MacosCvPixelBufferNv12,
 }
 
@@ -96,41 +107,18 @@ pub struct NativeImageData {
   continuous_redraw: bool,
 }
 
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-#[derive(Clone)]
-pub struct Dx12Nv12Image {
-  pub y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  pub uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  pub y_plane_slice: u32,
-  pub uv_plane_slice: u32,
-  pub frame_number: Option<u32>,
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-#[derive(Clone)]
-pub struct Dx12Nv12ImageSlot {
-  state: Arc<RwLock<Dx12Nv12ImageSlotState>>,
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-struct Dx12Nv12ImageSlotState {
-  image: Dx12Nv12Image,
-  version: u64,
-  pending_external_bump: bool,
-}
-
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub struct MacosCvPixelBuffer {
   ptr: CVPixelBufferRef,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 unsafe impl Send for MacosCvPixelBuffer {}
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 unsafe impl Sync for MacosCvPixelBuffer {}
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl MacosCvPixelBuffer {
   /// # Safety
   ///
@@ -147,16 +135,147 @@ impl MacosCvPixelBuffer {
   pub fn as_ptr(&self) -> CVPixelBufferRef {
     self.ptr
   }
+
+  /// A buffer of two planes, gray and color at half the size, `width` by `height` (an even number each way),
+  /// that Metal draws where it is: for a decoder of the app's own that has its frames in memory. The decoder
+  /// writes a frame into it ([`write_nv12`](Self::write_nv12)) and shows it
+  /// ([`CvPixelBufferFrames::show`]); what the system's decoders give is such a buffer already. `None` where the
+  /// system makes none of that size.
+  pub fn nv12(width: u32, height: u32) -> Option<Self> {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+      return None;
+    }
+    Self::made(
+      width,
+      height,
+      core_video_sys::pixel_buffer::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+    )
+  }
+
+  /// A buffer of one plane of blue, green, red and alpha (`BGRA`, a byte each, of sRGB), `width` by `height`, that
+  /// Metal draws where it is: what an app renders with its own Metal or writes in memory
+  /// ([`write_bgra`](Self::write_bgra)), as ScreenCaptureKit gives a screen. `None` where the system makes none of
+  /// that size.
+  pub fn bgra(width: u32, height: u32) -> Option<Self> {
+    Self::made(width, height, u32::from_be_bytes(*b"BGRA"))
+  }
+
+  /// A buffer of the system's surface, which Metal makes textures of, in the pixel format `format`.
+  fn made(width: u32, height: u32, format: u32) -> Option<Self> {
+    use core_foundation_sys::{
+      base::kCFAllocatorDefault,
+      dictionary::{CFDictionaryCreate, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks},
+      number::kCFBooleanTrue,
+    };
+    use core_video_sys::pixel_buffer::{
+      CVPixelBufferCreate, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey,
+    };
+    if width == 0 || height == 0 {
+      return None;
+    }
+    // SAFETY: the dictionaries are made of the system's own keys and values, which they retain, and are let
+    // go once the buffer is made; the buffer is this wrapper's from then on.
+    unsafe {
+      let dictionary = |keys: &[*const std::ffi::c_void], values: &[*const std::ffi::c_void]| {
+        CFDictionaryCreate(
+          kCFAllocatorDefault,
+          keys.as_ptr(),
+          values.as_ptr(),
+          keys.len() as isize,
+          &kCFTypeDictionaryKeyCallBacks,
+          &kCFTypeDictionaryValueCallBacks,
+        )
+      };
+      // A surface of the system's own, which is what Metal makes a texture of.
+      let surface = dictionary(&[], &[]);
+      let attributes = dictionary(
+        &[
+          kCVPixelBufferIOSurfacePropertiesKey.cast(),
+          kCVPixelBufferMetalCompatibilityKey.cast(),
+        ],
+        &[surface.cast(), kCFBooleanTrue.cast()],
+      );
+      let mut buffer: CVPixelBufferRef = std::ptr::null_mut();
+      let status = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width as usize,
+        height as usize,
+        format,
+        // The binding of CoreVideo names the dictionary by another version of CoreFoundation's: one type.
+        attributes.cast(),
+        &mut buffer,
+      );
+      CFRelease(attributes.cast());
+      CFRelease(surface.cast());
+      (status == 0 && !buffer.is_null()).then_some(Self { ptr: buffer })
+    }
+  }
+
+  /// Writes a frame into a buffer of one plane of `BGRA`: `write` is given its rows and how many bytes a row is,
+  /// at least four for each pixel across. `false` where the buffer is of planes, or could not be held to be written.
+  pub fn write_bgra(&self, write: impl FnOnce(&mut [u8], usize)) -> bool {
+    use core_video_sys::pixel_buffer::{
+      CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight, CVPixelBufferGetPlaneCount,
+      CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
+    };
+    // SAFETY: the buffer is held while it is written, and holds its rows of `stride` bytes.
+    unsafe {
+      if CVPixelBufferGetPlaneCount(self.ptr) != 0 || CVPixelBufferLockBaseAddress(self.ptr, 0) != 0 {
+        return false;
+      }
+      let stride = CVPixelBufferGetBytesPerRow(self.ptr);
+      let rows = CVPixelBufferGetHeight(self.ptr);
+      let start = CVPixelBufferGetBaseAddress(self.ptr).cast::<u8>();
+      let written = !start.is_null();
+      if written {
+        write(std::slice::from_raw_parts_mut(start, stride * rows), stride);
+      }
+      CVPixelBufferUnlockBaseAddress(self.ptr, 0);
+      written
+    }
+  }
+
+  /// Writes a frame into a buffer of two planes: `write` is given the rows of gray and how many bytes a row is,
+  /// then the rows of color (a byte of blue-difference and one of red-difference for each two pixels across
+  /// and down) and how many bytes a row of those is. A row is at least as long as the picture is wide.
+  /// `false` where the buffer is not of two planes, or could not be held to be written.
+  pub fn write_nv12(&self, write: impl FnOnce(&mut [u8], usize, &mut [u8], usize)) -> bool {
+    use core_video_sys::pixel_buffer::{
+      CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeightOfPlane,
+      CVPixelBufferGetPlaneCount, CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
+    };
+    // SAFETY: the buffer is held while its planes are written, and each plane holds its rows of `stride` bytes.
+    unsafe {
+      if CVPixelBufferGetPlaneCount(self.ptr) != 2 || CVPixelBufferLockBaseAddress(self.ptr, 0) != 0 {
+        return false;
+      }
+      let plane = |index: usize| {
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(self.ptr, index);
+        let rows = CVPixelBufferGetHeightOfPlane(self.ptr, index);
+        let start = CVPixelBufferGetBaseAddressOfPlane(self.ptr, index).cast::<u8>();
+        (!start.is_null()).then(|| (std::slice::from_raw_parts_mut(start, stride * rows), stride))
+      };
+      let written = match (plane(0), plane(1)) {
+        (Some((gray, gray_stride)), Some((color, color_stride))) => {
+          write(gray, gray_stride, color, color_stride);
+          true
+        }
+        _ => false,
+      };
+      CVPixelBufferUnlockBaseAddress(self.ptr, 0);
+      written
+    }
+  }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl Clone for MacosCvPixelBuffer {
   fn clone(&self) -> Self {
     unsafe { Self::retain(self.ptr) }
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl Drop for MacosCvPixelBuffer {
   fn drop(&mut self) {
     unsafe {
@@ -165,10 +284,136 @@ impl Drop for MacosCvPixelBuffer {
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 #[derive(Clone)]
 pub struct MacosCvPixelBufferNv12Image {
   pub pixel_buffer: MacosCvPixelBuffer,
+}
+
+/// The frames of a video that stay on the graphics card, on macOS and iOS: the buffer of pixels the system's
+/// decoder gave for the frame to show, two planes of gray and of color, which the `wgpu` renderer draws on Metal
+/// where it is. What decodes shows each frame as it comes ([`show`](Self::show)); the image of these frames
+/// ([`NativeImageData::from_cv_pixel_buffer_frames`]) is drawn again by itself.
+///
+/// The buffer is one Metal can make a texture of (`kCVPixelBufferMetalCompatibilityKey`), of the kind
+/// `420v`. Whether a renderer that draws such frames is there is [`cv_pixel_buffer_frames_drawn`]; where none
+/// is, what decodes copies its frames into an image of memory.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[derive(Clone, Default)]
+pub struct CvPixelBufferFrames {
+  state: Arc<CvPixelBufferFramesState>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[derive(Default)]
+struct CvPixelBufferFramesState {
+  shown: Mutex<Option<MacosCvPixelBuffer>>,
+  count: AtomicU64,
+  /// Frames the app's card is still writing, oldest first: see [`CvPixelBufferFrames::show_after`].
+  #[cfg(feature = "wgpu")]
+  waiting: Mutex<std::collections::VecDeque<WaitingFrame>>,
+}
+
+/// A frame shown once its event reaches its value.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "wgpu"))]
+struct WaitingFrame {
+  buffer: MacosCvPixelBuffer,
+  event: objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLSharedEvent>>,
+  value: u64,
+}
+
+// SAFETY: a shared event is Metal's to signal and read from any thread.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "wgpu"))]
+unsafe impl Send for WaitingFrame {}
+
+/// How many frames may wait for their card at once: one more, and the oldest is not shown.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "wgpu"))]
+const FRAMES_WAITING: usize = 8;
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+impl CvPixelBufferFrames {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// `buffer` is the frame to show from now on. The buffer is whole: a decoder of the system's, or one that wrote
+  /// it in memory, gives it so. A frame the app's own card writes is [`show_after`](Self::show_after).
+  pub fn show(&self, buffer: MacosCvPixelBuffer) {
+    #[cfg(feature = "wgpu")]
+    self.state.waiting.lock().clear();
+    *self.state.shown.lock() = Some(buffer);
+    self.state.count.fetch_add(1, Ordering::AcqRel);
+  }
+
+  /// `buffer` is the frame to show once `event` reaches `value`: the app's Metal commands that write it signal the
+  /// event when they are done (`encodeSignalEvent:value:`). Nothing waits for it: until then the frame before is
+  /// drawn, and the first frame of the window after it is this one. A later frame that is ready first is shown
+  /// first, and this one never. The buffer is held, and not written again by the app's pool, until it is drawn no
+  /// more.
+  #[cfg(feature = "wgpu")]
+  pub fn show_after(
+    &self,
+    buffer: MacosCvPixelBuffer,
+    event: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLSharedEvent>,
+    value: u64,
+  ) {
+    let mut waiting = self.state.waiting.lock();
+    if waiting.len() == FRAMES_WAITING {
+      waiting.pop_front();
+    }
+    waiting.push_back(WaitingFrame {
+      buffer,
+      event: objc2::Message::retain(event),
+      value,
+    });
+  }
+
+  /// Shows the newest frame that waited and is written now, and lets go of those before it.
+  fn settle(&self) {
+    #[cfg(feature = "wgpu")]
+    {
+      use objc2_metal::MTLSharedEvent as _;
+      let mut waiting = self.state.waiting.lock();
+      if let Some(ready) = waiting
+        .iter()
+        .rposition(|frame| frame.event.signaledValue() >= frame.value)
+      {
+        let frame = waiting.drain(..=ready).last().expect("one was found");
+        drop(waiting);
+        *self.state.shown.lock() = Some(frame.buffer);
+        self.state.count.fetch_add(1, Ordering::AcqRel);
+      }
+    }
+  }
+
+  /// The frame to show, where one was shown.
+  pub fn shown(&self) -> Option<MacosCvPixelBuffer> {
+    self.settle();
+    self.state.shown.lock().clone()
+  }
+
+  /// How many frames were shown: the version of an image of these frames.
+  pub(crate) fn count(&self) -> u64 {
+    self.settle();
+    self.state.count.load(Ordering::Acquire)
+  }
+}
+
+/// Whether something draws [`CvPixelBufferFrames`] where they are: the `wgpu` renderer, once it draws on Metal.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+static CV_PIXEL_BUFFER_FRAMES_DRAWN: AtomicBool = AtomicBool::new(false);
+
+/// Told by a renderer that draws [`CvPixelBufferFrames`] where they are, and by one that no longer does.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub fn set_cv_pixel_buffer_frames_drawn(drawn: bool) {
+  CV_PIXEL_BUFFER_FRAMES_DRAWN.store(drawn, Ordering::Release);
+}
+
+/// Whether a renderer draws [`CvPixelBufferFrames`] where they are. Where none does, a decoder copies its frames
+/// into an image of memory (`ImageData::streaming_nv12`), which every renderer draws.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub fn cv_pixel_buffer_frames_drawn() -> bool {
+  CV_PIXEL_BUFFER_FRAMES_DRAWN.load(Ordering::Acquire)
 }
 
 #[derive(Clone)]
@@ -241,6 +486,13 @@ impl ImageData {
   pub fn streaming_nv12(data: Vec<u8>, width: u32, height: u32) -> Self {
     assert_eq!(data.len(), nv12_len(width, height));
     Self::streaming(data, width, height, ImagePixelFormat::Nv12, true)
+  }
+
+  /// A picture that changes, of three planes (see [`ImagePixelFormat::I420`]): `data` is the gray, then the
+  /// blue-difference, then the red-difference, each row as long as its plane is wide. `width` and `height` are even.
+  pub fn streaming_i420(data: Vec<u8>, width: u32, height: u32) -> Self {
+    assert_eq!(data.len(), nv12_len(width, height));
+    Self::streaming(data, width, height, ImagePixelFormat::I420, true)
   }
 
   fn streaming(data: Vec<u8>, width: u32, height: u32, format: ImagePixelFormat, continuous_redraw: bool) -> Self {
@@ -393,8 +645,36 @@ impl ImageData {
     self.frames.len() > 1 && self.total_duration_ms > 0
   }
 
+  /// Whether what is behind the picture shows through it: one pixel in a hundred or more is not opaque, as in a
+  /// logo or an icon drawn on nothing. A few that are not (the rounded corners of a photo) do not make it so.
+  /// Only pixels in memory of [`Rgba8`](ImagePixelFormat::Rgba8) are looked at, an animation's first frame; a
+  /// streaming or a native picture, and one of another format, is taken as opaque. An opaque picture has every
+  /// pixel read: what asks again keeps the answer.
+  pub fn has_transparency(&self) -> bool {
+    if self.format != ImagePixelFormat::Rgba8 || self.streaming.is_some() || self.native.is_some() {
+      return false;
+    }
+    let Some(frame) = self.frames.first() else {
+      return false;
+    };
+    let enough = (frame.data.len() / 4).div_ceil(100).max(1);
+    frame
+      .data
+      .chunks_exact(4)
+      .filter(|pixel| pixel[3] < 255)
+      .take(enough)
+      .count()
+      == enough
+  }
+
   pub fn is_streaming(&self) -> bool {
     self.streaming.is_some()
+  }
+
+  /// What holds its pixels where they are not in memory: a texture of the graphics card, a pixel buffer of the
+  /// system.
+  pub fn native(&self) -> Option<&NativeImageData> {
+    self.native.as_ref()
   }
 
   pub fn is_native(&self) -> bool {
@@ -414,15 +694,6 @@ impl ImageData {
   }
 
   pub fn version(&self) -> u64 {
-    #[cfg(all(feature = "dx12", target_os = "windows"))]
-    if let Some(slot) = self
-      .native
-      .as_ref()
-      .and_then(|native| native.payload::<Dx12Nv12ImageSlot>())
-    {
-      return slot.version();
-    }
-
     self.streaming.as_ref().map_or_else(
       || self.native.as_ref().map_or(0, NativeImageData::version),
       |streaming| streaming.version.load(Ordering::Acquire),
@@ -437,6 +708,13 @@ impl ImageData {
 
   pub fn set_streaming_nv12(&self, data: Vec<u8>) {
     assert_eq!(self.format, ImagePixelFormat::Nv12);
+    assert_eq!(data.len(), nv12_len(self.width, self.height));
+    self.set_streaming_data(data);
+  }
+
+  /// The next frame of a picture of [`streaming_i420`](Self::streaming_i420), laid out as it is.
+  pub fn set_streaming_i420(&self, data: Vec<u8>) {
+    assert_eq!(self.format, ImagePixelFormat::I420);
     assert_eq!(data.len(), nv12_len(self.width, self.height));
     self.set_streaming_data(data);
   }
@@ -461,6 +739,12 @@ impl ImageData {
 
   pub fn take_streaming_nv12_buffer(&self) -> Option<Vec<u8>> {
     assert_eq!(self.format, ImagePixelFormat::Nv12);
+    self.take_streaming_buffer(nv12_len(self.width, self.height))
+  }
+
+  /// A buffer of a frame before, no longer drawn, to write the next frame of three planes into.
+  pub fn take_streaming_i420_buffer(&self) -> Option<Vec<u8>> {
+    assert_eq!(self.format, ImagePixelFormat::I420);
     self.take_streaming_buffer(nv12_len(self.width, self.height))
   }
 
@@ -530,22 +814,6 @@ impl ImageData {
     }
 
     if let Some(native) = &self.native {
-      #[cfg(all(feature = "dx12", target_os = "windows"))]
-      if let Some((native, version)) = native.dx12_nv12_slot_snapshot() {
-        let next_frame_at = native.requires_continuous_redraw().then_some(now);
-        return ImageFrameData {
-          data: Arc::new(Vec::new()),
-          animation_frames: None,
-          native: Some(native),
-          width: self.width,
-          height: self.height,
-          format: self.format,
-          frame_index: 0,
-          version,
-          next_frame_at,
-        };
-      }
-
       return ImageFrameData {
         data: Arc::new(Vec::new()),
         animation_frames: None,
@@ -672,9 +940,16 @@ impl NativeImageData {
       return state.version();
     }
 
-    #[cfg(all(feature = "dx12", target_os = "windows"))]
-    if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
-      return slot.version();
+    // An image of the card's frames is another picture with each frame shown: who shows a frame says nothing
+    // more.
+    #[cfg(windows)]
+    if let Some(frames) = self.payload::<super::CardFrames>() {
+      return frames.count();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(frames) = self.payload::<CvPixelBufferFrames>() {
+      return frames.count();
     }
 
     self.version.load(Ordering::Acquire)
@@ -686,9 +961,13 @@ impl NativeImageData {
       return;
     }
 
-    #[cfg(all(feature = "dx12", target_os = "windows"))]
-    if let Some(slot) = self.payload::<Dx12Nv12ImageSlot>() {
-      slot.bump_version();
+    #[cfg(windows)]
+    if self.payload::<super::CardFrames>().is_some() {
+      return;
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if self.payload::<CvPixelBufferFrames>().is_some() {
       return;
     }
 
@@ -698,129 +977,22 @@ impl NativeImageData {
   pub fn requires_continuous_redraw(&self) -> bool {
     self.continuous_redraw
   }
-
-  #[cfg(all(feature = "dx12", target_os = "windows"))]
-  fn dx12_nv12_slot_snapshot(&self) -> Option<(Self, u64)> {
-    let slot = self.payload::<Dx12Nv12ImageSlot>()?;
-    let (image, version) = slot.snapshot();
-    Some((
-      Self {
-        id: self.id,
-        width: self.width,
-        height: self.height,
-        format: self.format,
-        backend: self.backend,
-        payload: Arc::new(image),
-        version: Arc::new(AtomicU64::new(version)),
-        continuous_redraw: self.continuous_redraw,
-      },
-      version,
-    ))
-  }
 }
 
-#[cfg(all(feature = "dx12", target_os = "windows"))]
-impl Dx12Nv12ImageSlot {
-  pub fn new(image: Dx12Nv12Image) -> Self {
-    Self {
-      state: Arc::new(RwLock::new(Dx12Nv12ImageSlotState {
-        image,
-        version: 0,
-        pending_external_bump: false,
-      })),
-    }
-  }
-
-  pub fn image(&self) -> Dx12Nv12Image {
-    self.state.read().image.clone()
-  }
-
-  pub fn snapshot(&self) -> (Dx12Nv12Image, u64) {
-    let state = self.state.read();
-    (state.image.clone(), state.version)
-  }
-
-  pub fn set_image(&self, image: Dx12Nv12Image) -> u64 {
-    let mut state = self.state.write();
-    state.version = state.version.wrapping_add(1);
-    state.image = image;
-    state.pending_external_bump = true;
-    state.version
-  }
-
-  pub fn version(&self) -> u64 {
-    self.state.read().version
-  }
-
-  fn bump_version(&self) -> u64 {
-    let mut state = self.state.write();
-    if state.pending_external_bump {
-      state.pending_external_bump = false;
-      return state.version;
-    }
-    state.version = state.version.wrapping_add(1);
-    state.version
-  }
-}
-
-#[cfg(all(feature = "dx12", target_os = "windows"))]
+#[cfg(windows)]
 impl NativeImageData {
-  pub fn from_dx12_nv12(
-    width: u32,
-    height: u32,
-    y_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-    uv_texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  ) -> Self {
-    Self::new_with_continuous_redraw(
-      width,
-      height,
-      ImagePixelFormat::Nv12,
-      NativeImageBackend::Dx12Nv12,
-      Dx12Nv12Image {
-        y_texture,
-        uv_texture,
-        y_plane_slice: 0,
-        uv_plane_slice: 0,
-        frame_number: None,
-      },
-      true,
-    )
-  }
-
-  pub fn from_dx12_nv12_texture(
-    width: u32,
-    height: u32,
-    texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
-  ) -> Self {
-    Self::new_with_continuous_redraw(
-      width,
-      height,
-      ImagePixelFormat::Nv12,
-      NativeImageBackend::Dx12Nv12,
-      Dx12Nv12Image {
-        y_texture: texture.clone(),
-        uv_texture: texture,
-        y_plane_slice: 0,
-        uv_plane_slice: 1,
-        frame_number: None,
-      },
-      true,
-    )
-  }
-
-  pub fn from_dx12_nv12_slot(width: u32, height: u32, slot: Dx12Nv12ImageSlot) -> Self {
-    Self::new_with_continuous_redraw(
-      width,
-      height,
-      ImagePixelFormat::Nv12,
-      NativeImageBackend::Dx12Nv12,
-      slot,
-      true,
-    )
+  /// An image of `frames`, whose picture is `width` by `height`: drawn again by itself as frames come.
+  pub fn from_card_frames(width: u32, height: u32, frames: super::CardFrames) -> Self {
+    let format = if frames.is_rgba() {
+      ImagePixelFormat::Rgba8
+    } else {
+      ImagePixelFormat::Nv12
+    };
+    Self::new_with_continuous_redraw(width, height, format, NativeImageBackend::CardFrames, frames, true)
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl NativeImageData {
   pub fn from_macos_cv_pixel_buffer_nv12(width: u32, height: u32, pixel_buffer: MacosCvPixelBuffer) -> Self {
     Self::new_with_continuous_redraw(
@@ -829,6 +1001,18 @@ impl NativeImageData {
       ImagePixelFormat::Nv12,
       NativeImageBackend::MacosCvPixelBufferNv12,
       MacosCvPixelBufferNv12Image { pixel_buffer },
+      true,
+    )
+  }
+
+  /// An image of `frames`, whose picture is `width` by `height`: drawn again by itself as frames come.
+  pub fn from_cv_pixel_buffer_frames(width: u32, height: u32, frames: CvPixelBufferFrames) -> Self {
+    Self::new_with_continuous_redraw(
+      width,
+      height,
+      ImagePixelFormat::Nv12,
+      NativeImageBackend::MacosCvPixelBufferNv12,
+      frames,
       true,
     )
   }
@@ -899,6 +1083,7 @@ fn delay_ms(delay: image::Delay) -> u64 {
   ms.max(MIN_ANIMATION_FRAME_MS)
 }
 
+/// How many bytes a frame of two planes (NV12) or of three (I420) is: the color is a quarter of the gray, twice.
 fn nv12_len(width: u32, height: u32) -> usize {
   assert!(width > 0 && height > 0 && width.is_multiple_of(2) && height.is_multiple_of(2));
   (width * height + width * height / 2) as usize
@@ -906,11 +1091,10 @@ fn nv12_len(width: u32, height: u32) -> usize {
 
 #[cfg(all(test, feature = "image"))]
 mod tests {
-  use std::time::{Duration, Instant};
-
   use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
 
   use super::{ImageData, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage, animation_epoch};
+  use crate::time::{Duration, Instant};
 
   #[test]
   fn gif_decoding_preserves_animation_with_stable_image_id() {
@@ -1069,7 +1253,7 @@ mod tests {
   #[test]
   fn continuous_native_image_requests_immediate_redraw() {
     let native =
-      NativeImageData::new_with_continuous_redraw(2, 2, ImagePixelFormat::Nv12, NativeImageBackend::Dx12Nv12, (), true);
+      NativeImageData::new_with_continuous_redraw(2, 2, ImagePixelFormat::Nv12, NativeImageBackend::Test, (), true);
     let image = native.image_data();
     let now = Instant::now();
 

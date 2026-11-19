@@ -1,5 +1,3 @@
-#[cfg(feature = "perf_profile")]
-use std::time::Instant;
 use std::{
   borrow::Cow,
   collections::{HashMap, hash_map::DefaultHasher},
@@ -15,6 +13,9 @@ use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
   zeno::{Angle, Format, Transform as SwashTransform, Vector},
 };
+
+#[cfg(feature = "perf_profile")]
+use crate::time::Instant;
 
 mod cap_height;
 mod carets;
@@ -59,6 +60,8 @@ use crate::{
 };
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
+/// lurq's icon font (`scripts/build-icon-font.py`): the family `ui::icons::FAMILY`.
+static LURQ_ICONS: &[u8] = include_bytes!("../../assets/lurq-icons.ttf");
 const PLAIN_BUFFER_CACHE_LIMIT: usize = 64;
 // Keep logical and physical document layouts together at fractional display scales.
 const PLAIN_BUFFER_CACHE_BYTES: usize = 48 * 1024 * 1024;
@@ -287,6 +290,7 @@ struct RichTextSpanCacheKey {
   font_size_bits: u32,
   line_height_bits: u32,
   letter_spacing_bits: u32,
+  baseline_shift_bits: u32,
   font_features: FontFeatures,
   weight: u16,
   style: u8,
@@ -303,6 +307,7 @@ impl RichTextSpanCacheKey {
       font_size_bits: style.font_size.to_bits(),
       line_height_bits: style.line_height.to_bits(),
       letter_spacing_bits: letter_spacing_bits(style.letter_spacing),
+      baseline_shift_bits: letter_spacing_bits(style.baseline_shift),
       font_features: style.font_features.clone(),
       weight: style.weight.value(),
       style: style_to_u8(style.style),
@@ -318,6 +323,7 @@ impl RichTextSpanCacheKey {
       && self.font_size_bits == (style.font_size * scale).to_bits()
       && self.line_height_bits == style.line_height.to_bits()
       && self.letter_spacing_bits == letter_spacing_bits(style.letter_spacing * scale)
+      && self.baseline_shift_bits == letter_spacing_bits(style.baseline_shift * scale)
       && self.font_features == style.font_features
       && self.weight == style.weight.value()
       && self.style == style_to_u8(style.style)
@@ -379,6 +385,7 @@ fn hash_rich_text_spans(spans: &[RichTextSpan], scale: f32, hasher: &mut Default
     (style.font_size * scale).to_bits().hash(hasher);
     style.line_height.to_bits().hash(hasher);
     letter_spacing_bits(style.letter_spacing * scale).hash(hasher);
+    letter_spacing_bits(style.baseline_shift * scale).hash(hasher);
     style.font_features.hash(hasher);
     style.weight.value().hash(hasher);
     style_to_u8(style.style).hash(hasher);
@@ -402,6 +409,27 @@ fn text_align_to_u8(align: TextAlign) -> u8 {
     TextAlign::Justified => 3,
     TextAlign::End => 4,
   }
+}
+
+/// The spans with each one's text in the case its style asks for (`TextStyle::case`), at the same byte offsets;
+/// the spans themselves where none asks for another case.
+fn cased_spans(spans: &[RichTextSpan]) -> Cow<'_, [RichTextSpan]> {
+  if spans
+    .iter()
+    .all(|span| matches!(span.style.case.apply(&span.text), Cow::Borrowed(_)))
+  {
+    return Cow::Borrowed(spans);
+  }
+  Cow::Owned(
+    spans
+      .iter()
+      .map(|span| {
+        let mut span = span.clone();
+        span.text = span.style.case.apply(&span.text).into_owned();
+        span
+      })
+      .collect(),
+  )
 }
 
 /// Buffer setters only mark the buffer dirty; readers shape it with `shape_until_scroll`.
@@ -536,7 +564,7 @@ impl GlyphEngine {
       FontSystem::new_with_locale_and_db_and_fallback(locale, db, ios_fallback::IosFallback)
     };
 
-    Self {
+    let mut engine = Self {
       font_system,
       #[cfg(feature = "canvas")]
       canvas_text: None,
@@ -570,7 +598,12 @@ impl GlyphEngine {
       glyph_misses: 0,
       #[cfg(feature = "perf_profile")]
       profile: GlyphEngineProfile::default(),
-    }
+    };
+    // lurq's own icons, which its components draw: every app has the font, hinted.
+    let icons = cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(LURQ_ICONS));
+    let faces = engine.font_system.db_mut().load_font_source(icons);
+    engine.hinted_fonts.add(faces);
+    engine
   }
 
   /// Does ahead of time what the first text drawn with `style` makes
@@ -612,6 +645,20 @@ impl GlyphEngine {
       return;
     }
     self.font_aliases.insert(name.to_owned(), family.to_owned());
+    self.clear_text_caches();
+  }
+
+  /// Names the font `generic` and the empty family draw with; see `App::set_generic_family`.
+  pub(crate) fn set_generic_family(&mut self, generic: crate::layout::text_style::GenericFamily, family: &str) {
+    use crate::layout::text_style::GenericFamily;
+    let db = self.font_system.db_mut();
+    match generic {
+      GenericFamily::Serif => db.set_serif_family(family),
+      GenericFamily::SansSerif => db.set_sans_serif_family(family),
+      GenericFamily::Monospace => db.set_monospace_family(family),
+      GenericFamily::Cursive => db.set_cursive_family(family),
+      GenericFamily::Fantasy => db.set_fantasy_family(family),
+    }
     self.clear_text_caches();
   }
 
@@ -747,6 +794,9 @@ impl GlyphEngine {
   }
 
   pub(crate) fn measure_text(&mut self, text: &str, style: &TextStyle, max_width: f32) -> Size {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let wrap = is_bounded_text_width(max_width);
     let fingerprint = self.texts.fingerprint(text, style, max_width, wrap);
     if let Some(cached) = self
@@ -774,6 +824,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> Option<TextVerticalExtents> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let fingerprint = self.texts.fingerprint(text, style, max_width, wrap);
     if let Some(cached) = self
       .texts
@@ -807,6 +860,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> Option<(f32, f32)> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let fingerprint = self.texts.fingerprint(text, style, max_width, wrap);
     if let Some(extents) = self
       .texts
@@ -992,6 +1048,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> std::sync::Arc<[SpanBox]> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let buffer = self.full_text_buffer(text, style, max_width, wrap);
     let boxes = span_boxes::line_boxes(&buffer, &mut self.font_system, &mut self.underline_metrics);
     self.retain_plain_buffer(buffer);
@@ -1013,6 +1072,17 @@ impl GlyphEngine {
     band
   }
 
+  /// The ascent and the descent of a line of `style`'s type, in pixels.
+  pub(crate) fn line_ascent_descent(&mut self, style: &TextStyle) -> Option<(f32, f32)> {
+    let buffer = self.full_text_buffer("H", style, f32::MAX, false);
+    let band = buffer.layout_runs().next().and_then(|run| {
+      let line = buffer.lines.get(run.line_i)?.layout_opt()?.first()?;
+      (line.max_ascent + line.max_descent > 0.0).then_some((line.max_ascent, line.max_descent))
+    });
+    self.retain_plain_buffer(buffer);
+    band
+  }
+
   fn font_cap_height_px(&mut self, glyph: GlyphFace) -> Option<f32> {
     let font = self.font_system.get_font(glyph.font_id, glyph.weight)?;
     cap_height::cap_height_px(self.font_system.db(), &font, glyph.weight, glyph.font_size)
@@ -1022,6 +1092,8 @@ impl GlyphEngine {
   /// at `max_width`.
   #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
   pub(crate) fn measure_rich_text(&mut self, spans: &[RichTextSpan], scale: f32, max_width: f32) -> Size {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     if spans.is_empty() {
       return Size::default();
     }
@@ -1048,7 +1120,6 @@ impl GlyphEngine {
   /// glyphs on screen in every span's own font. Built in the shaping that
   /// makes the layout; a layout shaped without them is shaped once more the
   /// first time they are asked for.
-  #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_caret_positions(
     &mut self,
     spans: &[RichTextSpan],
@@ -1056,6 +1127,8 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> CaretPositions {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     match spans {
       [] => carets::buffer_caret_positions(&Buffer::new_empty(Metrics::new(1.0, 1.0)), 0),
       [span] => {
@@ -1115,13 +1188,14 @@ impl GlyphEngine {
   /// set and the width is bounded, as painting does) and where each span lies
   /// in it: one box per span and laid-out line. Shares the shaped layout
   /// cache with measuring and painting.
-  #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_span_boxes(
     &mut self,
     spans: &[RichTextSpan],
     max_width: f32,
     wrap: bool,
   ) -> (Size, std::sync::Arc<[SpanBox]>) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     if spans.is_empty() {
       return (Size::default(), Vec::<SpanBox>::new().into());
     }
@@ -1136,6 +1210,9 @@ impl GlyphEngine {
     max_width: f32,
     wrap: bool,
   ) -> CaretPositions {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     // Selectable text recomputes caret positions on every layout; cache them
     // like measurements — a full per-character shaping walk per node per pass
     // makes lists of selectable text crawl.
@@ -1274,6 +1351,9 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let mut glyphs = Vec::new();
     self.rasterize_text_with_snap_into(
       text,
@@ -1300,6 +1380,9 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, true, None, out);
   }
 
@@ -1315,6 +1398,9 @@ impl GlyphEngine {
     clip: ClipRect,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, true, Some(clip), out);
   }
 
@@ -1328,6 +1414,8 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     self.rasterize_rich_text_with_snap_into(spans, max_width, wrap, origin_x, origin_y, true, out);
   }
 
@@ -1342,6 +1430,8 @@ impl GlyphEngine {
     clip: ClipRect,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     if let [span] = spans {
       self.rasterize_text_with_wrap_clipped_into(
         &span.text,
@@ -1379,6 +1469,9 @@ impl GlyphEngine {
     order: usize,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     // The offset and the glyphs are one entry when both are keyed alike; a
     // traced run goes the long way, which prints it.
     if effective_text_wrap(max_width, wrap) == wrap && glyph_debug_marker().is_none() {
@@ -1431,6 +1524,9 @@ impl GlyphEngine {
     origin_x: f32,
     origin_y: f32,
   ) -> Vec<GlyphCmd> {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let mut glyphs = Vec::new();
     self.rasterize_text_with_snap_into(
       text,
@@ -1456,6 +1552,9 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     self.rasterize_text_with_snap_into(text, style, max_width, wrap, origin_x, origin_y, false, None, out);
   }
 
@@ -1468,6 +1567,8 @@ impl GlyphEngine {
     origin_y: f32,
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     self.rasterize_rich_text_with_snap_into(spans, max_width, wrap, origin_x, origin_y, false, out);
   }
 
@@ -1484,6 +1585,9 @@ impl GlyphEngine {
     transform_origin: [f32; 2],
     out: &mut Vec<GlyphCmd>,
   ) {
+    // Drawn in the case its style asks for (`TextStyle::case`), at the same byte offsets.
+    let cased_text = style.case.apply(text);
+    let text: &str = &cased_text;
     let wrap = effective_text_wrap(max_width, wrap);
     let key = CacheKey::new_for_baked_transform(text, style, max_width, wrap);
     let swash_transform = swash_transform_from_screen(transform);
@@ -1560,6 +1664,8 @@ impl GlyphEngine {
     transform_origin: [f32; 2],
     out: &mut Vec<GlyphCmd>,
   ) {
+    let cased_spans = cased_spans(spans);
+    let spans: &[RichTextSpan] = &cased_spans;
     let Some(first) = spans.first() else {
       return;
     };
@@ -2779,12 +2885,19 @@ impl GlyphEngine {
     #[cfg(feature = "perf_profile")]
     let phase_start = Instant::now();
     let mut glyphs = Vec::new();
+    // A span drawn above or below the baseline: its glyphs move, its line does not.
+    let shifted = spans.iter().any(|span| span.style.baseline_shift != 0.0);
     for run in buffer.layout_runs() {
       for glyph in run.glyphs.iter() {
         if glyph_cluster_is_whitespace(run.text, glyph) {
           continue;
         }
-        let physical = self.hinted_fonts.physical(glyph, run.line_y);
+        let shift = if shifted {
+          spans.get(glyph.metadata).map_or(0.0, |span| span.style.baseline_shift)
+        } else {
+          0.0
+        };
+        let physical = self.hinted_fonts.physical(glyph, run.line_y - shift);
         glyphs.push(CachedRichShapedGlyph {
           x: physical.x as f32,
           y: physical.y as f32,
@@ -2946,11 +3059,11 @@ impl GlyphEngine {
         .map(|(index, span)| {
           (
             span.text.as_str(),
-            attrs_for_style(
+            span_attrs(
               &span.style,
+              &first.style,
               span.style.font_family.as_ref(),
               self.face_weight(span.style.font_family.as_ref(), &span.style),
-              first.style.font_size,
             )
             .metadata(index),
           )
@@ -2986,13 +3099,7 @@ impl GlyphEngine {
         .map(|(index, (span, family))| {
           (
             span.text.as_str(),
-            attrs_for_style(
-              &span.style,
-              family,
-              self.face_weight(family, &span.style),
-              first.style.font_size,
-            )
-            .metadata(index),
+            span_attrs(&span.style, &first.style, family, self.face_weight(family, &span.style)).metadata(index),
           )
         })
         .collect();
@@ -3394,7 +3501,26 @@ fn text_buffer_width(max_width: f32) -> Option<f32> {
   is_bounded_text_width(max_width).then_some(max_width)
 }
 
-/// `em_px` is the buffer's font size; see [`with_letter_spacing`].
+/// The attributes of one span of a rich text whose buffer is set in `first`'s size: a span of another size or line
+/// height has metrics of its own, so its glyphs are drawn and advance at its size (inline code at 13, a key at 11, in
+/// a paragraph at 15), and its tracking is in its own pixels. A span in `first`'s metrics keeps the buffer's.
+fn span_attrs<'a>(
+  style: &TextStyle,
+  first: &TextStyle,
+  resolved_family: &'a str,
+  weight: cosmic_text::Weight,
+) -> Attrs<'a> {
+  let own = style.font_size > 0.0
+    && style.font_size.is_finite()
+    && (style.font_size != first.font_size || style.line_height != first.line_height);
+  if !own {
+    return attrs_for_style(style, resolved_family, weight, first.font_size);
+  }
+  attrs_for_style(style, resolved_family, weight, style.font_size)
+    .metrics(Metrics::new(style.font_size, style.font_size * style.line_height))
+}
+
+/// `em_px` is the size the glyphs are drawn at; see [`with_letter_spacing`].
 fn attrs_for_style<'a>(
   style: &TextStyle,
   resolved_family: &'a str,

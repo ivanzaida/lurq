@@ -5,6 +5,7 @@ use crate::{
     BackgroundColor, BoxShadowValue, Node, SpacingValue, TextColor,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     border_size_value::BorderSizeValue,
+    outline::Outline,
     padding::Padding,
     radius_value::RadiusValue,
     select_icon::{SelectCheckmarkPosition, SelectIcon},
@@ -21,6 +22,8 @@ pub struct SelectPartStyle {
   pub(crate) border: Option<Borders>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) box_shadow: Option<BoxShadowValue>,
+  /// A ring around the part, as a node's outline is: the trigger's focus ring. Painted on the trigger only.
+  pub(crate) outline: Option<Outline>,
   pub(crate) padding: Option<Padding>,
   pub(crate) text: Option<TextStyle>,
   pub(crate) typography: Option<TypographyStyle>,
@@ -102,6 +105,15 @@ impl SelectPartStyle {
     self
   }
 
+  /// A ring around the part, painted over the select: the line, its color
+  /// and its distance from the part's edge, as a node's outline has them. A
+  /// negative offset draws it inside the edge. The trigger paints it; the
+  /// menu and the option rows do not.
+  pub fn outline(mut self, outline: Outline) -> Self {
+    self.outline = Some(outline);
+    self
+  }
+
   /// Opacity of the part and its content, `0.0..=1.0`. Applies to the menu
   /// and option rows; the trigger ignores it.
   pub fn opacity(mut self, opacity: f32) -> Self {
@@ -134,6 +146,9 @@ impl SelectPartStyle {
     }
     if other.box_shadow.is_some() {
       self.box_shadow = other.box_shadow.clone();
+    }
+    if other.outline.is_some() {
+      self.outline = other.outline.clone();
     }
     if other.text.is_some() {
       self.text = other.text.clone();
@@ -186,13 +201,36 @@ impl SelectPartStyle {
 /// `option_selected_highlighted` when `option_highlighted` is set; otherwise
 /// it looks like the pointer hover (`option_hovered` /
 /// `option_selected_hovered`).
+///
+/// It is a box of its parts: seventeen part styles are some 14 KB, and a style handed through its builders, each
+/// taking it and giving it back, was copied whole at each step, which a build without optimizations kept on the
+/// stack for every step (a combobox's 200 KB of stack, a select's 460 KB).
 #[derive(Clone)]
-pub struct SelectStyle {
+pub struct SelectStyle(Box<SelectStyleParts>);
+
+impl std::ops::Deref for SelectStyle {
+  type Target = SelectStyleParts;
+
+  fn deref(&self) -> &SelectStyleParts {
+    &self.0
+  }
+}
+
+impl std::ops::DerefMut for SelectStyle {
+  fn deref_mut(&mut self) -> &mut SelectStyleParts {
+    &mut self.0
+  }
+}
+
+/// What a [`SelectStyle`] holds.
+#[derive(Clone)]
+pub struct SelectStyleParts {
   pub(crate) trigger: SelectPartStyle,
   pub(crate) trigger_hovered: Option<SelectPartStyle>,
   pub(crate) trigger_focused: Option<SelectPartStyle>,
   pub(crate) trigger_open: Option<SelectPartStyle>,
   pub(crate) placeholder_text: Option<TextStyle>,
+  pub(crate) trigger_gap: SpacingValue,
   pub(crate) menu: SelectPartStyle,
   pub(crate) menu_scrollbar: Option<ScrollBarStyle>,
   pub(crate) option: SelectPartStyle,
@@ -203,18 +241,23 @@ pub struct SelectStyle {
   pub(crate) option_selected_highlighted: Option<SelectPartStyle>,
   pub(crate) option_disabled: Option<SelectPartStyle>,
   pub(crate) option_detail: SelectPartStyle,
+  pub(crate) option_hint: SelectPartStyle,
+  pub(crate) group_label: SelectPartStyle,
+  pub(crate) separator: SelectPartStyle,
   pub(crate) option_adornment_gap: SpacingValue,
   pub(crate) chevron: SelectIcon,
   pub(crate) chevron_open: Option<SelectIcon>,
   pub(crate) chevron_color: Option<TextColor>,
   pub(crate) chevron_size: f32,
   pub(crate) checkmark: SelectIcon,
+  pub(crate) checkmark_unchecked: Option<SelectIcon>,
   pub(crate) checkmark_color: Option<TextColor>,
   pub(crate) checkmark_size: Option<f32>,
   pub(crate) checkmark_position: SelectCheckmarkPosition,
   pub(crate) checkmark_gap: SpacingValue,
   pub(crate) single_checkmark: bool,
   pub(crate) min_menu_width: f32,
+  pub(crate) menu_fits_options: bool,
   pub(crate) max_menu_height: f32,
   pub(crate) menu_gap: f32,
 }
@@ -231,32 +274,157 @@ pub(crate) struct SelectOptionState {
   pub(crate) disabled: bool,
 }
 
+/// The roles of 0.62's select, which the legacy theme gives and a theme with no recipe for the engine's select
+/// keeps: the roles of lurq 0.61, which follow the roles that replace them in the design's palettes and keep their
+/// own colors in the legacy one.
+#[allow(deprecated)]
+mod legacy {
+  use crate::app::theme::PaletteColor;
+
+  pub(super) const TRIGGER: PaletteColor = PaletteColor::SurfaceInput;
+  pub(super) const EDGE: PaletteColor = PaletteColor::Border;
+  pub(super) const FOCUS: PaletteColor = PaletteColor::BorderFocus;
+  pub(super) const MENU: PaletteColor = PaletteColor::SurfaceRaised;
+  pub(super) const HOVERED: PaletteColor = PaletteColor::SurfacePanel;
+  pub(super) const SELECTED: PaletteColor = PaletteColor::Accent;
+  pub(super) const SELECTED_HOVERED: PaletteColor = PaletteColor::AccentHover;
+  pub(super) const MUTED: PaletteColor = PaletteColor::TextMuted;
+}
+
+/// The recipe of the colors of the engine's select, by the parts and states of [`ui::Select`](crate::ui::Select)
+/// ([`SelectPart`](crate::ui::SelectPart), [`SelectState`](crate::ui::SelectState)): the trigger's fill and edge,
+/// under the pointer, focused and open; the panel's fill and edge; an item's fill under the pointer, chosen, and
+/// chosen under the pointer; the ink of a detail, a hint and a group's label; the separator's fill.
+fn colors(
+  trigger: impl Into<BackgroundColor>,
+  edge: impl Into<BackgroundColor>,
+  focus: impl Into<BackgroundColor>,
+  menu: impl Into<BackgroundColor>,
+  hovered: impl Into<BackgroundColor>,
+  selected: impl Into<BackgroundColor>,
+  selected_hovered: impl Into<BackgroundColor>,
+  muted: impl Into<TextColor>,
+) -> crate::ui::Recipe {
+  use crate::ui::{Recipe, SelectPart::*, SelectState, Selector};
+  let line = |color: BackgroundColor| Border::inside(BorderSize::Sm, color);
+  let (edge, focus, muted) = (edge.into(), focus.into(), muted.into());
+  Recipe::new()
+    .base(Trigger, |s| s.background(trigger).border(line(edge.clone())))
+    .hovered(Trigger, |s| s.border(line(focus.clone())))
+    .focus_visible(Trigger, |s| s.border(line(focus.clone())))
+    .state(SelectState::Open, Trigger, |s| s.border(line(focus)))
+    .base(Panel, |s| s.background(menu).border(line(edge.clone())))
+    .hovered(Item, |s| s.background(hovered))
+    .state(SelectState::Selected, Item, |s| s.background(selected))
+    .when(Selector::new().state(SelectState::Selected).hovered(), Item, |s| {
+      s.background(selected_hovered)
+    })
+    .base(Detail, |s| s.foreground(muted.clone()))
+    .base(Hint, |s| s.foreground(muted.clone()))
+    .base(Group, |s| s.foreground(muted))
+    .base(Separator, |s| s.background(edge))
+}
+
+/// The engine's select ([`components::Select`](crate::components::Select)) takes the colors of its style from the
+/// theme, through this recipe: an app restyles every select it builds with the engine's
+/// (`theme.ui.patch::<SelectStyle>(..)`) as it restyles a component of the design system. The sizes, paddings and
+/// type stay the style's own.
+impl crate::ui::Themed for SelectStyle {
+  const NAME: &'static str = "engine_select";
+  type Renderer = ();
+
+  /// The design's roles for 0.62's look of the select: the background's fill in an edge of the border, the ring's
+  /// color under the pointer, focused and open; a panel on the card's color; an item on the canvas under the
+  /// pointer and on the primary color while it is chosen; what is muted in the muted foreground.
+  fn recipe() -> crate::ui::Recipe {
+    use PaletteColor::*;
+    colors(
+      Background,
+      Border,
+      Ring,
+      Card,
+      Canvas,
+      Primary,
+      PrimaryHover,
+      MutedForeground,
+    )
+  }
+}
+
 impl Default for SelectStyle {
+  /// The style in the colors the theme of what is being built gives the engine's select.
   fn default() -> Self {
-    Self {
+    use crate::ui::{
+      Interaction::{FocusVisible, Hovered},
+      Name,
+      SelectPart::*,
+      SelectState,
+      engine_look::EngineLook,
+    };
+    let look = EngineLook::of::<Self>(&[]);
+    let open = EngineLook::of::<Self>(&[Name::from(SelectState::Open)]);
+    let selected = EngineLook::of::<Self>(&[Name::from(SelectState::Selected)]);
+    let fill = |look: &EngineLook, part, interaction, or: PaletteColor| {
+      look.fill(part, interaction).unwrap_or(BackgroundColor::Palette(or))
+    };
+    let edge = |look: &EngineLook, part, interaction| {
+      look
+        .edge(part, interaction)
+        .unwrap_or(BackgroundColor::Palette(legacy::EDGE))
+    };
+    let focus = |look: &EngineLook, interaction| {
+      look
+        .edge(Trigger, interaction)
+        .unwrap_or(BackgroundColor::Palette(legacy::FOCUS))
+    };
+    let muted = |part| look.ink(part).unwrap_or(TextColor::Palette(legacy::MUTED));
+    Self(Box::new(SelectStyleParts {
       trigger: SelectPartStyle::new()
-        .background(PaletteColor::SurfaceInput)
-        .border_inside(BorderSize::Sm, PaletteColor::Border)
+        .background(fill(&look, Trigger, None, legacy::TRIGGER))
+        .border_inside(BorderSize::Sm, edge(&look, Trigger, None))
         .rounded(RadiusSize::Md)
         .padding(Padding::symmetric(10.0, 8.0))
         .min_height(36.0),
-      trigger_hovered: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
-      trigger_focused: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
-      trigger_open: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, PaletteColor::BorderFocus)),
+      trigger_hovered: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, focus(&look, Some(Hovered)))),
+      trigger_focused: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, focus(&look, Some(FocusVisible)))),
+      trigger_open: Some(SelectPartStyle::new().border_inside(BorderSize::Sm, focus(&open, None))),
       menu: SelectPartStyle::new()
-        .background(PaletteColor::SurfaceRaised)
-        .border_inside(BorderSize::Sm, PaletteColor::Border)
+        .background(fill(&look, Panel, None, legacy::MENU))
+        .border_inside(BorderSize::Sm, edge(&look, Panel, None))
         .rounded(RadiusSize::Md),
       option: SelectPartStyle::new().padding(Padding::symmetric(10.0, 0.0)),
-      option_hovered: Some(SelectPartStyle::new().background(PaletteColor::SurfacePanel)),
-      option_selected: Some(SelectPartStyle::new().background(PaletteColor::Accent)),
-      option_selected_hovered: Some(SelectPartStyle::new().background(PaletteColor::AccentHover)),
+      option_hovered: Some(SelectPartStyle::new().background(fill(&look, Item, Some(Hovered), legacy::HOVERED))),
+      option_selected: Some(SelectPartStyle::new().background(fill(&selected, Item, None, legacy::SELECTED))),
+      option_selected_hovered: Some(SelectPartStyle::new().background(fill(
+        &selected,
+        Item,
+        Some(Hovered),
+        legacy::SELECTED_HOVERED,
+      ))),
       option_disabled: Some(SelectPartStyle::new().opacity(0.45)),
       option_detail: SelectPartStyle::new()
         .typography(TypographyStyle::Caption)
-        .text_color(PaletteColor::TextMuted),
-      ..Self::unstyled()
-    }
+        .text_color(muted(Detail)),
+      option_hint: SelectPartStyle::new()
+        .typography(TypographyStyle::Caption)
+        .text_color(muted(Hint)),
+      group_label: SelectPartStyle::new()
+        .typography(TypographyStyle::Caption)
+        .text_color(muted(Group))
+        .padding(Padding::symmetric(10.0, 6.0)),
+      separator: SelectPartStyle::new()
+        .background(fill(&look, Separator, None, legacy::EDGE))
+        .padding(Padding::symmetric(0.0, 4.0)),
+      ..*Self::unstyled().0
+    }))
+  }
+}
+
+impl SelectStyle {
+  /// 0.62's roles: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the engine's select.
+  pub(crate) fn legacy_recipe() -> crate::ui::Recipe {
+    use legacy::*;
+    colors(TRIGGER, EDGE, FOCUS, MENU, HOVERED, SELECTED, SELECTED_HOVERED, MUTED)
   }
 }
 
@@ -269,12 +437,13 @@ impl SelectStyle {
   /// styles the select itself. Its trigger paints nothing until a part sets
   /// a `background` or border.
   pub fn unstyled() -> Self {
-    Self {
+    Self(Box::new(SelectStyleParts {
       trigger: SelectPartStyle::default(),
       trigger_hovered: None,
       trigger_focused: None,
       trigger_open: None,
       placeholder_text: None,
+      trigger_gap: SpacingValue::from(8.0),
       menu: SelectPartStyle::default(),
       menu_scrollbar: None,
       option: SelectPartStyle::default(),
@@ -285,21 +454,26 @@ impl SelectStyle {
       option_selected_highlighted: None,
       option_disabled: None,
       option_detail: SelectPartStyle::default(),
+      option_hint: SelectPartStyle::default(),
+      group_label: SelectPartStyle::default(),
+      separator: SelectPartStyle::default(),
       option_adornment_gap: SpacingValue::from(8.0),
       chevron: SelectIcon::default_chevron(),
       chevron_open: None,
       chevron_color: None,
       chevron_size: 10.0,
       checkmark: SelectIcon::default_checkmark(),
+      checkmark_unchecked: None,
       checkmark_color: None,
       checkmark_size: None,
       checkmark_position: SelectCheckmarkPosition::Leading,
       checkmark_gap: SpacingValue::from(6.0),
       single_checkmark: false,
       min_menu_width: 0.0,
+      menu_fits_options: false,
       max_menu_height: 240.0,
       menu_gap: 4.0,
-    }
+    }))
   }
 
   /// Replaces the trigger part. The default part fills the trigger with the
@@ -333,6 +507,13 @@ impl SelectStyle {
 
   pub fn placeholder_text(mut self, style: TextStyle) -> Self {
     self.placeholder_text = Some(style);
+    self
+  }
+
+  /// Space between the default trigger's label and its chevron; a number or
+  /// a spacing role. Defaults to 8.
+  pub fn trigger_gap(mut self, gap: impl Into<SpacingValue>) -> Self {
+    self.trigger_gap = gap.into();
     self
   }
 
@@ -401,6 +582,28 @@ impl SelectStyle {
     self
   }
 
+  /// Text style of an option's hint (see `SelectOption::hint`); only its
+  /// text fields apply.
+  pub fn option_hint(mut self, style: SelectPartStyle) -> Self {
+    self.option_hint = style;
+    self
+  }
+
+  /// The row of a group's label (see `SelectOption::group`): its padding,
+  /// fill, text style and colour.
+  pub fn group_label(mut self, style: SelectPartStyle) -> Self {
+    self.group_label = style;
+    self
+  }
+
+  /// The line between groups (see `SelectOption::group`): its `background`
+  /// is the line's colour, its `min_height` the line's thickness (1 when
+  /// unset) and its `padding` the room around the line.
+  pub fn separator(mut self, style: SelectPartStyle) -> Self {
+    self.separator = style;
+    self
+  }
+
   /// Space between an option's label and its leading or trailing element
   /// (see `SelectOption::leading`), in the menu and on the closed field; a
   /// number or a spacing role. Defaults to 8.
@@ -439,6 +642,13 @@ impl SelectStyle {
   /// Replaces the checkmark glyph `✓`.
   pub fn checkmark(mut self, icon: SelectIcon) -> Self {
     self.checkmark = icon;
+    self
+  }
+
+  /// What the slot of the checkmark holds on an option that is not selected, where the rows draw the slot: the empty
+  /// box of a list of checkboxes, whose `checkmark` is the checked box. Unset, it is empty.
+  pub fn checkmark_unchecked(mut self, icon: SelectIcon) -> Self {
+    self.checkmark_unchecked = Some(icon);
     self
   }
 
@@ -486,6 +696,14 @@ impl SelectStyle {
   /// The menu still fits inside the viewport.
   pub fn min_menu_width(mut self, width: f32) -> Self {
     self.min_menu_width = width;
+    self
+  }
+
+  /// Makes the open menu as wide as its longest option, with the room a chosen option's mark takes, in place of
+  /// as wide as its trigger: for a trigger that is as wide as the one value it shows. It is still no narrower
+  /// than [`min_menu_width`](Self::min_menu_width) and fits inside the viewport.
+  pub fn menu_fits_options(mut self, fits: bool) -> Self {
+    self.menu_fits_options = fits;
     self
   }
 

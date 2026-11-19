@@ -21,6 +21,11 @@ pub struct WindowInfo {
   pub is_full_screen: bool,
   pub is_decorated: bool,
   pub is_focused: bool,
+  /// Whether the system draws the window's controls itself, over those of a title bar the app draws: on macOS the
+  /// three lights of a window whose bar marks its controls (`.window_control(..)`), which are then the system's
+  /// own, where the app's are, with what the system does at them (the menu of tilings under the pointer, full
+  /// screen at a press). A bar of the app's leaves the room of its controls and draws none of them.
+  pub native_controls: bool,
   /// The edges of the window the system draws over or cuts off; see [`SafeAreaInsets`].
   pub safe_area: SafeAreaInsets,
   /// What the person set for the whole system; see [`SystemSettings`].
@@ -28,7 +33,7 @@ pub struct WindowInfo {
 }
 
 /// What the system tells an app about itself, heard with `ctx.window().on_app_event(..)`. A phone tells all of
-/// it; a desktop shell tells none of it yet.
+/// it; a desktop tells [`GraphicsDeviceLost`](Self::GraphicsDeviceLost) alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppEvent {
   /// The app is in front and takes input.
@@ -51,6 +56,13 @@ pub enum AppEvent {
   /// ([`WindowOpener`](crate::app::WindowOpener)) is shown there; while it opens none the place stays empty,
   /// and a display shows what the device does.
   WindowAsked { external: bool },
+  /// The graphics device the window was drawn with was lost (its card was reset, by a driver that hung or was
+  /// updated, or taken away), and lurq draws the window with another from its next frame. Told to each window
+  /// whose engine was replaced, once lurq let go of everything of its own made with the lost device and the
+  /// app's `WgpuFrameExtension`s were told (`device_lost`). What the app made with the lost device itself, a
+  /// texture or a pipeline it keeps outside an extension, is gone: it lets go of it and makes it again with the
+  /// new device, which its extensions are given.
+  GraphicsDeviceLost,
 }
 
 /// A way a phone is held, and so the way an app's content is turned. Several are joined with `|` into the
@@ -307,6 +319,14 @@ impl WindowIcon {
   }
 }
 
+/// The icon as an image, to draw in the window: a title bar the app draws itself shows the window's icon so.
+#[cfg(feature = "raster")]
+impl From<&WindowIcon> for crate::images::ImageData {
+  fn from(icon: &WindowIcon) -> Self {
+    Self::from_rgba(icon.rgba.clone(), icon.width, icon.height)
+  }
+}
+
 /// Origin of a vetoable close request. Programmatic `close()` bypasses this path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseRequestSource {
@@ -343,7 +363,9 @@ impl CloseRequest {
 
 type CloseHandler = Arc<dyn Fn(CloseRequest) + Send + Sync>;
 
+pub(crate) mod controls;
 mod handle;
+pub(crate) mod parent;
 pub(crate) mod resize;
 #[cfg(test)]
 mod resize_tests;
@@ -389,6 +411,9 @@ pub(crate) enum WindowCommand {
   StartDrag,
   StartResize(WindowResizeDirection),
   StopDrag,
+  /// Show the system's menu of the window (Restore, Move, Size, Minimize, Maximize, Close) where the pointer is,
+  /// as a right press on a title bar the system draws does. Only Windows has one; elsewhere it does nothing.
+  ShowSystemMenu,
   InjectInput(crate::app::synthetic_input::SyntheticInput),
   /// Read the OS clipboard and paste it into the focused text input, as
   /// Ctrl+V does: for an app's own Paste menu item. `synthetic` is whether
@@ -413,21 +438,86 @@ pub(crate) enum WindowCommand {
 pub struct Window {
   inner: Arc<RwLock<WindowInner>>,
   version_signal: Signal<u64>,
+  /// The menu of editing commands a finger asked for, while it is open.
+  edit_menu: Signal<Option<EditMenuRequest>>,
+  /// The callbacks of [`WindowHandle::on_frame`].
+  frames: crate::app::ctx::WindowFrames,
+}
+
+/// A menu of editing commands a finger asked for, at a point of the window: three fingers tapped, or text was
+/// selected by touch, or a long press placed the caret. lurq shows it over the app by itself (a
+/// [`ContextMenu`](crate::ui::ContextMenu)'s bar), and each command runs as its key would
+/// ([`EditCommand`](crate::app::events::EditCommand)).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditMenuRequest {
+  /// Where the menu stands, in logical pixels: the fingers, or the top of what was selected.
+  pub x: f32,
+  pub y: f32,
+  /// Its commands, in order.
+  pub commands: Vec<crate::app::events::EditCommand>,
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for EditMenuRequest {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+/// Where a command of going back or forward starts; see [`HistoryEvent`](crate::app::events::HistoryEvent).
+#[derive(Clone)]
+pub(crate) enum NavigationOrigin {
+  /// The focused element, or with none the last element that hears the command.
+  Focus,
+  /// The element under a point of the window, in logical pixels, then as `Focus`.
+  Point(f32, f32),
+  /// A part of the window: the focused element in it, or the last element in it that hears the command.
+  Part(crate::core::ElementRef),
+}
+
+/// What runs once a command asked for without input has gone through the window: told whether something took it.
+pub(crate) type NavigationDone = Box<dyn FnOnce(bool) + Send + Sync>;
+
+/// A command of going back or forward the app asked for without input, for the tree to run after the event.
+pub(crate) struct NavigationRequest {
+  pub(crate) command: crate::app::events::NavigationCommand,
+  pub(crate) source: crate::app::events::NavigationSource,
+  pub(crate) origin: NavigationOrigin,
+  pub(crate) done: Option<NavigationDone>,
 }
 
 /// Wakes the shell's event loop so a command pushed from another thread is
 /// processed without waiting for the next OS event.
 pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
 
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+  /// Whether the shell's loop is in a turn: between the start of a batch of events and the end of the pass
+  /// that follows them. See [`Window::off_loop_waker`].
+  static IN_LOOP_TURN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The shell says when a turn of its loop starts and ends.
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(not(feature = "winit"), allow(dead_code))]
+pub(crate) fn set_in_loop_turn(in_turn: bool) {
+  IN_LOOP_TURN.with(|turn| turn.set(in_turn));
+}
+
 struct WindowInner {
   #[cfg(feature = "mcp")]
   accepted_close: bool,
+  /// The file dialog broker of the tree the window is of, where the tree registered one.
+  #[cfg(feature = "mcp")]
+  file_dialogs: crate::mcp::ServingBroker,
   /// How many times the window lost focus; input an MCP client holds is released by the next loss.
   #[cfg(feature = "mcp")]
   focus_losses: u64,
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
   border_color: WindowBorderColor,
+  /// How much of the window's top the app's own title bar is drawn over.
+  title_bar_inset: f32,
   /// `None` until the shell creates the window or the app sets a title.
   title: Option<String>,
   version: u64,
@@ -441,8 +531,25 @@ struct WindowInner {
   /// Set once a platform shell applies this window's commands; a headless tree has none.
   shell_attached: bool,
   resize_reports: resize::ResizeReports,
+  /// The system's handles of the window, recorded by the shell: the parent of a dialog of the system.
+  parent: Option<parent::ParentWindow>,
   close_handler: Option<CloseHandler>,
   app_event_handler: Option<AppEventHandler>,
+  /// Where the window's controls are, in a title bar the app draws itself: what the tree found at its last
+  /// layout, for a shell that tells the system. See `controls`.
+  controls: Arc<controls::WindowControlRegions>,
+  /// The window's icon as the app set it, and as an image to draw in a title bar the app draws itself.
+  icon: Option<WindowIcon>,
+  #[cfg(feature = "raster")]
+  icon_image: Option<crate::images::ImageData>,
+  /// Texts the app asked to be put on the clipboard, which the runtime writes after the event that asked.
+  copies: Vec<String>,
+  /// Undos and redos the app asked for without a key (an Edit menu), which the runtime runs on the focused element
+  /// after the event that asked.
+  edits: Vec<(crate::app::events::EditCommand, bool)>,
+  /// Going back or forward the app asked for without input (`Ctx::history_back`, a stack's back button, a browser's
+  /// back), which the runtime runs after the event that asked.
+  navigations: Vec<NavigationRequest>,
 }
 
 impl WindowInner {
@@ -475,6 +582,8 @@ impl Window {
         #[cfg(feature = "mcp")]
         accepted_close: false,
         #[cfg(feature = "mcp")]
+        file_dialogs: crate::mcp::ServingBroker::default(),
+        #[cfg(feature = "mcp")]
         focus_losses: 0,
         info: WindowInfo {
           x: 0,
@@ -487,11 +596,13 @@ impl Window {
           is_full_screen: false,
           is_decorated: true,
           is_focused: true,
+          native_controls: false,
           safe_area: SafeAreaInsets::default(),
           system: SystemSettings::default(),
         },
         corner_radius: WindowCornerRadius::Default,
         border_color: WindowBorderColor::Default,
+        title_bar_inset: 0.0,
         title: None,
         version: 0,
         commands: Vec::new(),
@@ -499,11 +610,48 @@ impl Window {
         loop_thread: None,
         shell_attached: false,
         resize_reports: resize::ResizeReports::default(),
+        parent: None,
         close_handler: None,
         app_event_handler: None,
+        controls: Arc::default(),
+        icon: None,
+        #[cfg(feature = "raster")]
+        icon_image: None,
+        copies: Vec::new(),
+        edits: Vec::new(),
+        navigations: Vec::new(),
       })),
       version_signal: Signal::new(0),
+      edit_menu: Signal::new(None),
+      frames: crate::app::ctx::WindowFrames::default(),
     }
+  }
+
+  /// The shell records the system's handles of the window it made, and clears them as the window goes.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn set_parent(&self, parent: Option<parent::ParentWindow>) {
+    self.inner.write().unwrap().parent = parent;
+  }
+
+  /// The system's handles of the window, where the shell recorded them.
+  pub(crate) fn parent(&self) -> Option<parent::ParentWindow> {
+    self.inner.read().unwrap().parent
+  }
+
+  /// Tells the window which file dialog broker serves it: its tree's.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn serve_file_dialogs(&self, broker: &crate::mcp::ServingBroker) {
+    if self.inner.read().unwrap().file_dialogs.is(broker) {
+      return;
+    }
+    self.inner.write().unwrap().file_dialogs = broker.clone();
+  }
+
+  /// The file dialog broker of the window's tree, while it lives: what a dialog of lurq's own over this window
+  /// asks in place of the system.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn file_dialog_broker(&self) -> Option<crate::mcp::FileDialogBroker> {
+    self.inner.read().unwrap().file_dialogs.broker()
   }
 
   pub(crate) fn set_app_event_handler(&self, handler: Option<AppEventHandler>) {
@@ -516,7 +664,6 @@ impl Window {
   }
 
   /// Gives the window's handler something the system said of the app.
-  #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
   pub(crate) fn dispatch_app_event(&self, event: &AppEvent) {
     // Never hold the state lock across application code.
     let handler = self.inner.read().unwrap().app_event_handler.clone();
@@ -557,6 +704,98 @@ impl Window {
     self.inner.read().unwrap().focus_losses
   }
 
+  /// Records the window's icon, which the app set; what reads it is told, and the loop woken.
+  pub(crate) fn set_icon(&self, icon: Option<WindowIcon>) {
+    let (version, waker) = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.icon == icon {
+        return;
+      }
+      #[cfg(feature = "raster")]
+      {
+        inner.icon_image = icon.as_ref().map(crate::images::ImageData::from);
+      }
+      inner.icon = icon;
+      (Self::bump_version(&mut inner), inner.waker.clone())
+    };
+    self.version_signal.set(version);
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// Asks for `text` to be put on the clipboard; the runtime writes it after the event, or at the next pass.
+  pub(crate) fn request_copy(&self, text: String) {
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.copies.push(text);
+      inner.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// The texts asked to be put on the clipboard since the last time, in order.
+  pub(crate) fn take_copies(&self) -> Vec<String> {
+    std::mem::take(&mut self.inner.write().unwrap().copies)
+  }
+
+  /// Asks for `command` to be run on the focus, marked when it was asked while lurq delivered synthetic input: a
+  /// paste of such a request reads no clipboard.
+  pub(crate) fn request_edit(&self, command: crate::app::events::EditCommand) {
+    let synthetic = crate::app::events::is_synthetic_input();
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.edits.push((command, synthetic));
+      inner.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// Whether a command of editing, of going back or forward, or a copy was asked for and waits for the tree's next
+  /// pass: an Edit menu's item, which asks from outside any event, has the pass run at once for it.
+  pub(crate) fn has_requests(&self) -> bool {
+    let inner = self.inner.read().unwrap();
+    !inner.edits.is_empty() || !inner.navigations.is_empty() || !inner.copies.is_empty()
+  }
+
+  /// The commands asked for since the last time, in order, each with whether synthetic input asked for it.
+  pub(crate) fn take_edits(&self) -> Vec<(crate::app::events::EditCommand, bool)> {
+    std::mem::take(&mut self.inner.write().unwrap().edits)
+  }
+
+  /// Asks for a command of going back or forward to be run once the event that asked is handled (or at the next
+  /// pass, asked from elsewhere).
+  pub(crate) fn request_navigation(&self, request: NavigationRequest) {
+    let waker = {
+      let mut inner = self.inner.write().unwrap();
+      inner.navigations.push(request);
+      inner.waker.clone()
+    };
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// The commands of going back or forward asked for since the last time, in order.
+  pub(crate) fn take_navigations(&self) -> Vec<NavigationRequest> {
+    std::mem::take(&mut self.inner.write().unwrap().navigations)
+  }
+
+  /// The window's icon, as the app set it.
+  pub(crate) fn icon(&self) -> Option<WindowIcon> {
+    self.inner.read().unwrap().icon.clone()
+  }
+
+  /// The window's icon as an image, the same one each time it is asked for, so that it is uploaded once.
+  #[cfg(feature = "raster")]
+  pub(crate) fn icon_image(&self) -> Option<crate::images::ImageData> {
+    self.inner.read().unwrap().icon_image.clone()
+  }
+
   pub(crate) fn track_access(&self) {
     let _ = self.version_signal.get();
   }
@@ -568,6 +807,11 @@ impl Window {
   #[allow(dead_code)]
   pub(crate) fn corner_radius(&self) -> WindowCornerRadius {
     self.inner.read().unwrap().corner_radius
+  }
+
+  /// The callbacks of [`WindowHandle::on_frame`].
+  pub(crate) fn frames(&self) -> &crate::app::ctx::WindowFrames {
+    &self.frames
   }
 
   pub(crate) fn handle(&self) -> WindowHandle {
@@ -671,16 +915,19 @@ impl Window {
   /// `std::thread`: called from any other thread it wakes the attached shell, so the loop picks the write up at
   /// once instead of at its next event. On the loop's own thread, whose turn picks the write up already, and
   /// once the window is gone, it does nothing.
+  ///
+  /// A page has one thread, and what the browser calls on it between the loop's turns (a promise that settled,
+  /// a listener of the page, a timer) is as far from a turn as another thread is: there the shell is woken
+  /// unless a turn is running.
   pub(crate) fn off_loop_waker(&self) -> WindowWaker {
     let window = Arc::downgrade(&self.inner);
     Arc::new(move || {
       let wake = window.upgrade().and_then(|window| {
         let window = window.read().unwrap();
-        if window.loop_thread == Some(std::thread::current().id()) {
-          None
-        } else {
-          window.waker.clone()
-        }
+        let in_turn = window.loop_thread == Some(std::thread::current().id());
+        #[cfg(target_arch = "wasm32")]
+        let in_turn = in_turn && IN_LOOP_TURN.with(std::cell::Cell::get);
+        if in_turn { None } else { window.waker.clone() }
       });
       if let Some(wake) = wake {
         wake();
@@ -769,6 +1016,26 @@ impl Window {
     self.version_signal.set(version);
   }
 
+  /// The system draws the window's controls over the app's own, or no longer does.
+  #[cfg_attr(not(all(feature = "winit", target_os = "macos")), allow(dead_code))]
+  pub(crate) fn set_native_controls(&self, native: bool) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.info.native_controls == native {
+        return;
+      }
+      inner.info.native_controls = native;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  /// Where the window's controls are, as the tree last laid them out.
+  #[cfg_attr(not(all(feature = "winit", target_os = "macos")), allow(dead_code))]
+  pub(crate) fn control_regions(&self) -> Arc<controls::WindowControlRegions> {
+    self.inner.read().unwrap().controls.clone()
+  }
+
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn set_decorated(&self, decorated: bool) {
     let version = {
@@ -780,6 +1047,24 @@ impl Window {
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);
+  }
+
+  /// The menu of editing commands a finger asked for, while it is open: read so that what reads it is rendered
+  /// again when it opens or closes.
+  pub fn edit_menu(&self) -> Option<EditMenuRequest> {
+    self.edit_menu.get()
+  }
+
+  /// The signal that holds the menu of editing commands a finger asked for: `None` closes it.
+  pub fn edit_menu_signal(&self) -> Signal<Option<EditMenuRequest>> {
+    self.edit_menu.clone()
+  }
+
+  /// Opens the menu of editing commands at a point, or closes it with `None`.
+  pub fn set_edit_menu(&self, menu: Option<EditMenuRequest>) {
+    if self.edit_menu.get_untracked() != menu {
+      self.edit_menu.set(menu);
+    }
   }
 
   /// Sets the insets a shell read from the platform. Public for tests and for shells outside the crate.
@@ -833,6 +1118,41 @@ impl Window {
         return;
       }
       inner.corner_radius = radius;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  /// The tree says where the window's controls are, after a layout. Nothing that reads the window is told: only
+  /// a shell asks, at the system's hit test.
+  pub(crate) fn set_control_regions(&self, regions: controls::WindowControlRegions) {
+    let mut inner = self.inner.write().unwrap();
+    if *inner.controls != regions {
+      inner.controls = Arc::new(regions);
+    }
+  }
+
+  /// Which of the window's controls is at a point of the window, in physical pixels, as the tree last laid them
+  /// out: the element the app marked with `.window_control(..)`, where nothing covers it.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn control_at(&self, x: f32, y: f32) -> Option<crate::node::WindowControl> {
+    let (regions, scale) = {
+      let inner = self.inner.read().unwrap();
+      if inner.controls.is_empty() {
+        return None;
+      }
+      (inner.controls.clone(), inner.info.scale_factor.max(0.01))
+    };
+    regions.at(x / scale, y / scale)
+  }
+
+  pub(crate) fn set_title_bar_inset(&self, inset: f32) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.title_bar_inset == inset {
+        return;
+      }
+      inner.title_bar_inset = inset;
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);

@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use crate::{
-  app::{component::Component, ctx::Ctx},
-  node::Element,
+  app::{
+    component::Component,
+    ctx::Ctx,
+    events::{HistoryMover, NavigationCommand, NavigationSource},
+  },
+  node::{Element, node::Node},
   router::{
     Navigator, RouterHandle,
     route_match::{OutletDepth, RouteMatch, RouterMatches},
@@ -45,6 +49,8 @@ impl Component for Router {
     let handle = props.handle;
 
     ctx.provide(Navigator { handle: handle.clone() });
+    #[cfg(target_arch = "wasm32")]
+    handle.set_window(ctx.window_untracked().cloned());
 
     let path = handle.inner.current_path.get();
     let matches = handle.inner.routes.resolve(&path);
@@ -55,16 +61,25 @@ impl Component for Router {
       matches.len()
     );
 
+    // The router is mounted in a node of its own around its screen, which lays nothing out: going back from in it
+    // reaches the router after what its screen does with it (`runtime/navigation.rs`).
+    let mounted = Node::logical().history_mover(mover(handle));
     if matches.is_empty() {
-      return Element::new();
+      return Element::from_node(mounted);
     }
 
     let matches_arc = Arc::new(matches);
     ctx.provide(RouterMatches(matches_arc.clone()));
     ctx.provide(OutletDepth(0));
 
-    render_route_match(ctx, &matches_arc[0])
+    let screen = render_route_match(ctx, &matches_arc[0]);
+    Element::from_node(mounted.child(*screen.node))
   }
+}
+
+/// What the router does with going back or forward that reached it: moves where it can.
+fn mover(handle: RouterHandle) -> HistoryMover {
+  Arc::new(move |command: NavigationCommand, source: NavigationSource| handle.run_command(command, source))
 }
 
 impl Router {

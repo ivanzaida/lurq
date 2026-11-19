@@ -36,12 +36,12 @@ mod stack;
 pub(crate) mod stack_outlet;
 #[cfg(feature = "markdown")]
 pub(crate) mod styled_text;
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 mod svg;
 pub(crate) mod swipe_row;
 #[cfg(feature = "router")]
 pub(crate) mod tabs;
-mod text;
+pub(crate) mod text;
 mod text_input;
 mod text_input_controller;
 mod text_input_tokens;
@@ -55,6 +55,7 @@ pub(crate) mod zoom;
 pub use button::Button;
 #[cfg(feature = "canvas")]
 pub use canvas::Canvas;
+#[allow(deprecated)]
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use drag_container::{DragBounds, DragContainer, DragContainerProps};
@@ -66,14 +67,15 @@ pub(crate) use form::FormContext;
 pub use form::{
   Control, ControlOptions, ControlState, ErrorVisibility, Form, FormCheckboxInput, FormCheckboxInputProps,
   FormControlField, FormData, FormErrors, FormField, FormFieldProps, FormHandle, FormOptions, FormPrimaryButton,
-  FormPrimaryButtonProps, FormProps, FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput,
-  FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue, FormValues, ResolvedControl, ValidationResult,
-  validators,
+  FormPrimaryButtonProps, FormProps, FormRangeSliderInput, FormRangeSliderInputProps, FormSecondaryButton,
+  FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue,
+  FormValues, ResolvedControl, ValidationResult, validators,
 };
 #[cfg(all(feature = "raster", feature = "wgpu"))]
 pub use gpu_viewport::GpuViewport;
 pub use grid::Grid;
 #[cfg(feature = "raster")]
+#[allow(deprecated)]
 pub use image::Image;
 #[cfg(feature = "router")]
 pub use link::Link;
@@ -83,35 +85,46 @@ pub use markdown::{Markdown, MarkdownLink, MarkdownLinkPresentation, MarkdownLis
 pub use outlet::Outlet;
 pub use popup::{Popover, Popup};
 pub use rect::Rect;
-pub use refresh::{ActivityIndicator, ActivityIndicatorProps, PullToRefresh, PullToRefreshProps, PullToRefreshStyle};
+#[allow(deprecated)]
+pub use refresh::ActivityIndicator;
+pub use refresh::{ActivityIndicatorProps, PullToRefresh, PullToRefreshPart, PullToRefreshProps, PullToRefreshStyle};
 #[cfg(feature = "router")]
 pub use router_component::{Router, RouterProps};
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
-pub use select::{Select, SelectOption};
-pub use sheet::{Sheet, SheetDetent, SheetHost, SheetHostProps, SheetHostStyle, SheetProps, SheetStyle};
+pub use select::{Select, SelectOption, SelectTriggerState};
+pub use sheet::{
+  Sheet, SheetDetent, SheetDress, SheetHost, SheetHostPart, SheetHostProps, SheetHostStyle, SheetNode, SheetProps,
+  SheetStyle,
+};
 pub use slider::Slider;
 pub use slot::Slot;
 pub use spacer::Spacer;
 pub use stack::Stack;
 #[cfg(feature = "router")]
 pub use stack_outlet::{
-  NavigationBar, NavigationBarBuilder, NavigationBarScreen, NavigationBarState, NavigationItem, NavigationSearch,
-  StackMotion, StackOutlet, StackOutletProps,
+  NavigationBar, NavigationBarBuilder, NavigationBarPart, NavigationBarScreen, NavigationBarState, NavigationItem,
+  NavigationSearch, StackMotion, StackOutlet, StackOutletProps, StackPart,
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{
-  LinkClick, MarkPresence, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+  InlineObject, LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, RichText,
+  SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
 };
-#[cfg(feature = "svg")]
+#[cfg(feature = "canvas")]
 pub use svg::Svg;
-pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowProps, SwipeRowStyle};
+pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowPart, SwipeRowProps, SwipeRowStyle};
 #[cfg(feature = "router")]
-pub use tabs::{TabBar, TabBarBuilder, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs};
-pub use text::{Text, TextOverflow};
-pub use text_input::{ContentKind, KeyboardKind, ReturnKey, TextInput, TextInputOverflow, TextInputOverflowAnchor};
-pub use text_input_controller::{InputEditError, InputSelection, TextInputController};
-pub use text_input_tokens::{InputToken, InputTokenError, InputTokenStyle, InputTokens};
+pub use tabs::{
+  TabBar, TabBarBuilder, TabBarPart, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs,
+};
+pub use text::{OBJECT_CHARACTER, Text, TextOverflow};
+pub use text_input::{
+  ContentKind, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow,
+  TextInputOverflowAnchor,
+};
+pub use text_input_controller::{InputCaretPoint, InputEditError, InputSelection, TextInputController};
+pub use text_input_tokens::{InputToken, InputTokenError, InputTokenIcon, InputTokenStyle, InputTokens};
 #[cfg(feature = "raster")]
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;
@@ -131,7 +144,8 @@ pub use crate::{
 
 #[macro_export]
 macro_rules! impl_into_node {
-  ($struct_name:ident) => {
+  ($(#[$attribute:meta])* $struct_name:ident) => {
+    $(#[$attribute])*
     pub struct $struct_name {
       pub(crate) node: Box<$crate::node::Node>,
     }
@@ -161,6 +175,13 @@ macro_rules! impl_into_node {
       pub fn key(mut self, key: impl Into<std::sync::Arc<str>>) -> Self {
         let key = key.into();
         self.update_node(|node| node.set_component_key(Some(&key)));
+        self
+      }
+
+      /// Gives the element the style of a part of a themed component: what a
+      /// renderer of `lurq::ui` builds a component's nodes with.
+      pub fn part(mut self, part: &$crate::ui::ResolvedPart) -> Self {
+        self.update_node(|node| part.apply(node));
         self
       }
 
@@ -270,6 +291,21 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// The box's width over its height, as CSS `aspect-ratio`: `16.0 / 9.0` for a box of 16 by 9.
+      ///
+      /// It gives the axis that is auto from the one that is known: a width that is said, a percentage of
+      /// a parent whose size is known, or a size the parent fixes (a child that fills a row, a stretched
+      /// one). With neither axis known the box is as wide as the room it is given and its height follows;
+      /// where the width has no bound it is as high as the room and its width follows. With both axes
+      /// said, or both fixed by the parent, it does nothing. `min_*` and `max_*` still bound the axis it
+      /// gives. On an image it stands for the picture's own ratio, and holds the box of one whose pixels
+      /// are not there yet; the pixels are then placed by the image's fit. A ratio that is not a positive
+      /// number is ignored.
+      pub fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::aspect_ratio(node, ratio));
+        self
+      }
+
       pub fn min_size(
         mut self,
         width: impl Into<$crate::node::dimension::Dimension>,
@@ -338,6 +374,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Moves the element by shares of its own width and height, once it is laid out, on top of
+      /// `offset`: `.offset_by_size(-0.5, -0.5)` puts its middle where its top left corner was, whatever
+      /// its size turns out to be. The room it takes in its parent stays where it was.
+      pub fn offset_by_size(mut self, x: f32, y: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::offset_by_size(node, x, y));
+        self
+      }
+
       pub fn relative(mut self, x: f32, y: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::relative(node, x, y));
         self
@@ -348,6 +392,31 @@ macro_rules! impl_into_node {
       /// [`Sticky`]($crate::layout::layout_kind::Sticky).
       pub fn sticky(mut self, sticky: $crate::layout::layout_kind::Sticky) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::sticky(node, sticky));
+        self
+      }
+
+      /// Lays the element's children out side by side in the tracks of a table's columns, one child to a track,
+      /// each as wide as its track and the element's gap apart: a row of a table, which every other row of
+      /// the table lines up with whatever is in its cells. See
+      /// [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::column_tracks(node, tracks.clone()));
+        self
+      }
+
+      /// Measures the cells of the rows in the element that lay their children out in `tracks`, its children
+      /// and the children of those: what holds the rows of a table. A track sized by its content is as wide as
+      /// the widest of them. See [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      /// How many tracks of the row of [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks) it is in the
+      /// element takes, from the one it would take: as wide as those tracks and the gaps between them. One room
+      /// for the columns a table does not build where they are out of view, in place of a cell for each.
+      pub fn track_span(mut self, span: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::track_span(node, span));
+        self
+      }
+
+      pub fn measures_column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::measures_column_tracks(node, tracks.clone()));
         self
       }
 
@@ -443,6 +512,58 @@ macro_rules! impl_into_node {
       /// negative or NaN `size` counts as 0.
       pub fn shrink_drop_below(mut self, size: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_drop_below(node, size));
+        self
+      }
+
+      /// Lays this child of a `Stack` out only while the stack is within `bounds`
+      /// ([`SizeBounds`](crate::layout::layout_kind::SizeBounds)); outside them it is dropped, as
+      /// [`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop) drops a child of a line: laid
+      /// out at zero size, neither drawn nor hit, with no Tab stop in it and no focus kept in it, while it
+      /// stays mounted and keeps its state. It is how a component is another thing at another size with
+      /// nothing measured and no frame in between: each form is a child with the bounds it lives in.
+      ///
+      /// The size asked is the stack's own, which its constraints and its other children make: a child with
+      /// bounds never makes its stack larger, and is laid out within the size the stack came to. In a
+      /// stack that holds only such children, that size is the least its constraints allow. On a child of
+      /// anything but a `Stack` it does nothing.
+      ///
+      /// ```
+      /// use lurq::{
+      ///   components::{Rect, Stack, Text},
+      ///   layout::layout_kind::SizeBounds,
+      /// };
+      ///
+      /// // A caption over a picture, on a picture wide enough to hold it.
+      /// let picture = Stack::new()
+      ///   .child(Rect::new(320.0, 180.0))
+      ///   .child(Text::new("The lake at dusk").drop_outside(SizeBounds::new().min_width(240.0)));
+      /// ```
+      pub fn drop_outside(mut self, bounds: $crate::layout::layout_kind::SizeBounds) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_outside(node, bounds));
+        self
+      }
+
+      /// Where the image the element draws (its own pixels, or its background image) is held in its box
+      /// where it is cut or does not fill it, as CSS `object-position`: `x` and `y` from 0, its start edge on
+      /// the box's, through 0.5, the middle and the default, to 1, its end edge on the box's. A cover that
+      /// cuts the top and the bottom keeps the top with `(0.5, 0.0)`; a contained image stands at the left
+      /// with `(0.0, 0.5)`. A stretched image fills its box and has nothing to hold.
+      pub fn image_anchor(mut self, x: f32, y: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::image_anchor(node, x, y));
+        self
+      }
+
+      /// Makes this child of a single-line `Row`/`Column` the one that stands
+      /// for what the line dropped
+      /// ([`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)):
+      /// it takes its room only while another child of the line is dropped,
+      /// and is dropped itself while none is. The More button at the end of a
+      /// toolbar, which opens a menu of the controls that did not fit. The line
+      /// gives way as it would without it, and when that drops a child, gives
+      /// way again with its room taken: what fits beside it stays, the rest
+      /// drops. It does not shrink; one marker to a line.
+      pub fn drop_marker(mut self, marker: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_marker(node, marker));
         self
       }
 
@@ -628,6 +749,68 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Merged over the element's style, under every other state style, while the
+      /// [interaction group](Self::interaction_group) it is in is under the pointer or holds the focus: an action
+      /// at the end of a row shown only then. It changes painting only.
+      pub fn within_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_style(node, style));
+        self
+      }
+
+      /// Merged over the element's [`within_style`](Self::within_style) while the interaction group it is in is
+      /// under the pointer, not while it only holds the focus: a cell that stays as a row scrolls, veiled with
+      /// its row under the pointer. It changes painting only.
+      pub fn within_hovered_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_hovered_style(node, style));
+        self
+      }
+
+      /// Merged over the element's [`within_hovered_style`](Self::within_hovered_style) while the interaction
+      /// group it is in is held down. It changes painting only.
+      pub fn within_pressed_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_pressed_style(node, style));
+        self
+      }
+
+      /// Whether the element is an interaction group: while the pointer is on it, or the focus is on it or in
+      /// it, the elements in it show their [`within_style`](Self::within_style). An element in two groups answers
+      /// to the innermost.
+      pub fn interaction_group(mut self, group: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::interaction_group(node, group));
+        self
+      }
+
+      /// Draws the boxes of the element and of everything in it on whole device pixels: each edge of a fill or a
+      /// border is moved to the device pixel nearest it when the frame is painted, so that at a scale that is no
+      /// whole number (150%) an edge is crisp, and two boxes that meet still meet. A grid of cells that must read
+      /// sharp, as the modules of a QR code. What is laid out and what a pointer hits are as before; a text, an
+      /// image and a box that is turned are drawn where they are.
+      pub fn snap_to_pixels(mut self, snap: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::snap_to_pixels(node, snap));
+        self
+      }
+
+      /// Paints what the element holds again and again across its box: a watermark, a pattern. What it holds is
+      /// laid out once, and is the first tile; the tiles are its first child's box with the repeat's gap after
+      /// it, across and down both ways, every other row moved by the repeat's stagger. Only the tiles that can be
+      /// seen are painted, so a pattern over a page of any length in a scroll costs the tiles in view. The copies
+      /// are paint alone: no pointer hits them and tooling does not read them. See [`Repeat`]($crate::layout::Repeat).
+      pub fn repeat(mut self, repeat: $crate::layout::Repeat) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::repeat(node, Some(repeat)));
+        self
+      }
+
+      /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
+      /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system where it
+      /// is: on Windows the window answers the system's hit test there with the minimize, the maximize or the
+      /// close button, so that Windows 11 opens its snap layouts over the maximize control. The element is
+      /// otherwise as before: its states, its `on_click`, its cursor and its keys are its own, and it is what
+      /// acts on the window. On other platforms this does nothing.
+      pub fn window_control(mut self, control: $crate::node::WindowControl) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::window_control(node, control));
+        self
+      }
+
       /// Builder form of `drag_over_style`.
       pub fn drag_over(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::drag_over(node, f));
@@ -720,6 +903,21 @@ macro_rules! impl_into_node {
 
       pub fn start_drag_buttons(mut self, buttons: $crate::app::events::MouseButtonMask) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::start_drag_buttons(node, buttons));
+        self
+      }
+
+      /// Whether a finger that lands on the element drags it at once and scrolls nothing, where it is inside
+      /// content that scrolls: see `Node::finger_drags`. Off by default.
+      pub fn finger_drags(mut self, drags: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::finger_drags(node, drags));
+        self
+      }
+
+      /// Whether a drag that starts on the element scrolls the scroll container around it while the pointer is
+      /// at the container's edge or past it, and tells the drag's `on_drag_move` after each step: see
+      /// `Node::drag_autoscroll`. Off by default.
+      pub fn drag_autoscroll(mut self, enabled: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drag_autoscroll(node, enabled));
         self
       }
 
@@ -823,8 +1021,66 @@ macro_rules! impl_into_node {
         self
       }
 
-      /// A trackpad swipe between pages ended over this element: two fingers moved sideways that nothing under the
-      /// pointer scrolled with. Go back or forward by the event's `direction`, as a browser does.
+      /// A copy or a cut from the focused element where it is not a text input (Ctrl+C, Ctrl+X, or an Edit menu's
+      /// `Ctx::edit(EditCommand::Copy)`): on the element, or on an ancestor it bubbles to. The handler says what goes
+      /// on the clipboard with `set_text`; a cut also takes away what it copied. A handler that sets no text passes
+      /// it on, and a text selected on the page is copied where none set one.
+      pub fn on_copy(mut self, f: impl $crate::node::IntoCopyEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_copy(node, f));
+        self
+      }
+
+      pub fn off_copy(mut self, f: impl $crate::node::IntoCopyEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_copy(node, f));
+        self
+      }
+
+      /// Undo on the focused element, or on one in it: Ctrl+Z (Cmd+Z on a Mac), or an Edit menu's Undo
+      /// (`Ctx::edit(EditCommand::Undo)`). The handler takes back the last change of what the element holds; one that has nothing to
+      /// take back calls `event.pass_on()`, and the command goes on out to the elements around, innermost first, to
+      /// the first that takes it. A focused text input takes back its own edits first. Which keys are undo is lurq's
+      /// to know (`KeyboardEvent::edit_command`): a component never matches them itself. See
+      /// [`EditEvent`]($crate::app::events::EditEvent).
+      pub fn on_undo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_undo(node, f));
+        self
+      }
+
+      pub fn off_undo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_undo(node, f));
+        self
+      }
+
+      /// Redo on the focused element, or on one in it: Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z on a Mac), or an Edit
+      /// menu's Redo (`Ctx::edit(EditCommand::Redo)`). As [`on_undo`](Self::on_undo), for what was taken back.
+      pub fn on_redo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_redo(node, f));
+        self
+      }
+
+      pub fn off_redo(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_redo(node, f));
+        self
+      }
+
+      /// Select all on the focused element, or on one in it: Ctrl+A (Cmd+A on a Mac), or an Edit menu's Select All
+      /// (`Ctx::edit(EditCommand::SelectAll)`). The handler selects every item of what it holds; one that selects
+      /// nothing (a list of which one item is chosen) calls `event.pass_on()`. A focused text input selects its text
+      /// itself. As [`on_undo`](Self::on_undo).
+      pub fn on_select_all(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_select_all(node, f));
+        self
+      }
+
+      pub fn off_select_all(mut self, f: impl $crate::node::IntoEditEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_select_all(node, f));
+        self
+      }
+
+      /// A swipe between pages ended over this element: two fingers moved sideways on a trackpad that nothing under
+      /// the pointer scrolled with, or a finger came in from the left or the right edge. Its default is going back or
+      /// forward by the event's `direction` (`on_history_back` hears it); a handler that does something else with the
+      /// swipe calls `prevent_default`. See [`HistorySwipeEvent`]($crate::app::events::HistorySwipeEvent).
       pub fn on_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::on_history_swipe(node, f));
         self
@@ -832,6 +1088,35 @@ macro_rules! impl_into_node {
 
       pub fn off_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_history_swipe(node, f));
+        self
+      }
+
+      /// Going back on the focused element, or on one in it, or under the pointer: Alt+← (Cmd+[ on a Mac), the
+      /// mouse's back button, a trackpad's swipe or a finger from the left edge, Android's back, a browser's back, or
+      /// the app's `Ctx::history_back`. The handler goes back from what is its own (a dialog closes, a wizard steps
+      /// back); one that has nothing to do calls `event.pass_on()`, and the command goes on out to the elements
+      /// around, innermost first, and the router mounted there, to the first that takes it. Which keys and buttons
+      /// go back is lurq's to know (`KeyboardEvent::navigation_command`): a component never matches them itself.
+      /// See [`HistoryEvent`]($crate::app::events::HistoryEvent).
+      pub fn on_history_back(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_history_back(node, f));
+        self
+      }
+
+      pub fn off_history_back(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_history_back(node, f));
+        self
+      }
+
+      /// Going forward: Alt+→ (Cmd+] on a Mac), the mouse's forward button, a swipe the other way, a browser's
+      /// forward, `Ctx::history_forward`. As [`on_history_back`](Self::on_history_back).
+      pub fn on_history_forward(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_history_forward(node, f));
+        self
+      }
+
+      pub fn off_history_forward(mut self, f: impl $crate::node::IntoHistoryEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_history_forward(node, f));
         self
       }
 
@@ -922,6 +1207,18 @@ macro_rules! impl_into_node {
 
       pub fn off_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_tap(node, f));
+        self
+      }
+
+      /// Two taps in a row on this element; see [`TapEvent`](crate::app::events::TapEvent). While it listens, a
+      /// tap's click is held back for the time of a double tap.
+      pub fn on_double_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_double_tap(node, f));
+        self
+      }
+
+      pub fn off_double_tap(mut self, f: impl $crate::node::IntoTapEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_double_tap(node, f));
         self
       }
 
@@ -1024,6 +1321,19 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// A wheel or a trackpad turned over the element, before anything is scrolled by it and whether or
+      /// not anything can be (see `Node::on_wheel`): for an element the wheel is for something other than
+      /// scrolling, which takes it with `prevent_default`.
+      pub fn on_wheel(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_wheel(node, f));
+        self
+      }
+
+      pub fn off_wheel(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_wheel(node, f));
+        self
+      }
+
       pub fn off_scroll(mut self, f: impl $crate::node::IntoScrollEventHandler) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::off_scroll(node, f));
         self
@@ -1100,6 +1410,34 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// A click of the element focuses `target`: the first element that takes the focus under the one the ref is
+      /// on, as `Ctx::focus` finds it. What a label does for its control. A click on
+      /// something under the element that takes the focus itself focuses that instead, and a disabled target is
+      /// not focused. A button given one gives the focus on when it is pressed, by a click or by the keyboard: a
+      /// link to a field. On an element that is dragged, the press that begins a drag focuses `target` too, as the
+      /// drag gives no click.
+      pub fn focuses(mut self, target: &$crate::core::ElementRef) -> Self {
+        let target = target.clone();
+        self.update_node(|node| node.events.focuses = Some(target));
+        self
+      }
+
+      /// Whether a press of the element repeats while it is held, as the buttons that step a number do: the
+      /// press of the primary button runs the element's `on_click` handlers at once, and again while the button
+      /// stays down over the element, first after 400 ms and then every 50 ms. The release clicks nothing more,
+      /// and what the element `focuses` is focused at the press. Enter and Space on a focused one click it once.
+      pub fn repeat_press(mut self, repeats: bool) -> Self {
+        self.update_node(|node| node.events.press_repeats = repeats);
+        self
+      }
+
+      /// Called as a press of the element that repeats (`repeat_press`) is let go, wherever the pointer is then, or
+      /// is taken by the OS: the end of the held press, after the last of its clicks.
+      pub fn on_press_end(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.update_node(|node| node.events.on_press_end.push($crate::node::VoidEventHandler::new(f)));
+        self
+      }
+
       pub fn interactive(mut self, state: $crate::node::interaction_state::InteractionState) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::interactive(node, state));
         self
@@ -1115,6 +1453,27 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Takes the element and everything in it out of the focus and the pointer, while it is still painted: Tab
+      /// and a focus group's arrows pass it by, no focus request reaches it, no press, hover or drop reaches it
+      /// (what is under it gets them), and the focus in it leaves when it becomes inert, to the next stop of the
+      /// focus group it was in or to nothing. A splitter's closed pane, a panel on its way out. An element ref
+      /// makes it so with no render: `ElementRefMut::set_inert`.
+      pub fn inert(mut self, inert: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::inert(node, inert));
+        self
+      }
+
+      /// While the element is in the tree it takes every key of the window before anything else does: its own
+      /// `on_key_down` and `on_key_up` handlers alone are told of a key (with `focus_within` true), and nothing the
+      /// window does with a key is done: no Tab, Enter or Escape, no arrows of a focus group, no Alt of a row of
+      /// menus, no typing in an input, no handler of another element, and no accelerator of the app's menu. It lets
+      /// go when it is built with `false` or leaves the tree. What records a shortcut, while it records. Where two
+      /// capture at once, the first in the order of the tree takes the keys.
+      pub fn captures_keys(mut self, captures: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::captures_keys(node, captures));
+        self
+      }
+
       /// HTML `tabindex`. Inside a form, controls are in the Tab order
       /// without one; outside a form, only elements with `tab_index(0)` or
       /// higher are. Positive values come first in ascending order, then `0`
@@ -1126,9 +1485,110 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Makes the element a group the arrow keys move the focus within,
+      /// while the focus is on something in it: see
+      /// [`FocusGroup`]($crate::node::FocusGroup).
+      pub fn focus_group(mut self, group: $crate::node::FocusGroup) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_group(node, group));
+        self
+      }
+
+      /// Marks the element as where Tab enters the one-stop
+      /// [`FocusGroup`]($crate::node::FocusGroup) it is in: the chosen radio,
+      /// the chosen segment. Without one Tab enters at the first.
+      pub fn focus_entry(mut self, entry: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_entry(node, entry));
+        self
+      }
+
+      /// Whether Tab also stops at what takes the focus inside this element where it is a button, after the
+      /// button itself: a card pressed as a whole with buttons of its own in it. Off, a button's content is
+      /// part of the button.
+      pub fn stops_inside(mut self, stops: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::stops_inside(node, stops));
+        self
+      }
+
+      /// Whether the focus goes to this element as the modal or the overlay that takes the focus it is in
+      /// opens, in place of its first stop of Tab: the default button of a message box. It is a stop of Tab
+      /// as it was, in its place.
+      pub fn autofocus(mut self, autofocus: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::autofocus(node, autofocus));
+        self
+      }
+
+      /// What typing a letter in a [`FocusGroup`]($crate::node::FocusGroup)
+      /// with typeahead matches the element by: a menu item's label, where
+      /// its text is not only that.
+      pub fn focus_label(mut self, label: impl Into<std::sync::Arc<str>>) -> Self {
+        let label = label.into();
+        self.update_node(|node| $crate::node::NodeUpdate::focus_label(node, label));
+        self
+      }
+
+      /// The level the element is at in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup): 1 at the top, 2 in an
+      /// element at the top, and so on. Left goes from it to the nearest
+      /// element before it at a lower level.
+      pub fn focus_level(mut self, level: u32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_level(node, level));
+        self
+      }
+
+      /// That the element opens and closes in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup), and whether it is open:
+      /// Right, Left and `*` call `toggle` with what it is to be. What it
+      /// holds is the elements after it at a higher level, there while it is
+      /// open.
+      pub fn focus_expanded(mut self, open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let toggle: std::sync::Arc<dyn Fn(bool) + Send + Sync> = std::sync::Arc::new(toggle);
+        self.update_node(|node| $crate::node::NodeUpdate::focus_expanded(node, open, toggle));
+        self
+      }
+
+      /// Which row of the [`FocusRows`]($crate::node::FocusRows) of its focus group the element is: the group
+      /// steps over the rows, and focuses the element of the row it steps to.
+      pub fn focus_row(mut self, row: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_row(node, row));
+        self
+      }
+
+      /// The column of its row the element is in, in a group of [`FocusRows`]($crate::node::FocusRows) whose
+      /// rows hold several stops each (the cells of a grid, with `.focus_row(row)` on each): Up, Down, PageUp and
+      /// PageDown go to the stop of the same column in the row they go to, and Ctrl+Home and Ctrl+End to the
+      /// first stop of the first row and the last of the last. Left and Right are a group of each row's own.
+      pub fn focus_column(mut self, column: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_column(node, column));
+        self
+      }
+
+      /// The rows the [`FocusGroup`]($crate::node::FocusGroup) of this element steps over, where a list builds
+      /// only some of them: see [`FocusRows`]($crate::node::FocusRows).
+      pub fn focus_rows(mut self, rows: std::sync::Arc<dyn $crate::node::FocusRows>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_rows(node, rows));
+        self
+      }
+
       #[cfg(feature = "form")]
       pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::name(node, name));
+        self
+      }
+
+      /// What a selection copies of the element where it stands in a line of rich text, as an object of it
+      /// ([`Text::object`](crate::components::Text::object)): a mention's name, a link's `[title](url)`. Without one
+      /// an object copies nothing, and never its object character.
+      pub fn copy_text(mut self, text: &str) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::copy_text(node, Some(std::sync::Arc::from(text))));
+        self
+      }
+
+      /// What the element gives the form it is in under its [`name`](Self::name), where it is no engine control
+      /// that gives its own (a text input gives its text, a checkbox `on`): a control of the design system made of
+      /// plain elements, as a shortcut recorder gives `Ctrl+Shift+P`. `None` gives nothing.
+      #[cfg(feature = "form")]
+      pub fn form_value(mut self, value: Option<std::sync::Arc<str>>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::form_value(node, value));
         self
       }
 
@@ -1139,6 +1599,16 @@ macro_rules! impl_into_node {
 
       pub fn overflow_visible(mut self) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::overflow_visible(node));
+        self
+      }
+
+      /// Lays the element and what is in it out, and paints them, with
+      /// `theme` in place of the window's: its palette, its radii, its type,
+      /// its shadows. A dark panel in a light window. Components built
+      /// inside take their recipes from the theme they are built in: see
+      /// [`Ctx::in_theme`]($crate::app::ctx::Ctx::in_theme), which does both.
+      pub fn theme(mut self, theme: &$crate::app::theme::Theme) -> Self {
+        self.update_node(|node| node.set_theme_scope(theme));
         self
       }
 

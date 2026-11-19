@@ -1,0 +1,26 @@
+//! The crate's doc.
+use lurq::{app::App, ui::Button};
+
+/// A step.
+#[derive(Debug, Clone)]
+pub struct Step<'a> {
+  name: &'a str,
+  count: u32,
+}
+
+const MAX_STEPS: usize = 1_000;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+  let app = App::new();
+  let path = r#"C:\a "quoted" path"#;
+  let bytes = b"\x00\n";
+  let c = '\n';
+  let q = '\'';
+  /* a /* nested */ comment */
+  'outer: for i in 0..10 {
+    if i == 3 { break 'outer; }
+  }
+  println!("{} = {:?}", 0x1F, 2.5e3f64);
+  self.count += 1u8;
+  Ok(())
+}

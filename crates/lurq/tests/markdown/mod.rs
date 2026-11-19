@@ -1,3 +1,4 @@
+mod blocks;
 mod code_font;
 mod code_scroll;
 mod fit_content;
@@ -17,6 +18,8 @@ mod links;
 mod outer_id;
 mod parse;
 mod selection;
+mod speed;
 mod strikethrough;
 mod table_cells;
 mod text;
+mod theme_scope;

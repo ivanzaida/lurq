@@ -120,6 +120,9 @@ struct ReactiveContextInner<T> {
   value: T,
   hash: u64,
   subscribers: Vec<Arc<dyn Fn() + Send + Sync>>,
+  /// Told each value the context changes to, for DevTools: what the component that made it gave it.
+  #[cfg(feature = "devtools")]
+  inspector: Option<Arc<dyn Fn(&T) + Send + Sync>>,
 }
 
 impl<T: Send + Sync + 'static> ReactiveContext<T> {
@@ -133,6 +136,8 @@ impl<T: Send + Sync + 'static> ReactiveContext<T> {
         value,
         hash,
         subscribers: Vec::new(),
+        #[cfg(feature = "devtools")]
+        inspector: None,
       })),
     }
   }
@@ -153,6 +158,10 @@ impl<T: Send + Sync + 'static> ReactiveContext<T> {
     if inner.hash != new_hash {
       inner.value = value;
       inner.hash = new_hash;
+      #[cfg(feature = "devtools")]
+      if let Some(inspector) = &inner.inspector {
+        inspector(&inner.value);
+      }
       let subs = inner.subscribers.clone();
       drop(inner);
       for sub in subs {
@@ -165,6 +174,12 @@ impl<T: Send + Sync + 'static> ReactiveContext<T> {
 
   pub(crate) fn subscribe(&self, f: impl Fn() + Send + Sync + 'static) {
     self.inner.write().subscribers.push(Arc::new(f));
+  }
+
+  /// Has `inspector` told each value the context changes to: how DevTools records its changes.
+  #[cfg(feature = "devtools")]
+  pub(crate) fn inspect_with(&self, inspector: impl Fn(&T) + Send + Sync + 'static) {
+    self.inner.write().inspector = Some(Arc::new(inspector));
   }
 }
 

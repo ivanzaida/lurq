@@ -95,6 +95,8 @@ enum Edit {
   },
   /// The composition is confirmed as this text.
   Unmark(String),
+  /// Undo or redo, of three fingers or of the system's bar of editing commands.
+  Command(crate::app::events::EditCommand),
 }
 
 /// The focused text input as UIKit was last told it is.
@@ -114,6 +116,9 @@ struct Mirror {
   /// UIKit drew the caret where the view did not take it, or may have, as a saved password came: it is to be
   /// told where the caret is.
   caret_astray: bool,
+  /// Whether the input has an edit to take back, and one to make again: what the system's undo asks.
+  can_undo: bool,
+  can_redo: bool,
 }
 
 /// How long after a saved password came UIKit's own moves of the caret are taken to be part of the filling.
@@ -953,6 +958,81 @@ extern "C-unwind" fn can_perform_action(_this: &AnyObject, _cmd: Sel, action: Se
   Bool::new(allowed)
 }
 
+// Undo. UIKit's undo in a field (three fingers swiped, the bar of editing commands three fingers tap open, Cmd+Z
+// of an attached keyboard, a shake) asks the field's `undoManager` whether it can and tells it to. The input's
+// history is the tree's: the view's manager answers from what the tree last said of it, and has the tree take an
+// edit back or make it again on the shell's next turn.
+
+/// The view's undo manager, made once.
+static UNDO_MANAGER: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
+
+extern "C-unwind" fn undo_manager(_this: &AnyObject, _cmd: Sel) -> *mut AnyObject {
+  let manager = UNDO_MANAGER.load(Ordering::Acquire);
+  if !manager.is_null() {
+    return manager;
+  }
+  let manager: Retained<AnyObject> = unsafe { msg_send![undo_manager_class(), new] };
+  let manager = Retained::into_raw(manager);
+  UNDO_MANAGER.store(manager, Ordering::Release);
+  manager
+}
+
+extern "C-unwind" fn can_undo(_this: &AnyObject, _cmd: Sel) -> Bool {
+  Bool::new(with_mirror(false, |mirror| mirror.can_undo))
+}
+
+extern "C-unwind" fn can_redo(_this: &AnyObject, _cmd: Sel) -> Bool {
+  Bool::new(with_mirror(false, |mirror| mirror.can_redo))
+}
+
+/// Has the tree run `command` on the input, and takes what it will be able to do then as UIKit's next questions
+/// find it: an edit taken back is one to make again.
+fn queue_history(command: crate::app::events::EditCommand) {
+  use crate::app::events::EditCommand;
+  let queued = with_mirror(false, |mirror| {
+    let able = match command {
+      EditCommand::Undo => &mut mirror.can_undo,
+      _ => &mut mirror.can_redo,
+    };
+    if !*able {
+      return false;
+    }
+    match command {
+      EditCommand::Undo => mirror.can_redo = true,
+      _ => mirror.can_undo = true,
+    }
+    mirror.edits.push(Edit::Command(command));
+    true
+  });
+  if queued {
+    wake_shell();
+  }
+}
+
+extern "C-unwind" fn undo(_this: &AnyObject, _cmd: Sel) {
+  queue_history(crate::app::events::EditCommand::Undo);
+}
+
+extern "C-unwind" fn redo(_this: &AnyObject, _cmd: Sel) {
+  queue_history(crate::app::events::EditCommand::Redo);
+}
+
+/// An `NSUndoManager` whose history is the tree's input's.
+fn undo_manager_class() -> &'static AnyClass {
+  if let Some(class) = AnyClass::get(c"LurqTextUndoManager") {
+    return class;
+  }
+  let mut builder = ClassBuilder::new(c"LurqTextUndoManager", class!(NSUndoManager)).expect("a class name of its own");
+  // SAFETY: the methods have NSUndoManager's selectors' types.
+  unsafe {
+    builder.add_method(sel!(canUndo), can_undo as extern "C-unwind" fn(_, _) -> _);
+    builder.add_method(sel!(canRedo), can_redo as extern "C-unwind" fn(_, _) -> _);
+    builder.add_method(sel!(undo), undo as extern "C-unwind" fn(_, _));
+    builder.add_method(sel!(redo), redo as extern "C-unwind" fn(_, _));
+  }
+  builder.register()
+}
+
 // A keyboard attached to the device. What it types, and its arrows and shortcuts, are the text system's, which
 // has them from the view as it has the screen's keyboard. The keys that leave the input are the tree's.
 
@@ -990,7 +1070,7 @@ extern "C-unwind" fn keyboard_type(_this: &AnyObject, _cmd: Sel) -> isize {
     Some(KeyboardKind::Email) => 7,
     Some(KeyboardKind::Decimal) => 8,
     Some(KeyboardKind::Search) => 10,
-    Some(KeyboardKind::Text) | None => 0,
+    Some(KeyboardKind::Text | KeyboardKind::None) | None => 0,
   }
 }
 
@@ -1114,6 +1194,7 @@ fn text_input_class() -> &'static AnyClass {
     sel!(paste:) => paste as extern "C-unwind" fn(_, _, _),
     sel!(selectAll:) => select_all as extern "C-unwind" fn(_, _, _),
     sel!(canPerformAction:withSender:) => can_perform_action as extern "C-unwind" fn(_, _, _, _) -> _,
+    sel!(undoManager) => undo_manager as extern "C-unwind" fn(_, _) -> _,
     sel!(pressesBegan:withEvent:) => presses_began as extern "C-unwind" fn(_, _, _, _),
     sel!(pressesEnded:withEvent:) => presses_ended as extern "C-unwind" fn(_, _, _, _),
     sel!(isSecureTextEntry) => is_secure_text_entry as extern "C-unwind" fn(_, _) -> _,
@@ -1320,6 +1401,9 @@ impl TextInput {
           cursor: selection,
         }),
         Edit::Unmark(text) => tree.ime(ImeEvent::Commit(text)),
+        Edit::Command(command) => {
+          tree.keyboard_edit(command);
+        }
       }
     }
     let shown = self.shown_selection();
@@ -1400,6 +1484,8 @@ impl TextInput {
       let mirror = mirror.get_or_insert_with(Mirror::default);
       mirror.traits = Some(traits);
       mirror.geometry = geometry.clone();
+      mirror.can_undo = snapshot.can_undo;
+      mirror.can_redo = snapshot.can_redo;
       if matches!(changed, Some(Changed::Text | Changed::Selection)) {
         mirror.text = snapshot.text;
         mirror.selection = (snapshot.selection.start, snapshot.selection.end);

@@ -41,7 +41,7 @@ inside its input.
 - **A code from a message** (`ContentKind::OneTimeCode`): set, not checked. It needs a real message.
 - **A hardware keyboard:** its keys are passed to the tree, and shortcuts take Command. Written with no
   keyboard to try it on: nothing of it was checked.
-- **Putting the keyboard away.** A tap outside an input leaves it up, and a list set to
+- **Putting the keyboard away.** A tap outside an input lets it go and takes the keyboard down, and a list set to
   (`ScrollState::set_keyboard_dismissal`) puts it away when a finger starts to scroll it, or has it follow the
   finger down. The following is UIKit's own, borrowed: a scroll view that is not seen, whose pan gesture is
   put on the window's view. Written without a device to try it on: not checked.

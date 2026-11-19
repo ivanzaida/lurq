@@ -9,8 +9,10 @@ use std::{
 };
 
 use parking_lot::RwLock;
+#[cfg(not(target_arch = "wasm32"))]
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
+#[cfg(not(target_arch = "wasm32"))]
 const TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("persistent_values");
 
 const TYPE_BOOL: u8 = 1;
@@ -42,7 +44,11 @@ pub struct PersistentStorage {
 #[derive(Clone)]
 enum PersistentStorageBackend {
   Memory(Arc<RwLock<HashMap<String, Vec<u8>>>>),
+  #[cfg(not(target_arch = "wasm32"))]
   Redb(Arc<Database>),
+  /// The page's `localStorage`, its keys under this prefix: see [`web_store`].
+  #[cfg(target_arch = "wasm32")]
+  Web(Arc<str>),
 }
 
 #[derive(Debug)]
@@ -111,7 +117,10 @@ pub struct PersistentStorageSnapshotEntry {
   pub key: String,
   pub type_name: String,
   pub full_type_name: String,
+  /// The value as it is written on one line: a struct with its fields between braces.
   pub value: String,
+  /// The fields of a struct, each with its value as it is written, in their order: empty for any other value.
+  pub fields: Vec<(String, String)>,
   pub byte_len: usize,
 }
 
@@ -148,6 +157,18 @@ impl PersistentStorage {
     }
   }
 
+  /// The store in the page's `localStorage`, its keys under `path` (`lurq:<path>:`): what a page keeps between
+  /// visits of the same origin, a few megabytes at most, which the person may clear with the site's data.
+  #[cfg(target_arch = "wasm32")]
+  pub fn open(path: impl AsRef<Path>) -> Result<Self, PersistentStorageError> {
+    web_store::storage().ok_or_else(|| PersistentStorageError::Backend("the page has no localStorage".to_owned()))?;
+    Ok(Self {
+      backend: PersistentStorageBackend::Web(Arc::from(format!("lurq:{}:", path.as_ref().to_string_lossy()))),
+      revision: Arc::new(AtomicU64::new(0)),
+    })
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
   pub fn open(path: impl AsRef<Path>) -> Result<Self, PersistentStorageError> {
     let path = path.as_ref();
     if let Some(parent) = path.parent()
@@ -214,6 +235,7 @@ impl PersistentStorage {
         self.bump_revision();
         Ok(())
       }
+      #[cfg(not(target_arch = "wasm32"))]
       PersistentStorageBackend::Redb(db) => {
         let txn = db.begin_write().map_err(backend_error)?;
         {
@@ -221,6 +243,12 @@ impl PersistentStorage {
           table.insert(key, bytes.as_slice()).map_err(backend_error)?;
         }
         txn.commit().map_err(backend_error)?;
+        self.bump_revision();
+        Ok(())
+      }
+      #[cfg(target_arch = "wasm32")]
+      PersistentStorageBackend::Web(prefix) => {
+        web_store::set(prefix, key, &bytes)?;
         self.bump_revision();
         Ok(())
       }
@@ -246,6 +274,7 @@ impl PersistentStorage {
         self.bump_revision();
         Ok(())
       }
+      #[cfg(not(target_arch = "wasm32"))]
       PersistentStorageBackend::Redb(db) => {
         let txn = db.begin_write().map_err(backend_error)?;
         {
@@ -260,6 +289,14 @@ impl PersistentStorage {
         self.bump_revision();
         Ok(())
       }
+      #[cfg(target_arch = "wasm32")]
+      PersistentStorageBackend::Web(prefix) => {
+        for entry in entries {
+          web_store::set(prefix, &entry.key, &entry.value)?;
+        }
+        self.bump_revision();
+        Ok(())
+      }
     }
   }
 
@@ -270,6 +307,7 @@ impl PersistentStorage {
         self.bump_revision();
         Ok(())
       }
+      #[cfg(not(target_arch = "wasm32"))]
       PersistentStorageBackend::Redb(db) => {
         let txn = db.begin_write().map_err(backend_error)?;
         {
@@ -277,6 +315,12 @@ impl PersistentStorage {
           table.remove(key).map_err(backend_error)?;
         }
         txn.commit().map_err(backend_error)?;
+        self.bump_revision();
+        Ok(())
+      }
+      #[cfg(target_arch = "wasm32")]
+      PersistentStorageBackend::Web(prefix) => {
+        web_store::remove(prefix, key)?;
         self.bump_revision();
         Ok(())
       }
@@ -289,6 +333,7 @@ impl PersistentStorage {
       .map(|entries| entries.into_iter().map(snapshot_entry).collect())
   }
 
+  #[cfg(not(target_arch = "wasm32"))]
   fn ensure_table(&self) -> Result<(), PersistentStorageError> {
     let PersistentStorageBackend::Redb(db) = &self.backend else {
       return Ok(());
@@ -304,6 +349,7 @@ impl PersistentStorage {
   fn raw_value(&self, key: &str) -> Result<Option<Vec<u8>>, PersistentStorageError> {
     match &self.backend {
       PersistentStorageBackend::Memory(values) => Ok(values.read().get(key).cloned()),
+      #[cfg(not(target_arch = "wasm32"))]
       PersistentStorageBackend::Redb(db) => {
         let txn = db.begin_read().map_err(backend_error)?;
         let table = txn.open_table(TABLE).map_err(backend_error)?;
@@ -314,6 +360,8 @@ impl PersistentStorage {
             .map(|value| value.value().to_vec()),
         )
       }
+      #[cfg(target_arch = "wasm32")]
+      PersistentStorageBackend::Web(prefix) => web_store::get(prefix, key),
     }
   }
 
@@ -323,6 +371,7 @@ impl PersistentStorage {
         let values = values.read();
         Ok(keys.iter().map(|key| values.get(key).cloned()).collect())
       }
+      #[cfg(not(target_arch = "wasm32"))]
       PersistentStorageBackend::Redb(db) => {
         let txn = db.begin_read().map_err(backend_error)?;
         let table = txn.open_table(TABLE).map_err(backend_error)?;
@@ -336,6 +385,8 @@ impl PersistentStorage {
           })
           .collect()
       }
+      #[cfg(target_arch = "wasm32")]
+      PersistentStorageBackend::Web(prefix) => keys.iter().map(|key| web_store::get(prefix, key)).collect(),
     }
   }
 
@@ -346,6 +397,7 @@ impl PersistentStorage {
         .iter()
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<Vec<_>>(),
+      #[cfg(not(target_arch = "wasm32"))]
       PersistentStorageBackend::Redb(db) => {
         let txn = db.begin_read().map_err(backend_error)?;
         let table = txn.open_table(TABLE).map_err(backend_error)?;
@@ -356,6 +408,8 @@ impl PersistentStorage {
         }
         entries
       }
+      #[cfg(target_arch = "wasm32")]
+      PersistentStorageBackend::Web(prefix) => web_store::all(prefix)?,
     };
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(entries)
@@ -363,6 +417,58 @@ impl PersistentStorage {
 
   fn bump_revision(&self) {
     self.revision.fetch_add(1, Ordering::Relaxed);
+  }
+}
+
+/// The store of a page: its values in `localStorage`, which holds text. A value's bytes are kept as the characters
+/// U+0000 to U+00FF, one a byte, so what is read back is what was written; the page's storage counts them as two
+/// bytes each.
+#[cfg(target_arch = "wasm32")]
+mod web_store {
+  use super::{PersistentStorageError, backend_error};
+
+  pub(super) fn storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok()?
+  }
+
+  fn store() -> Result<web_sys::Storage, PersistentStorageError> {
+    storage().ok_or_else(|| PersistentStorageError::Backend("the page has no localStorage".to_owned()))
+  }
+
+  fn said(error: wasm_bindgen::JsValue) -> PersistentStorageError {
+    // A full store throws `QuotaExceededError`.
+    backend_error(format!("{error:?}"))
+  }
+
+  pub(super) fn get(prefix: &str, key: &str) -> Result<Option<Vec<u8>>, PersistentStorageError> {
+    let value = store()?.get_item(&format!("{prefix}{key}")).map_err(said)?;
+    Ok(value.map(|text| text.chars().map(|char| char as u32 as u8).collect()))
+  }
+
+  pub(super) fn set(prefix: &str, key: &str, bytes: &[u8]) -> Result<(), PersistentStorageError> {
+    let text: String = bytes.iter().map(|&byte| char::from(byte)).collect();
+    store()?.set_item(&format!("{prefix}{key}"), &text).map_err(said)
+  }
+
+  pub(super) fn remove(prefix: &str, key: &str) -> Result<(), PersistentStorageError> {
+    store()?.remove_item(&format!("{prefix}{key}")).map_err(said)
+  }
+
+  pub(super) fn all(prefix: &str) -> Result<Vec<(String, Vec<u8>)>, PersistentStorageError> {
+    let store = store()?;
+    let count = store.length().map_err(said)?;
+    let mut entries = Vec::new();
+    for index in 0..count {
+      let Some(name) = store.key(index).map_err(said)? else {
+        continue;
+      };
+      if let Some(key) = name.strip_prefix(prefix)
+        && let Some(value) = get(prefix, key)?
+      {
+        entries.push((key.to_owned(), value));
+      }
+    }
+    Ok(entries)
   }
 }
 
@@ -387,12 +493,17 @@ fn fixed<const N: usize>(bytes: &[u8], tag: u8) -> Option<[u8; N]> {
 
 fn snapshot_entry((key, value): (String, Vec<u8>)) -> PersistentStorageSnapshotEntry {
   let byte_len = value.len();
+  let fields = (value.first().copied() == Some(TYPE_STRUCT))
+    .then(|| struct_fields(&value))
+    .flatten()
+    .map_or_else(Vec::new, |(_, fields)| fields);
   let (type_name, full_type_name, value) = describe_persistent_value(&value);
   PersistentStorageSnapshotEntry {
     key,
     type_name,
     full_type_name,
     value,
+    fields,
     byte_len,
   }
 }
@@ -462,15 +573,29 @@ fn describe_char(bytes: &[u8]) -> (String, String, String) {
 }
 
 fn describe_struct(bytes: &[u8]) -> Option<(String, String, String)> {
+  let (type_name, fields) = struct_fields(bytes)?;
+  let fields = fields
+    .into_iter()
+    .map(|(label, value)| format!("{label}: {value}"))
+    .collect::<Vec<_>>()
+    .join(", ");
+  let short_type = type_name.rsplit("::").next().unwrap_or(&type_name).to_owned();
+
+  Some((short_type.clone(), type_name, format!("{short_type} {{ {fields} }}")))
+}
+
+/// The type of a stored struct and its fields, each with its value as it is written: `None` for bytes that are
+/// not a struct's.
+fn struct_fields(bytes: &[u8]) -> Option<(String, Vec<(String, String)>)> {
   let mut offset = 1;
   let type_name = read_len_bytes(bytes, &mut offset)?;
   let type_name = String::from_utf8(type_name.to_vec()).ok()?;
   let field_count = read_u32(bytes, &mut offset)?;
-  let mut fields = Vec::with_capacity(field_count as usize);
-  for index in 0..field_count {
+  let mut values = Vec::with_capacity(field_count as usize);
+  for _ in 0..field_count {
     let field = read_len_bytes(bytes, &mut offset)?;
     let (_, _, value) = describe_persistent_value(field);
-    fields.push((index, value));
+    values.push(value);
   }
 
   let labels = read_optional_struct_field_names(bytes, &mut offset, field_count as usize)?;
@@ -483,15 +608,7 @@ fn describe_struct(bytes: &[u8]) -> Option<(String, String, String)> {
       .map(|index| format!("field{index}"))
       .collect::<Vec<_>>()
   });
-  let fields = fields
-    .into_iter()
-    .zip(labels)
-    .map(|((_, value), label)| format!("{label}: {value}"))
-    .collect::<Vec<_>>()
-    .join(", ");
-  let short_type = type_name.rsplit("::").next().unwrap_or(&type_name).to_owned();
-
-  Some((short_type.clone(), type_name, format!("{short_type} {{ {fields} }}")))
+  Some((type_name, labels.into_iter().zip(values).collect()))
 }
 
 fn read_optional_struct_field_names(

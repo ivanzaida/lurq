@@ -38,6 +38,25 @@ impl TextInputState {
     (inner.caret, inner.selection_anchor)
   }
 
+  /// Where the caret before `byte` stood when the input was last laid out, from the start of its text's box
+  /// (inside its padding) with its scrolling taken off, and the height of the text's band there: `(x, y,
+  /// height)`. A byte past what was laid out is placed at the end of it.
+  pub(crate) fn controller_point(&self, byte: usize) -> (f32, f32, f32) {
+    let inner = self.inner.lock();
+    let byte = byte.min(
+      inner
+        .caret_positions
+        .iter()
+        .map(|position| position.index)
+        .max()
+        .unwrap_or(0),
+    );
+    let x = caret_x_for_index(&inner.caret_positions, byte) - inner.scroll_x;
+    let y = caret_y_for_index(&inner.caret_positions, byte).unwrap_or(inner.caret_y) - inner.scroll_y();
+    let (top, height) = inner.text_band.unwrap_or((0.0, inner.caret_height));
+    (x, y + top, height)
+  }
+
   /// Has the input painted anew, for a change of what is drawn over it that is not its own to know of.
   pub(crate) fn repaint(&self) {
     self.mark_layout_dirty_keeping_scroll();

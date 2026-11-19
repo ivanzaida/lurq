@@ -1,6 +1,6 @@
 use std::{
   sync::{Arc, Mutex},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::WindowControls;
@@ -8,11 +8,13 @@ use crate::{
   app::{
     ctx::{Ctx, Modal, ModalTarget},
     events::{MouseButton, MouseEvent},
+    theme::PaletteColor,
     window::{WindowBorderColor, WindowHandle, WindowInfo, WindowResizeDirection},
   },
   components::{Column, Row, Stack},
   layout::Alignment,
   node::{BackgroundColor, CursorIcon, Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension},
+  time::Instant,
 };
 
 const WINDOWS_CHROME_HEIGHT: f32 = 36.0;
@@ -21,6 +23,9 @@ const RESIZE_HANDLE_SIZE: f32 = 3.0;
 const TITLEBAR_DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 const TITLEBAR_DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 
+/// The engine's custom frame of a window: its title bar, the edges it is resized by and what the platform does
+/// with them. It is drawn in the theme's roles. [`ui::WindowChrome`](crate::ui::WindowChrome) mounts it with the
+/// design system's title bar, and is what an app normally wants.
 #[derive(Clone)]
 pub struct WindowChrome {
   props: WindowChromeProps,
@@ -73,8 +78,12 @@ pub enum ChromeBorderPolicy {
   Hidden,
 }
 
+/// What draws a title bar of an app's own across the bar's width: given the window and the bar's height.
+pub type TitleBarDraw = Arc<dyn Fn(&WindowHandle, f32) -> Element + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ChromeTitleBar {
+  draw: Option<TitleBarDraw>,
   leading: Option<Element>,
   title: Option<Element>,
   center: Option<Element>,
@@ -198,12 +207,23 @@ impl WindowChrome {
   }
 
   pub fn mount(self, ctx: &mut Ctx) -> Element {
-    let metrics = self.metrics();
+    let mut metrics = self.metrics();
+    let window = ctx.window();
+    // In full screen on Windows the window has no title bar, as a window of the system's own has none: no button
+    // over what fills the screen closes the window in place of leaving the full screen, and what took the window
+    // there takes it back. On macOS an app keeps its bar there, its tabs with it, as Safari and the Finder do;
+    // the system's lights come down with its own bar at the top of the screen. Either way what is laid over the
+    // whole window (a video that fills the screen, a sheet) has all of it there.
+    let full_screen = window.info().is_full_screen;
+    if full_screen && !cfg!(target_os = "macos") {
+      metrics.height = 0.0;
+    }
+    // What is laid over the whole window keeps clear of the title bar by this.
+    window.set_title_bar_inset(if metrics.enabled && !full_screen { metrics.height } else { 0.0 });
     if !metrics.enabled {
       return self.content;
     }
 
-    let window = ctx.window();
     if window.is_decorated {
       window.set_decorations(false);
     }
@@ -222,7 +242,11 @@ impl WindowChrome {
       .clone()
       .or_else(|| self.content.node.background_color())
       .unwrap_or_else(|| self.title_bar.background.clone());
-    let title_bar = self.title_bar.render(&window, metrics.height);
+    let title_bar = if full_screen && !cfg!(target_os = "macos") {
+      Element::new()
+    } else {
+      self.title_bar.render(&window, metrics.height)
+    };
     let content = Row::new()
       .width(Dimension::Pct(100.0))
       .flex(1.0)
@@ -370,15 +394,26 @@ impl ChromeBorderPolicy {
 impl ChromeTitleBar {
   pub fn new() -> Self {
     Self {
+      draw: None,
       leading: None,
       title: None,
       center: None,
       trailing: None,
       controls: Some(WindowControls::new()),
       height: None,
-      background: BackgroundColor::Color(Color::from_hex("#101215")),
-      border_bottom: Some(Border::inside(1.0, Color::from_hex("#252a32"))),
+      background: PaletteColor::Muted.into(),
+      border_bottom: Some(Border::inside(1.0, PaletteColor::Border)),
     }
+  }
+
+  /// What the bar draws across its width, in place of its leading, title, center, trailing and controls: a
+  /// title bar of the app's own, given the window (to read whether it is maximized or in front, and to minimize,
+  /// maximize and close it) and the bar's height. The bar still drags the window from wherever nothing else takes
+  /// the press, maximizes it on a double press and shows the system's menu on a right press. `ui::WindowChrome`
+  /// draws its bar so.
+  pub fn draw(mut self, draw: impl Fn(&WindowHandle, f32) -> Element + Send + Sync + 'static) -> Self {
+    self.draw = Some(Arc::new(draw));
+    self
   }
 
   pub fn leading(mut self, element: impl Into<Element>) -> Self {
@@ -430,6 +465,7 @@ impl ChromeTitleBar {
     let height = self.height.unwrap_or(chrome_height);
     let drag_window = window.clone();
     let maximize_window = window.clone();
+    let menu_window = window.clone();
     let titlebar_click = Arc::new(Mutex::new(None::<TitlebarClick>));
     let titlebar = Row::new()
       .width(Dimension::Pct(100.0))
@@ -438,7 +474,8 @@ impl ChromeTitleBar {
       .background(self.background)
       .on_mouse_down(move |event: MouseEvent| {
         if event.button == MouseButton::Left {
-          let now = Instant::now();
+          // The time the window was given the press at, not the time its handler runs at.
+          let now = event.time;
           let mut titlebar_click = titlebar_click
             .lock()
             .expect("titlebar click state should not be poisoned");
@@ -462,8 +499,17 @@ impl ChromeTitleBar {
 
           event.prevent_default();
           event.stop_immediate_propagation();
+        } else if event.button == MouseButton::Right {
+          // The system's menu of the window, as a right press on its own title bar shows it (Windows only).
+          menu_window.show_system_menu();
+          event.prevent_default();
+          event.stop_immediate_propagation();
         }
       });
+
+    if let Some(draw) = self.draw {
+      return titlebar.child(draw(window, height)).into();
+    }
 
     let mut titlebar = if let Some(border) = self.border_bottom {
       titlebar.border_bottom(border)
@@ -530,9 +576,7 @@ impl WindowChromeMetrics {
 
 fn border_layers(window: &WindowHandle, policy: &ChromeBorderPolicy) -> Vec<Element> {
   let (size, color) = match policy {
-    ChromeBorderPolicy::PlatformDefault if policy.size() > 0.0 => {
-      (1.0, BackgroundColor::Color(Color::from_hex("#252a32")))
-    }
+    ChromeBorderPolicy::PlatformDefault if policy.size() > 0.0 => (1.0, BackgroundColor::from(PaletteColor::Border)),
     ChromeBorderPolicy::PlatformDefault => return Vec::new(),
     ChromeBorderPolicy::Visible { size, color } => (*size, color.clone()),
     ChromeBorderPolicy::Hidden => return Vec::new(),
@@ -554,8 +598,15 @@ fn border_layers(window: &WindowHandle, policy: &ChromeBorderPolicy) -> Vec<Elem
   ]
 }
 
+/// A line of the frame's outline. It is drawn, and takes no pointer: where no zone resizes the window (a maximized
+/// window has none) the pointer on the window's outermost pixels is on what is under the line, so the close control
+/// of a maximized window is pressed in the very corner of the screen.
 fn border_strip(x: f32, y: f32, width: f32, height: f32, color: BackgroundColor) -> Element {
-  Row::new().absolute(x, y, width, height).background(color).into()
+  Row::new()
+    .absolute(x, y, width, height)
+    .background(color)
+    .hit_test(HitTestBehavior::None)
+    .into()
 }
 
 fn active_resize_handle_size(window: WindowInfo, size: f32) -> f32 {
@@ -706,6 +757,7 @@ mod tests {
       is_full_screen: false,
       is_decorated: false,
       is_focused: true,
+      native_controls: false,
       safe_area: Default::default(),
       system: Default::default(),
     }
@@ -823,7 +875,10 @@ mod tests {
   #[test]
   fn inset_chrome_separates_client_layers_from_resize_edges() {
     let root = mounted_chrome(false, ResizeHandlePlacement::Inset).node;
-    assert_eq!(root.color(), Some(Color::from_hex("#101215")));
+    assert_eq!(
+      root.background_color(),
+      Some(BackgroundColor::from(PaletteColor::Muted))
+    );
     let expected_inset = crate::node::SpacingValue::from(RESIZE_HANDLE_SIZE);
     let no_top_inset = crate::node::SpacingValue::default();
     let content_layer = &root.children[0];
@@ -928,6 +983,32 @@ mod tests {
       .node;
 
     assert_eq!(root.color(), Some(frame_background));
+  }
+
+  #[test]
+  fn the_outline_of_the_frame_takes_no_pointer() {
+    let window = crate::app::window::Window::new();
+    window.set_resolved_size(800.0, 600.0);
+    // A maximized window has no zone that resizes it over the outline: the pointer on its outermost pixels is on
+    // what is under the line, as the close control in the corner of the screen.
+    window.set_maximized(true);
+    window.set_decorated(false);
+    let mut ctx = Ctx::new().with_window(window);
+    let root = WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .border(ChromeBorderPolicy::Visible {
+        size: 1.0,
+        color: BackgroundColor::Color(Color::from_hex("#252a32")),
+      })
+      .content(Row::new())
+      .mount(&mut ctx)
+      .node;
+    let chrome_overlay = &root.children[1].modal_declaration.as_ref().unwrap().node;
+    let lines = &chrome_overlay.children[1..];
+    assert_eq!(lines.len(), 4, "the four lines of the outline");
+    for line in lines {
+      assert_eq!(line.hit_test_behavior(), HitTestBehavior::None);
+    }
   }
 
   #[test]

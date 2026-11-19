@@ -5,6 +5,18 @@ impl TextInputState {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
     }
+    // An input that keeps its text while focused and is bound to another signal by this render takes the text it
+    // showed into the new signal: what is being typed is the input's until it is left.
+    let carried = {
+      let old_inner = old.inner.lock();
+      (old_inner.focused && self.inner.lock().keeps_text_while_focused && !self.same_value(old))
+        .then(|| old.value.get_untracked())
+    };
+    if let Some(text) = carried
+      && self.value.get_untracked() != text
+    {
+      self.value.set(text);
+    }
     let old_inner = old.inner.lock();
     let old_caret = old_inner.caret;
     let old_affinity = old_inner.token_affinity.clone();
@@ -23,7 +35,10 @@ impl TextInputState {
     let old_composition = old_inner.composition.clone();
     let old_undo_stack = old_inner.undo_stack.clone();
     let old_redo_stack = old_inner.redo_stack.clone();
+    // The run of typing goes on in the input built again for what was typed, as the steps of undo do.
+    let old_typing = (old_inner.typing, old_inner.undo_grouping, old_inner.typing_pause);
     let old_styled = old_inner.styled.clone();
+    let old_hover = (old_inner.hovered_token, old_inner.token_icon_hovered);
     let layout_dirty = if layout_signature_matches {
       old.layout_dirty.load(Ordering::Relaxed)
     } else {
@@ -48,7 +63,10 @@ impl TextInputState {
     inner.composition = old_composition;
     inner.undo_stack = old_undo_stack;
     inner.redo_stack = old_redo_stack;
+    (inner.typing, inner.undo_grouping, inner.typing_pause) = old_typing;
     inner.styled.copy_runtime_state_from(&old_styled);
+    // The pointer is where it was: on the same token, until it moves.
+    (inner.hovered_token, inner.token_icon_hovered) = old_hover;
     self.layout_dirty.store(layout_dirty, Ordering::Relaxed);
   }
 
@@ -228,6 +246,33 @@ impl TextInputState {
     self.inner.lock().overflow
   }
 
+  /// Sets whether a multiline input's lines wrap at its width.
+  pub(crate) fn set_line_wrap(&self, wrap: bool) {
+    let mut inner = self.inner.lock();
+    if inner.line_wrap == wrap {
+      return;
+    }
+    inner.line_wrap = wrap;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// Whether the input's lines wrap at its width: a multiline input's do unless it was told otherwise.
+  pub(crate) fn wraps_lines(&self) -> bool {
+    let inner = self.inner.lock();
+    inner.overflow == TextInputOverflow::Multiline && inner.line_wrap
+  }
+
+  /// Sets the numbers and the bands drawn beside the lines.
+  pub(crate) fn set_gutter(&self, gutter: Option<std::sync::Arc<crate::components::LineGutter>>) {
+    self.inner.lock().gutter = gutter;
+  }
+
+  /// The numbers and the bands drawn beside the lines, if the input has them.
+  pub(crate) fn gutter(&self) -> Option<std::sync::Arc<crate::components::LineGutter>> {
+    self.inner.lock().gutter.clone()
+  }
+
   pub(crate) fn set_rows(&self, min_rows: usize, max_rows: usize) {
     let min_rows = min_rows.max(1);
     let max_rows = max_rows.max(min_rows);
@@ -299,7 +344,6 @@ impl TextInputState {
 
   pub(crate) fn selection_ranges(&self) -> Vec<TextSelectionRange> {
     let value = self.value();
-    let decorated = self.token_layout();
     let inner = self.inner.lock();
     // A composition is shown in place of the selection.
     if inner.composition.is_some() {
@@ -308,6 +352,23 @@ impl TextInputState {
     let Some((start, end)) = selection_range_indices(&value, inner.selection_anchor, inner.caret) else {
       return Vec::new();
     };
+    drop(inner);
+    self.range_rects(start, end)
+  }
+
+  /// Where the text from the byte `start` to the byte `end` is drawn: a rectangle for each row it is on, from
+  /// the start of the text's box with the scroll taken off, as a selection of it would be.
+  pub(crate) fn range_rects(&self, start: usize, end: usize) -> Vec<TextSelectionRange> {
+    let value = self.value();
+    let (start, end) = (
+      clamp_to_char_boundary(&value, start.min(value.len())),
+      clamp_to_char_boundary(&value, end.min(value.len())),
+    );
+    if start >= end {
+      return Vec::new();
+    }
+    let decorated = self.token_layout();
+    let inner = self.inner.lock();
     if let Some(layout) = decorated {
       return layout.selection(start..end, (inner.scroll_x, inner.scroll_y()));
     }
@@ -321,6 +382,52 @@ impl TextInputState {
     )
   }
 
+  /// Sets the wavy lines drawn under ranges of the text.
+  pub(crate) fn set_squiggles(&self, squiggles: Option<crate::components::InputSquiggles>) {
+    let mut inner = self.inner.lock();
+    if inner.squiggles == squiggles {
+      return;
+    }
+    inner.squiggles = squiggles;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// The wavy lines to draw: none while the text is masked or an input method composes over it.
+  pub(crate) fn squiggles(&self) -> Option<crate::components::InputSquiggles> {
+    let inner = self.inner.lock();
+    if inner.mask.is_some() || inner.composition.is_some() {
+      return None;
+    }
+    inner.squiggles.clone()
+  }
+
+  /// Sets what is drawn after the end of the text while the caret is there.
+  pub(crate) fn set_ghost(&self, ghost: Option<crate::components::InputGhost>) {
+    let mut inner = self.inner.lock();
+    if inner.ghost == ghost {
+      return;
+    }
+    inner.ghost = ghost;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// The suggestion to draw: while the input has the focus and holds text, with the caret at its end and
+  /// nothing selected, in a plain input that is neither masked nor composed over.
+  pub(crate) fn shown_ghost(&self) -> Option<crate::components::InputGhost> {
+    let value = self.value();
+    let inner = self.inner.lock();
+    let shown = inner.focused
+      && inner.mask.is_none()
+      && inner.composition.is_none()
+      && inner.token_layout.is_none()
+      && !value.is_empty()
+      && inner.caret == value.len()
+      && selection_range_indices(&value, inner.selection_anchor, inner.caret).is_none();
+    inner.ghost.clone().filter(|ghost| shown && !ghost.text.is_empty())
+  }
+
   pub(crate) fn set_focused(&self, focused: bool) {
     let mut inner = self.inner.lock();
     if inner.focused == focused {
@@ -330,6 +437,14 @@ impl TextInputState {
     // A composition belongs to the focused input; leaving it cancels it.
     if !focused {
       inner.composition = None;
+    }
+    // An input told so has all its text selected as the focus comes: what is typed takes its place. A press
+    // that brings the focus then puts the caret where it is.
+    if focused && inner.select_on_focus && inner.mask.is_none() {
+      let end = self.value.with_untracked(String::len);
+      inner.selection_anchor = (end > 0).then_some(0);
+      inner.caret = end;
+      inner.token_affinity = None;
     }
     drop(inner);
     // Taking the focus shows the caret; losing it leaves the text where it is.

@@ -1,3 +1,7 @@
+// A branch on a value of the instance (a stroke, a mode) is the same for every fragment of a quad, which the
+// browser's compiler cannot tell: it takes the derivatives under such a branch for an error. naga does not check.
+diagnostic(off, derivative_uniformity);
+
 // Rounded-corner quad pipeline (elliptical, optional ring).
 //
 // Vertex buffer 0 (per-vertex):  unit quad corner in [0,1]^2.
@@ -43,7 +47,18 @@ struct Globals {
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
+
+// The frame's gradient stops and stroke side colors, a list of vec4s the
+// instances index. Every read goes through `gradient_at`: where the device has
+// no storage buffers (WebGL2) the block between the marks is replaced by one
+// that reads the same vec4s out of a texture; see `gradients.rs`.
+// <gradients>
 @group(0) @binding(1) var<storage, read> gradients: array<vec4<f32>>;
+
+fn gradient_at(index: i32) -> vec4<f32> {
+    return gradients[index];
+}
+// </gradients>
 
 struct VsIn {
     @location(0) corner:     vec2<f32>,
@@ -532,10 +547,10 @@ fn stroke_side_color(
     radii_at: f32,
 ) -> vec4<f32> {
     let sides = quadrant_widths(local, max(stroke, vec4<f32>(0.0)));
-    var across = gradients[offset + 1];
-    if (local.x < 0.0) { across = gradients[offset + 3]; }
-    var along = gradients[offset + 2];
-    if (local.y < 0.0) { along = gradients[offset]; }
+    var across = gradient_at(offset + 1);
+    if (local.x < 0.0) { across = gradient_at(offset + 3); }
+    var along = gradient_at(offset + 2);
+    if (local.y < 0.0) { along = gradient_at(offset); }
     if (sides.y <= 0.0) { return across; }
     if (sides.x <= 0.0) { return along; }
     let turn = corner_turn(local, half_size, radii_h, radii_v, stroke, radii_at);
@@ -652,13 +667,27 @@ fn box_shadow_alpha(
 ///   [count, kind, flags, from_angle]
 ///   [dir.x, dir.y, center.x, center.y]
 ///   then per stop: [r, g, b, a], [position, _, _, _]
-/// kind: 0 = linear, 1 = radial (flags bit0 = ellipse), 2 = conic.
+/// kind: 0 = linear, 1 = radial (flags bit0 = ellipse), 2 = conic, 3 = corners
+/// (the four stops at the top left, top right, bottom right and bottom left).
 fn sample_gradient(off: i32, local: vec2<f32>, half: vec2<f32>) -> vec4<f32> {
-    let h0 = gradients[off];
-    let h1 = gradients[off + 1];
+    let h0 = gradient_at(off);
+    let h1 = gradient_at(off + 1);
     let count = i32(h0.x);
     let kind = i32(h0.y);
     let pi = 3.14159265359;
+
+    if (kind == 3) {
+        // The four corners mixed across and then down, in sRGB-encoded values as
+        // a picture's colors are written, back in linear light for the rest.
+        let uv = clamp((local + half) / max(2.0 * half, vec2<f32>(1e-5, 1e-5)), vec2<f32>(0.0), vec2<f32>(1.0));
+        let top_left = encode_srgb(gradient_at(off + 2));
+        let top_right = encode_srgb(gradient_at(off + 4));
+        let bottom_right = encode_srgb(gradient_at(off + 6));
+        let bottom_left = encode_srgb(gradient_at(off + 8));
+        let top = mix(top_left, top_right, uv.x);
+        let bottom = mix(bottom_left, bottom_right, uv.x);
+        return decode_srgb(mix(top, bottom, uv.y));
+    }
 
     var t: f32;
     if (kind == 0) {
@@ -700,13 +729,13 @@ fn sample_gradient(off: i32, local: vec2<f32>, half: vec2<f32>) -> vec4<f32> {
 
     let stop_base = off + 2;
     let last = count - 1;
-    var color = gradients[stop_base + 2 * last];
+    var color = gradient_at(stop_base + 2 * last);
     for (var i: i32 = 0; i < last; i = i + 1) {
-        let pb = gradients[stop_base + 2 * (i + 1) + 1].x;
+        let pb = gradient_at(stop_base + 2 * (i + 1) + 1).x;
         if (t <= pb) {
-            let pa = gradients[stop_base + 2 * i + 1].x;
-            let ca = gradients[stop_base + 2 * i];
-            let cb = gradients[stop_base + 2 * (i + 1)];
+            let pa = gradient_at(stop_base + 2 * i + 1).x;
+            let ca = gradient_at(stop_base + 2 * i);
+            let cb = gradient_at(stop_base + 2 * (i + 1));
             let span = max(pb - pa, 1e-5);
             color = mix(ca, cb, clamp((t - pa) / span, 0.0, 1.0));
             break;
@@ -718,6 +747,13 @@ fn sample_gradient(off: i32, local: vec2<f32>, half: vec2<f32>) -> vec4<f32> {
 // The render target is not sRGB, so the fixed-function blend mixes
 // sRGB-encoded values, as CSS and design tools do. `fs_main` works in linear
 // light like the rest of the pipeline and encodes each result it returns.
+fn decode_srgb(color: vec4<f32>) -> vec4<f32> {
+    let c = clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = c / 12.92;
+    let high = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
+    return vec4<f32>(select(high, low, c <= vec3<f32>(0.04045)), color.a);
+}
+
 fn encode_srgb(color: vec4<f32>) -> vec4<f32> {
     let c = clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let low = c * 12.92;
@@ -762,7 +798,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (max_stroke <= 0.0) {
         if (in.gradient_offset >= 0.0) {
             let off = i32(in.gradient_offset + 0.5);
-            if (i32(gradients[off].x) >= 1) {
+            if (i32(gradient_at(off).x) >= 1) {
                 base_color = sample_gradient(off, in.local, in.half_size);
             }
         }

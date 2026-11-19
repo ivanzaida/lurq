@@ -8,7 +8,7 @@ description: Declarative routes, nested layouts, links, params, guards, and navi
 Requires the `router` feature flag.
 
 ```toml
-lurq = { version = "0.62.0", features = ["router"] }
+lurq = { version = "0.63.0", features = ["router"] }
 ```
 
 The router is an in-process UI router. It does not depend on browser URLs; it owns a reactive path signal and renders the matching route tree inside your `Tree`.
@@ -102,6 +102,9 @@ entry of the history, from the first to the current one, as a screen of its own:
   until it shows again;
 - on a touch screen a finger in from the left edge drags the top screen, and takes it back when lifted past
   half the width or fast enough;
+- the bar's way back and the finger from the edge [go back](#going-back-and-forward) from the top screen as
+  Alt+← does, so the screen hears it first: one with something unsaved that takes `on_history_back` stays, and a
+  screen a finger dragged comes back;
 - a `replace` swaps the top screen with no move.
 
 ```rust
@@ -137,8 +140,9 @@ stack, the one the others go back to.
 `StackOutlet::mount(ctx)` is the stack alone. With `StackOutletProps::bar` it draws a navigation bar over its
 screens, under the safe area's top, 44 logical pixels high and 32 in a window lower than 480, as a phone held
 on its side is: the top screen's title, and the way back with the title of the screen
-under it. The titles move with the screens, and with the finger. `NavigationBar::new()` is a light bar and
-`NavigationBar::dark()` a dark one; `background`, `tint`, `title` and `border` set its colors.
+under it. The titles move with the screens, and with the finger. `NavigationBar::new()` is a bar in the theme's
+colors, light or dark as the theme is ([Colors from the theme](../ios/#colors-from-the-theme)); `background`,
+`tint`, `title` and `border` set others.
 
 A screen says what the bar shows for it by calling `ctx.navigation_item` in its `render`, or in its route:
 
@@ -262,13 +266,13 @@ NavigationBar {
   back: "Назад".to_owned(), // the word for going back, in the app's language
   back_menu: false,          // no list of the screens under on a long press
   height: 50.0,
-  ..NavigationBar::dark()
+  ..NavigationBar::new()
 }
 ```
 
 | `NavigationBar` | Default | |
 |-----------------|---------|--|
-| `background`, `tint`, `title`, `border` | light, or `dark()` | The bar's colors |
+| `background`, `tint`, `title`, `border` | `Background`, `Foreground`, `Foreground`, `Border` | The bar's colors, from the theme |
 | `blur` | 40 | How much a screen's list is blurred where it shows through the bar, the toolbar and the list of screens under; see [Blur](../blur/) |
 | `large_title_max_scale` | 1.5 | A large title is as much larger as the person asked text to be, up to this; the bar's own text keeps its size |
 | `height`, `low_height`, `low_window` | 44, 32, 480 | The bar's height, and its height in a window lower than `low_window` |
@@ -347,6 +351,9 @@ if let Some(navigator) = ctx.navigator() {
 
 Use `push` for normal navigation and `replace` for redirects, login callbacks, initial route setup, or cases where the old path should not stay in history.
 
+`back` and `forward` move the router alone. A button of the app's own that goes back as a person does runs the
+command instead, `ctx.history_back()`: what is on the page hears it first ([below](#going-back-and-forward)).
+
 The current path is reactive:
 
 ```rust
@@ -354,6 +361,58 @@ let path = ctx.route_path();
 ```
 
 Reading it during render marks the component as dependent on route changes.
+
+## Going back and forward
+
+A mounted router is where going back ends: Alt+← (Cmd+[ on a Mac), the mouse's back button, a trackpad's swipe or a
+finger from the left edge, Android's back, a browser's back, and `ctx.history_back()` all reach it as one command,
+[`NavigationCommand`](../styling-events/#going-back-and-forward), with nothing to write. On its way the command
+passes the elements from the focus (or from under the pointer) out to the router, and an element that handles
+`on_history_back` takes it first; one that has nothing to do calls `event.pass_on()`.
+
+```rust
+use lurq::{app::events::HistoryEvent, components::Column};
+
+// A form asks before its unsaved changes are left; saved, it lets the router go back.
+Column::new()
+  .on_history_back(move |event: HistoryEvent| {
+    if unsaved.get_untracked() {
+      asking.set(true);
+    } else {
+      event.pass_on();
+    }
+  })
+  .child(form)
+```
+
+Which router: the one the command meets on its way, the innermost first, where it has an entry to go to; then the
+others mounted in the window, the innermost first. A stack inside a tab goes back before the app's router around
+it, and a router at its first entry passes the command to the one it is in. A router that is offstage (a tab not
+shown) is not asked.
+
+## The Address Of A Page
+
+In a [browser](../web/) a router can be the one the page's address follows:
+
+```rust
+let router = ctx.router(routes());
+router.replace("/");
+router.follow_address();
+```
+
+From then on the two say the same:
+
+- The address has the router's path as its fragment: `index.html#/settings`, with the path's query after it (`#/search?q=lurq`). A fragment changes without the browser asking the server for anything, so the page needs no rule on the server.
+- A `push` is an entry of the browser's history as it is one of the router's, and a `replace` the same entry with another path. [Links](#links) push, so a page a person went to by a link is one the back button returns from.
+- The browser's back and forward buttons [go back and forward](#going-back-and-forward) as Alt+← does: a dialog that takes going back closes, and the browser is put back where the router is; with nothing taking it the router moves to the browser's entry. `back`, `back_by` and `forward` move the browser. A jump of more than one entry (a long press on the browser's back) moves the router there at once.
+- An address a person types into the bar or follows is navigated to as a `push` is, through the routes' [guards](#guards). A guard that redirects puts the path it sends to into the address; one that denies leaves the router where it is and the address says so.
+- A page loaded with a path in its address starts there, in place of the path the router was given: a reload stays on the screen it was on, and a link to a screen opens it.
+
+Call it once the router has its first path, which is where a page loaded without one starts. Only one router of an app follows the address, the one whose screens the address should name: the routers of [tabs](#tabs) keep histories of their own. Outside a browser a window has no address and `follow_address` does nothing, so the same code runs on a desktop.
+
+The entries of the two histories are kept one for one while the page lives. A reload starts the router's history again with the one entry it is at, while the browser still has the ones before: going back to one of those starts the router's history again there, so `can_back()` is `false` on it though the browser's button goes on.
+
+What a history entry carries as its state (`push_with_state`) is in memory and does not outlive a reload; what should, belongs in the path or its query.
 
 ## Params
 
@@ -509,6 +568,7 @@ and going back moves in that tab alone.
 | --- | --- |
 | `add(key, item, router)`, `insert(index, ..)` | A tab, told from the others by its key. The first added is the active one |
 | `remove(key)` | Takes a tab out with its history; the next one is shown if it was the active one |
+| `move_to(key, index)` | Moves a tab to a place among the others, as taking it out and putting it back there does; it keeps its history, its screens and whether it is the one shown |
 | `select(key)` | Shows a tab |
 | `press(key)` | What a press on a tab's place does: shows it, or, for the active one, goes back to its first screen, and once there scrolls its page to the top |
 | `active()`, `active_signal()` | The key of the tab that is shown |
@@ -532,14 +592,14 @@ to search in: a floating bar stands it apart, a round place of its own at the ba
 | `TabBar` | Starts as | |
 | --- | --- | --- |
 | `place` | `Bottom` | `Bottom`, over the home indicator's room, or `Top`, under the status bar's |
-| `background`, `border` | the platform's light | `TabBar::dark()` has the dark ones |
-| `tint`, `color` | blue, grey | The active tab's picture and title, and the others' |
+| `background`, `border` | `Background`, `Border` | From the theme, light or dark as it is ([Colors from the theme](../ios/#colors-from-the-theme)) |
+| `tint`, `color` | `Foreground`, `MutedForeground` | The active tab's picture and title, and the others' |
 | `blur` | 40 | How much the tab's content is blurred where it shows through the bar; see [Blur](../blur/) |
 | `height` | 49 | Without the room of the home indicator |
 | `low_height`, `low_window`, `low_title_size`, `low_symbol_size` | 32, 480, 12, 13 | In a window lower than `low_window`, a phone on its side, the bar is lower and a title stands beside its picture |
 | `title_size`, `title_weight` | 10, medium | |
 | `symbol_size`, `spacing` | 18, 2 | |
-| `badge_background`, `badge_color`, `badge_size` | red, white, 13 | |
+| `badge_background`, `badge_color`, `badge_size` | `Destructive`, `DestructiveForeground`, 13 | |
 | `item_max_width` | none | In a wider bar the places stand together in the middle |
 | `hides_with_keyboard` | `true` | The bar goes while the on-screen keyboard is up |
 | `hide_duration` | 250 ms | How long it takes to go and to come back |
@@ -557,6 +617,30 @@ down as that screen comes in, comes back as it goes out, and follows a finger th
 
 `TabOutletProps::bar_with(place, builder)` draws a bar of the app's own from a `TabBarState`: the set, the
 tabs in order and the window's safe area. A press on a place calls `Tabs::press`.
+
+### Tabs a person opens, in a strip of the app's own
+
+A desktop app with tabs as a browser has them draws its strip elsewhere than the outlet, in the title bar,
+and mounts the outlet with no bar. The strip is drawn from the set (`Tabs::list`, each tab's
+`router.path()` for what it is called), and what a person does to it is told to the set: `select`, `remove`,
+`move_to` for a tab dragged along the strip. A tab opened while the app runs needs a router made outside a
+render, where there is no `Ctx`: `RouterHandle::new(routes)`.
+
+```rust
+use lurq::{components::{TabItem, Tabs}, router::{RouterHandle, Routes}};
+
+fn open(tabs: &Tabs, key: &str, routes: Routes, path: &str) {
+  let router = RouterHandle::new(routes);
+  router.replace(path);
+  tabs.add(key, TabItem::new("Page"), router);
+  tabs.select(key);
+}
+```
+
+What is outside the outlet (a side bar, a search) goes where the tab that is shown is:
+`tabs.active_router()`, read in a render with `tabs.active()` so that it is built again when another tab is
+shown. The gallery (`crates/gallery/src/tabs.rs`) does this with the design system's
+[`WindowTabs`](../design-system/#window-tabs) in a [`WindowChrome`](../design-system/#window-chrome).
 
 ### The safe area under a bar
 

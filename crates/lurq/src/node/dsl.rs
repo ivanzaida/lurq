@@ -31,18 +31,9 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     modal_declaration: None,
     layout_neutral: false,
     synthetic_role: None,
-    #[cfg(feature = "devtools")]
-    component_props_debug: None,
-    #[cfg(feature = "devtools")]
-    component_signals_debug: Vec::new(),
-    #[cfg(feature = "devtools")]
-    component_memos_debug: Vec::new(),
-    #[cfg(feature = "devtools")]
-    component_effects_debug: Vec::new(),
-    #[cfg(feature = "devtools")]
-    component_contexts_debug: Vec::new(),
     #[cfg(any(feature = "devtools", feature = "mcp"))]
-    debug_attrs: Vec::new(),
+    debug: crate::node::lazy_box::LazyBox::new(),
+    theme_scope: None,
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,
@@ -53,6 +44,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     padding: Padding::default(),
     position: Position::Static,
     offset: None,
+    offset_by_size: None,
     align_self: None,
     flex: None,
     shrink_rule: crate::layout::layout_kind::ShrinkRule::default(),
@@ -73,18 +65,19 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     background_image: Guard::new(None),
     #[cfg(feature = "raster")]
     background_size: crate::node::node::BackgroundSize::default(),
-    #[cfg(all(feature = "image", feature = "resources"))]
-    background_resource_image: None,
     scrollbar_style: Guard::new(None),
-    scrollbar_hovered_style: None,
     element_ref: None,
-    drag_payload: None,
     interaction: None,
     focusable: None,
     tab_index: None,
+    focus_group: None,
+    focus_entry: false,
+    stops_inside: false,
+    autofocus: false,
+    focus_label: None,
+    focus_branch: None,
     button_kind: None,
-    #[cfg(feature = "form")]
-    form_name: None,
+    rare: crate::node::lazy_box::LazyBox::new(),
     style_state: crate::node::interaction_state::InteractionState::new(),
     state_styles: crate::node::lazy_box::LazyBox::new(),
     opacity: DEFAULT_SCROLL_OPACITY,
@@ -245,6 +238,14 @@ impl Node {
   pub fn max_height(self, height: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
       max_height: Some(height.into()),
+      ..Default::default()
+    })
+  }
+
+  /// The box's width over its height; see the components' `.aspect_ratio(...)`.
+  pub fn aspect_ratio(self, ratio: f32) -> Self {
+    self.frame(FrameConstraints {
+      aspect_ratio: Some(ratio),
       ..Default::default()
     })
   }

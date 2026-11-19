@@ -1,77 +1,44 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+//! The Signals tab: every signal, memo and effect of the inspected window in a list, and beside it the one
+//! selected in the list: what owns it, what it notifies, and how it changed. Built from the board
+//! (`pencil/lurq-devtools.pen`, Signals · dark) with the design system's components.
+//!
+//! The changes are the engine's own record of them (`ComponentValueChangeDebug`), every one of the last 64 of each
+//! signal and memo with the moment it happened. The tab records nothing itself: recording is which of them it shows.
+
+use std::sync::Arc;
 
 use super::{
-  DevToolsNode, DevToolsSnapshot,
-  style::{
-    BLUE, BORDER, FILL, MUTED, PINK, SELECTED, SIGNAL_GREEN, SURFACE, SURFACE_2, TEXT, YELLOW, icon, short_tag, text,
-  },
+  changes::{self, GraphNode, ListState, Recording},
+  kit::{self, FILL, counted, line, mono, short_tag, short_type_name},
+  snapshot::{DevToolsNode, DevToolsSnapshot},
 };
 use crate::{
-  components::{Column, Rect, Row, ScrollVertical, Spacer, Text},
-  core::{Signal, Store},
-  layout::{
-    Alignment,
-    layout_kind::Justify,
-    text_style::{FontWeight, TextStyle},
+  app::{
+    ctx::{ComponentValueChangeDebug, Ctx},
+    theme::PaletteColor,
   },
-  node::{CursorIcon, Element, border::Border, color::Color, dimension::Dimension},
+  components::{Column, Row},
+  core::Signal,
+  layout::{Alignment, text_style::FontWeight},
+  node::Element,
+  ui::{Icon, Splitter, SplitterPane, Table, TableColumn, TableCount, icons},
 };
 
-#[derive(Clone, Debug, Default, PartialEq, crate::DevtoolsInspectable)]
-pub(crate) struct SignalsRecordingState {
-  recording: bool,
-  previous_values: Vec<RecordedSignalValue>,
-  histories: Vec<RecordedSignalHistory>,
-}
+/// The widths the board gives the list's columns.
+const ID_WIDTH: f32 = 60.0;
+const VALUE_WIDTH: f32 = 88.0;
+const TYPE_WIDTH: f32 = 152.0;
+const SUBS_WIDTH: f32 = 40.0;
 
-#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
-struct RecordedSignalValue {
-  key: String,
-  value: String,
-  trigger: String,
-}
-
-#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
-struct RecordedSignalHistory {
-  key: String,
-  entries: Vec<SignalHistoryRow>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct SignalRow {
-  id: usize,
-  kind: ReactiveKind,
-  type_name: String,
-  value: String,
-  owner: String,
-  history: Vec<SignalHistoryRow>,
-  subscriber_count: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
-struct SignalHistoryRow {
-  timestamp: String,
-  from_value: String,
-  to_value: String,
-  trigger: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReactiveKind {
+/// What a row of the list is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, crate::DevtoolsInspectable)]
+pub(crate) enum ReactiveKind {
   Signal,
   Memo,
   Effect,
 }
 
 impl ReactiveKind {
-  fn color(self) -> &'static str {
-    match self {
-      Self::Signal => SIGNAL_GREEN,
-      Self::Memo => YELLOW,
-      Self::Effect => PINK,
-    }
-  }
-
   fn label(self) -> &'static str {
     match self {
       Self::Signal => "Signal",
@@ -80,645 +47,427 @@ impl ReactiveKind {
     }
   }
 
-  fn rank(self) -> u8 {
+  fn icon(self) -> &'static str {
     match self {
-      Self::Signal => 0,
-      Self::Memo => 1,
-      Self::Effect => 2,
+      Self::Signal => icons::BOLT,
+      Self::Memo => icons::PULSE,
+      Self::Effect => icons::PLAY_CIRCLE,
     }
   }
 }
 
-impl SignalRow {
-  fn key(&self) -> String {
-    format!("{}:{}", self.kind.label(), self.id)
-  }
-
-  fn type_display(&self) -> String {
-    if self.kind == ReactiveKind::Effect {
-      "Effect".to_owned()
-    } else {
-      format!("{}<{}>", self.kind.label(), self.type_name)
-    }
-  }
+/// What a row of the list is told apart by: a signal and a memo may have the same number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, crate::DevtoolsInspectable)]
+pub(crate) struct ReactiveKey {
+  kind: ReactiveKind,
+  id: usize,
 }
 
-impl SignalsRecordingState {
-  pub(crate) fn recording(&self) -> bool {
-    self.recording
+/// A signal, a memo or an effect of the inspected window.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Reactive {
+  key: ReactiveKey,
+  /// What it holds, as it is written. An effect holds nothing.
+  value: Option<String>,
+  type_name: String,
+  /// How many read it and are told when it changes.
+  subscribers: usize,
+  /// The component it was made in.
+  owner: String,
+  /// Its changes as the engine recorded them, the oldest first.
+  changes: Vec<ComponentValueChangeDebug>,
+}
+
+impl Reactive {
+  /// What the filter looks in: its number, its value, its type and its owner.
+  fn said(&self) -> String {
+    format!(
+      "#{} {} {} {}",
+      self.key.id,
+      self.value.as_deref().unwrap_or(""),
+      self.type_name,
+      self.owner
+    )
   }
 
-  pub(crate) fn set_recording(&mut self, recording: bool) {
-    if self.recording != recording {
-      self.previous_values.clear();
-    }
-    self.recording = recording;
-  }
-
-  pub(crate) fn clear(&mut self) {
-    self.previous_values.clear();
-    self.histories.clear();
-  }
-
-  fn history_for(&self, key: &str) -> Vec<SignalHistoryRow> {
+  /// Its changes that are shown, the newest first.
+  fn shown(&self, recording: &Recording) -> Vec<ComponentValueChangeDebug> {
     self
-      .histories
+      .changes
       .iter()
-      .find(|history| history.key == key)
-      .map(|history| history.entries.iter().rev().take(8).cloned().collect())
-      .unwrap_or_default()
+      .rev()
+      .filter(|change| recording.shows(change.sequence))
+      .cloned()
+      .collect()
   }
+}
 
-  fn record_snapshot(&mut self, snapshot: &DevToolsSnapshot) {
-    let current_values = collect_signal_rows(snapshot)
-      .into_iter()
-      .filter(|row| row.kind != ReactiveKind::Effect)
-      .map(|row| RecordedSignalValue {
-        key: row.key(),
-        value: row.value,
-        trigger: match row.kind {
-          ReactiveKind::Signal => "change",
-          ReactiveKind::Memo => "recompute",
-          ReactiveKind::Effect => "effect",
-        }
-        .to_owned(),
-      })
-      .collect::<Vec<_>>();
+/// Everything reactive in the inspected window: the signals, then the memos, then the effects, each in the order
+/// they were made.
+pub(crate) fn reactives(snapshot: &DevToolsSnapshot) -> Vec<Reactive> {
+  fn collect(node: &DevToolsNode, all: &mut Vec<Reactive>) {
+    let owner = short_tag(&node.tag);
+    let key = |kind, id| ReactiveKey { kind, id };
+    all.extend(node.signals.iter().map(|signal| Reactive {
+      key: key(ReactiveKind::Signal, signal.id),
+      value: signal.formatted_value(),
+      type_name: format!("Signal<{}>", short_type_name(&signal.type_name)),
+      subscribers: signal.subscriber_count(),
+      owner: owner.to_owned(),
+      changes: signal.history(),
+    }));
+    all.extend(node.memos.iter().map(|memo| Reactive {
+      key: key(ReactiveKind::Memo, memo.id),
+      value: memo.formatted_value(),
+      type_name: format!("Memo<{}>", short_type_name(&memo.type_name)),
+      subscribers: memo.subscriber_count(),
+      owner: owner.to_owned(),
+      changes: memo.history(),
+    }));
+    all.extend(node.effects.iter().map(|effect| Reactive {
+      key: key(ReactiveKind::Effect, effect.id),
+      value: None,
+      type_name: "Effect".to_owned(),
+      subscribers: 0,
+      owner: owner.to_owned(),
+      changes: Vec::new(),
+    }));
+    node.children.iter().for_each(|child| collect(child, all));
+  }
+  let mut all = Vec::new();
+  if let Some(root) = &snapshot.root {
+    collect(root, &mut all);
+  }
+  all.sort_by_key(|reactive| reactive.key);
+  all
+}
 
-    for current in &current_values {
-      let previous = self.previous_values.iter().find(|previous| previous.key == current.key);
-      let Some(previous) = previous else {
-        continue;
-      };
-      if previous.value == current.value {
-        continue;
-      }
+/// The number of the last change the engine recorded of any of them: the moment "now" in its count of changes.
+pub(crate) fn latest_change(all: &[Reactive]) -> u64 {
+  all
+    .iter()
+    .filter_map(|reactive| reactive.changes.last())
+    .map(|change| change.sequence)
+    .max()
+    .unwrap_or(0)
+}
 
-      let history = self.histories.iter_mut().find(|history| history.key == current.key);
-      if let Some(history) = history {
-        history.entries.push(SignalHistoryRow {
-          timestamp: current_compact_timestamp(),
-          from_value: previous.value.clone(),
-          to_value: current.value.clone(),
-          trigger: current.trigger.clone(),
-        });
-        trim_history(&mut history.entries);
-      } else {
-        self.histories.push(RecordedSignalHistory {
-          key: current.key.clone(),
-          entries: vec![SignalHistoryRow {
-            timestamp: current_compact_timestamp(),
-            from_value: previous.value.clone(),
-            to_value: current.value.clone(),
-            trigger: current.trigger.clone(),
-          }],
-        });
-      }
+/// What the tab keeps between renders.
+#[derive(Clone)]
+pub(crate) struct SignalsState {
+  pub(crate) list: ListState,
+  /// The row selected in the list: the first one until a person selects another.
+  selected: Signal<Option<ReactiveKey>>,
+}
+
+impl SignalsState {
+  pub(crate) fn new(ctx: &mut Ctx) -> Self {
+    Self {
+      list: ListState::new(ctx),
+      selected: ctx.signal(None),
     }
-
-    self.previous_values = current_values;
   }
 }
 
-pub(crate) fn record_signal_changes(snapshot: &DevToolsSnapshot, recording_state: &Store<SignalsRecordingState>) {
-  let next = recording_state.with(|state| {
-    let mut next = state.clone();
-    next.record_snapshot(snapshot);
-    if next == *state { None } else { Some(next) }
-  });
-  if let Some(next) = next {
-    recording_state.set(next);
-  }
+/// The tab: the list and what is known of the row selected in it, with a divider between them that a person drags.
+pub(super) fn view(ctx: &mut Ctx, snapshot: &DevToolsSnapshot, state: &SignalsState) -> Element {
+  state.list.filter_key.answer(ctx);
+  let all = reactives(snapshot);
+  let latest = latest_change(&all);
+  let recording = state.list.recording.get();
+  let filter = state.list.filter.get();
+  let listed: Vec<Reactive> = all
+    .iter()
+    .filter(|reactive| changes::passes(&reactive.said(), &filter))
+    .cloned()
+    .collect();
+  // The row a person selected, while the inspected window still has it; else the first of the list.
+  let selected = state
+    .selected
+    .get()
+    .and_then(|key| all.iter().find(|reactive| reactive.key == key))
+    .or(listed.first())
+    .cloned();
+
+  let detail = detail(selected.as_ref(), &recording);
+  let list = Column::new()
+    .size(FILL, FILL)
+    .child(changes::toolbar(&state.list, latest, "signals"))
+    .child(Column::new().width(FILL).flex(1.0).border_top(line()).child(list(
+      ctx,
+      listed,
+      selected.as_ref().map(|reactive| reactive.key),
+      !filter.trim().is_empty(),
+      state,
+    )));
+  let panes = Splitter::new()
+    .id("devtools-signals")
+    .pane(
+      SplitterPane::new(list)
+        .length(changes::LIST_WIDTH)
+        .min(changes::LIST_MIN_WIDTH)
+        .label("Signals"),
+    )
+    .pane(
+      SplitterPane::new(detail)
+        .min(changes::DETAIL_MIN_WIDTH)
+        .label("Selected signal"),
+    )
+    .mount(ctx);
+  Row::new().size(FILL, FILL).flex(1.0).child(panes).into()
 }
 
-pub(crate) fn signals_view(
-  snapshot: &DevToolsSnapshot,
-  selected_signal_key: Option<String>,
-  selected_signal_signal: Signal<Option<String>>,
-  recording_state: &SignalsRecordingState,
+fn list(
+  ctx: &mut Ctx,
+  listed: Vec<Reactive>,
+  selected: Option<ReactiveKey>,
+  filtering: bool,
+  state: &SignalsState,
 ) -> Element {
-  let mut signals = collect_signal_rows(snapshot);
-  for signal in &mut signals {
-    signal.history = recording_state.history_for(&signal.key());
-  }
-  let selected_key = selected_signal_key.or_else(|| signals.first().map(SignalRow::key));
-  let selected_signal = selected_key
-    .as_deref()
-    .and_then(|key| signals.iter().find(|signal| signal.key() == key));
-
-  Row::new()
-    .child(signals_list_panel(
-      &signals,
-      selected_key.as_deref(),
-      selected_signal_signal,
-    ))
-    .child(signal_detail_panel(selected_signal))
-    .height(FILL)
-    .width(FILL)
-    .flex(1.0)
-    .into()
+  let of = |kind| listed.iter().filter(|reactive| reactive.key.kind == kind).count();
+  let (signals, memos, effects) = (
+    of(ReactiveKind::Signal),
+    of(ReactiveKind::Memo),
+    of(ReactiveKind::Effect),
+  );
+  let select = state.selected.clone();
+  let columns = vec![
+    TableColumn::new("id", "ID")
+      .width(ID_WIDTH)
+      .cell(|reactive: &Reactive| {
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .child(
+            Icon::new(reactive.key.kind.icon())
+              .size(14.0)
+              .color(PaletteColor::MutedForeground),
+          )
+          .child(mono(&format!("#{}", reactive.key.id), 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
+          .into()
+      }),
+    TableColumn::new("value", "Value")
+      .width(VALUE_WIDTH)
+      .cell(|reactive: &Reactive| value(reactive.value.as_deref(), 12.0)),
+    TableColumn::new("type", "Type")
+      .width(TYPE_WIDTH)
+      .text(|reactive: &Reactive| reactive.type_name.clone())
+      .mono(true)
+      .muted(true),
+    TableColumn::new("subs", "Subs")
+      .width(SUBS_WIDTH)
+      .text(|reactive: &Reactive| reactive.subscribers.to_string())
+      .numeric(),
+    TableColumn::new("owner", "Owner")
+      .text(|reactive: &Reactive| reactive.owner.clone())
+      .mono(true),
+  ];
+  let table = Table::new_shared(columns, Arc::new(listed))
+    .row_key(|reactive: &Reactive| reactive.key)
+    .label("Signals, memos and effects")
+    .id("devtools-signals-list")
+    .checkboxes(false)
+    .selected_controlled(selected, move |keys: Vec<ReactiveKey>| {
+      // A press with Ctrl on the selected row would leave none selected: the detail always shows one.
+      if let Some(key) = keys.into_iter().next_back() {
+        select.set(Some(key));
+      }
+    })
+    .count(true)
+    .count_text(move |_: TableCount| {
+      format!(
+        "{} · {} · {}",
+        counted(signals, "signal"),
+        counted(memos, "memo"),
+        counted(effects, "effect")
+      )
+    })
+    .empty_text(if filtering {
+      "Nothing matches the filter"
+    } else {
+      "The inspected window has no signals, memos or effects"
+    });
+  kit::dense_table(table).mount(ctx)
 }
 
-fn signals_list_panel(
-  signals: &[SignalRow],
-  selected_key: Option<&str>,
-  selected_signal_signal: Signal<Option<String>>,
-) -> Element {
-  let mut body = Column::new().width(FILL);
-  for (index, signal) in signals.iter().enumerate() {
-    body = body.child(signal_row(
-      signal,
-      index,
-      selected_key == Some(signal.key().as_str()),
-      selected_signal_signal.clone(),
-    ));
+/// A value as it is written, or the dash of what has none.
+fn value(value: Option<&str>, size: f32) -> Element {
+  match value {
+    Some(value) => mono(value, size, FontWeight::Medium).into(),
+    None => mono("—", size, FontWeight::Normal)
+      .color(PaletteColor::MutedForeground)
+      .into(),
   }
-  if signals.is_empty() {
-    body = body.child(
-      text("No signals captured", 11.0, FontWeight::Normal, MUTED)
-        .padding_horizontal(16.0)
-        .padding_vertical(10.0),
+}
+
+/// What is known of the selected row: what it is, where it stands between its owner and its subscribers, and
+/// its changes.
+fn detail(selected: Option<&Reactive>, recording: &Recording) -> Element {
+  let Some(reactive) = selected else {
+    return changes::nothing_selected(
+      "Select a signal, a memo or an effect to see what owns it and how it changed.",
+      icons::BOLT,
     );
-  }
-
-  Column::new()
-    .child(signals_header())
-    .child(ScrollVertical::new(body).height(FILL).width(FILL).flex(1.0))
-    .width(560.0)
-    .height(FILL)
-    .background(SURFACE)
-    .border_right(divider())
-    .into()
-}
-
-fn signals_header() -> Element {
-  Row::new()
-    .align_items(Alignment::Center)
-    .child(header_cell("SIGNAL", 160.0))
-    .child(header_cell("TYPE", 120.0))
-    .child(header_cell("VALUE", 80.0))
-    .child(header_cell("SUBS", 50.0))
-    .child(header_cell("OWNER", 130.0))
-    .padding_custom(padding(8.0, 16.0, 8.0, 16.0))
-    .width(FILL)
-    .border_bottom(divider())
-    .into()
-}
-
-fn signal_row(
-  signal: &SignalRow,
-  index: usize,
-  selected: bool,
-  selected_signal_signal: Signal<Option<String>>,
-) -> Element {
-  let color = signal.kind.color();
-  let background = if selected {
-    SELECTED
-  } else if index % 2 == 1 {
-    SURFACE_2
-  } else {
-    "#00000000"
   };
-  let signal_key = signal.key();
-  let mut row = Row::new()
-    .align_items(Alignment::Center)
-    .child(Rect::new(6.0, 6.0).background(color).rounded(3.0))
-    .child(Spacer::new().width(6.0))
-    .child(mono_text(&format!("#{}", signal.id), 11.0, FontWeight::Medium, TEXT).width(148.0))
-    .child(mono_text(&signal.type_display(), 10.0, FontWeight::Normal, MUTED).width(120.0))
-    .child(value_badge_with_color(&signal.value, color).width(80.0))
-    .child(mono_text(&signal.subscriber_count.to_string(), 11.0, FontWeight::Normal, MUTED).width(50.0))
-    .child(mono_text(&signal.owner, 10.0, FontWeight::Normal, BLUE).width(130.0))
-    .padding_custom(padding(7.0, 16.0, 7.0, 16.0))
-    .width(FILL)
-    .background(background)
-    .cursor(CursorIcon::Pointer)
-    .on_click(move |_| selected_signal_signal.set(Some(signal_key.clone())));
-
-  if selected {
-    row = row.border_left(Border::inside(2.0, Color::from_hex(color)));
-  }
-
-  row.into()
-}
-
-fn signal_detail_panel(selected: Option<&SignalRow>) -> Element {
+  let shown = reactive.shown(recording);
+  let (number, subscribers) = (format!("#{}", reactive.key.id), reactive.subscribers.to_string());
   Column::new()
-    .child(dependency_header(selected))
-    .child(dependency_graph(selected))
-    .child(history_section(selected))
-    .height(FILL)
-    .width(FILL)
-    .flex(1.0)
-    .into()
-}
-
-fn dependency_header(selected: Option<&SignalRow>) -> Element {
-  Row::new()
-    .align_items(Alignment::Center)
-    .spacing(8.0)
-    .child(icon("git-branch", 14.0, SIGNAL_GREEN))
-    .child(text("Dependency Graph", 12.0, FontWeight::Bold, TEXT))
-    .child(Spacer::new().flex(1.0))
-    .child(mono_text(
-      selected
-        .map(|signal| format!("#{}", signal.id))
-        .as_deref()
-        .unwrap_or("-"),
-      11.0,
-      FontWeight::Normal,
-      selected.map(|signal| signal.kind.color()).unwrap_or(SIGNAL_GREEN),
+    .size(FILL, FILL)
+    .child(changes::header(&number, reactive.key.kind.label(), &reactive.type_name))
+    .child(changes::graph(
+      GraphNode {
+        title: &reactive.owner,
+        code: true,
+        caption: "Component",
+        caption_code: false,
+        number: None,
+        selected: false,
+        share: 1.0,
+      },
+      "owns",
+      GraphNode {
+        title: &number,
+        code: true,
+        caption: &reactive.type_name,
+        caption_code: true,
+        number: reactive.value.as_deref(),
+        selected: true,
+        share: 1.0,
+      },
+      "notifies",
+      GraphNode {
+        title: "subscribers",
+        code: false,
+        caption: "tracked reads",
+        caption_code: false,
+        number: Some(&subscribers),
+        selected: false,
+        share: 1.0,
+      },
     ))
-    .padding_custom(padding(10.0, 16.0, 10.0, 16.0))
-    .width(FILL)
-    .border_bottom(divider())
-    .into()
-}
-
-fn dependency_graph(selected: Option<&SignalRow>) -> Element {
-  let Some(signal) = selected else {
-    return empty_graph("Select a signal");
-  };
-
-  Column::new()
-    .child(Spacer::new().height(24.0))
-    .child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .justify(Justify::Center)
-        .spacing(12.0)
-        .child(graph_node(&signal.owner, "Component", BLUE, None))
-        .child(graph_relation("owns"))
-        .child(graph_node(
-          &format!("#{}", signal.id),
-          &signal.type_display(),
-          signal.kind.color(),
-          Some(&signal.value),
-        ))
-        .child(graph_relation("notifies"))
-        .child(graph_node(
-          "subscribers",
-          "tracked reads",
-          YELLOW,
-          Some(&signal.subscriber_count.to_string()),
-        ))
-        .width(FILL),
-    )
-    .child(Spacer::new().flex(1.0))
-    .height(220.0)
-    .width(FILL)
-    .background(SURFACE)
-    .border_bottom(divider())
-    .into()
-}
-
-fn empty_graph(message: &str) -> Element {
-  Row::new()
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .child(text(message, 12.0, FontWeight::Normal, MUTED))
-    .height(220.0)
-    .width(FILL)
-    .background(SURFACE)
-    .border_bottom(divider())
-    .into()
-}
-
-fn graph_node(label: &str, kind: &str, color: &str, value: Option<&str>) -> Column {
-  let mut node = Column::new()
-    .align_items(Alignment::Center)
-    .spacing(4.0)
-    .child(mono_text(label, 11.0, FontWeight::Bold, color))
-    .child(mono_text(kind, 9.0, FontWeight::Normal, MUTED));
-  if let Some(value) = value {
-    node = node.child(value_badge_with_color(value, color));
-  }
-  node
-    .padding_custom(padding(10.0, 16.0, 10.0, 16.0))
-    .width(132.0)
-    .height(72.0)
-    .background(Color::from_hex(&with_alpha(color, "18")))
-    .border_inside(1.0, Color::from_hex(color))
-    .rounded(6.0)
-}
-
-fn graph_relation(label: &str) -> Column {
-  Column::new()
-    .align_items(Alignment::Center)
-    .spacing(7.0)
-    .child(graph_label(label))
-    .child(Rect::new(56.0, 1.0).background(MUTED).opacity(0.35))
-    .width(66.0)
-}
-
-fn graph_label(label: &str) -> Row {
-  Row::new()
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .child(mono_text(label, 8.0, FontWeight::Normal, MUTED))
-    .padding_horizontal(6.0)
-    .padding_vertical(2.0)
-    .background(SURFACE_2)
-    .rounded(3.0)
-}
-
-fn history_section(selected: Option<&SignalRow>) -> Element {
-  let history = selected.map(|signal| signal.history.as_slice()).unwrap_or(&[]);
-  let mut body = Column::new()
-    .padding_custom(padding(4.0, 0.0, 4.0, 0.0))
-    .width(FILL)
-    .height(FILL);
-
-  if history.is_empty() {
-    body = body.child(empty_history_placeholder());
-  } else {
-    for (index, row) in history.iter().enumerate() {
-      body = body.child(history_row(row, index));
-    }
-  }
-
-  Column::new()
-    .child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .spacing(8.0)
-        .child(icon("timer", 14.0, MUTED))
-        .child(text("Change History", 12.0, FontWeight::Bold, TEXT))
-        .child(Spacer::new().flex(1.0))
-        .child(mono_text(
-          &format!("last {} changes", history.len()),
-          10.0,
-          FontWeight::Normal,
-          MUTED,
-        ))
-        .padding_custom(padding(10.0, 16.0, 10.0, 16.0))
-        .width(FILL)
-        .border_bottom(divider()),
-    )
-    .child(ScrollVertical::new(body).height(FILL).width(FILL))
-    .height(FILL)
-    .width(FILL)
-    .into()
-}
-
-fn empty_history_placeholder() -> Element {
-  Row::new()
-    .align_items(Alignment::Center)
-    .spacing(10.0)
-    .child(icon("timer", 14.0, MUTED))
+    .child(changes::history_title(shown.len()))
     .child(
       Column::new()
-        .spacing(2.0)
-        .child(text("No changes recorded", 11.0, FontWeight::Bold, TEXT))
-        .child(mono_text("Waiting for signal changes", 10.0, FontWeight::Normal, MUTED))
-        .width(FILL),
+        .width(FILL)
+        .flex(1.0)
+        .child(history(shown, reactive.key.kind, recording.on())),
     )
-    .padding_custom(padding(10.0, 12.0, 10.0, 12.0))
-    .width(FILL)
-    .background(SURFACE_2)
-    .border_inside(1.0, Color::from_hex(BORDER))
-    .rounded(4.0)
     .into()
 }
 
-fn history_row(row: &SignalHistoryRow, index: usize) -> Element {
-  Column::new()
-    .spacing(5.0)
-    .child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .child(mono_text(&row.timestamp, 10.0, FontWeight::Normal, MUTED).nowrap())
-        .child(Spacer::new().flex(1.0))
-        .child(history_badge(&row.trigger))
-        .width(FILL),
-    )
-    .child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .child(
-          mono_text(&row.from_value, 11.0, FontWeight::Normal, "#ef4444")
-            .nowrap()
-            .width(150.0),
-        )
-        .child(icon("arrow-right", 12.0, MUTED))
-        .child(Spacer::new().width(8.0))
-        .child(
-          mono_text(&row.to_value, 11.0, FontWeight::Bold, SIGNAL_GREEN)
-            .nowrap()
-            .width(FILL)
-            .flex(1.0),
-        )
-        .width(FILL),
-    )
-    .padding_custom(padding(6.0, 16.0, 6.0, 16.0))
-    .width(FILL)
-    .background(if index % 2 == 1 { SURFACE_2 } else { "#00000000" })
-    .into()
-}
-
-fn collect_signal_rows(snapshot: &DevToolsSnapshot) -> Vec<SignalRow> {
-  let mut rows = Vec::new();
-  if let Some(root) = &snapshot.root {
-    collect_signal_rows_in(root, short_tag(&root.tag), &mut rows);
-  }
-  rows.sort_by_key(|row| (row.kind.rank(), row.id));
-  rows
-}
-
-fn collect_signal_rows_in(node: &DevToolsNode, owner: &str, rows: &mut Vec<SignalRow>) {
-  let current_owner = if node.signals.is_empty() && node.memos.is_empty() && node.effects.is_empty() {
-    owner
-  } else {
-    short_tag(&node.tag)
+/// The changes shown, the newest first: when each happened, what the value was and what it became.
+fn history(shown: Vec<ComponentValueChangeDebug>, kind: ReactiveKind, recording: bool) -> Element {
+  let quiet = |text: &str| -> Element {
+    mono(text, 13.0, FontWeight::Normal)
+      .color(PaletteColor::MutedForeground)
+      .into()
   };
-  for signal in &node.signals {
-    rows.push(SignalRow {
-      id: signal.id,
-      kind: ReactiveKind::Signal,
-      type_name: short_type_name(signal.type_name.as_ref()),
-      value: signal.formatted_value().unwrap_or_else(|| "<unknown>".to_owned()),
-      owner: current_owner.to_owned(),
-      history: Vec::new(),
-      subscriber_count: signal.subscriber_count(),
-    });
-  }
-  for memo in &node.memos {
-    rows.push(SignalRow {
-      id: memo.id,
-      kind: ReactiveKind::Memo,
-      type_name: short_type_name(memo.type_name.as_ref()),
-      value: memo.formatted_value().unwrap_or_else(|| "<unknown>".to_owned()),
-      owner: current_owner.to_owned(),
-      history: Vec::new(),
-      subscriber_count: memo.subscriber_count(),
-    });
-  }
-  for effect in &node.effects {
-    rows.push(SignalRow {
-      id: effect.id,
-      kind: ReactiveKind::Effect,
-      type_name: String::new(),
-      value: "-".to_owned(),
-      owner: current_owner.to_owned(),
-      history: Vec::new(),
-      subscriber_count: 0,
-    });
-  }
-  for child in &node.children {
-    collect_signal_rows_in(child, current_owner, rows);
-  }
-}
-
-fn header_cell(label: &str, width: f32) -> Text {
-  text(label, 10.0, FontWeight::Bold, MUTED).width(width)
-}
-
-fn value_badge_with_color(value: &str, color: &str) -> Row {
-  Row::new()
-    .align_items(Alignment::Center)
-    .child(mono_text(value, 11.0, FontWeight::Bold, color))
-    .padding_horizontal(6.0)
-    .padding_vertical(1.0)
-    .background(Color::from_hex(&with_alpha(color, "12")))
-    .rounded(3.0)
-}
-
-fn history_badge(label: &str) -> Row {
-  Row::new()
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .child(mono_text(label, 9.0, FontWeight::Normal, PINK))
-    .padding_horizontal(6.0)
-    .padding_vertical(1.0)
-    .width(68.0)
-    .background(SURFACE_2)
-    .rounded(3.0)
-}
-
-fn short_type_name(type_name: &str) -> String {
-  type_name.rsplit("::").next().unwrap_or(type_name).to_owned()
-}
-
-fn with_alpha(color: &str, alpha: &str) -> String {
-  format!("{}{}", color.trim_end_matches(|ch| ch == '0' && color.len() > 7), alpha)
-}
-
-fn trim_history(history: &mut Vec<SignalHistoryRow>) {
-  if history.len() > 64 {
-    let overflow = history.len() - 64;
-    history.drain(0..overflow);
-  }
-}
-
-fn current_compact_timestamp() -> String {
-  let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-  let millis = duration.subsec_millis();
-  let seconds_of_day = duration.as_secs() % 86_400;
-  let hour = seconds_of_day / 3_600;
-  let minute = seconds_of_day % 3_600 / 60;
-  let second = seconds_of_day % 60;
-  format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
-}
-
-fn padding(top: f32, right: f32, bottom: f32, left: f32) -> crate::node::padding::Padding {
-  crate::node::padding::Padding {
-    top: Dimension::Px(top).into(),
-    right: Dimension::Px(right).into(),
-    bottom: Dimension::Px(bottom).into(),
-    left: Dimension::Px(left).into(),
-  }
-}
-
-fn divider() -> Border {
-  Border::inside(1.0, Color::from_hex(BORDER))
-}
-
-fn mono_text(content: &str, size: f32, weight: FontWeight, color: &str) -> Text {
-  Text::styled(
-    content,
-    TextStyle {
-      font_family: "monospace".into(),
-      font_size: size,
-      weight,
-      color: Color::from_hex(color),
-      ..Default::default()
-    },
-  )
+  let columns = vec![
+    TableColumn::new("time", "Time")
+      .width(changes::TIME_WIDTH)
+      .cell(move |change: &ComponentValueChangeDebug| quiet(&change.timestamp)),
+    TableColumn::new("previous", "Previous").cell(move |change: &ComponentValueChangeDebug| quiet(&change.from_value)),
+    TableColumn::new("arrow", "")
+      .width(changes::ARROW_WIDTH)
+      .cell(|_: &ComponentValueChangeDebug| changes::arrow().into()),
+    TableColumn::new("new", "New").cell(|change: &ComponentValueChangeDebug| value(Some(&change.to_value), 13.0)),
+  ];
+  let empty = match (kind, recording) {
+    (ReactiveKind::Effect, _) => "An effect holds no value: it has no changes to show",
+    (_, true) => "No changes yet",
+    (_, false) => "No changes in what was recorded",
+  };
+  kit::flat_table(Table::new(columns, shown).label("Change history").empty_text(empty)).into()
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::{
-    app::{ctx::Ctx, devtools::snapshot::DevToolsNodeKind},
-    core::NodeId,
-  };
+  use crate::app::devtools::snapshot::DevToolsNodeKind;
 
-  #[test]
-  fn recording_state_records_signal_changes_after_baseline() {
-    let mut ctx = Ctx::new_root();
-    let signal = ctx.signal(0_i32);
-    let key = format!("Signal:{}", signal.id());
-    let mut state = SignalsRecordingState::default();
-
-    state.set_recording(true);
-    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
-    signal.set(1);
-    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
-
-    let history = state.history_for(&key);
-    assert_eq!(history.len(), 1);
-    assert_eq!(history[0].from_value, "0");
-    assert_eq!(history[0].to_value, "1");
-    assert_eq!(history[0].trigger, "change");
-  }
-
-  #[test]
-  fn recording_state_resets_baseline_when_recording_restarts() {
-    let mut ctx = Ctx::new_root();
-    let signal = ctx.signal(0_i32);
-    let key = format!("Signal:{}", signal.id());
-    let mut state = SignalsRecordingState::default();
-
-    state.set_recording(true);
-    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
-    signal.set(1);
-    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
-
-    state.set_recording(false);
-    signal.set(2);
-    state.set_recording(true);
-    state.record_snapshot(&snapshot_with_signals(ctx.signals_debug()));
-
-    let history = state.history_for(&key);
-    assert_eq!(history.len(), 1);
-    assert_eq!(history[0].from_value, "0");
-    assert_eq!(history[0].to_value, "1");
-  }
-
-  fn snapshot_with_signals(signals: Vec<crate::app::ctx::ComponentSignalDebug>) -> DevToolsSnapshot {
-    DevToolsSnapshot {
-      root: Some(DevToolsNode {
-        id: NodeId::UNASSIGNED,
-        tag: "Root".to_owned(),
-        kind: DevToolsNodeKind::Component,
-        key: None,
-        attrs: Vec::new(),
-        text: None,
-        color: None,
-        props: None,
-        signals,
-        memos: Vec::new(),
-        contexts: Vec::new(),
-        shape: Vec::new(),
-        effects: Vec::new(),
-        layout_box: None,
-        hovered: false,
-        active: false,
-        focused: false,
-        children: Vec::new(),
-      }),
-      frame: Default::default(),
+  fn change(sequence: u64) -> ComponentValueChangeDebug {
+    ComponentValueChangeDebug {
+      sequence,
+      timestamp: format!("09:41:{sequence:02}.000"),
+      from_value: (sequence - 1).to_string(),
+      to_value: sequence.to_string(),
     }
+  }
+
+  fn signal(id: usize, value: &str, changes: Vec<ComponentValueChangeDebug>) -> Reactive {
+    Reactive {
+      key: ReactiveKey {
+        kind: ReactiveKind::Signal,
+        id,
+      },
+      value: Some(value.to_owned()),
+      type_name: "Signal<i32>".to_owned(),
+      subscribers: 1,
+      owner: "Counter".to_owned(),
+      changes,
+    }
+  }
+
+  #[test]
+  fn the_signals_of_a_window_are_listed_with_the_component_they_were_made_in() {
+    let mut ctx = Ctx::new_root();
+    let count = ctx.signal(0_i32);
+    count.set(1);
+    let ids = crate::core::IdGenerator::new();
+    let mut counter = DevToolsNode::for_test(ids.next(), "demo::Counter", DevToolsNodeKind::Component, vec![]);
+    counter.signals = ctx.signals_debug();
+    let snapshot = DevToolsSnapshot {
+      root: Some(DevToolsNode::for_test(
+        ids.next(),
+        "demo::App",
+        DevToolsNodeKind::Component,
+        vec![counter],
+      )),
+      frame: Default::default(),
+    };
+
+    let all = reactives(&snapshot);
+
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].key.kind, ReactiveKind::Signal);
+    assert_eq!(all[0].key.id, count.id());
+    assert_eq!(all[0].value.as_deref(), Some("1"));
+    assert_eq!(all[0].type_name, "Signal<i32>");
+    assert_eq!(all[0].owner, "Counter");
+    // The engine's own record of the change, with its number.
+    assert_eq!(all[0].changes.len(), 1);
+    assert_eq!(
+      (
+        all[0].changes[0].from_value.as_str(),
+        all[0].changes[0].to_value.as_str()
+      ),
+      ("0", "1")
+    );
+    assert_eq!(latest_change(&all), all[0].changes[0].sequence);
+    assert!(all[0].changes[0].sequence > 0);
+  }
+
+  #[test]
+  fn the_changes_shown_are_those_of_the_recording_the_newest_first() {
+    let row = signal(1, "5", (1..=5).map(change).collect());
+    let sequences = |recording: &Recording| {
+      row
+        .shown(recording)
+        .iter()
+        .map(|change| change.sequence)
+        .collect::<Vec<_>>()
+    };
+    let mut recording = Recording::default();
+    assert_eq!(sequences(&recording), [5, 4, 3, 2, 1]);
+    recording.toggle(2);
+    assert_eq!(sequences(&recording), [2, 1]);
+  }
+
+  #[test]
+  fn the_filter_looks_in_the_number_the_value_the_type_and_the_owner() {
+    let row = signal(12, "Idle", Vec::new());
+    assert_eq!(row.said(), "#12 Idle Signal<i32> Counter");
+    assert!(changes::passes(&row.said(), "counter i32"));
+    assert!(!changes::passes(&row.said(), "counter memo"));
   }
 }

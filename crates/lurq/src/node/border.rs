@@ -154,7 +154,7 @@ pub enum BorderDash {
 
 impl BorderDash {
   /// The dash and the gap of a border `width` wide, both zero for a solid line.
-  fn resolve(self, width: f32) -> [f32; 2] {
+  pub(crate) fn resolve(self, width: f32) -> [f32; 2] {
     let [dash, gap] = match self {
       Self::Auto => [width * 3.0; 2],
       Self::Lengths { dash, gap } => [dash, gap],

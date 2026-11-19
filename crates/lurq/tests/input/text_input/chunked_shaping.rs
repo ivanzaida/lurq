@@ -41,6 +41,7 @@ fn styles(text: &str) -> Vec<TokenStyle> {
       padding: 0.0,
       fill: None,
       lines: Default::default(),
+      chip: Default::default(),
     });
   }
   styles
@@ -54,6 +55,8 @@ fn config(text: &str, styled: bool) -> InputConfig {
     width: 420.0,
     min_width: 0.0,
     wrap: true,
+    paragraphs: Vec::new(),
+    exact_rows: false,
   }
 }
 

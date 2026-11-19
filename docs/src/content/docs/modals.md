@@ -63,7 +63,7 @@ Modal::new(content).open(open.clone()).target(panel_ref);
 ```
 
 - `Parent` covers the declaring parent bounds and is the default target.
-- `Root` covers the viewport.
+- `Root` covers the viewport. In a window that draws its own title bar it covers what is under the bar: a `WindowChrome` says how high its bar is, and the modal starts there, so that a dialog is centred in what is seen and nothing of it is under the bar. An overlay of the chrome itself (`WindowChrome::overlay`) has all of the window. An app that draws a title bar another way says its height with `ctx.window().set_title_bar_inset(height)`.
 - `ElementRef` covers that element's bounds.
 
 ## Behavior
@@ -73,9 +73,14 @@ Modal::new(content).open(open.clone()).target(panel_ref);
 - Setting the signal back to `false` removes the modal on the next render pass. Content with an exit animation stays
   on screen, taking no input, until the animation ends: see
   [Presence](../animation-transforms/#presence-entering-and-leaving-layers).
-- Multiple render-flow modals stack in declaration/layer order.
-- Signal-backed modals close on `Escape` by default.
+- Open modals stack in the order they opened, as a browser's top layer holds dialogs opened with `showModal()`: one opened over another is over it whatever their order in the tree, so a search declared in an app's shell before the page opens over a dialog of the page. The topmost takes the pointer and Tab, Escape closes it first, and one that takes the focus gives it back into the modal under it as it closes. Modals that open in the same pass stack in the order they are declared.
+- Signal-backed modals close on `Escape` by default, wherever the focus is.
+- `Modal::on_dismiss(handler)` hears a person dismiss the modal: Escape, after the modal has set its signal to
+  `false`. Content of the app's that closes the modal for a person (a press on its veil, a close button) calls the
+  same handler, as `ui::Dialog`, `ui::Sheet`, `ui::Drawer` and `ui::CommandPalette` do. The app setting the signal
+  tells nothing. A second handler is called after the first.
 - An open modal traps Tab and Shift+Tab: they cycle the topmost modal's stops (elements with `tab_index(0)` or higher, and form controls) and never reach the page behind it, with or without a form. A form inside the modal cycles inside it. See [Modal Focus Trap](../focus-navigation/#modal-focus-trap).
+- `Modal::takes_focus(true)` moves the focus into the modal as it opens, to its first stop of Tab, and back to what had it as it closes, as a browser's `<dialog>` opened with `showModal()` does. A focus the app or a press has put somewhere else by then stays there. The focus follows the last input's modality, so a modal opened from the keyboard shows the ring on its first control. Off by default; `ui::Dialog` turns it on.
 
 ## Sheets
 
@@ -99,6 +104,8 @@ let sheet = Sheet::mount(
   has gone down.
 - **It is put away** by clearing the signal, by Escape, by a press beside it, and by a finger that drags it down
   far enough or throws it down. `SheetProps::dismissable(false)` leaves only the signal.
+  `SheetProps::on_dismiss(handler)` hears a person put it away (the drag, the press beside it, Escape), after its
+  signal is `false`; clearing the signal tells nothing.
 - **It stands at its detents**: `Content` (as high as its content, the default), `Medium` (half the window),
   `Large` (the whole window under the status bar), `Fraction(share)` and `Height(pixels)`. It comes up at the
   first, a finger moves it between them, and it goes to the nearest to where the finger threw it.
@@ -130,15 +137,17 @@ Sheet::mount_with(
 
 The router is the sheet's own, made once with `ctx.router(..)`, with a `StackOutlet` as its routes' layout.
 
-`SheetStyle` is how it looks and moves; `SheetStyle::dark()` has the platform's dark colors.
+`SheetStyle` is how it looks and moves. Its colors come from the theme where it is made, light or dark as the
+theme is ([Colors from the theme](../ios/#colors-from-the-theme)); `ThemeDefinition::legacy()` gives the white
+sheet over black at 0.3 of 0.62.
 
 | Field | Starts as | |
 | --- | --- | --- |
-| `background` | white | The sheet's own color |
+| `background` | `Background` | The sheet's own color |
 | `corner_radius` | 20 | Of its top corners |
-| `backdrop`, `dim` | black, 0.3 | What is drawn over the window behind, and how much of it shows |
+| `backdrop`, `dim` | `Scrim`, 1 | What is drawn over the window behind, and how much of it shows |
 | `grabber` | `false` | The bar at the top that says it can be dragged |
-| `grabber_color`, `grabber_width`, `grabber_height`, `grabber_top` | 36 by 5, 5 under the edge | |
+| `grabber_color`, `grabber_width`, `grabber_height`, `grabber_top` | `Input`, 36 by 5, 5 under the edge | |
 | `top_margin` | 10 | How far under the status bar the highest sheet stops |
 | `max_width` | none | In a wider window the sheet stands in the middle |
 | `duration` | 500 ms | Of every move |
@@ -182,7 +191,7 @@ Popup::new(anchor_ref, hint_content)
   .outside_press(OutsidePress::PassThrough);
 ```
 
-A popup or overlay is placed against its anchor's layout in every frame, so it moves with the anchor when a list scrolls or the page lays out again. While its anchor is scrolled or clipped wholly out of view (above a scroll container's viewport, under the header over a list, outside a `clip()`ped parent) it is not drawn, and it comes back with the anchor: it never floats over whatever covers the anchor. A `Select`'s menu does the same with its select, and a `Modal` targeting an element with that element. The open state does not change meanwhile, and a hidden popup is dismissed like a CSS popover that is out of view:
+A popup or overlay is placed against its anchor's layout in every frame, and turned to its anchor's other side only where the window has no room on the side it asks for (`Placement`, with a collision that flips). One hung from an element of another layer, as a submenu from an item of its menu, is placed by that element as the layer draws it. It moves with the anchor when a list scrolls or the page lays out again. While its anchor is scrolled or clipped wholly out of view (above a scroll container's viewport, under the header over a list, outside a `clip()`ped parent) it is not drawn, and it comes back with the anchor: it never floats over whatever covers the anchor. A `Select`'s menu does the same with its select, and a `Modal` targeting an element with that element. The open state does not change meanwhile, and a hidden popup is dismissed like a CSS popover that is out of view:
 
 - A left press anywhere closes it (with `dismiss_on_outside_click`, a `Popup`'s default). The press is never consumed by a hidden popup, whatever its `outside_press`: it also reaches the element it lands on, since nothing on screen was in its way.
 - Escape closes it (with `dismiss_on_escape`).
@@ -195,3 +204,7 @@ A press is outside a popup when it lands neither on the popup, nor on its anchor
 `Select` menus follow the same rule, set with `Select::outside_press(...)`. `Overlay::outside_press(...)` applies to overlays with `dismiss_on_outside_click(true)`. A popup with `dismiss_on_outside_click(false)` or a static open state never closes on a press and never consumes one. Only left presses close popups; other buttons pass through and leave them open. When one press is outside several popups, it closes all of them, and it is consumed if any of them consumes it.
 
 A press on another dropdown's trigger is never consumed, like in a menu bar: it closes the open popup or select menu and goes on to that trigger, so one press opens the other dropdown and moves focus to its trigger. The first interactive element under the pointer (a button, a select, anything that takes focus) decides: it is a trigger when it is a `Select`, or the anchor itself of a popup (or overlay) with `dismiss_on_outside_click(true)` and a signal-backed open state, open or closed. Anything else inside an anchor is ordinary content: the other half of a split button anchored as a row, the items of a status bar that anchors a popover, and the bar's empty space only close the open dropdown. The press closes the consuming popups and the open selects before it reaches the trigger, so a trigger that prevents the default of its press still switches. A press on a scrollbar over a trigger is not on the trigger. A press on the open popup's own anchor is not outside it, so the anchor's own handler decides (a toggle closes it, and a select menu open inside the popup closes too). Set `switch_on_anchor_press(false)` on a popup whose anchor a left press does not open, such as a context menu on a list row or an autocomplete list on a field. lurq only knows the anchor of a popup it can see: declare the popup always and drive it with its open signal, rather than adding it to the tree only while it is open, or a press on its anchor while another dropdown is open only closes that dropdown.
+
+`takes_focus(true)` on a `Popup` (or an `Overlay`) moves the focus into it as it opens, to the first element in it that takes the focus, and gives the focus back as it closes with the focus inside: to what had it when the popup opened, where that is still in the tree, else to the anchor as above. While it is open its elements are in the order of Tab right after its anchor's (see [Tab Scope](../focus-navigation/#tab-scope)), and it keeps no Tab in it: it is not modal. A popup that is given another anchor while it is open, as the card of a tour goes from one element to the next, is the same popup: it does not take the focus again, which stays where it is in it, and as it closes the focus goes back to what had it before it first opened.
+
+`traps_tab(true)` on a `Popup` (or an `Overlay`) holds Tab in it while the focus is in it, as a modal holds it: from its last element Tab goes to its first, and Shift+Tab from its first to its last, where it would go on to what follows its anchor. It is for what a person is to finish before going on and is still no modal, as the card of a tour ([`ui::Tour`](../design-system/#teaching-tip) turns it on). It holds Tab and nothing else: the page behind answers the pointer, Escape and a press outside close the popup as its other settings say, and the focus goes back as `takes_focus` says. With the focus on the page Tab goes through the page, and into the popup after its anchor, where it is then held; the focus in a popup hung from an element of it, a menu's, is in it too. A modal opened over it holds Tab itself, and with nothing in it that takes the focus Tab does nothing while the focus is in it. Off by default. Where the popup hangs from an element of another such popup that closes with it, as a submenu hangs from an item of its menu and an item of the submenu chosen closes both, the focus goes back from the outermost that closed: to what opened the menu. An app's `ctx.focus` in the same pass wins. Off by default; `ui::Popover` and `ui::Menu` turn it on. Keep the anchor from one render to the next (a field of the component, `ctx.element_ref()`): one made anew in each render is not the one the focus goes back to.

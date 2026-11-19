@@ -1,0 +1,1088 @@
+//! A picture: its box as a browser's `img` sizes it, the pixels placed by the fit and the anchor, what stands in
+//! for them where there are none and when they did not load, the bar over it, what a small one keeps, the form
+//! that follows the width where it is not said, a press and a choice.
+
+#![cfg(feature = "raster")]
+
+use std::sync::{
+  Arc,
+  atomic::{AtomicUsize, Ordering},
+};
+
+use lurq::{
+  app::theme::{PaletteColor, ThemePalette},
+  components::{Column, Row},
+  images::ImageData,
+  layout::{
+    StackAlignment,
+    quad::{Quad, QuadContent},
+  },
+  node::{Element, color::Color, dimension::Dimension},
+  ui::{Length, Picture, PictureFit, PicturePlaceholder, PictureShape, PictureSize, icons},
+};
+
+use super::stage::Stage;
+
+fn light(role: PaletteColor) -> Color {
+  ThemePalette::light().get(role)
+}
+
+/// The character the theme's icon font draws `name` with.
+fn glyph(name: &str) -> String {
+  icons::ALL
+    .iter()
+    .find(|(held, _)| *held == name)
+    .map(|(_, glyph)| glyph.to_string())
+    .unwrap_or_else(|| panic!("no icon {name}"))
+}
+
+fn pixels(width: u32, height: u32) -> ImageData {
+  ImageData::from_rgba(vec![200; (width * height * 4) as usize], width, height)
+}
+
+/// A scene with `picture` at the start of a row, so that the picture is as large as it makes itself.
+fn at_start(picture: impl Fn() -> Picture + Send + Sync + 'static) -> Stage {
+  Stage::new(move |_| Row::new().padding(8.0).child(picture()).into())
+}
+
+/// Where the quad that draws the picture's pixels lies, `(x, y, width, height)`, and the part of them it draws.
+fn image_quad(stage: &Stage) -> Option<((f32, f32, f32, f32), [f32; 2], [f32; 2])> {
+  stage.quads().into_iter().find_map(|quad| match quad.content {
+    QuadContent::Image { uv_min, uv_max, .. } => Some(((quad.x, quad.y, quad.width, quad.height), uv_min, uv_max)),
+    _ => None,
+  })
+}
+
+#[test]
+fn a_picture_made_of_the_same_plain_things_is_not_rendered_again_with_what_holds_it() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use lurq::ui::{PictureRenderer, PictureView};
+
+  // The theme's renderer counts how often a picture is built.
+  let built = Arc::new(AtomicUsize::new(0));
+  let count = built.clone();
+  let app = lurq::app::App::new();
+  let renderer: PictureRenderer = Arc::new(move |view: PictureView| {
+    count.fetch_add(1, Ordering::SeqCst);
+    view.render()
+  });
+  app.theme().set_renderer::<Picture>(renderer);
+
+  let step = lurq::core::Signal::new(0u32);
+  let turn = step.clone();
+  let data = ImageData::from_rgba(vec![200; 4 * 4 * 4], 4, 4);
+  let mut stage = Stage::in_app(app, move |_| {
+    let step = turn.get();
+    let picture = || Picture::new(data.clone()).size_px(64.0, 64.0);
+    Row::new()
+      .padding(8.0)
+      .child(picture().label("The lake at dusk").id("same"))
+      .child(picture().label(&format!("Step {step}")).id("renamed"))
+      .child(picture().on_click(|_| {}).id("pressed"))
+      .into()
+  });
+  let images = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(quad.content, QuadContent::Image { .. }))
+      .count()
+  };
+  assert_eq!(images(&stage), 3);
+  let at_first = built.load(Ordering::SeqCst);
+
+  step.set(1);
+  stage.pass();
+  assert_eq!(
+    built.load(Ordering::SeqCst) - at_first,
+    2,
+    "the one called something else and the one with a handler, which nothing compares; not the one that is the same"
+  );
+  assert_eq!(images(&stage), 3, "and the one passed by is drawn as it was");
+  assert_eq!(stage.bounds("same"), (8.0, 8.0, 64.0, 64.0));
+}
+
+/// A picture of 160 by 90 with a lightbox, 8 in from the corner of a window of 600 by 400. The page fills the
+/// window, as a window's root does: what lies over the window is laid in the room the root has.
+fn with_a_lightbox(picture: impl Fn(Picture) -> Picture + Send + Sync + 'static) -> Stage {
+  let mut stage = Stage::first_frame(800.0, 400.0, move |_| {
+    let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
+      .title("Lake at dusk")
+      .size_px(160.0, 90.0)
+      .lightbox(true)
+      .id("lake");
+    Column::new()
+      .size(800.0, 400.0)
+      .child(Row::new().padding(8.0).child(picture(lake)))
+      .into()
+  });
+  stage.pass();
+  stage
+}
+
+/// What the level of the picture's lightbox says, where the lightbox is open.
+fn level(stage: &mut Stage) -> Option<String> {
+  let level = stage.tree.get_element_by_id("lake-viewer-level")?;
+  level
+    .children()
+    .iter()
+    .find_map(|child| child.text_content().map(str::to_owned))
+}
+
+#[test]
+fn a_press_opens_the_picture_in_a_lightbox_and_escape_closes_it() {
+  let open = lurq::core::Signal::new(false);
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (shown, tell) = (open.clone(), told.clone());
+  let mut stage = with_a_lightbox(move |picture| {
+    let tell = tell.clone();
+    picture
+      .open(shown.clone())
+      .on_open_change(move |open| tell.lock().unwrap().push(open))
+  });
+  assert!(level(&mut stage).is_none(), "closed, its lightbox is not there");
+
+  stage.click("lake");
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(stage.bounds("lake-viewer"), (0.0, 0.0, 800.0, 400.0), "over the window");
+  assert_eq!(level(&mut stage).as_deref(), Some("100%"), "the picture alone, fitted");
+  assert!(
+    stage.tree.get_element_by_id("lake-viewer-next").is_none(),
+    "with no other to turn to"
+  );
+
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get());
+  assert!(level(&mut stage).is_none());
+  assert_eq!(*told.lock().unwrap(), [true, false]);
+
+  // The app opens it itself.
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+}
+
+#[test]
+fn without_a_signal_the_picture_keeps_whether_its_lightbox_is_open() {
+  let mut stage = with_a_lightbox(|picture| picture);
+  stage.click("lake");
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+  stage.click("lake-viewer-close");
+  stage.pass();
+  assert!(level(&mut stage).is_none());
+}
+
+#[test]
+fn a_picture_that_is_chosen_by_a_press_opens_nothing_by_it() {
+  let chosen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let tell = chosen.clone();
+  let mut stage = with_a_lightbox(move |picture| {
+    let tell = tell.clone();
+    picture.selectable(true).on_change(move |_| {
+      tell.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    })
+  });
+  stage.click("lake");
+  stage.pass();
+  assert_eq!(chosen.load(std::sync::atomic::Ordering::SeqCst), 1);
+  assert!(level(&mut stage).is_none());
+}
+
+#[test]
+fn the_last_button_of_the_bar_opens_a_picture_a_press_chooses() {
+  let mut stage = Stage::first_frame(800.0, 400.0, |_| {
+    let lake = Picture::new(ImageData::from_rgba(vec![200; 8 * 6 * 4], 8, 6))
+      .title("Lake at dusk")
+      .size_px(320.0, 180.0)
+      .lightbox(true)
+      .selectable(true)
+      .on_download(|| {})
+      .force_bar_shown(Some(true))
+      .id("lake");
+    Column::new()
+      .size(800.0, 400.0)
+      .child(Row::new().padding(8.0).child(lake))
+      .into()
+  });
+  stage.pass();
+  let (download, ..) = stage.bounds("lake-download");
+  let (open, _, width, _) = stage.bounds("lake-open");
+  assert!(open > download, "after the others");
+  assert_eq!(open + width, 8.0 + 320.0 - 12.0, "12 from the picture's end");
+
+  stage.click("lake-open");
+  stage.pass();
+  assert!(level(&mut stage).is_some());
+}
+
+fn corner(quad: &Quad) -> f32 {
+  quad.border_radius.map_or(0.0, |radius| radius.top_left)
+}
+
+#[test]
+fn a_picture_is_its_pixels_in_a_rounded_muted_box() {
+  let mut stage = at_start(|| Picture::new(pixels(320, 180)).size_px(320.0, 180.0).id("lake"));
+  assert_eq!(stage.bounds("lake"), (8.0, 8.0, 320.0, 180.0));
+  let fill = stage.fill("lake").expect("the box is filled");
+  match fill.content {
+    QuadContent::Rect { color, .. } => assert_eq!(color, light(PaletteColor::Muted)),
+    _ => panic!("a filled rectangle"),
+  }
+  assert_eq!(corner(&fill), 8.0, "the corners of a surface");
+  let (image, uv_min, uv_max) = image_quad(&stage).expect("the pixels are drawn");
+  assert_eq!(image, (8.0, 8.0, 320.0, 180.0));
+  assert_eq!((uv_min, uv_max), ([0.0, 0.0], [1.0, 1.0]));
+}
+
+#[test]
+fn its_sides_are_an_imgs() {
+  // Neither said: the pixels' own size.
+  let mut own = at_start(|| Picture::new(pixels(80, 40)).id("lake"));
+  let (_, _, width, height) = own.bounds("lake");
+  assert_eq!((width, height), (80.0, 40.0));
+  // One said: the other follows the pixels' ratio.
+  let mut by_width = at_start(|| Picture::new(pixels(200, 100)).width(120.0).id("lake"));
+  let (_, _, width, height) = by_width.bounds("lake");
+  assert_eq!((width, height), (120.0, 60.0));
+  let mut by_height = at_start(|| Picture::new(pixels(200, 100)).height(30.0).id("lake"));
+  let (_, _, width, height) = by_height.bounds("lake");
+  assert_eq!((width, height), (60.0, 30.0));
+  // A ratio in place of the pixels'.
+  let mut by_ratio = at_start(|| Picture::new(pixels(200, 100)).width(120.0).aspect_ratio(1.0).id("lake"));
+  let (_, _, width, height) = by_ratio.bounds("lake");
+  assert_eq!((width, height), (120.0, 120.0));
+}
+
+#[test]
+fn the_pixels_cover_the_box_unless_told() {
+  // 200 by 100 in a square of 100: the middle half across is kept.
+  let cover = at_start(|| Picture::new(pixels(200, 100)).size_px(100.0, 100.0));
+  let (_, uv_min, uv_max) = image_quad(&cover).unwrap();
+  assert_eq!((uv_min, uv_max), ([0.25, 0.0], [0.75, 1.0]));
+
+  let anchored = at_start(|| {
+    Picture::new(pixels(200, 100))
+      .size_px(100.0, 100.0)
+      .anchor(StackAlignment::CenterEnd)
+  });
+  let (_, uv_min, uv_max) = image_quad(&anchored).unwrap();
+  assert_eq!((uv_min, uv_max), ([0.5, 0.0], [1.0, 1.0]), "the end is kept");
+
+  let contain = at_start(|| {
+    Picture::new(pixels(200, 100))
+      .size_px(100.0, 100.0)
+      .fit(PictureFit::Contain)
+      .anchor(StackAlignment::TopCenter)
+  });
+  let (quad, uv_min, uv_max) = image_quad(&contain).unwrap();
+  assert_eq!(quad, (8.0, 8.0, 100.0, 50.0));
+  assert_eq!((uv_min, uv_max), ([0.0, 0.0], [1.0, 1.0]));
+
+  let fill = at_start(|| {
+    Picture::new(pixels(200, 100))
+      .size_px(100.0, 100.0)
+      .fit(PictureFit::Fill)
+  });
+  let (quad, uv_min, uv_max) = image_quad(&fill).unwrap();
+  assert_eq!((quad.2, quad.3), (100.0, 100.0));
+  assert_eq!((uv_min, uv_max), ([0.0, 0.0], [1.0, 1.0]));
+
+  let own = at_start(|| Picture::new(pixels(40, 20)).size_px(100.0, 100.0).fit(PictureFit::None));
+  let (quad, ..) = image_quad(&own).unwrap();
+  assert_eq!(quad, (38.0, 48.0, 40.0, 20.0));
+}
+
+#[test]
+fn a_circle_and_a_bare_one() {
+  let mut circle = at_start(|| {
+    Picture::new(pixels(64, 64))
+      .size_px(64.0, 64.0)
+      .shape(PictureShape::Circle)
+      .id("face")
+  });
+  assert_eq!(corner(&circle.fill("face").unwrap()), 999.0);
+  let mut bare = at_start(|| Picture::new(pixels(64, 64)).size_px(64.0, 64.0).bare(true).id("plain"));
+  assert!(bare.fill("plain").is_none(), "a bare picture has no fill of its own");
+  assert!(bare.border("plain").is_none(), "and no line around it");
+}
+
+#[test]
+fn a_picture_with_no_source_shows_a_glyph_and_what_it_would_be_called() {
+  let mut stage = at_start(|| {
+    Picture::empty()
+      .label("The lake at dusk")
+      .size_px(320.0, 180.0)
+      .id("lake")
+  });
+  assert_eq!(stage.bounds("lake"), (8.0, 8.0, 320.0, 180.0));
+  assert!(stage.paints(&glyph(icons::IMAGE)));
+  let (color, size) = stage.text("The lake at dusk");
+  assert_eq!(color, light(PaletteColor::MutedForeground));
+  assert_eq!(size, 13.0);
+  assert!(image_quad(&stage).is_none());
+}
+
+#[test]
+fn a_thumbnail_with_no_source_is_the_glyph_alone() {
+  let stage = at_start(|| Picture::empty().label("The lake at dusk").size_px(96.0, 96.0));
+  assert!(stage.paints(&glyph(icons::IMAGE)));
+  assert!(!stage.paints("The lake at dusk"), "a thumbnail has no room for words");
+}
+
+#[test]
+fn a_box_with_a_width_and_nothing_else_is_wide() {
+  let mut stage = at_start(|| Picture::empty().width(320.0).id("lake"));
+  let (_, _, width, height) = stage.bounds("lake");
+  assert_eq!(
+    (width, height),
+    (320.0, 180.0),
+    "16 by 9 where nothing tells the height"
+  );
+}
+
+fn with_bar() -> Picture {
+  Picture::new(pixels(640, 360))
+    .title("Lake at dusk")
+    .description("Ivan Zaida")
+    .force_bar_shown(Some(true))
+}
+
+#[test]
+fn the_bar_says_what_the_picture_is() {
+  let stage = at_start(|| with_bar().size_px(320.0, 180.0));
+  let (color, size) = stage.text("Lake at dusk");
+  assert_eq!((color, size), (Color::new(255, 255, 255, 255), 14.0));
+  let (color, size) = stage.text("Ivan Zaida");
+  assert_eq!((color, size), (Color::new(255, 255, 255, 0x99), 13.0));
+  let title = stage.text_quad("Lake at dusk").unwrap();
+  assert_eq!(
+    title.x,
+    8.0 + 12.0 + 4.0,
+    "12 from the side, and 4 more beside the buttons' row"
+  );
+}
+
+#[test]
+fn a_compact_picture_keeps_the_title_alone_and_a_thumbnail_nothing() {
+  let compact = at_start(|| with_bar().size_px(200.0, 113.0));
+  let (_, size) = compact.text("Lake at dusk");
+  assert_eq!(size, 13.0);
+  assert!(!compact.paints("Ivan Zaida"));
+  let thumbnail = at_start(|| with_bar().size_px(96.0, 96.0));
+  assert!(!thumbnail.paints("Lake at dusk"));
+  let said = at_start(|| with_bar().size_px(320.0, 180.0).size(PictureSize::Sm));
+  assert!(
+    !said.paints("Lake at dusk"),
+    "the form that is said, whatever the width"
+  );
+}
+
+#[test]
+fn the_form_follows_the_width_where_it_is_not_said() {
+  // A picture that fills a column, with a ratio: the column's width decides what it keeps.
+  let in_column = |width: f32| {
+    Stage::new(move |_| {
+      Column::new()
+        .width(width)
+        .child(with_bar().width(Length::Fill).aspect_ratio(16.0 / 9.0).id("lake"))
+        .into()
+    })
+  };
+  let mut wide = in_column(320.0);
+  assert_eq!(wide.bounds("lake"), (0.0, 0.0, 320.0, 180.0));
+  assert!(wide.paints("Lake at dusk") && wide.paints("Ivan Zaida"));
+  let compact = in_column(200.0);
+  assert!(compact.paints("Lake at dusk"));
+  assert!(!compact.paints("Ivan Zaida"));
+  let thumbnail = in_column(96.0);
+  assert!(!thumbnail.paints("Lake at dusk"));
+}
+
+#[test]
+fn the_bars_buttons_are_pressed_and_the_picture_is_not() {
+  let (downloads, opens) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let (download, open) = (downloads.clone(), opens.clone());
+  let mut stage = at_start(move || {
+    let (download, open) = (download.clone(), open.clone());
+    with_bar()
+      .size_px(320.0, 180.0)
+      .id("lake")
+      .on_download(move || {
+        download.fetch_add(1, Ordering::SeqCst);
+      })
+      .on_click(move |_| {
+        open.fetch_add(1, Ordering::SeqCst);
+      })
+  });
+  let (x, y, width, height) = stage.bounds("lake-download");
+  assert_eq!((width, height), (36.0, 36.0));
+  assert_eq!(
+    (x + width, y + height),
+    (8.0 + 320.0 - 12.0, 8.0 + 180.0 - 8.0),
+    "12 from the end and 8 from the bottom"
+  );
+  stage.click("lake-download");
+  assert_eq!((downloads.load(Ordering::SeqCst), opens.load(Ordering::SeqCst)), (1, 0));
+  stage.click("lake");
+  assert_eq!((downloads.load(Ordering::SeqCst), opens.load(Ordering::SeqCst)), (1, 1));
+}
+
+#[test]
+fn a_picture_that_can_be_chosen_tells_what_it_is_to_be() {
+  let told = Arc::new(AtomicUsize::new(0));
+  let teller = told.clone();
+  let mut stage = at_start(move || {
+    let teller = teller.clone();
+    Picture::new(pixels(160, 100))
+      .size_px(160.0, 100.0)
+      .selectable(true)
+      .selected(true)
+      .id("lake")
+      .on_change(move |chosen| {
+        teller.store(if chosen { 2 } else { 1 }, Ordering::SeqCst);
+      })
+  });
+  assert!(stage.paints(&glyph(icons::CHECK)), "a chosen picture has its check");
+  stage.click("lake");
+  assert_eq!(
+    told.load(Ordering::SeqCst),
+    1,
+    "a press of a chosen one is to make it not chosen"
+  );
+}
+
+#[test]
+fn a_disabled_picture_takes_nothing() {
+  let presses = Arc::new(AtomicUsize::new(0));
+  let press = presses.clone();
+  let mut stage = at_start(move || {
+    let press = press.clone();
+    Picture::new(pixels(160, 100))
+      .size_px(160.0, 100.0)
+      .disabled(true)
+      .id("lake")
+      .on_click(move |_| {
+        press.fetch_add(1, Ordering::SeqCst);
+      })
+  });
+  stage.click("lake");
+  assert_eq!(presses.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_caption_makes_it_a_figure() {
+  let mut stage = at_start(|| {
+    Picture::new(pixels(212, 141))
+      .size_px(212.0, 141.0)
+      .caption("Figure 1. The lake at dusk.")
+      .id("lake")
+  });
+  let (_, y, _, height) = stage.bounds("lake");
+  let caption = stage
+    .text_quad("Figure 1. The lake at dusk.")
+    .expect("the caption is drawn");
+  assert!(
+    caption.y >= y + height + 8.0,
+    "8 under the picture: {} under {}",
+    caption.y,
+    y + height
+  );
+  let (color, size) = stage.text("Figure 1. The lake at dusk.");
+  assert_eq!((color, size), (light(PaletteColor::MutedForeground), 13.0));
+}
+
+/// A picture and a figure in a room of 200, narrower than the width they are given.
+fn in_a_narrow_room(picture: impl Fn() -> Picture + Send + Sync + 'static) -> Stage {
+  Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Row::new().id("room").width(200.0).child(picture()))
+      .into()
+  })
+}
+
+#[test]
+fn a_box_wider_than_its_room_is_as_wide_as_the_room_and_keeps_its_shape() {
+  let mut stage = in_a_narrow_room(|| Picture::new(pixels(8, 6)).size_px(640.0, 360.0).id("lake"));
+  let (x, y, width, height) = stage.bounds("lake");
+  assert_eq!((x, y, width), (0.0, 0.0, 200.0));
+  assert!((height - 112.5).abs() < 0.01, "16 by 9 still: {height} high");
+
+  // In a room that holds it, it is the box that was said, to the pixel.
+  for (width, height) in [
+    (160.0, 90.0),
+    (432.0, 243.0),
+    (130.0, 73.0),
+    (207.0, 116.0),
+    (200.0, 113.0),
+  ] {
+    let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+      Row::new()
+        .child(Picture::new(pixels(8, 6)).size_px(width, height).id("lake"))
+        .into()
+    });
+    assert_eq!(stage.bounds("lake"), (0.0, 0.0, width, height));
+  }
+}
+
+#[test]
+fn a_box_its_room_made_narrower_takes_the_form_of_the_width_it_got_from_the_first_frame() {
+  let lake = || {
+    Picture::new(pixels(8, 6))
+      .size_px(640.0, 360.0)
+      .title("Lake at dusk")
+      .description("Ivan Zaida · 4032 × 3024")
+      .force_bar_shown(Some(true))
+      .id("lake")
+  };
+  // In a room that holds it, the large form: the line under the title.
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| Row::new().child(lake()).into());
+  stage.pass();
+  assert!(stage.paints("Ivan Zaida · 4032 × 3024"));
+
+  // In a room of 200, the form of 200: the title alone, from the first frame on.
+  let mut stage = Stage::first_frame(800.0, 600.0, move |_| {
+    Column::new()
+      .size(800.0, 600.0)
+      .child(Row::new().width(200.0).child(lake()))
+      .into()
+  });
+  assert!(stage.paints("Lake at dusk"), "the first frame");
+  assert!(!stage.paints("Ivan Zaida · 4032 × 3024"), "the first frame");
+  stage.pass();
+  assert!(stage.paints("Lake at dusk"));
+  assert!(!stage.paints("Ivan Zaida · 4032 × 3024"));
+}
+
+#[test]
+fn a_figure_wider_than_its_room_is_as_wide_as_the_room() {
+  let mut stage = in_a_narrow_room(|| {
+    Picture::new(pixels(8, 6))
+      .width(320.0)
+      .aspect_ratio(2.0)
+      .caption("Figure 1. The lake at dusk, from the east shore.")
+      .id("lake")
+  });
+  assert_eq!(stage.bounds("lake"), (0.0, 0.0, 200.0, 100.0));
+  let caption = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Text { .. }))
+    .map(|quad| quad.x + quad.width)
+    .fold(0.0, f32::max);
+  assert!(caption <= 200.5, "the caption wraps in the room: it ends at {caption}");
+}
+
+/// The board's Mobile/Picture: a picture of 360 by 240 at the top of a phone's screen, with a title, a badge, a
+/// download and an item of the app's.
+fn on_a_phone(told: Arc<std::sync::Mutex<Vec<String>>>, variant: bool) -> Stage {
+  let mut stage = Stage::first_frame(390.0, 844.0, move |_| {
+    let (saved, copied) = (told.clone(), told.clone());
+    let mut lake = Picture::new(pixels(8, 6))
+      .size_px(360.0, 240.0)
+      .title("Lake at dusk")
+      .description("Ivan Zaida · 4032 × 3024")
+      .badge(lurq::ui::Badge::new("New"))
+      .on_download(move || saved.lock().unwrap().push("saved".to_owned()))
+      .menu_item(lurq::ui::MenuItem::new("Copy").on_select(move || copied.lock().unwrap().push("copied".to_owned())))
+      .id("lake");
+    if variant {
+      lake = lake.variant(lurq::ui::PictureVariant::Phone);
+    }
+    Column::new().size(390.0, 844.0).child(lake).into()
+  });
+  stage.pass();
+  stage
+}
+
+#[test]
+fn on_a_phone_a_large_picture_runs_edge_to_edge_and_its_bar_has_no_buttons() {
+  let mut stage = on_a_phone(Arc::default(), true);
+  let quad = stage.fill("lake").expect("the box is filled");
+  assert!(
+    quad.border_radius.is_none_or(|radius| radius.to_array() == [0.0; 4]),
+    "no corners: {:?}",
+    quad.border_radius
+  );
+  assert!(stage.border("lake").is_none(), "no line around it");
+  // The bar is there with no pointer over it, and says what the picture is; its buttons are a long press's.
+  let (color, size) = stage.text("Lake at dusk");
+  assert_eq!((color, size), (Color::new(255, 255, 255, 255), 15.0));
+  for id in ["lake-download", "lake-more", "lake-open"] {
+    assert!(stage.tree.get_element_by_id(id).is_none(), "{id}");
+  }
+  let badge = stage.text_quad("New").expect("the badge");
+  assert!(
+    badge.x >= 16.0 && badge.x < 30.0 && badge.y >= 16.0 && badge.y < 30.0,
+    "16 in: {}, {}",
+    badge.x,
+    badge.y
+  );
+}
+
+#[test]
+fn on_a_phone_a_long_press_brings_its_actions_in_a_sheet() {
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let mut stage = on_a_phone(told.clone(), true);
+  assert!(!stage.paints("Download"));
+  let (x, y) = stage.center("lake");
+  assert!(stage.tree.touch_long_press(x, y));
+  stage.pass();
+  assert!(stage.paints("Download") && stage.paints("Copy"), "its actions");
+  assert!(stage.paints("Cancel"));
+  stage.click("lake-actions-option-0");
+  assert_eq!(*told.lock().unwrap(), ["saved"]);
+  assert!(!stage.paints("Copy"), "the sheet closed");
+}
+
+#[test]
+fn an_app_for_a_finger_has_the_phones_form_and_one_for_a_pointer_the_desktops() {
+  let mut stage = on_a_phone(Arc::default(), false);
+  assert!(
+    stage.tree.get_element_by_id("lake-download").is_some(),
+    "a pointer: the bar's buttons"
+  );
+
+  let app = lurq::app::App::new();
+  app.set_pointer(lurq::app::Pointer::Coarse);
+  let mut stage = Stage::first_frame_in(app, 390.0, 844.0, |_| {
+    Column::new()
+      .size(390.0, 844.0)
+      .child(
+        Picture::new(pixels(8, 6))
+          .size_px(360.0, 240.0)
+          .title("Lake at dusk")
+          .on_download(|| {})
+          .id("lake"),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(
+    stage.tree.get_element_by_id("lake-download").is_none(),
+    "a finger: no buttons in the bar"
+  );
+  assert!(stage.paints("Lake at dusk"), "the bar is there");
+}
+
+#[cfg(feature = "image")]
+mod decoded {
+  use std::time::Duration;
+
+  use lurq::images::wait_for_decoded_images;
+
+  use super::*;
+
+  const RED: &[u8] = include_bytes!("../assets/images/red_64x32.png");
+
+  fn settled(stage: &mut Stage) {
+    assert!(wait_for_decoded_images(Duration::from_secs(10)), "the decodes end");
+    stage.pass();
+  }
+
+  #[test]
+  fn a_decoded_picture_shows_its_pixels_once_they_are_there() {
+    let mut stage = at_start(|| Picture::from_bytes(RED).cache_key(0x91C7_0001).width(128.0).id("red"));
+    settled(&mut stage);
+    let (_, _, width, height) = stage.bounds("red");
+    assert_eq!((width, height), (128.0, 64.0), "the height follows the pixels' ratio");
+    assert!(image_quad(&stage).is_some());
+  }
+
+  #[test]
+  fn a_picture_that_did_not_load_says_so_and_asks_again() {
+    let retries = Arc::new(AtomicUsize::new(0));
+    let retry = retries.clone();
+    let mut stage = at_start(move || {
+      let retry = retry.clone();
+      Picture::from_bytes(&b"not a picture"[..])
+        .cache_key(0x91C7_0002)
+        .label("The lake at dusk")
+        .size_px(320.0, 180.0)
+        .id("lake")
+        .on_retry(move || {
+          retry.fetch_add(1, Ordering::SeqCst);
+        })
+    });
+    settled(&mut stage);
+    assert!(stage.paints(&glyph(icons::ALERT_CIRCLE)));
+    let (color, size) = stage.text("The lake at dusk");
+    assert_eq!((color, size), (light(PaletteColor::Foreground), 14.0));
+    assert!(stage.paints("The picture didn't load."));
+    assert!(stage.paints("Try again"));
+    let (x, y, width, height) = stage.bounds("lake-retry");
+    assert_eq!(
+      height, 32.0,
+      "a button of 32, found by its id though no render built it"
+    );
+    assert!(
+      (x + width / 2.0 - 168.0).abs() < 0.01,
+      "in the middle of the box across"
+    );
+    assert!(y > 8.0 + 90.0, "under the words");
+
+    stage.click("lake-retry");
+    assert_eq!(retries.load(Ordering::SeqCst), 1);
+    settled(&mut stage);
+    assert!(stage.paints("Try again"), "it failed again, and says so again");
+    stage.click("lake-retry");
+    assert_eq!(
+      retries.load(Ordering::SeqCst),
+      2,
+      "the button asks as often as it is pressed"
+    );
+  }
+
+  #[test]
+  fn the_app_is_told_once_that_a_picture_came() {
+    let came = Arc::new(AtomicUsize::new(0));
+    let tell = came.clone();
+    let mut stage = at_start(move || {
+      let tell = tell.clone();
+      Picture::from_bytes(RED)
+        .cache_key(0x91C7_0010)
+        .width(128.0)
+        .on_load(move || {
+          tell.fetch_add(1, Ordering::SeqCst);
+        })
+    });
+    settled(&mut stage);
+    stage.pass();
+    stage.pass();
+    assert!(image_quad(&stage).is_some());
+    assert_eq!(came.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn what_stood_in_for_a_picture_goes_out_over_it_in_a_box_that_does_not_wait_for_it() {
+    // The app says when the pixels are there, so that the test does and no decode's thread.
+    let fetching = lurq::core::Signal::new(true);
+    let still = fetching.clone();
+    let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::new(ImageData::from_rgba(vec![200; 4 * 4 * 4], 4, 4))
+            .loading(still.get())
+            .size_px(320.0, 180.0)
+            .progress(0.42),
+        )
+        .into()
+    });
+    assert!(stage.paints("42%"), "while it is on its way the box says how far");
+    assert!(image_quad(&stage).is_none());
+
+    fetching.set(false);
+    stage.frame();
+    assert!(image_quad(&stage).is_some(), "the pixels are there");
+    assert!(
+      stage.paints("42%"),
+      "and what stood in for them is still over them, going out"
+    );
+
+    stage.pass();
+    assert!(image_quad(&stage).is_some());
+    assert!(!stage.paints("42%"), "then it is gone");
+  }
+
+  #[test]
+  fn a_box_the_pixels_size_drops_what_stood_in_at_once() {
+    let mut stage = Stage::first_frame(400.0, 300.0, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::from_bytes(RED)
+            .cache_key(0x91C7_0014)
+            .width(128.0)
+            .progress(0.42)
+            .id("red"),
+        )
+        .into()
+    });
+    assert!(wait_for_decoded_images(Duration::from_secs(10)), "the decode ends");
+    stage.frame();
+    assert!(image_quad(&stage).is_some());
+    assert!(!stage.paints("42%"), "nothing is left to hold the box at another size");
+    assert_eq!(stage.bounds("red").3, 64.0);
+  }
+
+  #[test]
+  fn a_small_version_stands_in_blurred_while_the_picture_is_on_its_way() {
+    let mut stage = at_start(|| {
+      Picture::empty()
+        .loading(true)
+        .placeholder(PicturePlaceholder::blur(
+          lurq::resources::Source::bytes(RED).key(0x91C7_0015),
+        ))
+        .size_px(320.0, 180.0)
+    });
+    settled(&mut stage);
+    let ((_, _, width, height), ..) = image_quad(&stage).expect("the small version is drawn");
+    assert_eq!(
+      (width, height),
+      (320.0, 180.0),
+      "over the whole box, as the picture will be"
+    );
+  }
+
+  #[test]
+  fn the_app_is_told_why_a_picture_did_not_come_and_again_when_it_is_asked_for_again() {
+    use lurq::ui::PictureError;
+    let reasons = Arc::new(std::sync::Mutex::new(Vec::<PictureError>::new()));
+    let tell = reasons.clone();
+    let mut stage = at_start(move || {
+      let tell = tell.clone();
+      Picture::from_bytes(&b"no picture at all"[..])
+        .cache_key(0x91C7_0011)
+        .size_px(320.0, 180.0)
+        .id("broken")
+        .on_error(move |error| tell.lock().unwrap().push(error.clone()))
+    });
+    settled(&mut stage);
+    stage.pass();
+    // Bytes that are no picture: of that kind, with what the decoder said kept for a log.
+    {
+      let reasons = reasons.lock().unwrap();
+      assert_eq!(reasons.len(), 1);
+      assert!(
+        matches!(reasons[0], PictureError::NotAPicture(Some(_))),
+        "{:?}",
+        reasons[0]
+      );
+      assert!(
+        !reasons[0].detail().unwrap_or_default().is_empty(),
+        "it says why, for a log"
+      );
+      assert_eq!(reasons[0].to_string(), "Not an image");
+    }
+
+    stage.click("broken-retry");
+    settled(&mut stage);
+    stage.pass();
+    assert_eq!(reasons.lock().unwrap().len(), 2);
+  }
+
+  #[test]
+  fn a_file_that_is_not_there_is_told_as_not_found_in_the_words_of_the_apps_locale() {
+    use lurq::{core::Locale, ui::PictureError};
+    let reasons = Arc::new(std::sync::Mutex::new(Vec::<PictureError>::new()));
+    let tell = reasons.clone();
+    let mut stage = at_start(move || {
+      let tell = tell.clone();
+      Picture::from_file("no/such/folder/lake-at-dusk.png")
+        .size_px(320.0, 180.0)
+        .on_error(move |error| tell.lock().unwrap().push(error.clone()))
+    });
+    settled(&mut stage);
+    stage.pass();
+    assert_eq!(*reasons.lock().unwrap(), [PictureError::NotFound], "once, a kind");
+    assert_eq!(
+      &*Locale::for_tag("uk").media.picture_error(&PictureError::NotFound),
+      "Не знайдено"
+    );
+  }
+
+  #[test]
+  fn a_picture_keeps_its_place_among_others_by_its_key() {
+    let order = lurq::core::Signal::new(false);
+    let turned = order.clone();
+    let mut stage = Stage::new(move |_| {
+      let red = Picture::from_bytes(RED)
+        .cache_key(0x91C7_0012)
+        .size_px(64.0, 32.0)
+        .key("red")
+        .id("red");
+      let none = Picture::empty().size_px(64.0, 32.0).key("none").id("none");
+      let row = Row::new().padding(8.0);
+      match turned.get() {
+        false => row.child(red).child(none).into(),
+        true => row.child(none).child(red).into(),
+      }
+    });
+    settled(&mut stage);
+    assert_eq!(stage.bounds("red").0, 8.0);
+    order.set(true);
+    stage.pass();
+    assert_eq!(
+      stage.bounds("red").0,
+      8.0 + 64.0,
+      "it moved, and it is the picture it was"
+    );
+    assert!(image_quad(&stage).is_some());
+  }
+
+  /// Passes until `done` holds, while the app's loader and the decoder work on their threads.
+  fn until(stage: &mut Stage, what: &str, done: impl Fn(&Stage) -> bool) {
+    for _ in 0..500 {
+      stage.pass();
+      if done(stage) {
+        return;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{what} did not come");
+  }
+
+  /// A folder of this test's own.
+  fn folder(name: &str) -> std::path::PathBuf {
+    let folder = std::env::temp_dir().join(format!("lurq-picture-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    folder
+  }
+
+  #[test]
+  fn a_resource_under_the_apps_root_is_loaded_and_decoded() {
+    let folder = folder("root");
+    std::fs::write(folder.join("red.png"), RED).unwrap();
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    let mut stage = Stage::in_app(app, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(Picture::from_resource("red.png").width(128.0).id("red"))
+        .into()
+    });
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    let (_, _, width, height) = stage.bounds("red");
+    assert_eq!((width, height), (128.0, 64.0), "the height follows the pixels' ratio");
+  }
+
+  #[test]
+  fn a_resource_that_is_not_there_says_so_and_comes_when_it_is_asked_for_again() {
+    let folder = folder("late");
+    let _ = std::fs::remove_file(folder.join("late.png"));
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    let mut stage = Stage::in_app(app, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::from_resource("late.png")
+            .label("The lake at dusk")
+            .size_px(320.0, 180.0)
+            .id("late"),
+        )
+        .into()
+    });
+    until(&mut stage, "the error", |stage| stage.paints("Try again"));
+    assert!(stage.paints("The lake at dusk"));
+    assert!(stage.paints("The picture didn't load."));
+    assert!(image_quad(&stage).is_none());
+
+    // Asked again with nothing changed, it fails again and says so again.
+    stage.click("late-retry");
+    until(&mut stage, "the error again", |stage| stage.paints("Try again"));
+
+    std::fs::write(folder.join("late.png"), RED).unwrap();
+    stage.click("late-retry");
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    assert!(!stage.paints("Try again"));
+  }
+
+  #[test]
+  fn a_resource_that_is_no_picture_is_read_again_when_it_is_asked_for_again() {
+    let folder = folder("mended");
+    std::fs::write(folder.join("mended.png"), b"not a picture").unwrap();
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    let mut stage = Stage::in_app(app, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(Picture::from_resource("mended.png").size_px(320.0, 180.0).id("mended"))
+        .into()
+    });
+    until(&mut stage, "the error", |stage| stage.paints("Try again"));
+
+    // It was read, and what was read is no picture: asked again, it is read again and not decoded again
+    // from the bytes that failed.
+    std::fs::write(folder.join("mended.png"), RED).unwrap();
+    stage.click("mended-retry");
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    assert!(!stage.paints("Try again"));
+  }
+
+  /// A server on this machine that answers every request with `body` as a PNG, until the test ends.
+  #[cfg(feature = "http")]
+  fn serve(body: &'static [u8]) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}/red.png", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { return };
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+          match stream.read(&mut chunk) {
+            Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+            _ => break,
+          }
+        }
+        let head = format!(
+          "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+          body.len()
+        );
+        let _ = stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(body));
+      }
+    });
+    address
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn a_picture_at_an_address_is_loaded_and_decoded() {
+    let address = serve(RED);
+    let mut stage = Stage::new(move |_| {
+      Row::new()
+        .padding(8.0)
+        .child(Picture::from_url(&address).width(128.0).id("red"))
+        .into()
+    });
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    let (_, _, width, height) = stage.bounds("red");
+    assert_eq!((width, height), (128.0, 64.0));
+  }
+
+  #[cfg(not(feature = "http"))]
+  #[test]
+  fn a_build_without_http_shows_an_address_as_a_picture_that_did_not_load() {
+    let mut stage = Stage::new(|_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::from_url("https://example.com/lake.jpg")
+            .label("The lake at dusk")
+            .size_px(320.0, 180.0),
+        )
+        .into()
+    });
+    until(&mut stage, "the error", |stage| stage.paints("Try again"));
+    assert!(stage.paints("The lake at dusk"));
+  }
+
+  #[test]
+  fn a_thumbnail_that_did_not_load_is_a_glyph() {
+    let mut stage = at_start(|| {
+      Picture::from_bytes(&b"not a picture either"[..])
+        .cache_key(0x91C7_0003)
+        .label("The lake at dusk")
+        .size_px(96.0, 96.0)
+    });
+    settled(&mut stage);
+    assert!(stage.paints(&glyph(icons::ALERT_CIRCLE)));
+    assert!(!stage.paints("Try again"));
+    assert!(!stage.paints("The lake at dusk"));
+  }
+}
+
+/// The scene is an element: a picture is one.
+#[test]
+fn a_picture_is_an_element() {
+  let _: Element = Picture::empty().into();
+  let _ = Dimension::Px(1.0);
+}

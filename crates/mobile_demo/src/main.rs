@@ -17,6 +17,7 @@ mod more;
 mod other_window;
 mod scroll;
 mod sheets;
+mod sound;
 mod system;
 mod touch;
 mod ui;
@@ -27,7 +28,6 @@ use lurq::{
     App, Tree,
     component::Component,
     ctx::Ctx,
-    events::{HistoryDirection, HistorySwipeEvent},
     theme::{PaletteColor, ThemePalette},
     wgpu_render::WgpuRenderEngine,
     window::Orientation,
@@ -108,7 +108,7 @@ impl Component for MobileDemo {
     // The whole app draws back behind a sheet that takes all the room.
     let tabs = self.tabs.clone();
     SheetHost::mount(ctx, move |ctx| {
-      let bar = TabBar::dark()
+      let bar = TabBar::new()
         // A bar that floats over the content, as the newest system's does, and gets out of the way of a
         // list that is being read.
         .floating()
@@ -145,6 +145,9 @@ fn routes() -> Routes {
         screen(ctx, "/scroll", |ctx| ctx.mount::<scroll::ScrollScreen>(()))
       })
       .route("/system", |ctx| screen(ctx, "/system", system::system))
+      .route("/sound", |ctx| {
+        screen(ctx, "/sound", |ctx| ctx.mount::<sound::SoundScreen>(()))
+      })
       .route("/auth", |ctx| {
         screen(ctx, "/auth", |ctx| ctx.mount::<auth::AuthScreen>(()))
       })
@@ -164,26 +167,16 @@ fn routes() -> Routes {
 }
 
 /// The stack of screens under its bar. A finger in from the left edge takes the top screen back with it; from
-/// the right edge, or a trackpad's swipe, the history moves as the event says.
+/// the right edge, a trackpad's swipe, Android's back or the mouse's side buttons, the router goes back or forward
+/// by itself (`NavigationCommand`).
 pub(crate) fn shell(ctx: &mut Ctx) -> Element {
-  let navigator = ctx.navigator();
-  let bar = NavigationBar::dark()
+  let bar = NavigationBar::new()
     // Not all there: a list that goes on under the bar shows through it, blurred.
     .background(Color::new(30, 41, 59, 190))
     .tint(Color::from_hex(PRIMARY))
     .title(Color::from_hex(TEXT))
     .border(Color::from_hex(BORDER));
   Column::new()
-    .on_history_swipe(move |event: HistorySwipeEvent| {
-      let Some(navigator) = &navigator else {
-        return;
-      };
-      match event.direction {
-        HistoryDirection::Back => navigator.back(),
-        HistoryDirection::Forward => navigator.forward(),
-      };
-      event.stop_propagation();
-    })
     .child(StackOutlet::mount_with(
       ctx,
       StackOutletProps::new().bar(bar).background(Color::from_hex(BG)),
@@ -228,8 +221,28 @@ fn screen(ctx: &mut Ctx, path: &str, content: impl FnOnce(&mut Ctx) -> Element) 
     .into()
 }
 
+/// The folder the demo keeps what it loaded from addresses in, for its next run: its own, among the caches of the
+/// user: on a phone, `Library/Caches` of the app's own container, which the system may empty. The app chooses it; lurq
+/// picks none.
+fn cache_folder() -> std::path::PathBuf {
+  use std::{env::var_os, path::PathBuf};
+  let home = |under: &str| var_os("HOME").map(|home| PathBuf::from(home).join(under));
+  let caches = if cfg!(windows) {
+    var_os("LOCALAPPDATA").map(PathBuf::from)
+  } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+    home("Library/Caches")
+  } else {
+    var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| home(".cache"))
+  };
+  caches
+    .unwrap_or_else(std::env::temp_dir)
+    .join("lurq-mobile-demo")
+    .join("media")
+}
+
 fn main() {
-  let mut app = App::new();
+  // What the Sound screen loads from its address is kept on the disk, and is there the next time the app runs.
+  let mut app = App::new().enable_media_disk_cache(cache_folder());
   let mut tree = Tree::new();
   tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
   #[cfg(feature = "mcp")]
@@ -247,11 +260,11 @@ fn main() {
     );
   }
   // A palette for each appearance: the theme is in the system's, and the System screen shows it.
-  let mut dark = ThemePalette::default();
+  let mut dark = ThemePalette::dark();
   for (role, color) in [
-    (PaletteColor::SurfaceBase, "#1c1c1e"),
+    (PaletteColor::Background, "#1c1c1e"),
     (PaletteColor::Border, "#38383a"),
-    (PaletteColor::TextPrimary, "#ffffff"),
+    (PaletteColor::Foreground, "#ffffff"),
   ] {
     dark.set(role, Color::from_hex(color));
   }

@@ -119,6 +119,8 @@ pub(crate) fn button_name(button: MouseButton) -> &'static str {
     MouseButton::Left => "left",
     MouseButton::Middle => "middle",
     MouseButton::Right => "right",
+    MouseButton::Back => "back",
+    MouseButton::Forward => "forward",
     MouseButton::Other(_) => "other",
   }
 }

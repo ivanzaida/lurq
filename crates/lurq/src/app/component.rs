@@ -151,6 +151,21 @@ impl<'a> DevtoolsFormatter<'a> {
     self.field_children_or_value(name, type_name, children);
   }
 
+  /// A field as the derive read it ([`probe`]): with what its type wrote of it, or with its type alone where
+  /// the type does not write itself.
+  #[doc(hidden)]
+  pub fn field_probed(
+    &mut self,
+    name: impl Into<String>,
+    type_name: impl Into<String>,
+    written: Option<Vec<ComponentInfo>>,
+  ) {
+    match written {
+      Some(children) => self.field_children_or_value(name, type_name, children),
+      None => self.buffer.push(ComponentInfo::new(name, type_name)),
+    }
+  }
+
   pub fn field_debug<T: Debug + ?Sized>(&mut self, name: impl Into<String>, value: &T) {
     self.field_value(name, std::any::type_name::<T>(), format!("{value:?}"));
   }
@@ -223,6 +238,17 @@ impl DevtoolsStruct<'_, '_> {
     self
   }
 
+  #[doc(hidden)]
+  pub fn field_probed(
+    &mut self,
+    name: impl Into<String>,
+    type_name: impl Into<String>,
+    written: Option<Vec<ComponentInfo>>,
+  ) -> &mut Self {
+    self.formatter.field_probed(name, type_name, written);
+    self
+  }
+
   pub fn field_debug<T: Debug + ?Sized>(&mut self, name: impl Into<String>, value: &T) -> &mut Self {
     self.formatter.field_debug(name, value);
     self
@@ -262,6 +288,13 @@ impl DevtoolsTuple<'_, '_> {
   pub fn field_as<T: DevtoolsInspectable + ?Sized>(&mut self, type_name: impl Into<String>, value: &T) -> &mut Self {
     let index = self.next_index();
     self.formatter.field_as(index, type_name, value);
+    self
+  }
+
+  #[doc(hidden)]
+  pub fn field_probed(&mut self, type_name: impl Into<String>, written: Option<Vec<ComponentInfo>>) -> &mut Self {
+    let index = self.next_index();
+    self.formatter.field_probed(index, type_name, written);
     self
   }
 
@@ -408,7 +441,112 @@ macro_rules! impl_scalar_devtools_inspectable {
 }
 
 impl_scalar_devtools_inspectable!(
-  bool, char, i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64, String
+  bool,
+  char,
+  i8,
+  i16,
+  i32,
+  i64,
+  i128,
+  isize,
+  u8,
+  u16,
+  u32,
+  u64,
+  u128,
+  usize,
+  f32,
+  f64,
+  String,
+  std::time::Duration,
+  std::path::PathBuf,
+);
+
+/// How the derive reads a field whose type it cannot tell is inspectable: with what the type writes of it where
+/// it writes itself, and with nothing where it does not. The first is found before the second for a `&Probe`,
+/// so a struct with a field DevTools cannot read still derives, and that field shows its type alone.
+#[doc(hidden)]
+pub mod probe {
+  use super::{ComponentInfo, DevtoolsInspectable};
+
+  pub struct Probe<'a, T: ?Sized>(pub &'a T);
+
+  pub trait Inspected {
+    fn devtools_children(&self) -> Option<Vec<ComponentInfo>>;
+  }
+
+  impl<T: DevtoolsInspectable + ?Sized> Inspected for Probe<'_, T> {
+    fn devtools_children(&self) -> Option<Vec<ComponentInfo>> {
+      let mut children = Vec::new();
+      self.0.write_info(&mut children);
+      Some(children)
+    }
+  }
+
+  pub trait Uninspected {
+    fn devtools_children(&self) -> Option<Vec<ComponentInfo>>;
+  }
+
+  impl<T: ?Sized> Uninspected for &Probe<'_, T> {
+    fn devtools_children(&self) -> Option<Vec<ComponentInfo>> {
+      None
+    }
+  }
+}
+
+/// What reads a value of one type for DevTools, found by the type: `register_inspectable!` makes one, and the
+/// derive calls it.
+#[cfg(feature = "devtools")]
+#[doc(hidden)]
+pub struct RegisteredInspector {
+  pub type_id: fn() -> std::any::TypeId,
+  pub inspect: fn(&dyn std::any::Any, &mut Vec<ComponentInfo>),
+}
+
+#[cfg(feature = "devtools")]
+inventory::collect!(RegisteredInspector);
+
+/// What a value writes of itself for DevTools, by the inspector its type registered: `None` for a type that
+/// registered none. This is how a value given with no bound on its type is read: what a context holds.
+#[cfg(feature = "devtools")]
+pub(crate) fn inspect_registered<T: 'static>(value: &T) -> Option<Vec<ComponentInfo>> {
+  use std::{any::TypeId, collections::HashMap, sync::OnceLock};
+  static INSPECTORS: OnceLock<HashMap<TypeId, fn(&dyn std::any::Any, &mut Vec<ComponentInfo>)>> = OnceLock::new();
+  let inspectors = INSPECTORS.get_or_init(|| {
+    inventory::iter::<RegisteredInspector>
+      .into_iter()
+      .map(|inspector| ((inspector.type_id)(), inspector.inspect))
+      .collect()
+  });
+  let inspect = inspectors.get(&TypeId::of::<T>())?;
+  let mut fields = Vec::new();
+  inspect(value, &mut fields);
+  Some(fields)
+}
+
+// The values an app provides as they are: a number, a text, a flag.
+crate::register_inspectable!(
+  bool,
+  char,
+  i8,
+  i16,
+  i32,
+  i64,
+  i128,
+  isize,
+  u8,
+  u16,
+  u32,
+  u64,
+  u128,
+  usize,
+  f32,
+  f64,
+  String,
+  &'static str,
+  std::sync::Arc<str>,
+  std::time::Duration,
+  std::path::PathBuf,
 );
 
 impl<T: DevtoolsInspectable> DevtoolsInspectable for Option<T> {
@@ -424,9 +562,95 @@ impl<T: DevtoolsInspectable> DevtoolsInspectable for Option<T> {
   }
 }
 
-impl<T: DevtoolsInspectable> DevtoolsInspectable for Vec<T> {
+impl<T> DevtoolsInspectable for Vec<T> {
   fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
     formatter.value(std::any::type_name::<Vec<T>>(), format!("len={}", self.len()));
+  }
+}
+
+impl<T> DevtoolsInspectable for [T] {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value(std::any::type_name::<[T]>(), format!("len={}", self.len()));
+  }
+}
+
+impl<T, const N: usize> DevtoolsInspectable for [T; N] {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value(std::any::type_name::<[T; N]>(), format!("len={N}"));
+  }
+}
+
+impl<T> DevtoolsInspectable for std::collections::VecDeque<T> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value(
+      std::any::type_name::<std::collections::VecDeque<T>>(),
+      format!("len={}", self.len()),
+    );
+  }
+}
+
+impl<T> DevtoolsInspectable for std::collections::BTreeSet<T> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value(
+      std::any::type_name::<std::collections::BTreeSet<T>>(),
+      format!("len={}", self.len()),
+    );
+  }
+}
+
+impl<K, V> DevtoolsInspectable for std::collections::BTreeMap<K, V> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value(
+      std::any::type_name::<std::collections::BTreeMap<K, V>>(),
+      format!("len={}", self.len()),
+    );
+  }
+}
+
+impl<T: DevtoolsInspectable, E: DevtoolsInspectable> DevtoolsInspectable for Result<T, E> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    let type_name = std::any::type_name::<Result<T, E>>();
+    match self {
+      Ok(value) => formatter.field_with("Ok", type_name, |formatter| value.write_info(formatter.buffer_mut())),
+      Err(error) => formatter.field_with("Err", type_name, |formatter| error.write_info(formatter.buffer_mut())),
+    }
+  }
+}
+
+/// A shared value is the value it shares.
+impl<T: DevtoolsInspectable> DevtoolsInspectable for std::sync::Arc<T> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    (**self).write_info(formatter.buffer_mut());
+  }
+}
+
+impl<T: DevtoolsInspectable> DevtoolsInspectable for std::rc::Rc<T> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    (**self).write_info(formatter.buffer_mut());
+  }
+}
+
+impl DevtoolsInspectable for std::borrow::Cow<'_, str> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value_debug(&**self);
+  }
+}
+
+impl DevtoolsInspectable for std::path::Path {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+impl<T: Debug> DevtoolsInspectable for std::ops::Range<T> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+impl<T: Debug> DevtoolsInspectable for std::ops::RangeInclusive<T> {
+  fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
   }
 }
 
@@ -509,6 +733,66 @@ pub trait Component: Send + Sync + 'static {
   fn on_unmounted(&self) {}
 }
 
+/// A value that stands in a tree as a component: a builder (`SeekBar::new(..)`) whose component keeps between
+/// renders what a builder cannot.
+///
+/// Converting it into an element declares that component where the element stands, as
+/// [`Element::component`] does, so `.child(builder)` is enough and no `Ctx` is asked for: the component whose
+/// render returns the element mounts it once the render has returned, and keeps its slot.
+///
+/// ```
+/// use std::sync::Arc;
+///
+/// use lurq::{
+///   app::{component::{Component, IntoComponent}, ctx::Ctx},
+///   components::{Row, Text},
+///   node::Element,
+/// };
+///
+/// /// What an app writes.
+/// #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
+/// pub struct Clock {
+///   key: Option<Arc<str>>,
+/// }
+///
+/// /// What keeps the clock between renders.
+/// pub struct ClockHost;
+///
+/// impl Component for ClockHost {
+///   type Props = Clock;
+///   fn create(_ctx: &mut Ctx) -> Self {
+///     Self
+///   }
+///   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+///     Text::new("12:00")
+///   }
+/// }
+///
+/// impl IntoComponent for Clock {
+///   type Component = ClockHost;
+///   fn into_props(self) -> Clock {
+///     self
+///   }
+///   fn component_key(&self) -> Option<Arc<str>> {
+///     self.key.clone()
+///   }
+/// }
+///
+/// let row = Row::new().child(Clock { key: None });
+/// ```
+pub trait IntoComponent: Sized {
+  /// The component that renders it.
+  type Component: Component<Props: Clone>;
+
+  /// What its component is given.
+  fn into_props(self) -> <Self::Component as Component>::Props;
+
+  /// What tells it from its siblings, where it has a key: as the key of [`Element::component_keyed`].
+  fn component_key(&self) -> Option<std::sync::Arc<str>> {
+    None
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::{ComponentInfo, DevtoolsFormatter, DevtoolsInspectable};
@@ -588,5 +872,171 @@ mod tests {
     assert_eq!(fields[0].formatted_value(), Some("9"));
     assert_eq!(fields[1].name(), "1");
     assert_eq!(fields[1].formatted_value(), Some("\"items\""));
+  }
+
+  /// What a value writes where it writes one thing: a number, a text, a length.
+  fn written<T: DevtoolsInspectable + ?Sized>(value: &T) -> Option<String> {
+    let mut fields = Vec::new();
+    value.write_info(&mut fields);
+    match fields.as_slice() {
+      [only] => only.formatted_value().map(str::to_owned),
+      _ => None,
+    }
+  }
+
+  #[test]
+  fn the_types_of_std_write_themselves() {
+    use std::{
+      borrow::Cow,
+      collections::{BTreeMap, BTreeSet, VecDeque},
+      path::{Path, PathBuf},
+      rc::Rc,
+      sync::Arc,
+      time::Duration,
+    };
+
+    // What is shared or boxed is the value it holds.
+    assert_eq!(written(&Arc::new(5_u32)).as_deref(), Some("5"));
+    assert_eq!(written(&Rc::new("lurq".to_owned())).as_deref(), Some("\"lurq\""));
+    assert_eq!(written(&Cow::Borrowed("text")).as_deref(), Some("\"text\""));
+    // What holds many says how many, whatever they are.
+    struct Opaque;
+    assert_eq!(written(&[1_u8, 2, 3]).as_deref(), Some("len=3"));
+    assert_eq!(written(&[1_u8, 2][..]).as_deref(), Some("len=2"));
+    assert_eq!(written(&vec![Opaque, Opaque]).as_deref(), Some("len=2"));
+    assert_eq!(written(&VecDeque::from([1, 2])).as_deref(), Some("len=2"));
+    assert_eq!(written(&BTreeSet::from([1, 2, 3])).as_deref(), Some("len=3"));
+    assert_eq!(written(&BTreeMap::from([("a", 1)])).as_deref(), Some("len=1"));
+    assert_eq!(written(&Duration::from_millis(1500)).as_deref(), Some("1.5s"));
+    assert_eq!(written(&PathBuf::from("a/b.txt")).as_deref(), Some("\"a/b.txt\""));
+    assert_eq!(written(Path::new("c")).as_deref(), Some("\"c\""));
+    assert_eq!(written(&(1..4)).as_deref(), Some("1..4"));
+    assert_eq!(written(&(1..=4)).as_deref(), Some("1..=4"));
+
+    // A result says which it is, with what that holds under it.
+    let mut fields = Vec::new();
+    Ok::<u8, String>(7).write_info(&mut fields);
+    assert_eq!(fields[0].name(), "Ok");
+    assert_eq!(fields[0].children()[0].formatted_value(), Some("7"));
+    let mut fields = Vec::new();
+    Err::<u8, String>("no".to_owned()).write_info(&mut fields);
+    assert_eq!(fields[0].name(), "Err");
+    assert_eq!(fields[0].children()[0].formatted_value(), Some("\"no\""));
+  }
+
+  #[test]
+  fn a_derive_takes_a_field_devtools_cannot_read_and_shows_its_type() {
+    /// It does not write itself for DevTools.
+    struct Opaque;
+
+    #[derive(crate::DevtoolsInspectable)]
+    struct Inner {
+      enabled: bool,
+    }
+
+    #[derive(crate::DevtoolsInspectable)]
+    struct Holder {
+      count: u32,
+      opaque: Opaque,
+      inner: Inner,
+      callback: fn() -> u8,
+      many: Vec<Opaque>,
+    }
+
+    let mut fields = Vec::new();
+    Holder {
+      count: 3,
+      opaque: Opaque,
+      inner: Inner { enabled: true },
+      callback: || 1,
+      many: vec![Opaque],
+    }
+    .write_info(&mut fields);
+
+    let names = fields.iter().map(ComponentInfo::name).collect::<Vec<_>>();
+    assert_eq!(names, ["count", "opaque", "inner", "callback", "many"]);
+    assert_eq!(fields[0].formatted_value(), Some("3"));
+    // The field it cannot read is there with its type, and nothing of its value.
+    assert!(fields[1].type_name().ends_with("Opaque"));
+    assert_eq!(fields[1].formatted_value(), None);
+    assert!(fields[1].children().is_empty());
+    // One it can read is read as before.
+    assert_eq!(fields[2].children()[0].name(), "enabled");
+    assert_eq!(fields[2].children()[0].formatted_value(), Some("true"));
+    assert_eq!(fields[3].formatted_value(), None);
+    assert_eq!(fields[4].formatted_value(), Some("len=1"));
+
+    // A tuple struct's too.
+    #[derive(crate::DevtoolsInspectable)]
+    struct Pair(Opaque, u8);
+    let mut fields = Vec::new();
+    Pair(Opaque, 2).write_info(&mut fields);
+    assert_eq!(fields[0].formatted_value(), None);
+    assert_eq!(fields[1].formatted_value(), Some("2"));
+  }
+
+  #[test]
+  fn a_field_of_a_type_parameter_is_read_where_the_parameter_is_bound() {
+    #[derive(crate::DevtoolsInspectable)]
+    struct Bound<T: DevtoolsInspectable>(T);
+
+    #[derive(crate::DevtoolsInspectable)]
+    struct Free<T>(T);
+
+    let mut fields = Vec::new();
+    Bound(4_u8).write_info(&mut fields);
+    assert_eq!(fields[0].formatted_value(), Some("4"));
+
+    // With no bound, what the parameter is is not known where the struct is written.
+    let mut fields = Vec::new();
+    Free(4_u8).write_info(&mut fields);
+    assert_eq!(fields[0].formatted_value(), None);
+    assert_eq!(fields[0].type_name(), "u8");
+  }
+
+  #[cfg(feature = "devtools")]
+  #[test]
+  fn a_value_is_read_by_the_inspector_its_type_registered() {
+    use super::inspect_registered;
+
+    #[derive(crate::DevtoolsInspectable)]
+    struct Derived {
+      count: u32,
+    }
+
+    struct ByHand(u8);
+
+    impl DevtoolsInspectable for ByHand {
+      fn inspect(&self, formatter: &mut DevtoolsFormatter<'_>) {
+        formatter.value("ByHand", self.0.to_string());
+      }
+    }
+    crate::register_inspectable!(ByHand);
+
+    struct Unregistered;
+
+    #[derive(crate::DevtoolsInspectable)]
+    struct Generic<T>(T);
+
+    let value = |fields: Option<Vec<ComponentInfo>>| {
+      fields.and_then(|fields| {
+        fields
+          .first()
+          .and_then(|field| field.formatted_value().map(str::to_owned))
+      })
+    };
+    // A derive registers the type it derives for, and a type written by hand is registered by hand.
+    assert_eq!(value(inspect_registered(&Derived { count: 3 })).as_deref(), Some("3"));
+    assert_eq!(value(inspect_registered(&ByHand(9))).as_deref(), Some("9"));
+    // The values an app provides as they are.
+    assert_eq!(value(inspect_registered(&7_i32)).as_deref(), Some("7"));
+    assert_eq!(
+      value(inspect_registered(&"text".to_owned())).as_deref(),
+      Some("\"text\"")
+    );
+    assert_eq!(value(inspect_registered(&"static")).as_deref(), Some("\"static\""));
+    // A type that registered none has none: so has a type with parameters, which is a type for each.
+    assert!(inspect_registered(&Unregistered).is_none());
+    assert!(inspect_registered(&Generic(1_u8)).is_none());
   }
 }

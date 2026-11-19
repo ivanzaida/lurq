@@ -1,6 +1,6 @@
 ---
 title: Theme
-description: Semantic palette, typography, radius, spacing, border size, shadow, scrollbar, and form theme roles, with named extras.
+description: The design system's theme, light and dark. Palette, typography, radius, spacing, border size, shadow, control and icon sizes, density, motion, opacity, blur and focus ring roles, with named extras, and themes as one value.
 ---
 
 # Theme
@@ -8,6 +8,8 @@ description: Semantic palette, typography, radius, spacing, border size, shadow,
 The runtime theme is a set of semantic roles. Palette colors, typography styles, radius sizes, spacing sizes, border sizes, and shadow styles are enums with a matching field on the theme structs for each built-in role, plus an `Extra` variant for application-defined roles (see [Extra Roles](#extra-roles)). The scrollbar style and breakpoints have no extras.
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
+
+The theme an app has when it sets none is the design system's (`pencil/lurq-design-system.pen`): a neutral palette in a light and a dark set, taken with the system's appearance, and the design's scales. An app written for lurq 0.61 that wants the look it had applies [the legacy theme](#themes-as-one-value); the [migration guide](../migration-v0-63/) has the rest.
 
 ```rust
 use lurq::{
@@ -21,7 +23,7 @@ Column::new()
   .child(Text::new("Settings").variant(TypographyStyle::Title))
   .child(
     Rect::new(120.0, 36.0)
-      .background(PaletteColor::Accent)
+      .background(PaletteColor::Primary)
       .border_inside(BorderSize::Sm, PaletteColor::Border)
       .rounded(RadiusSize::Md),
   )
@@ -33,14 +35,14 @@ Column::new()
 
 ```rust
 let theme = app.theme();
-theme.set_palette_color(PaletteColor::Accent, lurq::node::color::Color::from_hex("#2563eb"));
+theme.set_palette_color(PaletteColor::Primary, lurq::node::color::Color::from_hex("#2563eb"));
 tree.mount_root::<Root>(&mut app, ());
 ```
 
 Inside components:
 
 ```rust
-let accent = ctx.theme().palette_color(PaletteColor::Accent);
+let accent = ctx.theme().palette_color(PaletteColor::Primary);
 let gap = ctx.theme().spacing_value(SpacingSize::Sm);
 ```
 
@@ -51,7 +53,10 @@ The main theme accessors are:
 | Method | Purpose |
 | --- | --- |
 | `theme.palette()` / `theme.set_palette(...)` | Read or replace `ThemePalette`. |
-| `theme.palette_color(key)` / `theme.set_palette_color(key, color)` | Read or set one palette role. |
+| `theme.palette_color(key)` / `theme.set_palette_color(key, color)` | Read one palette role in the palette the theme is in; set one in every appearance. |
+| `theme.set_palettes(light, dark)` | Give the theme a palette for each appearance. |
+| `theme.set_palette_color_for(appearance, key, color)` | Set one palette role in the palette of one appearance. |
+| `theme.palette_color_for(appearance, key)` | Read one palette role in the palette of one appearance, whatever the theme is in. |
 | `theme.typography()` / `theme.set_typography(...)` | Read or replace `ThemeTypography`. |
 | `theme.typography_style(key)` / `theme.set_typography_style(key, style)` | Read or set one typography role. |
 | `theme.default_text_style()` / `theme.set_default_text_style(style)` | Compatibility alias for the `body` typography style. |
@@ -66,7 +71,11 @@ The main theme accessors are:
 | `theme.scrollbar()` / `theme.set_scrollbar(...)` | Read or replace the default `ScrollBarStyle`. |
 | `theme.breakpoints()` / `theme.set_breakpoints(...)` | Read or replace `ThemeBreakpoints`. |
 | `theme.breakpoint_value(key)` / `theme.set_breakpoint_value(key, value)` | Read or set one breakpoint threshold. |
-| `theme.form()` / `theme.set_form(...)` | Read or replace `FormTheme`; requires the `form` feature. |
+| `theme.control_sizes()`, `theme.icon_sizes()`, `theme.densities()`, `theme.durations()`, `theme.easings()`, `theme.opacities()`, `theme.blurs()` | Read one of the design's other scales; `set_…` replaces it. |
+| `theme.control_size_value(key)`, `icon_size_value`, `density_value`, `duration_value`, `easing_value`, `opacity_value`, `blur_value` | Read one role of a scale; `set_…_value(key, value)` sets one. |
+| `theme.focus_ring()` / `theme.set_focus_ring(...)` | Read or replace `ThemeFocusRing`. |
+| `theme.form()` / `theme.set_form(...)` | Deprecated: `FormTheme` is read by nothing. The form controls are styled by the recipes of the design system's components: see [Form Theme](#form-theme). |
+| `theme.apply(definition)` / `theme.definition()` | Install a whole theme at once, or read the theme back as one value. See [Themes As One Value](#themes-as-one-value). |
 
 Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for one theme value:
 
@@ -74,55 +83,128 @@ Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for
 use lurq::{app::theme::PaletteColor, node::color::Color};
 
 let brand = ctx.theme().lens(
-  |theme| theme.palette_color(PaletteColor::Accent),
-  |theme, color| theme.set_palette_color(PaletteColor::Accent, color),
+  |theme| theme.palette_color(PaletteColor::Primary),
+  |theme, color| theme.set_palette_color(PaletteColor::Primary, color),
 );
 
 brand.set(Color::from_hex("#2563eb"));
 ```
 
-## Palette
+## Themes As One Value
 
-Palette roles are named by `PaletteColor` and stored as public fields on `ThemePalette`.
+A `ThemeDefinition` is the look of an app as plain data: its palettes, its typography and every scale. `theme.apply(definition)` installs one at once, so components that read the theme render once, and `theme.definition()` reads the theme back as one.
+
+| | |
+| --- | --- |
+| `ThemeDefinition::neutral()` | The design system's theme, light and dark. `Theme::new()` has it. |
+| `ThemeDefinition::legacy()` | The theme of lurq 0.61: its palette color for color, with no dark one, and its radii. `Theme::legacy()` has it. |
+
+An app's own theme is one of them with some fields changed:
 
 ```rust
-use lurq::{app::theme::PaletteColor, node::color::Color};
+use lurq::{app::theme::{RadiusSize, ThemeDefinition}, node::color::Color};
 
-app.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
-
-let mut palette = lurq::app::theme::ThemePalette::default();
-palette.surface_base = Color::from_hex("#ffffff");
-palette.border_focus = Color::from_hex("#2563eb");
-app.theme().set_palette(palette);
+let mut brand = ThemeDefinition::neutral();
+brand.light.primary = Color::from_hex("#7c3aed");
+if let Some(dark) = brand.dark.as_mut() {
+  dark.primary = Color::from_hex("#a78bfa");
+}
+brand.radii.set(RadiusSize::Md, 10.0);
+app.theme().apply(brand);
 ```
 
-Available roles:
+- `light` is the palette of the light appearance, and `dark: Option<ThemePalette>` that of the dark one. A definition with no dark palette has one look, whatever the system is in.
+- The other fields are the tables of this page: `typography`, `radii`, `spacing`, `border_sizes`, `shadows`, `breakpoints`, `caret`, `scrollbar`, `control_sizes`, `icon_sizes`, `densities`, `durations`, `easings`, `opacities`, `blurs`, `focus_ring`, and with their features `markdown`, `text_marks` and `form`.
+- What a person or the system set is not part of a definition and stays when one is applied: the appearance the theme is in, the text scale, bold text, reduced motion and smooth scrolling.
+- `ThemeDefinition` cannot be written out field by field outside lurq: it gains fields as the design system grows. Start from `neutral()` or `legacy()`.
+- `Theme::from_definition(definition)` makes a theme with a definition's look.
 
-| `PaletteColor` | `ThemePalette` field | Default |
-| --- | --- | --- |
-| `Accent` | `accent` | `#2563eb` |
-| `AccentHover` | `accent_hover` | `#1d4ed8` |
-| `AccentMuted` | `accent_muted` | `#dbeafe` |
-| `SurfaceBase` | `surface_base` | `#ffffff` |
-| `SurfacePanel` | `surface_panel` | `#f8fafc` |
-| `SurfaceRaised` | `surface_raised` | `#ffffff` |
-| `SurfaceInput` | `surface_input` | `#ffffff` |
-| `Border` | `border` | `#e2e8f0` |
-| `BorderStrong` | `border_strong` | `#94a3b8` |
-| `BorderFocus` | `border_focus` | `#2563eb` |
-| `TextPrimary` | `text_primary` | `#0f172a` |
-| `TextSecondary` | `text_secondary` | `#334155` |
-| `TextMuted` | `text_muted` | `#64748b` |
-| `TextInverse` | `text_inverse` | `#ffffff` |
-| `Foreground` | `foreground` | `#000000`: the color of text that names none, see [Foreground](../styling-events/#the-themes-foreground) |
-| `Success` | `success` | `#16a34a` |
-| `SuccessMuted` | `success_muted` | `#dcfce7` |
-| `Warning` | `warning` | `#d97706` |
-| `WarningMuted` | `warning_muted` | `#fef3c7` |
-| `Danger` | `danger` | `#dc2626` |
-| `DangerMuted` | `danger_muted` | `#fee2e2` |
-| `Info` | `info` | `#0284c7` |
-| `InfoMuted` | `info_muted` | `#e0f2fe` |
+An app written for lurq 0.61 that wants the look it had:
+
+```rust
+use lurq::app::theme::ThemeDefinition;
+
+app.theme().apply(ThemeDefinition::legacy());
+```
+
+## Palette
+
+Palette roles are named by `PaletteColor` and stored as public fields on `ThemePalette`. The roles and their colors
+are the design's (`pencil/lurq-design-system.pen`), in a light set and a dark one. A surface comes with the color of
+what is drawn on it (`Card` and `CardForeground`), and a fill a control takes comes with its color under the pointer
+(`Primary` and `PrimaryHover`).
+
+```rust
+use lurq::{app::theme::{PaletteColor, ThemePalette}, node::color::Color};
+
+// One role, in the palette the theme is in now.
+app.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#7c3aed"));
+
+// A palette for each appearance: the theme takes the one for the appearance it is in.
+let mut light = ThemePalette::light();
+light.primary = Color::from_hex("#7c3aed");
+let mut dark = ThemePalette::dark();
+dark.primary = Color::from_hex("#a78bfa");
+app.theme().set_palettes(light, dark);
+```
+
+`ThemePalette::light()` and `ThemePalette::dark()` are the design's two palettes, and a theme has both unless it is
+given others: it is in the dark one when the system is dark (see [The System's Settings](#the-systems-settings)).
+`ThemePalette::default()` is the light one.
+
+- `set_palette_color(role, color)` sets a role in every appearance: a brand color set once is the brand color in the light look and in the dark one.
+- `set_palette_color_for(appearance, role, color)` sets a role in the palette of one appearance.
+- `palette_color_for(appearance, role)` reads a role in the palette of one appearance, whatever appearance the theme is in now: what is drawn alike in both looks, as a QR code is dark on light in either.
+- `set_palette(palette)` sets the palette of the appearance the theme is in now and leaves the other as it is.
+- `set_palettes(light, dark)` sets both.
+
+| `PaletteColor` | `ThemePalette` field | Light | Dark | For |
+| --- | --- | --- | --- | --- |
+| `Background` | `background` | `#ffffff` | `#09090b` | The window behind everything |
+| `Foreground` | `foreground` | `#09090b` | `#fafafa` | Text and icons on the background, and the color of text that names none (see [Foreground](../styling-events/#the-themes-foreground)) |
+| `Card` | `card` | `#ffffff` | `#18181b` | A surface raised off the background: a card, a panel |
+| `CardForeground` | `card_foreground` | `#09090b` | `#fafafa` | Text on a card |
+| `Popover` | `popover` | `#ffffff` | `#18181b` | A surface that floats over the page: a menu, a popover, a dialog |
+| `PopoverForeground` | `popover_foreground` | `#09090b` | `#fafafa` | Text on a popover |
+| `Primary` | `primary` | `#18181b` | `#e4e4e7` | The main action: a primary button, a checked box, a selected tab |
+| `PrimaryForeground` | `primary_foreground` | `#fafafa` | `#18181b` | Text on the primary fill |
+| `PrimaryHover` | `primary_hover` | `#3f3f46` | `#fafafa` | The primary fill under the pointer |
+| `Secondary` | `secondary` | `#f1f1f4` | `#27272a` | A quieter fill, for an action that is not the main one |
+| `SecondaryForeground` | `secondary_foreground` | `#18181b` | `#fafafa` | Text on the secondary fill |
+| `SecondaryHover` | `secondary_hover` | `#e6e6eb` | `#3f3f46` | The secondary fill under the pointer |
+| `Muted` | `muted` | `#f1f1f4` | `#27272a` | A fill that recedes, on something small: a track, a skeleton, a chip, inline code, a disabled field |
+| `MutedForeground` | `muted_foreground` | `#52525b` | `#a1a1aa` | Text that says less: a description, a placeholder, a caption |
+| `Highlight` | `highlight` | `#f1f1f4` | `#27272a` | The fill of the item the pointer or the keyboard is on: a menu item, a list row |
+| `HighlightForeground` | `highlight_foreground` | `#18181b` | `#fafafa` | Text on the highlight |
+| `Destructive` | `destructive` | `#dc2626` | `#ef4444` | An action that removes or cannot be undone, and an error |
+| `DestructiveForeground` | `destructive_foreground` | `#fafafa` | `#fafafa` | Text on the destructive fill |
+| `DestructiveHover` | `destructive_hover` | `#b91c1c` | `#dc2626` | The destructive fill under the pointer |
+| `DestructiveMuted` | `destructive_muted` | `#fee2e2` | `#3b1212` | The tinted background of an error message |
+| `Success` | `success` | `#16a34a` | `#22c55e` | Something went well |
+| `SuccessMuted` | `success_muted` | `#dcfce7` | `#0f2e1b` | The tinted background of a success message |
+| `Warning` | `warning` | `#b45309` | `#f59e0b` | Something needs attention |
+| `WarningMuted` | `warning_muted` | `#fef3c7` | `#33240a` | The tinted background of a warning |
+| `Info` | `info` | `#2563eb` | `#60a5fa` | Something to know |
+| `InfoMuted` | `info_muted` | `#dbeafe` | `#132544` | The tinted background of a note |
+| `Border` | `border` | `#d4d4da` | `#27272a` | A line between things: a separator, the edge of a card |
+| `Input` | `input` | `#8e8e99` | `#3f3f46` | The edge of a control that takes input: a field, a checkbox |
+| `Ring` | `ring` | `#71717a` | `#71717a` | The focus ring |
+| `StateHover` | `state_hover` | `#0000000a` | `#ffffff0f` | A veil over whatever is under the pointer, on any fill |
+| `StatePressed` | `state_pressed` | `#00000014` | `#ffffff1f` | A veil over whatever is pressed, on any fill |
+| `Canvas` | `canvas` | `#f7f7f8` | `#09090b` | The area behind panels and cards: a workspace |
+| `Bar` | `bar` | `#ffffff` | `#27272a` | The fill of a bar along an edge of a window or a panel: a title bar, a strip of tabs, a toolbar, a table's header, a code block's bar, a status bar, a side bar. In the light palette it is white and a line of `Border` sets it apart |
+| `Scrim` | `scrim` | `#00000066` | `#00000099` | The veil a dialog draws over the page |
+| `Selection` | `selection` | `#bfdbfe` | `#1e3a8a` | Selected text |
+| `Chart1` | `chart_1` | `#2563eb` | `#3b82f6` | The first series of a chart |
+| `Chart2` | `chart_2` | `#0d9488` | `#2dd4bf` | The second series |
+| `Chart3` | `chart_3` | `#d97706` | `#f59e0b` | The third series |
+| `Chart4` | `chart_4` | `#7c3aed` | `#a78bfa` | The fourth series |
+| `Chart5` | `chart_5` | `#db2777` | `#f472b6` | The fifth series |
+| `GlassThin` | `glass_thin` | `#ffffff59` | `#18181b59` | The tint of thin glass, over a backdrop blur |
+| `GlassRegular` | `glass_regular` | `#ffffff99` | `#18181b99` | The tint of regular glass |
+| `GlassThick` | `glass_thick` | `#ffffffcc` | `#18181bcc` | The tint of thick glass |
+
+The last two digits of an eight-digit color are its opacity: a veil and a glass tint are mostly clear.
 
 `PaletteColor::Extra(name)` names an application-defined color stored in `ThemePalette::extra`, a `HashMap<Arc<str>, Color>`. Build one with `PaletteColor::extra("brand")`; a `&str` or `Arc<str>` converts into it, so the theme setters accept names directly:
 
@@ -138,9 +220,44 @@ Palette roles can be passed anywhere a background or text color accepts a theme 
 ```rust
 use lurq::{app::theme::PaletteColor, components::{Rect, Text}};
 
-Rect::new(80.0, 32.0).background(PaletteColor::Accent);
-Text::new("Muted").color(PaletteColor::TextMuted);
+Rect::new(80.0, 32.0).background(PaletteColor::Primary);
+Text::new("Muted").color(PaletteColor::MutedForeground);
 ```
+
+A window whose root paints no background is cleared to `Background`, so an app that sets no colors at all is dark
+when the theme is, under text that takes the dark `Foreground`.
+
+### Deprecated Roles
+
+The roles of lurq 0.61 are deprecated, each in favor of one of the design's. They still compile, with a warning that
+names the replacement; the [migration guide](../migration-v0-63/#renamed-palette-roles) has what to change.
+
+| Deprecated | Use | In `ThemePalette::legacy()` |
+| --- | --- | --- |
+| `Accent` | `Primary` | `#2563eb` |
+| `AccentHover` | `PrimaryHover` | `#1d4ed8` |
+| `AccentMuted` | `Highlight` | `#dbeafe` |
+| `SurfaceBase` | `Background` | `#ffffff` |
+| `SurfacePanel` | `Canvas` | `#f8fafc` |
+| `SurfaceRaised` | `Card` | `#ffffff` |
+| `SurfaceInput` | `Background` | `#ffffff` |
+| `BorderStrong` | `Input` | `#94a3b8` |
+| `BorderFocus` | `Ring` | `#2563eb` |
+| `TextPrimary` | `Foreground` | `#0f172a` |
+| `TextSecondary` | `MutedForeground` | `#334155` |
+| `TextMuted` | `MutedForeground` | `#64748b` |
+| `TextInverse` | `PrimaryForeground` | `#ffffff` |
+| `Danger` | `Destructive` | `#dc2626` |
+| `DangerMuted` | `DestructiveMuted` | `#fee2e2` |
+
+- A deprecated role still has a color of its own. In the design's palettes it is the color of its replacement.
+- Setting a role also sets the deprecated roles it replaces, so what still reads them follows: `Select`, the form
+  controls, and a checkbox or a slider with no style of its own read the deprecated roles until they are rebuilt on
+  the new ones.
+- Setting a deprecated role sets only that role.
+- `ThemePalette::legacy()` is the palette of 0.61, color for color. The roles 0.61 did not have take the 0.61 color
+  nearest to what they are for (`primary` is the accent, `canvas` the panel surface), text that names no color is
+  black, and there is no dark set.
 
 ## Typography
 
@@ -164,16 +281,48 @@ Available roles:
 
 | `TypographyStyle` | `ThemeTypography` field | Default |
 | --- | --- | --- |
-| `Heading` | `heading` | `24px`, bold |
-| `Title` | `title` | `20px`, bold |
-| `Body` | `body` | `TextStyle::default()` |
-| `Description` | `description` | `14px` |
-| `Caption` | `caption` | `12px` |
-| `Label` | `label` | `13px`, medium |
-| `FieldLabel` | `field_label` | `13px`, medium |
-| `Button` | `button` | `13px`, medium |
+| `Heading` | `heading` | `24px`, semibold, letter spacing `-0.5`, lines of 1.2 |
+| `Title` | `title` | `20px`, semibold, letter spacing `-0.3`, lines of 1.2 |
+| `Body` | `body` | `14px`, lines of 1.2 |
+| `Description` | `description` | `14px`, lines of 1.2 |
+| `Caption` | `caption` | `12px`, lines of 1.2 |
+| `Label` | `label` | `13px`, medium, lines of 1.2 |
+| `FieldLabel` | `field_label` | `13px`, medium, lines of 1.2 |
+| `Button` | `button` | `13px`, medium, lines of 1.2 |
 | `Link` | `link` | body defaults |
-| `Mono` | `mono` | body defaults with the generic `monospace` family |
+| `Mono` | `mono` | `13px`, in the family of code, lines of 1.3 |
+| `Heading1` | `heading1` | `30px`, bold, letter spacing `-0.6`, lines of 1.2 |
+| `Heading2` | `heading2` | `24px`, semibold, letter spacing `-0.4`, lines of 1.2 |
+| `Heading3` | `heading3` | `20px`, semibold, lines of 1.2 |
+| `Heading4` | `heading4` | `16px`, semibold, lines of 1.2 |
+| `Heading5` | `heading5` | `14px`, semibold, lines of 1.2 |
+| `Heading6` | `heading6` | `12px`, semibold, letter spacing `0.8`, in capitals, lines of 1.2 |
+| `Prose` | `prose` | `14px`, lines of 1.6 |
+| `Article` | `article` | `15px`, lines of 1.65 |
+
+The sizes and weights are the design's type scale. The roles of the interface are on the line their family draws, 1.2 (1.3 for code, whose family's own line is taller): a label, a button, a line of body text are as high as the design draws them. A document has roles of its own: `Heading1` to `Heading6` are its headings, as Markdown's `#` to `######` and the design's Prose and Markdown boards draw them, apart from `Heading` and `Title`, which head a page or a panel of the interface; `Prose` is text read at length in the interface (a paragraph of help, a long description), and `Article` the text of a document, Markdown's paragraphs and lists, each on lines further apart. `Heading6` is drawn in capitals by its style (`TextStyle::case`, `TextCase::Upper`); where it is used it is given `PaletteColor::MutedForeground`, as the design draws it.
+
+No style names a color, so its text takes the theme's `Foreground`; text that says less (a description, a caption) is given `PaletteColor::MutedForeground` where it is used. `ThemeTypography::legacy()` is the typography of lurq 0.61: body text of 16, bold headings, and code as large as body text.
+
+### The Theme's Two Families
+
+A theme has two font families, and every typography style is in one of them:
+
+| | `ThemeTypography` field | Default | Styles |
+| --- | --- | --- | --- |
+| Interface text | `sans` | The system's own font | Every style but `mono` |
+| Code | `mono_family` | The generic `monospace` | `mono` |
+
+lurq bundles no font. One setting changes the font of the whole interface:
+
+```rust
+app.theme().set_sans_family("Inter");
+app.theme().set_mono_family("JetBrains Mono");
+```
+
+- `set_sans_family(family)` puts every style that was in the interface family into `family`, an app's own [extra styles](#extra-roles) included. A style that was given a family of its own keeps it.
+- `family` is a family name, an alias registered with `App::register_font`, or a [generic family](#generic-families).
+- `theme.sans_family()` and `theme.mono_family()` read them; on a `ThemeTypography` or a `ThemeDefinition` the same is `typography.set_sans(...)` and `typography.set_mono(...)`.
 
 `TypographyStyle::Extra(name)` names an application-defined style stored in `ThemeTypography::extra`, a `HashMap<Arc<str>, TextStyle>`; see [Extra Roles](#extra-roles).
 
@@ -206,6 +355,8 @@ app.install_fonts(
   [("monospace", "JetBrains Mono")],
 );
 ```
+
+`App::set_generic_family(GenericFamily::SansSerif, "Inter")` names the family's font itself instead of aliasing its keyword. For `sans-serif` that is also the font of text with no family, which an alias of the keyword does not reach. An app that runs in a [browser](../web/#the-fonts), where no font is chosen from the system, names its fonts this way.
 
 ### Font Weight
 
@@ -266,6 +417,21 @@ TextInput::new(query.clone()).letter_spacing(0.5);
 
 `Text::letter_spacing(...)` overrides the spacing of whatever style the text resolves to, including typography roles. `TextInput::letter_spacing(...)` sets it on the value and placeholder styles; a later `text_style(...)` or `placeholder_style(...)` replaces it, as with `text_align(...)`. Markdown styles take `MarkdownTextStyle::letter_spacing`, which `font_size_scale` does not scale, and canvas text takes `CanvasFont::letter_spacing`. Within rich text every span's spacing is in pixels, whatever its font size. Non-finite values are treated as `0.0`.
 
+### Baseline Shift
+
+`TextStyle::baseline_shift` draws a span of a rich text above the line's baseline, in logical pixels, like CSS `vertical-align` with a length; negative values draw it below. The default is `0.0`. Only the glyphs move: the line's height, the wrapping, the carets and what a selection covers stay those of the baseline, so a raised footnote's number neither opens its line nor moves the text beside it. It scales with the display scale factor like `font_size`. A Markdown document raises a footnote's number with `MarkdownTextStyle::baseline_shift`, in ems of the text it is in: `ThemeMarkdown::footnote_reference` raises it 0.45 of it, its top at the line's top, as the design draws it.
+
+```rust
+use lurq::layout::{quad::RichTextSpan, text_style::TextStyle};
+
+let words = TextStyle::default();
+let note = TextStyle { font_size: words.font_size * 0.75, baseline_shift: 6.0, ..words.clone() };
+let spans = vec![
+  RichTextSpan { text: "Frame time".into(), style: words },
+  RichTextSpan { text: "1".into(), style: note },
+];
+```
+
 ### Font Features
 
 `TextStyle::font_features` holds OpenType feature settings, like CSS `font-feature-settings`. Each `FontFeature` is a four-byte tag and a value: `0` turns the feature off, `1` turns it on, and features that pick an alternate (`salt`, `cvNN`) take its index. The default is empty, which keeps the shaper's default features, including standard ligatures (`liga`), contextual alternates (`calt`), and kerning.
@@ -303,16 +469,20 @@ Radius roles are named by `RadiusSize` and stored as public fields on `ThemeRadi
 
 | `RadiusSize` | `ThemeRadii` field | Default |
 | --- | --- | --- |
-| `Sm` | `sm` | `3.0` |
-| `Md` | `md` | `5.0` |
-| `Lg` | `lg` | `6.0` |
+| `Sm` | `sm` | `4.0` |
+| `Md` | `md` | `6.0` |
+| `Lg` | `lg` | `8.0` |
+| `Xl` | `xl` | `12.0` |
+| `Full` | `full` | `999.0`: as round as the element allows, a pill or a circle |
+
+A radius is never larger than half the element's shorter side, so `Full` rounds any element as far as its box allows. `ThemeRadii::legacy()` has the radii of lurq 0.61: 3, 5 and 6.
 
 Use radius roles anywhere a corner radius accepts a `RadiusValue`:
 
 ```rust
 use lurq::{app::theme::RadiusSize, components::Rect};
 
-app.theme().set_radius_value(RadiusSize::Md, 5.0);
+app.theme().set_radius_value(RadiusSize::Md, 10.0);
 
 Rect::new(100.0, 40.0)
   .rounded(RadiusSize::Md)
@@ -371,7 +541,7 @@ app.theme().set_border_size_value(BorderSize::Md, 2.0);
 
 Rect::new(100.0, 40.0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
-  .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
+  .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::Ring));
 ```
 
 ## Shadow
@@ -381,8 +551,10 @@ Shadow (elevation) roles are named by `ShadowStyle` and stored as public fields 
 | `ShadowStyle` | `ThemeShadows` field | Default (`offset_x offset_y blur spread color`) |
 | --- | --- | --- |
 | `Sm` | `sm` | `0 1 2 0 #0000000d` |
-| `Md` | `md` | `0 4 6 -1 #0000001a`, `0 2 4 -2 #0000001a` |
-| `Lg` | `lg` | `0 10 15 -3 #0000001a`, `0 4 6 -4 #0000001a` |
+| `Md` | `md` | `0 4 8 0 #0000001a`, `0 1 2 0 #0000000f` |
+| `Lg` | `lg` | `0 12 24 0 #00000024`, `0 3 6 0 #00000014` |
+
+These are the design's elevations. `ThemeShadows::legacy()` has those of lurq 0.61.
 
 Use shadow roles anywhere a box shadow is accepted, including hover, active, and focus styles:
 
@@ -399,13 +571,175 @@ app.theme().set_shadow_style(ShadowStyle::Md, vec![
 ]);
 
 Rect::new(240.0, 120.0)
-  .background(PaletteColor::SurfaceRaised)
+  .background(PaletteColor::Card)
   .rounded(RadiusSize::Lg)
   .box_shadow(ShadowStyle::Md)
   .hovered(|style| style.box_shadow(ShadowStyle::Lg));
 ```
 
 A shadow's color is a `BackgroundColor`, so a palette role (as above) keeps shadows in step with light and dark palettes. Setting a role to an empty list removes that elevation everywhere it is used. Changing a shadow role repaints; it never relayouts, because shadows do not take part in layout.
+
+## Control Size
+
+How tall a control is: a button, a field, a select. Roles are named by `ControlSize` and stored on `ThemeControlSizes`, in logical pixels.
+
+| `ControlSize` | `ThemeControlSizes` field | Default |
+| --- | --- | --- |
+| `Sm` | `sm` | `32.0` |
+| `Md` | `md` | `36.0` |
+| `Lg` | `lg` | `40.0` |
+
+```rust
+use lurq::{app::theme::ControlSize, components::Row};
+
+let height = ctx.theme().control_size_value(ControlSize::Md);
+Row::new().height(height);
+```
+
+## Icon Size
+
+The side of an icon. Roles are named by `IconSize` and stored on `ThemeIconSizes`, in logical pixels.
+
+| `IconSize` | `ThemeIconSizes` field | Default |
+| --- | --- | --- |
+| `Xs` | `xs` | `12.0` |
+| `Sm` | `sm` | `14.0` |
+| `Md` | `md` | `16.0` |
+| `Lg` | `lg` | `20.0` |
+| `Xl` | `xl` | `24.0` |
+
+An [`Icon`](../design-system/#icon) is a square of one of these sides, `Md` unless it says otherwise.
+
+## Icons
+
+What each name of an icon is drawn with: a character of a font. `ThemeIcons` is the table, and a theme starts with lurq's own set, the 152 icons of the font every app has loaded (`ui::icons`).
+
+```rust
+use lurq::{app::theme::{IconGlyph, ThemeIcons}, ui::icons};
+
+// Another drawing of an icon there is, and an icon of the app's own.
+theme.set_icon(icons::SEARCH, IconGlyph::new("brand icons", '\u{F002}'));
+theme.set_icon("rocket", IconGlyph::new("brand icons", '\u{F135}'));
+
+// A whole set at once, in a definition.
+let mut brand = ThemeDefinition::neutral();
+brand.icons.set_font("brand icons", [(icons::CHECK, '\u{F00C}'), (icons::CLOSE, '\u{F00D}')]);
+```
+
+| | |
+| --- | --- |
+| `theme.icon(name)` | The glyph a name is drawn with, if the theme has it |
+| `theme.set_icon(name, glyph)` | Gives a name a glyph; every icon of that name on screen is drawn again |
+| `theme.icons()`, `theme.set_icons(icons)` | The whole table |
+| `ThemeIcons::lurq()`, `ThemeIcons::empty()` | lurq's set, and no icon at all, for a theme that brings every one it draws |
+| `icons.set(name, glyph)`, `icons.set_font(family, [(name, char)])`, `icons.remove(name)` | One name, a set from one font, and a name taken out |
+| `icons.get(name)`, `icons.names()`, `icons.len()` | What is in the table |
+
+- The font of a glyph is the app's to load (`App::load_font`, or `App::load_hinted_font` for a font hinted for the pixel grid). lurq's own is loaded in every app.
+- lurq's components name the icons they draw (a button's spinner is `icons::SPINNER`), so a theme that gives those names other glyphs changes the components too.
+- A name with no glyph draws nothing and keeps its room.
+
+## Density
+
+How much room a row of a list, a menu or a table takes. Roles are named by `Density` and stored on `ThemeDensities`, as the height of a row in logical pixels.
+
+| `Density` | `ThemeDensities` field | Default | For |
+| --- | --- | --- | --- |
+| `Compact` | `compact` | `28.0` | A tool with much to show |
+| `Default` | `default` | `36.0` | A desktop app |
+| `Comfortable` | `comfortable` | `44.0` | Room to breathe |
+| `Touch` | `touch` | `48.0` | A row a finger can press |
+
+A theme is at one density: `Default` unless set. `theme.set_density(Density::Compact)` puts it at another, and everything drawn from the theme is built again; `theme.density()` reads it, and it is part of a `ThemeDefinition` (`density`).
+
+```rust
+use lurq::app::theme::Density;
+
+theme.set_density(Density::Compact);
+// The height of a row of the app's own list, at the density the theme is at.
+let row = theme.density_value(theme.density());
+```
+
+- A recipe has rules for a density, which hold while the theme is at it: see [Density](../design-system/#density).
+- The density is a setting of the theme, not of the window: a theme for a subtree ([`Ctx::in_theme`](../design-system/#one-instance-one-place-one-subtree)) can be at another, for a dense inspector beside a roomy page.
+- `Button` does not change with the density: a control has its sizes (`ControlSize`). A theme that wants its controls to follow the density says so in rules.
+- The density is how large things are, not which form a component takes: a lightbox's phone viewer, a picture's phone form and a video player's touch form follow the person's pointer, [`app::Pointer`](../styling-events/#a-finger-or-a-mouse), at any density. Every theme starts at `Default`, on a phone too; an app for a finger that wants its rows taller sets `Touch`.
+
+## Motion
+
+How long a change takes and how it moves. Durations are named by `MotionDuration` and stored on `ThemeDurations` as `std::time::Duration`; easings are named by `MotionEasing` and stored on `ThemeEasings` as [`Easing`](../animation-transforms/).
+
+| `MotionDuration` | `ThemeDurations` field | Default | For |
+| --- | --- | --- | --- |
+| `Fast` | `fast` | 100 ms | A hover, a press: a change under the pointer |
+| `Base` | `base` | 160 ms | Most changes: a menu opening, a switch moving |
+| `Slow` | `slow` | 240 ms | Something larger coming in: a dialog, a sheet |
+| `Slower` | `slower` | 400 ms | A whole view changing |
+
+| `MotionEasing` | `ThemeEasings` field | Default | For |
+| --- | --- | --- | --- |
+| `Standard` | `standard` | `cubic-bezier(0.2, 0, 0, 1)` | What stays on screen and changes |
+| `Enter` | `enter` | `cubic-bezier(0, 0, 0, 1)` | What comes in |
+| `Exit` | `exit` | `cubic-bezier(0.3, 0, 1, 1)` | What leaves |
+
+A transition takes both from the theme where it is built:
+
+```rust
+use lurq::{animation::Transition, app::theme::{MotionDuration, MotionEasing}};
+
+let theme = ctx.theme();
+let fade = Transition::opacity()
+  .duration(theme.duration_value(MotionDuration::Fast))
+  .easing(theme.easing_value(MotionEasing::Standard));
+```
+
+Two settings of the theme say whether things move at all, and neither is part of a definition:
+
+- `theme.set_reduced_motion(Some(true))` holds back what moves across the screen, whatever the system says: see [Reduced Motion](../animation-transforms/#reduced-motion).
+- `theme.set_smooth_scroll(false)` scrolls a notch of a mouse's wheel at once, where it is animated by default: see [The mouse wheel](../styling-events/#the-mouse-wheel). `theme.smooth_scroll()` reads it.
+
+## Opacity
+
+How much of something shows when it is held back. Roles are named by `OpacityLevel` and stored on `ThemeOpacities`, from 0 to 1.
+
+| `OpacityLevel` | `ThemeOpacities` field | Default | For |
+| --- | --- | --- | --- |
+| `Disabled` | `disabled` | `0.5` | A control that takes no input |
+| `Muted` | `muted` | `0.7` | Something that says less than what is beside it |
+
+```rust
+use lurq::app::theme::OpacityLevel;
+
+let dimmed = ctx.theme().opacity_value(OpacityLevel::Disabled);
+row.disabled(true).when_disabled(move |style| style.opacity(dimmed));
+```
+
+## Blur
+
+How much what is behind glass is blurred. Roles are named by `BlurSize` and stored on `ThemeBlurs`, as a radius in logical pixels for [`.backdrop_blur(...)` and `.blur(...)`](../blur/). The palette has a tint for each: `GlassThin`, `GlassRegular` and `GlassThick`.
+
+| `BlurSize` | `ThemeBlurs` field | Default |
+| --- | --- | --- |
+| `Thin` | `thin` | `8.0` |
+| `Regular` | `regular` | `20.0` |
+| `Thick` | `thick` | `40.0` |
+
+```rust
+use lurq::app::theme::{BlurSize, PaletteColor};
+
+panel
+  .backdrop_blur(ctx.theme().blur_value(BlurSize::Regular))
+  .background(PaletteColor::GlassRegular);
+```
+
+## Focus Ring
+
+`ThemeFocusRing` is the ring around the control the keyboard is on: `width` and `offset` in logical pixels (2 and 2) and `color`, a palette role (`Ring`). `outline()` gives it as an [outline](../styling-events/#outline):
+
+```rust
+let ring = ctx.theme().focus_ring().outline();
+button.focus_visible(move |style| style.outline(ring.clone()));
+```
 
 ## Extra Roles
 
@@ -419,6 +753,9 @@ Every role enum except `Breakpoint` has an `Extra` variant for roles the built-i
 | `SpacingSize` | `Extra(RoleName)` | `ThemeSpacing::extra: HashMap<Arc<str>, Dimension>` |
 | `BorderSize` | `Extra(RoleName)` | `ThemeBorderSizes::extra: HashMap<Arc<str>, f32>` |
 | `ShadowStyle` | `Extra(RoleName)` | `ThemeShadows::extra: HashMap<Arc<str>, Arc<[BoxShadow]>>` |
+| `ControlSize`, `IconSize`, `Density`, `OpacityLevel`, `BlurSize` | `Extra(RoleName)` | `extra: HashMap<Arc<str>, f32>` on `ThemeControlSizes`, `ThemeIconSizes`, `ThemeDensities`, `ThemeOpacities`, `ThemeBlurs` |
+| `MotionDuration` | `Extra(RoleName)` | `ThemeDurations::extra: HashMap<Arc<str>, Duration>` |
+| `MotionEasing` | `Extra(RoleName)` | `ThemeEasings::extra: HashMap<Arc<str>, Easing>` |
 
 Build a role with `extra(name)`, or convert a `&str` or `Arc<str>`. The theme setters therefore take names directly:
 
@@ -459,6 +796,67 @@ A missing extra name follows the palette:
 
 `Breakpoint` has no extras: `Responsive` orders overrides by the `Breakpoint` enum, not by threshold, so a named threshold could not be placed in that order.
 
+## Caret
+
+`theme.caret()` is the caret every text input draws, and the line under what an input method composes:
+
+```rust
+use lurq::app::theme::{CaretHeight, CaretMode, ThemeCaret};
+
+app.theme().set_caret(
+  ThemeCaret::default()
+    .with_mode(CaretMode::Persistent)
+    .with_width(2.0)
+    .with_height(CaretHeight::TextBand)
+    .with_composition_line(1.0),
+);
+```
+
+| | What it is | The design's theme | `legacy()` and `bare()` |
+| --- | --- | --- | --- |
+| `mode` | `CaretMode::Blinking` or `Persistent`; an input's own `caret_mode` comes first | `Blinking` | `Blinking` |
+| `width` | How wide the caret is | 1.5 | 1 |
+| `height` | `CaretHeight::FontSize(share)`, a share of the font size of the text the caret stands in, or `CaretHeight::TextBand`, the font's ascent and descent, which a selection covers too | `FontSize(18.0 / 14.0)`: 18 in type of 14 | `FontSize(1.0)` |
+| `composition_line` | How thick the line under a composition is; 0 draws none | 1.5 | 1 |
+
+The caret is centered in its line. Among the rows of a multiline input it is never higher than its row; in a single-line input it may be higher than the line, up to the box the text is in: 18 in an `Input` whose text of 14 has a line of 16.8. Its color is not the theme's caret's: it is the text's, or the input's `caret_color`. `ThemeCaret::default()` and `ThemeCaret::new(mode)` are the design's caret and `ThemeCaret::legacy()` the one lurq 0.62 drew. `theme.set_caret_mode(mode)` changes the mode alone and keeps the size the theme has.
+
+## Code
+
+`theme.code_scheme()` is how code is colored, in every code block, Markdown fence, `InlineCode` given a language and code field: a `CodeScheme`, a `CodeStyle` (a color, a weight, whether it leans) for each name of a token. A name it has nothing for is looked up dropping its tail (`keyword.control.rust`, then `keyword.control`, then `keyword`), each of the three from the most particular name that says it; a name none says is in the code's own color. What names a token is the tokenizer of its language ([Highlighting code](../resources-media/#highlighting-code)).
+
+```rust
+use lurq::{
+  app::{theme::{CodeScheme, CodeStyle, PaletteColor}, window::Appearance},
+  node::color::Color,
+};
+
+let theme = app.theme();
+// One name, in every appearance: a role follows the appearance by itself.
+theme.set_code_color("keyword.control", PaletteColor::Destructive);
+// One name, in one appearance.
+theme.set_code_color_for(Appearance::Dark, "string", Color::from_hex("#a3e635"));
+// A style of more than a color.
+theme.set_code_style("comment", CodeStyle::new().foreground(PaletteColor::MutedForeground).italic());
+// A whole scheme, or one for each appearance.
+theme.set_code_scheme(CodeScheme::lurq().color("function", PaletteColor::Chart4));
+theme.set_code_schemes(light_scheme, dark_scheme);
+```
+
+| Name | `CodeScheme::lurq()`, the design's theme and `legacy()` | `bare()` |
+| --- | --- | --- |
+| `keyword`, `type`, `namespace`, `tag`, `property`, `variable.builtin`, `constant.language` | `Info` | the code's color |
+| `string`, `regex` | `Success` | |
+| `number`, `constant`, `attribute` | `Warning` | |
+| `comment`, `operator`, `punctuation` | `MutedForeground` | |
+| `markup.heading` | `Info`, bold | |
+| `markup.code`, `markup.link`, `markup.list` | `Success`, `Info`, `Warning` | |
+| `markup.quote` | `MutedForeground`, leaning | |
+| `markup.bold`, `markup.italic` | bold, leaning | |
+| `function`, `variable`, `label`, and any other | the code's color | |
+
+The roles are those the code block had before the scheme, so a theme left alone draws code as it did. `ThemeDefinition::code` and `code_dark` hold the schemes as one value, `code_dark` `None` for the same in both appearances; `CodeScheme::new()` is a scheme with nothing in it, every token in the code's color. A block styles a name over the theme's (`CodeBlock::token_style`) or has a scheme of its own (`CodeBlock::code_scheme`); a theme's rules for the code block style a token by a part of its name too.
+
 ## Scrollbar
 
 `theme.scrollbar()` is the default style for scroll components. Set it once to make scrollbars consistent across the app:
@@ -479,6 +877,10 @@ app.theme().set_scrollbar(ScrollBarStyle {
 ```
 
 Scroll components can still override the theme default with `.scrollbar(...)`. `.scrollbar_hovered(...)` receives the effective style, whether it came from the theme or the component.
+
+The design system's theme has the design's bar, a lane of 8 with a round thumb of 6 in `Ring` that is `MutedForeground` under the pointer and while it is dragged; `ThemeDefinition::legacy()` has the engine's, `ScrollBarStyle::default()`, whose thumb fills its lane. See [scroll](../styling-events/#scroll) for every field.
+
+A style that sets no `thumb_color` is drawn in the palette's `Ring`, so the default bar shows on a light theme and on a dark one and follows a palette an app sets. `ScrollBarStyle::THEME_THUMB` is the value that stands for it, and `style.thumb_in(&palette)` says what a style is drawn in. Selected text follows the palette the same way: a text or an input that names no `selection_color` uses `Selection`.
 
 ## Breakpoints
 
@@ -535,123 +937,36 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 
 ## Form Theme
 
-Form theme roles require the `form` feature:
+`FormTheme` is deprecated, with `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form`: nothing reads it. The form controls of `lurq::components` (feature `form`) are the design system's components, and a theme styles them as it styles those, by their [recipes](../design-system/): a form's field is a `ui::Field`, its text box a `ui::Input` (a `ui::Textarea` where it is multiline), its checkbox a `ui::Checkbox`, its slider a `ui::Slider`, its buttons a primary and an outline `ui::Button`. See [Forms](../forms/#form-controls). What was a role of `FormTheme` is a part or a state of one of those recipes:
 
-```toml
-lurq = { version = "0.62.0", features = ["form"] }
-```
-
-`FormTheme` groups compound form styling into semantic roles:
-
-| Field | Purpose |
+| `FormTheme` | The recipe |
 | --- | --- |
-| `form.field` | Label, hint, error text, and field spacing. |
-| `form.input` | Text input frame, text, placeholder, caret, focus, and error colors. |
-| `form.checkbox` | Compound checkbox colors and radius. |
-| `form.slider` | Compound slider track and thumb colors. |
-| `form.button` | Primary and secondary compound button roles. |
-
-Form text roles use typography and palette together:
+| `field.label`, `field.hint`, `field.error`, `field.spacing` | `ui::Field`: `FieldPart::Label`, `Description` (with `FieldState::Invalid` for an error), the gap of `Root` |
+| `input` | `ui::Input` and `ui::Textarea`: `InputPart::Control` (the box: height, padding, radius, fill, edge, type), `Placeholder`, the states `Invalid` and `Disabled`, the focus (`focus_visible`) |
+| `checkbox` | `ui::Checkbox`: `CheckboxPart::Box`, the states `Checked` and `Invalid` |
+| `slider` | `ui::Slider`: `SliderPart::Track`, `Fill`, `Thumb` |
+| `button.primary`, `button.secondary` | `ui::Button`: `ButtonPart::Root` and `Label` of the variants `ButtonVariant::Primary` and `Outline` |
 
 ```rust
-use lurq::app::theme::{FormTextRole, PaletteColor, TypographyStyle};
-
-FormTextRole {
-  typography: TypographyStyle::Caption,
-  color: PaletteColor::TextMuted,
+use lurq::{
+  app::theme::{PaletteColor, RadiusSize, TypographyStyle},
+  ui::{self, ButtonPart, ButtonVariant, FieldPart, InputPart},
 };
+
+// 0.62: form.field.label, form.input.radius and form.button.primary.background, through `set_form`.
+let theme = app.theme();
+theme.patch_recipe::<ui::Field>(|recipe| {
+  recipe.base(FieldPart::Label, |s| {
+    s.typography(TypographyStyle::Label).foreground(PaletteColor::MutedForeground)
+  })
+});
+theme.patch_recipe::<ui::Input>(|recipe| recipe.base(InputPart::Control, |s| s.radius(RadiusSize::Lg)));
+theme.patch_recipe::<ui::Button>(|recipe| {
+  recipe.variant(ButtonVariant::Primary, ButtonPart::Root, |s| s.background(PaletteColor::Success))
+});
 ```
 
-### Field Roles
-
-`theme.form().field` is a `FormFieldTheme`.
-
-| Field | Default |
-| --- | --- |
-| `spacing` | `SpacingSize::Xs` |
-| `label` | `TypographyStyle::FieldLabel` + `PaletteColor::TextPrimary` |
-| `hint` | `TypographyStyle::Caption` + `PaletteColor::TextMuted` |
-| `error` | `TypographyStyle::Caption` + `PaletteColor::Danger` |
-
-### Input Roles
-
-`theme.form().input` is a `FormInputTheme`.
-
-| Field | Default |
-| --- | --- |
-| `height` | `36px` |
-| `padding` | horizontal `10px`, vertical `8px` |
-| `radius` | `RadiusSize::Md` |
-| `background` | `PaletteColor::SurfaceInput` |
-| `border` | `PaletteColor::Border` |
-| `border_focus` | `PaletteColor::BorderFocus` |
-| `background_error` | `PaletteColor::DangerMuted` |
-| `border_error` | `PaletteColor::Danger` |
-| `text` | `TypographyStyle::Body` + `PaletteColor::TextPrimary` |
-| `placeholder` | `TypographyStyle::Body` + `PaletteColor::TextMuted` |
-| `caret` | `PaletteColor::BorderFocus` |
-
-### Button Roles
-
-`theme.form().button` is a `FormButtonTheme` with `primary` and `secondary` `FormButtonRole`s.
-
-Both button roles own layout values (`width`, `height`, `padding`) and semantic theme references (`radius`, background roles, border roles, text role). Compound form controls draw their default borders with `BorderSize::Sm`. Defaults:
-
-| Role | Background | Border | Text |
-| --- | --- | --- | --- |
-| `primary` | `Accent` | `Accent` | `Button` + `TextInverse` |
-| `secondary` | `SurfaceInput` | `BorderStrong` | `Button` + `TextPrimary` |
-
-Primary hover and active states use `AccentHover`. Secondary hover uses `SurfacePanel` and active uses `Border`. Both roles draw a `border_focus` border (`BorderFocus`) while the button is [focus-visible](../focus-navigation/#focus-visible): after Tab or a key press, not after a click.
-
-### Checkbox And Slider Roles
-
-Compound checkbox defaults:
-
-| Field | Default |
-| --- | --- |
-| `background` | `SurfaceInput` |
-| `border` | `Border` |
-| `border_hover` | `BorderFocus` |
-| `checked_background` | `Accent` |
-| `checked_border` | `Accent` |
-| `checked_background_hover` | `AccentHover` |
-| `border_focus` | `BorderFocus` |
-| `radius` | `RadiusSize::Sm` |
-
-Compound slider defaults:
-
-| Field | Default |
-| --- | --- |
-| `track` | `Border` |
-| `track_hover` | `BorderStrong` |
-| `thumb` | `Accent` |
-| `thumb_hover` | `AccentHover` |
-| `thumb_border_focus` | `BorderFocus` |
-
-### Updating Form Roles
-
-Read the current form theme, modify the semantic roles, then replace it:
-
-```rust
-use lurq::app::theme::{
-  FormTextRole, PaletteColor, RadiusSize, TypographyStyle,
-};
-
-let mut form = app.theme().form().clone();
-
-form.field.label = FormTextRole {
-  typography: TypographyStyle::Label,
-  color: PaletteColor::TextSecondary,
-};
-
-form.input.radius = RadiusSize::Lg;
-form.input.border_focus = PaletteColor::Info;
-form.button.primary.background = PaletteColor::Success;
-form.button.primary.background_hover = PaletteColor::AccentHover;
-
-app.theme().set_form(form);
-```
+A recipe of a component styles every one of it, in a form or not: an app that wants its form's controls alone to look another way gives them a theme of their own (`Ctx::in_theme`) or uses the components themselves with `style(..)` (see [Forms](../forms/#form-controls)).
 
 ## Concrete Values
 
@@ -695,9 +1010,9 @@ nothing was set.
 
 The theme follows three of them by itself:
 
-- **The appearance**, if it has a palette for each: `theme.set_palettes(light, dark)`. The palette for the
-  appearance the theme is in is its palette, and it changes with the system. `theme.appearance()` says which
-  it is in. A theme with one palette keeps it.
+- **The appearance**, if it has a palette for each, as the default theme has. The palette for the appearance
+  the theme is in is its palette, and it changes with the system. `theme.appearance()` says which it is in.
+  A theme with one palette, such as the legacy one, keeps it.
 - **The text scale.** Every style of the typography is as much larger: `Text::new(..).variant(..)`, a text
   with no style of its own, a form's labels. A size the app gives itself, `TextStyle { font_size: 17.0, .. }`,
   stays as given, as a fixed size does on the platform; `theme.scaled(17.0)` is that size at the person's
@@ -706,6 +1021,10 @@ The theme follows three of them by itself:
 
 `theme.set_follows_system(false)` leaves all three to the app, which sets them with `set_appearance`,
 `set_text_scale` and `set_bold_text`: an app with a look of its own, or with its own setting for them.
+
+`theme.set_preferred_appearance(Some(Appearance::Dark))` chooses the appearance alone, whatever the system is
+in, and leaves the text size and bold text to the system: the setting an app gives a person as "Light, Dark,
+System". `None`, the default, is "System".
 
 ### What The Components Do
 
@@ -716,5 +1035,6 @@ The theme follows three of them by itself:
 - `TabOutlet`'s bar: solid with transparency reduced or contrast increased, when the tabs that are not chosen
   also stand out more; it goes and comes at once with motion reduced.
 - `Sheet`: with motion reduced it fades in where it stands, and out.
-- `NavigationBar::for_appearance(..)`, `TabBar::for_appearance(..)` and `SheetStyle::for_appearance(..)` are
-  the platform's light or dark ones: `NavigationBar::for_appearance(ctx.window().system.appearance)`.
+- `NavigationBar::new()`, `TabBar::new()` and `SheetStyle::new()` are in the theme's colors, light or dark as the
+  theme is ([Colors from the theme](../ios/#colors-from-the-theme)). Their `for_appearance(..)` and `dark()`,
+  0.62's colors, are deprecated.

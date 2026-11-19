@@ -1,6 +1,8 @@
+#[cfg(any(target_arch = "wasm32", test))]
+mod address;
 mod guard;
 mod handle;
-mod navigator;
+pub(crate) mod navigator;
 pub mod pattern;
 pub(crate) mod query;
 pub(crate) mod route_match;
@@ -10,7 +12,7 @@ use std::sync::Arc;
 pub use guard::GuardAction;
 pub use handle::RouterHandle;
 pub(crate) use handle::StackEntry;
-pub use navigator::Navigator;
+pub use navigator::{Navigator, current_navigator};
 pub use pattern::Pattern;
 pub use query::Query;
 pub use route_match::{Params, RouteMatch};

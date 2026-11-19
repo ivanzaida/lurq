@@ -3,7 +3,9 @@ title: MCP file selection
 description: Request-scoped paths in an application's normal picker handler
 ---
 
-File selection is explicitly opt-in. Lurq does not intercept `rfd`, open an OS chooser, read files, validate formats, add filename extensions or perform saves. Adapt the same handler used by the normal UI: it either awaits the broker or uses its existing native picker. Never launch both.
+File selection is explicitly opt-in. Lurq does not intercept an app's own `rfd` calls, read files, validate formats, add filename extensions or perform saves. Adapt the same handler used by the normal UI: it either awaits the broker or uses its existing native picker. Never launch both.
+
+Lurq's own dialog, [`lurq::files::FileDialog`](../styling-events/#files-a-person-gives) (what `ui::DropZone` and `ui::FileUpload` open), does this itself: where the tree its window is of registered a broker, it asks that broker as `open_file` or `open_files`, with its title and filters, and opens no system dialog; a cancel, a refusal or a revocation gives nothing chosen. A window asks the broker of its own tree and no other: two trees with brokers in one process, as an app's tests run in parallel have them, never answer each other's dialogs, and a tree with no broker opens the system's. A test answers a dialog as an agent does, over the tree's MCP server: `lurq_file_dialogs` lists what was asked and `lurq_file_dialog_respond` selects a path or cancels (`crates/lurq/tests/mcp_files_tests.rs` and the dialog tests of `tests/ui/path_field.rs` are examples). Its dialog for a folder (`pick_folder`, what a `ui::PathField` of folders opens) asks as `open_folder`, and the one for where to save (`pick_save`) as `save_file`, with the name the file starts with as `suggested_name`.
 
 ```rust,ignore
 let dialogs = lurq::mcp::FileDialogBroker::new();

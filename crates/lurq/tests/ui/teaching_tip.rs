@@ -1,0 +1,1176 @@
+//! A teaching tip and a tour: the tip against the board, where it stands by
+//! what it points at, that it leaves the focus where it is, what closes it
+//! and what it tells, Tab into its buttons, the primary look, a tour's steps,
+//! and a theme's rules and renderer.
+
+use std::sync::{
+  Arc, Mutex,
+  atomic::{AtomicUsize, Ordering},
+};
+
+use lurq::{
+  app::{
+    App,
+    ctx::{CollisionStrategy, Ctx},
+    events::MouseButton,
+    theme::{PaletteColor, ShadowStyle, Theme, ThemePalette},
+  },
+  components::{Column, Rect, Row},
+  core::{ElementRef, Signal},
+  layout::{
+    Alignment,
+    quad::{Quad, QuadContent},
+  },
+  node::{BoxShadowValue, Element, color::Color},
+  ui::{
+    Button, ButtonVariant, Case, Interaction, TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipVariant,
+    TeachingTipView, Tour, TourStep,
+  },
+};
+
+use super::stage::Stage;
+
+const TITLE: &str = "Dock panels anywhere";
+const SAYS: &str = "Drag a panel by its header and drop it on any edge of the window.";
+
+fn light(role: PaletteColor) -> Color {
+  ThemePalette::light().get(role)
+}
+
+fn rect_color(quad: &Quad) -> Option<Color> {
+  match quad.content {
+    QuadContent::Rect { color, .. } if color.a() > 0 => Some(color),
+    _ => None,
+  }
+}
+
+fn close(a: f32, b: f32) -> bool {
+  (a - b).abs() < 0.5
+}
+
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+/// The board's teaching tip, told of each close in `closed`.
+fn dock(anchor: ElementRef, open: Signal<bool>, closed: &Arc<AtomicUsize>) -> TeachingTip {
+  let (done, closed) = (open.clone(), closed.clone());
+  TeachingTip::new(open, anchor)
+    .title(TITLE)
+    .description(SAYS)
+    .primary("Got it", move || done.set(false))
+    .on_dismiss(move || {
+      closed.fetch_add(1, Ordering::SeqCst);
+    })
+    .id("tip")
+}
+
+/// A field to type in, the button the tip points at in the middle of the window 40 from its top, a button
+/// after it, and the tip `make` makes.
+fn stage(open: &Signal<bool>, make: impl Fn(ElementRef, Signal<bool>) -> TeachingTip + Send + Sync + 'static) -> Stage {
+  let (anchor, open) = (ElementRef::new(), open.clone());
+  Stage::new(move |ctx: &mut Ctx| -> Element {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding_top(40.0)
+      .align_items(Alignment::Center)
+      .child(Button::new("Field").variant(ButtonVariant::Outline).id("field"))
+      .child(
+        Row::new()
+          .ref_element(anchor.clone())
+          .child(Button::new("Panels").variant(ButtonVariant::Outline).id("panels")),
+      )
+      .child(Button::new("After").variant(ButtonVariant::Outline).id("after"))
+      .child(make(anchor.clone(), open.clone()).mount(ctx))
+      .into()
+  })
+}
+
+/// The tip's panel: the smallest fill around its title.
+fn panel(stage: &Stage, title: &str) -> Option<Quad> {
+  let words = stage.text_quad(title)?;
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      rect_color(quad).is_some()
+        && quad.x <= words.x + 0.01
+        && quad.y <= words.y + 0.01
+        && quad.x + quad.width >= words.x + words.width - 0.01
+        && quad.y + quad.height >= words.y + words.height - 0.01
+    })
+    .min_by(|a, b| (a.width * a.height).total_cmp(&(b.width * b.height)))
+}
+
+/// Presses the painted text `content`.
+fn press_text(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} is painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn it_points_at_its_anchor_from_under_it_and_leaves_the_focus_where_it_is() {
+  let (open, closed) = (Signal::new(false), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let closed = closed.clone();
+    stage(&open, move |anchor, open| dock(anchor, open, &closed))
+  };
+  assert!(!stage.paints(TITLE), "closed while its signal is false");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("field"));
+
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints(TITLE), "open while its signal is true");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("field"),
+    "the focus stays with what the person was doing"
+  );
+
+  let shown = panel(&stage, TITLE).expect("the panel");
+  let (x, y, width, height) = stage.bounds("panels");
+  assert_eq!(rect_color(&shown), Some(light(PaletteColor::Popover)));
+  assert!(close(shown.width, 300.0), "300 wide: {}", shown.width);
+  assert!(
+    close(shown.y, y + height + 4.0 + 9.0),
+    "4 and its arrow's 9 under what it points at: {}",
+    shown.y
+  );
+  assert!(close(shown.x + shown.width / 2.0, x + width / 2.0), "centered on it");
+
+  let title = stage.text_quad(TITLE).unwrap();
+  assert!(close(title.x - shown.x, 14.0), "14 of padding at its side");
+  assert!(
+    title.y >= shown.y + 14.0 - 0.5 && title.y <= shown.y + 14.0 + 4.0,
+    "14 of padding over the header, the title in the middle of its row: {}",
+    title.y - shown.y
+  );
+  assert_eq!(stage.text(TITLE).1, 14.0);
+  assert_eq!(stage.text("Got it").0, light(PaletteColor::PrimaryForeground));
+  let (_, _, _, button_height) = stage.bounds("tip-primary");
+  assert!(close(button_height, 30.0), "a button 30 high");
+}
+
+#[test]
+fn its_close_control_and_escape_close_it_and_tell_on_dismiss_and_a_press_elsewhere_does_not() {
+  let (open, closed) = (Signal::new(true), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let closed = closed.clone();
+    stage(&open, move |anchor, open| dock(anchor, open, &closed))
+  };
+  stage.pass();
+  assert!(stage.paints(TITLE));
+
+  stage.click("field");
+  assert!(open.get(), "a press elsewhere is the person going on beside it");
+  assert!(stage.paints(TITLE));
+
+  stage.click("tip-close");
+  assert!(!open.get(), "its close control closes it");
+  assert_eq!(closed.load(Ordering::SeqCst), 1);
+  stage.pass();
+  assert!(!stage.paints(TITLE));
+
+  open.set(true);
+  stage.pass();
+  assert!(stage.paints(TITLE));
+  stage.key("Escape");
+  stage.pass();
+  assert!(!open.get(), "Escape closes it");
+  assert_eq!(closed.load(Ordering::SeqCst), 2, "and tells on_dismiss");
+  assert!(!stage.paints(TITLE));
+
+  // Closed by the app, it tells nothing.
+  open.set(true);
+  stage.pass();
+  press_text(&mut stage, "Got it");
+  assert!(!open.get());
+  assert_eq!(closed.load(Ordering::SeqCst), 2, "its own button says what it does");
+}
+
+#[test]
+fn tab_goes_from_what_it_points_at_into_its_buttons_and_on() {
+  let (open, closed) = (Signal::new(true), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let closed = closed.clone();
+    stage(&open, move |anchor, open| {
+      dock(anchor, open.clone(), &closed).secondary("Not now", move || open.set(false))
+    })
+  };
+  stage.pass();
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("panels"));
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("tip-close"),
+    "into the tip after what it points at"
+  );
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tip-secondary"));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tip-primary"));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("after"), "and on");
+  assert!(open.get(), "moving through it leaves it open");
+}
+
+#[test]
+fn taking_the_focus_it_moves_it_in_as_it_opens_and_back_as_it_closes() {
+  let (open, closed) = (Signal::new(false), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let closed = closed.clone();
+    stage(&open, move |anchor, open| dock(anchor, open, &closed).takes_focus(true))
+  };
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("field"));
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("tip-close"), "the first thing in it");
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("field"), "back to what had it");
+}
+
+#[test]
+fn its_media_is_96_high_at_its_top_and_the_primary_look_is_in_the_primary_color() {
+  let open = Signal::new(true);
+  let mut stage = stage(&open, |anchor, open| {
+    TeachingTip::new(open, anchor)
+      .title(TITLE)
+      .media(Rect::new(24.0, 24.0).id("sparkles"))
+      .variant(TeachingTipVariant::Primary)
+  });
+  stage.pass();
+  let shown = panel(&stage, TITLE).expect("the panel");
+  assert_eq!(rect_color(&shown), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.text(TITLE).0, light(PaletteColor::PrimaryForeground));
+  let (sx, sy, sw, sh) = stage.bounds("sparkles");
+  assert!(
+    close(sy + sh / 2.0, shown.y + 48.0),
+    "in the middle of the media's 96 at the panel's top"
+  );
+  assert!(close(sx + sw / 2.0, shown.x + shown.width / 2.0), "centered in it");
+  let title = stage.text_quad(TITLE).unwrap();
+  assert!(title.y >= shown.y + 96.0 + 14.0 - 0.5, "the text under the media");
+
+  let theme = Theme::new();
+  let plain = theme
+    .resolve::<TeachingTip>(&Case::new(), None)
+    .part(TeachingTipPart::Panel)
+    .rest();
+  assert!(matches!(plain.shadow, Some(BoxShadowValue::Theme(ShadowStyle::Lg))));
+}
+
+#[test]
+fn a_tour_shows_its_steps_one_after_another() {
+  let (step, finished) = (Signal::new(Some(0_usize)), Arc::new(AtomicUsize::new(0)));
+  let (first, second) = (ElementRef::new(), ElementRef::new());
+  let mut stage = {
+    let (step, finished) = (step.clone(), finished.clone());
+    Stage::new(move |ctx: &mut Ctx| -> Element {
+      let finished = finished.clone();
+      Column::new()
+        .size(400.0, 300.0)
+        .padding_top(20.0)
+        .align_items(Alignment::Center)
+        .child(Rect::new(80.0, 24.0).id("first").ref_element(first.clone()))
+        .child(Rect::new(1.0, 60.0))
+        .child(Rect::new(80.0, 24.0).id("second").ref_element(second.clone()))
+        .child(
+          Tour::new(step.clone())
+            .step(TourStep::new(first.clone(), "Switch themes here").description("Light and dark."))
+            .step(TourStep::new(second.clone(), "Dock panels anywhere"))
+            .on_finish(move || {
+              finished.fetch_add(1, Ordering::SeqCst);
+            })
+            .mount(ctx),
+        )
+        .into()
+    })
+  };
+  stage.pass();
+  assert!(stage.paints("Switch themes here"));
+  assert!(stage.paints("1 of 2"));
+  assert!(!stage.paints("Back"), "nothing to go back to");
+  let shown = panel(&stage, "Switch themes here").unwrap();
+  assert!(close(shown.width, 280.0), "the board's tour is 280 wide");
+  let title = stage.text_quad("Switch themes here").unwrap();
+  assert!(close(title.x - shown.x, 16.0), "padded 16");
+  assert_ne!(
+    stage.font_of("1 of 2"),
+    stage.font_of("Switch themes here"),
+    "the count in the mono family"
+  );
+
+  press_text(&mut stage, "Next");
+  assert_eq!(step.get(), Some(1));
+  stage.pass();
+  assert!(stage.paints("2 of 2"));
+  assert!(stage.paints("Dock panels anywhere"));
+  let (_, y, _, height) = stage.bounds("second");
+  assert!(
+    panel(&stage, "Dock panels anywhere").unwrap().y > y + height,
+    "under the second"
+  );
+
+  press_text(&mut stage, "Back");
+  assert_eq!(step.get(), Some(0));
+  stage.pass();
+  press_text(&mut stage, "Next");
+  stage.pass();
+  press_text(&mut stage, "Done");
+  assert_eq!(step.get(), None, "the last step ends it");
+  assert_eq!(finished.load(Ordering::SeqCst), 1);
+  stage.pass();
+  assert!(!stage.paints("Dock panels anywhere"));
+
+  step.set(Some(1));
+  stage.pass();
+  assert!(stage.paints("Dock panels anywhere"));
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(step.get(), None, "Escape leaves the tour");
+  assert_eq!(finished.load(Ordering::SeqCst), 1, "without finishing it");
+}
+
+#[test]
+fn a_rule_of_the_theme_changes_the_tip() {
+  let app = App::new();
+  app.theme().patch_recipe::<TeachingTip>(|recipe| {
+    recipe.base(TeachingTipPart::Panel, |s| s.background(PaletteColor::Destructive))
+  });
+  let open = Signal::new(true);
+  let anchor = ElementRef::new();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(40.0)
+      .child(Rect::new(80.0, 24.0).ref_element(anchor.clone()))
+      .child(TeachingTip::new(open.clone(), anchor.clone()).title(TITLE).mount(ctx))
+      .into()
+  });
+  stage.pass();
+  assert_eq!(
+    rect_color(&panel(&stage, TITLE).unwrap()),
+    Some(light(PaletteColor::Destructive))
+  );
+}
+
+#[test]
+fn a_theme_gives_the_tip_another_anatomy_and_it_shows_when_its_signal_says() {
+  let app = App::new();
+  let renderer: TeachingTipRenderer = Arc::new(|view: TeachingTipView| {
+    let shouted = view.title.as_deref().unwrap_or_default().to_uppercase();
+    Row::new()
+      .part(&view.part(TeachingTipPart::Panel))
+      .child(view.part(TeachingTipPart::Title).text(&shouted))
+      .into()
+  });
+  app.theme().set_renderer::<TeachingTip>(renderer);
+  let open = Signal::new(false);
+  let mut stage = {
+    let (anchor, open) = (ElementRef::new(), open.clone());
+    Stage::in_app(app, move |ctx| {
+      Column::new()
+        .size(400.0, 300.0)
+        .padding(40.0)
+        .child(Rect::new(80.0, 24.0).ref_element(anchor.clone()))
+        .child(TeachingTip::new(open.clone(), anchor.clone()).title(TITLE).mount(ctx))
+        .into()
+    })
+  };
+  assert!(!stage.paints("DOCK PANELS ANYWHERE"));
+  open.set(true);
+  stage.pass();
+  assert!(stage.paints("DOCK PANELS ANYWHERE"));
+}
+
+#[test]
+fn it_closes_before_it_tells_on_dismiss_and_every_handler_is_told() {
+  // What the signal said as each handler was told: a handler that opens something else finds the tip closed.
+  let said = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let open = Signal::new(true);
+  let mut stage = {
+    let said = said.clone();
+    stage(&open, move |anchor, open| {
+      let (first, second) = ((said.clone(), open.clone()), (said.clone(), open.clone()));
+      TeachingTip::new(open, anchor)
+        .title(TITLE)
+        .id("tip")
+        .on_dismiss(move || first.0.lock().unwrap().push(("first", first.1.get_untracked())))
+        .on_dismiss(move || second.0.lock().unwrap().push(("second", second.1.get_untracked())))
+    })
+  };
+  stage.pass();
+  stage.click("tip-close");
+  assert_eq!(
+    *said.lock().unwrap(),
+    [("first", false), ("second", false)],
+    "closed by its close control first, then each handler in turn"
+  );
+
+  said.lock().unwrap().clear();
+  open.set(true);
+  stage.pass();
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(
+    *said.lock().unwrap(),
+    [("first", false), ("second", false)],
+    "and by Escape"
+  );
+}
+
+#[test]
+fn without_dismiss_on_escape_escape_leaves_it_open() {
+  let open = Signal::new(true);
+  let mut stage = stage(&open, |anchor, open| {
+    TeachingTip::new(open, anchor)
+      .title(TITLE)
+      .id("tip")
+      .dismiss_on_escape(false)
+  });
+  stage.pass();
+  stage.key("Escape");
+  stage.pass();
+  assert!(open.get(), "Escape does not close it");
+  assert!(stage.paints(TITLE));
+  stage.click("tip-close");
+  assert!(!open.get(), "its close control still does");
+}
+
+#[test]
+fn with_dismiss_on_outside_press_a_press_elsewhere_closes_it_and_tells_on_dismiss() {
+  let (open, closed) = (Signal::new(true), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let closed = closed.clone();
+    stage(&open, move |anchor, open| {
+      let closed = closed.clone();
+      TeachingTip::new(open, anchor)
+        .title(TITLE)
+        .id("tip")
+        .dismiss_on_outside_press(true)
+        .on_dismiss(move || {
+          closed.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+  };
+  stage.pass();
+  assert!(stage.paints(TITLE));
+  stage.click("field");
+  stage.pass();
+  assert!(!open.get(), "a press elsewhere closes it");
+  assert_eq!(closed.load(Ordering::SeqCst), 1, "and tells on_dismiss");
+  assert!(!stage.paints(TITLE));
+}
+
+#[test]
+fn its_buttons_call_what_they_are_given_and_children_add_what_it_holds() {
+  let pressed = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let open = Signal::new(true);
+  let mut stage = {
+    let pressed = pressed.clone();
+    stage(&open, move |anchor, open| {
+      let (on, back) = (pressed.clone(), pressed.clone());
+      TeachingTip::new(open, anchor)
+        .title(TITLE)
+        .children([Rect::new(20.0, 10.0).id("one"), Rect::new(20.0, 10.0).id("two")])
+        .secondary("Not now", move || back.lock().unwrap().push("secondary"))
+        .primary("Got it", move || on.lock().unwrap().push("primary"))
+    })
+  };
+  stage.pass();
+  let (_, one, _, height) = stage.bounds("one");
+  let (_, two, ..) = stage.bounds("two");
+  assert!(two >= one + height - 0.5, "one under the other");
+  press_text(&mut stage, "Not now");
+  press_text(&mut stage, "Got it");
+  assert_eq!(*pressed.lock().unwrap(), ["secondary", "primary"]);
+  assert!(open.get(), "its own buttons do what their handlers say, and no more");
+}
+
+#[test]
+fn its_label_is_what_tooling_calls_it_and_its_title_where_it_has_none() {
+  let app = App::new();
+  let renderer: TeachingTipRenderer = Arc::new(|view: TeachingTipView| {
+    Row::new()
+      .part(&view.part(TeachingTipPart::Panel))
+      .child(
+        view
+          .part(TeachingTipPart::Title)
+          .text(&format!("called {}", view.label.as_deref().unwrap_or("nothing"))),
+      )
+      .into()
+  });
+  app.theme().set_renderer::<TeachingTip>(renderer);
+  let (open, first, second) = (Signal::new(true), ElementRef::new(), ElementRef::new());
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(40.0)
+      .spacing(120.0)
+      .child(Rect::new(80.0, 24.0).ref_element(first.clone()))
+      .child(Rect::new(80.0, 24.0).ref_element(second.clone()))
+      .child(TeachingTip::new(open.clone(), first.clone()).title(TITLE).mount(ctx))
+      .child(
+        TeachingTip::new(open.clone(), second.clone())
+          .title(TITLE)
+          .label("Where the panels go")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(stage.paints(&format!("called {TITLE}")), "by its title");
+  assert!(stage.paints("called Where the panels go"), "by its label");
+}
+
+#[test]
+fn an_offset_stands_it_that_far_from_what_it_points_at() {
+  let open = Signal::new(true);
+  let mut stage = stage(&open, |anchor, open| {
+    TeachingTip::new(open, anchor).title(TITLE).offset(20.0)
+  });
+  stage.pass();
+  let shown = panel(&stage, TITLE).unwrap();
+  let (_, y, _, height) = stage.bounds("panels");
+  assert!(
+    close(shown.y, y + height + 20.0 + 9.0),
+    "20 and its arrow's 9 under what it points at: {}",
+    shown.y
+  );
+}
+
+#[test]
+fn a_collision_that_only_clamps_keeps_it_on_its_own_side() {
+  let at_bottom = |collision: CollisionStrategy| {
+    let (open, anchor) = (Signal::new(true), ElementRef::new());
+    let mut stage = Stage::new(move |ctx: &mut Ctx| -> Element {
+      Column::new()
+        .size(400.0, 300.0)
+        .padding_top(250.0)
+        .align_items(Alignment::Center)
+        .child(Rect::new(80.0, 24.0).id("target").ref_element(anchor.clone()))
+        .child(
+          TeachingTip::new(open.clone(), anchor.clone())
+            .title(TITLE)
+            .collision(collision)
+            .mount(ctx),
+        )
+        .into()
+    });
+    stage.tree.resize(400, 300);
+    stage.pass();
+    stage.pass();
+    let shown = panel(&stage, TITLE).unwrap();
+    let (_, y, ..) = stage.bounds("target");
+    shown.y + shown.height <= y
+  };
+  assert!(
+    at_bottom(CollisionStrategy::FlipThenClamp),
+    "no room under it: it goes above"
+  );
+  assert!(
+    !at_bottom(CollisionStrategy::Clamp),
+    "it stays on its side, moved into the window"
+  );
+}
+
+#[test]
+fn force_draws_its_close_control_focused_with_nothing_on_it() {
+  let open = Signal::new(true);
+  let mut forced = stage(&open, |anchor, open| {
+    TeachingTip::new(open, anchor)
+      .title(TITLE)
+      .force(Some(Interaction::FocusVisible))
+  });
+  forced.pass();
+  assert!(
+    forced.has_ring(light(PaletteColor::Ring)),
+    "the focus ring of its close control"
+  );
+  let mut rest = stage(&open, |anchor, open| TeachingTip::new(open, anchor).title(TITLE));
+  rest.pass();
+  assert!(!rest.has_ring(light(PaletteColor::Ring)));
+}
+
+/// Two targets 60 apart down the middle of the window, and the tour `make` makes of a step on each.
+fn tour_stage(step: &Signal<Option<usize>>, make: impl Fn(Tour) -> Tour + Send + Sync + 'static) -> Stage {
+  let (step, first, second) = (step.clone(), ElementRef::new(), ElementRef::new());
+  Stage::new(move |ctx: &mut Ctx| -> Element {
+    let tour = Tour::new(step.clone())
+      .step(TourStep::new(first.clone(), "Switch themes here"))
+      .step(TourStep::new(second.clone(), "Dock panels anywhere").id("dock"));
+    Column::new()
+      .size(400.0, 300.0)
+      .padding_top(20.0)
+      .align_items(Alignment::Center)
+      .child(Rect::new(80.0, 24.0).id("first").ref_element(first.clone()))
+      .child(Rect::new(1.0, 60.0))
+      .child(Rect::new(80.0, 24.0).id("second").ref_element(second.clone()))
+      .child(make(tour).mount(ctx))
+      .into()
+  })
+}
+
+#[test]
+fn a_tours_labels_ids_and_rules_are_its_own_and_a_steps_id_comes_first() {
+  let step = Signal::new(Some(0_usize));
+  let mut stage = tour_stage(&step, |tour| {
+    tour
+      .back_label("Previous")
+      .next_label("Onward")
+      .done_label("Finish")
+      .id("tour")
+      .style(TeachingTipPart::Panel, |s| s.background(PaletteColor::Destructive))
+  });
+  stage.pass();
+  assert!(stage.paints("Onward"));
+  assert_eq!(
+    rect_color(&panel(&stage, "Switch themes here").unwrap()),
+    Some(light(PaletteColor::Destructive)),
+    "its style is its tips'"
+  );
+  stage.click("tour-primary");
+  assert_eq!(step.get(), Some(1));
+  stage.pass();
+  assert!(stage.paints("Previous"));
+  assert!(stage.paints("Finish"));
+  stage.click("dock-primary");
+  assert_eq!(step.get(), None, "its done button ends it");
+}
+
+#[test]
+fn escape_leaving_a_tour_tells_on_dismiss_and_done_does_not() {
+  let (step, dismissed, finished) = (
+    Signal::new(Some(1_usize)),
+    Arc::new(AtomicUsize::new(0)),
+    Arc::new(AtomicUsize::new(0)),
+  );
+  let mut stage = {
+    let (dismissed, finished) = (dismissed.clone(), finished.clone());
+    tour_stage(&step, move |tour| {
+      let (dismissed, finished) = (dismissed.clone(), finished.clone());
+      tour
+        .on_dismiss(move || {
+          dismissed.fetch_add(1, Ordering::SeqCst);
+        })
+        .on_finish(move || {
+          finished.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+  };
+  stage.pass();
+  press_text(&mut stage, "Done");
+  assert_eq!(step.get(), None);
+  assert_eq!(
+    (finished.load(Ordering::SeqCst), dismissed.load(Ordering::SeqCst)),
+    (1, 0),
+    "Done finishes it"
+  );
+
+  step.set(Some(0));
+  stage.pass();
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(step.get(), None, "Escape leaves the tour");
+  assert_eq!(
+    (finished.load(Ordering::SeqCst), dismissed.load(Ordering::SeqCst)),
+    (1, 1),
+    "and tells on_dismiss"
+  );
+}
+
+#[test]
+fn without_dismiss_on_escape_escape_leaves_the_tour_on() {
+  let step = Signal::new(Some(0_usize));
+  let mut stage = tour_stage(&step, |tour| tour.dismiss_on_escape(false));
+  stage.pass();
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(step.get(), Some(0));
+  assert!(stage.paints("Switch themes here"));
+}
+
+#[test]
+fn a_tour_converted_on_its_own_is_the_panel_of_its_step() {
+  let shows = |current: Option<usize>| {
+    let step = Signal::new(current);
+    let mut stage = Stage::new(move |_| {
+      let tour = Tour::new(step.clone())
+        .step(TourStep::new(ElementRef::new(), "Switch themes here"))
+        .step(TourStep::new(ElementRef::new(), "Dock panels anywhere"));
+      Column::new().size(400.0, 300.0).padding(20.0).child(tour).into()
+    });
+    stage.pass();
+    (
+      stage.paints("Switch themes here"),
+      stage.paints("Dock panels anywhere"),
+      stage.paints("2 of 2"),
+    )
+  };
+  assert_eq!(shows(None), (true, false, false), "its first step while it says none");
+  assert_eq!(shows(Some(1)), (false, true, true), "the step it says");
+}
+
+// --- The tour's focus, keys, Skip and controlled form ---
+
+/// A button that starts the tour, two targets, and the tour `make` makes of three steps, the last on the first
+/// target again.
+fn walk_stage(step: &Signal<Option<usize>>, make: impl Fn(Tour) -> Tour + Send + Sync + 'static) -> Stage {
+  let (step, first, second) = (step.clone(), ElementRef::new(), ElementRef::new());
+  Stage::new(move |ctx: &mut Ctx| -> Element {
+    let tour = Tour::new(step.clone())
+      .step(TourStep::new(first.clone(), "Switch themes here"))
+      .step(TourStep::new(second.clone(), "Dock panels anywhere"))
+      .step(TourStep::new(first.clone(), "Make it yours"))
+      .id("tour");
+    let start = step.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding_top(8.0)
+      .align_items(Alignment::Center)
+      .child(Button::new("Start").id("start").on_click(move |_| start.set(Some(0))))
+      .child(Rect::new(80.0, 24.0).id("first").ref_element(first.clone()))
+      .child(Rect::new(1.0, 40.0))
+      .child(Rect::new(80.0, 24.0).id("second").ref_element(second.clone()))
+      .child(make(tour).mount(ctx))
+      .into()
+  })
+}
+
+#[test]
+fn a_tour_takes_the_focus_keeps_it_on_the_button_that_goes_on_and_gives_it_back() {
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, |tour| tour);
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("start"));
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(0), "the button starts it");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("tour-primary"),
+    "the focus goes into the card"
+  );
+
+  // Enter goes on, and the focus is on the button that goes on at every step, the last one's Done too.
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(1));
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(2));
+  assert!(stage.paints("Done"));
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), None, "Done ends it");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("start"),
+    "the focus goes back to what had it"
+  );
+}
+
+#[test]
+fn back_to_the_first_step_leaves_the_focus_on_the_button_that_goes_on() {
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, |tour| tour);
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.pass();
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(1));
+  // Back, which the first step does not have: Shift+Tab from the button that goes on, then Enter.
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage
+    .tree
+    .key_up("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("tour-secondary"));
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(0));
+  assert!(!stage.paints("Back"));
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("tour-primary"),
+    "the focus is not dropped with the button"
+  );
+}
+
+#[test]
+fn the_arrows_step_a_tour_while_the_focus_is_in_its_card() {
+  let (step, told) = (Signal::new(None::<usize>), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = {
+    let told = told.clone();
+    walk_stage(&step, move |tour| {
+      let told = told.clone();
+      tour.on_change(move |to| told.lock().unwrap().push(to))
+    })
+  };
+  // The focus is on the button that starts it: the arrows are not the tour's yet.
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(step.get(), None);
+  stage.key("Enter");
+  stage.pass();
+  assert!(told.lock().unwrap().is_empty(), "the app started it: nothing is told");
+
+  stage.key("ArrowRight");
+  stage.pass();
+  assert_eq!(step.get(), Some(1), "Right goes on");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  stage.key("ArrowLeft");
+  stage.pass();
+  assert_eq!(step.get(), Some(0), "Left goes back");
+  stage.key("ArrowLeft");
+  stage.pass();
+  assert_eq!(step.get(), Some(0), "nothing before the first");
+  stage.key("End");
+  stage.pass();
+  assert_eq!(step.get(), Some(2), "End goes to the last");
+  stage.key("ArrowRight");
+  stage.pass();
+  assert_eq!(step.get(), Some(2), "Right does not end the tour: Done does");
+  stage.key("Home");
+  stage.pass();
+  assert_eq!(step.get(), Some(0), "Home goes to the first");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  assert_eq!(
+    *told.lock().unwrap(),
+    [Some(1), Some(0), Some(2), Some(0)],
+    "each change a person made, once"
+  );
+
+  // Escape leaves, and the focus goes back.
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(step.get(), None);
+  assert_eq!(told.lock().unwrap().last(), Some(&None));
+  assert_eq!(focused(&stage).as_deref(), Some("start"));
+}
+
+#[test]
+fn without_takes_focus_a_tour_leaves_the_focus_and_the_arrows_alone() {
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, |tour| tour.takes_focus(false));
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(0));
+  assert_eq!(focused(&stage).as_deref(), Some("start"), "the focus stays");
+  stage.key("ArrowRight");
+  stage.pass();
+  assert_eq!(step.get(), Some(0), "the arrows are for what has the focus");
+}
+
+#[test]
+fn skip_leaves_a_tour_as_escape_does() {
+  let (step, dismissed, finished) = (
+    Signal::new(Some(0_usize)),
+    Arc::new(AtomicUsize::new(0)),
+    Arc::new(AtomicUsize::new(0)),
+  );
+  let mut stage = {
+    let (dismissed, finished) = (dismissed.clone(), finished.clone());
+    walk_stage(&step, move |tour| {
+      let (dismissed, finished) = (dismissed.clone(), finished.clone());
+      tour
+        .skip_button(true)
+        .skip_label("Skip the tour")
+        .on_dismiss(move || {
+          dismissed.fetch_add(1, Ordering::SeqCst);
+        })
+        .on_finish(move || {
+          finished.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+  };
+  stage.pass();
+  // Before the button that goes on, in the same row, quiet.
+  let (skip, next) = (
+    stage.text_quad("Skip the tour").expect("the skip button"),
+    stage.text_quad("Next").unwrap(),
+  );
+  assert!(skip.x + skip.width < next.x && close(skip.y, next.y));
+  let (_, _, _, height) = stage.bounds("tour-tertiary");
+  assert_eq!(height, 28.0, "as high as the others");
+  assert_eq!(stage.fill_color("tour-tertiary"), None, "a ghost");
+
+  // The last step has nothing to skip.
+  step.set(Some(2));
+  stage.pass();
+  assert!(!stage.paints("Skip the tour"));
+  step.set(Some(1));
+  stage.pass();
+
+  stage.click("tour-tertiary");
+  stage.pass();
+  assert_eq!(step.get(), None, "Skip leaves");
+  assert_eq!(
+    (dismissed.load(Ordering::SeqCst), finished.load(Ordering::SeqCst)),
+    (1, 0),
+    "it was left, not finished"
+  );
+  assert!(!stage.paints("Dock panels anywhere"));
+}
+
+#[test]
+fn a_tour_has_no_skip_button_unless_it_is_asked_for() {
+  let step = Signal::new(Some(0_usize));
+  let mut stage = walk_stage(&step, |tour| tour);
+  stage.pass();
+  assert!(!stage.paints("Skip"), "the board draws Back and Next alone");
+}
+
+#[test]
+fn a_controlled_tour_tells_the_step_it_is_asked_to_be_at_and_stays_where_the_app_holds_it() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  // What the app holds: the tour is given its value, and the app follows what it is told only from the second ask.
+  let held = Signal::new(Some(0_usize));
+  let mut stage = {
+    let (told, held) = (told.clone(), held.clone());
+    let (first, second) = (ElementRef::new(), ElementRef::new());
+    Stage::new(move |ctx: &mut Ctx| -> Element {
+      let (told, follow) = (told.clone(), held.clone());
+      let tour = Tour::controlled(held.get(), move |to| {
+        let mut told = told.lock().unwrap();
+        told.push(to);
+        if told.len() > 1 {
+          follow.set(to);
+        }
+      })
+      .step(TourStep::new(first.clone(), "Switch themes here"))
+      .step(TourStep::new(second.clone(), "Dock panels anywhere"))
+      .id("tour");
+      Column::new()
+        .size(400.0, 300.0)
+        .padding_top(8.0)
+        .align_items(Alignment::Center)
+        .child(Rect::new(80.0, 24.0).ref_element(first.clone()))
+        .child(Rect::new(1.0, 40.0))
+        .child(Rect::new(80.0, 24.0).ref_element(second.clone()))
+        .child(tour.mount(ctx))
+        .into()
+    })
+  };
+  stage.pass();
+  assert!(stage.paints("1 of 2"));
+  stage.click("tour-primary");
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), [Some(1)], "told what a press asks for");
+  assert!(stage.paints("1 of 2"), "and stays where the app holds it");
+
+  stage.click("tour-primary");
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), [Some(1), Some(1)]);
+  assert!(stage.paints("2 of 2"), "the app followed");
+
+  // Escape asks for none, and the app follows.
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(told.lock().unwrap().last(), Some(&None));
+  assert_eq!(held.get(), None);
+  assert!(!stage.paints("2 of 2"));
+}
+
+#[test]
+fn a_bound_tours_on_change_is_told_after_the_signal_and_not_when_the_app_sets_it() {
+  let (step, seen) = (Signal::new(Some(0_usize)), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = {
+    let (seen, read) = (seen.clone(), step.clone());
+    walk_stage(&step, move |tour| {
+      let (seen, read) = (seen.clone(), read.clone());
+      tour.on_change(move |to| seen.lock().unwrap().push((to, read.get_untracked())))
+    })
+  };
+  stage.pass();
+  stage.click("tour-primary");
+  stage.pass();
+  assert_eq!(
+    *seen.lock().unwrap(),
+    [(Some(1), Some(1))],
+    "the signal is set before the handler reads it"
+  );
+  step.set(Some(2));
+  stage.pass();
+  assert_eq!(seen.lock().unwrap().len(), 1, "the app's own change tells nothing");
+}
+
+#[test]
+fn a_tours_step_is_the_boards_card() {
+  let step = Signal::new(Some(1_usize));
+  let mut stage = walk_stage(&step, |tour| tour);
+  stage.pass();
+  // Buttons 28 high and 10 from their sides, 8 apart, their words at 13: Back outlined, Next primary.
+  let (back, next) = (stage.bounds("tour-secondary"), stage.bounds("tour-primary"));
+  assert_eq!((back.3, next.3), (28.0, 28.0));
+  assert!(close(next.0 - (back.0 + back.2), 8.0));
+  let words = stage.text_quad("Next").unwrap();
+  assert!(close(words.x - next.0, 10.0), "{}", words.x - next.0);
+  assert_eq!(stage.text("Next"), (light(PaletteColor::PrimaryForeground), 13.0));
+  assert_eq!(stage.text("Back").1, 13.0);
+  assert_eq!(stage.fill_color("tour-primary"), Some(light(PaletteColor::Primary)));
+  // The count in mono 11, muted, at the start of the footer on the buttons' line.
+  assert_eq!(stage.text("2 of 3"), (light(PaletteColor::MutedForeground), 11.0));
+
+  // The medium shadow, where a teaching tip on its own has the large one.
+  let step = Theme::new().resolve::<TeachingTip>(&Case::new().state(lurq::ui::TeachingTipState::Step, true), None);
+  assert!(matches!(
+    step.part(TeachingTipPart::Panel).rest().shadow,
+    Some(BoxShadowValue::Theme(ShadowStyle::Md))
+  ));
+}
+
+// --- Tab in the tour's card ---
+
+fn shift_tab(stage: &mut Stage) {
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage
+    .tree
+    .key_up("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+}
+
+/// A tour started from its button and taken to its second step, which has Back and Next: the focus is on Next.
+fn at_the_second_step(make: impl Fn(Tour) -> Tour + Send + Sync + 'static) -> (Stage, Signal<Option<usize>>) {
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, make);
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.pass();
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(1));
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  (stage, step)
+}
+
+#[test]
+fn a_tour_that_starts_takes_the_focus_on_the_button_that_goes_on_whatever_stands_before_it() {
+  // With Skip before it, and started at a step that has Back before it.
+  let step = Signal::new(None::<usize>);
+  let mut stage = walk_stage(&step, |tour| tour.skip_button(true));
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(0));
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"), "not on Skip");
+  stage.key("Escape");
+  stage.pass();
+  step.set(Some(1));
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"), "not on Back");
+}
+
+#[test]
+fn tab_is_held_in_a_tours_card_and_goes_round_it_both_ways() {
+  let (mut stage, step) = at_the_second_step(|tour| tour.skip_button(true));
+  // Skip, Back, Next: from the last Tab goes to the first, and Shift+Tab from the first to the last.
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-tertiary"), "round to the first");
+  assert_eq!(step.get(), Some(1), "Tab steps nothing");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-secondary"));
+  assert_eq!(step.get(), Some(1));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  assert_eq!(step.get(), Some(1));
+  shift_tab(&mut stage);
+  assert_eq!(step.get(), Some(1), "nor does Shift+Tab");
+  shift_tab(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("tour-tertiary"));
+  assert_eq!(step.get(), Some(1));
+  shift_tab(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"), "round the other way");
+  assert_eq!(step.get(), Some(1));
+
+  // Held at the next step too, the card being the same overlay at another element; and Escape leaves as it did.
+  stage.key("Enter");
+  stage.pass();
+  assert_eq!(step.get(), Some(2));
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("tour-secondary"),
+    "the last step has no Skip"
+  );
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("tour-primary"));
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(step.get(), None);
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("start"),
+    "the focus goes back to what had it"
+  );
+}
+
+#[test]
+fn a_tour_told_not_to_hold_tab_lets_it_leave_the_card() {
+  let (mut stage, step) = at_the_second_step(|tour| tour.traps_tab(false));
+  stage.key("Tab");
+  let now = focused(&stage);
+  assert!(
+    !now.as_deref().is_some_and(|id| id.starts_with("tour-")),
+    "Tab went on from the card's last button: {now:?}"
+  );
+  assert_eq!(step.get(), Some(1), "the tour is still on");
+}
+
+#[test]
+fn a_teaching_tip_alone_does_not_hold_tab_unless_it_is_told_to() {
+  let tip = |traps: bool| {
+    let open = Signal::new(false);
+    let mut stage = {
+      let open = open.clone();
+      stage(&open.clone(), move |anchor, open| {
+        TeachingTip::new(open, anchor)
+          .title(TITLE)
+          .secondary("Not now", || ())
+          .primary("Got it", || ())
+          .close_button(false)
+          .takes_focus(true)
+          .traps_tab(traps)
+          .id("tip")
+      })
+    };
+    open.set(true);
+    stage.pass();
+    assert_eq!(focused(&stage).as_deref(), Some("tip-secondary"), "it takes the focus");
+    stage.key("Tab");
+    assert_eq!(focused(&stage).as_deref(), Some("tip-primary"));
+    stage.key("Tab");
+    focused(&stage)
+  };
+  let left = tip(false);
+  assert!(
+    !left.as_deref().is_some_and(|id| id.starts_with("tip-")),
+    "Tab goes on from its last button: {left:?}"
+  );
+  assert_eq!(tip(true).as_deref(), Some("tip-secondary"), "held, it goes round");
+}

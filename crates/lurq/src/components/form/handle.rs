@@ -30,6 +30,7 @@ struct FormHandleInner {
   strings: Mutex<BTreeMap<Arc<str>, Signal<String>>>,
   numbers: Mutex<BTreeMap<Arc<str>, Signal<f64>>>,
   bools: Mutex<BTreeMap<Arc<str>, Signal<bool>>>,
+  ranges: Mutex<BTreeMap<Arc<str>, Signal<(f64, f64)>>>,
   validators: Vec<FieldValidator>,
   errors: Mutex<FormErrors>,
   // The same shape as the maps beside it.
@@ -78,6 +79,7 @@ impl FormHandle {
         strings: Mutex::new(BTreeMap::new()),
         numbers: Mutex::new(BTreeMap::new()),
         bools: Mutex::new(BTreeMap::new()),
+        ranges: Mutex::new(BTreeMap::new()),
         validators: options.validators,
         errors: Mutex::new(FormErrors::new()),
         error_signals: Mutex::new(BTreeMap::new()),
@@ -166,6 +168,27 @@ impl FormHandle {
     signal
   }
 
+  /// The field of a range slider: its low value and its high one, `(0.0, 0.0)` where the form has no default.
+  pub fn range(&self, name: impl Into<Arc<str>>) -> Signal<(f64, f64)> {
+    let name = name.into();
+    if let Some(signal) = self.inner.ranges.lock().get(&name).cloned() {
+      return signal;
+    }
+
+    let initial = self
+      .inner
+      .values
+      .lock()
+      .get(&name)
+      .and_then(FormValue::as_range)
+      .unwrap_or_default();
+    self.ensure_default(&name, FormValue::from(initial));
+    let signal = Signal::new(initial);
+    self.watch_field_for_dirty(name.clone(), &signal);
+    self.inner.ranges.lock().insert(name, signal.clone());
+    signal
+  }
+
   pub fn string_field(&self, name: impl Into<Arc<str>>) -> FormField<String> {
     let name = name.into();
     FormField::new(name.clone(), self.string(name.clone()), self.clone())
@@ -181,6 +204,11 @@ impl FormHandle {
     FormField::new(name.clone(), self.bool(name.clone()), self.clone())
   }
 
+  pub fn range_field(&self, name: impl Into<Arc<str>>) -> FormField<(f64, f64)> {
+    let name = name.into();
+    FormField::new(name.clone(), self.range(name.clone()), self.clone())
+  }
+
   pub fn string_control(&self, name: impl Into<Arc<str>>) -> Control<String> {
     Control::new(self.string_field(name))
   }
@@ -191,6 +219,11 @@ impl FormHandle {
 
   pub fn bool_control(&self, name: impl Into<Arc<str>>) -> Control<bool> {
     Control::new(self.bool_field(name))
+  }
+
+  /// The control of a range slider: [`FormRangeSliderInput`](super::FormRangeSliderInput) is bound to it.
+  pub fn range_control(&self, name: impl Into<Arc<str>>) -> Control<(f64, f64)> {
+    Control::new(self.range_field(name))
   }
 
   pub fn values(&self) -> FormValues {
@@ -486,6 +519,7 @@ impl FormHandle {
       .iter()
       .map(|(name, signal)| (name.clone(), signal.clone()))
       .collect::<Vec<_>>();
+    let ranges = self.range_signals();
 
     let mut values = self.current_values();
     for (name, value) in data.entries() {
@@ -513,7 +547,33 @@ impl FormHandle {
       values.set(name, value);
     }
 
+    // A range slider submits its low value and its high one under its name.
+    for (name, signal) in ranges {
+      let numbers = data
+        .get_all(&name)
+        .into_iter()
+        .filter_map(|value| value.parse::<f64>().ok())
+        .collect::<Vec<_>>();
+      if let [low, high] = numbers[..] {
+        signal.set((low, high));
+        values.set(name, (low, high));
+      } else if values.get(&name).is_some_and(|value| value.as_range().is_none()) {
+        // What the form data put there is not a range: the field keeps its own.
+        values.set(name, signal.get_untracked());
+      }
+    }
+
     values
+  }
+
+  fn range_signals(&self) -> Vec<(Arc<str>, Signal<(f64, f64)>)> {
+    self
+      .inner
+      .ranges
+      .lock()
+      .iter()
+      .map(|(name, signal)| (name.clone(), signal.clone()))
+      .collect()
   }
 
   pub fn reset(&self) {
@@ -551,6 +611,9 @@ impl FormHandle {
     for (name, signal) in bools {
       signal.set(defaults.get(&name).and_then(FormValue::as_bool).unwrap_or_default());
     }
+    for (name, signal) in self.range_signals() {
+      signal.set(defaults.get(&name).and_then(FormValue::as_range).unwrap_or_default());
+    }
 
     self.clear_errors();
     self.clear_all_touched();
@@ -571,6 +634,7 @@ impl FormHandle {
     let string_signal = self.inner.strings.lock().get(name).cloned();
     let number_signal = self.inner.numbers.lock().get(name).cloned();
     let bool_signal = self.inner.bools.lock().get(name).cloned();
+    let range_signal = self.inner.ranges.lock().get(name).cloned();
 
     if let Some(signal) = string_signal {
       signal.set(default.as_ref().map(FormValue::to_string_value).unwrap_or_default());
@@ -580,6 +644,9 @@ impl FormHandle {
     }
     if let Some(signal) = bool_signal {
       signal.set(default.as_ref().and_then(FormValue::as_bool).unwrap_or_default());
+    }
+    if let Some(signal) = range_signal {
+      signal.set(default.as_ref().and_then(FormValue::as_range).unwrap_or_default());
     }
 
     self.clear_error(name);
@@ -597,6 +664,9 @@ impl FormHandle {
       values.set(name.clone(), signal.get_untracked());
     }
     for (name, signal) in self.inner.bools.lock().iter() {
+      values.set(name.clone(), signal.get_untracked());
+    }
+    for (name, signal) in self.inner.ranges.lock().iter() {
       values.set(name.clone(), signal.get_untracked());
     }
 
@@ -697,6 +767,7 @@ impl FormHandle {
     names.extend(self.inner.strings.lock().keys().cloned());
     names.extend(self.inner.numbers.lock().keys().cloned());
     names.extend(self.inner.bools.lock().keys().cloned());
+    names.extend(self.inner.ranges.lock().keys().cloned());
     names.extend(self.inner.validators.iter().map(|validator| validator.name.clone()));
     names.sort();
     names.dedup();

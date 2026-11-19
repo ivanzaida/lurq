@@ -9,6 +9,7 @@ pub mod cursor;
 pub mod dimension;
 pub(crate) mod dsl;
 pub mod element;
+mod focus_group;
 mod font_features;
 pub mod gradient;
 #[cfg(feature = "markdown")]
@@ -39,6 +40,24 @@ pub mod text_highlight;
 pub(crate) mod text_selection;
 pub mod transform;
 
+/// Whether what a node says of itself to tooling (`NodeUpdate::describe`) is kept: with the `devtools` or the `mcp`
+/// feature. Without either a component skips the work of saying it.
+pub(crate) const TOOLING: bool = cfg!(any(feature = "devtools", feature = "mcp"));
+
+/// The statements given, kept with the `devtools` or the `mcp` feature and nothing without either: what reads what a
+/// node says of itself to tooling where only such a build has it.
+#[allow(unused_macros)]
+macro_rules! with_tooling {
+  ($($body:tt)*) => {
+    #[cfg(any(feature = "devtools", feature = "mcp"))]
+    {
+      $($body)*
+    }
+  };
+}
+#[allow(unused_imports)]
+pub(crate) use with_tooling;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextTransformMode {
   #[default]
@@ -52,23 +71,25 @@ pub use box_shadow::{BoxShadow, BoxShadowValue};
 pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
+pub use focus_group::{FocusAxis, FocusGroup, FocusRows};
+pub(crate) use focus_group::{FocusBranch, FocusStep, step_rows};
 pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;
 pub use node::{
-  BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoDragEventHandler, IntoDropEventHandler,
-  IntoEdgePanEventHandler, IntoEventHandler, IntoFileDragEventHandler, IntoFileDropEventHandler,
-  IntoHistorySwipeEventHandler, IntoKeyboardEventHandler, IntoLongPressEventHandler, IntoMouseEventHandler,
-  IntoPanEventHandler, IntoPasteEventHandler, IntoPinchEventHandler, IntoRotateEventHandler, IntoScrollEventHandler,
-  IntoSwipeEventHandler, IntoTapEventHandler, IntoTextInputEventHandler, IntoTouchEventHandler, IntoVoidEventHandler,
-  VoidEventHandler,
+  BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoCopyEventHandler, IntoDragEventHandler,
+  IntoDropEventHandler, IntoEdgePanEventHandler, IntoEditEventHandler, IntoEventHandler, IntoFileDragEventHandler,
+  IntoFileDropEventHandler, IntoHistoryEventHandler, IntoHistorySwipeEventHandler, IntoKeyboardEventHandler,
+  IntoLongPressEventHandler, IntoMouseEventHandler, IntoPanEventHandler, IntoPasteEventHandler, IntoPinchEventHandler,
+  IntoRotateEventHandler, IntoScrollEventHandler, IntoSwipeEventHandler, IntoTapEventHandler,
+  IntoTextInputEventHandler, IntoTouchEventHandler, IntoVoidEventHandler, VoidEventHandler, WindowControl,
 };
-pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole};
+pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole, window_controls_in_use};
 pub use outline::{Outline, ResolvedOutline};
 pub use radius_value::RadiusValue;
 pub use select_icon::{SelectAdornmentState, SelectCheckmarkPosition, SelectIcon};
 pub use select_style::{SelectPartStyle, SelectStyle};
-pub use slider_style::SliderPartStyle;
+pub use slider_style::{SliderOrientation, SliderPartStyle};
 pub use spacing_value::SpacingValue;
 pub use style::Style;
 pub use text_color::TextColor;

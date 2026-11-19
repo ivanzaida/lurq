@@ -7,6 +7,8 @@ mod text {
 }
 
 mod clipboard_content;
+mod edit_commands;
+mod key_capture;
 mod paste;
 
 mod synthetic {
@@ -23,6 +25,7 @@ mod select {
 mod text_input {
   mod autofill;
   mod basic_layout;
+  mod caret_after_focus_moves;
   mod clipped_paint;
   mod controller;
   mod controller_focus;
@@ -33,6 +36,7 @@ mod text_input {
   mod ime;
   mod letter_spacing;
   mod line_metrics;
+  mod marks;
   mod masked_editing;
   mod mode_rerender;
   mod overflow_anchor;
@@ -48,11 +52,15 @@ mod text_input {
   mod style;
   #[cfg(feature = "markdown")]
   mod styled;
+  mod theme_caret;
+  mod token_chips;
   mod tokens;
   mod typing_updates_value;
   mod vertical_rows;
 }
 
+// The engine's checkbox node, deprecated for apps in favour of `ui::Checkbox`, is still the engine's: its tests stay.
+#[allow(deprecated)]
 mod checkbox {
   mod double_toggle;
   mod keyboard_toggle;
@@ -69,6 +77,7 @@ mod forms {
   mod form_data;
   mod logical_wrapper;
   mod prefill;
+  mod range_slider;
   mod rerender;
   mod state;
   mod submit_button;
@@ -81,20 +90,30 @@ mod slider {
   mod clamps_min_max;
   mod drag_updates_value;
   mod keyboard_update;
+  mod keys;
+  mod on_change;
+  mod range;
   mod renders_thumb;
   mod suppresses_parent_click;
   mod updates_from_click;
+  mod vertical;
 }
 
 mod pointer {
+  mod a_finger_beside;
+  mod edge_between_rows;
+  mod leaves_during_a_fade;
   mod modifiers;
   mod native_window_gesture;
 }
 
 mod control_fill;
 mod disabled;
+mod focus_follows;
 mod focus_on_press;
 mod focus_visible;
 mod focused_style;
+mod interaction_group;
+mod key_scroll;
 mod scroll_into_view;
 mod tab_order;

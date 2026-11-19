@@ -23,9 +23,13 @@ mod box_shadow_readback_tests;
 ))]
 mod canvas_frame_probe;
 #[cfg(feature = "screenshot")]
+pub(crate) mod capture_overlay;
+#[cfg(feature = "screenshot")]
 pub(crate) mod capture_redaction;
 #[cfg(all(test, feature = "screenshot"))]
 pub(crate) mod capture_test_engine;
+#[cfg(all(windows, feature = "raster", any(feature = "wgpu", feature = "dx12")))]
+pub(crate) mod card_read;
 pub mod component;
 pub mod ctx;
 #[cfg(feature = "devtools")]
@@ -46,8 +50,9 @@ pub(crate) mod frame_capture;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod glyph_batch_readback_tests;
 pub(crate) mod glyph_engine;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod gradient_readback_tests;
 pub(crate) mod hit_test;
-#[cfg(feature = "i18n")]
 pub mod i18n;
 #[cfg(all(target_os = "ios", feature = "raster"))]
 pub(crate) mod ios_symbol;
@@ -57,6 +62,7 @@ mod layer_blur_readback_tests;
 mod nested_clip_readback_tests;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod opacity_layer_readback_tests;
+pub(crate) mod pointer;
 pub(crate) mod profile_support;
 pub(crate) mod profile_types;
 pub mod profiler;
@@ -68,26 +74,44 @@ pub mod runtime;
 mod stroke_readback_tests;
 pub mod synthetic_input;
 pub mod theme;
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(not(all(feature = "winit", feature = "wgpu")), allow(dead_code))]
+pub(crate) mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
 pub mod window;
+#[cfg(all(feature = "winit", windows))]
+mod window_control_hits;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
+#[cfg(all(
+  test,
+  windows,
+  feature = "raster",
+  feature = "screenshot",
+  any(feature = "wgpu", feature = "dx12")
+))]
+mod yuv_readback_tests;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
+pub use pointer::Pointer;
 pub use runtime::{
-  CheckboxHandle, ClipboardReader, ElementHandle, PassReasons, PassReport, SelectHandle, SliderHandle, TextInputHandle,
-  Tree,
+  CheckboxHandle, ClipboardReader, ClipboardWriter, ElementHandle, PassReasons, PassReport, SelectHandle, SliderHandle,
+  TextInputHandle, Tree,
 };
 pub use synthetic_input::{SyntheticInput, SyntheticInputKind, SyntheticModifiers};
 #[cfg(feature = "screenshot")]
 pub use window::ScreenshotRegion;
 pub use window::{
-  CloseRequest, CloseRequestSource, Window, WindowBorderColor, WindowCornerRadius, WindowHandle, WindowIcon,
-  WindowInfo, WindowResizeDirection,
+  CloseRequest, CloseRequestSource, EditMenuRequest, Window, WindowBorderColor, WindowCornerRadius, WindowHandle,
+  WindowIcon, WindowInfo, WindowResizeDirection,
 };
 
+mod device;
+pub use device::Device;
 pub mod menu;
+pub mod open_url;
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
+pub use open_url::{OpenUrlError, open_url};
 #[cfg(all(feature = "winit", target_os = "macos"))]
 mod macos_menu;

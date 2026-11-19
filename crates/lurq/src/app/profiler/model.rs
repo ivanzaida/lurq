@@ -452,7 +452,7 @@ impl PresentTiming {
 /// The present of a window's last frame, to time the next one against.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PresentTracker {
-  last: Option<std::time::Instant>,
+  last: Option<crate::time::Instant>,
 }
 
 impl PresentTracker {
@@ -462,8 +462,8 @@ impl PresentTracker {
   /// vsyncs when it presented over half a refresh after the refresh it was due.
   pub(crate) fn present(
     &mut self,
-    presented: std::time::Instant,
-    wanted: Option<std::time::Instant>,
+    presented: crate::time::Instant,
+    wanted: Option<crate::time::Instant>,
     refresh: Option<Duration>,
   ) -> (Option<Duration>, bool, u32) {
     let previous = self.last.replace(presented);

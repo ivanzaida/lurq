@@ -7,7 +7,7 @@ use std::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::{Condvar, Mutex};
@@ -56,8 +56,10 @@ impl Drop for FinishOnDrop {
     // Without a result the job did not run to its end: the decoder
     // panicked, or no worker took the job (the workers are gone).
     let result = self.result.take().unwrap_or_else(|| {
+      let said = "the image decode did not run: the decoder panicked or no worker took the job";
       Err(ImageDecodeError::new(
-        "the image decode did not run: the decoder panicked or no worker took the job",
+        said,
+        crate::core::PictureError::Other(Arc::from(said)),
       ))
     });
     self.shared.finish(self.cache_key, result);
@@ -116,10 +118,42 @@ impl DecodedImages {
     source: impl FnOnce() -> ImageSource,
     wake: Option<WindowWaker>,
   ) -> ImageLoadState {
+    #[cfg(target_arch = "wasm32")]
+    return self.load_in_browser(key, cap, source, wake);
+    #[cfg(not(target_arch = "wasm32"))]
     self.load_with(key, cap, wake, || {
       let source = source();
       move || decode_image(&source, cap)
     })
+  }
+
+  /// [`load`](Self::load) in a browser: the browser decodes what it can off the page's thread (`web_decode`), and
+  /// the rest is decoded as on a desktop, on the page's thread after this turn of the loop.
+  #[cfg(target_arch = "wasm32")]
+  fn load_in_browser(
+    &self,
+    key: ImageKey,
+    cap: Option<ImageSizeCap>,
+    source: impl FnOnce() -> ImageSource,
+    wake: Option<WindowWaker>,
+  ) -> ImageLoadState {
+    let mut finish = match self.begin(key, cap, wake) {
+      Ok(finish) => finish,
+      Err(state) => return state,
+    };
+    let source = source();
+    wasm_bindgen_futures::spawn_local(async move {
+      let decoded = match &source {
+        ImageSource::Bytes(bytes) if super::browser_decodes(bytes) => super::web_decode::decode(bytes, cap).await,
+        _ => None,
+      };
+      finish.result = Some(match decoded {
+        Some(decoded) => Ok(decoded),
+        None => decode_image(&source, cap),
+      });
+      drop(finish);
+    });
+    ImageLoadState::Loading
   }
 
   /// [`load`](Self::load) with the decode given as a job: `decode()` builds
@@ -134,6 +168,28 @@ impl DecodedImages {
   where
     J: FnOnce() -> Result<ImageData, ImageDecodeError> + Send + 'static,
   {
+    let mut finish = match self.begin(key, cap, wake) {
+      Ok(finish) => finish,
+      Err(state) => return state,
+    };
+    let job = decode();
+    // A job the workers do not take is dropped with its guard, which fails
+    // the entry: one finish either way.
+    self.shared.workers.submit(move || {
+      finish.result = Some(job());
+      drop(finish);
+    });
+    ImageLoadState::Loading
+  }
+
+  /// The state of the entry under `key` and `cap` where there is one (`Err`), joined by `wake`; or a new entry,
+  /// loading, and the guard that finishes it (`Ok`).
+  fn begin(
+    &self,
+    key: ImageKey,
+    cap: Option<ImageSizeCap>,
+    wake: Option<WindowWaker>,
+  ) -> Result<FinishOnDrop, ImageLoadState> {
     let cache_key = (key, cap);
     let mut inner = self.shared.inner.lock();
     inner.clock += 1;
@@ -145,7 +201,7 @@ impl DecodedImages {
       {
         entry.wakers.push(wake);
       }
-      return entry.state.clone();
+      return Err(entry.state.clone());
     }
     inner.entries.insert(
       cache_key,
@@ -158,19 +214,11 @@ impl DecodedImages {
     );
     inner.pending += 1;
     drop(inner);
-    let job = decode();
-    let mut finish = FinishOnDrop {
+    Ok(FinishOnDrop {
       shared: Arc::clone(&self.shared),
       cache_key,
       result: None,
-    };
-    // A job the workers do not take is dropped with its guard, which fails
-    // the entry: one finish either way.
-    self.shared.workers.submit(move || {
-      finish.result = Some(job());
-      drop(finish);
-    });
-    ImageLoadState::Loading
+    })
   }
 
   /// A cache whose workers are gone: every decode fails without running.
@@ -236,6 +284,29 @@ impl DecodedImages {
     }
   }
 
+  /// Forgets the image under `key` and `cap` that is ready or failed, so that the next request for it decodes
+  /// again: a way to try a failed one again, once what made it fail may have passed. `true` where there was
+  /// one to forget. A decode still running is left to end. Every tree walks for its loading images in its next
+  /// pass, so a node that showed the error asks again without being built again.
+  pub fn forget(&self, key: ImageKey, cap: Option<ImageSizeCap>) -> bool {
+    let forgotten = {
+      let mut inner = self.shared.inner.lock();
+      match inner.entries.get(&(key, cap)) {
+        Some(entry) if !entry.state.is_loading() => {
+          let bytes = entry.bytes;
+          inner.entries.remove(&(key, cap));
+          inner.used -= bytes;
+          true
+        }
+        _ => false,
+      }
+    };
+    if forgotten {
+      crate::app::runtime::note_loading_image_built();
+    }
+    forgotten
+  }
+
   /// Decodes still running.
   pub fn pending(&self) -> usize {
     self.shared.inner.lock().pending
@@ -247,8 +318,12 @@ impl DecodedImages {
   }
 
   /// Blocks until no decode is pending, or `timeout` passes (`false`).
+  ///
+  /// A browser's one thread cannot wait for itself: there this only tells
+  /// whether a decode is pending now.
+  #[cfg(not(target_arch = "wasm32"))]
   pub fn wait_idle(&self, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
+    let deadline = std::time::Instant::now() + timeout;
     let mut inner = self.shared.inner.lock();
     while inner.pending > 0 {
       if self.shared.idle.wait_until(&mut inner, deadline).timed_out() {
@@ -256,6 +331,11 @@ impl DecodedImages {
       }
     }
     true
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  pub fn wait_idle(&self, _timeout: Duration) -> bool {
+    self.pending() == 0
   }
 
   /// The decoded RGBA kept at most; see [`DEFAULT_BUDGET_BYTES`].

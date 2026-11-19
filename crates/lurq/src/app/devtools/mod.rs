@@ -1,14 +1,17 @@
-mod inspector;
-#[cfg(feature = "persistent_storage")]
-mod persistent_storage_panel;
+//! DevTools: a window beside the inspected one that shows what it is made of.
+//!
+//! It is built from the board `pencil/lurq-devtools.pen` with the design system's components, in a theme of
+//! its own: the design system's, whatever the inspected app made of its theme.
+
+mod changes;
+mod components;
+mod context;
+mod kit;
 mod profiler;
-mod profiler_analysis;
-mod profiler_capture;
 mod signals;
 mod snapshot;
-mod style;
-mod top_bar;
-mod tree_panel;
+#[cfg(feature = "persistent_storage")]
+mod storage;
 
 use std::sync::{
   Arc,
@@ -18,28 +21,34 @@ use std::sync::{
 pub use snapshot::{DevToolsNode, DevToolsSnapshot, FrameProfileSnapshot};
 
 pub use self::snapshot::DevToolsSnapshot as Snapshot;
+use self::{
+  components::{ComponentsState, Inspected},
+  context::ContextState,
+  kit::FILL,
+  profiler::ProfilerTab,
+  signals::SignalsState,
+};
 use crate::{
   app::{
     component::Component,
-    ctx::{Ctx, Interval},
+    ctx::Ctx,
+    events::KeyboardEvent,
     profiler::ProfilingHandle,
+    theme::{PaletteColor, Theme},
+    window::SystemSettings,
   },
   components::{Column, Row},
-  core::{NodeId, Signal, Store},
-  layout::layout_kind::ScrollState,
+  core::Signal,
   node::Element,
+  ui::{Tab, Tabs, TabsPart, TabsVariant, WindowChrome, icons},
 };
-
-static LUCIDE_TTF: &[u8] = include_bytes!("../../../assets/lucide.ttf");
 
 pub type DevToolsDebugOverlayCallback = Arc<dyn Fn(Option<Vec<usize>>) + Send + Sync>;
 pub type DevToolsBoolCallback = Arc<dyn Fn(bool) + Send + Sync>;
 pub type DevToolsPathCallback = Arc<dyn Fn(Vec<usize>) + Send + Sync>;
 
-pub fn load_fonts(app: &mut crate::app::App) {
-  app.load_font(LUCIDE_TTF.to_vec());
-  app.register_font("lucide", "lucide");
-}
+/// The board's bar of tabs under the title bar.
+const TOP_BAR_HEIGHT: f32 = 40.0;
 
 #[derive(Clone, crate::DevtoolsInspectable)]
 pub struct DevToolsProps {
@@ -52,6 +61,10 @@ pub struct DevToolsProps {
   pub persistent_storage_revision: u64,
   pub picked_path: Option<Vec<usize>>,
   pub picked_revision: u64,
+  /// What a person set for the whole system, as the inspected window knows it: DevTools is light or dark with
+  /// it, in its own theme.
+  #[devtools_ignore]
+  pub system: SystemSettings,
   #[devtools_ignore]
   pub on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
   #[devtools_ignore]
@@ -67,361 +80,157 @@ pub struct DevToolsProps {
   pub profiling: Option<ProfilingHandle>,
 }
 
-pub struct DevTools {
-  selected_path: Signal<Vec<usize>>,
-  collapsed_nodes: Signal<Vec<NodeId>>,
-  collapsed_sections: Signal<Vec<String>>,
-  component_search: Signal<String>,
-  show_inspected_overlay: Signal<bool>,
-  pick_inspected: Signal<bool>,
-  active_tab: Signal<DevToolsTab>,
-  profiler: Signal<profiler::ProfilerState>,
-  /// Rereads a running recording's status; runs only while one does.
-  profiler_status_ticker: Interval,
-  signals_recording: Store<signals::SignalsRecordingState>,
-  selected_signal: Signal<Option<String>>,
-  #[cfg(feature = "persistent_storage")]
-  persistent_storage_type_tooltip: Signal<Option<String>>,
-  tree: DevToolsTree,
-  last_picked_revision: AtomicU64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
-pub(crate) enum DevToolsTab {
-  Components,
-  Profiler,
-  Signals,
-  #[cfg(feature = "persistent_storage")]
-  PersistentStorage,
-}
-
-struct DevToolsTree {
-  scroll: ScrollState,
-}
-
-impl DevToolsTree {
-  fn new() -> Self {
-    Self {
-      scroll: ScrollState::new(),
+impl DevToolsProps {
+  fn inspected(&self) -> Inspected {
+    Inspected {
+      on_debug_overlay_path: self.on_debug_overlay_path.clone(),
+      on_overlay_enabled: self.on_overlay_enabled.clone(),
+      on_pick_inspected: self.on_pick_inspected.clone(),
+      on_selected_path: self.on_selected_path.clone(),
+      on_save_node_screenshot: self.on_save_node_screenshot.clone(),
     }
-  }
-
-  fn scroll_state(&self) -> ScrollState {
-    self.scroll.clone()
-  }
-
-  fn expand_ancestors(&self, snapshot: &DevToolsSnapshot, path: &[usize], collapsed_nodes: &mut Vec<NodeId>) {
-    let Some(mut node) = snapshot.root.as_ref() else {
-      return;
-    };
-
-    for index in path {
-      collapsed_nodes.retain(|node_id| *node_id != node.id);
-      let Some(child) = node.children.get(*index) else {
-        return;
-      };
-      node = child;
-    }
-  }
-
-  fn scroll_into(&self, snapshot: &DevToolsSnapshot, path: &[usize], collapsed_nodes: &[NodeId]) {
-    let Some(index) = self.visible_row_index(snapshot, path, collapsed_nodes) else {
-      return;
-    };
-
-    let row_top = index as f32 * tree_panel::TREE_ROW_HEIGHT;
-    let row_bottom = row_top + tree_panel::TREE_ROW_HEIGHT;
-    let viewport_height = self.scroll.viewport_height();
-    let current_y = self.scroll.scroll_y();
-    let margin = tree_panel::TREE_ROW_HEIGHT * 2.0;
-
-    let next_y = if viewport_height <= 0.0 {
-      row_top
-    } else if row_top < current_y + margin {
-      row_top - margin
-    } else if row_bottom > current_y + viewport_height - margin {
-      row_bottom + margin - viewport_height
-    } else {
-      current_y
-    };
-
-    let target_x = path.len() as f32 * 16.0;
-    let viewport_width = self.scroll.viewport_width();
-    let current_x = self.scroll.scroll_x();
-    let next_x = if viewport_width <= 0.0 {
-      target_x
-    } else if target_x < current_x + 24.0 {
-      target_x - 24.0
-    } else if target_x + 220.0 > current_x + viewport_width {
-      target_x + 220.0 - viewport_width
-    } else {
-      current_x
-    };
-
-    self.scroll.set_scroll_pending(next_x, next_y);
-  }
-
-  fn visible_row_index(
-    &self,
-    snapshot: &DevToolsSnapshot,
-    target_path: &[usize],
-    collapsed_nodes: &[NodeId],
-  ) -> Option<usize> {
-    let root = snapshot.root.as_ref()?;
-    let mut row = 0;
-    Self::visible_row_index_in(root, target_path, &mut Vec::new(), collapsed_nodes, &mut row)
-  }
-
-  fn visible_row_index_in(
-    node: &DevToolsNode,
-    target_path: &[usize],
-    path: &mut Vec<usize>,
-    collapsed_nodes: &[NodeId],
-    row: &mut usize,
-  ) -> Option<usize> {
-    if path.as_slice() == target_path {
-      return Some(*row);
-    }
-
-    *row += 1;
-    if collapsed_nodes.contains(&node.id) {
-      return None;
-    }
-
-    for (index, child) in node.children.iter().enumerate() {
-      path.push(index);
-      let found = Self::visible_row_index_in(child, target_path, path, collapsed_nodes, row);
-      path.pop();
-      if found.is_some() {
-        return found;
-      }
-    }
-
-    None
   }
 }
 
 impl PartialEq for DevToolsProps {
   fn eq(&self, other: &Self) -> bool {
-    self.snapshot_revision == other.snapshot_revision && self.picked_revision == other.picked_revision && {
-      #[cfg(feature = "persistent_storage")]
-      {
-        self.persistent_storage_revision == other.persistent_storage_revision
+    self.snapshot_revision == other.snapshot_revision
+      && self.picked_revision == other.picked_revision
+      && self.system == other.system
+      && {
+        #[cfg(feature = "persistent_storage")]
+        {
+          self.persistent_storage_revision == other.persistent_storage_revision
+        }
+        #[cfg(not(feature = "persistent_storage"))]
+        {
+          true
+        }
       }
-      #[cfg(not(feature = "persistent_storage"))]
-      {
-        true
-      }
-    }
   }
+}
+
+pub struct DevTools {
+  /// The theme DevTools is drawn in: the design system's, light or dark with the system. It is not the
+  /// inspected app's, so nothing the app does to its own theme reaches the tool that inspects it.
+  theme: Theme,
+  active_tab: Signal<DevToolsTab>,
+  components: ComponentsState,
+  signals: SignalsState,
+  contexts: ContextState,
+  profiler: ProfilerTab,
+  last_picked_revision: AtomicU64,
+}
+
+/// The tabs of the window, in the order the board has them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, crate::DevtoolsInspectable)]
+pub(crate) enum DevToolsTab {
+  Components,
+  Profiler,
+  #[cfg(feature = "persistent_storage")]
+  PersistentStorage,
+  Signals,
+  Context,
 }
 
 impl Component for DevTools {
   type Props = DevToolsProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let profiler = ctx.signal(profiler::ProfilerState::default());
-    let profiler_status_ticker = ctx.create_interval(profiler::STATUS_INTERVAL, {
-      let profiler = profiler.clone();
-      move || profiler.update(profiler::ProfilerState::refresh_status)
-    });
     Self {
-      selected_path: ctx.signal(Vec::new()),
-      collapsed_nodes: ctx.signal(Vec::new()),
-      collapsed_sections: ctx.signal(Vec::new()),
-      component_search: ctx.signal(String::new()),
-      show_inspected_overlay: ctx.signal(true),
-      pick_inspected: ctx.signal(false),
+      theme: Theme::new(),
       active_tab: ctx.signal(DevToolsTab::Components),
-      profiler,
-      profiler_status_ticker,
-      signals_recording: ctx.store(signals::SignalsRecordingState::default()),
-      selected_signal: ctx.signal(None),
-      #[cfg(feature = "persistent_storage")]
-      persistent_storage_type_tooltip: ctx.signal(None),
-      tree: DevToolsTree::new(),
+      components: ComponentsState::new(ctx),
+      signals: SignalsState::new(ctx),
+      contexts: ContextState::new(ctx),
+      profiler: ProfilerTab::new(ctx),
       last_picked_revision: AtomicU64::new(0),
     }
   }
 
   fn on_unmounted(&self) {
     // A recording left running would keep counting against the session limit.
-    self.profiler_status_ticker.stop();
-    self.profiler.update(profiler::ProfilerState::clear);
+    self.profiler.close();
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<DevToolsProps>().clone();
-    let snapshot = props.snapshot;
-    #[cfg(feature = "persistent_storage")]
-    let persistent_storage_snapshot = ctx.app_ref().persistent_storage().snapshot();
-    let mut selected_path = self.selected_path.get();
-    let mut collapsed_nodes = self.collapsed_nodes.get();
-    let show_inspected_overlay = self.show_inspected_overlay.get();
-    let mut pick_inspected = self.pick_inspected.get();
-    let active_tab = self.active_tab.get();
-    let component_search = self.component_search.get();
-    let profiler_state = self.profiler.get();
+    let inspected = props.inspected();
+    self.theme.apply_system(&props.system);
 
-    let mut signals_recording = self.signals_recording.get();
-    if signals_recording.recording() {
-      signals::record_signal_changes(&snapshot, &self.signals_recording);
-      signals_recording = self.signals_recording.get();
-    }
-    let selected_signal = self.selected_signal.get();
-
-    if props.picked_revision != self.last_picked_revision.load(Ordering::Relaxed) {
-      self
-        .last_picked_revision
-        .store(props.picked_revision, Ordering::Relaxed);
-      self.pick_inspected.set(false);
-      pick_inspected = false;
+    // A node picked in the inspected window is selected here, once for each pick.
+    if props.picked_revision != self.last_picked_revision.swap(props.picked_revision, Ordering::Relaxed) {
+      self.components.set_pick(false, &Inspected::default());
       if let Some(path) = props.picked_path.clone() {
-        let tree = &self.tree;
-        tree.expand_ancestors(&snapshot, &path, &mut collapsed_nodes);
-        self.collapsed_nodes.set(collapsed_nodes.clone());
-        self.selected_path.set(path.clone());
-        if let Some(on_selected_path) = &props.on_selected_path {
-          on_selected_path(path.clone());
-        }
-        selected_path = path;
-        tree.scroll_into(&snapshot, &selected_path, &collapsed_nodes);
+        self.components.show_picked(&props.snapshot, path, &inspected);
       }
     }
 
-    let selected = snapshot.selected_node(&selected_path);
-
-    Column::new()
-      .child(top_bar::top_bar(
-        0,
-        show_inspected_overlay,
-        self.show_inspected_overlay.clone(),
-        pick_inspected,
-        self.pick_inspected.clone(),
-        selected_path.clone(),
-        selected.is_some(),
-        self.component_search.clone(),
-        props.on_debug_overlay_path.clone(),
-        props.on_overlay_enabled.clone(),
-        props.on_pick_inspected.clone(),
-        props.on_save_node_screenshot.clone(),
-        active_tab,
-        self.active_tab.clone(),
-        signals_recording.recording(),
-        self.signals_recording.clone(),
-      ))
-      .child(match active_tab {
-        DevToolsTab::Components => components_view(
-          &snapshot,
-          selected,
-          selected_path,
-          self.selected_path.clone(),
-          collapsed_nodes,
-          self.collapsed_nodes.clone(),
-          self.collapsed_sections.get(),
-          self.collapsed_sections.clone(),
-          component_search,
-          self.tree.scroll_state(),
-          show_inspected_overlay,
-          props.on_debug_overlay_path.clone(),
-          props.on_selected_path.clone(),
-        ),
-        DevToolsTab::Profiler => {
-          let analysis = profiler::analysis_props(&profiler_state, self.profiler.clone())
-            .map(|props| ctx.mount::<profiler_analysis::ProfilerAnalysis>(props))
-            .unwrap_or_default();
-          // The tab's own toolbar: the top bar has no room for its buttons
-          // next to the tabs in a window of the default width.
-          Column::new()
-            .child(profiler::profiler_actions(
-              &profiler_state,
-              self.profiler.clone(),
-              props.profiling.clone(),
-              self.profiler_status_ticker.clone(),
-            ))
-            .child(profiler::profiler_view(
-              &profiler_state,
-              self.profiler.clone(),
-              analysis,
-            ))
-            .height(style::FILL)
-            .width(style::FILL)
-            .flex(1.0)
-            .into()
-        }
-        DevToolsTab::Signals => signals::signals_view(
-          &snapshot,
-          selected_signal,
-          self.selected_signal.clone(),
-          &signals_recording,
-        ),
+    let theme = self.theme.clone();
+    ctx.in_theme(&theme, |ctx| {
+      let active = self.active_tab.get();
+      let body = match active {
+        DevToolsTab::Components => components::view(ctx, &props.snapshot, &self.components, &inspected),
+        DevToolsTab::Profiler => profiler::view(ctx, &self.profiler, props.profiling.clone()),
         #[cfg(feature = "persistent_storage")]
-        DevToolsTab::PersistentStorage => match persistent_storage_snapshot {
-          Ok(entries) => persistent_storage_panel::persistent_storage_view(
-            ctx,
-            &entries,
-            self.persistent_storage_type_tooltip.clone(),
-          ),
-          Err(error) => persistent_storage_panel::persistent_storage_error_view(&error.to_string()),
-        },
-      })
-      .width(style::FILL)
-      .height(style::FILL)
-      .background(style::BG)
+        DevToolsTab::PersistentStorage => storage::view(ctx),
+        DevToolsTab::Signals => signals::view(ctx, &props.snapshot, &self.signals),
+        DevToolsTab::Context => context::view(ctx, &props.snapshot, &self.contexts),
+      };
+      let (tab, tree, signals, contexts) = (
+        self.active_tab.clone(),
+        self.components.search_key.clone(),
+        self.signals.list.filter_key.clone(),
+        self.contexts.list.filter_key.clone(),
+      );
+      let window = Column::new()
+        .size(FILL, FILL)
+        .background(PaletteColor::Background)
+        .foreground(PaletteColor::Foreground)
+        // Every key pressed in the window comes by here, whatever has the focus: the key of a tab's search.
+        .on_key_down(move |event: KeyboardEvent| {
+          if !kit::is_find_key(&event) {
+            return;
+          }
+          let search = match tab.get_untracked() {
+            DevToolsTab::Components => &tree,
+            DevToolsTab::Signals => &signals,
+            DevToolsTab::Context => &contexts,
+            _ => return,
+          };
+          event.prevent_default();
+          search.ask();
+        })
+        .child(self.top_bar())
+        .child(Row::new().width(FILL).flex(1.0).child(body));
+      WindowChrome::new()
+        .title("lurq DevTools")
+        .icon(icons::BUG)
+        .content(window)
+        .mount(ctx)
+    })
   }
 }
 
-// Each argument is a separate piece of panel state; bundling them is a refactor of its own.
-#[allow(clippy::too_many_arguments)]
-fn components_view(
-  snapshot: &DevToolsSnapshot,
-  selected: Option<&DevToolsNode>,
-  selected_path: Vec<usize>,
-  selected_path_signal: Signal<Vec<usize>>,
-  collapsed_nodes: Vec<NodeId>,
-  collapsed_nodes_signal: Signal<Vec<NodeId>>,
-  collapsed_sections: Vec<String>,
-  collapsed_sections_signal: Signal<Vec<String>>,
-  component_search: String,
-  tree_scroll: ScrollState,
-  show_inspected_overlay: bool,
-  on_debug_overlay_path: Option<DevToolsDebugOverlayCallback>,
-  on_selected_path: Option<DevToolsPathCallback>,
-) -> Element {
-  Row::new()
-    .child(tree_panel::tree_panel(
-      snapshot,
-      selected_path,
-      selected_path_signal,
-      collapsed_nodes,
-      collapsed_nodes_signal,
-      component_search,
-      tree_scroll,
-      show_inspected_overlay,
-      on_debug_overlay_path,
-      on_selected_path,
-    ))
-    .child(inspector::inspector_panel(
-      selected,
-      snapshot.frame,
-      collapsed_sections,
-      collapsed_sections_signal,
-    ))
-    .width(style::FILL)
-    .height(style::FILL)
-    .flex(1.0)
-    .into()
-}
-
-pub(crate) fn debug_overlay_path_for_selection(
-  overlay_enabled: bool,
-  selected_path: Vec<usize>,
-  has_selection: bool,
-) -> Option<Vec<usize>> {
-  if overlay_enabled && has_selection {
-    Some(selected_path)
-  } else {
-    None
+impl DevTools {
+  /// The tabs of the window, in a row over a line.
+  fn top_bar(&self) -> Element {
+    let mut tabs = vec![
+      Tab::new(DevToolsTab::Components, "Components"),
+      Tab::new(DevToolsTab::Profiler, "Profiler"),
+    ];
+    #[cfg(feature = "persistent_storage")]
+    tabs.push(Tab::new(DevToolsTab::PersistentStorage, "Storage"));
+    tabs.push(Tab::new(DevToolsTab::Signals, "Signals"));
+    tabs.push(Tab::new(DevToolsTab::Context, "Context"));
+    Tabs::new(self.active_tab.clone(), tabs)
+      .variant(TabsVariant::Line)
+      .label("DevTools")
+      .id("devtools-tabs")
+      .style(TabsPart::List, |s| s.height(TOP_BAR_HEIGHT).padding_x(16.0).gap(24.0))
+      .style(TabsPart::Tab, |s| s.height(TOP_BAR_HEIGHT))
+      .style(TabsPart::Label, |s| s.font_size(13.0))
+      .into()
   }
 }
 
@@ -430,9 +239,160 @@ mod tests {
   use super::*;
   use crate::{
     app::{App, devtools::snapshot::DevToolsNodeKind},
-    components::Column,
-    layout::text_style::FontWeight,
+    components::{Column, Text},
   };
+
+  /// One thing a tree painted, as words: where, and what of.
+  fn said(quad: &crate::layout::quad::Quad) -> String {
+    use crate::layout::quad::QuadContent;
+    let what = match &quad.content {
+      QuadContent::Rect { color, gradient } => format!("rect {color:?} gradient {}", gradient.is_some()),
+      QuadContent::Text { text, style, .. } => format!(
+        "text {text:?} {} {} {:?} {:?}",
+        style.font_family, style.font_size, style.weight, style.color
+      ),
+      QuadContent::RichText { spans, .. } => format!("rich text of {}", spans.len()),
+      QuadContent::Backdrop { blur } => format!("backdrop {blur}"),
+      _ => "other".to_owned(),
+    };
+    format!(
+      "{:.1},{:.1} {:.1}x{:.1} @{:.2} {what} radius {:?} border {:?}",
+      quad.x, quad.y, quad.width, quad.height, quad.opacity, quad.border_radius, quad.border
+    )
+  }
+
+  /// What a tree paints once nothing in it is on its way to another look: a tab that was left fades for a
+  /// moment, by the clock, so the tree is painted until two paintings a moment apart are the same.
+  fn settled(tree: &mut crate::app::Tree, app: &mut App) -> Vec<String> {
+    let mut last = Vec::new();
+    for _ in 0..80 {
+      tree.pass_headless(app);
+      let now: Vec<String> = tree.painted_quads().iter().map(said).collect();
+      if now == last {
+        return now;
+      }
+      last = now;
+      std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    panic!("the tree did not come to rest");
+  }
+
+  /// A window to inspect that is the same at every run: a component over three elements, none of them timed.
+  fn fixed_snapshot() -> DevToolsSnapshot {
+    let ids = crate::core::IdGenerator::new();
+    let leaves = ["Row", "Text", "Button"]
+      .map(|tag| DevToolsNode::for_test(ids.next(), tag, DevToolsNodeKind::Element, vec![]))
+      .to_vec();
+    DevToolsSnapshot {
+      root: Some(DevToolsNode::for_test(
+        ids.next(),
+        "Root",
+        DevToolsNodeKind::Component,
+        leaves,
+      )),
+      frame: Default::default(),
+    }
+  }
+
+  /// What DevTools paints, tab after tab, in an app whose theme `dress` made its own; and what a button of the
+  /// app's own paints in that theme.
+  fn painted_in(dress: impl FnOnce(&Theme)) -> (Vec<(&'static str, Vec<String>)>, Vec<String>) {
+    use crate::app::events::MouseButton;
+    let mut app = App::new();
+    dress(app.theme());
+
+    let mut own = crate::app::Tree::new();
+    own.resize(400, 200);
+    own.set_root(Column::new().child(crate::ui::Button::new("Save")));
+    own.pass_headless(&mut app);
+    let own = own.painted_quads().iter().map(said).collect();
+
+    let mut tree = crate::app::Tree::new();
+    tree.resize(1440, 936);
+    tree.mount_root::<DevTools>(
+      &mut app,
+      DevToolsProps {
+        snapshot: fixed_snapshot(),
+        snapshot_revision: 1,
+        #[cfg(feature = "persistent_storage")]
+        persistent_storage_revision: 0,
+        picked_path: None,
+        picked_revision: 0,
+        system: SystemSettings::default(),
+        on_debug_overlay_path: None,
+        on_overlay_enabled: None,
+        on_pick_inspected: None,
+        on_selected_path: None,
+        on_save_node_screenshot: None,
+        profiling: None,
+      },
+    );
+    for _ in 0..2 {
+      tree.pass_headless(&mut app);
+    }
+    let mut tabs = Vec::new();
+    for tab in ["Components", "Profiler", "Signals", "Context"] {
+      let label = tree
+        .find_element(|element: crate::node::ElementRef<'_>| element.text_content() == Some(tab))
+        .map(|element| element.bounds())
+        .unwrap_or_else(|| panic!("no tab {tab}"));
+      let (x, y) = (label.x + label.width / 2.0, label.y + label.height / 2.0);
+      tree.mouse_down(x, y, MouseButton::Left);
+      tree.mouse_up(x, y, MouseButton::Left);
+      // The pointer is left where no tab is hovered.
+      tree.mouse_move(700.0, 500.0);
+      tabs.push((tab, settled(&mut tree, &mut app)));
+    }
+    (tabs, own)
+  }
+
+  #[test]
+  fn devtools_is_drawn_in_its_own_theme_whatever_the_app_made_of_its_own() {
+    use crate::{
+      app::theme::ThemeDefinition,
+      node::color::Color,
+      ui::{Badge, BadgePart, Button, ButtonPart, Recipe, Table, TablePart, Tabs, TabsPart, Toggle, TogglePart},
+    };
+    let (plain, plain_own) = painted_in(|_| {});
+    let (dressed, dressed_own) = painted_in(|theme| {
+      // Another look whole: its palette, its type, its radii, its shadows, its scroll bars.
+      theme.apply(ThemeDefinition::legacy());
+      // Roles of the app's own.
+      let red = Color::from_hex("#ff0000");
+      for role in [
+        PaletteColor::Background,
+        PaletteColor::Foreground,
+        PaletteColor::Card,
+        PaletteColor::Muted,
+        PaletteColor::MutedForeground,
+        PaletteColor::Border,
+        PaletteColor::Input,
+        PaletteColor::Primary,
+        PaletteColor::Highlight,
+        PaletteColor::Destructive,
+      ] {
+        theme.set_palette_color(role, red);
+      }
+      // Recipes of the app's own for what DevTools is built with.
+      theme.set_recipe::<Button>(Recipe::new().base(ButtonPart::Root, |s| s.background(red).radius(0.0).height(64.0)));
+      theme.set_recipe::<Toggle>(Recipe::new().base(TogglePart::Root, |s| s.background(red).height(64.0)));
+      theme.set_recipe::<Table<()>>(Recipe::new().base(TablePart::Row, |s| s.background(red).height(80.0)));
+      theme.set_recipe::<Tabs>(Recipe::new().base(TabsPart::Tab, |s| s.background(red).height(90.0)));
+      theme.set_recipe::<Badge>(Recipe::new().base(BadgePart::Root, |s| s.background(red)));
+      // And a renderer of the app's own.
+      theme.set_renderer::<Toggle>(std::sync::Arc::new(|_| Text::new("the app's toggle").into()));
+    });
+    // The dress is one that shows: the app's own button is not drawn as it was.
+    assert_ne!(plain_own, dressed_own, "the app's own tree takes the app's theme");
+    assert!(!plain.is_empty());
+    for ((tab, plain), (_, dressed)) in plain.iter().zip(&dressed) {
+      assert!(plain.len() > 20, "the {tab} tab paints {} things", plain.len());
+      for (at, (plain, dressed)) in plain.iter().zip(dressed).enumerate() {
+        assert_eq!(plain, dressed, "the {tab} tab, thing {at}");
+      }
+      assert_eq!(plain.len(), dressed.len(), "the {tab} tab");
+    }
+  }
 
   #[test]
   fn snapshot_collects_tree_nodes() {
@@ -450,7 +410,7 @@ mod tests {
 
     assert!(snapshot.node_count() >= 2);
     assert_eq!(
-      snapshot.root.as_ref().map(|node| style::short_tag(&node.tag)),
+      snapshot.root.as_ref().map(|node| kit::short_tag(&node.tag)),
       Some("SnapshotTestApp")
     );
     assert_eq!(
@@ -535,7 +495,7 @@ mod tests {
         node
           .children
           .iter()
-          .find(|child| style::short_tag(&child.tag) == "KeyedChild")
+          .find(|child| kit::short_tag(&child.tag) == "KeyedChild")
       })
       .expect("keyed child should be captured");
     assert_eq!(keyed_child.key.as_deref(), Some("child-key"));
@@ -543,7 +503,7 @@ mod tests {
       .props
       .as_ref()
       .expect("keyed child props should be captured");
-    assert_eq!(style::short_tag(&keyed_child_props.type_name), "KeyedChildProps");
+    assert_eq!(kit::short_tag(&keyed_child_props.type_name), "KeyedChildProps");
     assert_eq!(keyed_child_props.fields[0].name(), "title");
     assert_eq!(keyed_child_props.fields[0].type_name(), "&str");
     assert_eq!(keyed_child_props.fields[0].formatted_value(), Some("\"keyed child\""));
@@ -552,7 +512,7 @@ mod tests {
     assert_eq!(keyed_child_props.fields[1].formatted_value(), Some("7"));
     assert_eq!(keyed_child_props.fields[2].name(), "details");
     assert_eq!(
-      style::short_tag(keyed_child_props.fields[2].type_name()),
+      kit::short_tag(keyed_child_props.fields[2].type_name()),
       "KeyedChildDetails"
     );
     assert_eq!(keyed_child_props.fields[2].children()[0].name(), "enabled");
@@ -589,6 +549,42 @@ mod tests {
   }
 
   #[test]
+  fn a_component_says_how_many_times_it_rendered_and_an_element_does_not() {
+    struct Counted;
+
+    impl Component for Counted {
+      type Props = ();
+
+      fn create(_ctx: &mut Ctx) -> Self {
+        Self
+      }
+
+      fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+        Column::new().child(Text::new("counted"))
+      }
+    }
+
+    let mut app = App::new();
+    let mut tree = crate::app::Tree::new();
+    tree.mount_root::<Counted>(&mut app, ());
+
+    let snapshot = DevToolsSnapshot::from_tree(&tree);
+    let root = snapshot.root.as_ref().expect("the root is captured");
+    assert_eq!(root.render.map(|render| render.count), Some(1));
+    assert_eq!(
+      root.children.first().and_then(|child| child.render),
+      None,
+      "an element is drawn by the render of the component it is in"
+    );
+
+    tree.rebuild();
+
+    let snapshot = DevToolsSnapshot::from_tree(&tree);
+    let render = snapshot.root.as_ref().and_then(|root| root.render);
+    assert_eq!(render.map(|render| render.count), Some(2), "each render is counted");
+  }
+
+  #[test]
   fn selected_snapshot_only_collects_inspector_details_for_selected_path() {
     let mut app = App::new();
     let mut tree = crate::app::Tree::new();
@@ -603,82 +599,6 @@ mod tests {
     assert!(!root.signals.is_empty());
     assert!(!selected.shape.is_empty());
     assert!(selected.layout_box.is_none());
-  }
-
-  #[test]
-  fn debug_overlay_path_for_selection_respects_toggle_and_selection() {
-    assert_eq!(
-      debug_overlay_path_for_selection(true, vec![1, 2], true),
-      Some(vec![1, 2])
-    );
-    assert_eq!(debug_overlay_path_for_selection(false, vec![1, 2], true), None);
-    assert_eq!(debug_overlay_path_for_selection(true, vec![1, 2], false), None);
-  }
-
-  #[test]
-  fn picked_tree_path_expands_ancestors_and_resolves_visible_row() {
-    let ids = crate::core::IdGenerator::new();
-    let root_id = ids.next();
-    let child_id = ids.next();
-    let snapshot = DevToolsSnapshot {
-      root: Some(test_node(
-        root_id,
-        "Root",
-        vec![test_node(
-          child_id,
-          "Child",
-          vec![test_node(ids.next(), "Grandchild", Vec::new())],
-        )],
-      )),
-      frame: Default::default(),
-    };
-    let mut collapsed = vec![root_id, child_id];
-    let tree = DevToolsTree::new();
-
-    tree.expand_ancestors(&snapshot, &[0, 0], &mut collapsed);
-
-    assert!(collapsed.is_empty());
-    assert_eq!(tree.visible_row_index(&snapshot, &[0, 0], &collapsed), Some(2));
-  }
-
-  #[test]
-  fn visible_tree_row_index_respects_collapsed_nodes() {
-    let ids = crate::core::IdGenerator::new();
-    let root_id = ids.next();
-    let snapshot = DevToolsSnapshot {
-      root: Some(test_node(
-        root_id,
-        "Root",
-        vec![test_node(ids.next(), "Child", Vec::new())],
-      )),
-      frame: Default::default(),
-    };
-    let tree = DevToolsTree::new();
-
-    assert_eq!(tree.visible_row_index(&snapshot, &[0], &[root_id]), None);
-  }
-
-  fn test_node(id: NodeId, tag: &str, children: Vec<DevToolsNode>) -> DevToolsNode {
-    DevToolsNode {
-      id,
-      tag: tag.to_owned(),
-      kind: DevToolsNodeKind::Element,
-      key: None,
-      attrs: Vec::new(),
-      text: None,
-      color: None,
-      props: None,
-      signals: Vec::new(),
-      memos: Vec::new(),
-      contexts: Vec::new(),
-      shape: Vec::new(),
-      effects: Vec::new(),
-      layout_box: None,
-      hovered: false,
-      active: false,
-      focused: false,
-      children,
-    }
   }
 
   struct SnapshotTestApp {
@@ -702,15 +622,10 @@ mod tests {
       let _ = ctx.use_context::<i32>();
       Column::new()
         .child(
-          style::text(
-            &format!("child {}", self.count.get()),
-            12.0,
-            FontWeight::Normal,
-            style::TEXT,
-          )
-          .padding(8.0)
-          .hovered(|style| style.background("#ff0000").padding_left(4.0))
-          .active(|style| style.width(32.0)),
+          Text::new(&format!("child {}", self.count.get()))
+            .padding(8.0)
+            .hovered(|style| style.background("#ff0000").padding_left(4.0))
+            .active(|style| style.width(32.0)),
         )
         .child(ctx.mount_keyed::<KeyedChild>(
           "child-key",
@@ -745,7 +660,7 @@ mod tests {
     }
 
     fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-      style::text(ctx.props::<Self::Props>().title, 12.0, FontWeight::Normal, style::TEXT)
+      Text::new(ctx.props::<Self::Props>().title)
     }
   }
 }

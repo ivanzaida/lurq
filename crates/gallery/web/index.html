@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lurq gallery</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0b0c;
+      }
+
+      /* The window: lurq draws to the canvas with this id where the page lays it out. */
+      #lurq {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        outline: none;
+      }
+
+      #status {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #0b0b0c;
+        color: #a1a1aa;
+        font: 14px/1.5 system-ui, sans-serif;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="lurq"></canvas>
+    <div id="status">Loading the gallery…</div>
+    <script type="module">
+      import init from "./gallery.js";
+      init();
+    </script>
+  </body>
+</html>

@@ -1,12 +1,11 @@
-#[cfg(any(feature = "persistent_storage", feature = "resources"))]
-use std::path::PathBuf;
-use std::{path::Path, sync::Arc};
+use std::{
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use parking_lot::Mutex;
 
-#[cfg(feature = "i18n")]
-use crate::app::i18n::I18n;
-use crate::app::{glyph_engine::GlyphEngine, theme::Theme};
+use crate::app::{glyph_engine::GlyphEngine, i18n::I18n, theme::Theme};
 
 /// A request to open a new OS window that renders its own component tree.
 /// Created through [`WindowOpener::open`], drained by the runtime each loop
@@ -19,6 +18,9 @@ pub struct SecondaryWindowRequest {
   /// `false` creates the OS window without native decorations, for trees that
   /// render their own `WindowChrome`.
   pub(crate) decorations: bool,
+  /// `true` keeps the OS window over the other windows of the desktop, the
+  /// ones of other apps among them: a picture in picture.
+  pub(crate) always_on_top: bool,
   /// Optional stable machine name (titles aren't unique) surfaced to external
   /// tooling such as the MCP `lurq_windows` tool.
   pub(crate) name: Option<String>,
@@ -34,6 +36,7 @@ pub struct WindowOptions {
   width: u32,
   height: u32,
   decorations: bool,
+  always_on_top: bool,
   name: Option<String>,
 }
 
@@ -44,8 +47,18 @@ impl WindowOptions {
       width,
       height,
       decorations: true,
+      always_on_top: false,
       name: None,
     }
+  }
+
+  /// Keep the OS window over the other windows of the desktop, the ones of
+  /// other apps among them, whether or not it has the focus: a picture in
+  /// picture, a palette. Where the platform has no such level (a phone, a
+  /// browser) the window is an ordinary one.
+  pub fn always_on_top(mut self) -> Self {
+    self.always_on_top = true;
+    self
   }
 
   /// Create the OS window without native decorations (for trees that render
@@ -106,6 +119,7 @@ impl WindowOpener {
       width: options.width,
       height: options.height,
       decorations: options.decorations,
+      always_on_top: options.always_on_top,
       name: options.name,
       build: Box::new(build),
     });
@@ -120,6 +134,7 @@ impl WindowOpener {
       width,
       height,
       decorations,
+      always_on_top: false,
       name: None,
       build: Box::new(build),
     });
@@ -141,19 +156,30 @@ pub(crate) struct AppShared {
   pub(crate) menu: super::menu::MenuController,
   pub(crate) glyph_engine: Mutex<GlyphEngine>,
   pub(crate) theme: Theme,
+  /// How dates are written and read, the app's choice: [`App::set_date_locale`].
+  pub(crate) dates: crate::core::AppDateText,
+  /// Every word lurq writes by itself, the app's choice: [`App::set_locale`].
+  pub(crate) locale: crate::core::AppLocale,
+  /// What the person points with: [`App::pointer`].
+  pub(crate) pointer: super::pointer::AppPointer,
+  /// How long a pause in typing ends a step of undo: [`App::set_typing_undo_pause`].
+  pub(crate) typing_undo_pause: Mutex<Option<std::time::Duration>>,
+  /// The phone or tablet the app is run as on a desktop: [`App::emulate`].
+  pub(crate) emulated: Mutex<Option<super::Device>>,
   pub(crate) window_opener: WindowOpener,
-  #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
   pub(crate) scale_override: Mutex<Option<f32>>,
   #[cfg(feature = "tokio")]
   pub(crate) tokio_handle: Mutex<Option<tokio::runtime::Handle>>,
-  #[cfg(feature = "resources")]
+  /// What reads the sources of everything that loads; see [`App::loader`].
+  pub(crate) loader: crate::resources::Loader,
+  #[cfg(feature = "http")]
   pub(crate) resource_loader: Mutex<crate::resources::ResourceLoader>,
   #[cfg(feature = "persistent_storage")]
   pub(crate) persistent_storage: Mutex<crate::persistent_storage::PersistentStorage>,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) image_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::images::ImageData>>,
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "canvas", feature = "http"))]
   pub(crate) svg_resource_cache: Mutex<std::collections::HashMap<std::sync::Arc<str>, crate::svg::SvgData>>,
 }
 
@@ -170,22 +196,42 @@ impl App {
         menu: super::menu::MenuController::default(),
         glyph_engine: Mutex::new(GlyphEngine::new()),
         theme: Theme::new(),
+        dates: crate::core::AppDateText::new(),
+        locale: crate::core::AppLocale::new(),
+        pointer: super::pointer::AppPointer::new(),
+        typing_undo_pause: Mutex::new(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE),
+        emulated: Mutex::new(None),
         window_opener: WindowOpener::default(),
-        #[cfg(feature = "i18n")]
         i18n: I18n::new(),
         scale_override: Mutex::new(None),
         #[cfg(feature = "tokio")]
         tokio_handle: Mutex::new(None),
-        #[cfg(feature = "resources")]
+        loader: crate::resources::Loader::new(),
+        #[cfg(feature = "http")]
         resource_loader: Mutex::new(crate::resources::ResourceLoader::new()),
         #[cfg(feature = "persistent_storage")]
         persistent_storage: Mutex::new(crate::persistent_storage::PersistentStorage::memory()),
-        #[cfg(all(feature = "image", feature = "resources"))]
+        #[cfg(all(feature = "image", feature = "http"))]
         image_resource_cache: Mutex::new(std::collections::HashMap::new()),
-        #[cfg(all(feature = "svg", feature = "resources"))]
+        #[cfg(all(feature = "canvas", feature = "http"))]
         svg_resource_cache: Mutex::new(std::collections::HashMap::new()),
       }),
     }
+  }
+
+  /// How long a pause in typing ends a step of undo in a text input: what is typed after it is taken back by an undo
+  /// of its own. A second until told otherwise; `None` for none, when a step ends only where the caret moves or
+  /// typing turns to deleting (and, on Windows, where a word begins).
+  ///
+  /// ```
+  /// use lurq::app::App;
+  /// use std::time::Duration;
+  ///
+  /// let app = App::new();
+  /// app.set_typing_undo_pause(Some(Duration::from_millis(1500)));
+  /// ```
+  pub fn set_typing_undo_pause(&self, pause: Option<std::time::Duration>) {
+    *self.shared.typing_undo_pause.lock() = pause;
   }
 
   pub fn menu_bar_support(&self) -> super::menu::MenuBarSupport {
@@ -199,6 +245,13 @@ impl App {
   pub fn set_menu_bar(&self, bar: super::menu::MenuBar) {
     self.shared.menu.set(bar);
   }
+  /// Whether lurq puts an Edit menu in the bar on a Mac (Undo, Redo, Cut, Copy, Paste, Select All and the system's
+  /// Emoji & Symbols), as it does until told not to: an app that takes Cmd+Z and the others for itself turns it off.
+  /// A menu of the app's bar with an item of editing ([`MenuAction::edit`](super::menu::MenuAction::edit), or the
+  /// whole of [`Menu::edit`](super::menu::Menu::edit)) is the Edit menu, where the app put it, and lurq adds none.
+  pub fn set_edit_menu(&self, shown: bool) {
+    self.shared.menu.set_edit_menu(shown);
+  }
   pub fn on_menu_activate(&self, handler: impl Fn(&str) + Send + Sync + 'static) {
     self.shared.menu.on_activate(handler);
   }
@@ -211,19 +264,26 @@ impl App {
     self.shared.glyph_engine.lock().clear_cache();
   }
 
+  /// Gives the app its tokio runtime: the components' async tasks run on it, and so do the reads of the app's
+  /// loader ([`Loader::tokio_handle`](crate::resources::Loader::tokio_handle)), which then starts no threads
+  /// of its own.
   #[cfg(feature = "tokio")]
   pub fn with_tokio_handle(self, handle: tokio::runtime::Handle) -> Self {
+    self.shared.loader.tokio_handle(handle.clone());
     *self.shared.tokio_handle.lock() = Some(handle);
     self
   }
 
   #[cfg(feature = "tokio")]
   pub fn set_tokio_handle(&mut self, handle: tokio::runtime::Handle) {
+    self.shared.loader.tokio_handle(handle.clone());
     *self.shared.tokio_handle.lock() = Some(handle);
   }
 
+  /// Takes the runtime away, before it is stopped: the app's loader reads on threads of its own again.
   #[cfg(feature = "tokio")]
   pub fn clear_tokio_handle(&mut self) {
+    self.shared.loader.reset_tokio_handle();
     *self.shared.tokio_handle.lock() = None;
   }
 
@@ -236,12 +296,165 @@ impl App {
     &self.shared.theme
   }
 
+  /// The app's locale: every word lurq writes by itself (the names of a player's buttons, what a media that cannot
+  /// play says, a calendar's months), in the app's language. A [`Locale`](crate::core::Locale) of a tag lurq knows
+  /// (`Locale::for_tag("uk")`), with whatever the app changed in it. English until it is set: the system's language
+  /// and the i18n locale do not change it. What reads it in a render is rendered again when it changes.
+  ///
+  /// It sets how dates are written too ([`Locale::dates`](crate::core::Locale::dates)): an app that writes them
+  /// its own way calls [`set_date_locale`](Self::set_date_locale) after it.
+  ///
+  /// ```
+  /// use lurq::{app::App, core::Locale};
+  ///
+  /// let app = App::new();
+  /// app.set_locale(Locale::for_tag("uk"));
+  /// ```
+  pub fn set_locale(&self, locale: crate::core::Locale) {
+    self
+      .shared
+      .dates
+      .set(crate::core::shared_date_text(locale.dates.clone()));
+    self.shared.menu.set_words(&locale);
+    self.shared.locale.set(locale);
+  }
+
+  /// What [`Self::set_locale`] set, English before: read in a render, it renders that again when it changes.
+  pub fn locale(&self) -> std::sync::Arc<crate::core::Locale> {
+    self.shared.locale.get()
+  }
+
+  /// Registers `tokenizer` for `language`: the code of that language is told apart by it, and drawn in the theme's code
+  /// colors, in every code block, Markdown document, inline code and code field, and what shows it now is drawn
+  /// again. A language that has one, lurq's own included, has this one in its place under each of its names. Any
+  /// `Fn(&str) -> Vec<CodeToken>` is a tokenizer, and so is a [`CodeLanguage`](crate::code::CodeLanguage) table; see
+  /// [`crate::code`].
+  ///
+  /// ```
+  /// use lurq::{app::App, code::{CodeLanguage, token}};
+  ///
+  /// let app = App::new();
+  /// app.register_tokenizer("rust", CodeLanguage::rust().words(token::KEYWORD, &["yeet"]));
+  /// ```
+  pub fn register_tokenizer(
+    &self,
+    language: &str,
+    tokenizer: impl Into<crate::code::CodeTokenizer>,
+  ) -> crate::code::TokenizerHandle {
+    crate::code::register_tokenizer(language, tokenizer)
+  }
+
+  /// As [`Self::register_tokenizer`], with other names of the language: `("sql", &["psql"], ..)`.
+  pub fn register_tokenizer_with_aliases(
+    &self,
+    language: &str,
+    aliases: &[&str],
+    tokenizer: impl Into<crate::code::CodeTokenizer>,
+  ) -> crate::code::TokenizerHandle {
+    crate::code::register_tokenizer_with_aliases(language, aliases, tokenizer)
+  }
+
+  /// What the person points with: a finger ([`Pointer::Coarse`](super::Pointer::Coarse)) or a mouse, a trackpad or
+  /// a pen ([`Pointer::Fine`](super::Pointer::Fine)). It starts as the platform says
+  /// ([`Pointer::platform_default`](super::Pointer::platform_default)) and, unless the app pins it, follows the
+  /// last input: a finger makes it coarse, a mouse or a trackpad that moves makes it fine, a pen leaves it. Read in
+  /// a render, it renders that again when it changes. A component dressed for a finger asks
+  /// [`ui::touch_form`](crate::ui::touch_form).
+  pub fn pointer(&self) -> super::Pointer {
+    self.shared.pointer.get()
+  }
+
+  /// Pins what the person points with: input no longer moves it, and everything that reads it is rendered again,
+  /// an open lightbox too. A kiosk with a touch screen pins [`Pointer::Coarse`](super::Pointer::Coarse); a test
+  /// or a preview of the phone's forms on a desktop either. [`follow_pointer(true)`](Self::follow_pointer) lets go.
+  ///
+  /// ```
+  /// use lurq::app::{App, Pointer};
+  ///
+  /// let app = App::new();
+  /// app.set_pointer(Pointer::Coarse);
+  /// assert_eq!(app.pointer(), Pointer::Coarse);
+  /// ```
+  pub fn set_pointer(&self, pointer: super::Pointer) {
+    self.shared.pointer.tell(pointer, true);
+  }
+
+  /// Runs the app on a desktop as it would be on `device`, a phone or a tablet, to try its touch forms and its
+  /// gestures: the window takes the device's logical size, the device's safe area reaches what reads it
+  /// ([`Ctx::safe_area`](super::ctx::Ctx::safe_area)), the pointer is pinned [`Coarse`](super::Pointer::Coarse),
+  /// and the mouse is fingers. Called before the app's window opens; `LURQ_DEVICE=phone` (or `tablet`) in the
+  /// environment does the same for any app that did not call it.
+  ///
+  /// The mouse reaches the app only as fingers, through the same path a touch screen's take, so an app tries on a
+  /// desktop the handlers it writes once: a click is a tap (`on_tap`, then `on_click`), a double click a double
+  /// tap, a drag a pan, a swipe or a scroll with its momentum, a drag from an edge of the window an edge pan, a
+  /// press held still a long press. **Alt** and a drag is a pinch and a rotation, the second finger mirrored about
+  /// where the drag began; **Alt+Shift** and a drag two fingers side by side; **Alt+Shift+Ctrl** and a drag three
+  /// fingers side by side, and with the wheel three fingers pinched about the mouse (away spreads them, toward
+  /// closes them; letting go of the keys lifts them). The fingers are drawn while a modifier is held. A finger hovers
+  /// nothing, so nothing shows its hovered style; the wheel still scrolls and the keyboard types.
+  ///
+  /// ```
+  /// use lurq::app::{App, Device, Pointer};
+  ///
+  /// let app = App::new();
+  /// app.emulate(Device::phone());
+  /// assert_eq!(app.pointer(), Pointer::Coarse);
+  /// assert_eq!(app.emulated(), Some(Device::phone()));
+  /// ```
+  pub fn emulate(&self, device: super::Device) {
+    self.set_pointer(super::Pointer::Coarse);
+    *self.shared.emulated.lock() = Some(device);
+  }
+
+  /// The phone or tablet the app is run as ([`emulate`](Self::emulate)), if any. `LURQ_DEVICE` is read when the
+  /// window opens, and is not here before.
+  pub fn emulated(&self) -> Option<super::Device> {
+    self.shared.emulated.lock().clone()
+  }
+
+  /// Whether the last input moves the pointer: on unless told. `false` keeps it where it is; `true` follows input
+  /// again, and lets go of what [`set_pointer`](Self::set_pointer) pinned.
+  pub fn follow_pointer(&self, follows: bool) {
+    self.shared.pointer.follow(follows);
+  }
+
+  /// How every calendar and date picker of the app writes and reads dates, and names its months, its days and its
+  /// controls, where the component is given no `.locale(..)` of its own: a
+  /// [`DateLocale`](crate::core::DateLocale) (`DateLocale::for_tag("uk")`, or one with a style or a format of the
+  /// app's), or the app's own [`DateText`](crate::core::DateText), or an `Arc` of it. English until it is set: the
+  /// system's language and the i18n locale do not change it. A mounted calendar or picker, and one built in a
+  /// component's render, is built again when it changes.
+  ///
+  /// ```
+  /// use lurq::{app::App, core::{DateLocale, DateStyle}};
+  ///
+  /// let app = App::new();
+  /// app.set_date_locale(DateLocale::for_tag("en-GB").with_style(DateStyle::Long));
+  /// ```
+  ///
+  /// An app that writes dates in its i18n locale sets it where it changes that locale:
+  /// `app.set_date_locale(DateLocale::for_tag(tag))`.
+  pub fn set_date_locale(&self, locale: impl crate::core::DateText + 'static) {
+    self.shared.dates.set(crate::core::shared_date_text(locale));
+  }
+
+  /// What [`Self::set_date_locale`] set, English before: read in a render, it renders that again when it changes.
+  pub fn date_locale(&self) -> std::sync::Arc<dyn crate::core::DateText> {
+    self.shared.dates.get()
+  }
+
   /// Handle for opening secondary OS windows (see [`WindowOpener`]).
   pub fn window_opener(&self) -> WindowOpener {
     self.shared.window_opener.clone()
   }
 
-  #[cfg(feature = "i18n")]
+  /// Opens `url` in the app the system keeps for it: a web page in the browser. It is
+  /// [`open_url`](crate::app::open_url()), which a handler with no `App` calls too.
+  pub fn open_url(&self, url: &str) -> Result<(), crate::app::OpenUrlError> {
+    crate::app::open_url(url)
+  }
+
   pub fn i18n(&self) -> &I18n {
     &self.shared.i18n
   }
@@ -271,6 +484,20 @@ impl App {
 
   pub fn register_font(&mut self, name: &str, family: &str) {
     self.shared.glyph_engine.lock().register_font(name, family);
+  }
+
+  /// Names the font a generic family draws with, in place of the one chosen
+  /// from the system's fonts when the app started. [`GenericFamily::SansSerif`]
+  /// is also the font of text with no family.
+  ///
+  /// A browser has no system fonts a page can read: an app that runs in one
+  /// loads its fonts ([`Self::load_font`]) and names them here, the
+  /// sans-serif one at least. On a desktop it replaces the system's choice
+  /// with a font the app ships.
+  ///
+  /// [`GenericFamily::SansSerif`]: crate::layout::text_style::GenericFamily::SansSerif
+  pub fn set_generic_family(&mut self, generic: crate::layout::text_style::GenericFamily, family: &str) {
+    self.shared.glyph_engine.lock().set_generic_family(generic, family);
   }
 
   /// Installs multiple font faces and aliases with one text-cache invalidation.
@@ -328,9 +555,65 @@ impl App {
     }
   }
 
-  #[cfg(feature = "resources")]
+  /// The app's loader: what reads the sources of its pictures, and of anything else the app loads through it.
+  /// It holds the resource root and what the network may do.
+  ///
+  /// ```
+  /// use std::time::Duration;
+  ///
+  /// let app = lurq::app::App::new();
+  /// app.loader().root("assets").timeout(Duration::from_secs(10));
+  /// ```
+  pub fn loader(&self) -> &crate::resources::Loader {
+    &self.shared.loader
+  }
+
+  /// Tells the system what the app's sound is: on iOS, whether it is heard with the ring switch on silent. The
+  /// system's default is kept unless told: a sound of the app's own, silent on silent. An app that plays what a
+  /// person listens to (music, a podcast, a video) says so at its start:
+  ///
+  /// ```no_run
+  /// let app = lurq::app::App::new();
+  /// app.set_audio_category(lurq::media::AudioCategory::Playback);
+  /// ```
+  ///
+  /// Elsewhere it changes nothing.
+  #[cfg(feature = "media")]
+  pub fn set_audio_category(&self, category: crate::media::AudioCategory) {
+    crate::media::set_audio_category(category);
+  }
+
+  /// Turns on the cache on the disk, in `folder`: what the app loads from an address (a sound, a picture) is
+  /// kept there as a file, is there for the next run of the app, and is read from the folder and not from the
+  /// network when it is asked for again. It is said where the app is made:
+  ///
+  /// ```no_run
+  /// let app = lurq::app::App::new().enable_media_disk_cache("cache");
+  /// // 512 MiB are kept unless told; over that, what was used longest ago is deleted.
+  /// app.loader().media_disk_cache().budget(2 * 1024 * 1024 * 1024);
+  /// ```
+  ///
+  /// Not called, nothing is written to the disk, and a sound loaded from an address is kept in memory for the
+  /// run of the app (`media::sound_cache()`). The folder is the app's to choose, and lurq picks none: a cache
+  /// folder of the app's own, which the system may empty. A browser keeps what it loads itself, and nothing is
+  /// written there. The same as `app.loader().enable_media_disk_cache(folder)`; see
+  /// [`MediaDiskCache`](crate::resources::MediaDiskCache).
+  pub fn enable_media_disk_cache(self, folder: impl Into<PathBuf>) -> Self {
+    self.shared.loader.enable_media_disk_cache(folder);
+    // What the folder keeps of a sound is answered for by the sounds' cache.
+    #[cfg(feature = "media")]
+    crate::media::sound_cache().follow(self.shared.loader.media_disk_cache());
+    self
+  }
+
+  /// The folder the app's resources are under: a path given as a resource is a path in it. The same as
+  /// `app.loader().root(root)`.
   pub fn set_resource_root(&mut self, root: PathBuf) {
+    self.shared.loader.root(root.clone());
+    #[cfg(feature = "http")]
     self.shared.resource_loader.lock().set_root(root);
+    #[cfg(not(feature = "http"))]
+    let _ = root;
   }
 
   #[cfg(feature = "persistent_storage")]
@@ -455,5 +738,37 @@ mod tests {
     app.warm_text_styles(&[]);
     let engine = app.shared.glyph_engine.lock();
     assert_eq!((engine.measure_hits, engine.measure_misses), (0, 0));
+  }
+
+  #[cfg(feature = "tokio")]
+  #[test]
+  fn the_runtime_the_app_is_given_is_its_loaders_too_until_it_is_taken_away() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(1)
+      .build()
+      .expect("a runtime");
+    assert!(!App::new().loader().reads_on_a_runtime());
+    let mut app = App::new().with_tokio_handle(runtime.handle().clone());
+    assert!(app.loader().reads_on_a_runtime());
+    app.clear_tokio_handle();
+    assert!(!app.loader().reads_on_a_runtime());
+    app.set_tokio_handle(runtime.handle().clone());
+    assert!(app.loader().reads_on_a_runtime());
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
+  #[test]
+  fn the_cache_on_the_disk_is_off_until_the_app_gives_its_folder() {
+    let folder = std::env::temp_dir().join(format!("lurq-app-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let app = App::new();
+    assert!(!app.loader().media_disk_cache().is_on());
+    assert!(!folder.exists(), "lurq picks no folder, and makes none");
+    let app = app.enable_media_disk_cache(&folder);
+    let kept = app.loader().media_disk_cache();
+    assert!(kept.is_on() && kept.is_empty());
+    assert_eq!(kept.folder().as_deref(), Some(folder.as_path()));
+    assert!(folder.is_dir(), "the folder is made");
+    let _ = std::fs::remove_dir_all(&folder);
   }
 }

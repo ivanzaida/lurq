@@ -15,7 +15,8 @@ use lurq::{
 use crate::support::TestSurface;
 
 const RED: Color = Color::new(200, 30, 30, 255);
-const BLACK: Color = Color::new(0, 0, 0, 255);
+/// The theme's foreground: what text that names no color is drawn in.
+const INK: Color = Color::new(9, 9, 11, 255);
 
 fn painted(app: &mut App, root: impl Into<Element>) -> Tree {
   let mut tree = Tree::new();
@@ -71,7 +72,7 @@ fn an_underline_in_the_style_of_a_plain_text_is_drawn_under_its_words() {
   assert_eq!(lines.len(), 1);
   let (x, y, width, height, color) = lines[0];
   let (text_x, text_y, text_width, text_height) = text_box(&tree);
-  assert_eq!(color, BLACK, "the line is the text's color");
+  assert_eq!(color, INK, "the line is the text's color");
   assert!(height >= 1.0);
   assert!(
     (x - text_x).abs() < 1.0 && (width - text_width).abs() < 2.0,
@@ -109,7 +110,7 @@ fn a_line_through_a_text_lies_above_its_underline() {
 
   let lines = lines(&tree);
   assert_eq!(lines.len(), 2);
-  let underline = lines.iter().find(|line| line.4 == BLACK).expect("the underline");
+  let underline = lines.iter().find(|line| line.4 == INK).expect("the underline");
   let strike = lines.iter().find(|line| line.4 == RED).expect("the line through");
   let (_, text_y, _, text_height) = text_box(&tree);
   assert!(strike.1 < underline.1, "the strike is above the underline");

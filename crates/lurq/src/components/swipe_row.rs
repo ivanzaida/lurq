@@ -24,13 +24,15 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{Element, color::Color, dimension::Dimension, transform::Transform2D},
+  ui::{Recipe, Themed, engine_look::EngineLook, names},
 };
 
 const FILL: Dimension = Dimension::Pct(100.0);
 /// No finger has the row.
 const NO_DRAG: f32 = f32::MIN;
 
-/// Something to do with a row, shown beside it when it is swiped.
+/// Something to do with a row, shown beside it when it is swiped. Its colors come from the theme, through the
+/// recipe of [`SwipeRowStyle`] ([`SwipeRowPart`]), where it is made.
 #[derive(Clone)]
 pub struct SwipeAction {
   pub title: String,
@@ -43,18 +45,24 @@ pub struct SwipeAction {
 
 impl SwipeAction {
   pub fn new(title: impl Into<String>, on_press: impl Fn() + Send + Sync + 'static) -> Self {
-    Self {
-      title: title.into(),
-      icon: None,
-      background: Color::from_hex("#8E8E93"),
-      color: Color::from_hex("#FFFFFF"),
-      on_press: Arc::new(on_press),
-    }
+    Self::of(SwipeRowPart::Action, title.into(), Arc::new(on_press))
   }
 
-  /// An action that takes the row away: the platform's red.
+  /// An action that takes the row away, in the theme's destructive colors.
   pub fn destructive(title: impl Into<String>, on_press: impl Fn() + Send + Sync + 'static) -> Self {
-    Self::new(title, on_press).background(Color::from_hex("#FF3B30"))
+    Self::of(SwipeRowPart::DestructiveAction, title.into(), Arc::new(on_press))
+  }
+
+  fn of(part: SwipeRowPart, title: String, on_press: Arc<dyn Fn() + Send + Sync>) -> Self {
+    let look = EngineLook::of::<SwipeRowStyle>(&[]);
+    let (background, color) = legacy_colors(part);
+    Self {
+      title,
+      icon: None,
+      background: look.background(part, background),
+      color: look.foreground(part, color),
+      on_press,
+    }
   }
 
   pub fn background(mut self, color: Color) -> Self {
@@ -73,7 +81,33 @@ impl SwipeAction {
   }
 }
 
-/// How a [`SwipeRow`] looks and moves.
+/// The parts of the recipe that colors a [`SwipeAction`], kept under the name `phone_swipe_row` with
+/// [`SwipeRowStyle`]: each has a fill and an ink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwipeRowPart {
+  /// An action made with [`SwipeAction::new`].
+  Action,
+  /// An action made with [`SwipeAction::destructive`].
+  DestructiveAction,
+}
+
+names!(SwipeRowPart {
+  Action => "action",
+  DestructiveAction => "destructive_action",
+});
+
+/// The colors of 0.62's actions, fill and ink: what the legacy theme gives, and what a theme with no recipe keeps.
+fn legacy_colors(part: SwipeRowPart) -> (Color, Color) {
+  let white = Color::new(255, 255, 255, 255);
+  match part {
+    SwipeRowPart::Action => (Color::new(0x8E, 0x8E, 0x93, 255), white),
+    SwipeRowPart::DestructiveAction => (Color::new(0xFF, 0x3B, 0x30, 255), white),
+  }
+}
+
+/// How a [`SwipeRow`] looks and moves. The colors of its actions come from the theme, through the recipe it
+/// keeps under the name `phone_swipe_row` ([`SwipeRowPart`]): the design's roles, light or dark as the theme is,
+/// and the colors of 0.62 in [`ThemeDefinition::legacy`](crate::app::theme::ThemeDefinition::legacy).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SwipeRowStyle {
   /// How wide each action is.
@@ -87,6 +121,37 @@ pub struct SwipeRowStyle {
   pub duration: Duration,
   /// Whether the device ticks when a swipe goes far enough to do the first action.
   pub haptic: bool,
+}
+
+impl Themed for SwipeRowStyle {
+  const NAME: &'static str = "phone_swipe_row";
+  type Renderer = ();
+
+  /// The design's (`pencil/lurq-design-system.pen`, Mobile/Swipe Row): an action that takes the row away in the
+  /// destructive colors; another, which the board draws in the info color, in the muted foreground's grey with
+  /// the background's ink, as neutral as the platform's.
+  fn recipe() -> Recipe {
+    use crate::app::theme::PaletteColor::{Background, Destructive, DestructiveForeground, MutedForeground};
+    Recipe::new()
+      .base(SwipeRowPart::Action, |s| {
+        s.background(MutedForeground).foreground(Background)
+      })
+      .base(SwipeRowPart::DestructiveAction, |s| {
+        s.background(Destructive).foreground(DestructiveForeground)
+      })
+  }
+}
+
+impl SwipeRowStyle {
+  /// 0.62's colors: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the swipe row.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    let mut recipe = Recipe::new();
+    for part in SwipeRowPart::all() {
+      let (background, color) = legacy_colors(*part);
+      recipe = recipe.base(*part, |s| s.background(background).foreground(color));
+    }
+    recipe
+  }
 }
 
 impl Default for SwipeRowStyle {
@@ -159,7 +224,8 @@ struct Held {
   base: f32,
 }
 
-/// A row of a list with actions a swipe shows.
+/// A row of a list with actions a swipe shows: the phone's. The board draws a design system's one (Mobile/Swipe
+/// Row) that `lurq::ui` does not have yet; this one takes the theme's colors through [`SwipeRowStyle`].
 pub struct SwipeRow {
   /// Which side is open, for a row whose props name no signal.
   open: Signal<i8>,
@@ -171,7 +237,16 @@ pub struct SwipeRow {
   /// The row as it is laid out: how wide it is, and how high, which its actions are too.
   row: ElementRef,
   height: Signal<f32>,
+  /// Whether the content was out of its place, or on its way, at the last render: the actions stay under it
+  /// until [`SETTLE`] after it went back.
+  moved: Arc<Mutex<bool>>,
+  /// Ends the time the content takes to go back, and has the row rendered again without its actions.
+  settle: crate::app::ctx::Timeout,
+  settled: Signal<u32>,
 }
+
+/// Longer than the content takes to spring back to its place: the actions are taken away under it after that.
+const SETTLE: Duration = Duration::from_millis(1000);
 
 impl SwipeRow {
   /// Around `content`, which is as high as the row is and paints its own background.
@@ -188,8 +263,16 @@ impl SwipeRow {
 impl Component for SwipeRow {
   type Props = SwipeRowProps;
 
-  fn create(_ctx: &mut Ctx) -> Self {
+  fn create(ctx: &mut Ctx) -> Self {
+    let settled = Signal::new(0u32);
+    let settle = ctx.create_timeout(SETTLE, {
+      let settled = settled.clone();
+      move || settled.update(|times| *times = times.wrapping_add(1))
+    });
     Self {
+      moved: Arc::default(),
+      settle,
+      settled,
       open: Signal::new(0),
       drag: Signal::new(NO_DRAG),
       held: Arc::default(),
@@ -219,6 +302,18 @@ impl Component for SwipeRow {
     let dragged = drag != NO_DRAG;
     let at = if dragged { drag } else { rest };
     let pace = if dragged { Duration::ZERO } else { style.duration };
+    // A row at rest has nothing under its content: an action there would show through at an edge of the content
+    // that falls between two pixels. Out of its place, and while it goes back, the actions are there.
+    self.settled.get();
+    let out = dragged || at != 0.0;
+    {
+      let mut moved = self.moved.lock();
+      if *moved && !out {
+        self.settle.restart();
+      }
+      *moved = out;
+    }
+    let bare = !out && !self.settle.is_active();
     let curve = Easing::Spring {
       velocity: *self.velocity.lock(),
     };
@@ -395,12 +490,16 @@ impl Component for SwipeRow {
       .child(
         // As high as the content was last laid out: the row is as high as its content, and its actions
         // fill it.
-        Row::new()
-          .width(FILL)
-          .height(height)
-          .child(actions(&props.leading, false, at.max(0.0)))
-          .child(Row::new().flex(1.0))
-          .child(actions(&props.trailing, true, (-at).max(0.0))),
+        if bare {
+          Row::new().width(FILL).height(height)
+        } else {
+          Row::new()
+            .width(FILL)
+            .height(height)
+            .child(actions(&props.leading, false, at.max(0.0)))
+            .child(Row::new().flex(1.0))
+            .child(actions(&props.trailing, true, (-at).max(0.0)))
+        },
       )
       .child(content)
   }

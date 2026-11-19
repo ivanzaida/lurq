@@ -48,8 +48,71 @@ impl CanvasHandle {
         error: None,
         items: Arc::from([]),
         warned_duplicates: None,
+        painted: None,
+        shown: None,
+        run: None,
       })),
     }
+  }
+
+  /// A canvas of `width` by `height` logical pixels at `scale_factor` device pixels to one, in no window and drawn
+  /// on the CPU: what is drawn on its [`context_2d`](Self::context_2d) is in its pixels at once, read by
+  /// [`snapshot`](Self::snapshot) (ready when it returns) or as an [`ImageData`] by
+  /// [`to_image_data`](Self::to_image_data). For a picture made of a drawing: a signature to store, a chart to
+  /// save. It draws no text, since it has no window's fonts. `None` where the size is not a number, is nothing, or is
+  /// larger than a canvas can be.
+  pub fn offscreen(width: f32, height: f32, scale_factor: f32) -> Option<Self> {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+      scale_factor
+    } else {
+      1.0
+    };
+    let (pixel_width, pixel_height) = (
+      f64::from(width) * f64::from(scale),
+      f64::from(height) * f64::from(scale),
+    );
+    if !pixel_width.is_finite()
+      || !pixel_height.is_finite()
+      || pixel_width.ceil() < 1.0
+      || pixel_height.ceil() < 1.0
+      || pixel_width.ceil() > 16384.0
+      || pixel_height.ceil() > 16384.0
+      || pixel_width.ceil() * pixel_height.ceil() > MAX_PIXELS as f64
+    {
+      return None;
+    }
+    let (pixel_width, pixel_height) = (pixel_width.ceil() as u32, pixel_height.ceil() as u32);
+    let canvas = Self::new();
+    {
+      let mut s = canvas.inner.lock();
+      s.attached = true;
+      s.software = true;
+      s.metrics = CanvasMetrics {
+        size: Size::new(width, height),
+        pixel_width,
+        pixel_height,
+        scale_factor: scale,
+        revision: 1,
+      };
+      s.pixels = Some(Pixmap::new(pixel_width, pixel_height)?);
+    }
+    Some(canvas)
+  }
+
+  /// What the canvas shows, as an image of straight RGBA pixels: of a canvas drawn on the CPU (an
+  /// [`offscreen`](Self::offscreen) one), what is drawn on it now; `None` for one drawn on the GPU, which is read by
+  /// [`snapshot`](Self::snapshot), or one with no pixels yet.
+  pub fn to_image_data(&self) -> Option<ImageData> {
+    let s = self.inner.lock();
+    if !s.software || s.metrics.pixel_width == 0 || s.metrics.pixel_height == 0 {
+      return None;
+    }
+    s.pixels.as_ref()?;
+    Some(ImageData::from_rgba(
+      s.straight_pixels(),
+      s.metrics.pixel_width,
+      s.metrics.pixel_height,
+    ))
   }
 
   /// Schedules an ordinary paint pass, including a retry after GPU presentation backpressure.
@@ -101,7 +164,9 @@ impl CanvasHandle {
     }
   }
 
-  /// Receives the current metrics immediately, then committed size/scale changes.
+  /// Receives the current metrics immediately, then committed size/scale changes; and the metrics again, as
+  /// they are, where what was drawn is gone with the graphics device it was on (the card was reset): what
+  /// draws the canvas when its size changes draws it again then.
   pub fn observe_metrics(&self, callback: impl Fn(CanvasMetrics) + Send + Sync + 'static) -> CanvasObserver {
     let callback: Arc<MetricsCallback> = Arc::new(callback);
     let metrics = {
@@ -166,6 +231,105 @@ impl CanvasHandle {
     self.inner.lock().to_window = matrix;
   }
 
+  /// Whether a painter of `key` is to draw the surface: its key is another than the one it last drew for, or the
+  /// surface's metrics changed. Where it is, `key` is the one drawn for from now.
+  /// Draws the canvas with `painter` if it is due: when it is first laid out, when its size or scale changed
+  /// (`metrics_changed`), or when the painter's key did. A moving painter starts a motion when what it draws
+  /// toward changes, and enters when first drawn, unless `still` (motion is reduced) or the canvas is being
+  /// resized: a resize ends a motion on its way, and the drawing is drawn where it goes. Returns whether it drew.
+  pub(crate) fn paint_with(
+    &self,
+    painter: &super::CanvasPainter,
+    metrics_changed: bool,
+    now: crate::time::Instant,
+    still: bool,
+  ) -> bool {
+    let mut s = self.inner.lock();
+    if !s.attached {
+      return false;
+    }
+    let first = s.painted.is_none();
+    let mut due = metrics_changed || s.painted != Some(painter.key);
+    s.painted = Some(painter.key);
+    let resized = metrics_changed && !first;
+    match &painter.motion {
+      Some(motion) => {
+        if s.shown.as_ref().map(|(of, _)| *of) != Some(motion.of) {
+          let from = s.shown.take().map(|(_, value)| value);
+          s.shown = Some((motion.of, motion.value.clone()));
+          let moves = !still && !resized && !motion.motion.duration.is_zero() && (first || from.is_some());
+          s.run = moves.then(|| super::Run {
+            from,
+            started: now,
+            motion: motion.motion,
+            paint: painter.paint.clone(),
+          });
+          due = true;
+        } else if resized || still {
+          s.run = None;
+        }
+        // A drawing on its way goes on with the painter it was last given (the point under the pointer, say).
+        if let Some(run) = s.run.as_mut() {
+          run.paint = painter.paint.clone();
+        }
+      }
+      None => {
+        s.shown = None;
+        s.run = None;
+      }
+    }
+    if !due {
+      return false;
+    }
+    let from = s.run.as_ref().and_then(|run| run.from.clone());
+    let to = s.shown.as_ref().map(|(_, value)| value.clone());
+    let progress = s.run.as_ref().map_or(1.0, |run| run.progress(now));
+    if progress >= 1.0 {
+      s.run = None;
+    }
+    drop(s);
+    let frame = super::PaintFrame {
+      from: if progress >= 1.0 { None } else { from.as_ref() },
+      to: to.as_ref(),
+      progress,
+    };
+    (painter.paint)(self, &frame);
+    true
+  }
+
+  /// Whether the canvas's drawing is on its way somewhere: it is drawn again at each frame until it gets there.
+  pub(crate) fn moving(&self) -> bool {
+    let s = self.inner.lock();
+    s.attached && s.run.is_some()
+  }
+
+  /// Draws a moving canvas where it is at `now`, and ends its motion once it is there. Returns whether it drew.
+  pub(crate) fn advance_motion(&self, now: crate::time::Instant) -> bool {
+    let mut s = self.inner.lock();
+    if !s.attached {
+      return false;
+    }
+    let Some(run) = s.run.as_ref() else {
+      return false;
+    };
+    let progress = run.progress(now);
+    let paint = run.paint.clone();
+    let from = run.from.clone();
+    let to = s.shown.as_ref().map(|(_, value)| value.clone());
+    if progress >= 1.0 {
+      s.run = None;
+    }
+    s.pending_paint = true;
+    drop(s);
+    let frame = super::PaintFrame {
+      from: if progress >= 1.0 { None } else { from.as_ref() },
+      to: to.as_ref(),
+      progress,
+    };
+    paint(self, &frame);
+    true
+  }
+
   pub(crate) fn clone_empty(&self) -> Self {
     let next = Self::new();
     next.inner.lock().software = self.inner.lock().software;
@@ -174,6 +338,34 @@ impl CanvasHandle {
   pub(crate) fn downgrade(&self) -> CanvasWeak {
     CanvasWeak {
       inner: Arc::downgrade(&self.inner),
+    }
+  }
+  /// What the canvas held is gone with the renderer that drew it: its graphics device was lost, and another
+  /// renderer draws the window now, with an empty surface for this canvas. A canvas that has a painter is
+  /// drawn again by it at the tree's next pass, and who observes the canvas's metrics is told them again, to
+  /// draw as when the size changes. One drawn on the CPU has lost nothing.
+  pub(crate) fn content_lost(&self) {
+    let (metrics, observers) = {
+      let mut s = self.inner.lock();
+      if !s.attached || s.software {
+        return;
+      }
+      s.painted = None;
+      if s.error == Some(CanvasError::RendererLost) {
+        s.error = None;
+      }
+      // What was on its way to the lost renderer is not waited for, as when the canvas is of another size.
+      s.presentation_pixels = None;
+      s.next_artwork_pixels = None;
+      s.presentation = None;
+      s.presentation_refused = false;
+      s.presentation_serial = s.presentation_serial.saturating_add(1);
+      s.pending_paint = true;
+      let observers: Vec<_> = s.observers.iter().filter_map(Weak::upgrade).collect();
+      (s.metrics, observers)
+    };
+    for observer in observers {
+      observer(metrics);
     }
   }
   pub(crate) fn dirty(&self) -> bool {
@@ -189,6 +381,7 @@ impl CanvasHandle {
   pub(crate) fn detach(&self) {
     let mut s = self.inner.lock();
     s.attached = false;
+    s.run = None;
     s.window = None;
     s.commands.clear();
     s.command_bytes = 0;

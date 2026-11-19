@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lurq", "crates/demo", "crates/mobile_demo", "crates/lurq_macros"]
+members = ["crates/lurq", "crates/gallery", "crates/mobile_demo", "crates/lurq_macros"]
 
 [workspace.dependencies]
 parking_lot = "0.12.5"
@@ -44,3 +44,21 @@ opt-level = 2
 
 [profile.dev.package.font-types]
 opt-level = 2
+
+# naga translates every shader to the backend's language as the first frame is drawn, by recursion over its
+# expressions. Its writer is built in wgpu-hal, which calls it: unoptimized, each step of the recursion took 32 KB of
+# the main thread's stack, some 300 KB in all under every page of a debug build, of the 1 MB a Windows thread has.
+# At 1 a step is half a kilobyte (2026-11-19).
+[profile.dev.package.naga]
+opt-level = 1
+
+[profile.dev.package.wgpu-hal]
+opt-level = 1
+
+# A page's build: the gallery's `scripts/gallery-web.py`, and what `docs/src/content/docs/web.md` gives an app. What
+# a page downloads is its size: the gallery's module is 25 MB with `z` and 39 MB with release's 3 (8.6 and 11.6 MB
+# gzipped), and its frames and its first frame measured the same (`scripts/gallery-web-bench.py`, 2026-11-19). Fat LTO
+# with one codegen unit took more than forty minutes to build the gallery and was not finished.
+[profile.web]
+inherits = "release"
+opt-level = "z"

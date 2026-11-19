@@ -52,6 +52,38 @@ Translucent colors (`"#000000a6"`, `.opacity(...)`, anti-aliased edges, text, im
 channels, as CSS and design tools do: a `#000000a6` scrim over `#eeeeee` shows `#535353`. Both native backends render
 through a non-sRGB target to get this; the devtools screenshot renderer blends the same way.
 
+
+### Colors
+
+`node::color::Color` is a color of 8-bit red, green, blue and alpha. `Color::from_hex("#2563eb")` and `"#2563eb".into()`
+read a color the app writes in its code and panic on one that is no color; `Color::parse(text)` reads what a person
+typed and gives `None` for what is no color:
+
+```rust
+use lurq::node::color::{Color, Hsv};
+
+let blue = Color::parse("rgb(37 99 235)").unwrap();
+assert_eq!(Color::parse(" #2563eb "), Some(blue));
+assert_eq!(Color::parse("hsl(221deg 83% 53% / 50%)").map(|c| c.a()), Some(128));
+assert_eq!(Color::parse("blue"), None);
+
+assert_eq!(blue.to_hex_upper(), "#2563EB");
+assert_eq!(blue.with_alpha(128).to_rgb_string(), "rgba(37, 99, 235, 0.5)");
+// By hue, saturation and value, and back: what a color picker moves.
+let hsv: Hsv = blue.to_hsv();
+assert_eq!(Color::from(hsv), blue);
+```
+
+| Read and written | |
+| --- | --- |
+| `Color::parse(&str)` | `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (with or without `#`), `rgb(..)`/`rgba(..)` of numbers from 0 to 255 or percents, `hsl(..)`/`hsla(..)` with the hue in degrees, by commas or by spaces with the alpha after `/`, the alpha from 0 to 1 or a percent; case and space around are not read |
+| `to_hex()`, `to_hex_upper()` | `#2563eb`, `#2563EB`; with the alpha (`#2563EB80`) where it is not opaque |
+| `to_rgb_string()`, `to_hsl()` | `rgb(37, 99, 235)`, `rgba(37, 99, 235, 0.5)`; `hsl(..)`, `hsla(..)` |
+| `to_hsv()`, `Color::from(Hsv)` | Hue in degrees from 0 to 360, saturation, value and alpha from 0 to 1. A grey has no hue: it is 0 |
+| `to_hsl_values()`, `Color::from(Hsl)` | Hue, saturation, lightness and alpha, as CSS's `hsl()` has them |
+
+A plane of colors, as a picker's area of saturation and brightness, is one box filled with `Gradient::corners(white, hue, black, black)`: see [Four corners](#four-corners).
+
 ## Foreground
 
 `.foreground(color)` sets the color of the text in an element and under it, as CSS `color` does. A `Text` that names no
@@ -69,14 +101,18 @@ Row::new()
   .foreground("#fafafa")
   .child(Text::new("Inbox"))
   .child(Text::new("Unread"))
-  .child(Text::new("12").color(PaletteColor::TextMuted))
+  .child(Text::new("12").color(PaletteColor::MutedForeground))
 ```
 
 - The color is a concrete color or a `PaletteColor`, which follows the theme.
-- A text's own color wins: `Text::color(...)`, and the color of the style given to `Text::styled(...)`.
+- A text's own color wins: `Text::color(...)`, and the color of the style given to `Text::styled(...)`. A style
+  that keeps the default text color names none: its text takes the foreground like a text with no style.
 - A text with a typography variant and no color of its own takes the foreground in place of the variant's color.
 - With no foreground above it a text keeps its typography style's color, and where that is the default text color,
   the theme's foreground: see [The theme's foreground](#the-themes-foreground).
+- A fill can be the foreground too: `.background(BackgroundColor::CurrentForeground)` paints an element in the color
+  a text there would have, its own foreground, the nearest one above it, or the theme's. A mark that is a fill, a dot
+  or a bar, goes with the text around it so. It runs no transition of the background.
 - `.foreground(...)` on a `Text` sets the color of that text.
 - A `TextInput` and Markdown draw in their own styles and do not read it.
 - The content of an overlay (a popup, a modal, a select's menu) is painted outside the element that declares it and
@@ -85,8 +121,9 @@ Row::new()
 
 ### The theme's foreground
 
-`PaletteColor::Foreground` is the color of text that names none. It is black by default, the color of
-`TextStyle::default()`, so a theme that never sets it draws text as it always did.
+`PaletteColor::Foreground` is the color of text that names none: the design's near-black in the light palette and
+its near-white in the dark one. In the [legacy theme](../theme/#themes-as-one-value) it is black, the color of
+`TextStyle::default()`, which text had before the role.
 
 ```rust
 // Light text for a dark theme: every text that names no color follows.
@@ -220,13 +257,14 @@ Rect::new(240.0, 120.0)
   .background_gradient(Gradient::linear(135.0, ["#ff0080", "#7928ca"]))
 ```
 
-Three kinds are supported on both the wgpu and dx12 backends:
+Four kinds are supported on both the wgpu and dx12 backends:
 
 | Constructor | Description |
 | --- | --- |
 | `Gradient::linear(angle_deg, stops)` | Linear gradient. `angle_deg` follows CSS: `0` points up, increasing clockwise (`90` is to the right). The line is sized so `0%`/`100%` reach the box corners. |
 | `Gradient::radial(stops)` | Radial gradient, farthest-corner. Defaults to an ellipse fitted to the box; call `.circle()` for a circle. |
 | `Gradient::conic(from_deg, stops)` | Conic gradient sweeping clockwise from `from_deg` at the top. |
+| `Gradient::corners(top_left, top_right, bottom_right, bottom_left)` | The blend of four colors, one at each corner of the box: a point is the mix of the top two across and of the bottom two, mixed down (bilinear), in the colors' sRGB values, as a picture is written. See [Four corners](#four-corners). |
 
 ### Color Stops
 
@@ -241,7 +279,7 @@ Gradient::linear(90.0, ["#f00", "#0f0", "#00f"]);
 // Explicit positions and a palette color (lurq::app::theme::PaletteColor).
 Gradient::linear(90.0, [
   GradientStop::at("#000", 0.0),
-  GradientStop::at(PaletteColor::Accent, 0.4),
+  GradientStop::at(PaletteColor::Primary, 0.4),
   GradientStop::at("#fff", 1.0),
 ]);
 ```
@@ -261,6 +299,22 @@ Gradient::conic(45.0, ["#f43f5e", "#8b5cf6", "#06b6d4", "#f43f5e"]);
 ```
 
 `.center(x, y)` moves the radial/conic origin; coordinates are normalized `0.0..=1.0` within the element (default `(0.5, 0.5)`).
+
+### Four Corners
+
+`Gradient::corners` fills a box with the blend of the colors at its corners: the area of a color picker is white, the hue, black and black, so a point of it at saturation `s` and brightness `v` is `v · mix(white, hue, s)`.
+
+```rust
+use lurq::{components::Row, node::{Gradient, color::Color}};
+
+let hue = Color::from_hex("#2563EB");
+Row::new()
+  .size(208.0, 120.0)
+  .rounded(6.0)
+  .background_gradient(Gradient::corners("#fff", hue, "#000", "#000"));
+```
+
+Draw a picture of several fills as one box, with one such fill, rather than boxes stacked under one rounded clip. Each stacked box is cut by the clip on its own, with an edge of its own: where the edge covers a pixel by half, the top box lets half of what is under it through, and that one half of what is under it in turn, so the lowest box shows at the rounded edge (a rim of the hue around the black corners of a picker's area, before it was one box). A translucent fill over an opaque one (a rail of alpha over its checkerboard) lets the lower one through at the edge by `a · c · (1 − c)` of the difference between it and what is behind, where `c` is the edge's cover and `a` the upper fill's alpha: a rim of the lower one's color, which shows only where that color differs from the panel's.
 
 ## Box Shadows
 
@@ -327,7 +381,7 @@ use lurq::{
 
 Button::new("Save")
   .rounded(6.0)
-  .focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::BorderFocus).offset(2.0)))
+  .focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::Ring).offset(2.0)))
 ```
 
 - The width is logical pixels or a `BorderSize` role; the color is a concrete color or a `PaletteColor`.
@@ -367,6 +421,8 @@ Text::new("Save")
   .focus_visible(|style| style.border_inside(1.0, "#93c5fd".into()))
 ```
 
+`CursorIcon::None` draws no pointer while it is over the element, as a video player hides it while its controls have faded; any other cursor shows it again.
+
 The focused style (`.focused(...)`) shows whenever the node has focus, whether a click, Tab, or a focus request put it there. The focus-visible style (`.focus_visible(...)`) shows only for keyboard focus, like CSS `:focus-visible`: Tab or a key press shows it, a click does not, and a text input shows it for any focus. Use it for focus rings. Checkboxes, sliders and selects also have part-level focus styles, which follow focus-visible; see [Focus-Visible](../focus-navigation/#focus-visible) and [Focused Styles](../focus-navigation/#focused-styles).
 
 A fifth state style, `.drag_over(...)` (`drag_over_style`), applies while files from the OS are dragged over the node; see [File Drag And Drop](#file-drag-and-drop).
@@ -380,7 +436,8 @@ A state style can also set:
 - `.outline(outline)`: an [outline](#outline) while the state holds, typically a focus ring in `focus_visible`.
 
 These three change painting only. Where several state styles set the same value, the one applied last wins: the
-[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused.
+[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused, and last the style
+[within an interaction group](#within-an-interaction-group).
 
 ```rust
 use lurq::{components::{Row, Text}, node::Outline};
@@ -391,7 +448,7 @@ Row::new()
   .padding_vertical(8.0)
   .rounded(6.0)
   .foreground("#18181b")
-  .hovered(|style| style.background("#e4e4e9").foreground("#09090b"))
+  .hovered(|style| style.background("#d9d9e0").foreground("#09090b"))
   .active(|style| style.opacity(0.8))
   .focus_visible(|style| style.outline(Outline::new(2.0, "#71717a").offset(2.0)))
   .child(Text::new("Cancel"))
@@ -407,6 +464,71 @@ let hovered = interaction.is_hovered();
 ```
 
 Attach the state to an element with `.interactive(interaction)` if you need to observe that element's state from component code.
+
+### Within An Interaction Group
+
+`.interaction_group(true)` makes an element a group: while the pointer is on it, or the focus is on it or in it, the
+elements in it show their `.within_style(style)`. An action at the end of a row that shows only while the row is
+pointed at or focused is a style within the row's group.
+
+```rust
+use lurq::{
+  components::{Button, Row, Text},
+  node::Style,
+};
+
+// The delete button shows while the pointer is on the row or the focus is in it.
+Row::new()
+  .padding_horizontal(12.0)
+  .interaction_group(true)
+  .hovered(|style| style.background("#f4f4f5"))
+  .child(Text::new("report.pdf"))
+  .child(
+    Button::new("Delete")
+      .tab_index(0)
+      .opacity(0.0)
+      .within_style(Style::new().opacity(1.0)),
+  )
+```
+
+- The pointer anywhere on the group lights it, on an element in it as well as between them. The focus on the group or
+  on anything in it lights it too, so a keyboard reaches the action and sees it.
+- An element in two groups answers to the innermost: a group inside another lights only what is in it, and the outer
+  one lights the rest.
+- It paints only, as the disabled style does: a frame, padding or flex in it is ignored, so nothing moves as it comes and
+  goes. It is laid under every other state style.
+- An element hidden by it (opacity 0) is still under the pointer and still a stop of Tab; with the pointer on it, its
+  group is lit and it shows. A design system's recipe names it `within` (see
+  [Recipes](../design-system/#recipes)).
+
+`.within_hovered_style(style)` is laid over the within style while the group is under the pointer, and not while it only
+holds the focus; `.within_pressed_style(style)` over that while the group is held down. A cell of a table that stays
+while the row scrolls sideways covers the row's veil with its fill, so it takes the veil itself, by its row's hover and
+press: the row clicked keeps the focus, and the cell is not veiled once the pointer leaves it.
+
+```rust
+use lurq::{
+  components::{Row, Text},
+  layout::layout_kind::Sticky,
+  node::Style,
+};
+
+Row::new()
+  .interaction_group(true)
+  .hovered(|style| style.background("#f4f4f5"))
+  .active(|style| style.background("#e4e4e7"))
+  .child(
+    Row::new()
+      .sticky(Sticky::left(0.0))
+      .background("#ffffff")
+      .within_hovered_style(Style::new().background("#f4f4f5"))
+      .within_pressed_style(Style::new().background("#e4e4e7"))
+      .child(Text::new("report.pdf")),
+  )
+```
+
+A recipe says them as `within` with `hovered` or `pressed` (`Recipe::within_hovered`, `Recipe::within_pressed`, or
+`Selector::new().within().hovered()`).
 
 ## Disabled
 
@@ -432,6 +554,9 @@ Row::new()
   in, as with a disabled control on the web: a clickable card is not clicked through its disabled button. A press on it
   leaves focus where it is.
 - A pointer that moves over it still reaches the elements it is in: a row stays hovered over its disabled button.
+- It still hears the pointer come and go: its `on_mouse_enter` and `on_mouse_leave` run as the pointer comes onto it
+  and leaves it, so a tooltip can say why it is disabled. Nothing else of the pointer reaches it: it is not hovered and
+  its hovered style is not drawn.
 - Scrolling is not input to a control, so it works as if nothing were disabled: a wheel or a finger over a disabled
   element scrolls the containers the element is in and the scroll containers inside it, and their scrollbars can be
   dragged, so what a disabled panel holds can be read to its end. Scroll handlers (`on_scroll`) of the disabled element
@@ -465,6 +590,10 @@ Rect::new(100.0, 40.0)
 
 Hover follows the content under a pointer that holds still: after a layout that moved anything (a wheel scroll, a list that grew, a stick-to-bottom chat taking a new message), lurq hit-tests the hover again at the pointer's last position, as a browser does. The node that moved away gets `on_mouse_leave` and loses its `hovered` style, the node now under the pointer gets `on_mouse_enter`, and the frame that shows the new layout already shows the result, so a hover tooltip never stays behind its row. Nothing is hovered again while the pointer is outside the window or a drag holds it. The handlers run with the source of the input that last moved the pointer (see [Synthetic Input](../ctx/#synthetic-input)), so an agent's pointer stays synthetic. A hover style that moves its own node off a still pointer (a `hovered` size, offset or transform) unhovers it, which moves it back, which hovers it again: like CSS `:hover`, such a node flickers, so keep hover styles from moving the node away from the pointer.
 
+An element is under the pointer on the device pixels it covers: from its left and top edges up to, and not on, its right and bottom ones. The row of pixels under a row is the next row's, or the gap's between them, and of two rows that touch each has the pointer on its own pixels. `HitRect::contains` tells the same of a point.
+
+A box is drawn where it is laid out, at a fraction of a device pixel where the scale is no whole number (150%), and its edge there is a column of half covered pixels. `.snap_to_pixels(true)` draws the fills and borders of an element and of everything in it on whole device pixels: each edge goes to the device pixel nearest it when the frame is painted, and an edge half way between two goes to the lower one whichever box it is the edge of, so two boxes that meet still meet. It is for a grid of cells that must read sharp, as the modules of `ui::QrCode`. What is laid out and what the pointer hits are as before; a text, an image and a box that is turned are drawn where they are.
+
 The hover moves whenever the pointer comes onto another node, from a row onto the text inside it for one, and most nodes look the same under the pointer. Every such move updates the hover and the cursor and runs the handlers, but it asks for a frame only when it shows, that is, when a node that gained or lost the hover:
 
 - has a `hovered` style, whose paint, layout and transitions the frame draws, or any state style that changes frame, padding or flex, which lays the node out again when one of its states changes;
@@ -474,7 +603,7 @@ The hover moves whenever the pointer comes onto another node, from a row onto th
 
 While DevTools is open on the window, every change of the hover is drawn, since DevTools shows which elements are hovered. Otherwise the pointer moving over elements with none of the above draws nothing, however many of them it crosses. `ElementRef::hovered()` and `InteractionState::is_hovered()` are plain reads, not signals: they are up to date after every pointer move, but a change of them renders no component and asks for no frame. A component that renders again when the pointer comes onto an element sets a signal from `on_mouse_enter` and `on_mouse_leave`.
 
-`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
+`MouseEvent` includes `x`, `y`, `button`, `kind`, `target_id`, `pointer_kind` (what pressed: `PointerKind::Mouse`, `Touch` or `Pen`, as a browser's `pointerType`; a key's click and input synthesized as the mouse's are `Mouse`), the modifiers `shift`, `ctrl`, `alt` and `meta` (Cmd on macOS, the Windows key on Windows), and `from_keyboard`: a click that Enter on a focused link, or Enter or Space on a focused button, made, with the key's modifiers, `button` `Left` and `x`, `y` at 0. A shell that drives a `Tree` itself passes Meta with `Tree::mouse_move_with_meta`, `mouse_down_with_meta` and `mouse_up_with_meta`. See [Event Control](#event-control) for `prevent_default()` and propagation methods.
 
 Each `on_*` modifier appends a handler for that rendered node, so a node can have multiple handlers for the same event. Inline closures are render output: when the node is rendered again, the rendered handler list should replace the previous list.
 
@@ -506,13 +635,110 @@ Column::new()
 
 The hook listens for left clicks outside the referenced element's measured bounds. It is removed automatically when the component stops calling it during render.
 
+### A Click Is The Action, A Tap Is The Gesture
+
+`on_click` is "activate", from any input: a mouse, a finger, a pen, Enter or Space on a focused control, and input a
+tool synthesizes. An app writes its actions there, once for a phone and a desktop. `on_tap`, `on_double_tap`,
+`on_swipe`, `on_pinch`, `on_long_press` and the rest are gestures, from a finger or a pen only. A finger's tap is
+told as `on_tap` first and `on_click` after, each once; a tap a handler takes clicks nothing, a tap of two fingers
+never clicks, and a click waits for a second tap only on an element with `on_double_tap`. See
+[Touch](../ios/#touch) for the gestures.
+
+### Every Gesture
+
+Every gesture reaches the app through one path, a finger's ([`Tree::finger`](../app-runtime/#a-phone-on-a-desktop)):
+a touch screen's on a phone, a tablet or a touch laptop, the mouse's under [the emulator](../app-runtime/#a-phone-on-a-desktop),
+and an agent's through MCP's [`lurq_touch`](../mcp/#touch-gestures). An app writes its handlers once and tries them
+on a desktop.
+
+| Gesture | What it means | Event | On a phone | In the emulator | Through MCP (`lurq_touch`) |
+| --- | --- | --- | --- | --- | --- |
+| Tap | Activate; a gesture of some fingers | `on_tap` (`fingers`, `count`), then `on_click` for one finger | Touch and lift | Click | `tap` (`fingers`, `count`) |
+| Double tap | Zoom to a point; select a word in text | `on_double_tap`, `on_tap` with `count` 2 | Tap twice | Double click | `double_tap`, or `tap` with `count` 2 |
+| Long press | A context menu; in text, the caret with the loupe | `on_long_press` | Hold still half a second | Hold the button still | `long_press` (`duration_ms`) |
+| Pan | Drag what follows the fingers; scroll | `on_pan`, and the scroll with momentum | Drag | Drag | `pan` (`dx`, `dy`, or `direction` and `distance`) |
+| Swipe | A flick: next, previous, dismiss | `on_swipe` (`direction`, `fingers`, `velocity`) | Flick and lift | Drag quickly and let go | `swipe` (`direction`, `distance`, `speed`, `fingers`) |
+| Edge pan | Back (from the left) or forward (from the right) | `on_edge_pan`, then `on_history_swipe`, then [going back](#going-back-and-forward) | Drag in from an edge | Drag in from the window's edge | `edge_pan` (`edge`, `distance`) |
+| Pinch | Zoom | `on_pinch` (`scale`) | Two fingers apart or together | **Alt**+drag away from or toward where it began | `pinch` (`scale`) |
+| Rotate | Turn | `on_rotate` (`rotation`) | Two fingers turning | **Alt**+drag around where it began | `rotate` (`angle`) |
+| One-finger zoom | Zoom with one hand | `on_pinch` (down zooms in) | Tap, then land again, hold and drag | Click, then press again and drag | `zoom` (`scale`) |
+| Two fingers | A pan or a swipe of two | `on_pan`, `on_swipe` with `fingers` 2 | Two fingers together | **Alt+Shift**+drag | `pan`, `swipe` with `fingers` 2 |
+| Three-finger swipe | Undo (left), redo (right) | `on_swipe` with `fingers` 3, then `EditCommand::Undo` / `Redo` | Three fingers flicked sideways | **Alt+Shift+Ctrl**+drag sideways | `three_finger_swipe` (`direction`) |
+| Three-finger pinch | Copy (in), paste (out) | `EditCommand::Copy` / `Paste` | Three fingers pinched | **Alt+Shift+Ctrl** and the wheel, no button: away spreads them, toward closes them; let go of the keys to lift | `three_finger_pinch` (`scale`) |
+| Three-finger tap | The menu of editing commands | `on_tap` with `fingers` 3, then the menu | Three fingers tapped | **Alt+Shift+Ctrl**+click | `tap` with `fingers` 3 |
+| Pull to refresh, swipe actions | A list's | See [iOS](../ios/#pull-to-refresh) | Drag a list down; a row sideways | Drag | `pan`, `swipe` |
+| Bounce | A list pulled or thrown past its end springs back | The list's scroll | Drag or flick past an end | Drag or flick past an end | `pan`, `swipe` |
+| Pen hover | A pen near the screen hovers | `on_mouse_enter`, `on_mouse_move`, hover styles; `pointer_kind` `Pen` | An Apple Pencil over an iPad; a pen over a Windows screen; a browser's pen | The mouse hovers nothing | Not made |
+
+Three fingers' commands run as their keys would ([Editing commands](#editing-commands-undo-redo-copy-cut-paste)) on
+what has the focus, where nothing took their swipe or tap (`prevent_default`). Their tap opens **the menu of editing
+commands**: lurq shows it over the app by itself, a [`ContextMenu`](../design-system/)'s bar in the theme's
+`context_menu` recipe, its words the locale's (`locale.editing.undo`, `cut`, `copy`, `paste`, `redo`,
+`locale.common.select_all`), and choosing one leaves the focus where it was. `Window::edit_menu()` says whether it is
+open and where; `Window::set_edit_menu(None)` closes it. On iOS, where the system's text input has the focus, lurq
+leaves three fingers to the system.
+
+**Text by touch.** Where the platform draws no caret of its own (everywhere but iOS, which has its own), lurq draws
+a phone's:
+
+- a long press in a text input puts the caret under the finger with a **loupe** over it, a magnified view of the
+  text around the caret; the caret goes with the finger until it lifts, and the menu opens over it with Select all
+  and Paste;
+- a selection in the focused input while the pointer is a finger has **two handles**, a knob on a stem at each end
+  in the theme's `Primary`; a finger that lands on one drags that end;
+- a selection a finger makes (a double tap selects a word, a triple tap a line), or a handle let go, opens the menu
+  over the selection: Cut, Copy, Paste, Select all.
+
+Under emulation nothing hovers (a finger cannot), the wheel still scrolls and the keyboard still types. A gesture of
+the mouse's fingers starts where the button went down; while a modifier is held the fingers it would make are drawn
+as dots.
+
+### A Finger Or A Mouse
+
+`lurq::app::Pointer` says what the person points with: `Fine` (a mouse, a trackpad, a pen: a point a pixel wide,
+which can hover) or `Coarse` (a finger: a point a fingertip wide, which cannot). It is a fact about the device in the
+person's hand, beside the theme and not in it: a theme's density says how large rows are, the pointer says whether
+a component is dressed for a finger (see [the touch form](../design-system/#the-touch-form)).
+
+- **At the start** it is the platform's (`Pointer::platform_default()`): `Coarse` on iOS and Android, `Fine` on
+  Windows, macOS and Linux, and in the browser what the page's `(pointer: coarse)` media query says of the device's
+  primary pointer.
+- **Then it follows the last input**: a finger that touches the window makes it `Coarse`, a mouse or a trackpad that
+  moves makes it `Fine`, and a pen leaves it as it is. Only the first input of the other kind changes it; a move of
+  the kind it is at costs nothing. A laptop with a touch screen is `Coarse` after a finger and `Fine` after the
+  trackpad; an iPad with a trackpad the same.
+- **Where touches come from.** The shell gives a finger to the tree as a touch on every platform winit tells touches
+  on: iOS, Android, Windows (a touch screen), Linux (X11 and Wayland) and the browser (pointer events whose
+  `pointerType` is `touch`); macOS has no touch screen. Windows also makes mouse messages of every touch; the shell
+  drops them (they carry the system's mark, `MI_WP_SIGNATURE`), so a tap is one click and not two. A pen is told
+  where the platform tells it: an Apple Pencil on iOS (it has an angle), a pen on Windows (it comes as pointer input
+  with its pressure, a finger as `WM_TOUCH` with none), and a pen in the browser, which winit gives as the mouse and
+  the shell knows by the event's `pointerType`. On Android and Linux winit does not say a touch is a pen's: it is a
+  finger's there. A pen in the browser clicks and is `PointerKind::Pen`, but has no `on_tap`, since it reaches lurq
+  as the mouse.
+- **The app pins it** with `App::set_pointer(Pointer::Coarse)`: a kiosk with a touch screen, a preview of the phone's
+  forms on a desktop. Input then does not move it. `App::follow_pointer(false)` keeps it where it is without
+  pinning a value, and `follow_pointer(true)` follows input again, letting go of a pin.
+- **It is read in a render**, and what read it is rendered again when it changes: `ui::current_pointer()` in a
+  builder, `app.pointer()` with the app at hand. `ui::touch_form()` is `current_pointer() == Pointer::Coarse`.
+- **A test** sets it with no input, `Tree::set_pointer(Pointer::Coarse)` (not pinned), and reads it with
+  `Tree::pointer()`. Tooling reads and sets it with the MCP tool [`lurq_pointer`](../mcp/#built-in-tools).
+
+```rust
+use lurq::app::{App, Pointer};
+
+let app = App::new();
+// A kiosk: every component takes its touch form, whatever moves.
+app.set_pointer(Pointer::Coarse);
+```
+
 ## Keyboard And Focus
 
 Keyboard events go to the focused node. A press where nothing can take focus blurs it; a press on a `focusable(false)` element keeps it. Which elements take focus, how Tab and Shift+Tab move between them, modal focus traps, and scrolling focus into view are described in [Focus And Keyboard Navigation](../focus-navigation/).
 
 Inside a component, request focus with `ctx.focus(&field_ref)`, where `field_ref` is a retained `core::ElementRef` attached through `.ref_element(field_ref.clone())`. The request is applied after the render is reconciled, including when a newly mounted route creates the field, and the field is then scrolled into view. The last request wins; a ref absent from the resulting tree is ignored. `field_ref.focused()` subscribes the rendering component to focus changes; `field_ref.focus_signal()` exposes the same state for observation. `field_ref.focus_visible()` and `field_ref.focus_visible_signal()` do the same for [focus-visible](../focus-navigation/#focus-visible), the keyboard-only part of focus.
 
-Retained input and select value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
+Retained input and select value signals, element refs, explicit IDs, keys and component slots keep focus attached to the same control across sibling insertion/reordering. A control that a render moves under another parent is a new node to the tree: the focus follows it where its element ref, or the value signal of its text input, finds it again (a panel of a [dock layout](../design-system/#dock-layout) moved to another group keeps the focus in it); its caret and its scroll come with it where it is the output of a component, which is reconciled with its own last output. Removing the focused control emits its `on_blur` callbacks and clears its ref, including when the whole tree is dropped. Use explicit keys or IDs for otherwise anonymous reorderable controls.
 
 ```rust
 use lurq::app::events::KeyboardEvent;
@@ -539,6 +765,241 @@ TextInput::new(value)
     }
   })
 ```
+
+### Taking Every Key
+
+An element built with `.captures_keys(true)` takes every key of the window while it is in the tree, before anything
+else does: its own `on_key_down` and `on_key_up` handlers alone are told of a key, with `focus_within` true, and
+nothing the window does with a key is done. Tab moves no focus, Enter presses no button, Escape closes no popup, a
+focus group's arrows and a row of menus' Alt do nothing, nothing is typed into an input, no other element's handler
+runs, and on a Mac the accelerators of the app's menu are not asked first. It lets go when it is built with `false`
+or leaves the tree. It is what records a shortcut ([`ui::ShortcutRecorder`](../design-system/#shortcut-recorder)),
+while it records.
+
+```rust
+use lurq::app::{Accelerator, events::KeyboardEvent};
+
+// recording: Signal<bool>, shortcut: Signal<Option<Accelerator>>
+Row::new()
+  .tab_index(0)
+  .captures_keys(recording.get())
+  .on_key_down(move |event: KeyboardEvent| {
+    if let Some(pressed) = Accelerator::from_key_event(&event) {
+      shortcut.set(Some(pressed));
+      recording.set(false);
+    }
+  })
+```
+
+- An element that is disabled or inert, or in one that is, captures nothing.
+- Where two capture at once, the first in the order of the tree takes the keys.
+
+### Editing commands: undo, redo, copy, cut, paste
+
+The keys every app shares are lurq's to know, in one place: `KeyboardEvent::edit_command()` says which
+`EditCommand` a key is, if any, and lurq runs it on what has the focus. A component or an app never matches these keys
+itself; it says what it does for the command.
+
+| Command | Keys (Cmd in place of Ctrl on macOS and iOS) |
+| --- | --- |
+| `EditCommand::Undo` | Ctrl+Z |
+| `EditCommand::Redo` | Ctrl+Shift+Z, Ctrl+Y (not on a Mac) |
+| `EditCommand::Cut` | Ctrl+X, Shift+Delete |
+| `EditCommand::Copy` | Ctrl+C, Ctrl+Insert |
+| `EditCommand::Paste` | Ctrl+V, Shift+Insert |
+| `EditCommand::SelectAll` | Ctrl+A |
+
+No key with Alt held is a command (AltGr is Ctrl+Alt on Windows, and types letters). A letter is read as the key says it
+where it is a Latin one, and by the key's place where it says another: in a Ukrainian layout Ctrl+Z says "я" and
+still takes back, Ctrl+С copies; on a German keyboard, which says Z where a US one has Y, Z is still undo.
+`EditCommand::accelerator()` is the combination to show beside an Edit menu's item or in a tool's tooltip (Ctrl+Y for
+redo, Cmd+Shift+Z on a Mac), as an `Accelerator`.
+
+A command is run on the focused element and out from it:
+
+1. A focused text input does it to its own text where it can: takes back an edit it has, does one again, copies or
+   cuts its selection, pastes, selects its text.
+2. Otherwise the handlers of the focused element, then of each ancestor, innermost first: `on_undo`, `on_redo`
+   and `on_select_all` are told an `EditEvent`. A handler that had nothing to do calls `event.pass_on()`; an
+   element whose handlers all passed it on did nothing, and the command goes on to the element around it. The first
+   element that does not pass it on takes it, and no element further out is told. A copy or a cut is an `on_copy`'s
+   ([Copy](#copy)), taken where a handler set a text, and a paste an `on_paste`'s ([Paste](#paste)).
+3. A copy that nothing took copies the text selected on the page (a [selectable text](#text-selection)), focused or
+   not.
+
+With nothing focused nothing is told. A key goes to every `on_key_down` handler before it is a command: one that
+prevents its default (an app that binds Ctrl+Z to something else) keeps it from being one, as an element that
+[takes every key](#taking-every-key) does. A key that is a command is no other key, whether or not something took it.
+
+```rust
+use lurq::{app::events::EditEvent, components::Column};
+
+// A pad with a history of its own, in a form whose app keeps one too: Ctrl+Z on the pad takes back its last
+// stroke, and with no stroke left the form's history goes back.
+Column::new()
+  .on_undo(move |_: EditEvent| form_history.undo())
+  .child(
+    pad
+      .tab_index(0)
+      .on_undo(move |event: EditEvent| {
+        if !strokes.undo() {
+          event.pass_on();
+        }
+      })
+      .on_redo(move |event: EditEvent| {
+        if !strokes.redo() {
+          event.pass_on();
+        }
+      }),
+  )
+```
+
+An Edit menu or a toolbar runs a command without a key: `ctx.edit(EditCommand::Undo)` in a render, or the
+`EditRunner` of `ctx.edit_runner()` kept in a handler, and `WindowHandle::edit(command)` where there is no `Ctx`, as
+in the handler of a native menu (on macOS a native item's key equivalent takes the key before the window sees it, so
+an Edit menu with Cmd+Z runs `edit(EditCommand::Undo)` itself). The command is run once the event that asked is
+handled, on what has the focus then: after a menu that closed gave the focus back to what had it. So a tool that runs
+it takes no focus itself (`.focusable(false)`). A paste asked for while lurq delivers synthetic input (an MCP client's
+press of the menu item) reads no clipboard.
+
+```rust
+use lurq::{app::events::EditCommand, components::Button};
+
+let edit = ctx.edit_runner();
+Button::new("Undo")
+  .focusable(false)
+  .on_click(move |_| edit.run(EditCommand::Undo))
+```
+
+### Going back and forward
+
+Going back is one command, as an edit is: `NavigationCommand::Back` and `NavigationCommand::Forward`, whatever asked
+for it. lurq knows its sources in one place, and runs the command on the elements and then on the
+[router](../routing/#going-back-and-forward); a component or an app never matches a button or a key for it.
+
+| Source | Back | Forward | Starts at |
+| --- | --- | --- | --- |
+| Keys (`KeyboardEvent::navigation_command()`) | Alt+← (Cmd+[ on macOS and iOS) | Alt+→ (Cmd+]) | the focus |
+| A keyboard's own keys, Android's back | Back (`BrowserBack`) | Forward (`BrowserForward`) | the focus |
+| The mouse's side buttons, on their release | `MouseButton::Back` | `MouseButton::Forward` | under the pointer |
+| A trackpad's swipe between pages (`on_history_swipe`'s default) | fingers to the right | to the left | under the pointer |
+| A finger in from the edge (`on_edge_pan`, `on_history_swipe`) | from the left | from the right | where it landed |
+| A browser's buttons (the router that [follows the address](../routing/#the-address-of-a-page)) | Back | Forward | the focus |
+| The app: `ctx.history_back()`, `WindowHandle::history_back()`, a stack's way back, MCP | | | the focus |
+
+A bracket is read as the key says it, and by its place where the layout puts a letter of another alphabet there
+(a Ukrainian Mac says "х" for Cmd+[). Shift held is no command (Cmd+Shift+[ is a browser's tab before). Alt and an
+arrow go back in a text input too, as in a browser: a text input's word moves are Ctrl's on Windows and Linux, and on
+Apple's platforms, where Option and an arrow move by a word, the keys are Cmd's. A key goes to every `on_key_down`
+handler before it is a command: one that prevents its default keeps it from being one, and a key that is the command
+is no other key. `NavigationCommand::accelerator()` is the combination to show beside a menu's Back. In a browser the
+mouse's side buttons are the browser's: what it does with them comes back as its back and forward.
+
+The command goes from where it starts out to the root, innermost first. Each element's `on_history_back` or
+`on_history_forward` handlers are told a `HistoryEvent` (its `command()`, its `source()`, `target_id` and the
+`origin_id` it started at); a handler with nothing to do calls `event.pass_on()`, and where every handler of an
+element passed it on, it goes on to the element around. A router mounted in an element on the way goes back after the
+element's own handlers, where it can. With nothing on the way taking it, the routers mounted elsewhere in the window
+are asked, the innermost first (the last in the tree's order): a side bar beside the router has the focus, and the
+router still goes back.
+
+- **From the focus**: the focused element, or with nothing focused the last element in the tree's order that has a
+  handler for the command, which is the topmost of what is open (a dialog over the page).
+- **From under the pointer**: the innermost element there, then from the focus where nothing there took it.
+- **From a part of the window** (`HistoryRunner::run_in(&element_ref, command)`, a stack's way back): the focused
+  element where it is in that part, otherwise the last element of the part that has a handler, or the part.
+
+```rust
+use lurq::{app::events::HistoryEvent, ui::Dialog};
+
+// A dialog takes going back instead of leaving the page. With it closed, the router goes back.
+Dialog::new(open.clone()).child(
+  Column::new()
+    .on_history_back(move |_: HistoryEvent| open.set(false))
+    .child(content),
+)
+
+// A viewer goes to the picture before, and on the first one lets the page go back.
+viewer.on_history_back(move |event: HistoryEvent| {
+  if !pictures.previous() {
+    event.pass_on();
+  }
+})
+```
+
+A button, a menu's item or a toolbar runs the command without input: `ctx.history_back()` and
+`ctx.history_forward()` in a render, the `HistoryRunner` of `ctx.history_runner()` in a handler (`back()`,
+`forward()`, `run(command)`, `run_in(&part, command)`), and `WindowHandle::history_back()` where there is no `Ctx`.
+It runs once the event that asked is handled, on what has the focus then, as a key would: a dialog open over the page
+closes on it. `Navigator::back()` and `RouterHandle::back()` move the router alone, past whatever on the page would
+have taken it.
+
+```rust
+let history = ctx.history_runner();
+Button::new("Back").on_click(move |_| history.back())
+```
+
+`on_history_swipe` is the swipe's own event, told before the command with its `direction`: a handler that does
+something else with the swipe calls `prevent_default`, and the command does not follow. One that only goes back
+handles `on_history_back`, which hears every source alike. On a phone, a finger in from the left or the right edge
+is taken as the gesture wherever something hears going back: a handler on the way, or a router anywhere in the
+window.
+
+## Rich Text
+
+`Text::rich(spans)` is a paragraph of runs, each a `RichTextSpan` in a `TextStyle` of its own: a word in another
+weight, a run in another color. It is laid out, wrapped, drawn and selected as one text.
+
+```rust
+use lurq::{
+  components::Text,
+  layout::{quad::RichTextSpan, text_style::{FontWeight, TextStyle}},
+};
+
+let body = TextStyle { font_size: 14.0, ..TextStyle::default() };
+let bold = TextStyle { weight: FontWeight::Bold, ..body.clone() };
+Text::rich([
+  RichTextSpan::new("Saved ", body.clone()),
+  RichTextSpan::new("3 files", bold),
+  RichTextSpan::new(".", body),
+]);
+```
+
+### Elements in a line
+
+A rich text holds elements in its lines: a mention, a chip, a picture among the words, an inline link preview. Each is
+an object of the text, a span that is one `OBJECT_CHARACTER` (U+FFFC, `RichTextSpan::object(style)`), and the element
+the text is given for it with `.object(element)`: the first for the first object, in the order of the text
+(`.objects(elements)` gives several). It is in every build.
+
+```rust
+use lurq::{
+  components::Text,
+  layout::quad::RichTextSpan,
+  ui::{LinkPreview, LinkPreviewVariant},
+};
+
+Text::rich([
+  RichTextSpan::new("The gaps are explained in ", body.clone()),
+  RichTextSpan::object(body.clone()),
+  RichTextSpan::new(" — read it before the review.", body),
+])
+.object(LinkPreview::new(url).variant(LinkPreviewVariant::Inline));
+```
+
+- The element is laid out by itself, no wider than the paragraph, and the object takes its width in the line. It
+  breaks as a word does, before it and after it and never inside, so it goes to the next line with the words around
+  it.
+- The line keeps the height of its text, and the element stands on the middle of it: one taller than the line stands
+  over it and under it, and the paragraph draws it whole. An element that changes its size lays its line out again.
+- It is an element like any other, unlike an input's objects (`TextInput::objects`), which take neither the pointer
+  nor the focus: a press reaches what is in it, Tab stops at what it holds in the order of the text, and tooling reads
+  it. The object's character draws nothing.
+- A selection, and `Text::highlights`, go across an object as across a word: its carets are where it is drawn.
+  A copy of a selection over it gives what the element says it copies, `.copy_text("[Layout](https://lurq.dev)")`
+  on it or on anything in it (the first, depth first), and nothing where it says nothing: never its character. An
+  inline `ui::LinkPreview` copies `[title](url)`.
+- An object character the text is given no element for is a character like any other.
 
 ## Text Selection
 
@@ -593,6 +1054,21 @@ ScrollVertical::new(
 .on_scroll(|event: ScrollEvent| println!("delta: {}, {}", event.delta_x, event.delta_y))
 ```
 
+`on_scroll` is for what a scroll does to a list: it is not called over a list that is at its end or has nothing to
+scroll. An element the wheel is for something else to (a picture it brings closer, a value it turns) listens with
+`on_wheel`, which is called first, whatever is under the pointer and whether it can scroll, and takes the wheel with
+`prevent_default`: then nothing is scrolled.
+
+```rust
+Stack::new().on_wheel(move |event: ScrollEvent| {
+  event.prevent_default();
+  zoom.set(if event.delta_y < 0.0 { zoom.get() * 1.5 } else { zoom.get() / 1.5 });
+})
+```
+
+A handler that only listens leaves the list to scroll and its `on_scroll` to be called as before. A finger's scroll
+is not a wheel, and `on_wheel` does not hear it.
+
 Set the default scrollbar style on the theme:
 
 ```rust
@@ -627,15 +1103,44 @@ ScrollVertical::new(content)
 
 `visible` says when the bar shows. `ScrollBarVisibility::Auto` (the default) shows it while the content overflows, `Always` also while it fits, and `Never` (`ScrollBarStyle::hidden()`) paints no bar and takes no pointer for one, while the wheel, the keyboard and scroll requests still scroll. `ScrollBarVisibility::OnHover` (`ScrollBarStyle::on_hover()`) keeps the bar of overflowing content hidden until it is needed: it shows while the pointer is anywhere over the scroll container, while the content scrolls (the wheel, a scroll request, a text input bringing its caret into view) and while its thumb is dragged. Once none of these holds it stays for `fade_delay` (default 600 ms) and fades out over `fade_duration` (default 200 ms) along `fade_easing` (default `Easing::EASE_OUT`); `.fade(delay, duration)` sets both times, and a zero `fade_duration` hides it at once. A hidden bar is not painted and takes no pointer, so what lies under its place gets the hover and the press; a shown one, fading too, behaves as an `Auto` bar. The pointer coming straight onto a hidden bar's place shows the bar, which takes the pointer from its next move. `OnHover` works the same for scroll containers, `VirtualizedList` and a multiline `TextInput`; with `ScrollBarPlacement::Reserved` the gutter stays reserved while the bar is hidden. The fade is a change of opacity, which [reduced motion](../animation-transforms/#reduced-motion) keeps; an app that wants none sets `fade_duration` to zero.
 
+`thumb_inset` is the gap between the lane of the bar (`width` across) and its thumb, on every side: the thumb is `width` less twice the inset across, and it moves along the track less twice the inset; where it is, what takes the pointer and how far a drag takes the content all measure by it. `thumb_radius` rounds the thumb, `track_radius` the lane where it has a `track_color`. `thumb_hovered_color` is the thumb of the bar under the pointer and `thumb_pressed_color` the thumb that is dragged (the hovered color where it has none), each a `BackgroundColor`: a color, or a role of the palette that follows light and dark (`BackgroundColor::Palette(PaletteColor::MutedForeground)`). Each bar of a container that scrolls both ways has its own: the one under the pointer changes, not the other. Where both of its bars are there, each track ends before the other's lane (its `width` and edge inset), so the two thumbs keep out of the corner where they meet. `style.thumb_when(&palette, hovered, pressed)` says what a thumb is drawn in, and `ScrollState::hovered_bar()` and `dragged_bar()` which bar is under the pointer and which is dragged.
+
+The design system's theme (`ThemeDefinition::neutral()`, what an app has when it sets none) has the design's bar: a lane of 8 with a thumb of 6 in it (`thumb_inset` 1), round (`thumb_radius` 3), in `Ring`, `MutedForeground` under the pointer and while it is dragged, 2 from the edge and from the ends. `ScrollBarStyle::default()` is the engine's bar: its thumb is as wide as its lane, 8, and has no color of its own under the pointer. `ThemeDefinition::legacy()` keeps it with 0.62's thumb, black at a third of its opacity, where a style that sets no color is drawn in `Ring`. On iOS both are the platform's indicator.
+
 `.scrollbar_hovered(...)` receives the effective style, so it applies to either the theme default or the component override. It applies while the pointer is over the area where the scrollbar takes the pointer, described below.
 
 Where a scrollbar takes the pointer depends on whether it visibly owns its lane. A `Reserved` gutter, or an overlay bar with a painted track (a `track_color` that is not fully transparent), takes the whole lane: the track along its length and, across it, the bar plus 4 px on each side (or the edge inset, if larger), so it covers the gutter and reaches the container's edge. A plain overlay bar, with the default transparent track, takes only its thumb plus 4 px around it on every side; the rest of the lane belongs to the content, so a trailing button or a menu option next to the bar keeps its clicks and hover. A bar shown by `ScrollBarVisibility::Always` while the content fits has nothing to scroll and takes no pointer.
 
-Where a scrollbar takes the pointer, a press reaches no content underneath: none of its handlers, buttons, inputs or sliders, and no text selection. The scroll container itself and its ancestors still receive the press. A press on the thumb drags it. A press on the track of a bar that owns its lane pages one viewport toward the press, once per press (holding the button does not repeat), on Windows and macOS alike. Either way the scrollbar holds the pointer until the release, which clicks nothing. Where two bars overlap, the one painted on top wins: an outer scroll container's bar over the bars of the containers inside it, and in the corner of a two-axis scroller the horizontal bar over the vertical one. The mouse wheel and Shift+wheel are unaffected.
+Where a scrollbar takes the pointer, a press reaches no content underneath: none of its handlers, buttons, inputs or sliders, and no text selection. The scroll container itself and its ancestors still receive the press. A press on the thumb drags it. A press on the track of a bar that owns its lane pages one viewport toward the press, once per press (holding the button does not repeat), on Windows and macOS alike. Either way the scrollbar holds the pointer until the release, which clicks nothing. Where two bars overlap, the one painted on top wins: an outer scroll container's bar over the bars of the containers inside it. The two bars of a two-axis scroller do not overlap: each track ends before the other's lane, so a press in the corner where they meet is neither bar's, and a press at the end of either track pages that one. The mouse wheel and Shift+wheel are unaffected.
+
+A scroll container that has the focus itself (one given a `tab_index`, as a [`ui::ScrollArea`](../design-system/#scroll-area) with a label is) scrolls with the keys, as a browser scrolls a focused region: Up and Down by 40, Left and Right likewise across, PageUp and PageDown, Space and Shift+Space by what it shows, Home and End to its start and its end, once no handler took the key. A control inside it keeps its keys, and so does a multiline `TextInput`, which scrolls its own text.
+
+To what reads the tree (the [MCP server](../mcp/)'s `lurq_read_tree` and `lurq_inspect`), each bar of a scroll container whose content overflows is a scrollbar with its value: the attributes `scrollbar_vertical` and `scrollbar_horizontal`, how far the content is scrolled along that way, from 0 at its start to 100 at its end.
 
 `ScrollEvent` includes `x`, `y`, `delta_x`, `delta_y`, `phase`, and `target_id`.
 
 The default movement of a wheel or a trackpad scrolls one container on each axis, the innermost under the pointer that can still move that way: see [Scroll containers inside one another](../layout/#scroll-containers-inside-one-another).
+
+### The mouse wheel
+
+A notch of a mouse's wheel scrolls 40 logical pixels. The content is not drawn there in the next frame: it is animated there over 150 ms, fast at first and slowing into its place, as a browser scrolls a page. A notch that comes while the content is on its way adds to where it is going, so a wheel that is spun covers as much as it did before and stops as soon after its last notch as after one; a notch the other way turns the content round at once.
+
+```rust
+// Where the content is drawn now, and where the wheel is taking it.
+let drawn = state.scroll_y();
+let (_, going_to) = state.scroll_target();
+
+// A notch scrolls at once, in every window that draws with this theme.
+app.theme().set_smooth_scroll(false);
+```
+
+- `ScrollState::scroll_x()` and `scroll_y()` are the offset that is drawn, at every step. `ScrollState::scroll_target()` is where the wheel is taking it, and the offset itself when nothing is on its way.
+- An `on_scroll` handler hears the wheel's event once, with its delta, before anything moves, and can prevent the scroll as before. It then hears one event with a zero delta for every step, after the content moved: a handler that reads the offset there reads what is drawn. `on_scroll_reach_top` and `on_scroll_reach_bottom` run when the content gets there, not when the wheel turns. A `VirtualizedList`, sticky elements and whatever else is laid out from the offset follow every step.
+- Only a mouse's notches are animated. A touchpad and a wheel that turns without notches tell their travel in small parts, which move the content with the fingers as before: a delta in pixels, and on Windows and X11 a part of a line. A finger on a touch screen has its own [momentum](../ios/#scrolling). A browser tells every wheel in pixels: a lurq app that runs [in one](../web/#input) takes a delta that comes to a whole number of notches for a mouse's and animates it, and scrolls every wheel at once on macOS, where a notch has no distance of its own.
+- Anything else that scrolls the container stops the animation where the content is, and has its way: `set_scroll`, a scroll queued for the next layout (`set_scroll_pending`, `scroll_to_bottom_pending` and the rest), an element scrolled into view, a drag of the scrollbar's thumb or a press on its track, a touchpad, a finger. Content that keeps its place while what is above it changes, a list that takes rows in above what is shown, keeps it and the animation goes on from there. A notch that takes the content to its end follows the end if the content grows on the way.
+- With [reduced motion](../animation-transforms/#reduced-motion) a notch scrolls at once, and so it does with `Theme::set_smooth_scroll(false)`. Smooth scrolling is on by default. Like reduced motion it is the app's setting and not part of a `ThemeDefinition`.
+- While the content is on its way the window has a running animation: `Tree::has_active_timeline()` is true and the shell draws a frame at every refresh, and none once the content is where it was going.
+- Synthetic input's `wheel` ([`SyntheticInput::wheel`](../ctx/#synthetic-input), the MCP server's [`wheel`](../mcp/)) is a mouse's wheel and is animated too. A test that drives a `Tree` itself calls `Tree::wheel` for a notch and `Tree::scroll` for a touchpad's delta, which moves the content at once.
 
 Scroll handlers run before the default scroll movement. Call `prevent_default()` to observe a wheel/scroll event without moving the scroll container:
 
@@ -696,10 +1201,12 @@ let volume = ctx.signal(50);
 let name = ctx.signal(String::new());
 
 Column::new()
-  .child(lurq::components::Checkbox::new(checked.clone()))
+  .child(lurq::ui::Checkbox::new("Subscribe").bind(checked.clone()))
   .child(lurq::components::Slider::new(volume.clone()).range(0, 100))
   .child(lurq::components::TextInput::new(name.clone()).placeholder("Name"))
 ```
+
+These are the engine's controls, with no look but the theme's roles; the design system's (`lurq::ui::Slider`, `lurq::ui::Input`, see [Design System](../design-system/)) are built on them and are what an app normally wants.
 
 Input updates write back to their signals, which rerenders the owning component.
 
@@ -719,9 +1226,11 @@ TextInput::new(command.clone())
 
 ### Checkbox Styling
 
+This is the engine's checkbox node, `lurq::components::Checkbox`, which is deprecated for an app since 0.63 in favour of `lurq::ui::Checkbox`, themed by its recipe: see [the migration guide](../migration-v0-63/#components-that-moved-to-lurqui). It still compiles, with a warning.
+
 Checkboxes accept normal element modifiers such as `.size()`, `.background()`, `.border_inside()`, `.rounded()`, `.cursor()`, `.hovered()`, and `.focused()`. Generic `.background()` styles the unchecked box. Checked visuals use checkbox-specific styles so the checked state can have its own color or indicator. `.box_focused(...)` styles the box while the checkbox has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click), checked or not; it changes paint only.
 
-A checkbox the app has not styled takes its fill from the theme: the box is `SurfaceInput` and the checked box `Accent`. A part the app styles without a fill paints none, like a button or text input without a background: `.box_part(...)` without `background` leaves the unchecked box unfilled, and `.checked_box(...)` without one the checked box (its border and indicator still paint). A checked box whose `checked_box` part the app did not set keeps the unchecked part's fill, or the theme's `Accent`. Generic `.background()` still fills the unchecked box.
+A checkbox the app has not styled takes its fill from the theme, through the recipe the theme keeps for the engine's checkbox (`engine_checkbox`, by `ui::CheckboxPart::Box` and `ui::CheckboxState::Checked`): the box is `Background` and the checked box `Primary`, and under `ThemeDefinition::legacy()` the roles of 0.62, `SurfaceInput` and `Accent`. A part the app styles without a fill paints none, like a button or text input without a background: `.box_part(...)` without `background` leaves the unchecked box unfilled, and `.checked_box(...)` without one the checked box (its border and indicator still paint). A checked box whose `checked_box` part the app did not set keeps the unchecked part's fill, or the theme's checked fill. Generic `.background()` still fills the unchecked box.
 
 ```rust
 use lurq::{components::Checkbox, core::Signal, node::color::Color};
@@ -760,7 +1269,7 @@ Checkbox::new(enabled)
   })
 ```
 
-With `image` and `resources`, the indicator can come from the app resource loader:
+With `image`, the indicator can come from the app resource loader:
 
 ```rust
 Checkbox::new(enabled)
@@ -783,7 +1292,23 @@ Text::new("No endpoints yet")
 
 A multiline input whose text needs more rows than its `rows(min, max)` allow scrolls its own text. Its caret's line stays in view while the person types or moves the caret. The wheel, a trackpad and its scrollbar move the text within it, and that scroll stays until the next edit or caret move brings the caret back; deleting lines brings the text back to its first line once it fits. While the text overflows, the input shows a vertical scrollbar along its right edge, styled and placed like a scroll container's: the theme's `ScrollBarStyle`, or the input's own `.scrollbar(...)` and `.scrollbar_hovered(...)`, with `edge_inset` and `end_inset` measured from the input's outer bounds, whatever its padding. The padding is the text's inset and scrolls with the text, as in a browser's `textarea`: scrolled down, the text runs through the top padding, and the bottom padding shows under the last line at the end; the caret's line is kept in view inside the padding. Its thumb drags and a press on its track pages, and the pointer over it shows the default cursor, whatever cursor the input sets. A bar placed `ScrollBarPlacement::Overlay` (the default) runs over the text; one placed `ScrollBarPlacement::Reserved` gets a lane of its own at the input's right edge, as wide as the bar and its edge inset on both sides (the wider of its resting and hovered styles), and the text wraps short of it, the right padding between them. Like a reserved scroll container's gutter, the lane stays while the text fits, so the text does not re-wrap when it starts or stops overflowing. A wheel over an input whose text fits, or one already at the end the wheel moves to, passes on to the scroll containers around it. A wheel that brings the text to its end moves the text alone, the rest of that event included: an input is the innermost of the [scroll containers it is in](../layout/#scroll-containers-inside-one-another).
 
-Lines, the caret and selections follow the font's metrics, not the ink of the glyphs shown: a multi-line input's lines sit in line boxes of the style's `line_height` from the top of the content box (`VerticalAlign::LineBox`), so a line does not move when a taller glyph is typed. The caret is `font_size` tall and a selection covers the font's ascent and descent, both centered in the line box, so the leading of a relaxed `line_height` stays unpainted. The caret starts at its insertion point; at the start of a left-aligned line it ends there instead, so it never covers the first glyph of the value or the placeholder (unless an ancestor clips right at that edge). A focused input's caret blinks every 530 ms unless its `caret_mode` or the theme's is `CaretMode::Persistent`; an idle window wakes only at each toggle.
+Lines, the caret and selections follow the font's metrics, not the ink of the glyphs shown: a multi-line input's lines sit in line boxes of the style's `line_height` from the top of the content box (`VerticalAlign::LineBox`), so a line does not move when a taller glyph is typed. The caret is as wide and as high as the theme's caret says ([the theme's caret](../theme/#caret)): 1.5 wide and nine sevenths of `font_size` high in the design's theme (18 in type of 14), 1 wide and `font_size` high in `ThemeDefinition::legacy()` and `bare()`. Among the rows of a multiline input it is never higher than its row; in a single-line input it may be, up to the box the text is in. A selection covers the font's ascent and descent. Both are centered in the line box, so the leading of a relaxed `line_height` stays unpainted. A single-line input scrolls the whole of the caret into view, and a multiline one whose lines do not wrap is as wide as its longest line and the caret after it. The caret starts at its insertion point; at the start of a left-aligned line it ends there instead, so it never covers the first glyph of the value or the placeholder (unless an ancestor clips right at that edge). A focused input's caret blinks every 530 ms unless its `caret_mode` or the theme's is `CaretMode::Persistent`; an idle window wakes only at each toggle.
+
+An input draws two marks an app gives it beside its text. `squiggles(InputSquiggles::new(ranges))` draws a wavy line under each range of the text, bytes of the value as it is when the input is built: what a spelling checker marks. The lines are under the band of the text on every row a range is on, in the theme's `Destructive` unless `.color(..)` says another; the app finds the ranges again after an edit, and a masked input draws none. `ghost(InputGhost::new(text))` draws a suggestion after the end of what is typed, in the input's type and the placeholder's color (or `.color(..)`, at `.opacity(..)`), while the input has the focus, holds text, and has the caret at the end with nothing selected. It is no part of the value: the app puts it there when its key is pressed (`TextInputController::replace_selection`). An input with tokens or styled spans draws no ghost.
+
+```rust
+use lurq::{
+  app::theme::PaletteColor,
+  components::{InputGhost, InputSquiggles, TextInput},
+};
+
+TextInput::new(note.clone()).multiline().squiggles(InputSquiggles::new([2..10]));
+TextInput::new(command.clone())
+  .single_line()
+  .ghost(InputGhost::new("n --release").color(PaletteColor::MutedForeground).opacity(0.7));
+```
+
+`select_on_focus(true)` has all an input's text selected as it takes the focus, so that what is typed takes its place: a name being renamed, a cell being edited. A press that brings the focus puts the caret where it is, as in any input.
 
 Single-line inputs can align value and placeholder text inside their content box:
 
@@ -821,11 +1346,29 @@ Mask glyphs use the normal text shaping and font fallback chain. If the selected
 
 Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
 
-With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard.
+With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard. In a browser a paste arrives a turn of the loop after its shortcut, once the browser has answered, and carries text only; see [Web](../web/#the-clipboard).
+
+#### Lines Of Code
+
+A multiline input's lines wrap at its width unless `.wrap(false)` says otherwise: then it is as wide as its longest line, and what holds it scrolls sideways. `.line_gutter(LineGutter::new(style))` draws the numbers of its lines in its start padding, each at the first row of its line as the input laid it out (after the rows a wrapped line took), right-aligned `gap` before the text, and a band across the input behind the lines it picks out (`.marked(lines, color)`), over every row of a wrapped line. The app makes the start padding as wide as the numbers need. The numbers and the bands are neither selected nor copied. A read-only input of code is what `ui::CodeBlock` is made of.
+
+```rust
+use lurq::{
+  app::{events::TextInputEvent, theme::PaletteColor},
+  components::{LineGutter, TextInput},
+};
+
+TextInput::styled(code.clone(), mono)
+  .multiline()
+  .wrap(false)
+  .padding_left(40.0)
+  .line_gutter(LineGutter::new(mono.clone()).color(PaletteColor::MutedForeground).marked([3], PaletteColor::Highlight))
+  .on_input(|event: TextInputEvent| event.prevent_default()); // read only
+```
 
 #### Paste
 
-A paste into a text input delivers one `PasteEvent` before the text is inserted: `Ctrl+V`, `Shift+Insert`, a `WindowHandle::paste_from_clipboard()` request (for an app's own Paste menu item or context menu) and `Tree::paste(content)` all go through it. The event carries everything the clipboard holds, as [`lurq::clipboard::read_clipboard`](../resources-media/#clipboard) reads it: text, an RGBA image (a screenshot) and file paths (files copied in Explorer or Finder), any of them at once. Handlers run on the input first and bubble to its ancestors (`stop_propagation()` ends that); unless one calls `prevent_default()`, the text is inserted at the caret. An image or files without a handler do nothing.
+A paste into a text input delivers one `PasteEvent` before the text is inserted: `Ctrl+V`, `Shift+Insert`, an [Edit menu's Paste](#editing-commands-undo-redo-copy-cut-paste) (`ctx.edit(EditCommand::Paste)`), a `WindowHandle::paste_from_clipboard()` request (for an app's own Paste menu item or context menu) and `Tree::paste(content)` all go through it. The event carries everything the clipboard holds, as [`lurq::clipboard::read_clipboard`](../resources-media/#clipboard) reads it: text, an RGBA image (a screenshot) and file paths (files copied in Explorer or Finder), any of them at once. Handlers run on the input first and bubble to its ancestors (`stop_propagation()` ends that); unless one calls `prevent_default()`, the text is inserted at the caret. An image or files without a handler do nothing.
 
 ```rust
 use lurq::{app::events::PasteEvent, components::TextInput};
@@ -849,11 +1392,39 @@ TextInput::new(draft.clone())
 
 `PasteEvent::kinds()` tells which of `text`, `image` and `files` the clipboard holds; `content()` gives the whole `ClipboardContent`. The handler runs inside the input's delivery, so `is_synthetic_input()` tells an MCP client's paste from a person's. A synthetic `Ctrl+V` (`lurq_interact` `key`, an applied `SyntheticInput::key_down`) never reads the OS clipboard: it is refused, and a synthetic paste carries its own content instead (`SyntheticInput::paste(content)`, the MCP `paste` action). See [Testing](../testing/#pastes-file-drags-and-runtime-images).
 
+A styled input with kinds of paragraphs that keeps its formatting through the clipboard ([`rich_clipboard(true)`](../text-input-styled/#copy-paste-and-links), feature `markdown`; the design system's rich text editor has it) pastes `ClipboardContent::markdown_content()`, the Markdown a lurq input copied beside the text (`PasteEvent::markdown()`), or a text that reads as Markdown, with its marks and kinds. Any other input pastes the text.
+
+#### Copy
+
+A copy or a cut on a focused element that is not a text input (a cell of a [data grid](../design-system/#data-grid), a canvas) delivers one `CopyEvent`: `Ctrl+C` and `Ctrl+Insert` copy, `Ctrl+X` and `Shift+Delete` cut (`Cmd` on macOS, in any layout), and so do an [Edit menu's](#editing-commands-undo-redo-copy-cut-paste) Copy and Cut. Handlers run on the focused element first and bubble to its ancestors; one says what goes on the clipboard with `event.set_text(..)` (a later call takes the place of an earlier one), and the engine writes it once they have run. `event.is_cut()` tells a cut, whose handler takes away what it copied. With no text set nothing is written, and a selectable text with a selection is copied as where no `on_copy` handler is on the way.
+
+```rust
+use lurq::{app::events::{CopyEvent, PasteEvent}, components::Row};
+
+Row::new()
+  .tab_index(0)
+  .on_copy(move |event: CopyEvent| {
+    event.set_text(board.selection_as_text());
+    if event.is_cut() {
+      board.remove_selection();
+    }
+  })
+  .on_paste(move |event: PasteEvent| {
+    if let Some(text) = event.text() {
+      board.insert_text(text);
+    }
+  })
+```
+
+A press of a control that copies (the copy button of a [code block](../design-system/#code-block)) puts its text there with `window.copy_to_clipboard(text)` on the window's handle (`ctx.window()`): it is written once the handler returns, or at the next pass where it was asked outside an event, where a copy shortcut writes.
+
+`Ctrl+V` and `Shift+Insert` on such an element deliver a `PasteEvent` to it and its ancestors where one of them has an `on_paste` handler, as to a text input, with nothing inserted by default; `Tree::paste(content)` does the same. The copy writes the OS clipboard (feature `clipboard`), or what a test installs with `tree.set_clipboard_writer(Some(Arc::new(writer)))`, a `lurq::app::ClipboardWriter` with `write_text(&str)`, which a text input's copy goes to as well; a copy that keeps its formatting calls `write_rich(text, markdown)`, which writes the text unless the writer keeps the Markdown too, and a test's `ClipboardReader` answers `read_markdown(text)` with it.
+
 #### Input Methods
 
 Text inputs take input method (IME) composition on Windows and macOS: Japanese, Chinese and Korean input, dead keys and the macOS accent menu. While a text input that is not masked has focus, the winit shell lets the window's input method compose and places its candidate window at the input's caret; password fields (`.mask()`) take no composition, like the platforms' native ones.
 
-- While composing, the input shows the composition text at the caret, in place of the selection, underlined in the text colour, with the caret where the input method puts it. The value does not change and `on_input` does not fire until the composition is committed.
+- While composing, the input shows the composition text at the caret, in place of the selection, underlined in the text colour by a line as thick as the theme's caret says (`ThemeCaret::composition_line`: 1.5 in the design's theme, 1 in the legacy one), with the caret where the input method puts it. The value does not change and `on_input` does not fire until the composition is committed.
 - The commit inserts the text like typing: `on_input` handlers run first, with a `KeyboardEvent` whose `key` is the committed text, whose `code` is empty and whose `composing` is set, and can prevent it. A cancelled composition leaves the value as it was. Moving focus away cancels a composition.
 - The input method takes the keys it uses, including the `Enter` that confirms a composition: Windows reports each as a press of the key `"Process"` with the physical key as its `code`, macOS does not report it at all. These presses reach neither `on_key_down` handlers nor lurq's defaults (newline, form submit, button activation); their releases reach `on_key_up` handlers with `KeyboardEvent::composing` set. A key the input method passes on while a composition is shown, such as a space after a Korean syllable, arrives as usual with `composing` set and is handled like any key, so nothing is lost and a composition the platform never ends holds no key back. The exception is `Enter`: one that arrives marked `composing` reaches `on_key_down` handlers, but no lurq default acts on it (form submit, button or select activation, newline, blur), as on the web, where apps ignore an `Enter` with `isComposing`. A form exposes no key handler, so it could not tell such an `Enter` apart itself; once the composition is committed, `Enter` submits as usual. A new input method session (`ImeEvent::Enabled`) or a focus change ends a composition left behind.
 
@@ -883,14 +1454,23 @@ TextInput::new(draft.clone())
 
 `Slider::new` uses `Signal<i32>`. Pointer input maps the track position into the range, and the default keyboard step is `1`. Use `Slider::new_f32` with `Signal<f32>` and `.range_f32(min, max)` for fractional values; `.step(value)` controls snapping and keyboard increments.
 
-An unstyled slider takes its fills from the theme: the track `Border`, the thumb `Accent` (generic `.background()` fills the track). A `.track(...)` or `.thumb(...)` part without a `background` paints no fill for that part.
+An unstyled slider takes its fills from the theme, through the recipe the theme keeps for the engine's slider (`engine_slider`, by `ui::SliderPart::Track` and `Thumb`): the track `Border`, the thumb `Primary`, and under `ThemeDefinition::legacy()` the thumb in 0.62's `Accent` (generic `.background()` fills the track). `theme.ui.patch::<Slider>(..)` restyles every unstyled slider. A `.track(...)` or `.thumb(...)` part without a `background` paints no fill for that part.
 
 ```rust
 let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
-The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
+`.on_change(|low, high| ..)` is told each change a person makes, as it is made: a drag as it moves, a press on the track, a key, a value set by an MCP client. `.on_change_end(|low, high| ..)` is told when such a change is over: the drag let go, the press or the key done. Both are given the low value and the high one; a slider of one value gives its value twice. Neither is told what the app sets on the signal, nor a range or a step that snaps the value. Each call adds a handler.
+
+```rust
+let gain = lurq::core::Signal::new(0.5_f32);
+lurq::components::Slider::new_f32(gain)
+  .on_change(|value, _| println!("now {value}"))
+  .on_change_end(|value, _| println!("settled on {value}"));
+```
+
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; a part's style can have an `.outline(Outline)`, a ring around the part that changes no size; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
 
 ```rust
 use lurq::{components::Slider, core::Signal, node::color::Color};
@@ -947,13 +1527,51 @@ Slider::new(value)
   .thumb(|style| style.size(16.0, 16.0).background_image(thumb).background_cover())
 ```
 
-With `image` and `resources`, pass resource paths instead:
+With `image`, pass resource paths instead:
 
 ```rust
 Slider::new(value)
   .track(|style| style.background_image("ui/slider-track.png").background_cover())
   .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
+
+#### Vertical And Range Sliders
+
+`.orientation(SliderOrientation::Vertical)` (or `.vertical()`) runs the track up the slider: the least value is at the bottom, a drag goes along the height, and the up and down arrows move it as the right and left ones do. The parts are laid along the height, so a vertical track's style gives its thickness as `width` and leaves `height` to the slider's, and a fill's `width` is its thickness. An unsized vertical slider asks for 20 by 120.
+
+```rust
+use lurq::{components::Slider, core::Signal, node::SliderOrientation};
+
+let level = Signal::new(60);
+
+Slider::new(level)
+  .range(0, 100)
+  .orientation(SliderOrientation::Vertical)
+  .height(160.0)
+  .track(|style| style.width(4.0).background("#334155"))
+  .fill(|style| style.background("#f97316"))
+  .thumb(|style| style.size(14.0, 14.0).background("#f8fafc"));
+```
+
+`Slider::new_range(Signal<(i32, i32)>)` and `Slider::new_range_f32(Signal<(f32, f32)>)` put two thumbs on one track, bound to a low value and a high one, with the fill between them. A press on the track moves the nearer thumb there (of two at one place, the one on the side of the press), a drag moves the thumb it began on to its end, and neither thumb passes the other: the low one stops at the high one's value. Each thumb is a stop of Tab, the low one first going forward and the high one first going back, and the keys move the focused thumb, which alone takes the `thumb_focused` style. Both thumbs take the same `thumb` style. A range slider can be vertical too.
+
+```rust
+let price = lurq::core::Signal::new((20, 80));
+lurq::components::Slider::new_range(price).range(0, 100).step(5);
+```
+
+#### Slider Keys
+
+| Key | |
+| --- | --- |
+| Right, Up | One step toward the greatest value |
+| Left, Down | One step toward the least |
+| Page Up, Page Down | A tenth of the range, in whole steps and at least one step, as a browser's range input pages |
+| Home, End | To the least value, to the greatest |
+
+The keys are the same for a vertical slider, and for the focused thumb of a range slider, which stops at the other thumb's value. A disabled slider is not a stop of Tab and takes no key.
+
+In a form a range slider submits two entries under its name, its low value and then its high one. `SliderHandle::values()` reads both values, `value()` the low one, and `set_from_ratio` moves the thumb nearer the ratio, as a press does.
 
 ### Select
 
@@ -994,12 +1612,24 @@ SelectOption::new(Connection::Claude, "Claude Code")
 ```rust
 SelectOption::new(Connection::Codex, "Codex").leading_with(|state| {
   // The label's colour in this state, when the style sets one.
-  let color = state.text_color.clone().unwrap_or(PaletteColor::TextPrimary.into());
+  let color = state.text_color.clone().unwrap_or(PaletteColor::Foreground.into());
   mark(CODEX_MARK, color)
 })
 ```
 
 The builder receives a `SelectAdornmentState`: `selected`, `highlighted` (the keyboard highlight) and `disabled` for the option, `in_field` when the element is built for the closed field instead of a menu row, and `text_color`, the `text_color` of the row's resolved part (`option` with its state parts merged, or the trigger part on the field; `None` when the part sets none). The pointer hover is not a state: as for the label, it repaints the row's fill, border and shadow without rebuilding it.
+
+`group(label)` starts a group of options at the option: the menu draws a separator above it, unless it is the first row, and the label over it, unless the label is empty; the options after it are in the group until another starts one. The separator and the label are rows of the menu, not options, so the keys, type-ahead and the pointer pass them by. `hint(text)` is a short note at the end of an option's row, after its trailing element ("beta", "soon"); the closed field does not show it:
+
+```rust
+Select::new(platform.clone()).options([
+  SelectOption::new(Platform::Windows, "Windows").group("Desktop"),
+  SelectOption::new(Platform::Linux, "Linux"),
+  SelectOption::new(Platform::Ios, "iOS").group("Mobile").hint("beta"),
+])
+```
+
+`SelectStyle::group_label(part)` styles a group's label row (padding, fill, text and color), `separator(part)` the line between groups (its `background` is the line's color, its `min_height` the thickness, 1 unset, its `padding` the room around it), and `option_hint(part)` the hint's text.
 
 A pointer press on the trigger opens the menu without a highlight. On the focused select:
 
@@ -1015,7 +1645,10 @@ The highlighted option scrolls into view, and opening scrolls the selected optio
 
 A select is identified across re-renders by the signal it binds, like a `TextInput`: its open menu, keyboard highlight and focus stay with it when siblings are inserted, removed or reordered, and never pass to another select. Create the signal once (in `create` or as a field), not per render; a new signal each render is a new select, so its menu closes on every re-render. The highlight survives a re-render only while its row shows the same enabled option; when options are replaced it is cleared, so `Enter` closes without a change.
 
-`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles:
+`SelectStyle` styles the trigger, the menu and the options with `SelectPartStyle`s. Colours, border sizes, radii, spacing, typography and shadows accept theme roles.
+
+`SelectStyle::new()` takes its colors from the theme, through the recipe the theme keeps for the engine's select (`engine_select`, by the parts and states of `ui::Select`: `SelectPart::Trigger`, `Panel`, `Item`, `Detail`, `Hint`, `Group`, `Separator`, and `SelectState::Open` and `Selected`). The design's is the trigger on `Background` in an edge of `Border`, `Ring` under the pointer, focused and open; the menu on `Card`; an option on `Canvas` under the pointer and on `Primary` while chosen; what is muted in `MutedForeground`. `ThemeDefinition::legacy()` gives the roles of 0.62. A theme restyles every engine select with `theme.ui.patch::<SelectStyle>(..)`; the design system's `ui::Select` has its own recipe. A style written out:
+
 
 ```rust
 use lurq::{
@@ -1025,16 +1658,16 @@ use lurq::{
 
 // "icon" is an app typography role that selects the icon font at 14 px.
 let icon = |glyph: &str| SelectIcon::glyph(glyph, TypographyStyle::extra("icon"));
-let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::BorderFocus).spread(1.0).inset();
+let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::Ring).spread(1.0).inset();
 
 SelectStyle::new()
-  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::BorderFocus))
+  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::Ring))
   .chevron(icon("\u{e06d}"))
   .chevron_open(icon("\u{e070}"))
-  .chevron_color(PaletteColor::TextMuted)
+  .chevron_color(PaletteColor::MutedForeground)
   .menu(
     SelectPartStyle::new()
-      .background(PaletteColor::SurfaceRaised)
+      .background(PaletteColor::Card)
       .border_inside(1.0, PaletteColor::Border)
       .rounded(11.0)
       .padding(Padding::all(4.0))
@@ -1048,26 +1681,27 @@ SelectStyle::new()
       .rounded(7.0)
       .typography(TypographyStyle::Body),
   )
-  .option_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_hovered(SelectPartStyle::new().background(PaletteColor::Canvas))
   .option_selected(SelectPartStyle::new())
-  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::Canvas))
   .option_highlighted(SelectPartStyle::new().box_shadow(ring))
-  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::TextMuted))
+  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::MutedForeground))
   .single_checkmark(true)
   .checkmark(icon("\u{e06c}"))
   .checkmark_size(14.0)
   .checkmark_position(SelectCheckmarkPosition::Trailing)
-  .checkmark_color(PaletteColor::Accent)
+  .checkmark_color(PaletteColor::Primary)
 ```
 
 - An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.
-- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
-- The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `min_menu_width(260.0)` lets a menu grow wider than a narrow trigger; it is still capped by the viewport width and repositioned to fit. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar; its insets are measured from the menu's outer bounds, border included (see [Scroll](#scroll) for `edge_inset`/`end_inset`). The menu's padding insets the options and scrolls with them.
+- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), `outline` (a ring the trigger paints over itself, at a negative offset inside its edge: `trigger_focused` and `trigger_open` can be a focus ring), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- `trigger_gap` (a number or a spacing role, default 8) is the room between the default trigger's label and its chevron.
+- The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `min_menu_width(260.0)` lets a menu grow wider than a narrow trigger; it is still capped by the viewport width and repositioned to fit. `menu_fits_options(true)` makes it as wide as its longest option instead, with the room of a chosen option's mark, for a trigger as wide as the one value it shows; `min_menu_width` still holds. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar; its insets are measured from the menu's outer bounds, border included (see [Scroll](#scroll) for `edge_inset`/`end_inset`). The menu's padding insets the options and scrolls with them.
 - Option rows are at least 34 px tall unless the option part sets `min_height`. The default option part pads labels by 10 px horizontally, like the trigger.
 - The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
-- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
+- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown before the label, or in a multi-select, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift; a single-select's trailing checkmark takes its room on the selected row only, so the other rows' labels and trailing elements run to the row's end. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
 - `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection, and a single-select's selected option's `leading` and `trailing` elements.
-- The trigger's fill is its part's `background`: the theme's `SurfaceInput` in the default `SelectStyle`. A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
+- The trigger's fill is its part's `background`: the theme's `Background` in the default `SelectStyle` (`SurfaceInput` under `ThemeDefinition::legacy()`). A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
 
 ## Programmatic Interaction
 
@@ -1142,6 +1776,59 @@ DragContainer::mount(
 
 Low-level node drag handlers are also available: `.on_drag_start`, `.on_drag_move`, `.on_drag_end`, and `.on_drop`.
 
+### A Drag Holds The Pointer
+
+A press on an element with `on_drag_*` handlers starts a drag that holds the pointer until the button is let go, as a pointer capture does in a browser:
+
+- Every move reaches `on_drag_move`, wherever the pointer is: over other elements, and out of the window too, where the shell goes on passing the moves of a held button. `DragEvent::total_delta_x` and `total_delta_y` count from where the press was, and `DragEvent::outside_window` says the pointer is out of the window, past any of its edges (where a tab let go is taken out into a window of its own).
+- Nothing is hovered meanwhile and no text is selected by the move.
+- The window shows the cursor that was under the pointer at the press for the whole drag (`Tree::cursor`), over elements with cursors of their own and out of the window, until the release; then it is that of what is under the pointer again.
+- A drag that moved clicks nothing when it is let go. `.start_drag_buttons(MouseButtonMask::LEFT)` keeps the other buttons from starting one.
+
+A divider that resizes what is beside it needs nothing more than its handlers and its cursor:
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::Row,
+  node::CursorIcon,
+};
+
+Row::new()
+  .width(6.0)
+  .cursor(CursorIcon::ColResize) // shown for the whole drag, whatever the pointer crosses
+  .start_drag_buttons(MouseButtonMask::LEFT)
+  .on_drag_move(move |event: DragEvent| resize_by(event.total_delta_x))
+  .on_drag_end(move |_: DragEvent| save_layout());
+```
+
+`ui::Splitter` is such a divider between panes, with the keys, panes that close and a layout the app saves.
+
+### A Drag That Scrolls Its Container
+
+`.drag_autoscroll(true)` on an element with `on_drag_*` handlers makes its drag scroll the scroll container it is in: the nearest one around it that has content beyond its viewport. While the pointer of the drag is within about 12 logical pixels of an edge of that container, or past the edge, the content scrolls toward the pointer on the axes the container scrolls, faster the further the pointer goes, a step each frame for as long as the pointer is held there; it stops at the end of the content and when the drag ends. It is off by default.
+
+After each step the drag's `on_drag_move` handlers are called with the pointer where it is, though it has not moved: what follows the drag reckons again with what scrolled under it. The container's `on_scroll` handlers hear each step, as they hear the wheel.
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::{Column, ScrollVertical},
+};
+
+// A rectangle dragged down a long list: at the list's bottom edge the list scrolls, and each step moves the
+// rectangle's end with it.
+ScrollVertical::new(
+  Column::new()
+    .start_drag_buttons(MouseButtonMask::LEFT)
+    .drag_autoscroll(true)
+    .on_drag_move(move |event: DragEvent| extend_to(event.x, event.y + state.scroll_y())),
+)
+.with_scroll_state(state.clone());
+```
+
+`ui::SelectionMarquee` is such a drag over a surface.
+
 ## File Drag And Drop
 
 Files dragged into the window from the OS (Explorer, Finder, another program) reach the element under the pointer, with the window's overlays and modals hit-tested as for the mouse, so a drag over a popup reaches the popup:
@@ -1170,3 +1857,58 @@ Column::new()
 - A drop ends the drag: the `drag_over` style goes without an `on_file_drag_leave`.
 
 The winit shell collects the OS's burst of one event per file into one session on Windows and macOS, and reads the pointer position from the OS while the drag hovers (the OS owns the pointer during a drag, so no `CursorMoved` arrives), every 16 ms, delivering `on_file_drag_over` when it moved. A hover ends as a leave when no mouse button has been pressed for 250 ms of polls (the OS drag ended without winit telling; read from the OS on Windows and macOS — the grace period covers the release, which the OS reports before its drop callback runs, so a drop within it continues the same session without a leave, and it covers drags whose button state is reported differently, a touch or pen drag promoted to a mouse drag, ClickLock, macOS drag lock, which end after the grace period at most and have not been checked), or when it neither moved nor got a drop or a cancel for 60 s, since its source is gone (a program that died mid-drag) and polling would never stop; a drag held still that long is ended too, and a drop that comes later still arrives. On Linux the last pointer position the window saw is used. A shell that drives a `Tree` itself calls `Tree::file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` with physical pixels.
+
+### Files a person gives
+
+`lurq::files` gives a file dropped and a file chosen as one type, so an app handles both alike. `DroppedFile::from_path(path)` is a file of a drop (its name, its size read once, its path); `DroppedFile::new(name, size)` is one with no path, as a browser gives. `file.extension()`, `file.kind()` (`FileKind::Image`, `Video`, `Audio`, `Text`, `Archive`, `Other`, by the extension) and `file.is_accepted(&["image/*", "pdf"])` judge it; `format_size(bytes)` says a size as `4 KB` or `1.2 MB`.
+
+`FileDialog` opens the system's dialog for files to open. It runs off the loop, and its future does not borrow the window, so it is what a `ctx.future_action` runs:
+
+```rust
+use lurq::files::FileDialog;
+
+// In `create`.
+let window = ctx.window();
+let choose = ctx.future_action(move |()| {
+  FileDialog::new().title("Add images").filter("Images", &["png", "jpg"]).multiple(true).pick_result(&window)
+});
+// In a handler: `choose.run(())`; `choose.state()` then holds the chosen `Vec<DroppedFile>`, empty when the
+// person cancelled.
+```
+
+| Platform | A drop | The dialog |
+| --- | --- | --- |
+| Windows | Paths, from Explorer | The system's (`rfd`, with the feature `file_dialog`): paths and sizes. It is modal to the window it is opened over: the window takes no input until it closes |
+| macOS, Linux | Paths, from Finder or a file manager | The system's: paths and sizes. It has no parent window yet, so it is not modal to the app's: a press of the window behind it puts the dialog behind the window |
+| A browser | None: winit reports no drop from the system | The browser's file input, which a press must open: names and sizes, no path. Its bytes are not read through lurq yet |
+| iOS | None | lurq's own, with no feature: a menu of where the files come from (the photo library, the camera, Files), then the system's photo picker, a camera or the document picker. Files are given as copies in the app's temporary folder, with their paths |
+
+On a phone a dialog of files asks first where they come from, as Safari's file input does. `sources` says which it offers (`FileSource::Files`, `PhotoLibrary`, `Camera`), of those the device has; one alone opens at once. Its words are the locale's (`Locale::fields`, `Locale::common`):
+
+```rust
+use lurq::files::{FileDialog, FileSource};
+
+FileDialog::new().sources([FileSource::Camera, FileSource::PhotoLibrary]).multiple(true).pick_result(&window)
+```
+
+The camera is offered where the device has one and the app's Info.plist says why it uses it (`NSCameraUsageDescription`); without the words iOS would end the app, so lurq leaves the camera out and says once in the log what to add. A dialog of one file opens the system's camera, with its review ("Use Photo"). A dialog of several opens lurq's own, as a messenger's is: it stays open between photos, with the lenses the phone has (0.5×, 1×, 2×), a pinch to zoom, a tap to focus, the flash (auto, on, off) and the other camera; the photos taken are beside the shutter, and a tap opens them in a viewer as a gallery's (swiped, zoomed, one taken out); Done gives them all, Cancel none. Each photo is a JPEG in the temporary folder. Where the person has not let the app use the camera, the system's camera is shown, which says so. On a desktop, which has no camera, `sources` chooses the photo library where it is the one source: Photos on macOS, the user's Pictures on Windows.
+
+The same dialog chooses a folder and where a file is to be saved, each given as its path, or `None` when the person cancelled:
+
+```rust
+// In a component's `create`: a folder, and a place to save a file.
+let window = ctx.window();
+let folder = ctx.future_action(move |()| {
+  let chosen = FileDialog::new().title("Project folder").pick_folder(&window);
+  async move { Ok::<_, ()>(chosen.await) }
+});
+let window = ctx.window();
+let save = ctx.future_action(move |()| {
+  let chosen = FileDialog::new().filter("Markdown", &["md"]).file_name("report.md").pick_save(&window);
+  async move { Ok::<_, ()>(chosen.await) }
+});
+```
+
+`pick_folder` takes the dialog's title and the `folder` it opens in; `pick_save` its filters too, as the kinds the file can be saved as, and the `file_name` it starts with. The system asks before a file that is there is chosen, and lurq writes nothing. A browser has neither dialog (a page is given no path), and gives `None`. On iOS the folder is the folder itself, which the app may read and write while it runs; where to save is chosen after an empty file of the name is made, which the person puts where they choose (Files, iCloud Drive, the phone), and its path there is given. `ui::PathField` is made of these.
+
+Without the feature `file_dialog`, `pick` gives nothing and says so once through `tracing`. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) registered, `pick` asks the broker and no system dialog opens: an agent answers it. `ui::DropZone` and `ui::FileUpload` are made of these.

@@ -3,6 +3,7 @@ use std::sync::{
   atomic::{AtomicUsize, Ordering},
 };
 
+#[allow(deprecated)]
 use lurq::{
   components::{Button, Checkbox, Column, Rect, TextInput},
   core::Signal,
@@ -36,6 +37,7 @@ fn focusable_false_button_never_takes_focus() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn focusable_false_text_input_and_checkbox_do_not_take_focus_on_click() {
   let checked = Signal::new(false);
   let mut tree = headless(

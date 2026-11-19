@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-  parse_macro_input, parse_quote, AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument,
-  PathArguments, Type,
+  AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument, PathArguments, Type, parse_macro_input,
+  parse_quote,
 };
 
 mod query;
@@ -48,11 +48,14 @@ pub fn derive_accessors(input: TokenStream) -> TokenStream {
     let set_name = format_ident!("set_{}", field_name);
 
     quote! {
+      // A clone, so that a field that is not `Copy` (a role of the palette) has a getter too; for one that is,
+      // the same value as a copy.
+      #[allow(clippy::clone_on_copy)]
       pub fn #getter_name(&self) -> #field_ty
       where
-        #field_ty: Copy,
+        #field_ty: Clone,
       {
-        self.#field_name
+        ::core::clone::Clone::clone(&self.#field_name)
       }
 
       pub fn #with_name(mut self, value: #field_ty) -> Self {
@@ -81,6 +84,13 @@ pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
   let struct_name = input.ident;
   let generics = input.generics;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  // A type with no parameters is one type: its inspector is registered, so that DevTools reads a value of it
+  // where it is given one with no bound, what a context holds. One with parameters is a type for each.
+  let register = generics.params.is_empty().then(|| {
+    quote! {
+      ::lurq::register_inspectable!(#struct_name);
+    }
+  });
 
   let write_info = match input.data {
     Data::Struct(data_struct) => devtools_inspectable_struct_entries(data_struct.fields),
@@ -124,6 +134,8 @@ pub fn derive_devtools_inspectable(input: TokenStream) -> TokenStream {
         #write_info
       }
     }
+
+    #register
   }
   .into()
 }
@@ -293,11 +305,17 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
               );
             }
           } else {
+            // Whether the field's type writes itself is found where the struct is compiled, so a field
+            // DevTools cannot read does not stop the derive: it shows its type alone.
             quote! {
-              debug_struct.field_as(
+              debug_struct.field_probed(
                 #field_label,
                 ::std::any::type_name::<#field_ty>(),
-                &self.#field_name,
+                {
+                  #[allow(unused_imports)]
+                  use ::lurq::app::component::probe::{Inspected as _, Uninspected as _};
+                  (&::lurq::app::component::probe::Probe(&self.#field_name)).devtools_children()
+                },
               );
             }
           }
@@ -327,9 +345,13 @@ fn devtools_inspectable_struct_entries(fields: Fields) -> proc_macro2::TokenStre
             }
           } else {
             quote! {
-              debug_tuple.field_as(
+              debug_tuple.field_probed(
                 ::std::any::type_name::<#field_ty>(),
-                &self.#field_index,
+                {
+                  #[allow(unused_imports)]
+                  use ::lurq::app::component::probe::{Inspected as _, Uninspected as _};
+                  (&::lurq::app::component::probe::Probe(&self.#field_index)).devtools_children()
+                },
               );
             }
           }

@@ -26,6 +26,16 @@ impl InputSelection {
   }
 }
 
+/// Where a caret stands in an input's text: see [`TextInputController::caret_point`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InputCaretPoint {
+  pub x: f32,
+  /// The top of the text's band at the caret.
+  pub y: f32,
+  /// The height of the text's band at the caret.
+  pub height: f32,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum InputEditError {
   NotMounted,
@@ -118,6 +128,45 @@ impl TextInputController {
     state.sync_external_value();
     let keyboard = KeyboardEvent::new(text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
     Ok(state.replace_selection_text(text, &keyboard))
+  }
+
+  /// Takes back the last edit, as Ctrl+Z does, through the input's `on_input` (told the key of
+  /// [`EditCommand::Undo`](crate::app::events::EditCommand::accelerator)). `false` where there is none.
+  pub fn undo(&self) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    if state.history_depths().0 == 0 {
+      return Ok(false);
+    }
+    Ok(state.undo(&crate::app::events::EditCommand::Undo.keyboard_event()))
+  }
+
+  /// Makes again the edit last taken back, as Ctrl+Y (Cmd+Shift+Z on a Mac) does. `false` where there is none.
+  pub fn redo(&self) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    if state.history_depths().1 == 0 {
+      return Ok(false);
+    }
+    Ok(state.redo(&crate::app::events::EditCommand::Redo.keyboard_event()))
+  }
+
+  /// Whether there is an edit to take back: what an undo button is enabled by.
+  pub fn can_undo(&self) -> bool {
+    self.state().is_ok_and(|state| state.history_depths().0 > 0)
+  }
+
+  /// Whether there is an edit taken back to make again.
+  pub fn can_redo(&self) -> bool {
+    self.state().is_ok_and(|state| state.history_depths().1 > 0)
+  }
+
+  /// Where the caret before `byte` stood when the input was last laid out, for what is hung from a place in
+  /// the text, as a list of suggestions under a word being typed. It is measured from the start of the
+  /// text's box, inside the input's padding (and, for a single line, the room that centres it), with what
+  /// the input scrolled taken off. Layout follows an edit, so in the render an edit causes the point is
+  /// that of the text before it: a byte before the edit stands where it stood.
+  pub fn caret_point(&self, byte: usize) -> Result<InputCaretPoint, InputEditError> {
+    let (x, y, height) = self.state()?.controller_point(byte);
+    Ok(InputCaretPoint { x, y, height })
   }
 
   /// Request normal runtime focus/scroll after the picker closes in the following render.

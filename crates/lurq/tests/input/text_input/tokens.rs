@@ -272,7 +272,7 @@ fn input_tokens_combining_utf8_source_is_editable_and_theme_changes_remeasure() 
   let source = Signal::new("前 {{é\u{301}字}} 後".to_owned());
   let controller = TextInputController::new();
   let mut tree = Tree::new();
-  let decoration = InputTokenStyle::new(PaletteColor::Accent, PaletteColor::SurfaceRaised)
+  let decoration = InputTokenStyle::new(PaletteColor::Primary, PaletteColor::Card)
     .padding(SpacingSize::extra("token_pad"))
     .radius(RadiusSize::extra("token_radius"))
     .typography(TypographyStyle::extra("token_font"));
@@ -285,8 +285,8 @@ fn input_tokens_combining_utf8_source_is_editable_and_theme_changes_remeasure() 
       .width(250.0),
   );
   let mut app = App::new();
-  app.theme().set_palette_color(PaletteColor::Accent, INK);
-  app.theme().set_palette_color(PaletteColor::SurfaceRaised, FILL);
+  app.theme().set_palette_color(PaletteColor::Primary, INK);
+  app.theme().set_palette_color(PaletteColor::Card, FILL);
   app.theme().set_spacing_value(SpacingSize::extra("token_pad"), 3.0);
   app.theme().set_radius_value(RadiusSize::extra("token_radius"), 3.0);
   app.theme().set_typography_style(

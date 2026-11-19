@@ -21,7 +21,7 @@ use std::{
     Arc,
     atomic::{AtomicBool, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::Mutex;
@@ -32,7 +32,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Timeout},
-    events::{EdgePanEvent, GesturePhase, LongPressEvent, ScreenEdge},
+    events::{EdgePanEvent, GesturePhase, LongPressEvent, NavigationCommand, NavigationSource, ScreenEdge},
     window::SafeAreaInsets,
   },
   components::{Column, KeyboardKind, ReturnKey, Row, ScrollVertical, Stack, Text, TextInput, TextOverflow},
@@ -47,6 +47,8 @@ use crate::{
     Navigator, StackEntry,
     route_match::{OutletDepth, RouteMatch, RouterMatches, StackState},
   },
+  time::Instant,
+  ui::{Recipe, Themed, engine_look::EngineLook, names},
 };
 
 /// How a [`StackOutlet`]'s screens and bar move. The values it starts with were set by eye beside the
@@ -89,6 +91,69 @@ impl Default for StackMotion {
   }
 }
 
+/// The parts of the recipe of the shades a [`StackOutlet`] draws, kept under the name `phone_stack` with
+/// [`StackMotion`]: each has a fill and an opacity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackPart {
+  /// What darkens the screen under the one that moves in or out, at the move's [`StackMotion::dim`] times the
+  /// part's opacity.
+  Shade,
+  /// What darkens the stack behind the list of the screens under, which a long press on the way back opens.
+  MenuShade,
+}
+
+names!(StackPart {
+  Shade => "shade",
+  MenuShade => "menu_shade",
+});
+
+/// 0.62's shades: black, the one under a moving screen at the move's dim and the one behind the list at a fifth.
+const LEGACY_SHADE: Color = Color::new(0, 0, 0, 255);
+
+impl Themed for StackMotion {
+  const NAME: &'static str = "phone_stack";
+  type Renderer = ();
+
+  /// The design's: both shades in the scrim, which carries its own alpha, light or dark as the theme is; the one
+  /// behind the list all of it.
+  fn recipe() -> Recipe {
+    use crate::app::theme::PaletteColor::Scrim;
+    Recipe::new()
+      .base(StackPart::Shade, |s| s.background(Scrim).opacity(1.0))
+      .base(StackPart::MenuShade, |s| s.background(Scrim).opacity(1.0))
+  }
+}
+
+impl StackMotion {
+  /// 0.62's shades: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the stack.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Recipe::new()
+      .base(StackPart::Shade, |s| s.background(LEGACY_SHADE).opacity(1.0))
+      .base(StackPart::MenuShade, |s| s.background(LEGACY_SHADE).opacity(MENU_DIM))
+  }
+}
+
+/// The shades a stack draws, in the theme of what is being built.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StackShades {
+  pub(crate) shade: Color,
+  pub(crate) shade_opacity: f32,
+  pub(crate) menu: Color,
+  pub(crate) menu_opacity: f32,
+}
+
+impl StackShades {
+  pub(crate) fn current() -> Self {
+    let look = EngineLook::of::<StackMotion>(&[]);
+    Self {
+      shade: look.background(StackPart::Shade, LEGACY_SHADE),
+      shade_opacity: look.opacity(StackPart::Shade, 1.0),
+      menu: look.background(StackPart::MenuShade, LEGACY_SHADE),
+      menu_opacity: look.opacity(StackPart::MenuShade, MENU_DIM),
+    }
+  }
+}
+
 /// A frame is painted with the screens where the move starts before they are sent on their way: a transition
 /// goes from what was last painted.
 const BEGIN: Duration = Duration::from_millis(1);
@@ -116,7 +181,13 @@ const BACK_WIDTH: f32 = 40.0;
 const FILL: Dimension = Dimension::Pct(100.0);
 
 /// The bar a [`StackOutlet`] draws over its screens, and its colors. The bar is as high as a phone's, 44
-/// logical pixels under the safe area's top.
+/// logical pixels under the safe area's top. Its colors come from the theme, through the recipe it keeps under the
+/// name `phone_navigation_bar` ([`NavigationBarPart`]): the design's roles, light or dark as the theme is, and the
+/// colors of 0.62 in [`ThemeDefinition::legacy`](crate::app::theme::ThemeDefinition::legacy). They are read where
+/// the bar is made, in the theme of what is being built.
+///
+/// The board draws a design system's bar of a phone's screen (Mobile/App Bar, Mobile/Large Title) that `lurq::ui`
+/// does not have yet; a bar across a desktop window is [`ui::Navbar`](crate::ui::Navbar).
 #[derive(Clone, Debug, PartialEq)]
 pub struct NavigationBar {
   pub background: Color,
@@ -149,7 +220,7 @@ pub struct NavigationBar {
   pub large_title_height: f32,
   pub inset: f32,
   /// What the way back says when the title of the screen under has no room, or there is none: the word for
-  /// going back, in the app's language.
+  /// going back. Empty, it is the app's locale's ([`Locale::common`](crate::core::Locale::common)'s `back`).
   pub back: String,
   /// Whether a long press on the way back lists the screens under, and how wide the list is.
   pub back_menu: bool,
@@ -184,13 +255,14 @@ impl NavigationBar {
     self
   }
 
-  /// A light bar, sized as the platform's.
+  /// A bar sized as the platform's, in the colors of the theme of what is being built.
   pub fn new() -> Self {
+    let look = EngineLook::of::<Self>(&[]);
     Self {
-      background: Color::new(249, 249, 249, 224),
-      tint: Color::from_hex("#007aff"),
-      title: Color::from_hex("#000000"),
-      border: Color::from_hex("#c6c6c8"),
+      background: look.background(NavigationBarPart::Root, legacy::BACKGROUND),
+      tint: look.foreground(NavigationBarPart::Action, legacy::TINT),
+      title: look.foreground(NavigationBarPart::Title, legacy::TITLE),
+      border: look.background(NavigationBarPart::Separator, legacy::BORDER),
       blur: 40.0,
       large_title_max_scale: 1.5,
       height: 44.0,
@@ -203,7 +275,7 @@ impl NavigationBar {
       large_title_weight: FontWeight::Bold,
       large_title_height: 52.0,
       inset: 16.0,
-      back: "Back".to_owned(),
+      back: String::new(),
       back_menu: true,
       back_menu_width: 250.0,
       prompt_size: 13.0,
@@ -215,7 +287,20 @@ impl NavigationBar {
     }
   }
 
-  /// A dark bar.
+  /// 0.62's colors: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the bar.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Recipe::new()
+      .base(NavigationBarPart::Root, |s| s.background(legacy::BACKGROUND))
+      .base(NavigationBarPart::Separator, |s| s.background(legacy::BORDER))
+      .base(NavigationBarPart::Title, |s| s.foreground(legacy::TITLE))
+      .base(NavigationBarPart::Action, |s| s.foreground(legacy::TINT))
+  }
+
+  /// A dark bar of 0.62.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the dark colors: `NavigationBar::new()` built in a dark theme is dark"
+  )]
   pub fn dark() -> Self {
     Self {
       background: Color::new(28, 28, 30, 204),
@@ -226,10 +311,21 @@ impl NavigationBar {
     }
   }
 
-  /// The platform's bar for an appearance: `ctx.window().system.appearance`, or the theme's.
+  /// The platform's bar of 0.62 for an appearance.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the colors: `NavigationBar::new()` is light or dark as the theme is"
+  )]
+  #[allow(deprecated)]
   pub fn for_appearance(appearance: crate::app::window::Appearance) -> Self {
     match appearance {
-      crate::app::window::Appearance::Light => Self::new(),
+      crate::app::window::Appearance::Light => Self {
+        background: legacy::BACKGROUND,
+        tint: legacy::TINT,
+        title: legacy::TITLE,
+        border: legacy::BORDER,
+        ..Self::new()
+      },
       crate::app::window::Appearance::Dark => Self::dark(),
     }
   }
@@ -278,6 +374,52 @@ impl Default for NavigationBar {
   }
 }
 
+/// The parts of the recipe of a [`NavigationBar`]'s colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavigationBarPart {
+  /// The bar: its fill is the bar's `background`.
+  Root,
+  /// The line under the bar: its fill.
+  Separator,
+  /// The title: its foreground.
+  Title,
+  /// The way back and what a screen puts at the bar's trailing end by default: its foreground, the bar's `tint`.
+  Action,
+}
+
+names!(NavigationBarPart {
+  Root => "root",
+  Separator => "separator",
+  Title => "title",
+  Action => "action",
+});
+
+/// The colors of 0.62's light bar: what the legacy theme gives, and what a theme with no recipe for the bar keeps.
+mod legacy {
+  use crate::node::color::Color;
+
+  pub(super) const BACKGROUND: Color = Color::new(249, 249, 249, 224);
+  pub(super) const TINT: Color = Color::new(0x00, 0x7a, 0xff, 255);
+  pub(super) const TITLE: Color = Color::new(0, 0, 0, 255);
+  pub(super) const BORDER: Color = Color::new(0xc6, 0xc6, 0xc8, 255);
+}
+
+impl Themed for NavigationBar {
+  const NAME: &'static str = "phone_navigation_bar";
+  type Renderer = ();
+
+  /// The design's (`pencil/lurq-design-system.pen`, Mobile/App Bar): the bar on the background over a line of
+  /// the border, its title, its way back and its actions in the foreground.
+  fn recipe() -> Recipe {
+    use crate::app::theme::PaletteColor::{Background, Border, Foreground};
+    Recipe::new()
+      .base(NavigationBarPart::Root, |s| s.background(Background))
+      .base(NavigationBarPart::Separator, |s| s.background(Border))
+      .base(NavigationBarPart::Title, |s| s.foreground(Foreground))
+      .base(NavigationBarPart::Action, |s| s.foreground(Foreground))
+  }
+}
+
 /// What a screen of a [`StackOutlet`] shows in the outlet's bar, and whether a finger from the edge takes it
 /// back. A screen gives it in its `render` with
 /// [`Ctx::navigation_item`](crate::app::ctx::Ctx::navigation_item).
@@ -318,8 +460,8 @@ impl NavigationSearch {
   pub fn new(text: Signal<String>) -> Self {
     Self {
       text,
-      placeholder: "Search".to_owned(),
-      cancel: "Cancel".to_owned(),
+      placeholder: crate::ui::current_locale().common.search.to_string(),
+      cancel: crate::ui::current_locale().common.cancel.to_string(),
       hides_bar: true,
     }
   }
@@ -765,6 +907,9 @@ struct Shown {
   sheet: Option<super::sheet::SheetScroll>,
 }
 
+/// A router's outlet that keeps a stack of screens, as a phone's apps do: a screen pushed slides in over the one
+/// under it, a finger from the edge takes it back, and a [`NavigationBar`] over them names the screen and the way
+/// back. It is the engine's navigation, with no counterpart in `lurq::ui`; its bar takes the theme's colors.
 pub struct StackOutlet {
   shown: Arc<Mutex<Shown>>,
   /// Bumped for a render that no signal of the router's asks for: a move's next step, a changed item.
@@ -777,7 +922,14 @@ pub struct StackOutlet {
   origin: ElementRef,
   /// The list of the screens under the top one, which a long press on the way back opens.
   menu: BackMenu,
+  /// The top screen as it is laid out: where going back from the way back or a finger from the edge starts, so that
+  /// the screen hears it first (`on_history_back`).
+  screen: ElementRef,
 }
+
+/// Goes back from the stack's top screen, as Alt+← does from the focus: the screen's `on_history_back` first, then
+/// the router ([`NavigationCommand`]).
+type GoBack = Arc<dyn Fn() + Send + Sync>;
 
 impl Component for StackOutlet {
   type Props = StackOutletProps;
@@ -829,6 +981,7 @@ impl Component for StackOutlet {
       begin,
       settle,
       origin: ElementRef::default(),
+      screen: ElementRef::default(),
       menu: BackMenu {
         open: Signal::new(false),
         opened_at: Arc::default(),
@@ -839,9 +992,15 @@ impl Component for StackOutlet {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let props = ctx.props::<StackOutletProps>().clone();
     let motion = props.motion;
+    let shades = StackShades::current();
     let depth = ctx.use_context::<OutletDepth>().unwrap_or(OutletDepth(0)).0 + 1;
     let Some(navigator) = ctx.use_context::<Navigator>() else {
       return ctx.children().first().cloned().unwrap_or_else(Element::new);
+    };
+    let history = ctx.history_runner();
+    let go_back: GoBack = {
+      let (history, screen) = (history.clone(), self.screen.clone());
+      Arc::new(move || history.run_in(&screen, NavigationCommand::Back))
     };
     // Rendered again when the history moves, a move takes its next step or a finger drags.
     let _ = navigator.path().get();
@@ -1040,6 +1199,11 @@ impl Component for StackOutlet {
         .size(FILL, FILL)
         .padding_top(clear)
         .child(content)
+        .ref_element(if shown.layers.last().is_some_and(|last| std::ptr::eq(last, layer)) {
+          self.screen.clone()
+        } else {
+          ElementRef::default()
+        })
         .opacity(if reduce_motion && id == front { 1.0 - out } else { 1.0 })
         .transform(Transform2D::translate(offset, 0.0));
       if let Some(background) = props.background {
@@ -1048,8 +1212,8 @@ impl Component for StackOutlet {
       if id == back {
         let shade = Row::new()
           .size(FILL, FILL)
-          .background(Color::from_hex("#000000"))
-          .opacity(motion.dim * (1.0 - out))
+          .background(shades.shade)
+          .opacity(motion.dim * shades.shade_opacity * (1.0 - out))
           .pointer_events_none();
         holder = holder.child(shade.transition(fade.clone()));
       }
@@ -1058,7 +1222,13 @@ impl Component for StackOutlet {
 
     let screens = screens.on_edge_pan({
       let (shown, drag, changed) = (self.shown.clone(), self.drag.clone(), self.changed.clone());
-      let (navigator, settle) = (navigator.clone(), self.settle.clone());
+      let shown_all = self.shown.clone();
+      let (navigator, settle, history, screen) = (
+        navigator.clone(),
+        self.settle.clone(),
+        history.clone(),
+        self.screen.clone(),
+      );
       move |event: EdgePanEvent| {
         if event.edge != ScreenEdge::Left {
           return;
@@ -1097,9 +1267,27 @@ impl Component for StackOutlet {
               0.0
             };
             if far {
-              // The screen goes on out from where the finger left it: the drag is let go once that has started.
+              // The screen goes on out from where the finger left it, as the stack goes back: the drag is let go once
+              // that has started. Going back runs as from any other source, from the top screen: where the screen
+              // takes it (something unsaved, a question first) or nothing moves this stack, the screen comes back.
               drop(shown);
-              navigator.back();
+              let before = navigator.handle.current_entry();
+              let (navigator, shown, drag, settle, changed) = (
+                navigator.clone(),
+                shown_all.clone(),
+                drag.clone(),
+                settle.clone(),
+                changed.clone(),
+              );
+              history.run_in_then(&screen, NavigationCommand::Back, NavigationSource::Edge, move |_| {
+                if navigator.handle.current_entry() != before {
+                  return;
+                }
+                shown.lock().motion = Motion::Returning;
+                drag.set(NO_DRAG);
+                settle.restart();
+                changed.update(|version| *version += 1);
+              });
             } else {
               shown.motion = Motion::Returning;
               drop(shown);
@@ -1251,7 +1439,7 @@ impl Component for StackOutlet {
           title: under_part.item.title.clone(),
           says: match over_part.label_fit {
             LabelFit::Whole => over_part.back_label.clone().unwrap_or_default(),
-            LabelFit::Short => bar.back.clone(),
+            LabelFit::Short => back_word(&bar),
             LabelFit::Arrow => String::new(),
           },
           large: (large.0 - origin.0, large.1 - origin.1, large.2, large.3),
@@ -1338,7 +1526,7 @@ impl Component for StackOutlet {
     if let Some(part) = back_part {
       items = items.child(bar_item(
         &bar,
-        &navigator,
+        &go_back,
         part,
         out,
         if reduce_motion {
@@ -1356,7 +1544,7 @@ impl Component for StackOutlet {
     if let Some(part) = front_part {
       items = items.child(bar_item(
         &bar,
-        &navigator,
+        &go_back,
         part,
         1.0 - out,
         if reduce_motion { 0.0 } else { out * width * 0.5 },
@@ -1486,8 +1674,8 @@ impl Component for StackOutlet {
         .child(
           Row::new()
             .size(FILL, FILL)
-            .background(Color::from_hex("#000000"))
-            .opacity(if menu_open { MENU_DIM } else { 0.0 })
+            .background(shades.menu)
+            .opacity(if menu_open { shades.menu_opacity } else { 0.0 })
             .transition(Transition::opacity().duration(MENU_MOVE))
             .on_click(move |_| {
               // The list came up under the finger that opened it, whose lift is not a tap beside the list.
@@ -1604,10 +1792,20 @@ enum LabelFit {
   Arrow,
 }
 
+/// The word for going back: the bar's, or the app's locale's where the bar has none.
+fn back_word(bar: &NavigationBar) -> String {
+  if bar.back.is_empty() {
+    crate::ui::current_locale().common.back.to_string()
+  } else {
+    bar.back.clone()
+  }
+}
+
 /// What the way back to a screen says.
 fn back_label_of(under: &NavigationItem, back: &str) -> String {
   match &under.back_title {
     Some(title) => title.clone(),
+    None if under.title.is_empty() && back.is_empty() => crate::ui::current_locale().common.back.to_string(),
     None if under.title.is_empty() => back.to_owned(),
     None => under.title.clone(),
   }
@@ -1714,7 +1912,7 @@ struct BarPart {
 /// the end. `shift` is how far the title is from the middle.
 fn bar_item(
   bar: &NavigationBar,
-  navigator: &Navigator,
+  go_back: &GoBack,
   part: BarPart,
   opacity: f32,
   shift: f32,
@@ -1772,10 +1970,11 @@ fn bar_item(
         .child(leading.clone()),
     );
   } else if let Some(label) = &part.back_label {
-    let navigator = navigator.clone();
+    let go_back = go_back.clone();
+    let short = back_word(bar);
     let says = match part.label_fit {
       LabelFit::Whole => label.as_str(),
-      LabelFit::Short => bar.back.as_str(),
+      LabelFit::Short => short.as_str(),
       LabelFit::Arrow => "",
     };
     sides = sides.child(
@@ -1808,7 +2007,7 @@ fn bar_item(
           move |_| {
             // The lift of the press that opened the list is not a tap.
             if !menu.open.get_untracked() {
-              navigator.back();
+              go_back();
             }
           }
         })
@@ -1828,7 +2027,7 @@ fn bar_item(
       Row::new().opacity(0.0).pointer_events_none().child(
         Row::new()
           .ref_element(part.short_probe.clone())
-          .child(text(&bar.back, FontWeight::Normal, bar.tint)),
+          .child(text(&back_word(bar), FontWeight::Normal, bar.tint)),
       ),
     );
     whole =
@@ -1885,6 +2084,7 @@ fn bar_item(
 
 /// The way back's arrow: the platform's symbol on iOS with the `raster` feature, and otherwise two strokes
 /// that meet at a point on the left, drawn after it.
+#[allow(deprecated)]
 fn chevron(color: Color) -> Element {
   // The platform's own, where there is a platform to ask and images to show it with.
   #[cfg(all(target_os = "ios", feature = "raster"))]
@@ -2137,6 +2337,7 @@ impl Component for SearchField {
 }
 
 /// A magnifying glass: the platform's symbol where there is one to ask, and otherwise a ring with a handle.
+#[allow(deprecated)]
 fn magnifier(color: Color) -> Element {
   #[cfg(all(target_os = "ios", feature = "raster"))]
   if let Some(symbol) = crate::app::ios_symbol::symbol("magnifyingglass", 15.0, color) {

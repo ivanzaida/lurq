@@ -8,7 +8,7 @@ use lurq::{
   components::{Column, Popup, Row, Text},
   core::ElementRef,
   layout::{Constraints, Size, quad::QuadContent, text_style::TextStyle},
-  node::{Element, color::Color},
+  node::{BackgroundColor, Element, color::Color},
 };
 
 use crate::support::TestSurface;
@@ -16,7 +16,8 @@ use crate::support::TestSurface;
 const RED: Color = Color::new(200, 30, 30, 255);
 const BLUE: Color = Color::new(30, 60, 200, 255);
 const GREEN: Color = Color::new(20, 160, 80, 255);
-const BLACK: Color = Color::new(0, 0, 0, 255);
+/// The theme's foreground: what text that names no color is drawn in.
+const INK: Color = Color::new(9, 9, 11, 255);
 
 fn painted(app: &mut App, root: impl Into<Element>) -> Tree {
   let mut tree = Tree::new();
@@ -42,6 +43,46 @@ fn color_of(tree: &Tree, text: &str) -> Color {
     .into_iter()
     .find_map(|(painted, color)| (painted == text).then_some(color))
     .unwrap_or_else(|| panic!("no text {text:?} was painted"))
+}
+
+/// The fills of the rectangles of `width` by 6 that were painted, in the order they are painted.
+fn fills(tree: &Tree, width: f32) -> Vec<Color> {
+  tree
+    .resolve_quads(tree.last_layout().unwrap())
+    .iter()
+    .filter_map(|quad| match &quad.content {
+      QuadContent::Rect { color, .. } if quad.width == width && quad.height == 6.0 => Some(*color),
+      _ => None,
+    })
+    .collect()
+}
+
+#[test]
+fn a_fill_of_the_current_foreground_is_the_color_a_text_there_would_have() {
+  let mark = |width: f32| {
+    Row::new()
+      .size(width, 6.0)
+      .background(BackgroundColor::CurrentForeground)
+  };
+  let mut app = App::new();
+  let tree = painted(
+    &mut app,
+    Column::new()
+      // With no foreground above it, the theme's.
+      .child(mark(10.0))
+      // The nearest foreground above it, and the element's own before that.
+      .child(
+        Row::new()
+          .foreground(RED)
+          .child(mark(20.0))
+          .child(Row::new().foreground(BLUE).child(mark(30.0)))
+          .child(mark(40.0).foreground(GREEN)),
+      ),
+  );
+  assert_eq!(fills(&tree, 10.0), [INK]);
+  assert_eq!(fills(&tree, 20.0), [RED]);
+  assert_eq!(fills(&tree, 30.0), [BLUE]);
+  assert_eq!(fills(&tree, 40.0), [GREEN]);
 }
 
 #[test]
@@ -70,9 +111,9 @@ fn a_foreground_ends_with_the_element_that_set_it() {
       .child(Text::new("after")),
   );
 
-  assert_eq!(color_of(&tree, "before"), BLACK);
+  assert_eq!(color_of(&tree, "before"), INK);
   assert_eq!(color_of(&tree, "inside"), RED);
-  assert_eq!(color_of(&tree, "after"), BLACK);
+  assert_eq!(color_of(&tree, "after"), INK);
 }
 
 #[test]
@@ -92,7 +133,7 @@ fn text_with_no_foreground_above_keeps_its_typography_color() {
       .child(Text::new("caption").variant(TypographyStyle::Caption)),
   );
 
-  assert_eq!(color_of(&tree, "body"), BLACK);
+  assert_eq!(color_of(&tree, "body"), INK);
   assert_eq!(color_of(&tree, "caption"), GREEN);
 }
 
@@ -146,14 +187,16 @@ fn a_text_can_set_its_own_foreground() {
 #[test]
 fn a_palette_role_as_foreground_follows_the_theme() {
   let mut app = App::new();
-  app.theme().set_palette_color(PaletteColor::Accent, RED);
+  app.theme().set_palette_color(PaletteColor::Primary, RED);
   let mut tree = painted(
     &mut app,
-    Column::new().foreground(PaletteColor::Accent).child(Text::new("label")),
+    Column::new()
+      .foreground(PaletteColor::Primary)
+      .child(Text::new("label")),
   );
   assert_eq!(color_of(&tree, "label"), RED);
 
-  app.theme().set_palette_color(PaletteColor::Accent, BLUE);
+  app.theme().set_palette_color(PaletteColor::Primary, BLUE);
   tree.pass(&mut app, &TestSurface);
 
   assert_eq!(color_of(&tree, "label"), BLUE);
@@ -203,7 +246,7 @@ fn the_content_of_a_popup_starts_from_no_foreground() {
   tree.pass(&mut app, &TestSurface);
 
   assert_eq!(color_of(&tree, "anchor"), RED);
-  assert_eq!(color_of(&tree, "in popup"), BLACK);
+  assert_eq!(color_of(&tree, "in popup"), INK);
 }
 
 #[test]
@@ -249,8 +292,8 @@ fn the_themes_foreground_is_a_role_like_any_other() {
   let mut app = App::new();
   assert_eq!(
     app.theme().palette_color(PaletteColor::Foreground),
-    BLACK,
-    "the color text had before the role"
+    INK,
+    "the foreground of the design"
   );
   let mut tree = painted(
     &mut app,
@@ -258,7 +301,7 @@ fn the_themes_foreground_is_a_role_like_any_other() {
       .child(Text::new("body"))
       .child(Text::new("role").color(PaletteColor::Foreground)),
   );
-  assert_eq!(color_of(&tree, "body"), BLACK);
+  assert_eq!(color_of(&tree, "body"), INK);
 
   app.theme().set_palette_color(PaletteColor::Foreground, GREEN);
   tree.request_redraw();
@@ -278,4 +321,27 @@ fn a_text_input_is_drawn_in_the_themes_foreground() {
   );
 
   assert_eq!(color_of(&tree, "typed"), BLUE);
+}
+
+#[test]
+fn a_style_that_keeps_the_default_color_names_none_and_takes_the_foreground_above() {
+  use lurq::layout::text_style::TextStyle;
+  let mut app = App::new();
+  let plain = TextStyle {
+    font_size: 20.0,
+    ..TextStyle::default()
+  };
+  let colored = TextStyle {
+    color: GREEN,
+    ..TextStyle::default()
+  };
+  let tree = painted(
+    &mut app,
+    Column::new()
+      .foreground(RED)
+      .child(Text::styled("plain", plain))
+      .child(Text::styled("colored", colored)),
+  );
+  assert_eq!(color_of(&tree, "plain"), RED, "a style with a size and no color");
+  assert_eq!(color_of(&tree, "colored"), GREEN, "a style with a color keeps it");
 }

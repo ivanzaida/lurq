@@ -11,8 +11,8 @@ mod value;
 pub use component::{Form, FormProps};
 pub use compound::{
   FormCheckboxInput, FormCheckboxInputProps, FormField as FormControlField, FormFieldProps, FormPrimaryButton,
-  FormPrimaryButtonProps, FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps,
-  FormTextInput, FormTextInputProps,
+  FormPrimaryButtonProps, FormRangeSliderInput, FormRangeSliderInputProps, FormSecondaryButton,
+  FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps, FormTextInput, FormTextInputProps,
 };
 pub(crate) use control::FormContext;
 pub use control::{Control, ControlOptions, ControlState, ErrorVisibility, ResolvedControl};

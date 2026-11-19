@@ -12,6 +12,7 @@ use std::{
   time::{Duration, Instant},
 };
 
+#[allow(deprecated)]
 use lurq::{
   animation::{Easing, Transition},
   app::{
@@ -344,6 +345,7 @@ fn a_tooltip_a_hover_handler_opens_is_drawn() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn a_checkbox_draws_its_hovered_box() {
   let (mut tree, mut app) = shown(
     Column::new()
@@ -628,7 +630,7 @@ mod markdown_links {
     tree.mount_root::<Document>(
       &mut app,
       MarkdownProps::new("Open [PR 42](https://example.com/pull/42) now.")
-        .link_presentation(move |_| MarkdownLinkPresentation::link().hovered(hovered))
+        .link_presentation(move |_| MarkdownLinkPresentation::link().hovered(hovered.clone()))
         .width(600.0),
     );
     settle(&mut tree, &mut app);

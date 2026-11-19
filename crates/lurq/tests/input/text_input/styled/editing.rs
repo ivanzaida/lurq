@@ -216,6 +216,9 @@ fn styled_word_and_line_moves_and_double_click_ignore_span_boundaries() {
   assert_eq!(editor.controller.selection().unwrap().caret, 11);
   let rect = editor.tree.get_element_by_id_mut(ID).unwrap().bounds().unwrap();
   let (x, y) = (rect.x + 12.0, rect.y + rect.height / 2.0);
+  // Every press at one time, on the tree's clock of presses: they are one double or triple click however slow
+  // the machine.
+  editor.tree.set_press_clock(Some(std::time::Instant::now()));
   pointer_click(&mut editor.tree, x, y, MouseButton::Left);
   pointer_click(&mut editor.tree, x, y, MouseButton::Left);
   let selected = editor

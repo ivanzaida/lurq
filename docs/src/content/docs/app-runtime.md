@@ -25,7 +25,6 @@ let mut app = lurq::app::App::new();
 app.load_font_file(std::path::Path::new("assets/Inter.ttf"));
 app.register_font("ui", "Inter");
 
-#[cfg(feature = "resources")]
 app.set_resource_root(std::path::PathBuf::from("assets"));
 ```
 
@@ -73,6 +72,19 @@ let engine = WgpuRenderEngine::new().with_backends(WgpuBackends::DX12);
 
 Excluded backend loaders are never initialized by that engine. Explicitly opting into Vulkan on Windows also opts back into its platform loader behavior.
 
+An engine asks for its GPU device at its first frame and waits for it. The engines of an app's windows share one device: an engine takes the device of another window's engine on its thread that was asked for among the same backends with the same optional features and limits, while one draws, so a texture of the app's can be shown in any window. `WgpuRenderEngine::new().with_own_device()` keeps a window's device apart. `WgpuDevice` is a device made ahead: an app awaits `WgpuDevice::request()` and gives the device to each engine the factory makes.
+
+```rust
+use lurq::app::wgpu_render::{WgpuDevice, WgpuRenderEngine};
+
+let device = WgpuDevice::request().await?;
+tree.set_render_engine_factory(move || {
+  Box::new(WgpuRenderEngine::new().with_device(device.clone()))
+});
+```
+
+On a desktop this is optional and moves the wait off the first frame. In a browser it is how an engine gets a device at all, since a page cannot wait inside a frame; see [Web](../web/#the-device). The engine's backends and optional features and limits are then the device's: `WgpuDevice::request_with(backends)` chooses the backends, and `WgpuDevice::backend()` says which the device draws through.
+
 On Windows with `dx12`:
 
 ```rust
@@ -80,6 +92,10 @@ tree.set_render_engine_factory(|| {
   Box::new(lurq::app::dx12_render::Dx12RenderEngine::new())
 });
 ```
+
+An app that draws part of its window with its own wgpu code (a 3D scene, a game or editor viewport, custom shaders) gives each engine the factory makes a frame extension, `WgpuRenderEngine::new().with_frame_extension(..)`, and shows what it draws in a `GpuViewport`. The engine of lurq's DevTools window is made by the same factory and runs none of them. See [Drawing With Your Own GPU Code](../gpu-viewport/).
+
+When a window's graphics device is lost (its card was reset or taken away), lurq replaces the window's engine with one the factory makes and draws the window again; the window's `on_app_event` handler then hears `AppEvent::GraphicsDeviceLost`, on a desktop as on a phone. See [A Lost Device](../gpu-viewport/#a-lost-device).
 
 ## Winit Shell
 
@@ -97,11 +113,51 @@ WinitWindow::new(app, tree)
   .run();
 ```
 
-`with_icon` sets the window icon: on Windows the title bar's small icon and the taskbar's and Alt+Tab's big icon, on X11 the window icon; macOS shows the application bundle's icon instead and ignores it.
+`with_icon` sets the window icon: on Windows the title bar's small icon and the taskbar's and Alt+Tab's big icon, on X11 the window icon; macOS shows the application bundle's icon instead and ignores it. A title bar the app draws with `ui::WindowChrome` shows it too, on every platform.
 
 The shell drives timers, async work, animation deadlines, and requested redraws. It waits when idle; continuous video or an installed `on_tick` callback can keep the loop polling. Use `on_tick` only when the app needs continuous custom work.
 
 Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, the window title, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](../ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
+
+### A Phone On A Desktop
+
+`App::emulate(Device::phone())` runs an app on a desktop as it would be on a phone, to try its touch forms and its
+gestures with a mouse; `Device::tablet()` as on a tablet. Any app does the same with no code when `LURQ_DEVICE=phone`
+(or `tablet`) is in its environment, read as its window opens; the gallery takes `--device phone`.
+
+```rust
+use lurq::app::{App, Device};
+
+let app = App::new();
+app.emulate(Device::phone());
+// .. mount the root and run the window as always.
+```
+
+While it emulates a device:
+
+- **The window is the device's size**, in logical pixels (`Device::size`: 390 by 844 for the phone, 820 by 1180 for
+  the tablet), drawn at the monitor's scale. `Device::scale` is the device's, for an app that reads it.
+- **The safe area** is the device's (`Device::safe_area`: a phone's status bar of 47 at the top and its home
+  indicator of 34 at the bottom), and reaches what reads it as a phone's does: `ctx.safe_area()`, and the
+  components that keep clear of it (a sheet, the tab bar, the lightbox).
+- **The pointer is pinned `Coarse`**, so every component takes its touch form.
+- **The mouse is fingers.** Its moves and its left button reach the tree only as fingers, through the same path a
+  touch screen's take, and never as the mouse: a click is a tap, a double click a double tap, a drag a pan, a
+  swipe or a scroll with momentum, a drag from an edge of the window an edge pan, a press held still a long press.
+  **Alt**+drag is two fingers, the second mirrored about where the drag began, so dragging away from that point or
+  toward it pinches and around it rotates; **Alt+Shift**+drag is two fingers side by side; **Alt+Shift+Ctrl**+drag
+  three side by side, and **Alt+Shift+Ctrl** with the wheel and no button pinches three about the mouse (away
+  spreads them, a paste; toward closes them, a copy), lifted when the keys are let go. While a modifier is held the fingers are drawn as dots. A finger hovers nothing, so nothing
+  shows its hovered style. The wheel still scrolls and the keyboard still types.
+
+What is not emulated: the on-screen keyboard, the system's own gestures, a pen's hover, and a phone's speed.
+
+**For a shell of its own.** A finger reaches the tree through `Tree::finger(id, phase, x, y, force)`, in physical
+pixels: the finger's own events (`on_touch_*`), and where nothing took it the pointer it stands for (a press, a tap,
+a scroll with its momentum, a long press) and the gestures. `Tree::finger_tick(now)` runs what time brings (a long
+press, momentum, a list springing back) and `Tree::finger_deadline()` says when it next has something to do. The
+winit shell, the emulator and MCP's `lurq_touch` all go through these; a test drives them on its own clock
+(`Tree::set_press_clock`). `Tree::pen_hover(x, y)` and `pen_hover_ended()` are a pen in range that touches nothing.
 
 ## Frame And Redraw Flow
 
@@ -135,7 +191,7 @@ WinitWindow::new(app, tree)
 
 Pointer input is resolved against the latest layout and hit-tested in visual coordinates. A press, a release or a wheel that comes before any frame laid out what an earlier event rebuilt (a hover that opened a box or pushed a row away) lays it out first, so it lands on what the next frame shows. The runtime tracks hover, active, focus, drag, scroll, cursor, text selection, and text click counts across retained nodes. Mouse handlers run before pointer defaults such as input focus, text selection, form submit, and outside-click overlay dismissal, so handlers can call `event.prevent_default()` to block those defaults.
 
-User keyboard handlers run before built-in keyboard defaults. Built-in text behavior handles caret movement, selection replacement, undo/redo, and clipboard shortcuts when the `clipboard` feature is enabled. Call `event.prevent_default()` from an `on_key_down` handler to block those built-in defaults for that key. `TextInput::on_input` runs inside the text-edit default, before the edit is applied, and can mutate the input signal or prevent that edit. Scroll handlers also run before default scroll movement.
+User keyboard handlers run before built-in keyboard defaults. Built-in text behavior handles caret movement, selection replacement, undo/redo, and clipboard shortcuts when the `clipboard` feature is enabled; which keys are undo, redo, cut, copy, paste and select all is `KeyboardEvent::edit_command()`'s, and what an element does for them is its `on_undo`, `on_redo`, `on_select_all`, `on_copy` and `on_paste` (see [Editing commands](../styling-events/#editing-commands-undo-redo-copy-cut-paste)). Call `event.prevent_default()` from an `on_key_down` handler to block those built-in defaults for that key. `TextInput::on_input` runs inside the text-edit default, before the edit is applied, and can mutate the input signal or prevent that edit. Scroll handlers also run before default scroll movement.
 
 ## Sizing And Scale
 
@@ -225,7 +281,6 @@ Size, colour and spacing do not matter; one style per family, weight and slant i
 With `devtools` enabled:
 
 ```rust
-lurq::app::devtools::load_fonts(&mut app);
 tree.mount_devtools(&mut app);
 ```
 

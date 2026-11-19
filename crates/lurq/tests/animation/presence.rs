@@ -393,7 +393,7 @@ fn nothing_in_a_leaving_layer_is_found() {
 }
 
 #[test]
-fn a_layer_opened_again_while_it_leaves_enters_over_the_one_leaving() {
+fn a_layer_opened_again_while_it_leaves_takes_it_back_and_is_there_once() {
   let mut page = one_popup(true);
   page.open.set(true);
   page.stage.at(0);
@@ -401,23 +401,26 @@ fn a_layer_opened_again_while_it_leaves_enters_over_the_one_leaving() {
   page.open.set(false);
   page.stage.at(300);
   page.stage.at(350);
+  assert_close(&page.stage.opacities(PANEL_A), &[0.75]);
 
+  // Opened again on the way out: the one leaving ends its leaving and is the one open, once, going on from where
+  // its exit had got to.
   page.open.set(true);
   page.stage.at(350);
-  assert_close(&page.stage.opacities(PANEL_A), &[0.75, 0.0]);
+  assert_close(&page.stage.opacities(PANEL_A), &[0.75]);
+  assert!(page.stage.tree.get_element_by_id("inside-a").is_some(), "found again");
+  page.stage.at(375);
+  assert_close(&page.stage.opacities(PANEL_A), &[0.875]);
+  page.stage.at(400);
+  assert_close(&page.stage.opacities(PANEL_A), &[1.0]);
 
-  page.stage.at(450);
-  assert_close(&page.stage.opacities(PANEL_A), &[0.25, 0.5]);
   let inside = page.stage.center_of("inside-a");
   pointer_click(&mut page.stage.tree, inside.0, inside.1, MouseButton::Left);
   page.stage.at(450);
-  assert_eq!(
-    page.inside_clicks.load(Ordering::SeqCst),
-    1,
-    "the open one takes the click"
-  );
+  assert_eq!(page.inside_clicks.load(Ordering::SeqCst), 1, "it takes the click");
 
-  page.stage.at(550);
+  // Its time to leave by is forgotten: it stays.
+  page.stage.at(800);
   assert_close(&page.stage.opacities(PANEL_A), &[1.0]);
 }
 
@@ -1016,16 +1019,61 @@ fn a_leaving_child_takes_no_input_and_is_not_found() {
 }
 
 #[test]
-fn a_child_added_again_while_it_leaves_is_a_new_one() {
+fn a_child_added_again_while_it_leaves_ends_its_leaving_and_is_there_once() {
   let shown = Signal::new(true);
   let mut stage = list(&shown, true);
   shown.set(false);
   stage.at(0);
   stage.at(100);
+  assert_close(&stage.opacities(ITEM_B), &[0.5]);
 
+  // The one leaving goes, and the one added enters: the two are never there together, and what is after them has
+  // the room of one.
   shown.set(true);
   stage.at(100);
+  assert_close(&stage.opacities(ITEM_B), &[1.0]);
+  assert_eq!(stage.tops(ITEM_C), [80.0]);
+
+  // Its leaving is forgotten: the time it would have ended at takes nothing away.
+  stage.at(200);
+  stage.at(300);
+  assert_close(&stage.opacities(ITEM_B), &[1.0]);
+  assert_eq!(stage.tops(ITEM_B), [40.0]);
+  assert_eq!(stage.tops(ITEM_C), [80.0]);
+
+  // Removed again, it leaves again.
+  shown.set(false);
+  stage.at(300);
+  stage.at(400);
+  assert_close(&stage.opacities(ITEM_B), &[0.5]);
+  stage.at(500);
+  assert_close(&stage.opacities(ITEM_B), &[]);
+  assert_eq!(stage.tops(ITEM_C), [40.0]);
+}
+
+#[test]
+fn a_child_added_again_under_a_new_key_while_it_leaves_enters_beside_it() {
+  // Each time it is shown it has a key of its own: what wants the one coming back to be another one writes so.
+  let shown = Signal::new(1u32);
+  let mut stage = Stage::new({
+    let shown = shown.clone();
+    move || {
+      let mut column = Column::new().presence().child(list_item("a", ITEM_A));
+      let time = shown.get();
+      if time % 2 == 1 {
+        column = column.child(list_item(&format!("b-{time}"), ITEM_B));
+      }
+      column.child(list_item("c", ITEM_C)).into()
+    }
+  });
+  shown.set(2);
+  stage.at(0);
+  stage.at(100);
+
+  shown.set(3);
+  stage.at(100);
   assert_close(&stage.opacities(ITEM_B), &[0.5, 1.0]);
+  assert_eq!(stage.tops(ITEM_C), [120.0], "the two are there, in flow");
 
   stage.at(200);
   assert_close(&stage.opacities(ITEM_B), &[1.0]);

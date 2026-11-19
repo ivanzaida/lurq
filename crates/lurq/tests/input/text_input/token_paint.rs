@@ -26,10 +26,13 @@ fn fixture() -> (GlyphEngine, std::sync::Arc<DecoratedInputLayout>, Quad) {
       padding: 3.0,
       fill: None,
       lines: Default::default(),
+      chip: Default::default(),
     }],
     width: 150.0,
     min_width: 150.0,
     wrap: true,
+    paragraphs: Vec::new(),
+    exact_rows: false,
   });
   let quad = Quad {
     x: 12.0,

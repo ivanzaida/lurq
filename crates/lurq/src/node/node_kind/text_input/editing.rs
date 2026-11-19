@@ -10,21 +10,69 @@ impl TextInputState {
   }
 
   pub(crate) fn replace_selection_text(&self, text: &str, keyboard: &KeyboardEvent) -> bool {
-    self.replace_selection_with(text, None, keyboard)
+    self.replace_selection_with(text, None, keyboard, false)
+  }
+
+  /// Text typed, a key's character or what an input method committed: it joins the typing before it in one step of
+  /// undo, as the platform's fields group it ([`UndoGrouping`]). A paste is [`Self::insert`], a step of its own.
+  pub(crate) fn type_text(&self, text: &str, keyboard: &KeyboardEvent) -> bool {
+    if text.is_empty() {
+      return false;
+    }
+    self.replace_selection_with(text, None, keyboard, true);
+    true
   }
 
   /// Replaces the selection with text that brings its own spans; a plain
   /// input takes only the text.
   #[cfg(feature = "markdown")]
-  pub(crate) fn replace_selection_styled(&self, inserted: &styled::InsertedText, keyboard: &KeyboardEvent) -> bool {
-    self.replace_selection_with(&inserted.text, Some(inserted), keyboard)
+  pub(crate) fn replace_selection_styled(
+    &self,
+    inserted: &crate::components::StyledText,
+    keyboard: &KeyboardEvent,
+  ) -> bool {
+    let insert = styled::InsertedText {
+      styled: inserted,
+      kinds: None,
+      objects: &[],
+    };
+    self.replace_selection_with(&inserted.text, Some(&insert), keyboard, false)
+  }
+
+  /// Replaces the selection with text that brings what `insert` says with it.
+  #[cfg(feature = "markdown")]
+  pub(super) fn replace_selection_inserting(
+    &self,
+    insert: &styled::InsertedText<'_>,
+    keyboard: &KeyboardEvent,
+  ) -> bool {
+    self.replace_selection_with(&insert.styled.text, Some(insert), keyboard, false)
+  }
+
+  /// Replaces the selection with text that brings its own spans, the kinds of its paragraphs and its objects, as
+  /// one undo step: see [`crate::components::TextInputController::replace_selection_rich`]. An input without
+  /// kinds of paragraphs takes the text and its spans, a plain one the text.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn replace_selection_rich(
+    &self,
+    inserted: &crate::components::RichText,
+    keyboard: &KeyboardEvent,
+  ) -> bool {
+    let text = inserted.styled();
+    let insert = styled::InsertedText {
+      styled: &text,
+      kinds: Some(&inserted.paragraphs),
+      objects: &inserted.objects,
+    };
+    self.replace_selection_with(&text.text, Some(&insert), keyboard, false)
   }
 
   fn replace_selection_with(
     &self,
     text: &str,
-    styled_insert: Option<&styled::InsertedText>,
+    styled_insert: Option<&styled::InsertedText<'_>>,
     keyboard: &KeyboardEvent,
+    typed: bool,
   ) -> bool {
     if text.is_empty() && !self.has_selection() {
       return false;
@@ -38,7 +86,11 @@ impl TextInputState {
       return false;
     }
 
-    self.push_undo_snapshot();
+    if typed {
+      self.begin_typing(TypingKind::Insert, text);
+    } else {
+      self.push_undo_snapshot();
+    }
     let styled = self.styled_before_edit();
     let (start, end) = {
       let value = self.value();
@@ -63,6 +115,9 @@ impl TextInputState {
       Some(inserted) => self.styled_after_insert(styled, start..end, inserted),
       None => self.styled_after_edit(styled, start..end, text.len()),
     }
+    if typed {
+      self.end_typing(TypingKind::Insert, text);
+    }
     self.mark_layout_dirty();
     true
   }
@@ -71,10 +126,13 @@ impl TextInputState {
     if self.overflow() != TextInputOverflow::Multiline {
       return false;
     }
-    self.insert("\n", keyboard)
+    self.type_text("\n", keyboard)
   }
 
   pub(crate) fn backspace(&self, keyboard: &KeyboardEvent) -> bool {
+    if self.select_atomic_beside_caret(true) {
+      return true;
+    }
     if self.has_selection() {
       if !self.fire_input(keyboard, || self.value_without_selection().0) {
         return true;
@@ -100,7 +158,7 @@ impl TextInputState {
       return true;
     }
 
-    self.push_undo_snapshot();
+    self.begin_typing(TypingKind::Backspace, "");
     let styled = self.styled_before_edit();
     let mut removed = 0..0;
     self.value.update(|value| {
@@ -114,11 +172,15 @@ impl TextInputState {
     });
     self.inner.lock().caret = caret;
     self.styled_after_edit(styled, removed, 0);
+    self.end_typing(TypingKind::Backspace, "");
     self.mark_layout_dirty();
     true
   }
 
   pub(crate) fn delete(&self, keyboard: &KeyboardEvent) -> bool {
+    if self.select_atomic_beside_caret(false) {
+      return true;
+    }
     if self.has_selection() {
       if !self.fire_input(keyboard, || self.value_without_selection().0) {
         return true;
@@ -143,7 +205,7 @@ impl TextInputState {
       return true;
     }
 
-    self.push_undo_snapshot();
+    self.begin_typing(TypingKind::Delete, "");
     let styled = self.styled_before_edit();
     let mut removed = caret..caret;
     self.value.update(|value| {
@@ -153,11 +215,13 @@ impl TextInputState {
     });
     self.inner.lock().caret = caret;
     self.styled_after_edit(styled, removed, 0);
+    self.end_typing(TypingKind::Delete, "");
     self.mark_layout_dirty();
     true
   }
 
   pub(crate) fn move_left(&self, selecting: bool) {
+    self.break_typing();
     let value = self.value();
     let mut inner = self.inner.lock();
     if selecting {
@@ -173,10 +237,12 @@ impl TextInputState {
       inner.selection_anchor = None;
     }
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Start);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn move_right(&self, selecting: bool) {
+    self.break_typing();
     let value = self.value();
     let mut inner = self.inner.lock();
     if selecting {
@@ -192,14 +258,17 @@ impl TextInputState {
       inner.selection_anchor = None;
     }
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::End);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn move_up(&self, selecting: bool) {
+    self.break_typing();
     self.move_vertical(false, selecting);
   }
 
   pub(crate) fn move_down(&self, selecting: bool) {
+    self.break_typing();
     self.move_vertical(true, selecting);
   }
 
@@ -210,6 +279,7 @@ impl TextInputState {
   /// the way does not pull the caret to its end for the rows after it.
   fn move_vertical(&self, down: bool, selecting: bool) {
     if self.move_token_vertical(down, selecting) {
+      self.keep_out_of_tokens(tokens::Toward::Nearest);
       return;
     }
     let value = self.value();
@@ -223,32 +293,38 @@ impl TextInputState {
     let target =
       closest_caret_on_adjacent_row(&inner.caret_positions, y, x, down).unwrap_or(if down { value.len() } else { 0 });
     move_inner_to(&mut inner, target, selecting);
-    let goal = Some((inner.caret, x));
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Nearest);
+    let goal = Some((self.inner.lock().caret, x));
     // Every other caret move or edit marks the layout dirty and so ends the run; this one continues it.
     self.mark_layout_dirty();
     self.inner.lock().vertical_goal = goal;
   }
 
   pub(crate) fn move_word_left(&self, selecting: bool) {
+    self.break_typing();
     let value = self.value();
     let mut inner = self.inner.lock();
     let target = previous_word_boundary(&value, inner.caret);
     move_inner_to(&mut inner, target, selecting);
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Start);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn move_word_right(&self, selecting: bool) {
+    self.break_typing();
     let value = self.value();
     let mut inner = self.inner.lock();
     let target = next_word_boundary(&value, inner.caret);
     move_inner_to(&mut inner, target, selecting);
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::End);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn move_home(&self, selecting: bool) {
+    self.break_typing();
     let mut inner = self.inner.lock();
     if selecting && inner.selection_anchor.is_none() {
       inner.selection_anchor = Some(inner.caret);
@@ -262,6 +338,7 @@ impl TextInputState {
   }
 
   pub(crate) fn move_end(&self, selecting: bool) {
+    self.break_typing();
     let len = self.value().len();
     let mut inner = self.inner.lock();
     if selecting && inner.selection_anchor.is_none() {
@@ -276,6 +353,7 @@ impl TextInputState {
   }
 
   pub(crate) fn select_all(&self) {
+    self.break_typing();
     let len = self.value().len();
     let mut inner = self.inner.lock();
     inner.selection_anchor = Some(0);
@@ -332,6 +410,16 @@ impl TextInputState {
   }
 
   pub(crate) fn begin_selection_at_point(&self, x: f32, y: f32) {
+    self.break_typing();
+    // A press on the handle of a selected object starts a drag of it, and leaves the selection as it is.
+    if self.begin_object_resize(x, y) {
+      return;
+    }
+    // A press on a token's removing icon selects nothing: a release that leaves a selection is the end of a drag,
+    // and makes no click, which is what takes the token away.
+    if !self.on_removing_icon(x, y) && self.select_atomic_at_point(x, y) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     let mut inner = self.inner.lock();
     inner.caret = caret;
@@ -341,21 +429,35 @@ impl TextInputState {
   }
 
   pub(crate) fn update_selection_to_point(&self, x: f32, y: f32) {
+    self.break_typing();
+    if self.drag_object_resize(x) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     self.inner.lock().caret = caret;
+    self.keep_out_of_tokens(tokens::Toward::AwayFromAnchor);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn set_caret_from_point(&self, x: f32, y: f32) {
+    self.break_typing();
+    if self.remove_token_at_point(x, y) || self.select_atomic_at_point(x, y) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     let mut inner = self.inner.lock();
     inner.caret = caret;
     inner.selection_anchor = None;
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Nearest);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn select_word_at_point(&self, x: f32, y: f32) {
+    self.break_typing();
+    if self.select_atomic_at_point(x, y) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     let value = self.value();
     let (start, end) = word_selection_bounds(&value, caret);
@@ -363,10 +465,12 @@ impl TextInputState {
     inner.selection_anchor = Some(start);
     inner.caret = end;
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::End);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn select_line_at_point(&self, x: f32, y: f32) {
+    self.break_typing();
     let caret = self.closest_caret_to_point(x, y);
     let value = self.value();
     let (start, end) = line_bounds(&value, caret);

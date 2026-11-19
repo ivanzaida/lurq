@@ -61,6 +61,10 @@ is one undo step and follows the same validation as keyboard insertion. Its even
 code `InsertText` and has no physical key target. A masked input refuses controller metadata and edits;
 an active IME composition returns `Composing` and keeps the preedit intact.
 
+`undo()` and `redo()` take the last edit back and make it again, as Ctrl+Z and Ctrl+Y do, through the input's
+`on_input`; each returns `false` where there is none. `can_undo()` and `can_redo()` say whether there is one: what
+an undo button is enabled by.
+
 ## Measured raw-source pills
 
 Parse known expressions in the application and supply the exact current source and its ranges:
@@ -100,6 +104,15 @@ sorts them and returns typed errors. Literal CR/LF text around inline tokens rem
 CRLF. Tokens are editable ranges, not atomic words: a click can place the caret inside `{{task.title}}`,
 and typing/deletion can make it a partial or invalid expression. Existing ranges stop decorating immediately
 when the source changes. Reparse on the next render; omitted/invalid expressions remain ordinary text.
+
+A token made atomic (`InputToken::atomic(true)`) is one thing to the caret: the caret stands before its chip
+or past it, room for an icon at its end included, never in it. A token with a selected look
+(`InputTokenStyle::selected`) is drawn in that look over the selection's highlight while the selection covers
+all of it; one without keeps the highlight over it.
+
+A token decorates text that is there. What is one thing to the caret and is not text at all, a picture among the
+words, is an object of a [styled input](../text-input-styled/#objects): a character of the value that the input
+draws as an element of the app's, with the same rules at the caret.
 
 The default single-line Scroll mode presents each CR or LF as one space, preserving every raw UTF-8
 byte offset, token range and source-backed edit. CRLF presents two spaces; clipboard/history still
@@ -147,3 +160,22 @@ bytes, with shared style allocations charged conservatively. Debug output of the
 does not expose its raw source. This remains a source-backed plain input; platform-native IME,
 clipboard and visual parity require separate native verification. Headless tests do not establish that
 result.
+
+## Tokens that follow the value
+
+`InputTokens` are of one exact value: an edit invalidates them, and the app renders new ones. Where the tokens are a
+function of the value, `TextInput::tokens_with(f)` gives the input that function: it is asked for the tokens of each
+value the input holds, after every edit and when the app sets the value, and what it gave for a value is kept while
+the value is the same. A render that gives the input another function asks it again.
+
+A code field is one: `TextInput::code_language("sql")` colors its value as told apart by the tokenizer registered for the
+language and the theme's code colors, a name's weight and leaning in the input's own type
+(`InputTokenStyle::weight`, `font_style`), as a code block colors its code ([Highlighting
+code](../resources-media/#highlighting-code)), and `code_tokenizer(h)` by a tokenizer of its own.
+
+```rust
+use lurq::{components::TextInput, core::Signal};
+
+let query = Signal::new("select * from notes".to_owned());
+TextInput::new(query).multiline().code_language("sql");
+```

@@ -140,6 +140,35 @@ pub(super) fn output_text(result: McpToolResult) -> String {
 }
 
 #[test]
+fn what_is_hidden_from_tooling_is_left_out_of_the_tree_with_all_it_holds() {
+  use crate::components::{Column, Row, Text};
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(
+    Column::new().child(Text::new("The report").id("report")).child(
+      Row::new()
+        .describe("a11y_hidden", "true")
+        .child(Text::new("lurq internal").id("mark")),
+    ),
+  );
+  let read = |tree: &mut Tree, app: &mut App, filter: &str| {
+    output_text(call(
+      tree,
+      app,
+      &state,
+      "lurq_read_tree",
+      serde_json::json!({"filter": filter}),
+    ))
+  };
+  let interactive = read(&mut tree, &mut app, "interactive");
+  assert!(interactive.contains("The report"), "{interactive}");
+  assert!(!interactive.contains("lurq internal"), "{interactive}");
+  // Where everything is asked for, it is there.
+  assert!(read(&mut tree, &mut app, "all").contains("lurq internal"));
+}
+
+#[test]
 fn masked_values_are_redacted_in_tree_lookup_refs_and_set_value() {
   use crate::{
     components::{Column, TextInput},
@@ -453,5 +482,119 @@ fn scroll_to_through_nested_scroll_containers_lands_the_element_in_view() {
     "target at {y}, outer {} inner {}",
     outer.scroll_y(),
     inner.scroll_y()
+  );
+}
+
+#[test]
+fn set_value_takes_two_numbers_for_a_range_slider_and_one_for_its_nearer_thumb() {
+  use crate::{
+    components::{Column, Slider},
+    core::Signal,
+  };
+  let price = Signal::new((20, 80));
+  let volume = Signal::new(40);
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(
+    Column::new()
+      .child(Slider::new_range(price.clone()).range(0, 100).step(5.0).id("price"))
+      .child(Slider::new(volume.clone()).range(0, 100).id("volume")),
+  );
+  tree.pass_headless(&mut app);
+  let mut find = |id: &str| {
+    let found = output_text(call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_find_by_id",
+      serde_json::json!({ "id": id }),
+    ));
+    found.split(' ').next().unwrap().to_owned()
+  };
+  let (price_ref, volume_ref) = (find("price"), find("volume"));
+  let mut set = |reference: &str, value: serde_json::Value| {
+    call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_set_value",
+      serde_json::json!({ "ref": reference, "value": value }),
+    )
+  };
+
+  // Two numbers set both, snapped to the step and put in order.
+  let reply = json(set(&price_ref, serde_json::json!([71, 32])));
+  assert_eq!(reply["value"], "30,70");
+  assert_eq!(price.get(), (30, 70));
+  // One number moves the thumb nearer it, as before.
+  json(set(&price_ref, serde_json::json!(90)));
+  assert_eq!(price.get(), (30, 90));
+
+  for wrong in [
+    serde_json::json!([10]),
+    serde_json::json!([1, 2, 3]),
+    serde_json::json!(["a", 2]),
+  ] {
+    let error = set(&price_ref, wrong).err().unwrap();
+    assert!(error.contains("two numbers"), "{error}");
+  }
+  assert_eq!(price.get(), (30, 90));
+
+  // A slider of one value takes one number, not two.
+  let error = set(&volume_ref, serde_json::json!([10, 20])).err().unwrap();
+  assert!(error.contains("one value"), "{error}");
+  json(set(&volume_ref, serde_json::json!(55)));
+  assert_eq!(volume.get(), 55);
+}
+
+#[test]
+fn lurq_pointer_reads_and_pins_what_the_person_points_with() {
+  use crate::app::Pointer;
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  app.shared.pointer.tell(Pointer::Fine, false);
+
+  let read = json(call(&mut tree, &mut app, &state, "lurq_pointer", serde_json::json!({})));
+  assert_eq!(read["pointer"], "fine");
+  assert_eq!(read["touch_form"], false);
+  assert_eq!(read["pinned"], false);
+  assert_eq!(read["follows"], true);
+
+  let set = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_pointer",
+    serde_json::json!({"pointer": "coarse"}),
+  ));
+  assert_eq!(set["pointer"], "coarse");
+  assert_eq!(set["touch_form"], true);
+  assert_eq!(set["pinned"], true, "pinned unless told");
+  // The agent's own mouse moves leave a pinned pointer.
+  app.shared.pointer.input(Pointer::Fine);
+  assert_eq!(app.pointer(), Pointer::Coarse);
+
+  let followed = json(call(
+    &mut tree,
+    &mut app,
+    &state,
+    "lurq_pointer",
+    serde_json::json!({"follow": true}),
+  ));
+  assert_eq!(followed["pinned"], false, "following lets go of the pin");
+  app.shared.pointer.input(Pointer::Fine);
+  assert_eq!(app.pointer(), Pointer::Fine);
+
+  assert!(
+    call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_pointer",
+      serde_json::json!({"pointer": "thumb"})
+    )
+    .is_err()
   );
 }

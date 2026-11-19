@@ -209,13 +209,13 @@ fn a_state_style_replaces_or_removes_the_outline() {
 #[test]
 fn width_and_color_roles_follow_the_theme() {
   let mut app = App::new();
-  app.theme().set_palette_color(PaletteColor::Accent, RING);
+  app.theme().set_palette_color(PaletteColor::Primary, RING);
   app.theme().set_border_size_value(BorderSize::Md, 3.0);
   let tree = painted(
     &mut app,
     Column::new()
       .padding(20.0)
-      .child(Rect::new(100.0, 40.0).outline(Outline::new(BorderSize::Md, PaletteColor::Accent))),
+      .child(Rect::new(100.0, 40.0).outline(Outline::new(BorderSize::Md, PaletteColor::Primary))),
   );
 
   let rings = rings(&tree, RING);

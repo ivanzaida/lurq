@@ -7,6 +7,8 @@ pub enum FormValue {
   String(Arc<str>),
   Number(f64),
   Bool(bool),
+  /// A range slider's two values, the low one first.
+  Range(f64, f64),
 }
 
 impl FormValue {
@@ -31,11 +33,20 @@ impl FormValue {
     }
   }
 
+  /// A range's low value and its high one.
+  pub fn as_range(&self) -> Option<(f64, f64)> {
+    match self {
+      Self::Range(low, high) => Some((*low, *high)),
+      _ => None,
+    }
+  }
+
   pub(crate) fn to_string_value(&self) -> String {
     match self {
       Self::String(value) => value.to_string(),
       Self::Number(value) => value.to_string(),
       Self::Bool(value) => value.to_string(),
+      Self::Range(low, high) => format!("{low},{high}"),
     }
   }
 }
@@ -49,6 +60,7 @@ impl DevtoolsInspectable for FormValue {
         Self::String(value) => format!("{value:?}"),
         Self::Number(value) => value.to_string(),
         Self::Bool(value) => value.to_string(),
+        Self::Range(low, high) => format!("({low}, {high})"),
       },
     ));
   }
@@ -87,6 +99,18 @@ impl From<i32> for FormValue {
 impl From<f64> for FormValue {
   fn from(value: f64) -> Self {
     Self::Number(value)
+  }
+}
+
+impl From<(f64, f64)> for FormValue {
+  fn from((low, high): (f64, f64)) -> Self {
+    Self::Range(low, high)
+  }
+}
+
+impl From<(i32, i32)> for FormValue {
+  fn from((low, high): (i32, i32)) -> Self {
+    Self::Range(low as f64, high as f64)
   }
 }
 
@@ -131,6 +155,11 @@ impl FormValues {
 
   pub fn get_bool(&self, name: &str) -> Option<bool> {
     self.get(name).and_then(FormValue::as_bool)
+  }
+
+  /// A range slider's two values under `name`, the low one first.
+  pub fn get_range(&self, name: &str) -> Option<(f64, f64)> {
+    self.get(name).and_then(FormValue::as_range)
   }
 
   pub fn entries(&self) -> impl Iterator<Item = (&str, &FormValue)> {

@@ -99,7 +99,10 @@ impl Renderer {
       .get(&id)
       .map(|(_, b)| b)
       .or_else(|| self.surfaces.get(&id))?;
+    // The renderer's own: which device it is of is not asked.
     Some(crate::images::WgpuExternalImageSnapshot {
+      of: None,
+      given: 0,
       view: b.image.view.clone(),
       width: b.image.texture.width(),
       height: b.image.texture.height(),
@@ -500,7 +503,8 @@ fn readback(device: &Device, queue: &Queue, texture: &wgpu::Texture, done: Compl
     buffer.slice(..).map_async(MapMode::Read, move |result| {
       let _ = tx.send(result);
     });
-    if device.poll(PollType::wait_indefinitely()).is_err() || !matches!(rx.recv(), Ok(Ok(()))) {
+    // Asked of a device that is lost, wgpu would end this thread and leave the readback unanswered.
+    if !super::device_loss::asked(&device, None, PollType::wait_indefinitely()) || !matches!(rx.recv(), Ok(Ok(()))) {
       done.finish(Err(CanvasError::RendererLost));
       return;
     }

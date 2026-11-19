@@ -1,11 +1,15 @@
-use std::time::{Duration, Instant};
-
-use crate::{animation::Easing, node::color::Color};
+use crate::{
+  animation::Easing,
+  app::theme::{PaletteColor, ThemePalette},
+  node::{BackgroundColor, color::Color},
+  time::{Duration, Instant},
+};
 
 const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0;
 const DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 24.0;
 const DEFAULT_SCROLLBAR_TRACK_COLOR: Color = Color::new(0, 0, 0, 0);
-const DEFAULT_SCROLLBAR_THUMB_COLOR: Color = Color::new(0, 0, 0, 80);
+/// The thumb of lurq 0.62: black at a third of its opacity.
+const LEGACY_SCROLLBAR_THUMB_COLOR: Color = Color::new(0, 0, 0, 80);
 const DEFAULT_SCROLLBAR_THUMB_RADIUS: f32 = 4.0;
 const DEFAULT_SCROLLBAR_TRACK_RADIUS: f32 = 4.0;
 const DEFAULT_SCROLLBAR_PADDING: f32 = 2.0;
@@ -31,7 +35,19 @@ pub struct ScrollBarStyle {
   pub width: f32,
   pub min_thumb_length: f32,
   pub track_color: Color,
+  /// The color of the thumb. A style that never set one has [`Self::THEME_THUMB`], which is drawn in the
+  /// theme's `Ring`: grey on a light theme and on a dark one, as the design system's scrollbar is.
   pub thumb_color: Color,
+  /// The color of the thumb of the bar under the pointer, a color or a role of the palette. `None` keeps
+  /// [`Self::thumb_color`].
+  pub thumb_hovered_color: Option<BackgroundColor>,
+  /// The color of the thumb while it is dragged, a color or a role of the palette. `None` keeps the color it has
+  /// under the pointer.
+  pub thumb_pressed_color: Option<BackgroundColor>,
+  /// The gap between the lane of the bar and its thumb, on every side: the thumb is [`Self::width`] less twice
+  /// this across, and moves along the track less twice this. The design system's bar is a lane of 8 with a
+  /// thumb of 6 in it.
+  pub thumb_inset: f32,
   pub thumb_radius: f32,
   pub track_radius: f32,
   /// The gap around the bar: from the edge it runs along and from the two
@@ -107,6 +123,42 @@ impl Default for ScrollBarStyle {
 }
 
 impl ScrollBarStyle {
+  /// The thumb color of a style that set none: a mark for "the theme's `Ring`", and the color drawn where a
+  /// palette has no ring. A mark of its own, a hair from 0.62's black: a style that names that black
+  /// ([`Self::LEGACY_THUMB`]) keeps it.
+  pub const THEME_THUMB: Color = Color::new(0, 0, 0, 81);
+
+  /// The thumb of lurq 0.62, black at a third of its opacity: the one [`crate::app::theme::ThemeDefinition::legacy`]
+  /// draws.
+  pub const LEGACY_THUMB: Color = LEGACY_SCROLLBAR_THUMB_COLOR;
+
+  /// The color the thumb is drawn in under `palette`: its own, or the palette's `Ring` where it set none.
+  pub fn thumb_in(&self, palette: &ThemePalette) -> Color {
+    if self.thumb_color == Self::THEME_THUMB {
+      palette.try_get(&PaletteColor::Ring).unwrap_or(self.thumb_color)
+    } else {
+      self.thumb_color
+    }
+  }
+
+  /// The color the thumb is drawn in under `palette`, under the pointer (`hovered`) or dragged (`pressed`):
+  /// [`Self::thumb_pressed_color`], else [`Self::thumb_hovered_color`], else [`Self::thumb_in`].
+  pub fn thumb_when(&self, palette: &ThemePalette, hovered: bool, pressed: bool) -> Color {
+    let color = |color: &BackgroundColor| match color {
+      BackgroundColor::Color(color) => Some(*color),
+      BackgroundColor::Palette(role) => palette.try_get(role),
+      BackgroundColor::CurrentForeground => palette.try_get(&PaletteColor::Foreground),
+    };
+    let state = if pressed {
+      self.thumb_pressed_color.as_ref().or(self.thumb_hovered_color.as_ref())
+    } else if hovered {
+      self.thumb_hovered_color.as_ref()
+    } else {
+      None
+    };
+    state.and_then(color).unwrap_or_else(|| self.thumb_in(palette))
+  }
+
   /// A phone's scroll indicator: a thin rounded bar over the content, clear of the corners, that shows while
   /// the content scrolls and fades out after. Grey, to show over light content and dark.
   pub fn indicator() -> Self {
@@ -130,7 +182,10 @@ impl ScrollBarStyle {
       width: DEFAULT_SCROLLBAR_WIDTH,
       min_thumb_length: DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH,
       track_color: DEFAULT_SCROLLBAR_TRACK_COLOR,
-      thumb_color: DEFAULT_SCROLLBAR_THUMB_COLOR,
+      thumb_color: Self::THEME_THUMB,
+      thumb_hovered_color: None,
+      thumb_pressed_color: None,
+      thumb_inset: 0.0,
       thumb_radius: DEFAULT_SCROLLBAR_THUMB_RADIUS,
       track_radius: DEFAULT_SCROLLBAR_TRACK_RADIUS,
       padding: DEFAULT_SCROLLBAR_PADDING,
@@ -397,20 +452,22 @@ pub fn compute_vertical_scrollbar(
   let track_width = style.width;
   let track_height = viewport_height - style.resolved_end_inset() * 2.0;
 
+  let inset = style.thumb_inset;
+  let travel = track_height - inset * 2.0;
   let ratio = viewport_height / content_height.max(1.0);
-  let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+  let thumb_height = (travel * ratio).max(style.min_thumb_length).min(travel);
   let max_scroll = (content_height - viewport_height).max(0.0);
   let scroll_ratio = if max_scroll > 0.0 { scroll_y / max_scroll } else { 0.0 };
-  let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
+  let thumb_y = track_y + inset + (travel - thumb_height) * scroll_ratio;
 
   Some(ScrollBarGeometry {
     track_x,
     track_y,
     track_width,
     track_height,
-    thumb_x: track_x,
+    thumb_x: track_x + inset,
     thumb_y,
-    thumb_width: track_width,
+    thumb_width: track_width - inset * 2.0,
     thumb_height,
   })
 }
@@ -439,11 +496,13 @@ pub fn compute_horizontal_scrollbar(
   let track_width = viewport_width - style.resolved_end_inset() * 2.0;
   let track_height = style.width;
 
+  let inset = style.thumb_inset;
+  let travel = track_width - inset * 2.0;
   let ratio = viewport_width / content_width.max(1.0);
-  let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
+  let thumb_width = (travel * ratio).max(style.min_thumb_length).min(travel);
   let max_scroll = (content_width - viewport_width).max(0.0);
   let scroll_ratio = if max_scroll > 0.0 { scroll_x / max_scroll } else { 0.0 };
-  let thumb_x = track_x + (track_width - thumb_width) * scroll_ratio;
+  let thumb_x = track_x + inset + (travel - thumb_width) * scroll_ratio;
 
   Some(ScrollBarGeometry {
     track_x,
@@ -451,8 +510,8 @@ pub fn compute_horizontal_scrollbar(
     track_width,
     track_height,
     thumb_x,
-    thumb_y: track_y,
+    thumb_y: track_y + inset,
     thumb_width,
-    thumb_height: track_height,
+    thumb_height: track_height - inset * 2.0,
   })
 }

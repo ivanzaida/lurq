@@ -6,6 +6,18 @@
 //! `Ctx::focus`, [`ElementHandle::scroll_into_view`](super::ElementHandle::scroll_into_view),
 //! [`ElementHandle::focus`](super::ElementHandle::focus)) are queued and resolved by the next pass against its fresh
 //! layout; when one moves a container, the pass lays out again so the frame it draws already shows the element.
+//!
+//! What sticks to an edge of a container (`.sticky(..)`: the header of a table, its first column) covers what
+//! scrolls under it, so the element is shown clear of it, as the web's `scroll-padding` would have it: the
+//! viewport an element is brought into leaves out the room of what sticks to its edges, unless the element is in
+//! what sticks.
+//!
+//! While the on-screen keyboard is up, what it covers at the bottom of the window is not in view either: a viewport
+//! that goes on under it is taken to end at its top, so that an input at the bottom of a page that does not pad
+//! itself by the safe area rises over the keyboard all the same, as a field of UIKit's does.
+//!
+//! `Ctx::scroll_into_view_start` brings the element's top to the top of each viewport that scrolls down, as the web's
+//! `block: "start"` does, and is else resolved the same way.
 
 use super::Tree;
 use crate::{
@@ -13,6 +25,7 @@ use crate::{
   layout::{
     layout_kind::{LayoutKind, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
+    sticky_reach::{StickyReach, sticky_reach},
   },
   node::Node,
 };
@@ -31,13 +44,38 @@ impl Tree {
       .root_ctx
       .as_ref()
       .and_then(|ctx| ctx.take_scroll_into_view_request());
+    let range = self
+      .root_ctx
+      .as_ref()
+      .and_then(|ctx| ctx.take_scroll_range_into_view_request());
+    let to_start = self
+      .root_ctx
+      .as_ref()
+      .and_then(|ctx| ctx.take_scroll_into_view_start_request());
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return false;
     };
     targets.extend(requested.and_then(|element| node_with_ref(root, &element)));
+    let window = self.window().info();
+    let shown_above = (window.safe_area.keyboard > 0.0).then(|| window.logical_size().height - window.safe_area.bottom);
     let mut scrolled = false;
     for node_id in targets {
-      scrolled |= scroll_into_view(root, layout, node_id);
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Nearest, shown_above, |_, _| None);
+    }
+    // To the start of what scrolls it: after the nearest requests, so that it has the last word on its container.
+    if let Some(node_id) = to_start.and_then(|element| node_with_ref(root, &element)) {
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Start, shown_above, |_, _| None);
+    }
+    // A range of a text: the lines it covers, where the text is laid out now.
+    if let Some((element, range)) = range
+      && let Some(node_id) = node_with_ref(root, &element)
+    {
+      let engine = &self.layout_engine;
+      scrolled |= scroll_part_into_view(root, layout, node_id, Block::Nearest, shown_above, |node, result| {
+        engine
+          .text_range_rect(node, result, range.clone())
+          .map(|(x, y, width, height)| Rect { x, y, width, height })
+      });
     }
     scrolled
   }
@@ -58,9 +96,45 @@ fn node_with_ref(node: &Node, element: &OwnedElementRef) -> Option<NodeId> {
 /// Scrolls every scroll container around `node_id` just enough to show the
 /// node, innermost first. Returns whether any container moved.
 pub(super) fn scroll_into_view(root: &Node, layout: &LayoutResult, node_id: NodeId) -> bool {
+  scroll_part_into_view(root, layout, node_id, Block::Nearest, None, |_, _| None)
+}
+
+/// Where a container that scrolls down brings what is scrolled into view.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Block {
+  /// By the smallest amount that shows it.
+  Nearest,
+  /// Its top to the top of the viewport, as far as the content lets it.
+  Start,
+}
+
+/// Scrolls every scroll container around `node_id` just enough to show the
+/// part of the node `part` gives, in the node's box (the lines of a range of
+/// a text); the whole node where it gives none, over `shown_above` (in the
+/// window, where the keyboard's top is) when it is given. Returns whether any
+/// container moved; nothing moves where `part` finds nothing in a node that
+/// has it.
+fn scroll_part_into_view(
+  root: &Node,
+  layout: &LayoutResult,
+  node_id: NodeId,
+  block: Block,
+  shown_above: Option<f32>,
+  part: impl Fn(&Node, &LayoutResult) -> Option<Rect>,
+) -> bool {
   let mut containers = Vec::new();
-  let Some(mut target) = find_rect(root, layout, (0.0, 0.0), node_id, &mut containers) else {
+  let mut found = None;
+  let Some(whole) = find_rect(root, layout, (0.0, 0.0), node_id, &mut containers, &mut found) else {
     return false;
+  };
+  let mut target = match found.and_then(|(node, result)| part(node, result)) {
+    Some(inner) => Rect {
+      x: whole.x + inner.x,
+      y: whole.y + inner.y,
+      width: inner.width,
+      height: inner.height,
+    },
+    None => whole,
   };
   let mut scrolled = false;
   for container in containers.iter().rev() {
@@ -69,15 +143,22 @@ pub(super) fn scroll_into_view(root: &Node, layout: &LayoutResult, node_id: Node
       ScrollDirection::Vertical => (false, true),
       ScrollDirection::Both => (true, true),
     };
+    let mut viewport = clear_of_sticky(container, node_id, target);
+    if let Some(bottom) = shown_above
+      && bottom > viewport.y
+    {
+      viewport.height = viewport.height.min(bottom - viewport.y);
+    }
     let dx = if scrolls_x {
-      axis_delta(target.x, target.width, container.viewport.x, container.viewport.width)
+      axis_delta(target.x, target.width, viewport.x, viewport.width)
     } else {
       0.0
     };
-    let dy = if scrolls_y {
-      axis_delta(target.y, target.height, container.viewport.y, container.viewport.height)
-    } else {
-      0.0
+    let dy = match (scrolls_y, block) {
+      (false, _) => 0.0,
+      (true, Block::Nearest) => axis_delta(target.y, target.height, viewport.y, viewport.height),
+      // The scroll state keeps the offset within what there is to scroll.
+      (true, Block::Start) => target.y - viewport.y,
     };
     if dx == 0.0 && dy == 0.0 {
       continue;
@@ -107,14 +188,50 @@ struct ScrollContainer<'n> {
   state: &'n ScrollState,
   direction: ScrollDirection,
   viewport: Rect,
+  node: &'n Node,
+  layout: &'n LayoutResult,
+}
+
+/// The viewport of `container` less the room what sticks to its edges takes over the box `shown` of the node
+/// `target`, where that node is not in what sticks: how far in from each edge a sticky element over the box reaches,
+/// its inset and its size. A sticky element beside the box (a list of a page's sections that sticks to the top at
+/// its side) takes no room from it.
+fn clear_of_sticky(container: &ScrollContainer<'_>, target: NodeId, shown: Rect) -> Rect {
+  let mut reach = StickyReach::default();
+  if container.layout.holds.sticky
+    && let (Some(content), Some(content_layout)) =
+      (container.node.children().first(), container.layout.children.first())
+  {
+    let over = crate::layout::sticky_reach::Over {
+      origin: (
+        container.viewport.x + content_layout.offset.x,
+        container.viewport.y + content_layout.offset.y,
+      ),
+      target: (shown.x, shown.y, shown.width, shown.height),
+    };
+    reach = sticky_reach(content, &content_layout.result, Some(target), Some(over));
+  }
+  let viewport = container.viewport;
+  let width = (viewport.width - reach.left - reach.right).max(0.0);
+  let height = (viewport.height - reach.top - reach.bottom).max(0.0);
+  if width <= 0.0 || height <= 0.0 {
+    return viewport;
+  }
+  Rect {
+    x: viewport.x + reach.left,
+    y: viewport.y + reach.top,
+    width,
+    height,
+  }
 }
 
 fn find_rect<'n>(
   node: &'n Node,
-  layout: &LayoutResult,
+  layout: &'n LayoutResult,
   origin: (f32, f32),
   node_id: NodeId,
   containers: &mut Vec<ScrollContainer<'n>>,
+  found: &mut Option<(&'n Node, &'n LayoutResult)>,
 ) -> Option<Rect> {
   // A dropped subtree is not drawn: there is nothing to scroll to.
   if layout.dropped {
@@ -127,6 +244,7 @@ fn find_rect<'n>(
     height: layout.size.height,
   };
   if node.node_id() == node_id {
+    *found = Some((node, layout));
     return Some(rect);
   }
   let scroll = match node.layout_kind() {
@@ -135,6 +253,8 @@ fn find_rect<'n>(
         state,
         direction: *direction,
         viewport: rect,
+        node,
+        layout,
       });
       true
     }
@@ -142,8 +262,8 @@ fn find_rect<'n>(
   };
   for (child, child_layout) in node.children().iter().zip(&layout.children) {
     let child_origin = (origin.0 + child_layout.offset.x, origin.1 + child_layout.offset.y);
-    if let Some(found) = find_rect(child, &child_layout.result, child_origin, node_id, containers) {
-      return Some(found);
+    if let Some(rect) = find_rect(child, &child_layout.result, child_origin, node_id, containers, found) {
+      return Some(rect);
     }
   }
   if scroll {

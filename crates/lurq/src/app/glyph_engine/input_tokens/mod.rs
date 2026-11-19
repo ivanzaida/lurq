@@ -46,12 +46,69 @@ pub(crate) struct TokenStyle {
   pub(crate) fill: Option<(Color, f32)>,
   /// Lines under and through the range's text, in its color.
   pub(crate) lines: TextLines,
+  /// What a token has besides its fill: its own room at its end, its height, its edge and its icon.
+  pub(crate) chip: TokenChip,
+}
+
+impl TokenStyle {
+  /// The room after the range's text: its padding, or the chip's own.
+  pub(crate) fn padding_end(&self) -> f32 {
+    self.chip.padding_end.unwrap_or(self.padding)
+  }
+}
+
+/// What an input token has besides the fill of a styled range. A range with the default has none of it.
+#[derive(Clone, Default, PartialEq)]
+pub(crate) struct TokenChip {
+  /// The room after the text, in place of the padding: the end's own, and the icon's with its gap.
+  pub(crate) padding_end: Option<f32>,
+  /// The height of the fill, in place of its line's.
+  pub(crate) height: Option<f32>,
+  /// A line inside the fill: its width and color.
+  pub(crate) border: Option<(f32, Color)>,
+  pub(crate) icon: Option<TokenIcon>,
+  /// The token is one thing to the caret: at its ends the caret stands outside its fill, before its padding and
+  /// after the room at its end, and never between its text and its icon.
+  pub(crate) atomic: bool,
+  /// The selection covers the token and it has a look of its own for that: its fill is drawn over the selection's
+  /// highlight, which would otherwise lie over it.
+  pub(crate) over_selection: bool,
+  /// The range is no text but a box of this width and height that stands on the baseline of its row: its glyph
+  /// draws nothing and takes the box's width, and the row is as high as its tallest box asks. What an object of
+  /// a styled input is laid out as ([`InputObjectBox`]).
+  pub(crate) object: Option<(f32, f32)>,
+}
+
+/// An icon at the end of a token, drawn in the room its padding keeps for it.
+#[derive(Clone, PartialEq)]
+pub(crate) struct TokenIcon {
+  /// The glyph's text, family, size and color.
+  pub(crate) style: TextStyle,
+  pub(crate) glyph: char,
+  pub(crate) size: f32,
+  /// The room from the icon to the end of the fill.
+  pub(crate) inset: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TextLines {
   pub(crate) underline: bool,
   pub(crate) strikethrough: bool,
+}
+
+/// The room a row keeps after a box that is as wide as it can be, for the caret that stands there.
+pub(crate) const OBJECT_CARET_ROOM: f32 = 2.0;
+
+/// Where the box of a range that is an object stands ([`TokenChip::object`]): the byte its range starts at, and
+/// its place in the coordinates the glyphs and the carets have.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct InputObjectBox {
+  pub(crate) byte: usize,
+  pub(crate) x: f32,
+  pub(crate) y: f32,
+  pub(crate) width: f32,
+  pub(crate) height: f32,
+  row: usize,
 }
 
 #[derive(Clone, PartialEq)]
@@ -62,6 +119,74 @@ pub(crate) struct InputConfig {
   pub(crate) width: f32,
   pub(crate) min_width: f32,
   pub(crate) wrap: bool,
+  /// How each hard paragraph of a wrapped input is laid out, in order, where the input has kinds of paragraphs;
+  /// a paragraph past the end of it, and every one of an input without kinds, is laid out in `base` from the
+  /// start of the input.
+  pub(crate) paragraphs: Vec<ParagraphFormat>,
+  /// Rows are as high as the line height of the type says, whatever the font's own line is: a font whose ascent
+  /// and descent are more than the line draws past it, as in CSS. A paragraph with a kind is laid out so, for a
+  /// kind's rows to be the same in every font; any other row is never lower than its font's line.
+  pub(crate) exact_rows: bool,
+}
+
+impl InputConfig {
+  /// The size of the box the style `token` is, where it is one: its own, or with a width that is more than the
+  /// row's, as wide as the row and as high as keeps its shape. The row keeps the room of a caret after its
+  /// widest box, so that the caret after a box as wide as the row is inside the input and seen.
+  pub(crate) fn object_size(&self, token: usize) -> Option<(f32, f32)> {
+    let (width, height) = self.styles.get(token)?.chip.object?;
+    let (width, height) = (width.max(0.0), height.max(0.0));
+    let room = (self.width - OBJECT_CARET_ROOM).max(0.0);
+    if width > room && room.is_finite() && width > 0.0 {
+      return Some((room, height * (room / width)));
+    }
+    Some((width, height))
+  }
+
+  fn has_objects(&self) -> bool {
+    self.styles.iter().any(|style| style.chip.object.is_some())
+  }
+}
+
+/// How one hard paragraph is laid out and what is drawn before it.
+#[derive(Clone, PartialEq)]
+pub(crate) struct ParagraphFormat {
+  /// The paragraph's type, in place of the input's.
+  pub(crate) base: TextStyle,
+  /// The room before its text.
+  pub(crate) indent: f32,
+  /// The room between it and the paragraph before.
+  pub(crate) gap_before: f32,
+  pub(crate) marker: ParagraphMark,
+  /// A fill behind the paragraph, across the input: its color and the radius of its corners.
+  pub(crate) fill: Option<(Color, f32)>,
+  /// Whether the paragraph before is of the same kind: a bar and a fill then go on from it as one.
+  pub(crate) continues: bool,
+}
+
+/// What stands in the room before a paragraph's text. Only a styled input has kinds of paragraphs, and those
+/// come with the `markdown` feature.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+pub(crate) enum ParagraphMark {
+  None,
+  /// A dot `size` across, centred on the first row, ending `gap` before the text.
+  Dot {
+    size: f32,
+    gap: f32,
+    color: Color,
+  },
+  /// A text in the paragraph's type, ending `gap` before the text.
+  Text {
+    text: Arc<str>,
+    gap: f32,
+    color: Color,
+  },
+  /// A bar `width` wide from the start of the input, as high as the paragraph.
+  Bar {
+    width: f32,
+    color: Color,
+  },
 }
 
 #[derive(Clone, Copy)]
@@ -89,6 +214,8 @@ pub(crate) struct InputFragment {
   pub(crate) height: f32,
   pub(crate) color: Color,
   pub(crate) radius: f32,
+  /// The token's fill the rectangle is, with its edge; `None` for a line under or through text.
+  pub(crate) token: Option<(usize, Option<(f32, Color)>)>,
   row: usize,
 }
 
@@ -107,6 +234,8 @@ pub struct DecoratedInputLayout {
   pub(crate) glyphs: Vec<InputGlyph>,
   pub(crate) fragments: Vec<InputFragment>,
   pub(crate) carets: Vec<InputCaret>,
+  /// The boxes of the ranges that are objects, in the order they were laid out.
+  pub(crate) objects: Vec<InputObjectBox>,
   rows: Vec<InputRow>,
   intervals: Vec<ClusterInterval>,
   pub(crate) size: Size,
@@ -124,6 +253,8 @@ struct InputRow {
   left: f32,
   width: f32,
   rtl: bool,
+  /// The room before the row's text that its paragraph keeps.
+  indent: f32,
 }
 
 impl DecoratedInputLayout {
@@ -134,6 +265,7 @@ impl DecoratedInputLayout {
       glyphs: Vec::new(),
       fragments: Vec::new(),
       carets: Vec::new(),
+      objects: Vec::new(),
       rows: Vec::new(),
       intervals: Vec::new(),
       size: Size::default(),
@@ -236,6 +368,14 @@ impl GlyphEngine {
     } else {
       Cow::Owned(config.source.replace(['\r', '\n'], " "))
     };
+    // A box has no type of its own: where the text has one, it is given the ascent and the descent of the
+    // input's, whatever font would have drawn the character it stands for.
+    let object_band = if config.has_objects() {
+      let base = config.base.clone();
+      self.line_ascent_descent(&base)
+    } else {
+      None
+    };
     let mut buffer = self.input_paragraphs(config, &presentation);
     let mut offset = 0;
     let mut prepared = Vec::new();
@@ -246,7 +386,7 @@ impl GlyphEngine {
         Some(shape) => shape,
         None => line.shape(&mut self.font_system, 8),
       };
-      rows::paragraph(&mut prepared, shape, offset, bytes, &output.config);
+      rows::paragraph(&mut prepared, shape, offset, bytes, &output.config, object_band);
       let ending = offset + bytes..offset + bytes + line.ending().as_str().len();
       rows::set_ending(&mut prepared, ending.clone());
       offset = ending.end;

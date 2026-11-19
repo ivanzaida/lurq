@@ -1,7 +1,7 @@
 use std::{
   collections::{HashMap, HashSet},
   sync::OnceLock,
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::{
@@ -9,7 +9,7 @@ use super::{
   interpolate::write_property,
   keyframes::{KeyframeEntry, Keyframes, KeyframesId},
 };
-use crate::core::NodeId;
+use crate::{core::NodeId, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnimationDirection {
@@ -249,6 +249,34 @@ fn start_time(in_phase: bool, direction: AnimationDirection, duration: Duration,
   now - Duration::from_nanos(late)
 }
 
+/// A full turn about the middle of the element: [`SPIN`](crate::ui::SPIN).
+fn spin() -> Keyframes {
+  use super::interpolate::AnimatableProperty;
+  use crate::node::transform::Decomposed;
+  Keyframes::new(crate::ui::SPIN)
+    .frame(0.0, |frame| {
+      frame.set(AnimatableProperty::Transform, Decomposed::IDENTITY);
+    })
+    .frame(1.0, |frame| {
+      frame.set(
+        AnimatableProperty::Transform,
+        Decomposed::IDENTITY.with_rotate_deg(360.0),
+      );
+    })
+}
+
+/// The opacity going from `from` to `to`: [`FADE_IN`](crate::ui::FADE_IN), [`FADE_OUT`](crate::ui::FADE_OUT).
+fn fade(id: KeyframesId, from: f32, to: f32) -> Keyframes {
+  use super::interpolate::{AnimatableProperty, AnimatableValue};
+  Keyframes::new(id)
+    .frame(0.0, |frame| {
+      frame.set(AnimatableProperty::Opacity, AnimatableValue::Float(from));
+    })
+    .frame(1.0, |frame| {
+      frame.set(AnimatableProperty::Opacity, AnimatableValue::Float(to));
+    })
+}
+
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
@@ -256,6 +284,9 @@ pub struct AnimationEngine {
   next_change: Option<Instant>,
   /// Keyframes whose runs play on the process's animation clock: see [`Self::register_keyframes_in_phase`].
   in_phase: HashSet<KeyframesId>,
+  /// Nodes that came back while they left, and how much of the animation they enter with is to be taken as played:
+  /// as much as was left of the exit they were playing (`Self::turn_round`).
+  resumed: HashMap<NodeId, f32>,
   pub has_active: bool,
 }
 
@@ -267,14 +298,43 @@ impl Default for AnimationEngine {
 
 impl AnimationEngine {
   pub fn new() -> Self {
-    Self {
+    let mut engine = Self {
       active: HashMap::new(),
       keyframe_store: HashMap::new(),
       seen: HashSet::new(),
       next_change: None,
       in_phase: HashSet::new(),
+      resumed: HashMap::new(),
       has_active: false,
+    };
+    // What lurq's own components play: a full turn, for a spinner; a fade in and out, for a panel over the window.
+    engine.register_keyframes_in_phase(spin());
+    engine.register_keyframes(fade(crate::ui::FADE_IN, 0.0, 1.0));
+    engine.register_keyframes(fade(crate::ui::FADE_OUT, 1.0, 0.0));
+    // A toast coming in and leaving.
+    for keyframes in crate::ui::toast_keyframes() {
+      engine.register_keyframes(keyframes);
     }
+    // A spinner's dots and bars, and a skeleton's pulse and sheen: in phase, so that all of them move as one.
+    for keyframes in crate::ui::spinner_keyframes()
+      .into_iter()
+      .chain(crate::ui::skeleton_keyframes())
+    {
+      engine.register_keyframes_in_phase(keyframes);
+    }
+    // A progress that does not know how far it is: the room before its segment, and the segment.
+    for keyframes in crate::ui::progress_keyframes() {
+      engine.register_keyframes_in_phase(keyframes);
+    }
+    // A one-time code's caret blinking: from when its cell takes the focus, as a text input's starts on each move.
+    for keyframes in crate::ui::input_otp_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
+    // A sheet sliding in from an edge of the window and out to it.
+    for keyframes in crate::ui::sheet_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
+    engine
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {
@@ -308,9 +368,37 @@ impl AnimationEngine {
   /// from its beginning, even one of the keyframes it already played.
   pub(crate) fn forget_node(&mut self, node: NodeId) {
     self.active.retain(|(id, _), _| *id != node);
+    // A node that came back while it left and leaves again before it has entered goes on leaving from where it was:
+    // as much of its exit is played as is left of the enter it was to go on with.
+    if let Some(done) = self.resumed.get_mut(&node) {
+      *done = 1.0 - *done;
+    }
+  }
+
+  /// The nodes `nodes`, which were leaving, come back: each exit stops where it is, and the animation the node
+  /// enters with plays from as far in as the exit had left to go, so that what fades in goes on from where it
+  /// faded out to.
+  pub(crate) fn turn_round(&mut self, nodes: &[NodeId], now: Instant) {
+    let nodes: HashSet<NodeId> = nodes.iter().copied().collect();
+    let mut resumed = Vec::new();
+    self.active.retain(|(node, _), run| {
+      if !nodes.contains(node) {
+        return true;
+      }
+      let played = if run.finished || run.duration.is_zero() {
+        1.0
+      } else {
+        let elapsed = now.saturating_duration_since(run.start_time + run.delay);
+        (elapsed.as_secs_f32() / run.duration.as_secs_f32()).clamp(0.0, 1.0)
+      };
+      resumed.push((*node, 1.0 - played));
+      false
+    });
+    self.resumed.extend(resumed);
   }
 
   pub(crate) fn clear_state(&mut self) {
+    self.resumed.clear();
     self.active.clear();
     self.seen.clear();
     self.next_change = None;
@@ -334,6 +422,8 @@ impl AnimationEngine {
   pub(crate) fn finish_frame(&mut self) {
     let seen = &self.seen;
     self.active.retain(|(node_id, _), _| seen.contains(node_id));
+    // A node that came back with no animation to enter with has nothing to go on from.
+    self.resumed.retain(|node_id, _| seen.contains(node_id));
     self.has_active = self.active.values().any(|run| !run.finished);
   }
 
@@ -356,7 +446,8 @@ impl AnimationEngine {
   }
 
   fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {
-    if !node.prepare_layout_tracking().timeline {
+    // Only where an animation plays: a subtree of transitions alone has nothing for this engine.
+    if !node.prepare_layout_tracking().animations {
       return false;
     }
     #[cfg(test)]
@@ -393,6 +484,12 @@ impl AnimationEngine {
     };
 
     let in_phase = self.in_phase.contains(&spec.keyframes);
+    // A node that came back while it left enters from as far in as its exit had left to go.
+    let done = if self.active.contains_key(&key) {
+      None
+    } else {
+      self.resumed.remove(&node_id)
+    };
     let run = self.active.entry(key).or_insert_with(|| AnimationRun {
       keyframes: spec.keyframes,
       duration: spec.duration,
@@ -401,7 +498,10 @@ impl AnimationEngine {
       direction: spec.direction,
       fill_mode: spec.fill_mode,
       iteration_count,
-      start_time: start_time(in_phase, spec.direction, spec.duration, now),
+      start_time: match done {
+        Some(done) => now.checked_sub(spec.duration.mul_f32(done) + spec.delay).unwrap_or(now),
+        None => start_time(in_phase, spec.direction, spec.duration, now),
+      },
       finished: false,
     });
 

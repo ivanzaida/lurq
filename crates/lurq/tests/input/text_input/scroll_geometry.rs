@@ -15,12 +15,15 @@ fn config(source: &str, wrap: bool) -> InputConfig {
     width: 300.0,
     min_width: 300.0,
     wrap,
+    paragraphs: Vec::new(),
+    exact_rows: false,
     styles: vec![TokenStyle {
       range: start..start + 14,
       text: base,
       padding: 3.0,
       fill: None,
       lines: Default::default(),
+      chip: Default::default(),
     }],
   }
 }
@@ -102,13 +105,14 @@ fn input_tokens_context_empty_intermediate_span_keeps_public_shaped_order() {
     .map(|glyph| signature(&glyph))
     .collect();
   let mut prepared = Vec::new();
-  rows::paragraph(&mut prepared, &shape, 0, raw.len(), &config);
+  rows::paragraph(&mut prepared, &shape, 0, raw.len(), &config, None);
   let mut output = DecoratedInputLayout {
     config,
     revision: 0,
     glyphs: Vec::new(),
     fragments: Vec::new(),
     carets: Vec::new(),
+    objects: Vec::new(),
     rows: Vec::new(),
     intervals: Vec::new(),
     size: Size::default(),

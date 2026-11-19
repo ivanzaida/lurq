@@ -19,7 +19,11 @@ pub(super) enum SpansBeforeEdit {}
 
 pub(super) type SnapshotSpans = Infallible;
 
-pub(super) enum InsertedText {}
+pub(super) type SnapshotParagraphs = Infallible;
+
+pub(super) type SnapshotObjects = Infallible;
+
+pub(super) struct InsertedText<'a>(std::marker::PhantomData<&'a ()>, Infallible);
 
 impl TextInputState {
   #[inline]
@@ -43,9 +47,9 @@ impl TextInputState {
     &self,
     _edit: Option<SpansBeforeEdit>,
     _range: Range<usize>,
-    inserted: &InsertedText,
+    inserted: &InsertedText<'_>,
   ) {
-    match *inserted {}
+    match inserted.1 {}
   }
 
   #[inline]
@@ -53,8 +57,64 @@ impl TextInputState {
     match spans {}
   }
 
-  /// What copying the selection puts on the clipboard: the selected text.
+  #[inline]
+  pub(super) fn current_paragraphs(&self) -> Option<SnapshotParagraphs> {
+    None
+  }
+
+  #[inline]
+  pub(super) fn restore_paragraphs(&self, kinds: SnapshotParagraphs) {
+    match kinds {}
+  }
+
+  #[inline]
+  pub(super) fn current_objects(&self) -> Option<SnapshotObjects> {
+    None
+  }
+
+  #[inline]
+  pub(super) fn restore_objects(&self, objects: SnapshotObjects) {
+    match objects {}
+  }
+
+  /// No input has objects without the `markdown` feature.
+  #[inline]
+  pub(super) fn object_ranges(&self) -> Vec<Range<usize>> {
+    Vec::new()
+  }
+
+  #[inline]
+  pub(super) fn object_at_point(&self, _x: f32, _y: f32) -> Option<Range<usize>> {
+    None
+  }
+
+  #[inline]
+  pub(super) fn begin_object_resize(&self, _x: f32, _y: f32) -> bool {
+    false
+  }
+
+  #[inline]
+  pub(super) fn drag_object_resize(&self, _x: f32) -> bool {
+    false
+  }
+
+  #[inline]
+  pub(crate) fn end_object_resize(&self) {}
+
+  #[inline]
+  pub(super) fn hover_object_handle(&self, _point: Option<(f32, f32)>) {}
+
+  #[inline]
+  pub(crate) fn object_handle_hovered(&self) -> bool {
+    false
+  }
+
+  /// What copying the selection puts on the clipboard: the selected text. Nothing while the input is masked, as a
+  /// password field copies nothing.
   pub(crate) fn clipboard_selection(&self) -> Option<String> {
+    if self.is_masked() {
+      return None;
+    }
     self.selected_text()
   }
 

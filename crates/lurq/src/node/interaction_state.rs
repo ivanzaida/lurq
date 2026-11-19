@@ -15,6 +15,12 @@ struct InteractionStateInner {
   focus_visible: bool,
   drag_over: bool,
   disabled: bool,
+  /// The interaction group the node is in is under the pointer or holds the focus.
+  within: bool,
+  /// The interaction group the node is in is under the pointer.
+  within_hovered: bool,
+  /// The interaction group the node is in is held down.
+  within_pressed: bool,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
 }
@@ -88,32 +94,89 @@ impl InteractionState {
   }
 
   pub(crate) fn set_disabled(&self, val: bool) {
-    self.shared_inner().lock().unwrap().disabled = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(&inner, inner.disabled != val);
+    inner.disabled = val;
+  }
+
+  /// The interaction group the node is in (`interaction_group`) is under the pointer, or the focus is in it:
+  /// what a part shown only then (`within_style`) reads. Paint only.
+  pub fn is_within(&self) -> bool {
+    self.inner.get().is_some_and(|inner| inner.lock().unwrap().within)
+  }
+
+  /// The interaction group the node is in is under the pointer: what a part styled by the group's hover
+  /// (`within_hovered_style`) reads. Paint only.
+  pub fn is_within_hovered(&self) -> bool {
+    self
+      .inner
+      .get()
+      .is_some_and(|inner| inner.lock().unwrap().within_hovered)
+  }
+
+  /// The interaction group the node is in is held down: what a part styled by the group's press
+  /// (`within_pressed_style`) reads. Paint only.
+  pub fn is_within_pressed(&self) -> bool {
+    self
+      .inner
+      .get()
+      .is_some_and(|inner| inner.lock().unwrap().within_pressed)
+  }
+
+  /// Lights the node by its interaction group (`within`), with whether the group is under the pointer and held
+  /// down, or puts it out with `within` false. Whether any of them changed.
+  pub(crate) fn set_within(&self, within: bool, hovered: bool, pressed: bool) -> bool {
+    let mut inner = self.shared_inner().lock().unwrap();
+    let (hovered, pressed) = (within && hovered, within && pressed);
+    let changed = inner.within != within || inner.within_hovered != hovered || inner.within_pressed != pressed;
+    note_change(&inner, changed);
+    inner.within = within;
+    inner.within_hovered = hovered;
+    inner.within_pressed = pressed;
+    changed
+  }
+
+  /// Whether `other` is a handle of this same state.
+  pub(crate) fn same(&self, other: &Self) -> bool {
+    match (self.inner.get(), other.inner.get()) {
+      (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+      _ => false,
+    }
   }
 
   pub(crate) fn set_drag_over(&self, val: bool) {
-    self.shared_inner().lock().unwrap().drag_over = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(&inner, inner.drag_over != val);
+    inner.drag_over = val;
   }
 
   pub(crate) fn set_hovered(&self, val: bool) {
-    self.shared_inner().lock().unwrap().hovered = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(&inner, inner.hovered != val);
+    inner.hovered = val;
   }
 
   pub(crate) fn set_active(&self, val: bool) {
-    self.shared_inner().lock().unwrap().active = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(&inner, inner.active != val);
+    inner.active = val;
   }
 
   /// Losing focus also loses focus-visible.
   pub(crate) fn set_focused(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
+    let focus_visible = inner.focus_visible && val;
+    note_change(&inner, inner.focused != val || inner.focus_visible != focus_visible);
     inner.focused = val;
-    inner.focus_visible &= val;
+    inner.focus_visible = focus_visible;
   }
 
   /// Only a focused state can be focus-visible.
   pub(crate) fn set_focus_visible(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
-    inner.focus_visible = val && inner.focused;
+    let focus_visible = val && inner.focused;
+    note_change(&inner, inner.focus_visible != focus_visible);
+    inner.focus_visible = focus_visible;
   }
 
   /// Binds `watch` only if the shared state exists: layout tracks every node,
@@ -222,5 +285,13 @@ mod tests {
     second.set_active(false);
     second.set_drag_over(false);
     assert_eq!(state.layout_states(), [false; 5]);
+  }
+}
+
+/// Notes a change of the state on the nodes it is bound to and their ancestors, where it changed: a state style is
+/// painted without a layout, and a transition engine ticks again only the way to what changed.
+fn note_change(inner: &InteractionStateInner, changed: bool) {
+  if changed {
+    inner.layout_subscribers.mark_tick();
   }
 }

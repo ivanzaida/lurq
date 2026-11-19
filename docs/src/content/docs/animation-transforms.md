@@ -10,7 +10,7 @@ description: Transitions, keyframe animations, easing, animatable properties, an
 - transitions, which animate a property when its target value changes,
 - keyframe animations, which play a registered sequence on a node.
 
-Both systems are owned by `Tree` and tick during the normal runtime pass. While either engine has active timelines, the shell asks for a frame each time they next draw something else (see [Frame Pacing](#frame-pacing)).
+Both systems are owned by `Tree` and tick during the normal runtime pass. While either engine has active timelines, the shell asks for a frame each time they next draw something else (see [Frame Pacing](#frame-pacing)). What neither can move, an app steps itself in a callback run once a frame (see [Your Own Frames](#your-own-frames)).
 
 ## Transitions
 
@@ -59,8 +59,9 @@ Transition builders include:
 | `Transition::box_shadow()` | Animate the [box shadows](../styling-events/#box-shadows) |
 
 Colors, border widths and shadows given as theme roles (`PaletteColor`, `BorderSize`, `ShadowStyle`) are read against
-the theme, so they animate like concrete values; a role whose value changes, when the theme changes, runs the
-transition too.
+the theme, so they animate like concrete values. A role whose value changes because the theme does, a window that
+turns dark, a palette color the app sets, is at its new value at once, as everything else in the window is: a
+transition is for what the element does itself, a state it enters or a style set on it.
 
 - The foreground, the outline and the box shadow are painted only: a transition of them lays nothing out.
 - An outline that appears grows in from no width and no opacity at its own offset and color, and one that goes away
@@ -69,6 +70,11 @@ transition too.
 - Box shadows animate shadow by shadow, as in CSS: one with no partner in the other list comes from, or goes to,
   nothing where it is. A list in which a shadow turns from outer to inset changes halfway, and a list of more than four
   shadows changes at once.
+- A background, a border color, a foreground or an offset runs between two values, not from none and not to none. An
+  element with no fill at rest and one in its `hovered` style has the fill at once when the pointer comes and loses it
+  at once when the pointer goes. A run on its way when the value goes away (the fill fading from the pressed one back
+  to the hovered one, and the pointer leaves) ends there and then, and the next value the element gets is there at
+  once. For a fade both ways give the element the value at rest too: a fill with no opacity, `Color::new(0, 0, 0, 0)`.
 
 `duration(...)`, `duration_ms(...)`, `delay(...)`, `delay_ms(...)`, `easing(...)`, and `linear()` configure timing.
 
@@ -94,6 +100,9 @@ app.theme().set_reduced_motion(Some(true));
   blur, radii and border widths.
 - Keyframe animations are the app's and are not changed. Read `ctx.reduced_motion()`, which renders the component again
   when the setting changes, to hold back one that moves or to show a fade in its place.
+- A callback of [`ctx.on_frame`](#your-own-frames) is the app's too and goes on running: what it moves is for the app
+  to hold back.
+- A notch of a mouse's wheel scrolls at once, where it is otherwise [animated](../styling-events/#the-mouse-wheel).
 - Linux and other platforms have no setting every desktop shares, so lurq reads none there: motion is reduced only when
   the app says so with `set_reduced_motion`.
 - A tree without a window, as in a test, never reads the system: its motion does not depend on the machine.
@@ -206,7 +215,11 @@ no exit animation in it is gone with the pass that closes it, as before.
   is in it.
 - It keeps its place among the other layers: a popup closed inside a dialog leaves over the dialog, and a layer under
   another stays under it.
-- Opening the layer again while it leaves mounts it anew: the new one enters over the one still leaving.
+- Opening the layer again while it leaves takes it back: the layer of the same key, or else the one the same element
+  declared, ends its leaving and is the layer open, the same element with its ids, so there is one of it, never one
+  entering over one leaving. What had the focus in it has it again, its scroll and what was typed in it are kept,
+  and what it enters with goes on from where its exit had got to: a fade out at 75 % turns into a fade in from 75 %.
+  A popover, a dialog, a sheet, a menu, a tooltip and a hover card pressed open again while they go all do so.
 - A popup that is hidden because its anchor scrolled out of view is still open, so it does not leave: it is gone at
   once and comes back with its anchor.
 - Outside a layer an exit animation plays for a child of a container with `.presence()`: see
@@ -236,7 +249,14 @@ for task in &tasks {
 - It stays where it was among its siblings and in flow: the ones after it do not move until it is gone. An exit
   animation of its `Height` or `Width` to zero lets them close the gap as it leaves.
 - Like a leaving layer it is only painted: no pointer, focus or Tab, and no lookup finds it. A child of the same key
-  added again while it leaves is a new one, beside it.
+  or id added again while it leaves ends its leaving and is the child added: the same element, with its ids, its
+  scroll and what was typed in it, and the focus it had, so the two are never there together, and what it enters
+  with goes on from where its exit had got to. A panel opened again while its rows fade out holds its rows once,
+  and a banner or a drawer shown again while it goes is there once.
+- What wants the one coming back to be another, entering beside the one still leaving, gives it a key of its own
+  each time it is shown: `.key(format!("saved-{shown}"))`, with `shown` counted up by the app. A
+  [toast](../design-system/#toast) does so: each `Toasts::show` is a toast of its own, so one shown again while the
+  same one leaves comes in beside it.
 - The elements inside it leave with their own exit animations too, and the child is gone when the longest ends.
 - It works wherever the container is: in the page, in a component that renders by itself, in a popup or a dialog.
 - A container without `.presence()` drops a removed child at once, whatever the child's animations. A list that
@@ -284,6 +304,45 @@ A minimized window, or one that macOS reports occluded, draws no animation frame
 
 A shell that drives `Tree::pass` itself does the same with `Tree::next_timeline_change()`: after a pass that only animated, `Tree::needs_redraw()` is false, and the next frame is due at that time.
 
+## Your Own Frames
+
+A transition and a keyframe animation move what lurq can interpolate. What an app steps itself (a spring, a body with physics, the inertia of a drag, a game or a simulation on a canvas, a value that follows another) needs to be called once for each frame the window draws, in step with the display. `ctx.on_frame` is that call, lurq's `requestAnimationFrame`:
+
+```rust
+use lurq::app::ctx::{Ctx, Frame, FrameCallback};
+
+fn create(ctx: &mut Ctx) -> Self {
+  let x = ctx.signal(0.0_f32);
+  let frames = ctx.on_frame({
+    let x = x.clone();
+    let mut speed = 240.0_f32;
+    move |frame: Frame| {
+      // The time since the frame before, in seconds: the step does not depend on the display's rate.
+      let next = x.get_untracked() + speed * frame.delta_secs();
+      if !(0.0..=300.0).contains(&next) {
+        speed = -speed;
+      }
+      x.set(next.clamp(0.0, 300.0));
+      true // another frame
+    }
+  });
+  Self { x, frames }
+}
+```
+
+- **What it is told.** `Frame::time` is the frame's time on the runtime's clock, the time the frame's animations are drawn at. `Frame::delta` is the time since the frame this callback last ran for (`delta_secs()` gives it in seconds), and zero on its first frame.
+- **When it runs.** At the start of the frame, before the window is rendered and laid out, as `requestAnimationFrame` runs before a browser's layout: a signal it sets is in the frame it ran for, not the next. It runs once in every frame the window draws while it is active, a frame drawn for an input or a timer too, so count time by `delta` and not by calls. The window's callbacks run first, then the components', parents before children.
+- **When it stops.** When it returns `false`, when its handle is cancelled (`FrameCallback::cancel()`), and when its component unmounts. `FrameCallback::start()` starts a stopped one again, with a delta of zero on its first frame; `is_active()` says whether it runs. A spring that came to rest returns `false`, and the handler that gives it somewhere to go calls `start()`.
+- **What it costs.** While any callback of a window runs, the window draws a frame at every refresh of its display, each laid out and painted whole, whether or not the callback changed anything: a callback that runs is a continuous animation to the [frame pacing](#frame-pacing), paced by the same rule and through the same `Tree::next_timeline_change()`. With none running nothing is drawn for them and the loop sleeps. Stop what has nothing to move.
+- **Beside a video.** A playing video's frames are drawn from a list the window keeps, with no layout, when nothing else changed. A frame a callback runs for is always laid out, so what it moves keeps the display's pace beside a video.
+- **A hidden window.** Callbacks are paused while the window is minimized or occluded, as animations are. The first frame after it shows again has a delta of zero, as a first frame: a simulation does not jump by the time it was not seen. `Frame::time` is the clock's own and has moved on. A frame the machine was late for while the window was shown is given its real delta; clamp it where a long step would break the integration (`frame.delta_secs().min(1.0 / 30.0)`).
+- **Reduced motion** does not stop it: what a callback moves is the app's. Read `ctx.reduced_motion()` to move less, or to set the end value at once.
+- **Where it is called.** In `Component::create`, as a timer is: the callback is the component's until it unmounts, and the struct keeps the handle if it stops or starts it. Called in `render`, it is the callback of that place in the render, as a `ctx.future` is: every render puts its closure in place of the last one's and keeps whether it runs and when it last ran, and a render that no longer makes the call drops it. A component kept off the stage runs none.
+- **Outside a component.** `WindowHandle::on_frame` (`ctx.window().on_frame(..)`, or a handle kept from one) does the same for that window with no component behind it: a game loop the app keeps beside its tree. The window holds the callback until it stops, and `start()` gives it back. There is no `App::on_frame`: frames belong to a window, and each window has its display's rate.
+- **Not an `Interval`.** A timer fires on the event loop's clock, between frames or twice in one, and is not paused with the window: use it for what happens every so often. `WgpuFrameExtension::wants_redraw` of a [`GpuViewport`](../gpu-viewport/) keeps frames coming for what an extension draws on the card; it calls no code of the app's tree.
+
+In a test a callback runs on the tree's clock: `Tree::set_animation_clock(Some(at))` before each `Tree::pass` gives it `time` and `delta` exactly, with no sleep.
+
 ## Animatable Properties
 
 The animation engine supports color, float, and decomposed transform values:
@@ -307,8 +366,13 @@ The supported properties are:
 - `BorderRadiusTopLeft`, `BorderRadiusTopRight`, `BorderRadiusBottomRight`, `BorderRadiusBottomLeft`
 - `OffsetX`, `OffsetY`
 - `Width`, `Height`
+- `BorderDash`
 - `Opacity`
 - `Transform`
+
+A width or a height in percent is animated as a share of the parent's (`AnimatableValue::Percent`): a transition or a keyframe moves it from one share to another, and between a share and pixels it changes at once. The dash and the gap of a border are one value (`Transition::border_dash()`), so one dash that makes part of an outline stays one dash on its way: the arc of a ring.
+
+A height the content decides is one too: a transition of `Height` between a height in pixels and none runs to, and from, the height of the content, which the layout reads as it goes; a panel opens from `height(0.0)` to no height and closes back.
 
 `Width`, `Height`, `OffsetX`, and `OffsetY` can invalidate layout while they animate. `Opacity` and `Transform` are paint-only in normal use. While an element's opacity is below 1, a subtree that paints more than one primitive is drawn into an offscreen layer every frame (see [Opacity](../styling-events/#opacity)); fading a large panel costs one layer of its size.
 

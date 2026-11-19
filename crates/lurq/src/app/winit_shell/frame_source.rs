@@ -8,12 +8,10 @@
 //!   timeline changes and waits for the next refresh like any other, with no pacing of the shell's own on top, which
 //!   went by a refresh rate the monitor reports as 60 Hz on a display that runs at 120.
 
-use std::time::Instant;
-
 use winit::{event::WindowEvent, window::Window};
 
 use super::frame_pacing::{FramePacing, PresentedFrame};
-use crate::app::Tree;
+use crate::{app::Tree, time::Instant};
 
 #[derive(Default)]
 pub(super) struct FrameSource {
@@ -69,6 +67,14 @@ impl FrameSource {
     self
       .pacing
       .request_frame(tree, || super::frame_pacing::refresh_interval(window), now);
+  }
+
+  /// A turn of the loop that asks for no paced frame, since a video's frames are presented by themselves: the tree
+  /// is still told whether the window can be seen, and a window that shows again draws a frame.
+  pub(super) fn see_window(&mut self, tree: &mut Tree) {
+    if self.pacing.see_window(tree).1 {
+      tree.request_redraw();
+    }
   }
 
   /// Whether the shell is to present a frame in this turn of the loop, without waiting for an event: the

@@ -10,23 +10,25 @@ The repo has focused Rust tests under `crates/lurq/tests`. They are the best ref
 ## Run Tests
 
 ```powershell
-cargo test -p lurq --features resources
+cargo test -p lurq --features markdown,mcp
 ```
 
-With feature combinations:
+lurq's default features (the desktop set) are on in every command here unless it says `--no-default-features`.
+With the other feature combinations:
 
 ```powershell
-cargo test -p lurq --features "image svg resources devtools"
-cargo test -p lurq --features "winit wgpu image svg resources devtools clipboard"
+cargo test -p lurq --features "http devtools"
+cargo check -p lurq --no-default-features
+cargo check -p lurq --no-default-features --features winit,wgpu --tests
 ```
 
 The combinations above do not enable every subsystem. Check feature-specific behavior explicitly:
 
 ```powershell
-cargo test -p lurq --features query,tokio --test query_tests
-cargo test -p lurq --features form,router,persistent_storage,i18n --lib --tests
+cargo test -p lurq --features tokio --test query_tests
+cargo test -p lurq --features persistent_storage --lib --tests
 cargo test -p lurq --all-features --doc
-cargo test -p lurq --features canvas --test canvas_tests
+cargo test -p lurq --test canvas_tests
 cargo check --workspace --all-features --all-targets --locked
 ```
 
@@ -35,7 +37,7 @@ The publish workflow in `.github/workflows/publish-crates.yml` defines release v
 On Windows, the render readback tests draw into a hidden window of their own and compare both native backends with CSS blending and with the box-shadow formula; the box-shadow capture check runs a themed scene through layout and both backends and requires identical captures:
 
 ```powershell
-cargo test -p lurq --features wgpu,dx12,raster,screenshot --lib readback -- --ignored --test-threads=1
+cargo test -p lurq --features dx12,screenshot --lib readback -- --ignored --test-threads=1
 cargo run -p lurq --example box_shadow_capture_check --features screenshot,wgpu,dx12
 ```
 
@@ -143,7 +145,7 @@ synthetic_input::apply(
 );
 ```
 
-A synthetic `Ctrl+V` (`SyntheticInput::key_down("v")` with `ctrl`) is refused: it never reads the person's clipboard, and no paste event fires. A test of a person's `Ctrl+V` installs a clipboard of its own with `tree.set_clipboard_reader(Some(Arc::new(reader)))`, a `lurq::app::ClipboardReader` with `read_text()` (what a paste no handler looks at reads) and `read()` (everything, for a paste an `on_paste` handler looks at); the OS clipboard is never touched.
+A synthetic `Ctrl+V` (`SyntheticInput::key_down("v")` with `ctrl`) is refused: it never reads the person's clipboard, and no paste event fires. A test of a person's `Ctrl+V` installs a clipboard of its own with `tree.set_clipboard_reader(Some(Arc::new(reader)))`, a `lurq::app::ClipboardReader` with `read_text()` (what a paste no handler looks at reads) and `read()` (everything, for a paste an `on_paste` handler looks at); the OS clipboard is never touched. A copy (`Ctrl+C` in a text input, or a [copy event](../styling-events/#copy)'s text) goes to `tree.set_clipboard_writer(Some(Arc::new(writer)))`, a `lurq::app::ClipboardWriter` whose `write_text(&str)` the test reads back.
 
 Files are dragged with `tree.file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` (physical pixels, as the pointer methods take), or their synthetic forms `SyntheticInput::file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)`. `DraggedPaths::from_paths(paths)` looks each path up once to tell folders from files; `DraggedPaths::new([DroppedPath::with_kind(path, true)])` marks a folder that does not exist. A drop without an enter first enters at the same point.
 
@@ -187,7 +189,7 @@ use lurq::{
 let surface = Color::from_hex("#1e293b");
 let select = ElementRef::new();
 let mut app = App::new();
-app.theme().set_palette_color(PaletteColor::SurfaceInput, surface);
+app.theme().set_palette_color(PaletteColor::Background, surface);
 let mut tree = Tree::new();
 tree.set_root(Select::new(Signal::new(1)).options([(1, "One")]).ref_element(select.clone()));
 tree.pass_headless(&mut app);
@@ -201,6 +203,26 @@ assert_eq!(trigger_fill, Some(surface));
 ```
 
 Quads are the draw list before text shaping and batching; the render snapshot helpers above show the batched rects and glyphs a render engine receives.
+
+## A Canvas's Pixels
+
+A canvas drawn on the GPU has no pixels a headless test can read. `tree.set_software_canvases(true)`, before the canvas is first laid out, draws every canvas of the tree on the CPU, as `Canvas::software()` draws one; then `CanvasHandle::snapshot()` has its pixels at once. It is for a canvas the test does not build itself, a chart's plot:
+
+```rust
+use lurq::{app::{App, Tree}, components::Canvas};
+
+let mut app = App::new();
+let mut tree = Tree::new();
+tree.set_software_canvases(true);
+tree.set_root(Canvas::new().width(64.0).height(32.0).id("plot"));
+tree.pass_headless(&mut app);
+
+let canvas = tree.get_element_by_id_mut("plot").and_then(|element| element.canvas()).unwrap();
+let shot = canvas.snapshot().try_take().unwrap().unwrap();
+assert_eq!((shot.width, shot.height), (64, 32));
+```
+
+The snapshot's pixels are RGBA, not premultiplied, a row after another, at the canvas's scale.
 
 ## Input Methods
 

@@ -1,5 +1,6 @@
 //! Focus-visible: a focus ring for keyboard focus only, like CSS `:focus-visible`.
 
+#[allow(deprecated)]
 use lurq::{
   app::{Tree, events::MouseButton, theme::BorderSize},
   components::{Button, Checkbox, Column, Slider, TextInput},
@@ -198,6 +199,7 @@ fn a_clicked_text_input_is_focus_visible() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn checkbox_box_focused_style_is_keyboard_only() {
   let mut tree = Tree::new();
   tree.set_root(

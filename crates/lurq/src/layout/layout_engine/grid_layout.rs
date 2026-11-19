@@ -192,6 +192,7 @@ impl LayoutEngine {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         }),
       });
     }
@@ -218,7 +219,7 @@ impl LayoutEngine {
           offset: if child.is_overlay_declaration() {
             Offset::default()
           } else {
-            Self::apply_relative_position(child, offset)
+            Self::apply_relative_position(child, offset, result.size)
           },
           result,
         }
@@ -233,6 +234,7 @@ impl LayoutEngine {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     }
   }
 }

@@ -8,6 +8,11 @@ use crate::{
 
 impl_into_node!(Text);
 
+/// The character that stands for an object in a text: U+FFFC, the object replacement character. In a rich text it
+/// is where an element stands in the line ([`Text::object`]); in a styled input, where an `InlineObject` is
+/// (feature `markdown`). One with nothing for it is a character like any other.
+pub const OBJECT_CHARACTER: char = '\u{FFFC}';
+
 impl Text {
   pub fn new(content: &str) -> Self {
     Self::from_node(crate::node::Node::text(content))
@@ -15,6 +20,73 @@ impl Text {
 
   pub fn styled(content: &str, style: TextStyle) -> Self {
     Self::from_node(crate::node::Node::text_styled(content, style))
+  }
+
+  /// A paragraph of runs, each in a style of its own: a word in another weight, a run in another color. It is
+  /// laid out, wrapped, drawn and selected as one text.
+  ///
+  /// ```
+  /// use lurq::{
+  ///   components::Text,
+  ///   layout::{quad::RichTextSpan, text_style::{FontWeight, TextStyle}},
+  /// };
+  ///
+  /// let body = TextStyle { font_size: 14.0, ..TextStyle::default() };
+  /// let bold = TextStyle { weight: FontWeight::Bold, ..body.clone() };
+  /// let line = Text::rich([
+  ///   RichTextSpan::new("Saved ", body.clone()),
+  ///   RichTextSpan::new("3 files", bold),
+  ///   RichTextSpan::new(" to the folder.", body),
+  /// ]);
+  /// ```
+  pub fn rich(spans: impl IntoIterator<Item = crate::layout::quad::RichTextSpan>) -> Self {
+    Self::from_node(crate::node::Node::rich_text(spans.into_iter().collect()))
+  }
+
+  /// The element that stands in the paragraph's line at its next object: a span of a [`Text::rich`] that is one
+  /// [`OBJECT_CHARACTER`](super::OBJECT_CHARACTER)
+  /// ([`RichTextSpan::object`](crate::layout::quad::RichTextSpan::object)). The first call gives the first object,
+  /// the next the second, in the order of the text.
+  ///
+  /// The element is laid out by itself, no wider than the paragraph, and the object takes its width in the line:
+  /// it wraps with the words as one of them, and the line keeps the height of its text, with the element on the
+  /// middle of it. Unlike an input's objects ([`TextInput::objects`](super::TextInput::objects)) it is an
+  /// element like any other: a press, the focus and the pointer reach what is in it, Tab stops at what it holds
+  /// in the order of the text, and tooling reads it. A mention, a chip, a picture among the words, an inline
+  /// link preview. A paragraph whose objects stand above or below its lines draws them whole.
+  ///
+  /// ```
+  /// use lurq::{
+  ///   components::{Column, Text},
+  ///   layout::{quad::RichTextSpan, text_style::TextStyle},
+  /// };
+  ///
+  /// let body = TextStyle { font_size: 14.0, ..TextStyle::default() };
+  /// let sentence = Text::rich([
+  ///   RichTextSpan::new("The gaps are explained in ", body.clone()),
+  ///   RichTextSpan::object(body.clone()),
+  ///   RichTextSpan::new(" — read it before the review.", body),
+  /// ])
+  /// .object(Column::new().width(120.0).height(20.0));
+  /// ```
+  pub fn object(mut self, element: impl Into<crate::node::Element>) -> Self {
+    let element = element.into();
+    self.update_node(|node| {
+      if matches!(node.node_kind(), crate::node::node_kind::NodeKind::RichText { .. }) {
+        node.push_child_element(element);
+        // What stands over or under the line is drawn whole.
+        crate::node::NodeUpdate::overflow_visible(node);
+      }
+    });
+    self
+  }
+
+  /// The elements of the paragraph's objects, in the order of the text: [`Text::object`] for each.
+  pub fn objects(mut self, elements: impl IntoIterator<Item = impl Into<crate::node::Element>>) -> Self {
+    for element in elements {
+      self = self.object(element);
+    }
+    self
   }
 
   pub fn nowrap(mut self) -> Self {

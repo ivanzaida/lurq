@@ -22,6 +22,7 @@ use crate::{
   core::{ElementRef, Signal},
   layout::{StackAlignment, layout_kind::ScrollState},
   node::{Element, color::Color, dimension::Dimension, transform::Transform2D},
+  ui::{Recipe, Themed, engine_look::EngineLook, names},
 };
 
 const FILL: Dimension = Dimension::Pct(100.0);
@@ -50,7 +51,19 @@ pub enum SheetDetent {
   Content,
 }
 
-/// How a [`Sheet`] looks and moves. The values it starts with were set by eye beside the platform's.
+/// How a [`Sheet`] looks and moves. Its sizes and its motion were set by eye beside the platform's. Its colors
+/// come from the theme, through the recipe it keeps under the name `phone_sheet` ([`SheetNode`] names the parts):
+/// the design's roles, light or dark as the theme is, and the colors of 0.62 in
+/// [`ThemeDefinition::legacy`](crate::app::theme::ThemeDefinition::legacy). They are read where the style is made,
+/// in the theme of what is being built.
+///
+/// ```
+/// use lurq::{app::theme::{PaletteColor, ThemeDefinition}, components::{SheetNode, SheetStyle}};
+///
+/// // Every sheet of the app on the card's color.
+/// let mut theme = ThemeDefinition::neutral();
+/// theme.ui.patch::<SheetStyle>(|rules| rules.base(SheetNode::Panel, |s| s.background(PaletteColor::Card)));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SheetStyle {
   /// The sheet's own color. A sheet that draws all of itself has a clear one and no radius.
@@ -80,15 +93,22 @@ pub struct SheetStyle {
   pub throw: f32,
 }
 
+/// The colors of 0.62's sheet: what the legacy theme gives, and what a theme with no recipe for the sheet keeps.
+const LEGACY_BACKGROUND: Color = Color::new(255, 255, 255, 255);
+const LEGACY_BACKDROP: Color = Color::new(0, 0, 0, 255);
+const LEGACY_DIM: f32 = 0.3;
+const LEGACY_GRABBER: Color = Color::new(60, 60, 67, 77);
+
 impl Default for SheetStyle {
   fn default() -> Self {
+    let look = EngineLook::of::<Self>(&[]);
     Self {
-      background: Color::from_hex("#FFFFFF"),
+      background: look.background(SheetNode::Panel, LEGACY_BACKGROUND),
       corner_radius: 20.0,
-      backdrop: Color::from_hex("#000000"),
-      dim: 0.3,
+      backdrop: look.background(SheetNode::Backdrop, LEGACY_BACKDROP),
+      dim: look.opacity(SheetNode::Backdrop, LEGACY_DIM),
       grabber: false,
-      grabber_color: Color::new(60, 60, 67, 77),
+      grabber_color: look.background(SheetNode::Grabber, LEGACY_GRABBER),
       grabber_width: 36.0,
       grabber_height: 5.0,
       grabber_top: 5.0,
@@ -100,25 +120,68 @@ impl Default for SheetStyle {
   }
 }
 
+impl Themed for SheetStyle {
+  const NAME: &'static str = "phone_sheet";
+  type Renderer = ();
+
+  /// The design's colors (`pencil/lurq-design-system.pen`, Mobile/Bottom Sheet): the panel on the background,
+  /// its grabber in the color of an input's edge, and the window behind under the scrim, which carries its own
+  /// alpha, all of it shown.
+  fn recipe() -> Recipe {
+    use crate::app::theme::PaletteColor::{Background, Input, Scrim};
+    Recipe::new()
+      .base(SheetNode::Panel, |s| s.background(Background))
+      .base(SheetNode::Grabber, |s| s.background(Input))
+      .base(SheetNode::Backdrop, |s| s.background(Scrim).opacity(1.0))
+  }
+}
+
 impl SheetStyle {
+  /// The sheet in the colors of the theme of what is being built.
   pub fn new() -> Self {
     Self::default()
   }
 
-  /// The platform's dark colors.
+  /// 0.62's colors: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the sheet.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Recipe::new()
+      .base(SheetNode::Panel, |s| s.background(LEGACY_BACKGROUND))
+      .base(SheetNode::Grabber, |s| s.background(LEGACY_GRABBER))
+      .base(SheetNode::Backdrop, |s| {
+        s.background(LEGACY_BACKDROP).opacity(LEGACY_DIM)
+      })
+  }
+
+  /// The platform's dark colors of 0.62.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the dark colors: `SheetStyle::new()` built in a dark theme is dark"
+  )]
   pub fn dark() -> Self {
     Self {
       background: Color::from_hex("#1C1C1E"),
       grabber_color: Color::new(235, 235, 245, 77),
+      backdrop: LEGACY_BACKDROP,
       dim: 0.5,
       ..Self::default()
     }
   }
 
-  /// The platform's sheet for an appearance: `ctx.window().system.appearance`, or the theme's.
+  /// The platform's sheet of 0.62 for an appearance.
+  #[deprecated(
+    since = "0.63.0",
+    note = "the theme's appearance gives the colors: `SheetStyle::new()` is light or dark as the theme is"
+  )]
+  #[allow(deprecated)]
   pub fn for_appearance(appearance: crate::app::window::Appearance) -> Self {
     match appearance {
-      crate::app::window::Appearance::Light => Self::new(),
+      crate::app::window::Appearance::Light => Self {
+        background: LEGACY_BACKGROUND,
+        grabber_color: LEGACY_GRABBER,
+        backdrop: LEGACY_BACKDROP,
+        dim: LEGACY_DIM,
+        ..Self::default()
+      },
       crate::app::window::Appearance::Dark => Self::dark(),
     }
   }
@@ -147,6 +210,29 @@ impl SheetStyle {
 /// What makes a sheet's content when the sheet builds it itself.
 type SheetContent = Arc<dyn Fn(&mut Ctx) -> Element + Send + Sync>;
 
+/// A node a sheet draws itself, which [`SheetProps::dress`] is given, and a part of the recipe of
+/// [`SheetStyle`]'s colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetNode {
+  /// What is drawn over the window behind the sheet. The sheet sets how much of it shows: in the recipe, the
+  /// part's opacity.
+  Backdrop,
+  /// The sheet itself: what is behind its content, reaching under the window's bottom edge.
+  Panel,
+  /// The bar at the sheet's top that says it can be dragged.
+  Grabber,
+}
+
+names!(SheetNode {
+  Backdrop => "backdrop",
+  Panel => "panel",
+  Grabber => "grabber",
+});
+
+/// What dresses the nodes a sheet draws itself: the look of a design system's sheet in place of the colors of
+/// [`SheetStyle`].
+pub type SheetDress = Arc<dyn Fn(SheetNode, Column) -> Column + Send + Sync>;
+
 #[derive(Clone)]
 pub struct SheetProps {
   open: Signal<bool>,
@@ -154,9 +240,15 @@ pub struct SheetProps {
   detent: Option<Signal<usize>>,
   style: SheetStyle,
   dismissable: bool,
+  /// Whether Escape puts the sheet away, where it is not as [`SheetProps::dismissable`] says.
+  escape: Option<bool>,
+  takes_focus: bool,
+  dress: Option<SheetDress>,
   scroll: Option<ScrollState>,
   /// What makes the content, for a sheet whose content is made in it ([`Sheet::mount_with`]).
   content: Option<SheetContent>,
+  /// What a person putting the sheet away calls, in order: see [`SheetProps::on_dismiss`].
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl PartialEq for SheetProps {
@@ -171,12 +263,25 @@ impl PartialEq for SheetProps {
       && self.detent.as_ref().map(Signal::id) == other.detent.as_ref().map(Signal::id)
       && self.style == other.style
       && self.dismissable == other.dismissable
+      && self.escape == other.escape
+      && self.takes_focus == other.takes_focus
+      && match (&self.dress, &other.dress) {
+        (None, None) => true,
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        _ => false,
+      }
       && same_scroll
       && match (&self.content, &other.content) {
         (None, None) => true,
         (Some(a), Some(b)) => Arc::ptr_eq(a, b),
         _ => false,
       }
+      && self.on_dismiss.len() == other.on_dismiss.len()
+      && self
+        .on_dismiss
+        .iter()
+        .zip(&other.on_dismiss)
+        .all(|(a, b)| Arc::ptr_eq(a, b))
   }
 }
 
@@ -194,8 +299,12 @@ impl SheetProps {
       detent: None,
       style: SheetStyle::default(),
       dismissable: true,
+      escape: None,
+      takes_focus: false,
+      dress: None,
       scroll: None,
       content: None,
+      on_dismiss: Vec::new(),
     }
   }
 
@@ -224,6 +333,35 @@ impl SheetProps {
   /// down only when its signal is cleared.
   pub fn dismissable(mut self, dismissable: bool) -> Self {
     self.dismissable = dismissable;
+    self
+  }
+
+  /// Whether Escape puts the sheet away, over what [`SheetProps::dismissable`] says of it.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.escape = Some(dismiss);
+    self
+  }
+
+  /// Whether the focus goes into the sheet as it comes up, to its first stop of Tab, and back to what had it
+  /// as it goes down, as `Modal::takes_focus` has it. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
+    self
+  }
+
+  /// What dresses the nodes the sheet draws itself, the backdrop, the panel and the grabber, after the sheet
+  /// has given them their place and the colors of its style: a design system's edge, corners, colors and
+  /// shadow. The sheet still says how much of the backdrop shows and where the panel is.
+  pub fn dress(mut self, dress: impl Fn(SheetNode, Column) -> Column + Send + Sync + 'static) -> Self {
+    self.dress = Some(Arc::new(dress));
+    self
+  }
+
+  /// What runs after a person put the sheet away, its signal set to `false` first: a finger dragging it down
+  /// and away, a tap beside it, Escape wherever the focus is. Not when the app clears the signal. A second
+  /// handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
     self
   }
 
@@ -311,6 +449,10 @@ pub(crate) struct SheetScroll(pub(crate) Arc<Mutex<Option<ScrollState>>>);
 /// No finger has the sheet.
 const NO_DRAG: f32 = f32::MIN;
 
+/// The engine's phone sheet: a panel that comes up from the bottom over the window, stands at its detents and
+/// follows a finger. It is what [`ui::Sheet`](crate::ui::Sheet) builds its bottom sheet on; an app normally wants
+/// that, or [`ui::Drawer`](crate::ui::Drawer), which are drawn in the design system's recipes. This one draws
+/// itself in [`SheetStyle`]'s colors, or in what [`SheetProps::dress`] makes of its nodes.
 pub struct Sheet {
   state: Arc<Mutex<State>>,
   changed: Signal<u64>,
@@ -442,7 +584,9 @@ impl Component for Sheet {
     let at = detent.get().min(props.detents.len() - 1);
 
     let window = ctx.window();
-    let (room, safe_area) = (window.logical_height(), window.safe_area);
+    // A sheet over the whole window is laid out under the title bar the app draws, as every modal is.
+    let room = (window.logical_height() - window.title_bar_inset()).max(0.0);
+    let safe_area = window.safe_area;
     let large = room - safe_area.top - style.top_margin;
 
     let mut state = self.state.lock();
@@ -564,16 +708,22 @@ impl Component for Sheet {
     };
     drop(state);
 
-    let backdrop = Row::new()
-      .size(FILL, FILL)
-      .background(style.backdrop)
+    let dress = |node: SheetNode, column: Column| match &props.dress {
+      Some(dress) => dress(node, column),
+      None => column,
+    };
+    let backdrop = Column::new().size(FILL, FILL).background(style.backdrop);
+    let backdrop = dress(SheetNode::Backdrop, backdrop)
       .opacity(style.dim * up)
       .transition(Transition::opacity().duration(pace).easing(curve))
       .on_click({
-        let (open, dismissable) = (props.open.clone(), props.dismissable);
+        let (open, dismissable, told) = (props.open.clone(), props.dismissable, props.on_dismiss.clone());
         move |_| {
           if dismissable {
             open.set(false);
+            for handler in &told {
+              handler();
+            }
           }
         }
       });
@@ -605,13 +755,14 @@ impl Component for Sheet {
           .padding_top(style.grabber_top)
           .justify(crate::layout::layout_kind::Justify::Center)
           .pointer_events_none()
-          .child(
-            Row::new()
+          .child(dress(
+            SheetNode::Grabber,
+            Column::new()
               .width(style.grabber_width)
               .height(style.grabber_height)
               .rounded(style.grabber_height / 2.0)
               .background(style.grabber_color),
-          ),
+          )),
       );
     }
 
@@ -622,7 +773,8 @@ impl Component for Sheet {
       .height(room + UNDER)
       .background(style.background)
       .rounded(style.corner_radius)
-      .clip()
+      .clip();
+    let panel = dress(SheetNode::Panel, panel)
       .child(body)
       .opacity(if reduce_motion && away { 0.0 } else { 1.0 })
       .transform(Transform2D::translate(0.0, top))
@@ -634,6 +786,7 @@ impl Component for Sheet {
         let (state, drag, changed) = (self.state.clone(), self.drag.clone(), self.changed.clone());
         let (open, detent, settle) = (props.open.clone(), detent.clone(), self.settle.clone());
         let (told, found, dismissable) = (props.scroll.clone(), self.scroll.clone(), props.dismissable);
+        let dismissed = props.on_dismiss.clone();
         move |event: PanEvent| {
           let mut state = state.lock();
           match event.phase {
@@ -707,7 +860,12 @@ impl Component for Sheet {
               match goes.0 {
                 Some(index) if index != at => detent.set(index),
                 Some(_) => changed.update(|version| *version += 1),
-                None => open.set(false),
+                None => {
+                  open.set(false);
+                  for handler in &dismissed {
+                    handler();
+                  }
+                }
               }
             }
           }
@@ -719,9 +877,22 @@ impl Component for Sheet {
       .stack_align(StackAlignment::TopCenter)
       .child(backdrop)
       .child(panel);
-    let mut modal = Modal::new(layer).open_when(true).target(Root);
-    modal = if props.dismissable {
-      modal.dismisses(props.open.clone())
+    let mut modal = Modal::new(layer)
+      .open_when(true)
+      .target(Root)
+      .takes_focus(props.takes_focus);
+    modal = if props.escape.unwrap_or(props.dismissable) {
+      let told = props.on_dismiss.clone();
+      let modal = modal.dismisses(props.open.clone());
+      if told.is_empty() {
+        modal
+      } else {
+        modal.on_dismiss(move || {
+          for handler in &told {
+            handler();
+          }
+        })
+      }
     } else {
       modal.dismiss_on_escape(false)
     };
@@ -757,7 +928,8 @@ impl Component for Sheet {
   }
 }
 
-/// How the content of a [`SheetHost`] draws back behind a sheet that takes all the room.
+/// How the content of a [`SheetHost`] draws back behind a sheet that takes all the room. Its color comes from the
+/// theme, through the recipe it keeps under the name `phone_sheet_host` ([`SheetHostPart`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SheetHostStyle {
   /// How small the content gets: a share of its size. 1 leaves it as it is.
@@ -768,12 +940,43 @@ pub struct SheetHostStyle {
   pub background: Color,
 }
 
+/// The parts of the recipe of [`SheetHostStyle`]'s colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetHostPart {
+  /// What is seen around the content as it draws back.
+  Root,
+}
+
+names!(SheetHostPart { Root => "root" });
+
+/// What is seen around a window's content drawn back behind a sheet, in 0.62 and in the design alike.
+const HOST_BLACK: Color = Color::new(0, 0, 0, 255);
+
+impl Themed for SheetHostStyle {
+  const NAME: &'static str = "phone_sheet_host";
+  type Renderer = ();
+
+  /// Black around the content in the light look and in the dark one, as the platform's: the board draws no
+  /// host, and no role is the color of a screen with nothing lit.
+  fn recipe() -> Recipe {
+    Recipe::new().base(SheetHostPart::Root, |s| s.background(HOST_BLACK))
+  }
+}
+
+impl SheetHostStyle {
+  /// 0.62's color: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the host.
+  pub(crate) fn legacy_recipe() -> Recipe {
+    Self::recipe()
+  }
+}
+
 impl Default for SheetHostStyle {
   fn default() -> Self {
+    let look = EngineLook::of::<Self>(&[]);
     Self {
       scale: 0.92,
       corner_radius: 12.0,
-      background: Color::from_hex("#000000"),
+      background: look.background(SheetHostPart::Root, HOST_BLACK),
     }
   }
 }
