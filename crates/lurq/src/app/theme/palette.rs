@@ -23,7 +23,7 @@ macro_rules! palette {
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub enum PaletteColor {
       $( $(#[$doc])* $role, )*
-      $( #[deprecated(since = "0.62.0", note = $note)] $old, )*
+      $( #[deprecated(since = "0.63.0", note = $note)] $old, )*
       /// An application-defined color stored in [`ThemePalette::extra`].
       Extra(Arc<str>),
     }
@@ -51,7 +51,7 @@ macro_rules! palette {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct ThemePalette {
       $( $(#[$doc])* pub $field: Color, )*
-      $( #[deprecated(since = "0.62.0", note = $note)] pub $old_field: Color, )*
+      $( #[deprecated(since = "0.63.0", note = $note)] pub $old_field: Color, )*
       pub extra: HashMap<Arc<str>, Color>,
     }
 
