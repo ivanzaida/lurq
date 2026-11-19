@@ -6387,7 +6387,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `label(&str)` | What the calendar is called to tooling: its panel is then a `group`. Each month is a `grid` called by its month whatever it says |
 | `previous_label(&str)`, `next_label(&str)` | What the buttons of the heading are called: "Previous month" and "Next month" in English |
 | `on_change(Fn(Date))`, `on_change(Fn(DateRange))` | Told of another date chosen, or another range ended, with it; bound to a signal, the value is set already. Not for what is chosen already, nor for the app setting the value. A second handler is called after the first |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the id with `-day-` and the date after it: `due-day-2026-11-12`; a weekday's head `-weekday-` and its English short name (`due-weekday-mon`); the buttons `-nav-previous` and `-nav-next`; its other parts `-` and the part's name (see [ids of parts](#ids-of-parts)) |
 
 - The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `DateMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
 - Its text (the title of a month, the heads of the weekdays, what a day and the buttons are called) is one [`DateText`](../dates/#how-an-app-writes-its-dates): its own `.locale(..)`, else the app's `app.set_date_locale(..)`, else English. The app's is read where the calendar is built in a render, mounted or not, and a change of it builds the calendar again.
@@ -6534,7 +6534,7 @@ EventCalendar::new(chosen.clone(), events)
 | `previous_label(&str)`, `next_label(&str)`, `today_label(&str)`, `more_text(Fn(usize) -> String)` | The names of its buttons, in place of the locale's, and what stands for the events not shown, in place of "+N more" |
 | `disabled(bool)` | It takes no input |
 | `label(&str)` | What its box is called to tooling, which is then a `group` |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the calendar's id with its date after it (`team-2026-11-12`), the buttons with `-previous`, `-next` and `-today`, a day's "+N more" with `-more-` and the date |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the calendar's id with `-day-` and its date after it (`team-day-2026-11-12`), the buttons with `-nav-previous`, `-nav-next` and `-today`, a day's "+N more" with `-more-` and the date; its other parts `-` and the part's name, by the date where there is one of each day (see [ids of parts](#ids-of-parts)) |
 | `mount(ctx)` | The calendar where it is declared: it keeps the period it shows, and follows the chosen day to its period when the app sets it to a day that is not shown. Converted (`.into()`) it keeps nothing, and its buttons show no other period unless the app gives it `shown` |
 
 | Event | |
@@ -6898,7 +6898,7 @@ YearPicker::new(year.clone()).min(1900).mount(ctx);
 | `memory(&DateMemory)`, `mount(ctx)` | The year shown, between renders |
 | `label`, `invalid`, `disabled` | Its name to tooling, which makes the panel a `group`; a field's judgment; no input |
 | `on_change(Fn(V))` | Told of another month chosen; not for the one chosen, nor for the app setting it |
-| `state`, `style`, `rules`, `force`, `id`, `key` | Each month has the id with the month after it: `due-2026-11`; the buttons `-previous` and `-next` |
+| `state`, `style`, `rules`, `force`, `id`, `key` | Each month has the id with `-cell-` and the month after it: `due-cell-2026-11` (a year picker's year `due-cell-2026`); the buttons `-nav-previous` and `-nav-next` |
 
 - `ui::YearPicker` is one of years: `YearPicker::new(Signal<i32>)` and the same builder over `i32`, twelve years from the start of a decade (`2020 – 2031`), the buttons going ten years, called `Previous years` and `Next years`.
 - To the keyboard the cells are one stop of Tab, at the chosen one, this one or the first that can be chosen: Left and Right go one, Up and Down four (a row), Home and End to the ends of the row, PageUp and PageDown a page (a year of months, ten years), into the page before or after, which is then shown. Enter and Space choose. To what reads the tree the cells are a `grid` called by its heading, of `gridcell`s that say `a11y_selected`, `a11y_current` and `a11y_disabled`.

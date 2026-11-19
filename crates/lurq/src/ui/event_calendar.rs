@@ -1004,18 +1004,13 @@ impl EventCalendarView {
     }
   }
 
-  /// The id of an element of the calendar: its own id with `suffix` after it.
-  fn id_of(&self, suffix: &str) -> Option<String> {
-    self.id.as_ref().map(|id| format!("{id}-{suffix}"))
-  }
-
   /// A button that shows the period before (`by` -1) or after (1): an outline button of an icon, as a calendar's,
   /// called by what it does.
   pub fn nav(&self, by: i32) -> Element {
     let (given, icon, suffix) = if by < 0 {
-      (&self.previous_label, icons::CHEVRON_LEFT, "nav-previous")
+      (&self.previous_label, icons::CHEVRON_LEFT, "previous")
     } else {
-      (&self.next_label, icons::CHEVRON_RIGHT, "nav-next")
+      (&self.next_label, icons::CHEVRON_RIGHT, "next")
     };
     let label = given.as_deref().map_or_else(
       || match (self.period, by < 0) {
@@ -1041,7 +1036,8 @@ impl EventCalendarView {
       .disabled(self.disabled)
       .rules(&rules)
       .on_click(move |_: MouseEvent| model.turn(by));
-    if let Some(id) = self.id_of(suffix) {
+    // Named by its side, whether the id is the component's own or one it was lent.
+    if let Some(id) = self.recipe.keyed_id(EventCalendarPart::Nav, suffix) {
       button = button.id(id);
     }
     button.build(self.theme())

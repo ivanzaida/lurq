@@ -963,11 +963,6 @@ impl CalendarView {
       .unwrap_or_else(|| self.months[0].first())
   }
 
-  /// The id of an element of the calendar: its own id with `suffix` after it.
-  fn id_of(&self, suffix: &str) -> Option<String> {
-    self.id.as_ref().map(|id| format!("{id}-{suffix}"))
-  }
-
   /// A button that shows the month before (`by` -1) or after (1), in the design's dress: an outline button of an
   /// icon, called by what it does. Disabled where that month is out of the range.
   pub fn nav(&self, by: i32) -> Element {
@@ -979,7 +974,7 @@ impl CalendarView {
           .as_deref()
           .map_or_else(|| self.locale.previous_month_label(), str::to_owned),
         icons::CHEVRON_LEFT,
-        "nav-previous",
+        "previous",
       )
     } else {
       (
@@ -988,7 +983,7 @@ impl CalendarView {
           .as_deref()
           .map_or_else(|| self.locale.next_month_label(), str::to_owned),
         icons::CHEVRON_RIGHT,
-        "nav-next",
+        "next",
       )
     };
     let first = self.months[0];
@@ -1011,7 +1006,8 @@ impl CalendarView {
       .disabled(self.disabled || out)
       .rules(&rules)
       .on_click(move |_: MouseEvent| month.set(month.get_untracked().add_months(by)));
-    if let Some(id) = self.id_of(suffix) {
+    // Named by its side, whether the calendar's id is its own or one it was lent.
+    if let Some(id) = self.recipe.keyed_id(CalendarPart::Nav, suffix) {
       button = button.id(id);
     }
     button.build(self.theme())

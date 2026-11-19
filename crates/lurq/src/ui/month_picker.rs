@@ -491,16 +491,12 @@ impl PeriodsView {
     self.recipe.theme()
   }
 
-  fn id_of(&self, suffix: &str) -> Option<String> {
-    self.id.as_ref().map(|id| format!("{id}-{suffix}"))
-  }
-
   /// A button of the heading: the page before (`by` -1) or after (1), a bare glyph in the design.
   pub fn nav(&self, by: i32) -> Element {
     let (label, icon, suffix, there) = if by < 0 {
-      (&self.previous_label, icons::CHEVRON_LEFT, "nav-previous", self.before)
+      (&self.previous_label, icons::CHEVRON_LEFT, "previous", self.before)
     } else {
-      (&self.next_label, icons::CHEVRON_RIGHT, "nav-next", self.after)
+      (&self.next_label, icons::CHEVRON_RIGHT, "next", self.after)
     };
     let rules = self
       .recipe
@@ -515,7 +511,8 @@ impl PeriodsView {
       .disabled(self.disabled || !there)
       .rules(&rules)
       .on_click(move |_: MouseEvent| model.turn(by));
-    if let Some(id) = self.id_of(suffix) {
+    // Named by its side, whether the id is the component's own or one it was lent.
+    if let Some(id) = self.recipe.keyed_id(MonthPickerPart::Nav, suffix) {
       button = button.id(id);
     }
     button.build(self.theme())

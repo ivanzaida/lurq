@@ -562,6 +562,13 @@ impl ResolvedRecipe {
     self.owner.as_ref()?.next(part.into())
   }
 
+  /// The id of the node of `part` told apart by `key` (`x-nav-previous`), for an element the renderer builds without
+  /// the part's style, or a component it gives the id to itself: what [`ResolvedPart::keyed`] names. `None` where the
+  /// component has no id, and for its root.
+  pub fn keyed_id(&self, part: impl Into<Name>, key: impl std::fmt::Display) -> Option<Arc<str>> {
+    self.owner.as_ref()?.keyed(part.into(), &key.to_string())
+  }
+
   /// Rules that lend `part` to a component built inside this one, given to it by its `rules`: the component, given
   /// no id of its own, takes `part`'s id (`x-close`) and names its parts after it. [`rules_for`](Self::rules_for)
   /// lends its part too. `part` may be a name that is no part of this recipe's: the inner component's own short
