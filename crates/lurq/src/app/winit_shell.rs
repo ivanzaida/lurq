@@ -1111,8 +1111,9 @@ impl ManagedWindow {
         }
       }
       WindowEvent::Resized(size) => {
-        // On iOS the event's size is the safe area's, and the tree is as large as the screen.
-        #[cfg(target_os = "ios")]
+        // On iOS the event's size is the safe area's, and the tree is as large as the screen. In a browser it can
+        // be the canvas's CSS size, not its pixels' (`surface_size`).
+        #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
         let size = self.window.as_ref().map_or(size, surface_size);
         self.tree.resize(size.width, size.height);
         self.sync_window_state();
@@ -2695,14 +2696,19 @@ impl ApplicationHandler for WinitHandler {
 fn surface_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
   #[cfg(target_os = "ios")]
   return window.outer_size();
-  // A canvas's size reaches winit from an observer: until it has run, the size is read from the page.
+  // A canvas's size reaches winit from an observer: until it has run, the size is read from the page. The
+  // observer's is taken when it agrees with the page's: it is the exact count of the canvas's pixels, where the
+  // page's is its CSS size times the ratio, rounded. It does not always agree: Chromium's device emulation tells
+  // the CSS size as the pixels', and a surface that size is stretched over the canvas, everything 1.5 times too
+  // large at a ratio of 1.5.
   #[cfg(target_arch = "wasm32")]
   {
     let size = window.inner_size();
-    if size.width == 0 || size.height == 0 {
-      return web::canvas_size(window).unwrap_or(size);
-    }
-    return size;
+    return match web::canvas_size(window) {
+      Some(page) if web::size_disagrees(size, page) => page,
+      Some(page) if size.width == 0 || size.height == 0 => page,
+      _ => size,
+    };
   }
   #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
   window.inner_size()

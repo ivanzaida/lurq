@@ -123,3 +123,10 @@ pub(super) fn canvas_size(window: &Window) -> Option<PhysicalSize<u32>> {
   let height = (f64::from(canvas.client_height()) * scale).round();
   (width >= 1.0 && height >= 1.0).then(|| PhysicalSize::new(width as u32, height as u32))
 }
+
+/// Whether winit's size of the canvas is not the page's: off by more than the rounding of a fractional ratio.
+pub(super) fn size_disagrees(winit: PhysicalSize<u32>, page: PhysicalSize<u32>) -> bool {
+  winit.width != 0
+    && winit.height != 0
+    && (winit.width.abs_diff(page.width) > 2 || winit.height.abs_diff(page.height) > 2)
+}
