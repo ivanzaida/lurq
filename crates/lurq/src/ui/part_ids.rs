@@ -122,8 +122,13 @@ impl fmt::Debug for Owner {
 ///
 /// [`ResolvedRecipe::rules_for`]: super::ResolvedRecipe::rules_for
 /// [`ResolvedRecipe::lend`]: super::ResolvedRecipe::lend
+///
+/// Shared, so that it adds a pointer and no more to every recipe of a builder.
 #[derive(Clone, Debug)]
-pub(crate) struct Lent {
+pub(crate) struct Lent(Arc<LentPart>);
+
+#[derive(Debug)]
+struct LentPart {
   owner: Owner,
   part: Name,
   /// Whether the part is lent to the other's root: the part the other stands for, over one lent to a part inside it.
@@ -132,13 +137,13 @@ pub(crate) struct Lent {
 
 impl Lent {
   pub(crate) fn new(owner: Owner, part: Name, to_root: bool) -> Self {
-    Self { owner, part, to_root }
+    Self(Arc::new(LentPart { owner, part, to_root }))
   }
 
   /// Of two lent parts, the one the other component stands for: the first one lent to its root, or the first one.
   pub(crate) fn over(first: Option<Lent>, second: Option<&Lent>) -> Option<Lent> {
     match (first, second) {
-      (Some(first), Some(second)) if !first.to_root && second.to_root => Some(second.clone()),
+      (Some(first), Some(second)) if !first.0.to_root && second.0.to_root => Some(second.clone()),
       (None, second) => second.cloned(),
       (first, _) => first,
     }
@@ -147,9 +152,10 @@ impl Lent {
   /// The owner the component lent the part is named by, rooted at `root`: the part's id, or, for the root of the
   /// component that lent it, that component's own id and its count, since what stands for a root is that root.
   pub(crate) fn owner(&self, root: Name) -> Option<Owner> {
-    if self.part == self.owner.root {
-      return Some(self.owner.rooted(root));
+    let LentPart { owner, part, .. } = &*self.0;
+    if *part == owner.root {
+      return Some(owner.rooted(root));
     }
-    self.owner.next(self.part).map(|id| Owner::new(id, root, false))
+    owner.next(*part).map(|id| Owner::new(id, root, false))
   }
 }
