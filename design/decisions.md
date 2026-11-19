@@ -11,6 +11,21 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-19
 
+### The browser's work, in this order, with text through an input method and a store in localStorage
+
+- **Question.** The sweep of the gallery in a browser (192 pages, WebGPU and WebGL2: no console error, every page
+  drawn; the notes of the session that made the browser supported) left a list of work. In what order, and does it
+  take two things the decision below did not name: text that comes through an input method, and the persistent
+  store?
+- **Decision (Ivan, 2026-11-19).** The order the session proposed ("Так, у цьому порядку"): the canvas's size and
+  scale; the size of the page and its first frame; fonts; the network; sound; files; then text through an input
+  method (a hidden field, as on iOS: "Так, у фазі 2"); decoding pictures off the frame; the clipboard's pictures;
+  pointer, touch and pen; the persistent store over `localStorage` ("Зробити через localStorage"); the gallery's
+  own gaps. The fonts are Inter and JetBrains Mono, from their projects' releases, under the SIL Open Font
+  License, kept in the repository so that the web gallery can be put on a server. `wasm-opt` (binaryen) is not
+  downloaded: the size is what cargo's profile and wasm-bindgen make.
+- **State.** In work on `claude/browser-support-926cf3`.
+
 ### The browser becomes a supported platform
 
 - **Question.** The gallery builds for the browser (WebGPU, WebGL2 with `webgl`) and runs, but the browser was "a

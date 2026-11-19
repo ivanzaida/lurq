@@ -72,6 +72,8 @@ def serve(port):
   handler.extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm"}
   handler.log_message = lambda *args: None
   server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+  # A browser that is closed drops its connections: nothing to say.
+  server.handle_error = lambda *args: None
   threading.Thread(target=server.serve_forever, daemon=True).start()
   return server
 
