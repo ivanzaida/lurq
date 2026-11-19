@@ -355,6 +355,9 @@ impl ListItem {
     .state(ListItemState::Pressable, pressable)
     .state(ListItemState::Description, self.description.is_some())
     .state(ListItemState::Icon, matches!(self.lead, Some(Lead::Icon(_))));
+    let recipe = theme
+      .resolve::<ListItem>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let indicator = match &self.lead {
       Some(Lead::Checkbox(checked)) => Some(
         theme.resolve::<super::Checkbox>(
@@ -375,7 +378,9 @@ impl ListItem {
         ),
       ),
       _ => None,
-    };
+    }
+    // The box's parts are the row's, named after its id: `x-box`.
+    .map(|indicator| indicator.owned_like(&recipe));
     let press = self.press();
     let setting = case.states.contains(&Name::from(ListItemState::Setting));
     let view = ListItemView {
@@ -389,7 +394,7 @@ impl ListItem {
       selected: self.selected,
       disabled: self.disabled,
       link: self.href.is_some(),
-      recipe: theme.resolve::<ListItem>(&case, Some(&self.rules)),
+      recipe,
       indicator,
       toggle: match &self.lead {
         Some(Lead::Checkbox(on)) => Some(("checkbox", *on)),
@@ -1048,11 +1053,16 @@ impl List {
     .state(ListState::Contained, self.contained)
     .state(ListState::Separator, separators);
     let (contained, density, forced) = (self.contained, self.density, self.forced);
+    let recipe = theme
+      .resolve::<List>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    // A row with no id of its own is named after the list's: `x-item`, `x-item-2`.
+    let lent = recipe.lend("item");
     let items = self
       .items
       .into_iter()
       .map(|mut item| {
-        item = item.state(ListItemState::Contained, contained);
+        item = item.state(ListItemState::Contained, contained).rules(&lent);
         if item.density.is_none() {
           item.density = density;
         }
@@ -1070,7 +1080,7 @@ impl List {
       separators,
       inset: self.inset,
       label: self.label,
-      recipe: theme.resolve::<List>(&case, Some(&self.rules)),
+      recipe,
       id: self.id,
       key: self.key,
     };

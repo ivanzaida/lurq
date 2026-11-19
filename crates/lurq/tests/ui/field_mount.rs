@@ -200,9 +200,9 @@ fn a_month_picker_in_a_mounted_field_keeps_the_year_it_shows() {
   let value = Signal::new(YearMonth::new(2026, 2).unwrap());
   let bound = value.clone();
   let mut stage = mounted(move || Field::new("Month", MonthPicker::new(bound.clone()).id("mp")));
-  stage.click("mp-next");
+  stage.click("mp-nav-next");
   assert!(stage.paints("2027"));
-  stage.click("mp-2027-05");
+  stage.click("mp-cell-2027-05");
   assert_eq!(value.get_untracked(), YearMonth::new(2027, 5).unwrap());
 }
 
@@ -212,9 +212,9 @@ fn a_year_picker_in_a_mounted_field_keeps_the_years_it_shows() {
   let bound = value.clone();
   let mut stage = mounted(move || Field::new("Year", YearPicker::new(bound.clone()).id("yp")));
   assert!(stage.paints("2020 – 2031"));
-  stage.click("yp-next");
+  stage.click("yp-nav-next");
   assert!(stage.paints("2030 – 2041"));
-  stage.click("yp-2035");
+  stage.click("yp-cell-2035");
   assert_eq!(value.get_untracked(), 2035);
 }
 

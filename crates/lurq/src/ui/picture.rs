@@ -1745,14 +1745,29 @@ fn view(
     )
     .state(PictureState::On, on)
   };
-  let forms: Vec<PictureForm> = picture
-    .forms(theme, live.narrowed.get())
+  let sizes = picture.forms(theme, live.narrowed.get());
+  // Every form names its parts after the picture's id, counted together.
+  let owner = sizes.first().map(|(size, _)| {
+    theme
+      .resolve::<Picture>(&case(*size, false), Some(&picture.rules))
+      .owned_by(picture.id.as_ref())
+  });
+  let forms: Vec<PictureForm> = sizes
     .into_iter()
-    .map(|(size, bounds)| PictureForm {
-      size,
-      bounds,
-      recipe: theme.resolve::<Picture>(&case(size, false), Some(&picture.rules)),
-      on_recipe: theme.resolve::<Picture>(&case(size, true), Some(&picture.rules)),
+    .map(|(size, bounds)| {
+      let resolve = |on: bool| {
+        let recipe = theme.resolve::<Picture>(&case(size, on), Some(&picture.rules));
+        match &owner {
+          Some(owner) => recipe.owned_like(owner),
+          None => recipe,
+        }
+      };
+      PictureForm {
+        size,
+        bounds,
+        recipe: resolve(false),
+        on_recipe: resolve(true),
+      }
     })
     .collect();
   let id = |suffix: &str| picture.id.as_ref().map(|id| format!("{id}-{suffix}"));

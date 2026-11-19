@@ -202,7 +202,11 @@ fn a_press_or_the_keyboard_on_a_line_focuses_its_field() {
       .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
     stage.pass();
   }
-  assert!(focused(&stage).is_none(), "a line has the focus, and no id");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("summary-item"),
+    "the first line has the focus, named after the summary"
+  );
   stage.key("Enter");
   assert_eq!(focused(&stage).as_deref(), Some("name"));
 }

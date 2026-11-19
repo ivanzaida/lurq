@@ -4,8 +4,8 @@
 
 use lurq::{
   components::Column,
-  core::Signal,
-  ui::{Accordion, AccordionItem, Badge, Button, Callout, DataList, Progress, icons},
+  core::{Date, Signal},
+  ui::{Accordion, AccordionItem, Badge, Button, Callout, DataList, DatePicker, Progress, icons},
 };
 
 use super::stage::Stage;
@@ -139,4 +139,49 @@ fn the_ids_are_the_same_on_every_render() {
   stage.pass();
   assert!(stage.paints("Away"), "rendered again");
   assert_eq!(stage.ids(), first);
+}
+
+#[test]
+fn a_part_with_a_key_of_its_own_is_named_by_it_and_a_component_inside_by_its_own_name() {
+  let day = |number| Date::new(2026, 11, number).unwrap();
+  let value = Signal::new(Some(day(20)));
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 500.0)
+      .child(
+        DatePicker::new(value.clone())
+          .today(day(9))
+          .inline(true)
+          .id("due")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.pass();
+  let ids = stage.ids();
+  let has = |id: &str| ids.iter().any(|held| held == id);
+  for id in [
+    "due",
+    "due-trigger",
+    "due-trigger_icon",
+    "due-panel",
+    "due-calendar",
+    "due-calendar-title",
+    "due-calendar-nav-previous",
+    "due-calendar-nav-next",
+    "due-calendar-weekday-mon",
+    "due-calendar-weekday-sun",
+    "due-calendar-day-2026-11-20",
+    "due-calendar-day-2026-11-01",
+  ] {
+    assert!(has(id), "{id} in {ids:?}");
+  }
+  assert!(
+    !ids.iter().any(|id| id.starts_with("due-panel-calendar")),
+    "the calendar is named by its own name, not after the panel it is in: {ids:?}"
+  );
+  let mut unique = ids.clone();
+  unique.sort();
+  unique.dedup();
+  assert_eq!(unique.len(), ids.len(), "no id twice: {ids:?}");
 }

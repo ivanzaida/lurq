@@ -362,7 +362,9 @@ impl ProgressDialog {
       actions: self.actions.iter().map(|(label, _)| label.clone()).collect(),
       cancel_label: (!self.on_cancel.is_empty()).then_some(self.cancel_label),
       inline: self.inline,
-      recipe: theme.resolve::<ProgressDialog>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ProgressDialog>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       open: self.open,
       format: self.format,
       detail_signal: self.detail.map(|(_, open)| open),
@@ -704,6 +706,8 @@ impl crate::ui::Styled for ProgressDialog {
 
 impl Themed for ProgressDialog {
   const NAME: &'static str = "progress_dialog";
+  /// The id is the dialog's panel's.
+  const ROOT: &'static str = "panel";
   type Renderer = ProgressDialogRenderer;
 
   fn parts() -> crate::ui::Declared {

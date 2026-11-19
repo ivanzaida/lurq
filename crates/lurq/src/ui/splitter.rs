@@ -511,7 +511,9 @@ impl Splitter {
       grip: self.grip,
       disabled: self.disabled,
       label: self.label,
-      recipe: theme.resolve::<Splitter>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Splitter>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       specs,
       contents,
       keys,

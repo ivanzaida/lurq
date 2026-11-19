@@ -792,8 +792,13 @@ fn build_sidebar(
       }
     }
   }
+  // Every recipe of the build names its parts after the sidebar's id, counted together.
+  let owner = theme
+    .resolve::<Sidebar>(&Case::new(), Some(&sidebar.rules))
+    .owned_by(sidebar.id.as_ref());
   let build = Build {
     theme: theme.clone(),
+    owner,
     sidebar,
     collapsed,
     overlay,
@@ -859,6 +864,8 @@ impl From<Sidebar> for Element {
 /// What a render of a sidebar builds its groups and items with.
 struct Build<'a> {
   theme: Theme,
+  /// What every recipe of the build names its parts after.
+  owner: ResolvedRecipe,
   sidebar: &'a Sidebar,
   collapsed: bool,
   overlay: bool,
@@ -890,7 +897,10 @@ impl Build<'_> {
     for (state, on) in states {
       case = case.state(*state, *on);
     }
-    self.theme.resolve::<Sidebar>(&case, Some(&self.sidebar.rules))
+    self
+      .theme
+      .resolve::<Sidebar>(&case, Some(&self.sidebar.rules))
+      .owned_like(&self.owner)
   }
 
   /// Whether the list at `key` is open, kept from the first render, which starts it at `initial`.
@@ -1097,7 +1107,9 @@ impl Build<'_> {
       (SidebarState::Selected, selected),
       (SidebarState::Disabled, item.disabled),
       (SidebarState::Open, open),
-    ]);
+    ])
+    // An item the app gave an id names its parts after it.
+    .item(item.id.as_ref(), SidebarPart::Item);
     let part = |name: SidebarPart| recipe.part(name).forced(item.forced);
     let mut button = pressable(&part(SidebarPart::Item), item.disabled)
       .justify(if self.collapsed {
@@ -1695,7 +1707,11 @@ impl SidebarHeading {
     }
     .state(SidebarState::Collapsed, self.collapsed)
     .state(SidebarState::Pressable, pressed);
-    let recipe = theme.resolve::<Sidebar>(&case, Some(&self.rules));
+    // The id is on the heading's own part.
+    let recipe = theme
+      .resolve::<Sidebar>(&case, Some(&self.rules))
+      .owned_by(None)
+      .item(self.id.as_ref(), SidebarPart::Heading);
     let part = |name: SidebarPart| recipe.part(name);
     let mut children: Vec<Element> = Vec::new();
     match (self.media, self.icon) {

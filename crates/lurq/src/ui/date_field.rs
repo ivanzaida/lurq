@@ -412,10 +412,10 @@ impl<T: Segmented, V: FieldValue<T>> Segments<T, V> {
       .boxed
       .case(self.states.clone())
       .state(DateFieldState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<C>(&case, Some(&self.rules));
+    let recipe = theme.resolve::<C>(&case, Some(&self.rules)).owned_by(self.id.as_ref());
     let resolve: Resolve = {
-      let (theme, rules) = (theme.clone(), self.rules.clone());
-      Arc::new(move |case: &Case| theme.resolve::<C>(case, Some(&rules)))
+      let (theme, rules, owner) = (theme.clone(), self.rules.clone(), recipe.clone());
+      Arc::new(move |case: &Case| theme.resolve::<C>(case, Some(&rules)).owned_like(&owner))
     };
     #[cfg(feature = "form")]
     let form_value = value.get().map(|value| format!("{value:?}")).unwrap_or_default();

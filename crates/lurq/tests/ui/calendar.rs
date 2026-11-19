@@ -25,7 +25,7 @@ fn day(month: u8, day: u8) -> Date {
 
 /// The id of a day of the calendar `cal`.
 fn cell(month: u8, number: u8) -> String {
-  format!("cal-{}", day(month, number))
+  format!("cal-day-{}", day(month, number))
 }
 
 /// A stage of 640 by 420: room for the six weeks of a calendar, 336 high, and for two months side by side.
@@ -145,15 +145,15 @@ fn a_press_chooses_a_day_and_the_pointer_lights_one() {
 fn its_buttons_show_the_month_before_and_after_and_not_what_is_chosen() {
   let value = Signal::new(Some(day(11, 12)));
   let mut stage = single(&value, |calendar| calendar);
-  stage.click("cal-next");
+  stage.click("cal-nav-next");
   assert!(stage.paints("December 2026"));
   assert_eq!(
     value.get_untracked(),
     Some(day(11, 12)),
     "the month shown is not the value"
   );
-  stage.click("cal-previous");
-  stage.click("cal-previous");
+  stage.click("cal-nav-previous");
+  stage.click("cal-nav-previous");
   assert!(stage.paints("October 2026"));
 
   // The app's own month.
@@ -161,7 +161,7 @@ fn its_buttons_show_the_month_before_and_after_and_not_what_is_chosen() {
   let shown = month.clone();
   let mut stage = single(&value, move |calendar| calendar.month(shown.clone()));
   assert!(stage.paints("March 2027"));
-  stage.click("cal-next");
+  stage.click("cal-nav-next");
   assert_eq!(month.get_untracked(), YearMonth::new(2027, 4).unwrap());
   assert!(stage.paints("April 2027"));
 }
@@ -205,7 +205,7 @@ fn the_keys_move_by_a_day_a_week_and_a_month_and_choose() {
   press_key(&mut stage, "PageUp", true);
   assert_eq!(
     focused(&stage),
-    Some(format!("cal-{}", Date::new(2025, 12, 15).unwrap()))
+    Some(format!("cal-day-{}", Date::new(2025, 12, 15).unwrap()))
   );
   assert!(stage.paints("December 2025"));
   // Down from the last week crosses into the month after.
@@ -214,14 +214,14 @@ fn the_keys_move_by_a_day_a_week_and_a_month_and_choose() {
   stage.key("ArrowDown");
   assert_eq!(focused(&stage), Some(cell(12, 29)));
   stage.key("ArrowDown");
-  assert_eq!(focused(&stage), Some(format!("cal-{}", Date::new(2027, 1, 5).unwrap())));
+  assert_eq!(focused(&stage), Some(format!("cal-day-{}", Date::new(2027, 1, 5).unwrap())));
   assert!(stage.paints("January 2027"));
   // Enter chooses the focused day.
   stage.key("Enter");
   assert_eq!(value.get_untracked(), Some(Date::new(2027, 1, 5).unwrap()));
   // Tab leaves the days.
   stage.key("Tab");
-  assert_ne!(focused(&stage), Some(format!("cal-{}", Date::new(2027, 1, 5).unwrap())));
+  assert_ne!(focused(&stage), Some(format!("cal-day-{}", Date::new(2027, 1, 5).unwrap())));
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn a_day_that_cannot_be_chosen_takes_the_focus_and_nothing_else() {
   // The keys stop at the least date, and the month before it is not shown.
   stage.key("PageUp");
   assert_eq!(focused(&stage), Some(cell(11, 4)));
-  stage.click("cal-previous");
+  stage.click("cal-nav-previous");
   assert!(stage.paints("November 2026"));
 }
 
@@ -347,7 +347,7 @@ fn a_disabled_calendar_takes_nothing() {
   let value = Signal::new(Some(day(11, 12)));
   let mut stage = single(&value, |calendar| calendar.disabled(true));
   stage.click(&cell(11, 20));
-  stage.click("cal-next");
+  stage.click("cal-nav-next");
   assert_eq!(value.get_untracked(), Some(day(11, 12)));
   assert!(stage.paints("November 2026"));
   stage.key("Tab");
@@ -386,7 +386,10 @@ fn tooling_reads_a_grid_of_days_called_by_its_month() {
     said(&mut stage, &cell(11, 20), "a11y_disabled").as_deref(),
     Some("true")
   );
-  assert_eq!(said(&mut stage, "cal-next", "a11y_name").as_deref(), Some("Next month"));
+  assert_eq!(
+    said(&mut stage, "cal-nav-next", "a11y_name").as_deref(),
+    Some("Next month")
+  );
 }
 
 #[test]
@@ -538,11 +541,11 @@ fn its_words_can_be_said_otherwise() {
   assert_eq!(said(&mut stage, "cal", "a11y_role").as_deref(), Some("group"));
   assert_eq!(said(&mut stage, "cal", "a11y_name").as_deref(), Some("Due date"));
   assert_eq!(
-    said(&mut stage, "cal-previous", "a11y_name").as_deref(),
+    said(&mut stage, "cal-nav-previous", "a11y_name").as_deref(),
     Some("Попередній місяць")
   );
   assert_eq!(
-    said(&mut stage, "cal-next", "a11y_name").as_deref(),
+    said(&mut stage, "cal-nav-next", "a11y_name").as_deref(),
     Some("Наступний місяць")
   );
 }
@@ -683,9 +686,12 @@ fn an_apps_own_date_text_names_the_days_and_the_buttons() {
     said(&mut stage, &cell(11, 12), "a11y_name").as_deref(),
     Some("Thursday, 12.XI.2026")
   );
-  assert_eq!(said(&mut stage, "cal-previous", "a11y_name").as_deref(), Some("Back"));
   assert_eq!(
-    said(&mut stage, "cal-next", "a11y_name").as_deref(),
+    said(&mut stage, "cal-nav-previous", "a11y_name").as_deref(),
+    Some("Back")
+  );
+  assert_eq!(
+    said(&mut stage, "cal-nav-next", "a11y_name").as_deref(),
     Some("Next month"),
     "its default"
   );

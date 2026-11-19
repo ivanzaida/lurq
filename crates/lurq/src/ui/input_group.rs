@@ -304,7 +304,9 @@ impl InputGroup {
       .case(self.states.clone())
       .state(InputGroupState::Disabled, boxed.disabled)
       .state(InputGroupState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<InputGroup>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<InputGroup>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
 
     // An icon beside the input is in its box: before it, the input's own icon; after it, over the end of its box.
     let (mut leading, mut trailing) = (self.leading, self.trailing);

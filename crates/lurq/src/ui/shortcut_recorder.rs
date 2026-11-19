@@ -523,7 +523,9 @@ impl Core {
       .state(ShortcutRecorderState::Empty, self.shortcut.is_none())
       .state(ShortcutRecorderState::Refused, refused.is_some())
       .state(ShortcutRecorderState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<ShortcutRecorder>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<ShortcutRecorder>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = ShortcutRecorderView {
       shortcut: self.shortcut.clone(),
       recording,
@@ -843,8 +845,9 @@ impl ShortcutRecorderView {
         content.push(
           Row::new()
             .align_items(Alignment::Center)
-            .part(&self.part(ShortcutRecorderPart::Keys))
-            .child(keys.build(self.theme()))
+            // The keys stand for the part, and have its id.
+            .part(&self.part(ShortcutRecorderPart::Keys).unnamed())
+            .child(keys.rules(&self.recipe.lend(ShortcutRecorderPart::Keys)).build(self.theme()))
             .into(),
         );
       }
@@ -958,6 +961,8 @@ impl<V: ShortcutValue> crate::ui::Styled for ShortcutRecorder<V> {
 
 impl Themed for ShortcutRecorder {
   const NAME: &'static str = "shortcut_recorder";
+  /// The id is the box's, which is what is focused.
+  const ROOT: &'static str = "control";
   type Renderer = ShortcutRecorderRenderer;
 
   fn parts() -> crate::ui::Declared {

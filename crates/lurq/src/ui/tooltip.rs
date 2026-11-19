@@ -393,7 +393,7 @@ impl Tooltip {
       side,
       arrow: self.arrow,
       aim: 0.0,
-      recipe: theme.resolve::<Tooltip>(&case, Some(&rules)),
+      recipe: theme.resolve::<Tooltip>(&case, Some(&rules)).owned_by(self.id.as_ref()),
       label_ref: None,
       id: self.id.clone(),
       key: self.key.clone(),

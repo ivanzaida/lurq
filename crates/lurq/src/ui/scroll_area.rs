@@ -307,7 +307,9 @@ impl ScrollArea {
       fill_width: self.fill_width,
       scroll_state: self.scroll_state,
       label: self.label,
-      recipe: theme.resolve::<ScrollArea>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ScrollArea>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       id: self.id,
       key: self.key,

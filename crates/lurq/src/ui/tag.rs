@@ -280,7 +280,9 @@ impl Tag {
       shape: self.shape,
       removable,
       disabled: self.disabled,
-      recipe: theme.resolve::<Tag>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Tag>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_remove: self.on_remove,
       id: self.id,

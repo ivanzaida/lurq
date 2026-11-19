@@ -250,7 +250,9 @@ impl Collapsible {
       open: self.open,
       disabled: self.disabled,
       icon,
-      recipe: theme.resolve::<Collapsible>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Collapsible>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       root: CollapsiblePart::Root.into(),
       body: Some(self.body),
       forced: self.forced,

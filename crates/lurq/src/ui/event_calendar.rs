@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
-  calendar::step_date,
+  calendar::{step_date, weekday_key},
   icons, names,
   part_style::{Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -618,8 +618,10 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
     self
   }
 
-  /// The id of its box. Each day has it with `-` and the date after it: `team-2026-11-12`; the buttons have it with
-  /// `-previous`, `-next` and `-today`, and the "+N more" of a day with `-more-` and the date.
+  /// The id of its box. Each day has it with `-day-` and the date after it: `team-day-2026-11-12`; the buttons have
+  /// it with `-nav-previous`, `-nav-next` and `-today`, the "+N more" of a day with `-more-` and the date, each
+  /// weekday's name with `-weekday-` and its English short name (`team-weekday-mon`), and its other parts with `-`
+  /// and the part's name.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -733,7 +735,9 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
       }),
       disabled: self.disabled,
       events,
-      recipe: theme.resolve::<EventCalendar>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<EventCalendar>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       recipes: Mutex::new(HashMap::new()),
       case,
       model,
@@ -934,7 +938,10 @@ impl EventCalendarView {
           .iter()
           .fold(self.case.clone(), |case, state| case.state(*state, true));
         case.variant = variant;
-        self.theme().resolve::<EventCalendar>(&case, Some(&self.rules))
+        self
+          .theme()
+          .resolve::<EventCalendar>(&case, Some(&self.rules))
+          .owned_like(&self.recipe)
       })
       .clone()
   }
@@ -1006,9 +1013,9 @@ impl EventCalendarView {
   /// called by what it does.
   pub fn nav(&self, by: i32) -> Element {
     let (given, icon, suffix) = if by < 0 {
-      (&self.previous_label, icons::CHEVRON_LEFT, "previous")
+      (&self.previous_label, icons::CHEVRON_LEFT, "nav-previous")
     } else {
-      (&self.next_label, icons::CHEVRON_RIGHT, "next")
+      (&self.next_label, icons::CHEVRON_RIGHT, "nav-next")
     };
     let label = given.as_deref().map_or_else(
       || match (self.period, by < 0) {
@@ -1048,15 +1055,14 @@ impl EventCalendarView {
       .as_deref()
       .map_or_else(|| self.locale.today_label(), str::to_owned);
     let (model, today) = (self.model.clone(), self.today);
-    let mut button = Button::new(&label)
+    Button::new(&label)
       .variant(ButtonVariant::Outline)
       .size(ButtonSize::Xs)
       .disabled(self.disabled)
-      .on_click(move |_: MouseEvent| model.shown.set(model.settled(today)));
-    if let Some(id) = self.id_of("today") {
-      button = button.id(id);
-    }
-    button.build(self.theme())
+      // The only button of its kind: `x-today`.
+      .rules(&self.recipe.lend("today"))
+      .on_click(move |_: MouseEvent| model.shown.set(model.settled(today)))
+      .build(self.theme())
   }
 
   /// The header: the buttons that show the period before and after, what the period is, and the button that shows
@@ -1081,7 +1087,6 @@ impl EventCalendarView {
 
   /// The row of the names of the days over the weeks of a month, each as wide as its column.
   pub fn weekdays(&self) -> Row {
-    let part = self.part(EventCalendarPart::Weekday);
     let mut row = Row::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(EventCalendarPart::Weekdays))
@@ -1091,6 +1096,8 @@ impl EventCalendarView {
       if !self.weekends && day.days_from_monday() >= 5 {
         continue;
       }
+      // Named by the day's English short name, not a word of the locale: `x-weekday-mon`.
+      let part = self.part(EventCalendarPart::Weekday).keyed(weekday_key(day));
       row = row.child(
         Row::new()
           .flex(1.0)
@@ -1151,9 +1158,15 @@ impl EventCalendarView {
     } else {
       &[]
     };
-    let part = self
+    let mut part = self
       .recipe_in(Some(event.variant), states)
       .part(EventCalendarPart::Event);
+    // An event the app gave an id keeps it; one it gave a key is named by it.
+    if event.id.is_none()
+      && let Some(key) = &event.key
+    {
+      part = part.keyed(key);
+    }
     let mut pill = pressable(&part, self.disabled || event.disabled)
       .justify(Justify::Start)
       .align_items(Alignment::Center)
@@ -1191,10 +1204,10 @@ impl EventCalendarView {
   /// What stands for the `count` events of `date` that are not shown: pressed, it chooses the day and tells the
   /// app.
   pub fn more(&self, date: Date, count: usize) -> components::Button {
-    let part = self.part(EventCalendarPart::More);
+    let part = self.part(EventCalendarPart::More).keyed(date);
     let text = (self.more_text)(count);
     let model = self.model.clone();
-    let mut more = pressable(&part, self.disabled)
+    pressable(&part, self.disabled)
       .justify(Justify::Start)
       .align_items(Alignment::Center)
       .describe("a11y_role", "button")
@@ -1211,11 +1224,7 @@ impl EventCalendarView {
         for handler in &model.on_more {
           handler(date);
         }
-      });
-    if let Some(id) = self.id_of(&format!("more-{date}")) {
-      more = more.id(id);
-    }
-    more
+      })
   }
 
   /// The events of `date`, one under another: all of them, or one fewer than the most a day shows and what stands
@@ -1228,7 +1237,7 @@ impl EventCalendarView {
     };
     let mut events = Column::new()
       .align_items(Alignment::Stretch)
-      .part(&self.part(EventCalendarPart::Events));
+      .part(&self.part(EventCalendarPart::Events).keyed(date));
     for event in &on[..shown] {
       events = events.child(self.event(event));
     }
@@ -1245,7 +1254,7 @@ impl EventCalendarView {
       .align_items(Alignment::Center)
       .justify(Justify::Center)
       .wrap()
-      .part(&self.part(EventCalendarPart::Dots));
+      .part(&self.part(EventCalendarPart::Dots).keyed(date));
     for event in self.events.iter().filter(|event| event.date == date) {
       let part = self.recipe_in(Some(event.variant), &[]).part(EventCalendarPart::Dot);
       dots = dots.child(Row::new().part(&part));
@@ -1261,10 +1270,12 @@ impl EventCalendarView {
     let recipe = self.recipe_in(None, &states);
     let outside = states.contains(&EventCalendarState::Outside);
     let entry = !outside && date == self.entry();
+    // A day, and what is in it, is named by its date, not by its place: `x-day-2026-11-20`.
     let part = recipe
       .part(EventCalendarPart::Day)
+      .keyed(date)
       .forced(self.forced.filter(|_| entry));
-    let label = recipe.part(EventCalendarPart::Label);
+    let label = recipe.part(EventCalendarPart::Label).keyed(date);
     let selected = states.contains(&EventCalendarState::Selected);
     // In a week that scrolls, a day keeps its least width.
     let least = match self.form {
@@ -1322,9 +1333,6 @@ impl EventCalendarView {
           event.focus_key(day_key(date));
         }
       });
-    }
-    if let Some(id) = self.id_of(&date.to_string()) {
-      day = day.id(id);
     }
     // What is pressed is a row: the label and the events are in a column as wide as it.
     day

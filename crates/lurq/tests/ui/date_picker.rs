@@ -99,7 +99,7 @@ fn its_button_opens_the_calendar_under_it_at_the_chosen_day() {
   );
   assert!((cy - (y + height + 4.0)).abs() < 0.5, "4 under the field");
   assert!(stage.paints("November 2026"));
-  assert_eq!(focused(&stage).as_deref(), Some("dp-calendar-2026-11-12"));
+  assert_eq!(focused(&stage).as_deref(), Some("dp-calendar-day-2026-11-12"));
   // The panel is the popover's: the calendar draws no fill of its own over it. The panel has no padding, so the
   // calendar's box is the panel's, and the one fill at it is the panel's.
   assert_eq!(stage.bounds("dp-calendar"), stage.bounds("dp-panel"));
@@ -140,7 +140,7 @@ fn a_choice_closes_it_and_the_focus_goes_back_to_the_field() {
   stage.key("ArrowDown");
   stage.pass();
   assert!(opened(&mut stage), "Down in the field opens it");
-  stage.click("dp-calendar-2026-11-20");
+  stage.click("dp-calendar-day-2026-11-20");
   stage.pass();
   assert_eq!(value.get_untracked(), Some(day(11, 20)));
   assert!(!opened(&mut stage));
@@ -285,9 +285,9 @@ fn a_field_judges_it_and_its_memory_keeps_it_open() {
   stage.click("dp-trigger");
   stage.pass();
   assert!(memory.is_open());
-  stage.click("dp-calendar-next");
+  stage.click("dp-calendar-nav-next");
   assert!(stage.paints("December 2026"), "the memory keeps the month shown");
-  stage.click("dp-calendar-2026-12-03");
+  stage.click("dp-calendar-day-2026-12-03");
   assert_eq!(value.get_untracked(), Some(day(12, 3)));
   assert!(!memory.is_open());
 }
@@ -324,7 +324,7 @@ fn a_choice_of_the_chosen_day_closes_it_and_tells_nothing() {
   });
   stage.click("dp-trigger");
   stage.pass();
-  stage.click("dp-calendar-2026-11-12");
+  stage.click("dp-calendar-day-2026-11-12");
   stage.pass();
   assert!(!opened(&mut stage));
   assert!(told.lock().unwrap().is_empty());
@@ -344,7 +344,7 @@ fn a_choice_closes_the_calendar_before_its_handler_runs() {
   });
   stage.click("dp-trigger");
   stage.pass();
-  stage.click("dp-calendar-2026-11-20");
+  stage.click("dp-calendar-day-2026-11-20");
   assert_eq!(*seen.lock().unwrap(), vec![false], "closed when the handler runs");
 }
 
@@ -377,14 +377,14 @@ fn a_controlled_picker_shows_what_the_app_answers() {
   stage.pass();
   stage.click("dp-trigger");
   stage.pass();
-  stage.click("dp-calendar-2026-11-20");
+  stage.click("dp-calendar-day-2026-11-20");
   stage.pass();
   assert!(!memory.is_open());
   assert_eq!(held.get_untracked(), Some(day(11, 12)));
   assert!(stage.paints("Nov 12, 2026"), "what the app holds");
   stage.click("dp-trigger");
   stage.pass();
-  stage.click("dp-calendar-2026-11-18");
+  stage.click("dp-calendar-day-2026-11-18");
   stage.pass();
   assert_eq!(held.get_untracked(), Some(day(11, 18)));
   assert!(stage.paints("Nov 18, 2026"));
@@ -441,7 +441,7 @@ fn opening_closing_and_dismissing_are_told() {
   // A choice closes it too, and is no dismissal.
   stage.click("dp-trigger");
   stage.pass();
-  stage.click("dp-calendar-2026-11-20");
+  stage.click("dp-calendar-day-2026-11-20");
   stage.pass();
   assert_eq!(*changes.lock().unwrap(), vec![true, false, true, false]);
   assert_eq!(*dismissed.lock().unwrap(), 1);
@@ -469,7 +469,7 @@ fn inline_the_panel_is_drawn_in_place() {
   assert!((py - (y + height + 4.0)).abs() < 0.5, "4 under the field");
   assert_eq!(stage.fill_color("dp-panel"), Some(light(PaletteColor::Popover)));
   assert_eq!(focused(&stage), None, "shown, it takes no focus");
-  stage.click("dp-calendar-2026-11-20");
+  stage.click("dp-calendar-day-2026-11-20");
   assert_eq!(value.get_untracked(), Some(day(11, 20)));
   stage.bounds("dp-panel");
 }
@@ -513,7 +513,7 @@ fn its_words_can_be_said_otherwise() {
     Some("Оберіть дату")
   );
   assert_eq!(
-    said(&mut stage, "dp-calendar-next", "a11y_name").as_deref(),
+    said(&mut stage, "dp-calendar-nav-next", "a11y_name").as_deref(),
     Some("Далі")
   );
 }

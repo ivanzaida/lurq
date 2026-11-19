@@ -341,6 +341,8 @@ pub struct Mentions {
   full_width: bool,
   /// Whether it is in a fluid field, which draws its label inside the box.
   fluid: bool,
+  /// The id the control has, which the panel's parts are named after.
+  id: Option<Arc<str>>,
 }
 
 impl Mentions {
@@ -358,6 +360,7 @@ impl Mentions {
       disabled: false,
       full_width: false,
       fluid: false,
+      id: None,
     }
   }
 
@@ -499,7 +502,9 @@ impl Mentions {
 
   /// The id of the control: what is typed in and focused.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
-    self.input = self.input.id(id);
+    let id = id.into();
+    self.input = self.input.id(id.clone());
+    self.id = Some(id);
     self
   }
 
@@ -586,7 +591,9 @@ impl Mentions {
       active,
       trigger,
       open,
-      recipe: theme.resolve::<Mentions>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Mentions>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       case,
       rules: self.rules,
       forced: self.forced,
@@ -798,7 +805,15 @@ impl MentionsView {
       .clone()
       .state(MentionsState::Highlighted, active)
       .state(MentionsState::Disabled, offer.disabled);
-    let recipe = self.theme().resolve::<Mentions>(&case, Some(&self.rules));
+    // An offer the app gave an id names its parts after it, one it gave a key after the field's id and the key.
+    let recipe = self
+      .theme()
+      .resolve::<Mentions>(&case, Some(&self.rules))
+      .owned_like(&self.recipe);
+    let recipe = match (&offer.id, &offer.key) {
+      (None, Some(key)) => recipe.keyed_item(key, MentionsPart::Item),
+      (id, _) => recipe.item(id.as_ref(), MentionsPart::Item),
+    };
     let part = recipe.part(MentionsPart::Item).forced(self.forced.filter(|_| active));
     let mut row = Row::new()
       .align_items(Alignment::Center)
@@ -820,8 +835,14 @@ impl MentionsView {
     if let Some(avatar) = offer.avatar {
       row = row.child(
         Row::new()
-          .part(&recipe.part(MentionsPart::ItemAvatar))
-          .child(avatar.size(AvatarSize::Sm).build(self.theme())),
+          // The avatar stands for the part, and has its id.
+          .part(&recipe.part(MentionsPart::ItemAvatar).unnamed())
+          .child(
+            avatar
+              .size(AvatarSize::Sm)
+              .rules(&recipe.lend(MentionsPart::ItemAvatar))
+              .build(self.theme()),
+          ),
       );
     } else if let Some(name) = offer.icon {
       let icon = recipe.part(MentionsPart::ItemIcon);
