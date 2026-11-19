@@ -4,9 +4,9 @@
 //! name as its `names!` table writes it: `x-label`, `x-dot`. A part on several nodes of one build is `x-<part>`,
 //! `x-<part>-2`, `x-<part>-3`, in the order they are built. A node that has an id keeps it. A component built inside
 //! another, and given no id of its own, takes the id of the part of the other it stands for (`x-close`), and so
-//! prefixes its own parts with it. A component with no id gives its parts none. A part's name is written with
-//! hyphens for its underscores (`x-trigger-icon`), and a part of which there are several that have a key of their own
-//! (a day of a calendar, an item with a value) is told apart by it (`x-day-2026-11-20`), not by its place.
+//! prefixes its own parts with it. A component with no id gives its parts none. A part of which there are several
+//! that have a key of their own (a day of a calendar, an item with a value) is told apart by it
+//! (`x-day-2026-11-20`), not by its place.
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
@@ -69,9 +69,9 @@ impl Owner {
     Self::new(self.named(part, Some(key)), part, false)
   }
 
-  /// `x-<part>`, or `x-<part>-<suffix>`, the underscores of the part's name made hyphens: `x-trigger-icon`.
+  /// `x-<part>`, or `x-<part>-<suffix>`, the part's name as its `names!` table writes it: `x-trigger_icon`.
   fn named(&self, part: Name, suffix: Option<&str>) -> Arc<str> {
-    let part = part.as_str().replace('_', "-");
+    let part = part.as_str();
     match suffix {
       Some(suffix) => Arc::from(format!("{}-{part}-{suffix}", self.id)),
       None => Arc::from(format!("{}-{part}", self.id)),

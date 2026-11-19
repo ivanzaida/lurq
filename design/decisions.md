@@ -24,6 +24,16 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   app gave an id `y` prefixes its own parts with `y` (`y-term`, `y-value`). A component of `lurq::ui` built inside
   another and given no id by the app takes the id of the part it stands for (`x-close`), and so prefixes its own
   parts. A component with no id gives its parts none. The ids are the same on every render of the same content.
+- **Refined (Ivan, 2026-11-20: "так давай").** A repeated part that has a key of its own is named by the key, not by
+  its place: a day of a calendar `x-day-2026-11-20` (its ISO date), a weekday `x-weekday-mon` (the English short name
+  in lower case, an identifier and not a word of the locale), the buttons of a calendar's sides `x-nav-previous` and
+  `x-nav-next`, a preset, an option, an item, a tab or a segment by its own key or value where the component has
+  one. The numbering by build order (`-2`, `-3`) is only where a repeated part has no key. A component built inside
+  another takes `x-<its own short name>` where that is the only one of its kind there: a date picker `due` whose
+  panel holds a calendar has the calendar `due-calendar` (not `due-panel-calendar`), its parts `due-calendar-title`
+  and `due-calendar-day-2026-11-20`; the part's name is used where two would otherwise be named alike. A part's name
+  goes into the id exactly as its `names!` table writes it, its underscores too (`x-trigger_icon`, `x-week_number`):
+  a first refinement that made them hyphens was dropped ("це тупо і не очевидно").
 - **Why.** What finds a node by id (`Tree::get_element_by_id`, a test, DevTools, an agent) reaches every part of a
   component the app named, with no id written by hand for each and no walk of the tree, and the names are the ones
   a recipe already styles the parts by.
