@@ -27,8 +27,6 @@ pub const FILL: Dimension = Dimension::Pct(100.0);
 /// The width under which a window is as narrow as a phone: the theme's first breakpoint.
 pub const PHONE: f32 = 640.0;
 
-/// Whether the window is as narrow as a phone: under the theme's first breakpoint. The gallery is the desktop
-/// system there too, with less room around what it shows.
 /// Builds what `build` makes in a function of its own: a page builds each of its demos apart, so that what one
 /// builds is gone from the stack before the next. In a build without optimizations the temporaries of every builder
 /// of a long render are added up in its one frame: Data Grid's was 202 KB of the main thread's 1 MB.
@@ -36,6 +34,8 @@ pub fn apart<R>(build: impl FnOnce() -> R) -> R {
   build()
 }
 
+/// Whether the window is as narrow as a phone: under the theme's first breakpoint. The gallery is the desktop
+/// system there too, with less room around what it shows.
 pub fn phone() -> bool {
   !lurq::ui::current_breakpoint().is_some_and(|breakpoint| breakpoint >= Breakpoint::Sm)
 }
