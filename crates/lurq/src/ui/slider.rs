@@ -433,7 +433,9 @@ impl Slider {
       length: self.length,
       label: self.label,
       disabled: self.disabled,
-      recipe: theme.resolve::<Slider>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Slider>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       value: self.value,
       controlled: self.controlled,
       on_change: self.on_change,

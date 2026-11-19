@@ -144,7 +144,9 @@ impl ChartTooltip {
     let view = ChartTooltipView {
       title: self.title,
       rows: self.rows,
-      recipe: theme.resolve::<ChartTooltip>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ChartTooltip>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };
@@ -250,6 +252,7 @@ impl crate::ui::Styled for ChartTooltip {
 
 impl Themed for ChartTooltip {
   const NAME: &'static str = "chart_tooltip";
+  const ROOT: &'static str = "panel";
   type Renderer = ChartTooltipRenderer;
 
   fn parts() -> crate::ui::Declared {

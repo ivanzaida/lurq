@@ -276,7 +276,9 @@ impl PlayButton {
       disabled: self.disabled,
       variant: self.variant,
       size: self.size,
-      recipe: theme.resolve::<PlayButton>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<PlayButton>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       id: self.id,

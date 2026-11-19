@@ -210,7 +210,9 @@ impl PieChart {
       .props
       .case(self.default_size(), empty)
       .state(PieChartState::Donut, self.donut);
-    let recipe = theme.resolve::<PieChart>(&case, Some(&self.props.rules));
+    let recipe = theme
+      .resolve::<PieChart>(&case, Some(&self.props.rules))
+      .owned_by(self.props.id.as_ref());
     let side = self.props.plot_height(&recipe);
     plot.total_text = plot.total_text.filter(|_| self.donut);
     let legend: Vec<String> = (0..self.names.len())

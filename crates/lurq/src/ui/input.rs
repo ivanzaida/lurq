@@ -324,7 +324,9 @@ impl Input {
       invalid: self.boxed.judgment() == Some(Judgment::Invalid),
       read_only: self.boxed.read_only,
       disabled: self.boxed.disabled,
-      recipe: theme.resolve::<Input>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Input>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       boxed: self.boxed,
       on_input: self.on_input,
@@ -647,6 +649,7 @@ impl crate::ui::Styled for Input {
 
 impl Themed for Input {
   const NAME: &'static str = "input";
+  const ROOT: &'static str = "control";
   type Renderer = InputRenderer;
 
   fn parts() -> crate::ui::Declared {

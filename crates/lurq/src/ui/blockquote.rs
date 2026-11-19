@@ -143,7 +143,9 @@ impl Blockquote {
       text: self.text,
       body: self.body,
       label: self.label,
-      recipe: theme.resolve::<Blockquote>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Blockquote>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

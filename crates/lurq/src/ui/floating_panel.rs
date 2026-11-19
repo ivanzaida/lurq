@@ -279,7 +279,9 @@ impl PanelHeader {
       states: self.states.clone(),
     }
     .state(PanelHeaderState::Media, self.media.is_some());
-    let recipe = theme.resolve::<PanelHeader>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<PanelHeader>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = PanelHeaderView {
       title: self.title,
       media: self.media,
@@ -359,12 +361,12 @@ impl PanelHeaderView {
       actions = actions.child(header_button(&button, &each.icon, &each.label, each.on_click.clone()));
     }
     if let Some(menu) = self.menu.clone() {
-      actions = actions.child(header_menu(&button, &self.more_label, menu));
+      actions = actions.child(header_menu(&button.clone().keyed("more"), &self.more_label, menu));
     }
     if !self.on_close.is_empty() {
       let handlers = self.on_close.clone();
       actions = actions.child(header_button(
-        &button,
+        &button.clone().keyed("close"),
         &Name::new(icons::CLOSE),
         &self.close_label,
         Arc::new(move || handlers.iter().for_each(|handler| handler())),
@@ -1165,7 +1167,9 @@ impl Core {
     .state(FloatingPanelState::Sized, size.is_some() && open)
     .state(FloatingPanelState::Resizable, self.resizable)
     .state(FloatingPanelState::Media, self.media.is_some());
-    let recipe = theme.resolve::<FloatingPanel>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<FloatingPanel>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = FloatingPanelView {
       title: self.title.clone(),
       open,

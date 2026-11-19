@@ -358,7 +358,9 @@ impl Notification {
       close_label: self.close_label,
       unread_label: self.unread_label,
       close_button: !self.on_close.is_empty(),
-      recipe: theme.resolve::<Notification>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Notification>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       media: self.media,
       actions: self.actions,
       body: self.body,

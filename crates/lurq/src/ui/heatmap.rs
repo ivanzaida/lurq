@@ -226,7 +226,9 @@ impl Heatmap {
     let under = if self.column_axis { COLUMN_ROOM } else { 0.0 };
     let empty = self.columns.is_empty() || self.rows.is_empty();
     let case = self.props.case(ChartSize::Sm, empty);
-    let recipe = theme.resolve::<Heatmap>(&case, Some(&self.props.rules));
+    let recipe = theme
+      .resolve::<Heatmap>(&case, Some(&self.props.rules))
+      .owned_by(self.props.id.as_ref());
     // The cells' side: the board's, or what the plot's height leaves each row where it is given one.
     let cell = match self.props.height {
       Some(_) if rows > 0.0 => ((self.props.plot_height(&recipe) - under - GAP * (rows - 1.0)) / rows).max(1.0),
@@ -261,7 +263,10 @@ impl Heatmap {
           &[("less", &self.less_text), ("more", &self.more_text)],
         ),
       )
-      .child(label.text(&self.less_text).part(&label).nowrap());
+      .child({
+        let label = label.clone().keyed("less");
+        label.text(&self.less_text).part(&label).nowrap()
+      });
     for at in 0..plot.steps {
       let mut swatch = Row::new().part(&step).background(colors.step(at, plot.steps));
       if let Some(id) = &self.props.id {
@@ -272,6 +277,7 @@ impl Heatmap {
     if let Some(id) = &self.props.id {
       row = row.id(format!("{id}-scale"));
     }
+    let label = label.keyed("more");
     row.child(label.text(&self.more_text).part(&label).nowrap()).into()
   }
 

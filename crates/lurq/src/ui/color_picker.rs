@@ -485,7 +485,9 @@ impl ColorPicker {
       label: self.label,
       disabled: self.disabled,
       eyedropper: self.eyedropper && EyeDropper::is_supported(),
-      recipe: theme.resolve::<ColorPicker>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ColorPicker>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       words: self.words,
       model,
       forced: self.forced,
@@ -882,8 +884,9 @@ impl ColorPickerView {
     // corners would each be cut by it on their own, and the hue under the black would show at the edge.
     let white = Color::new(255, 255, 255, 255);
     let black = Color::new(0, 0, 0, 255);
+    // The area's id is on the stack that holds it: the picture in it is not named after the part.
     let field = Row::new()
-      .part(&part)
+      .part(&part.clone().unnamed())
       .size(width, height)
       .background_gradient(Gradient::corners(white, hue, black, black));
     let circle = Row::new()
@@ -932,7 +935,10 @@ impl ColorPickerView {
   /// A rail of `slider`, of `track` drawn by `fill`, with its thumb at `at` (from 0 to 1).
   fn rail(&self, slider: Slider, part: ColorPickerPart, fill: Element, at: f32, name: Arc<str>, said: String) -> Stack {
     let track = self.part(part);
-    let thumb = self.part(ColorPickerPart::Thumb);
+    let thumb = self.part(ColorPickerPart::Thumb).keyed(match slider {
+      Slider::Alpha => "alpha",
+      _ => "hue",
+    });
     let width = self.width();
     let height = self.px(track.rest().height, 10.0);
     let side = self.px(thumb.rest().width, 14.0);
@@ -1184,7 +1190,7 @@ impl ColorPickerView {
     set: impl Fn(&Model, f32) + Send + Sync + 'static,
   ) -> Element {
     let model = self.model.clone();
-    let label = self.part(ColorPickerPart::FieldLabel);
+    let label = self.part(ColorPickerPart::FieldLabel).keyed(letter.to_lowercase());
     let field = NumberInput::controlled(value.round() as f64, move |typed| {
       if let Some(typed) = typed {
         model.step(|model| set(model, typed as f32));

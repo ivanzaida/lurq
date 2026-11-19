@@ -499,7 +499,9 @@ impl TeachingTip {
       side,
       arrow: self.arrow,
       aim: 0.0,
-      recipe: theme.resolve::<TeachingTip>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<TeachingTip>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       actions: (self.primary.clone(), self.secondary.clone(), self.tertiary.clone()),
       keys: self.keys.clone(),
       grouped: self.grouped,

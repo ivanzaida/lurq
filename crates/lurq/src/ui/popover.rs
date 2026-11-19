@@ -306,7 +306,7 @@ impl Popover {
       title: self.title,
       description: self.description,
       children: self.children,
-      recipe: theme.resolve::<Popover>(&case, Some(&rules)),
+      recipe: theme.resolve::<Popover>(&case, Some(&rules)).owned_by(self.id.as_ref()),
       alert: self.alert,
       label: self.label,
       described: self.described,
@@ -483,6 +483,7 @@ impl crate::ui::Styled for Popover {
 
 impl Themed for Popover {
   const NAME: &'static str = "popover";
+  const ROOT: &'static str = "panel";
   type Renderer = PopoverRenderer;
 
   fn parts() -> crate::ui::Declared {

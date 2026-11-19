@@ -330,6 +330,10 @@ impl Meter {
     } else {
       0.0
     };
+    let tone = self.tone_at(self.value);
+    let recipe = theme
+      .resolve::<Meter>(&case(Some(tone), false), Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let count = self.segments;
     let filled = (fraction * count as f64).round() as usize;
     let segments = (0..count)
@@ -340,11 +344,12 @@ impl Meter {
         MeterSegment {
           tone,
           filled: on,
-          recipe: theme.resolve::<Meter>(&case(Some(tone), on), Some(&self.rules)),
+          recipe: theme
+            .resolve::<Meter>(&case(Some(tone), on), Some(&self.rules))
+            .owned_like(&recipe),
         }
       })
       .collect();
-    let tone = self.tone_at(self.value);
     let max = self.max;
     let text = match &self.value_text {
       Some(text) => text(self.value),
@@ -362,7 +367,7 @@ impl Meter {
       value_text: text,
       label: self.label,
       description: self.description,
-      recipe: theme.resolve::<Meter>(&case(Some(tone), false), Some(&self.rules)),
+      recipe,
       id: self.id,
       key: self.key,
     }

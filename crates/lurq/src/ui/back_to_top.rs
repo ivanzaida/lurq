@@ -241,7 +241,9 @@ impl BackToTop {
       label: self.label.clone(),
       icon: self.icon,
       disabled: self.disabled,
-      recipe: theme.resolve::<BackToTop>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<BackToTop>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       on_click: self.on_click.clone(),
       go,
       forced: self.forced,

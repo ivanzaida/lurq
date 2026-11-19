@@ -425,7 +425,9 @@ impl MessageBox {
       dismiss_on_escape: self.dismiss_on_escape,
       dismiss_on_veil: self.dismiss_on_veil,
       inline: self.inline,
-      recipe: theme.resolve::<MessageBox>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<MessageBox>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       open: self.open,
       detail_signal: self.detail.map(|(_, open)| open),
       checkbox_signal: self.checkbox.map(|(_, checked)| checked),
@@ -934,6 +936,7 @@ impl crate::ui::Styled for MessageBox {
 
 impl Themed for MessageBox {
   const NAME: &'static str = "message_box";
+  const ROOT: &'static str = "panel";
   type Renderer = MessageBoxRenderer;
 
   fn parts() -> crate::ui::Declared {

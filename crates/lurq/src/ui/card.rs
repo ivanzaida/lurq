@@ -334,7 +334,9 @@ impl Card {
       footer: self.footer,
       pressable,
       disabled: self.disabled,
-      recipe: theme.resolve::<Card>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Card>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_click: self.on_click,
       id: self.id,

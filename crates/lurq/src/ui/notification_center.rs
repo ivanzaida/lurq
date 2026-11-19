@@ -432,7 +432,9 @@ impl NotificationCenter {
       mark_all_read_label: self.mark_all_read_label,
       clear_label: self.clear_label,
       view_all_label: self.view_all_label,
-      recipe: theme.resolve::<NotificationCenter>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<NotificationCenter>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       mark_all_read: all(self.on_mark_all_read),
       clear: all(self.on_clear),
       view_all,
@@ -655,14 +657,16 @@ impl NotificationCenterView {
     let mut forced = self.forced;
     let last = items.len().saturating_sub(1);
     for (index, item) in items.into_iter().enumerate() {
+      // The notification stands for the item, and is named after it.
       let row = item
         .variant(NotificationVariant::Row)
         .force(forced.take())
+        .rules(&self.recipe.lend(NotificationCenterPart::Item))
         .build(self.theme());
       // The line is drawn in the row's own box, over its bottom edge, and takes no room.
       let mut held = Column::new().width(Dimension::Pct(100.0));
       if index < last {
-        held = held.part(&self.part(NotificationCenterPart::Item));
+        held = held.part(&self.part(NotificationCenterPart::Item).unnamed());
       }
       rows = rows.child(held.child(row));
     }
@@ -735,6 +739,7 @@ impl crate::ui::Styled for NotificationCenter {
 
 impl Themed for NotificationCenter {
   const NAME: &'static str = "notification_center";
+  const ROOT: &'static str = "panel";
   type Renderer = NotificationCenterRenderer;
 
   fn parts() -> crate::ui::Declared {

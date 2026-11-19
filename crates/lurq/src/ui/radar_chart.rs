@@ -103,7 +103,9 @@ impl RadarChart {
       rings: false,
     };
     let case = self.props.case(ChartSize::Sm, plot.is_empty());
-    let recipe = theme.resolve::<RadarChart>(&case, Some(&self.props.rules));
+    let recipe = theme
+      .resolve::<RadarChart>(&case, Some(&self.props.rules))
+      .owned_by(self.props.id.as_ref());
     plot.rings = self.props.value_axis.unwrap_or(false);
     let side = self.props.plot_height(&recipe);
     self
