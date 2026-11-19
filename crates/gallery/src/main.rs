@@ -207,6 +207,8 @@ fn main() {
   #[cfg(not(target_arch = "wasm32"))]
   {
     let mut app = App::new().enable_media_disk_cache(cache_folder().join("media"));
+    // Its players are what a person listens to: on an iPhone they are heard with the ring switch on silent.
+    app.set_audio_category(lurq::media::AudioCategory::Playback);
     // What the Persistent Storage page saves is in a file of the gallery's own, there the next time it is opened.
     if let Err(error) = app.set_persistent_storage_path(cache_folder().join("storage.redb")) {
       eprintln!("the gallery's store did not open: {error}");

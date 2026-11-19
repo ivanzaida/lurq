@@ -48,6 +48,7 @@ mod driven;
 mod events;
 #[cfg(windows)]
 mod mf;
+mod session;
 
 /// Has the next frame a media shows on a card find its device removed, as a card that is reset removes it.
 #[cfg(all(test, windows))]
@@ -61,6 +62,8 @@ pub use cache::{DEFAULT_SOUND_CACHE_BYTES, SoundCache, sound_cache};
 #[doc(hidden)]
 pub use driven::{DrivenMedias, MediaDriver, drive_media};
 pub(crate) use events::{LoopNoted, note_loop, tell_news};
+pub use session::AudioCategory;
+pub(crate) use session::set_category as set_audio_category;
 
 /// What changed in a media is told to these, from its own thread.
 type Waker = Arc<dyn Fn() + Send + Sync>;

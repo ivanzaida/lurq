@@ -34,6 +34,8 @@ const APART: f64 = 0.03;
 /// How long a player told to play may still say it does not: started again from its end, it says so for a moment
 /// after `play` returned. Not playing past this, it stopped.
 const STARTING: Duration = Duration::from_millis(500);
+/// How often a sound the system paused looks whether the interruption ended with it to go on.
+const INTERRUPTED: Duration = Duration::from_millis(250);
 
 /// Runs a sound to its end: opens `opened`, and does what it is told until nothing holds the media.
 pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
@@ -107,11 +109,26 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
     let mut gone = 0_u64;
     // When it was told to play, until the player says it plays.
     let mut starting: Option<Instant> = None;
+    // Where the system paused it while it played (a call, another app's sound), how many interruptions had ended
+    // then with the system saying a sound may go on: one more, and it plays on by itself. Anything it is told
+    // forgets it.
+    let mut interrupted: Option<u64> = None;
     loop {
       let playing = shared.inner().playing;
-      // Nothing to do until it is told something, unless it plays.
-      let wait = if playing { STEP } else { Duration::from_secs(3600) };
-      for command in shared.take(Some(wait)) {
+      // Nothing to do until it is told something, unless it plays, or waits for an interruption to end.
+      let wait = match (playing, interrupted) {
+        (true, _) => STEP,
+        (false, Some(_)) => INTERRUPTED,
+        (false, None) => Duration::from_secs(3600),
+      };
+      let mut commands = shared.take(Some(wait));
+      if !commands.is_empty() {
+        interrupted = None;
+      } else if interrupted.is_some_and(|then| super::session::resumes() > then) {
+        interrupted = None;
+        commands.push(Command::Play);
+      }
+      for command in commands {
         match command {
           Command::Close => {
             player.stop();
@@ -204,6 +221,9 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
         inner.ended = over;
         inner.playing = false;
         drop(inner);
+        if !over {
+          interrupted = Some(super::session::resumes());
+        }
         shared.wake();
       }
     }
